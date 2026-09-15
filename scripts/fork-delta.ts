@@ -655,27 +655,37 @@ const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
   return mergeBase;
 });
 
+/** Merge base plus the contract paths it changed: the wire gate's one path listing. */
+const changedContractPaths = Effect.fn("changedContractPaths")(function* (
+  base: string,
+  head: string,
+  cwd: string,
+) {
+  const mergeBase = yield* resolveMergeBase(base, head, cwd);
+  const changed = yield* runGit(
+    ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
+    cwd,
+  );
+  if (changed.exitCode !== 0) {
+    return yield* new ForkLogExitError({
+      exitCode: changed.exitCode,
+      stderr: changed.stderr,
+    });
+  }
+  const paths = [
+    ...new Set(
+      changed.stdout
+        .split("\n")
+        .map((path) => path.trim())
+        .filter((path) => path.startsWith("packages/contracts/src/")),
+    ),
+  ];
+  return { mergeBase, paths };
+});
+
 export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindingsBetween")(
   function* (base: string, head: string, cwd = process.cwd()) {
-    const mergeBase = yield* resolveMergeBase(base, head, cwd);
-    const changed = yield* runGit(
-      ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
-      cwd,
-    );
-    if (changed.exitCode !== 0) {
-      return yield* new ForkLogExitError({
-        exitCode: changed.exitCode,
-        stderr: changed.stderr,
-      });
-    }
-    const paths = [
-      ...new Set(
-        changed.stdout
-          .split("\n")
-          .map((path) => path.trim())
-          .filter((path) => path.startsWith("packages/contracts/src/")),
-      ),
-    ];
+    const { mergeBase, paths } = yield* changedContractPaths(base, head, cwd);
     const findings = yield* Effect.forEach(
       paths,
       (path) =>
@@ -722,25 +732,7 @@ export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(fu
         if (isReviewedWireTrailer(commit.wireReviewed)) {
           return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
         }
-        const mergeBase = yield* resolveMergeBase(`${commit.sha}^`, commit.sha, cwd);
-        const changed = yield* runGit(
-          ["diff", "--name-only", mergeBase, commit.sha, "--", "packages/contracts/src"],
-          cwd,
-        );
-        if (changed.exitCode !== 0) {
-          return yield* new ForkLogExitError({
-            exitCode: changed.exitCode,
-            stderr: changed.stderr,
-          });
-        }
-        const paths = [
-          ...new Set(
-            changed.stdout
-              .split("\n")
-              .map((path) => path.trim())
-              .filter((path) => path.startsWith("packages/contracts/src/")),
-          ),
-        ];
+        const { mergeBase, paths } = yield* changedContractPaths(`${commit.sha}^`, commit.sha, cwd);
         const findings = yield* Effect.forEach(
           paths,
           (path) =>

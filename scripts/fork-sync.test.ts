@@ -43,6 +43,7 @@ import {
   resumeRererePublication,
   regenerateGeneratedConflicts,
   rehearsalConflictRows,
+  toolingDeltaCheck,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
   assertRetiredInLedgerForTest,
@@ -4147,6 +4148,16 @@ it("a failed churn write never changes the stop reason the caller sees (#1023)",
 
 const REPAIRED = "e".repeat(40);
 const REPAIR_SUBJECT = "chore(fork-sync): typecheck after v1.2.3";
+/** The check's delta gate runs the tooling checkout's `fork-delta.ts` against the lane. */
+const deltaGateCall = ({
+  command,
+  args,
+}: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}): boolean =>
+  command === "node" && (args[0] ?? "").endsWith("fork-delta.ts") && args.includes("--check");
+
 const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-c",
   "core.commentChar=auto",
@@ -4253,9 +4264,7 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
     assert.notInclude(message, "Fork-");
     assert.isTrue(state.runner.calls.some(({ args }) => args.includes("--autosquash")));
     // The ledger check runs again over the appended commit, in the lane, before the report closes.
-    const deltaChecks = state.runner.calls.filter(
-      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
-    );
+    const deltaChecks = state.runner.calls.filter(deltaGateCall);
     assert.strictEqual(deltaChecks.length, 3);
 
     assert.isUndefined(checked.walk?.repairCommits);
@@ -4385,11 +4394,12 @@ it("commits a hand-repaired lane as a seam fixup before the additive proof runs"
     // Exactly one commit, the seam's fixup, targeting the owning fork commit by subject.
     assert.strictEqual(commits.length, 1);
     assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
-    // The seam proof runs in the lane between the commit and the additive phase.
+    // The seam proof runs in the lane between the commit and the additive phase, with the
+    // tooling checkout's fork-delta executed against the lane worktree.
+    for (const call of state.runner.calls.filter(deltaGateCall))
+      assert.strictEqual(call.cwd, state.worktree);
     const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
-    const deltaChecks = state.runner.calls.filter(
-      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
-    );
+    const deltaChecks = state.runner.calls.filter(deltaGateCall);
     const seamProofAt = state.runner.calls.indexOf(deltaChecks[1]!);
     assert.isTrue(seamProofAt > commitAt, "the seam commit must precede its delta proof");
     assert.strictEqual(deltaChecks.length, 3);
@@ -4480,8 +4490,8 @@ it("a fixup whose owner diff fails the delta stops the check after the autosquas
   const state = seamRepairedRun();
   // The gate and the seam proof pass while the repair is a transient fixup; the post-autosquash
   // proof reads the owner diff the walk will apply, and the stubbed wire-shape failure stops it.
-  const deltaKey: ReadonlyArray<string> = ["run", "--no-cache", "fork:delta", "--check"];
-  state.runner.setSequence("vp", deltaKey, [
+  const deltaKey = toolingDeltaCheck().args;
+  state.runner.setSequence("node", deltaKey, [
     { status: 0, stdout: "", stderr: "" },
     { status: 0, stdout: "", stderr: "" },
     { status: 1, stdout: "", stderr: "failed: owner diff violates the wire shape\n" },
@@ -4493,13 +4503,11 @@ it("a fixup whose owner diff fails the delta stops the check after the autosquas
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    assert.include(message, "fork:delta --check");
+    assert.include(message, "fork-delta.ts --check");
     assert.include(message, "wire shape");
     // The failing proof ran after the autosquash, on the folded stack.
     const autosquashAt = state.runner.calls.findIndex(({ args }) => args.includes("--autosquash"));
-    const failingDelta = state.runner.calls.filter(
-      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
-    )[2]!;
+    const failingDelta = state.runner.calls.filter(deltaGateCall)[2]!;
     assert.isTrue(
       state.runner.calls.indexOf(failingDelta) > autosquashAt,
       "the post-autosquash delta proof must follow the autosquash",
@@ -4602,6 +4610,63 @@ it("an owner shadowed by a same-subject newer commit refuses the repair", () => 
       );
     }
     assert.include(detail, 'duplicated subject: "feat: fork work"');
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a retained repair sha unreachable from HEAD is pruned and folds nothing", () => {
+  const state = repairingRun();
+  const dead = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: dead, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // The autosquash of the stopped run rewrote the sha out of existence.
+  state.runner.set("git", ["cat-file", "-e", `${dead}^{commit}`], { status: 1 });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    // The dead sha does not count toward the fixup gate: no autosquash, nothing reportable.
+    assert.isFalse(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "a dead retained sha must not trigger autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stale --seam-owner flags on a clean tree are not a usage error", () => {
+  const state = repairingRun();
+  const foreign = "f".repeat(40);
+  state.runner.set("git", ["cat-file", "-e", `${foreign}^{commit}`], { status: 1 });
+  try {
+    const checked = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--seam-owner",
+        `apps/web/src/Gone.tsx=${foreign}`,
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -5095,10 +5160,12 @@ it("verifies the walk lane in place instead of waiting on a CI verdict", () => {
   const { runner, root, worktree, reportPath, branch } = checkedRun();
   try {
     const guards = runner.calls.filter(
-      ({ command, args }) => command === "vp" && args[0] === "run" && args[1] === "--no-cache",
+      ({ command, args }) =>
+        (command === "vp" && args[0] === "run" && args[1] === "--no-cache") ||
+        (command === "node" && args[1] === "--check"),
     );
     assert.deepStrictEqual(
-      guards.map(({ args }) => args[2]),
+      guards.map(({ command, args }) => (command === "node" ? "fork:delta" : args[2])),
       ["fork:scan", "fork:delta"],
     );
     // No full battery in the lane, and nothing that waits on a remote verdict: the walk finishes
@@ -5576,7 +5643,9 @@ it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 chec
   try {
     const checks = runner.calls.filter(
       ({ command, args }) =>
-        command === "vp" && (args[0] === "check" || (args[0] === "run" && args[1] !== undefined)),
+        (command === "vp" &&
+          (args[0] === "check" || (args[0] === "run" && args[1] !== undefined))) ||
+        (command === "node" && args[1] === "--check"),
     );
     assert.lengthOf(checks, 2);
     for (const call of checks) {
@@ -7999,7 +8068,7 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       calls,
       run: (command, args, cwd, input, env) => {
         calls.push({ command, args: [...args] });
-        if (command === "vp") return { status: 0, stdout: "", stderr: "" };
+        if (command === "vp" || command === "node") return { status: 0, stdout: "", stderr: "" };
         if (command === "gh") {
           if (args[0] === "issue" && args[1] === "comment") {
             if (options.commentResult !== undefined) return options.commentResult();

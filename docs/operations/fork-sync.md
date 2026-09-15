@@ -909,7 +909,9 @@ for diagnostics, for picking a stopped walk up by hand, and for the series rewri
    release tag at the fork base for a trunk rewrite. A moved `upstream/main` therefore cannot fail a
    lane for upstream drift the lane did not introduce. Record one repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. A lane
+   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. The check
+   proves the lane's delta with the tooling checkout's `fork-delta`, so a gate fix applies to a
+   lane in flight without a fold. A lane
    repaired by hand before the check is committed by the check as its own `seam` repair ahead of
    the additive proof; repairs always fold into their owning fork commit, the fold segments are
    re-proved after the autosquash, and `--seam-owner` names the owner of a path no fork commit
