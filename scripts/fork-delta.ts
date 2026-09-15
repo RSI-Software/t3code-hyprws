@@ -26,6 +26,7 @@ import {
 import { isForkDomain, isForkUpstreamable, parseForkTrailers } from "./lib/fork-trailers.ts";
 import {
   compareWireShapes,
+  extractWireShapes,
   parseForkWireBaseline,
   wireFindingKey,
   type ForkWireBaseline,
@@ -654,27 +655,37 @@ const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
   return mergeBase;
 });
 
+/** Merge base plus the contract paths it changed: the wire gate's one path listing. */
+const changedContractPaths = Effect.fn("changedContractPaths")(function* (
+  base: string,
+  head: string,
+  cwd: string,
+) {
+  const mergeBase = yield* resolveMergeBase(base, head, cwd);
+  const changed = yield* runGit(
+    ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
+    cwd,
+  );
+  if (changed.exitCode !== 0) {
+    return yield* new ForkLogExitError({
+      exitCode: changed.exitCode,
+      stderr: changed.stderr,
+    });
+  }
+  const paths = [
+    ...new Set(
+      changed.stdout
+        .split("\n")
+        .map((path) => path.trim())
+        .filter((path) => path.startsWith("packages/contracts/src/")),
+    ),
+  ];
+  return { mergeBase, paths };
+});
+
 export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindingsBetween")(
   function* (base: string, head: string, cwd = process.cwd()) {
-    const mergeBase = yield* resolveMergeBase(base, head, cwd);
-    const changed = yield* runGit(
-      ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
-      cwd,
-    );
-    if (changed.exitCode !== 0) {
-      return yield* new ForkLogExitError({
-        exitCode: changed.exitCode,
-        stderr: changed.stderr,
-      });
-    }
-    const paths = [
-      ...new Set(
-        changed.stdout
-          .split("\n")
-          .map((path) => path.trim())
-          .filter((path) => path.startsWith("packages/contracts/src/")),
-      ),
-    ];
+    const { mergeBase, paths } = yield* changedContractPaths(base, head, cwd);
     const findings = yield* Effect.forEach(
       paths,
       (path) =>
@@ -694,10 +705,26 @@ export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindin
   },
 );
 
+/** Merge base of the default upstream ref, or `undefined` when the repository has none. */
+const resolveDefaultUpstreamBase = Effect.fn("resolveDefaultUpstreamBase")(function* (cwd: string) {
+  const result = yield* runGit(["merge-base", "upstream/main", "HEAD"], cwd);
+  const base = result.stdout.trim();
+  return result.exitCode === 0 && base.length > 0 ? base : undefined;
+});
+
 export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(function* (
   commits: ReadonlyArray<ForkCommit>,
   cwd = process.cwd(),
+  upstream?: { readonly base: string; readonly head: string },
 ) {
+  // The upstream base is the merge base the ledger range already spans, so one resolution serves
+  // both: a fork commit cannot ADD to the shipped wire shape a literal or field the base itself
+  // ships at that path — that is a restore, not a fork wire change. A repository without the
+  // default upstream ref keeps its findings unfiltered rather than failing the ledger.
+  const upstreamBase =
+    upstream === undefined
+      ? yield* resolveDefaultUpstreamBase(cwd)
+      : yield* resolveMergeBase(upstream.base, upstream.head, cwd);
   const entries = yield* Effect.forEach(
     commits,
     (commit) =>
@@ -705,8 +732,55 @@ export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(fu
         if (isReviewedWireTrailer(commit.wireReviewed)) {
           return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
         }
-        const findings = yield* collectWireShapeFindingsBetween(`${commit.sha}^`, commit.sha, cwd);
-        return [commit.sha, findings] as const;
+        const { mergeBase, paths } = yield* changedContractPaths(`${commit.sha}^`, commit.sha, cwd);
+        const findings = yield* Effect.forEach(
+          paths,
+          (path) =>
+            Effect.gen(function* () {
+              const [before, after] = yield* Effect.all(
+                [
+                  readRevisionPath(`${mergeBase}:${path}`, cwd),
+                  readRevisionPath(`${commit.sha}:${path}`, cwd),
+                ],
+                { concurrency: "unbounded" },
+              );
+              const found = compareWireShapes(before, after, path);
+              // Only an addition can be a restore: read the upstream base revision of the same
+              // path with the same shape reader and check the added literal or field is already
+              // a member there, by the identity the finding carries. Removals, renames, and a
+              // path the base does not ship stay.
+              const additions = found.filter(
+                (finding) =>
+                  finding.change.startsWith("literal added: ") ||
+                  finding.change.startsWith("required field added: "),
+              );
+              if (additions.length === 0 || upstreamBase === undefined) return found;
+              const upstreamText = yield* readRevisionPath(`${upstreamBase}:${path}`, cwd);
+              if (upstreamText === "") return found;
+              const upstreamByName = new Map(
+                extractWireShapes(upstreamText).map((shape) => [shape.name, shape]),
+              );
+              const isRestored = (finding: WireShapeFinding): boolean => {
+                const shape = upstreamByName.get(finding.schema);
+                if (shape === undefined) return false;
+                const literal = /^literal added: (.+)$/.exec(finding.change);
+                if (literal !== null)
+                  return shape.kind === "literals" && shape.members.has(literal[1] ?? "");
+                const field = /^required field added: (.+)$/.exec(finding.change);
+                if (field !== null) {
+                  // A field the upstream base carries only as optional is not a restoration:
+                  // reintroducing it as required imposes a new wire requirement on consumers.
+                  const upstream =
+                    shape.kind === "struct" ? shape.fields.get(field[1] ?? "") : undefined;
+                  return upstream !== undefined && !upstream.optional;
+                }
+                return false;
+              };
+              return found.filter((finding) => !isRestored(finding));
+            }),
+          { concurrency: 4 },
+        );
+        return [commit.sha, findings.flat()] as const;
       }),
     { concurrency: 4 },
   );
@@ -827,7 +901,10 @@ const command = Command.make(
       // Transient walk fixups stay out of the ledger entirely: trailer rules and
       // the legacy-repair scan all check the folded stack only.
       const commits = dropTransientFixups(read);
-      const wireFindings = yield* collectWireShapeFindings(commits);
+      const wireFindings = yield* collectWireShapeFindings(commits, process.cwd(), {
+        base: resolvedBase,
+        head: resolvedHead,
+      });
       const full = buildLedger(
         resolvedBase,
         resolvedHead,

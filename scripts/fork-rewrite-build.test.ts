@@ -245,6 +245,15 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
               return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
             }
             if (command === "wt") return ok(encodeJson({ path: root }));
+            // The delta gate runs the tooling checkout's fork-delta against the lane, so the
+            // fixture matches the `fork-delta.ts --check` tail rather than any absolute path.
+            if (
+              command === "node" &&
+              args[0] !== undefined &&
+              args[0].endsWith("fork-delta.ts") &&
+              args.includes("--check")
+            )
+              return ok();
             if (command === "vp") return ok();
             if (command === "ghb")
               return ok(

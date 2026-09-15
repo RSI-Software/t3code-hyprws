@@ -145,50 +145,6 @@ export interface RepairOutcome {
   readonly dirtiedBy?: string;
 }
 
-/**
- * What a repair pass did, named after the command that wrote to the worktree.
- */
-export type RepairKind = "fmt" | "typecheck" | "tests" | "additive";
-
-export const repairKind = (command: string): RepairKind =>
-  /(^|\s)additive(\s|$)/.test(command)
-    ? "additive"
-    : /(^|\s)fmt(\s|$)/.test(command)
-      ? "fmt"
-      : /(^|\s)test(\s|$)/.test(command)
-        ? "tests"
-        : "typecheck";
-
-export interface RepairCommitInput {
-  readonly kind: RepairKind;
-  readonly tag: string;
-  readonly domain: string;
-  readonly command: string;
-}
-
-/**
- * An unattributable repair remains the walk's standalone bookkeeping commit. Its subject avoids
- * the legacy `chore(fork-sync): repair` form, which the delta check reserves for the pre-fold
- * backlog; `Fork-Repair` keeps it out of replay accounting.
- */
-export const repairCommitMessage = ({ kind, tag, domain, command }: RepairCommitInput): string =>
-  [
-    `chore(fork-sync): ${kind} after ${tag}`,
-    "",
-    `\`${command}\` rewrote the worktree while replaying onto ${tag}.`,
-    "",
-    `Fork-Domain: ${domain}`,
-    "Fork-Tier: bugfix",
-    "Fork-Upstreamable: no",
-    `Fork-Repair: ${tag}`,
-    "",
-  ].join("\n");
-
-/**
- * Only the runner itself failing is the environment's fault: a missing command (`127`) or a spawn
- * that never produced a status. Everything the runner did run and report is the replay's fault,
- * including a `Cannot find module` that a moved file caused.
- */
 const MISSING_COMMAND_STATUS = 127;
 
 const detailOf = (stdout: string, stderr: string): string =>

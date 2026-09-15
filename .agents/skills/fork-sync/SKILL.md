@@ -207,15 +207,21 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
    workspace's typecheck, and the focused test files beside the touched sources. What a repair rewrites
-   becomes one bot commit appended after the replayed stack, carrying `Fork-Repair: <tag>`; no replayed
-   fork commit is ever amended. Before repairs, the walk proves the replayed tree purely additive
+   becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
+   ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the additive proof runs before any
+   repair. After the autosquash the check proves the landed tree equals the tested tree, re-proves the
+   replay, and re-proves the fold segments. Before repairs, the walk proves the replayed tree purely additive
    (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
    upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure
    the fix refuses is the `conflict` stop. Only a series
    rewrite pushes the disposable lane and polls every 30 seconds for the CI verdict on the pushed
    head, with a 45-minute ceiling; a timeout fails that gate. Record a repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the walk carries that evidence into the record.
+   `--silent-seam '<path>=<summary>:behaviour'`; the walk carries that evidence into the record, and
+   a lane repaired by hand before the check is committed by the check as its own `seam` repair ahead
+   of the additive proof; repairs always fold into their owning fork commit, the fold segments are
+   re-proved after the autosquash, and `--seam-owner` names the owner of a path no fork commit
+   touched.
    Never substitute repo-wide local checks.
 
    **Stop.** On an objective nightly lane, the `checked` report already carries its proposer,

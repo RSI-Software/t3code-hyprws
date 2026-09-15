@@ -43,6 +43,7 @@ import {
   resumeRererePublication,
   regenerateGeneratedConflicts,
   rehearsalConflictRows,
+  toolingDeltaCheck,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
   assertRetiredInLedgerForTest,
@@ -4147,6 +4148,16 @@ it("a failed churn write never changes the stop reason the caller sees (#1023)",
 
 const REPAIRED = "e".repeat(40);
 const REPAIR_SUBJECT = "chore(fork-sync): typecheck after v1.2.3";
+/** The check's delta gate runs the tooling checkout's `fork-delta.ts` against the lane. */
+const deltaGateCall = ({
+  command,
+  args,
+}: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}): boolean =>
+  command === "node" && (args[0] ?? "").endsWith("fork-delta.ts") && args.includes("--check");
+
 const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-c",
   "core.commentChar=auto",
@@ -4183,9 +4194,12 @@ it("attributes a repair to the domain that owns the files it rewrote", () => {
 /** A replayed walk whose repair pass leaves the worktree dirty. */
 const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
   const state = repairingRun();
+  // The dirt is the repair battery's, not the operator's: the check's seam commit reads the tree
+  // clean at its gate, and the battery dirties it afterwards.
   state.runner.set("git", rehearsal(["status", "--porcelain"]), {
     stdout: " M scripts/fork-sync.ts\n",
   });
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [{ stdout: "" }]);
   state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
     stdout: "scripts/fork-sync.ts\n",
   });
@@ -4205,12 +4219,13 @@ const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
     { stdout: `${A}\n` },
     { stdout: `${REPAIRED}\n` },
     { stdout: `${REPAIRED}\n` },
+    { stdout: `${REPAIRED}\n` },
   ]);
-  // The replay proof counts the fork series; the stack size the record binds counts the head.
-  state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
-    { stdout: "1\n" },
-    { stdout: "2\n" },
-  ]);
+  // The replay proof counts the fork series from the message log; the stack size the record
+  // binds counts the head.
+  state.runner.set("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), {
+    stdout: "2\n",
+  });
   return state;
 };
 
@@ -4250,10 +4265,8 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
     assert.notInclude(message, "Fork-");
     assert.isTrue(state.runner.calls.some(({ args }) => args.includes("--autosquash")));
     // The ledger check runs again over the appended commit, in the lane, before the report closes.
-    const deltaChecks = state.runner.calls.filter(
-      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
-    );
-    assert.strictEqual(deltaChecks.length, 2);
+    const deltaChecks = state.runner.calls.filter(deltaGateCall);
+    assert.strictEqual(deltaChecks.length, 3);
 
     assert.isUndefined(checked.walk?.repairCommits);
     // What the apply publishes is the repaired head, and the record binds it.
@@ -4323,9 +4336,625 @@ it("adds no commit when the repair pass rewrote nothing", () => {
     );
     assert.isUndefined(checked.walk?.repairCommits);
     assert.strictEqual(checked.installedHead, A);
+    // A clean walk binds nothing: the report and record stay byte-identical to the rehearsal's.
+    assert.isUndefined(checked.rebasedHead);
+    assert.isUndefined(checked.stackSize);
     const record = NodeFS.readFileSync(checked.recordPath, "utf8");
     assert.deepStrictEqual(parseRepairCommits(record), []);
     assert.include(record, "## Repair commits\n\nNone.");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+/** A replayed walk that arrives at the check with a hand-repaired, dirty lane (`--silent-seam`). */
+const seamRepairedRun = (): ReturnType<typeof replayedRun> & { seamSha: string } => {
+  const state = repairingRun();
+  const seamSha = "d".repeat(40);
+  // The lane is dirty when the check opens and the seam commit cleans it; the battery afterwards
+  // sees a clean tree and adds nothing.
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [
+    { stdout: " M apps/web/src/Fix.tsx\n" },
+  ]);
+  state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
+    stdout: "apps/web/src/Fix.tsx\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${seamSha}\x1ffixup! feat: fork work\n`,
+  });
+  // The repaired path is owned by the replayed fork commit `feat: fork work` (sha C).
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout: `\x1e${C}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Fix.tsx\n`,
+    },
+  );
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
+    { stdout: `${A}\n` },
+    ...Array.from({ length: 6 }, () => ({ stdout: `${seamSha}\n` })),
+  ]);
+  // The proof counts the fork series (1) and then the head with the seam commit on it (2).
+  state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
+    { stdout: "1\n" },
+    { stdout: "2\n" },
+  ]);
+  return { ...state, seamSha };
+};
+
+it("commits a hand-repaired lane as a seam fixup before the additive proof runs", () => {
+  const state = seamRepairedRun();
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    const commits = state.runner.calls.filter(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    // Exactly one commit, the seam's fixup, targeting the owning fork commit by subject.
+    assert.strictEqual(commits.length, 1);
+    assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
+    // The seam proof runs in the lane between the commit and the additive phase, with the
+    // tooling checkout's fork-delta executed against the lane worktree.
+    for (const call of state.runner.calls.filter(deltaGateCall))
+      assert.strictEqual(call.cwd, state.worktree);
+    const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
+    const deltaChecks = state.runner.calls.filter(deltaGateCall);
+    const seamProofAt = state.runner.calls.indexOf(deltaChecks[1]!);
+    assert.isTrue(seamProofAt > commitAt, "the seam commit must precede its delta proof");
+    assert.strictEqual(deltaChecks.length, 3);
+    // The head binding follows the seam commit — the additive proof and every later guard read
+    // the head that contains the operator's repairs. The fixup itself is filtered once
+    // autosquash folds it into its owner.
+    assert.isUndefined(checked.walk?.repairCommits);
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the seam fixup produced no autosquash",
+    );
+    assert.strictEqual(checked.installedHead, state.seamSha);
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an ownerless seam path stops the walk and names the path", () => {
+  const state = seamRepairedRun();
+  // No fork commit in the stubbed stack touches the repaired path.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    { stdout: "" },
+  );
+  try {
+    let detail = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      detail = String(
+        (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+      );
+    }
+    assert.include(detail, "no fork commit in the replayed stack owns apps/web/src/Fix.tsx");
+    assert.include(detail, "--seam-owner");
+    assert.isFalse(
+      state.runner.calls.some(({ args }) => args.includes("commit")),
+      "an ownerless repair must refuse before any git mutation",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("--seam-owner declares the owner of a path no fork commit touched", () => {
+  const state = seamRepairedRun();
+  // The stack's owner map is empty: the declared owner is the only resolution.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    { stdout: "" },
+  );
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%s", C]), {
+    stdout: "feat: fork work\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%B", C]), {
+    stdout: "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${state.seamSha}\x1ffixup! feat: fork work\n`,
+  });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath, "--seam-owner", `apps/web/src/Fix.tsx=${C}`],
+      state.root,
+      state.runner,
+    );
+    const commits = state.runner.calls.filter(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    assert.strictEqual(commits.length, 1);
+    assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a fixup whose owner diff fails the delta stops the check after the autosquash", () => {
+  const state = seamRepairedRun();
+  // The gate and the seam proof pass while the repair is a transient fixup; the post-autosquash
+  // proof reads the owner diff the walk will apply, and the stubbed wire-shape failure stops it.
+  const deltaKey = toolingDeltaCheck().args;
+  state.runner.setSequence("node", deltaKey, [
+    { status: 0, stdout: "", stderr: "" },
+    { status: 0, stdout: "", stderr: "" },
+    { status: 1, stdout: "", stderr: "failed: owner diff violates the wire shape\n" },
+  ]);
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.include(message, "fork-delta.ts --check");
+    assert.include(message, "wire shape");
+    // The failing proof ran after the autosquash, on the folded stack.
+    const autosquashAt = state.runner.calls.findIndex(({ args }) => args.includes("--autosquash"));
+    const failingDelta = state.runner.calls.filter(deltaGateCall)[2]!;
+    assert.isTrue(
+      state.runner.calls.indexOf(failingDelta) > autosquashAt,
+      "the post-autosquash delta proof must follow the autosquash",
+    );
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+      "replayed",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("--seam-owner naming a sha that is not a fork commit in the stack is a UsageError", () => {
+  const state = seamRepairedRun();
+  const foreign = "f".repeat(40);
+  state.runner.set("git", ["cat-file", "-e", `${foreign}^{commit}`], { status: 1 });
+  try {
+    assert.throws(
+      () =>
+        execute(
+          [
+            "unblock-check",
+            "--report",
+            state.reportPath,
+            "--seam-owner",
+            `apps/web/src/Fix.tsx=${foreign}`,
+          ],
+          state.root,
+          state.runner,
+        ),
+      /is not a fork commit in/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a rerun proves the replay through the fixups a stopped run left and folds them", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // The lane carries the fixup after the replayed fork commit; the count proof must see through it.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one\x1efixup! feat: one\n\x1e` },
+  );
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the retained fixup produced no autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("discovers an unrecorded fixup on the lane and folds it", () => {
+  const state = repairingRun();
+  const unrecorded = "d".repeat(40);
+  // No `walk.repairCommits` names this fixup: a run stopped between committing the fixup and
+  // writing the report. The check must still find it on the lane and autosquash it away.
+  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
+    stdout: `${unrecorded}\x00fixup! feat: one\n${A}\x00feat: one\n`,
+  });
+  state.runner.set("git", rehearsal(["log", "--format=%s", `${B}..HEAD`]), {
+    stdout: "feat: one\n",
+  });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the unrecorded fixup produced no autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an orphan fixup on the lane stops the check naming it", () => {
+  const state = repairingRun();
+  const orphan = "d".repeat(40);
+  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
+    stdout: `${orphan}\x00fixup! no such owner\n${A}\x00feat: one\n`,
+  });
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /orphan fixup on the lane: "fixup! no such owner" has no owning fork commit/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an autosquash that changes the tree stops the walk naming both trees", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD^{tree}"]), [
+    { stdout: "1111111111111111111111111111111111111111\n" },
+    { stdout: "2222222222222222222222222222222222222222\n" },
+  ]);
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /the autosquashed lane's tree changed: tested 1{40}, landed 2{40}/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an autosquash conflict aborts, restores the lane head, and names the paths", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  state.runner.setSequence(
+    "git",
+    rehearsal(["rev-parse", "HEAD"]),
+    [...Array(8)].map(() => ({ stdout: `${A}\n` })),
+  );
+  state.runner.set("git", rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", B]), {
+    status: 1,
+    stderr: "could not apply abc123... feat: one\n",
+  });
+  state.runner.set("git", rehearsal(["diff", "--name-only", "--diff-filter=U"]), {
+    stdout: "scripts/fork-sync.ts\n",
+  });
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /autosquash rebase conflicted on scripts\/fork-sync\.ts; the lane was restored to/,
+    );
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--abort")),
+      "the conflicted rebase was never aborted",
+    );
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("reset") && args.includes("--hard")),
+      "the lane head was never restored",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an owner shadowed by a same-subject newer commit refuses the repair", () => {
+  const state = seamRepairedRun();
+  // Two declared fork commits share the subject; the newer owns the repaired path, but the older
+  // would still be the oldest subject match in the autosquash todo.
+  const shadowed = "e".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${C}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Fix.tsx\n` +
+        `\x1e${shadowed}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Other.tsx\n`,
+    },
+  );
+  try {
+    let detail = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      detail = String(
+        (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+      );
+    }
+    assert.include(detail, 'duplicated subject: "feat: fork work"');
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a retained repair sha unreachable from HEAD is pruned and folds nothing", () => {
+  const state = repairingRun();
+  const dead = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: dead, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // The autosquash of the stopped run rewrote the sha out of existence.
+  state.runner.set("git", ["cat-file", "-e", `${dead}^{commit}`], { status: 1 });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    // The dead sha does not count toward the fixup gate: no autosquash, nothing reportable.
+    assert.isFalse(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "a dead retained sha must not trigger autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stale --seam-owner flags on a clean tree are not a usage error", () => {
+  const state = repairingRun();
+  const foreign = "f".repeat(40);
+  state.runner.set("git", ["cat-file", "-e", `${foreign}^{commit}`], { status: 1 });
+  try {
+    const checked = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--seam-owner",
+        `apps/web/src/Gone.tsx=${foreign}`,
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("re-checking a checked lane preserves the proposer and rebinds stale head bindings", () => {
+  const state = repairingRun();
+  try {
+    const first = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    // Seed what only a first pass would have bound, as a nightly sign-off would have, plus head
+    // bindings left stale by an earlier run's autosquash (the lane head it does not name).
+    const seeded = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...seeded,
+        proposedBy: { iface: "claude", provider: "anthropic", model: "test", session: "s1" },
+        silentSeams: [
+          { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+        ],
+        rebasedHead: "9".repeat(40),
+        stackSize: 290,
+      }),
+    );
+    const second = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--silent-seam",
+        "apps/web/src/Kept.tsx=kept seam:behaviour",
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(second.stage, "checked");
+    assert.strictEqual(second.installedHead, first.installedHead);
+    assert.deepStrictEqual(second.proposedBy, {
+      iface: "claude",
+      provider: "anthropic",
+      model: "test",
+      session: "s1",
+    });
+    assert.deepStrictEqual(second.silentSeams, [
+      { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+    ]);
+    const recordAfter = NodeFS.readFileSync(seeded.recordPath, "utf8");
+    // The stale bindings follow the lane: head and recounted stack size, in report and record.
+    assert.strictEqual(second.rebasedHead, first.installedHead);
+    assert.strictEqual(second.stackSize, 1);
+    assert.include(recordAfter, `- Rebased head: \`${first.installedHead}\``);
+    assert.include(recordAfter, "- Stack size: `1` fork commits");
+    assert.notInclude(recordAfter, "9".repeat(40));
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a re-declared silent seam replaces its row by path and keeps the others", () => {
+  const state = repairingRun();
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const seeded = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...seeded,
+        silentSeams: [
+          { path: "apps/web/src/Old.tsx", summary: "old wording", touchesBehaviour: false },
+          { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+        ],
+      }),
+    );
+    const checked = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--silent-seam",
+        "apps/web/src/Old.tsx=new wording:type",
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.deepStrictEqual(checked.silentSeams, [
+      { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+      { path: "apps/web/src/Old.tsx", summary: "new wording", touchesBehaviour: false },
+    ]);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a rewrite at checked is still refused", () => {
+  const root = fixtureRoot();
+  const rewrite = report(root, {
+    stage: "checked",
+    kind: "rewrite",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+  });
+  NodeFS.writeFileSync(rewrite.reportPath, JSON.stringify(rewrite));
+  const runner = new FakeRunner();
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", rewrite.reportPath], root, runner),
+      /unblock-check requires replayed state, got checked/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(rewrite.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a fold segment matching the stack more than once stops the walk", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const segment = (onto: string) => ({
+    from: "1".repeat(40),
+    to: "2".repeat(40),
+    onto,
+    originalCount: 1,
+    originalMessages: "x\x1e",
+  });
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      folds: [segment(C), segment(C), segment(C)],
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // Baseline `feat: one` followed by three identical `x` landings: any segment's single-message
+  // block matches three positions, so relocation cannot tell them apart.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one\x1ex\x1ex\x1ex\x1e` },
+  );
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%H%x1f%B%x1e", `${B}..HEAD`]),
+    {
+      stdout: `${A}\x1ffeat: one\n\x1e${C}\x1fx\n\x1e${"4".repeat(40)}\x1fx\n\x1e${"5".repeat(40)}\x1fx\n\x1e`,
+    },
+  );
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.match(message, /matches the autosquashed stack more than once/);
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -4472,9 +5101,11 @@ const additiveWalkFixture = (
   git(root, "clone", "-q", root, lane);
   const branch = `rehearse/${ADDITIVE_TAG}-from-${expectedOld.slice(0, 12)}`;
   git(lane, "checkout", "-q", "-B", branch, target);
+  git(lane, "config", "user.name", "fixture");
+  git(lane, "config", "user.email", "fixture@example.test");
   for (const [path, contents] of drift) write(lane, path, contents);
   git(lane, "add", "-A");
-  git(lane, "commit", "-m", "feat: one");
+  git(lane, "commit", "-m", "feat: one\n\nFork-Domain: fork-meta\nFork-Tier: qol");
   git(lane, "remote", "set-url", "origin", remote);
   // The carried replayed report the walk picks up.
   const reportDirectory = NodeFS.mkdtempSync(
@@ -4494,7 +5125,7 @@ const additiveWalkFixture = (
     target: { tag: ADDITIVE_TAG, sha: target },
     source: { sha: expectedOld, expectedOld, sharedBase: previous },
     lane: { branch, worktree: lane },
-    originalMessages: "feat: one\u001e",
+    originalMessages: "feat: one\n\nFork-Domain: fork-meta\nFork-Tier: qol\u001e",
     originalCount: 1,
     orientation: coherentOrientation,
     conflicts: [],
@@ -4567,6 +5198,8 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       "apps/web/src/thing.ts",
       "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
     ],
+    // A fork-only file keeps the owning commit non-empty once the additive fixup folds into it.
+    ["apps/web/src/fork.ts", "export const forkOnly = 1;\n"],
   ]);
   try {
     const { output, result } = captureStdout(() =>
@@ -4589,11 +5222,12 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       additive?.findings.map(({ check, path }) => ({ check, path })),
       [{ check: "readded", path: "apps/web/src/thing.ts" }],
     );
-    const repair = report.walk?.repairCommits?.[0];
-    assert.include(repair?.subject ?? "", "chore(fork-sync): additive after");
-    assert.strictEqual(additive?.commit, repair?.sha);
+    // The additive fix was a fixup on the owning fork commit; once autosquash folds it, the
+    // fixup no longer exists and nothing remains reportable.
+    assert.isUndefined(report.walk?.repairCommits);
+    assert.isDefined(additive?.commit);
     assert.isUndefined(report.walk?.stop);
-    // The fix removed the re-add, and the commit carries the repair trailers.
+    // The fix removed the re-add, and it folded into the owner's tree.
     assert.notInclude(
       NodeFS.readFileSync(NodePath.join(state.lane, "apps/web/src/thing.ts"), "utf8"),
       "export const stale = () => {",
@@ -4605,25 +5239,23 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       "--format=%s",
       `${state.target}..HEAD`,
     ).split("\n");
-    assert.deepStrictEqual(subjects, ["feat: one", repair?.subject ?? ""]);
-    const message = additiveGit(state.lane, "show", "-s", "--format=%B", repair?.sha ?? "HEAD");
+    assert.deepStrictEqual(subjects, ["feat: one"]);
+    const message = additiveGit(state.lane, "show", "-s", "--format=%B", "HEAD");
     assert.include(message, "Fork-Domain: fork-meta");
-    assert.include(message, "Fork-Tier: bugfix");
-    assert.include(message, "Fork-Upstreamable: no");
-    assert.include(message, `Fork-Repair: ${ADDITIVE_TAG}`);
-    // The leased trunk push published the repaired head.
+    assert.include(message, "Fork-Tier: qol");
+    // The leased trunk push published the folded head.
     assert.strictEqual(
       NodeChildProcess.execFileSync("git", ["rev-parse", "refs/heads/hyprws"], {
         cwd: state.remote,
       })
         .toString()
         .trim(),
-      repair?.sha,
+      additiveGit(state.lane, "rev-parse", "HEAD"),
     );
-    // The churn row carries the additive outcome and the repair commit.
+    // The churn row carries the additive outcome; the folded fixup leaves no repair commit.
     const [row] = parseLedger(readBotRefFile(state.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
     assert.deepStrictEqual(row?.additive, { pass: true, attempts: 2, findings: 1 });
-    assert.strictEqual(row?.repairCommits?.length, 1);
+    assert.strictEqual(row?.repairCommits?.length ?? 0, 0);
   } finally {
     state.restoreLedger();
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -4768,10 +5400,12 @@ it("verifies the walk lane in place instead of waiting on a CI verdict", () => {
   const { runner, root, worktree, reportPath, branch } = checkedRun();
   try {
     const guards = runner.calls.filter(
-      ({ command, args }) => command === "vp" && args[0] === "run" && args[1] === "--no-cache",
+      ({ command, args }) =>
+        (command === "vp" && args[0] === "run" && args[1] === "--no-cache") ||
+        (command === "node" && args[1] === "--check"),
     );
     assert.deepStrictEqual(
-      guards.map(({ args }) => args[2]),
+      guards.map(({ command, args }) => (command === "node" ? "fork:delta" : args[2])),
       ["fork:scan", "fork:delta"],
     );
     // No full battery in the lane, and nothing that waits on a remote verdict: the walk finishes
@@ -5249,7 +5883,9 @@ it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 chec
   try {
     const checks = runner.calls.filter(
       ({ command, args }) =>
-        command === "vp" && (args[0] === "check" || (args[0] === "run" && args[1] !== undefined)),
+        (command === "vp" &&
+          (args[0] === "check" || (args[0] === "run" && args[1] !== undefined))) ||
+        (command === "node" && args[1] === "--check"),
     );
     assert.lengthOf(checks, 2);
     for (const call of checks) {
@@ -7672,7 +8308,7 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       calls,
       run: (command, args, cwd, input, env) => {
         calls.push({ command, args: [...args] });
-        if (command === "vp") return { status: 0, stdout: "", stderr: "" };
+        if (command === "vp" || command === "node") return { status: 0, stdout: "", stderr: "" };
         if (command === "gh") {
           if (args[0] === "issue" && args[1] === "comment") {
             if (options.commentResult !== undefined) return options.commentResult();
@@ -8016,62 +8652,85 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     }
   });
 
-  it("autosquash with folds runs from the newest fold onto so the proved prefix survives", () => {
+  it("autosquash reaches below a fold and the segment is re-proved at its relocated onto", () => {
     const item = foldFixture();
     try {
-      // The landing shares its subject with the proved fork commit, and, as a trunk landing on
-      // the fork, carries the trailers that let it own a repair.
-      const landing = item.land(
-        "landing.txt",
-        "landing\n",
-        "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
-      );
+      item.land("up1.txt", "1\n", "upstream landing 1");
       const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      const replayedHead = folded.folds![0]!.replayedHead!;
-      // A repair for a path the newest-segment commit owns, left dirty for the repair pass.
-      NodeFS.writeFileSync(NodePath.join(item.lane, "landing.txt"), "repaired\n");
+      assert.strictEqual(folded.folds?.[0]?.onto, item.forkHead);
+      // A repair for a path the proved-prefix fork commit owns, left dirty for the repair pass.
+      // Before #922's fold-aware rule this repair went standalone; now it must reach its owner
+      // below the fold.
+      NodeFS.writeFileSync(NodePath.join(item.lane, "fork.txt"), "repaired\n");
       const runner = wrapperRunner();
       const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
       assert.strictEqual(checked.stage, "checked");
-      // The proved prefix (the onto commit) is still an ancestor of the finished head.
-      gitRun(item.lane, ["merge-base", "--is-ancestor", item.forkHead, "HEAD"]);
-      // The fixup squashed into the newest-segment owner, not the shared-subject proved commit.
-      assert.notStrictEqual(checked.folds?.[0]?.replayedHead, checked.folds?.[0]?.checkedHead);
+      // The autosquash ran from the target and folded the fixup into the owner below the fold:
+      // the finished head is the fold landing, and the repaired tree rides the rewritten owner.
       assert.strictEqual(
         gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
-        "feat: fork work",
+        "upstream landing 1",
       );
-      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:landing.txt"]), "repaired");
-      void landing;
+      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:fork.txt"]), "repaired");
+      // The fold segment relocated onto the rewritten owner and its head is the relocated landing.
+      const segment = checked.folds![0]!;
+      assert.notStrictEqual(segment.onto, item.forkHead);
+      assert.strictEqual(segment.onto, gitRun(item.lane, ["rev-parse", "HEAD~1"]));
+      assert.strictEqual(segment.checkedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
+      assert.isUndefined(segment.repairCommits);
+      // The head-derived bindings and the rendered record header follow the head the check
+      // proved, not the pre-autosquash rehearsal head the report carried in.
+      assert.strictEqual(checked.rebasedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
+      assert.strictEqual(checked.stackSize, 3);
+      const record = NodeFS.readFileSync(checked.recordPath, "utf8");
+      assert.include(record, `- Rebased head: \`${checked.rebasedHead}\``);
+      assert.include(record, `- Final head: \`${checked.rebasedHead}\``);
+      assert.include(record, "- Stack size: `3` fork commits");
+      // The relocated binding still proves the replay.
+      verifyReplay(checked, runner);
     } finally {
       item.cleanup();
     }
   });
 
-  it("a standalone fold repair passes verifyReplay and a same-subject landing still counts", () => {
+  it("an ownerless path in a folded lane stops, and --seam-owner folds it into the named owner", () => {
     const item = foldFixture();
     try {
       item.land("up1.txt", "1\n", "upstream landing 1");
       const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      // An unowned dirty path becomes the walk's standalone repair commit.
+      // No fork commit touched repair.txt, so the walk refuses it rather than guessing.
       NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
+      let detail = "";
+      try {
+        execute(["unblock-check", "--report", folded.reportPath], item.trunk, wrapperRunner());
+      } catch (error) {
+        detail = String(
+          (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+        );
+      }
+      assert.include(detail, "no fork commit in the replayed stack owns repair.txt");
+      // Declaring the proved-prefix owner folds the repair into it, below the fold.
       const runner = wrapperRunner();
-      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
-      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
-      assert.isDefined(repairSha);
-      // The SHA-filtered candidate keeps the stream terminator, so the proof passes.
-      verifyReplay(checked, runner);
-      // A landing sharing the repair's subject is a real landing: folding it keeps the proof.
-      const landing = item.land(
-        "up2.txt",
-        "2\n",
-        (checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "").split("\n")[0]!,
+      const checked = execute(
+        [
+          "unblock-check",
+          "--report",
+          folded.reportPath,
+          "--seam-owner",
+          `repair.txt=${item.forkHead}`,
+        ],
+        item.trunk,
+        runner,
       );
-      const refolded = execute(["unblock-fold", "--report", checked.reportPath], item.trunk);
-      assert.strictEqual(refolded.folds?.length, 2);
-      assert.strictEqual(refolded.folds?.[1]?.from, checked.source?.expectedOld);
-      assert.strictEqual(refolded.folds?.[1]?.to, landing);
-      verifyReplay(refolded, runner);
+      assert.strictEqual(checked.stage, "checked");
+      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:repair.txt"]), "repair");
+      assert.strictEqual(
+        gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
+        "upstream landing 1",
+      );
+      const segment = checked.folds![0]!;
+      assert.notStrictEqual(segment.onto, item.forkHead);
+      verifyReplay(checked, runner);
     } finally {
       item.cleanup();
     }
@@ -8486,42 +9145,32 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     }
   });
 
-  it("a landing sharing the repair's subject never steals the standalone repair's identity", () => {
-    // Learn the standalone repair's subject from a first, decoy-free run.
-    const probe = foldFixture();
-    let repairSubject: string;
-    try {
-      probe.land("up1.txt", "1\n", "upstream landing 1");
-      const folded = execute(["unblock-fold", "--report", probe.report.reportPath], probe.trunk);
-      NodeFS.writeFileSync(NodePath.join(probe.lane, "repair.txt"), "repair\n");
-      const checked = execute(
-        ["unblock-check", "--report", folded.reportPath],
-        probe.trunk,
-        wrapperRunner(),
-      );
-      repairSubject = checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "";
-      assert.match(repairSubject, /^chore\(fork-sync\): /);
-    } finally {
-      probe.cleanup();
-    }
+  it("refuses a repair whose owner subject appears twice in the target range", () => {
+    // Autosquash matches `fixup!` targets by SUBJECT and folds into the oldest match, so a
+    // landing that shares its subject with the proved commit makes the fixup ambiguous. The walk
+    // refuses rather than fold the repair into the wrong landing.
     const item = foldFixture();
     try {
-      item.land("up1.txt", "1\n", "upstream landing 1");
-      // The decoy landing shares the repair's subject and sits before it in history: the fold
-      // replays it below the repair the walk appends afterwards.
-      item.land("decoy.txt", "decoy\n", repairSubject);
-      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
-      const runner = wrapperRunner();
-      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
-      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
-      assert.isDefined(repairSha);
-      // The recorded SHA is the repair commit itself, never the same-subject landing.
-      assert.match(
-        gitRun(item.lane, ["show", "-s", "--format=%B", repairSha]),
-        /Fork-Repair: v1\.2\.3/,
+      item.land(
+        "landing.txt",
+        "landing\n",
+        "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
       );
-      verifyReplay(checked, runner);
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      NodeFS.writeFileSync(NodePath.join(item.lane, "landing.txt"), "repaired\n");
+      let detail = "";
+      try {
+        execute(["unblock-check", "--report", folded.reportPath], item.trunk, wrapperRunner());
+      } catch (error) {
+        detail = String(
+          (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+        );
+      }
+      assert.include(detail, 'duplicated subject: "feat: fork work"');
+      assert.isFalse(
+        NodeFS.existsSync(NodePath.join(item.lane, ".git", "rebase-merge")),
+        "the refusal must precede any rebase",
+      );
     } finally {
       item.cleanup();
     }

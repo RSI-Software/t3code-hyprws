@@ -536,7 +536,8 @@ After a leased apply, the report records trunk as `applied` separately from
 `rererePublication`. Cache publication combines independent additions with the current remote
 cache and uses at most three explicit expected-old leases. A different resolution at the same
 cache path refuses publication without replacing either resolution; transient `thisimage` files
-are excluded from the shared cache.
+are excluded from the shared cache, and so is the regenerated lockfile, whose postimage is walk-specific
+and never enters the shared rerere ref.
 
 A failed cache publication exits nonzero with the immutable snapshot and error retained in the
 report. Rerun `vp run fork:sync unblock-auto --report <report>`: an in-flight report on disk is
@@ -802,9 +803,10 @@ resolved paths, then `typecheck` for each touched workspace and the focused test
 touched sources. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
-resolutions the walk staged do not hold. Whatever a repair rewrites is committed on top of the
-replayed stack as the walk's own bot commit carrying `Fork-Repair: <tag>`, never folded into a
-replayed fork commit, so the record and the churn row name the exact SHA that changed the tree.
+resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit
+to its owning fork commit and is autosquashed from the target during the check (an ownerless path
+needs `--seam-owner '<path>=<full owner sha>'`), and the check only reports `checked` after proving
+the landed tree equals the tested tree and re-proving the replay and the fold segments.
 
 Before any of that, the walk proves the replayed tree purely additive over the target — no target
 file deleted, no migration deleted or renumbered into a collision, no upstream test shrunk, no
@@ -909,10 +911,18 @@ for diagnostics, for picking a stopped walk up by hand, and for the series rewri
    release tag at the fork base for a trunk rewrite. A moved `upstream/main` therefore cannot fail a
    lane for upstream drift the lane did not introduce. Record one repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. It then repairs
+   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. The check
+   proves the lane's delta with the tooling checkout's `fork-delta`, so a gate fix applies to a
+   lane in flight without a fold. A lane
+   repaired by hand before the check is committed by the check as its own `seam` repair ahead of
+   the additive proof; repairs always fold into their owning fork commit, the fold segments are
+   re-proved after the autosquash, and `--seam-owner` names the owner of a path no fork commit
+   touched. It then repairs
    the lane in place, scoped to the paths the replay touched, and records every command it ran in
    the report's verification and `walk.repairs`. A repair failure stops the walk with the reason it
-   belongs to and leaves the report at the stage it reached. Only a series rewrite pushes the
+   belongs to and leaves the report at the stage it reached. The check may be rerun on a `checked`
+   lane to re-render seams and rebind the head; declared seams replace recorded ones by path. Only a
+   series rewrite pushes the
    rehearsal lane and waits up to 45 minutes for a CI verdict, polling every 30 seconds; a timeout
    or a completed red run fails that gate with bounded evidence — the run URL, its id and
    conclusion, the failed job names, and an ANSI-stripped tail of each failed job's log capped per
