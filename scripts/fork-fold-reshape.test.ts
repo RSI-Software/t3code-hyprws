@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercise derivation against isolated Git repositories.
 // @effect-diagnostics preferSchemaOverJson:off - The constructor consumes raw manifest bytes.
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -380,6 +381,87 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
         assert.strictEqual(result.slots[3]!.changes.length, 0);
         const receipt = buildRewrite(repo.root, Buffer.from(JSON.stringify(result)));
         assert.strictEqual(receipt.finalTree, result.sourceTree);
+      }
+    }),
+  );
+
+  it.effect("reads each slot tree once regardless of how many paths are attributed", () =>
+    Effect.gen(function* () {
+      const filler: Array<{ message: string; files: Record<string, string> }> = [];
+      for (let index = 0; index < 11; index++)
+        filler.push({
+          message: `feat: filler ${index}`,
+          files: { "lib.ts": `fork-a\nb\n${index}\n` },
+        });
+      const repo = yield* fixture([
+        {
+          message: "feat: forks two files",
+          files: { "lib.ts": "fork-a\nb\nc\n", "other.ts": "fork-x\n" },
+        },
+        ...filler,
+        {
+          message: "reshape: folds both files",
+          files: { "lib.ts": `fold-a\nb\n10\n`, "other.ts": "fold-x\n" },
+        },
+      ]);
+      const reshape = repo.shas[repo.shas.length - 1]!;
+      const slots = Number(repo.git(["rev-list", "--count", `${repo.base}..${reshape}`]).trim());
+      let listings = 0;
+      const countingGit: FoldGit = (args, input) => {
+        if (args[0] === "ls-tree" && args.includes("--")) listings += 1; // path reads only
+        return repo.git(args, input);
+      };
+      const result = deriveFoldManifest({
+        git: countingGit,
+        base: repo.base,
+        baseTag: "v0.1.0",
+        source: reshape,
+        reshapes: [reshape],
+      });
+      assert.strictEqual("refused" in result, false, JSON.stringify(result));
+      if ("refused" in result) return;
+      // Both paths fold through every slot below the reshape. One `ls-tree` per distinct tree
+      // answers both; a per-path read would cost at least 2 x (slots - 1) here.
+      assert.strictEqual(
+        listings <= slots + 1,
+        true,
+        `FOLD_TREE_READ_BUDGET: ${listings} ls-tree spawns for ${slots} slots x 2 paths`,
+      );
+      assert.strictEqual(result.expected.changedSlots, slots - 1);
+    }),
+  );
+
+  it.effect("reports derive progress on stderr, and nothing under FORK_QUIET", () =>
+    Effect.gen(function* () {
+      const repo = yield* fixture([
+        { message: "feat: fork line", files: { "lib.ts": "a\nB-fork\nc\n" } },
+        { message: "feat: later edit", files: { "lib.ts": "a\nB-fork\nC\n" } },
+        { message: "reshape: fold the fork line", files: { "lib.ts": "a\nB-fold\nC\n" } },
+      ]);
+      const reshape = repo.shas[2]!;
+      const lines: Array<string> = [];
+      const original = process.stderr.write.bind(process.stderr);
+      const quiet = process.env.FORK_QUIET;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        delete process.env.FORK_QUIET;
+        derive(repo, reshape, [reshape]);
+        const loud = lines.filter((line) => line.startsWith("fold-reshape: ")).length;
+        lines.length = 0;
+        process.env.FORK_QUIET = "1";
+        derive(repo, reshape, [reshape]);
+        assert.strictEqual(loud > 0, true, "derive must report progress");
+        assert.deepStrictEqual(
+          lines.filter((line) => line.startsWith("fold-reshape: ")),
+          [],
+        );
+      } finally {
+        process.stderr.write = original;
+        if (quiet === undefined) delete process.env.FORK_QUIET;
+        else process.env.FORK_QUIET = quiet;
       }
     }),
   );
