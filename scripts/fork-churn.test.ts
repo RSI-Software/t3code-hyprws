@@ -806,6 +806,172 @@ it("writes the applied row when the host handoff is unavailable, effort rendered
   }
 });
 
+/** The fake gh and ghb a pending append needs: the record lookup answered, the handoff attested. */
+const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void } => {
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    '#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? "");\n',
+    { mode: 0o755 },
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "ghb"),
+    [
+      "#!/usr/bin/env node",
+      "process.stdout.write(JSON.stringify({",
+      '  schema: "ghb.host-handoff.v1",',
+      '  host: { role: "host", iface: "claude", provider: "anthropic", model: "test-model", effort: "high", session: "s1" },',
+      "}));",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousResponse = process.env.FAKE_GH_RESPONSE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: [
+      "## Sequential rebase census",
+      "",
+      "A throwaway rebase rehearsal to `v1` found 0 conflicting fork commits.",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
+      "",
+    ].join("\n"),
+    comments: [
+      {
+        body: NodeFS.readFileSync(recordPath, "utf8"),
+        url: "https://example.test/issues/1#issuecomment-1",
+      },
+    ],
+    url: "https://example.test/issues/1",
+  });
+  return {
+    restore: () => {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
+      else process.env.FAKE_GH_RESPONSE = previousResponse;
+    },
+  };
+};
+
+it("records the stopped walk's own elapsed and effort on the pending row and renders them (#1023)", () => {
+  const root = ledgerRepository([]);
+  const recordPath = NodePath.join(root, "record.md");
+  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  // The walk report the stop wrote beside the record: bound to this record and this walk's tag,
+  // so the pending append reads the same clock the applied append does.
+  NodeFS.writeFileSync(
+    NodePath.join(root, "report.json"),
+    JSON.stringify({ recordPath, target: { tag: "v1" }, walk: { elapsedMs: 93_000 } }),
+  );
+  const stub = stubGhAndGhb(root, recordPath);
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          A,
+          "--after",
+          B,
+          "--pending",
+        ],
+        root,
+      ),
+      0,
+    );
+    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    assert.strictEqual(appended.pending, true);
+    assert.strictEqual(appended.elapsedMs, 93_000);
+    assert.deepStrictEqual(appended.effort, { model: "test-model", effort: "high" });
+
+    const internals = NodePath.join(root, "docs", "internals");
+    NodeFS.writeFileSync(
+      NodePath.join(internals, "fork-delta.md"),
+      "## fork-meta\n\n### Retirement condition\n",
+    );
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| `v1` |"));
+    assert.include(walks ?? "", "93s");
+    assert.include(walks ?? "", "test-model (high)");
+    assert.notInclude(walks ?? "", "| — | — | ");
+  } finally {
+    stub.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("a stopped row never carries another walk's elapsed, and an unavailable handoff renders absent (#1023)", () => {
+  const root = ledgerRepository([]);
+  const recordPath = NodePath.join(root, "record.md");
+  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  // A prior walk's report: bound to this record but a different tag, so its number is another
+  // walk's cost and must not land on this row. The handoff path is down, so effort stays absent
+  // too — and neither absence fails the write.
+  NodeFS.writeFileSync(
+    NodePath.join(root, "report.json"),
+    JSON.stringify({ recordPath, target: { tag: "v0" }, walk: { elapsedMs: 5_000 } }),
+  );
+  const stub = stubGhAndGhb(root, recordPath);
+  // The attestation path is down: no ghb, an expired credential, CI.
+  NodeFS.writeFileSync(NodePath.join(root, "bin", "ghb"), "#!/bin/sh\necho refused >&2\nexit 1\n", {
+    mode: 0o755,
+  });
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          A,
+          "--after",
+          B,
+          "--pending",
+        ],
+        root,
+      ),
+      0,
+    );
+    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    assert.strictEqual(appended.pending, true);
+    assert.strictEqual(appended.elapsedMs, undefined);
+    assert.strictEqual(appended.effort, undefined);
+
+    const internals = NodePath.join(root, "docs", "internals");
+    NodeFS.writeFileSync(
+      NodePath.join(internals, "fork-delta.md"),
+      "## fork-meta\n\n### Retirement condition\n",
+    );
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| `v1` |"));
+    assert.include(walks ?? "", "| — | — | ");
+  } finally {
+    stub.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("finds the walk's elapsed time in the report bound to the record and this walk's tag", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-elapsed-"));
   try {
