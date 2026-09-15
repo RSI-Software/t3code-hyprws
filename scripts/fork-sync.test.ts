@@ -7946,6 +7946,41 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     }
   });
 
+  it("verifyReplay drops the start-empty commits the --no-keep-empty rebase drops (RSI-Software/t3code-hyprws#665)", () => {
+    // A report bound before the flag existed: its baseline counts a commit that starts empty
+    // (tree identical to its parent's tree). The proof derives the start-empty set from git at
+    // proof time, so the old report proves as 2 expected commits without re-binding.
+    const item = foldFixture();
+    try {
+      gitRun(item.trunk, ["commit", "--allow-empty", "-m", "chore(fork): empty distribution"]);
+      const emptySha = gitRun(item.trunk, ["rev-parse", "HEAD"]);
+      const bound: SyncReport = {
+        ...item.report,
+        source: { sha: emptySha, expectedOld: emptySha, sharedBase: item.sharedBase },
+        originalCount: 3,
+        originalMessages: `${item.report.originalMessages}chore(fork): empty distribution\x1e`,
+      };
+      const runner = wrapperRunner();
+      // The lane holds only the two real commits; the proof must not expect the start-empty one.
+      verifyReplay(bound, runner);
+      // A commit that only *becomes* empty during the replay is not start-empty: it stays
+      // counted, and its absence from the lane still refuses (retirement stays human).
+      const became = commitFile(item.trunk, "became.txt", "x\n", "feat: became empty upstream");
+      const stillCounted: SyncReport = {
+        ...item.report,
+        source: { sha: became, expectedOld: became, sharedBase: item.sharedBase },
+        originalCount: 3,
+        originalMessages: `${item.report.originalMessages}feat: became empty upstream\x1e`,
+      };
+      assert.throws(
+        () => verifyReplay(stillCounted, runner),
+        /replay commit count changed: 3 -> 2/,
+      );
+    } finally {
+      item.cleanup();
+    }
+  });
+
   it("a fold conflict stops with attributed rows and resumes through unblock-rehearse", () => {
     const item = foldFixture({ seam: true });
     try {
