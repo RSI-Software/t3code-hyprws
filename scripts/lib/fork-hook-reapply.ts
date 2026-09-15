@@ -86,11 +86,14 @@ const jsxParentLines = (
   return { open: open.index, close: close.index };
 };
 
-/** Read one hook's exact marked text out of the fork side; `null` when the marker is unreadable. */
+/** Read one hook's exact marked text out of the fork side; `null` when the marker is unreadable.
+ * An overlaid tip span (RSI-Software/t3code-hyprws#1030) points at raw lines that carry no marker
+ * in this commit, so the marker-syntax assertion is skipped — the raw lines are what re-inserts. */
 const forkHookLines = (fork: string, hook: ParsedForkHook): ReadonlyArray<string> | null => {
   const lines = fork.split("\n");
   const slice = lines.slice(hook.startLine - 1, hook.endLine);
   if (slice.length !== hook.endLine - hook.startLine + 1) return null;
+  if (hook.overlay === true) return slice;
   const body = slice.join("\n");
   if (hook.kind === "line" ? !FORK_HOOK_LINE_SUFFIX.test(body) : !FORK_HOOK_JSX_OPEN.test(body))
     return null;
@@ -310,14 +313,20 @@ export interface ForkHookReapplyResult {
  * Re-apply the marked hooks one conflicted path carries in the manifest. `merged` is the merged
  * upstream text (conflict hunks already resolved to the upstream side); `fork` is the fork-side
  * text the hook's exact marked line is read from; `entries` are the manifest rows for the path.
+ * `resolved` carries the fork tip's declaration spans (RSI-Software/t3code-hyprws#1030): a key
+ * with no in-file marker in `fork` reads its lines from the tip-located span — the raw, unmarked
+ * lines of `fork` itself, never an annotated copy, so the resolved text carries no marker the
+ * fork blob did not already have.
  */
 export const reapplyForkHooks = (
   merged: string,
   fork: string,
   entries: ReadonlyArray<{ readonly key: string; readonly anchor: ForkHookAnchor }>,
   matchDelimiter: matchingDelimiterType,
+  resolved?: { readonly spans: ReadonlyMap<string, ParsedForkHook> },
 ): ForkHookReapplyResult => {
   const markers = new Map(parseForkHookMarkers(fork).map((hook) => [hook.key, hook]));
+  for (const [key, span] of resolved?.spans ?? []) if (!markers.has(key)) markers.set(key, span);
   const results = entries.map(({ key, anchor }) => ({
     key,
     outcome: resolveHook(merged, fork, markers.get(key), anchor, matchDelimiter),
