@@ -96,9 +96,13 @@ it("case-insensitive key matching still applies, including across duplicates", (
 });
 
 it("a disagreeing duplicate in parseForkLog names the commit", () => {
-  const record = ["abc1234", "abc1234", "some subject", `${trailerBlock}\nFork-Tier: feature`].join(
-    FORK_LOG_FIELD_SEPARATOR,
-  );
+  const record = [
+    "abc1234",
+    "abc1234",
+    "2026-09-09T14:28:59+12:00",
+    "some subject",
+    `${trailerBlock}\nFork-Tier: feature`,
+  ].join(FORK_LOG_FIELD_SEPARATOR);
   NodeAssert.throws(
     () => parseForkLog(`${record}${FORK_LOG_RECORD_SEPARATOR}`),
     (error: Error) => {
