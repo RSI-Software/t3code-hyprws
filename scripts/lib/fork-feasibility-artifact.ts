@@ -1,11 +1,17 @@
 // @effect-diagnostics nodeBuiltinImport:off - The fork sync jobs carry this file before Effect exists.
 // Carries one job's merge feasibility walk to another job in the same sync trigger.
 //
-// Two things travel: the finished `ForkRebaseFeasibility`, which is only usable when
-// the consumer walks the same (source, target, base) triple, and the `git merge-tree`
-// memo, which is usable always. A merge of two commit object ids is fixed for good,
-// so a carried memo entry cannot describe a moved ref; a finished feasibility can, and
-// is refused unless every sha it was computed against still matches.
+// Two things travel, and neither travels whole. The finished `ForkRebaseFeasibility`
+// is only usable when the consumer walks the same (source, target, base) triple, and
+// is refused unless every sha it was computed against still matches. The `git
+// merge-tree` memo is usable against any refs, but only half of an entry is: a merge
+// of two commit object ids fixes which paths conflict for good, while `tree` is the id
+// of an object `merge-tree --write-tree` wrote into the producing process's object
+// store. The consumer is a different job on a different runner with a different
+// checkout, so it holds that id without holding the object. `MergeTreeMemo.resolve`
+// serves the portable half; anything that reads the tree goes through
+// `resolveReadable`, which re-walks the merge when the object is missing
+// (RSI-Software/t3code-hyprws#1009).
 
 import * as NodeFS from "node:fs";
 
@@ -35,7 +41,7 @@ export interface FeasibilityArtifact extends FeasibilityKey {
 export interface CarriedFeasibility {
   /** The carried walk, or null when it was refused or never offered. */
   readonly feasibility: ForkRebaseFeasibility | null;
-  /** Seeded with every carried merge, which stays valid even when the walk is refused. */
+  /** Seeded with every carried merge, whose conflict set stays valid even when the walk is refused. */
   readonly memo: MergeTreeMemo;
   /** Why a carried walk was not used, for the operator's stream and the run summary. */
   readonly refusal: string | null;
@@ -198,7 +204,7 @@ const moved = (key: FeasibilityKey, artifact: FeasibilityKey): ReadonlyArray<str
  * Decides what a carried artifact is worth to a walk over `key`. The finished
  * feasibility is taken only when all three shas still match; the merge memo is
  * seeded either way, because each of its entries is addressed by the two commits
- * it merged.
+ * it merged. A seeded entry answers conflict paths, never tree content.
  */
 export const carryFeasibility = (
   artifact: FeasibilityArtifact | null,
