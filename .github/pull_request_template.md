@@ -63,6 +63,10 @@ we may close it without merging it, or never review it.
      Valid Fork-Tier values: core, qol, bugfix.
      Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
 
+     Write a fork issue in full: `Closes RSI-Software/t3code-hyprws#N`.
+     A bare `#N` counts as a live upstream reference and fails the Body job;
+     `vp run fork:upstream-refs <file>` runs the same check on a draft body.
+
      Do not copy Base branch or Head branch prompt context into the PR body.
      Do not add prose, metadata, mentions, or headings after the trailers.
 
