@@ -60217,6 +60217,43 @@
       }
     },
     {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35090478820/1/rebase",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260915.1766",
@@ -60848,6 +60885,61 @@
       "status": "succeeded",
       "detail": "workflow rerere cache export result; independent of durable trunk apply",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35056887152"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/1038#issuecomment-5686395138"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
     }
   ],
   "forecasts": [
