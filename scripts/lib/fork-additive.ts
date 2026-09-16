@@ -122,6 +122,7 @@ const missingUpstreamFiles = (
   runner: CommandRunner,
   worktree: string,
   target: string,
+  head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const deleted = gitOut(runner, worktree, [
     "diff",
@@ -130,7 +131,7 @@ const missingUpstreamFiles = (
     "--diff-filter=D",
     "-z",
     target,
-    "HEAD",
+    head,
     "--",
     ...CHECK_SCOPES,
   ]);
@@ -187,10 +188,11 @@ const migrationFindings = (
   runner: CommandRunner,
   worktree: string,
   target: string,
+  headTree = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const upstream = treeMigrations(runner, worktree, target);
   if (upstream.length === 0) return [];
-  const head = treeMigrations(runner, worktree, "HEAD");
+  const head = treeMigrations(runner, worktree, headTree);
   const headPaths = new Set(head.map(({ path }) => path));
   const findings: Array<AdditiveFinding> = [];
   for (const { path } of upstream)
@@ -291,18 +293,19 @@ const testFindings = (
   runner: CommandRunner,
   worktree: string,
   target: string,
+  head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
   // The sweep the fork already keeps is the baseline; a file leaves it by leaving that table.
   const debt = parseTestDivergenceDebt(
-    showTree(runner, worktree, "HEAD", TEST_DIVERGENCE_REPORT) ?? "",
+    showTree(runner, worktree, head, TEST_DIVERGENCE_REPORT) ?? "",
   );
   for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
     const upstreamText = showTree(runner, worktree, target, path);
     if (upstreamText === null) continue;
     const upstreamModifiers = declarationModifiers(upstreamText);
     const upstreamPresent = countPresent(upstreamModifiers);
-    const headText = showTree(runner, worktree, "HEAD", path);
+    const headText = showTree(runner, worktree, head, path);
     if (headText === null) {
       findings.push({
         check: "tests",
@@ -396,6 +399,7 @@ const readdedFindings = (
   runner: CommandRunner,
   worktree: string,
   trees: AdditiveTrees,
+  head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const changed = gitOut(runner, worktree, [
     "diff",
@@ -421,7 +425,7 @@ const readdedFindings = (
       (block) => block.length >= READDED_BLOCK_LINES,
     );
     if (removed.length === 0) continue;
-    const replayDiff = gitOut(runner, worktree, ["diff", trees.target, "HEAD", "--", path]);
+    const replayDiff = gitOut(runner, worktree, ["diff", trees.target, head, "--", path]);
     if (replayDiff === null) continue;
     const added = diffBlocks(replayDiff, "+");
     const back = removed.filter((block) =>
@@ -446,12 +450,20 @@ export const checkAdditive = (
   runner: CommandRunner,
   worktree: string,
   trees: AdditiveTrees,
-): ReadonlyArray<AdditiveFinding> => [
-  ...missingUpstreamFiles(runner, worktree, trees.target),
-  ...migrationFindings(runner, worktree, trees.target),
-  ...testFindings(runner, worktree, trees.target),
-  ...readdedFindings(runner, worktree, trees),
-];
+  /**
+   * The tree-ish the replayed side is read from. Defaults to HEAD; a caller that has staged a
+   * tree the commits do not carry yet (the post-rerun re-proof) passes that tree's SHA instead.
+   */
+  options: { head?: string } = {},
+): ReadonlyArray<AdditiveFinding> => {
+  const head = options.head ?? "HEAD";
+  return [
+    ...missingUpstreamFiles(runner, worktree, trees.target, head),
+    ...migrationFindings(runner, worktree, trees.target, head),
+    ...testFindings(runner, worktree, trees.target, head),
+    ...readdedFindings(runner, worktree, trees, head),
+  ];
+};
 
 // Mechanical repairs. A fix is what a maintainer would have applied by hand for the same reason;
 // anything else is refused and stays on the report as the walk's stop.
