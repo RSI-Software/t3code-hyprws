@@ -2,6 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Operator state machine runs before Effect exists.
 
 import * as NodeCrypto from "node:crypto";
+import * as NodeURL from "node:url";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -36,15 +37,7 @@ import {
 } from "./lib/fork-conflict-outcomes.ts";
 import { rerereReplayed, resolveConflictPath } from "./lib/fork-conflict-resolution.ts";
 import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
-import {
-  formatCommand,
-  repairCommitMessage,
-  repairKind,
-  type RepairKind,
-  runRepairs,
-  verifyPlan,
-  type RepairFailure,
-} from "./lib/fork-repairs.ts";
+import { formatCommand, runRepairs, verifyPlan, type RepairFailure } from "./lib/fork-repairs.ts";
 import {
   runCommand,
   SystemCommandRunner as SystemRunner,
@@ -74,6 +67,7 @@ import {
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import {
   isRepairMessage,
+  normalizeCommitMessage,
   normalizeReplayMessages,
   withoutRepairMessages,
 } from "./lib/fork-replay-messages.ts";
@@ -1201,26 +1195,24 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   // so a folded landing that merely shares a subject with a repair still counts
   // (RSI-Software/t3code-hyprws#922).
   const standalone = standaloneRepairShas(report);
-  const series = withoutRepairMessages(
-    replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`),
+  // Trailer-free `fixup!` commits are transient bookkeeping until autosquash folds them, and a
+  // run stopped at the repair battery leaves them on the lane — the next check must prove the
+  // fork series through them, so they are excluded exactly like Fork-Repair commits.
+  const isTransient = (message: string): boolean =>
+    isRepairMessage(message) ||
+    (normalizeCommitMessage(message).split("\n")[0] ?? "").trim().startsWith("fixup! ");
+  const parts = replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`).split(
+    "\x1e",
   );
+  parts.pop();
+  const kept = parts.filter((part) => !isTransient(part));
   const messagesWithShas =
     standalone.size > 0
       ? replayMessagesWithShas(runner, report.lane.worktree, `${report.target.sha}..HEAD`).filter(
-          ({ sha, message }) => !standalone.has(sha) && !isRepairMessage(message),
+          ({ sha, message }) => !standalone.has(sha) && !isTransient(message),
         )
       : undefined;
-  const count =
-    messagesWithShas === undefined
-      ? Number(
-          git(
-            runner,
-            report.lane.worktree,
-            ["rev-list", "--count", `${report.target.sha}..HEAD`],
-            true,
-          ),
-        ) - series.removed
-      : messagesWithShas.length;
+  const count = messagesWithShas === undefined ? kept.length : messagesWithShas.length;
   if (count !== expectedCount) {
     if (matched === 0)
       throw new Error(`replay commit count changed: ${baseline.count} -> ${count}`);
@@ -1231,7 +1223,9 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   const expectedMessages = filterRetiredMessages(baseline.messages, retired);
   const candidateMessages =
     messagesWithShas === undefined
-      ? series.messages
+      ? kept.length === 0
+        ? ""
+        : `${kept.join("\x1e")}\x1e`
       : `${messagesWithShas.map(({ message }) => message).join("\x1e")}\x1e`;
   if (normalizeReplayMessages(candidateMessages) !== normalizeReplayMessages(expectedMessages))
     throw new Error("replay commit messages changed");
@@ -1667,69 +1661,175 @@ const repairOwners = (
   for (const record of raw.split("\x1e").slice(1)) {
     const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
     const trailers = parseForkTrailers(body);
-    // Only a declared fork commit can own a repair. A prior fixup has no trailers,
-    // and a standalone walk repair is bookkeeping rather than an ownership claim.
-    if (
-      trailers.domain === undefined ||
-      trailers.tier === undefined ||
-      trailers.repair !== undefined
-    )
-      continue;
+    // Only a declared fork commit can own a repair. A prior fixup has no trailers. A commit
+    // carrying `Fork-Repair` owns its own paths: it is a repair applied to the lane by hand or by
+    // an earlier run, and a formatter fixup for its files must fold into it, not stop the walk.
+    if (trailers.domain === undefined || trailers.tier === undefined) continue;
     for (const file of lines(files)) if (!owners.has(file)) owners.set(file, { sha, subject });
   }
   return owners;
 };
 
 /**
- * Commit a repair as one trailer-free fixup per unambiguous fork owner. Paths with no declared
- * owner stay together in the walk's standalone bookkeeping commit; guessing would fold a repair
- * into the wrong fork decision.
+ * Merges the repair commits a stopped run recorded on the walk with the ones this run created,
+ * by SHA, order retained-first: the retained fixups are already on the lane below this run's.
+ */
+const mergeRepairCommits = (
+  retained: ReadonlyArray<{ readonly sha: string; readonly subject: string }> | undefined,
+  created: ReadonlyArray<{ readonly sha: string; readonly subject: string }>,
+): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
+  const merged = [...(retained ?? [])];
+  for (const commit of created)
+    if (!merged.some(({ sha }) => sha === commit.sha)) merged.push(commit);
+  return merged;
+};
+
+/**
+ * The delta gate proves the lane with the tooling checkout's own `fork-delta`, not the lane's
+ * replayed copy: product comes from the lane, tooling from the checkout that runs the verb, so a
+ * gate fix applies to a lane in flight without a fold. Resolved from the running script's
+ * location (`import.meta`, via `fileURLToPath`), not `report.repositoryRoot` — the record binds
+ * the walked repository, while the tooling is whatever checkout is executing this verb, and the
+ * two differ in every fixture, lane, and rehearsal.
+ */
+export const toolingDeltaCheck = (): {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+} => ({
+  command: "node",
+  args: [
+    NodePath.join(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "fork-delta.ts"),
+    "--check",
+  ],
+});
+
+/**
+ * Commit a repair as one trailer-free fixup per unambiguous fork owner. Every repaired path must
+ * have an owner — a fork commit in `target..HEAD` that touched it, or a `--seam-owner` declaration —
+ * because an unowned repair has no fork decision to ride and a standalone bookkeeping commit can
+ * never pass the delta gate's legacy-repair refusal (RSI-Software/t3code-hyprws#861).
  */
 const commitWalkRepairs = (
   report: SyncReport,
   runner: CommandRunner,
   worktree: string,
   verificationEnv: NodeJS.ProcessEnv,
-  outcome: {
-    readonly ran: ReadonlyArray<{ readonly command: string }>;
-    readonly dirtiedBy?: string;
-  },
+  declaredOwners: ReadonlyMap<string, string>,
+  /** Invoked when the commit-time format changed the staged tree; reruns the proof it invalidates. */
+  rerunBattery?: (formattedPaths: ReadonlyArray<string>) => void,
 ): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
-  const tag = report.target?.tag;
   const base = report.target?.sha;
-  if (tag === undefined || base === undefined) throw new Error("repair commit has no target tag");
+  if (base === undefined) throw new Error("repair commit has no target tag");
   if (git(runner, worktree, ["status", "--porcelain"], true).length === 0) return [];
   botGit(runner, worktree, ["add", "-A"]);
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
-  // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
-  // inside the conflict, before the verify battery and the additive fixes exist;
-  // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
-  // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
-  // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
+  const stagedTree = git(runner, worktree, ["write-tree"], true);
+  // Format what the repair rewrote, not just what the conflict resolved; commit that raw and
+  // trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every downstream
+  // pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755). When the
+  // formatter rewrites anything, the caller's `rerunBattery` re-proves the formatted tree: the
+  // proof that ran before the format no longer describes the tree being committed.
   const format = formatCommand(paths);
   if (format !== null) {
     const formatted = runRepairs(runner, worktree, [format], verificationEnv);
     if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
     botGit(runner, worktree, ["add", "-A"]);
+    if (git(runner, worktree, ["write-tree"], true) !== stagedTree) rerunBattery?.(paths);
   }
-  const command =
-    outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
   const owners = repairOwners(runner, worktree, base);
-  // A repair whose owner lies in an already-proved prefix may not autosquash: the fold proof
-  // covers that prefix verbatim (RSI-Software/t3code-hyprws#922). Such repairs ride in the
-  // standalone commit appended to the head, recorded in the newest segment's `repairCommits`.
-  const folds = report.folds ?? [];
-  const provedBoundary = folds.length > 0 ? folds[folds.length - 1]!.onto : undefined;
-  const ownerIsProved = (sha: string): boolean =>
-    provedBoundary !== undefined &&
-    runner.run("git", ["merge-base", "--is-ancestor", sha, provedBoundary], worktree).status === 0;
-  const owned = new Map<string, Array<string>>();
-  const standalone: Array<string> = [];
+  const resolve = (
+    path: string,
+  ): { readonly sha: string; readonly subject: string } | undefined => {
+    // A declared owner wins over the map: the operator names the fork commit a fresh upstream
+    // file (or a new fork-owned sibling the map cannot resolve) belongs to.
+    const declared = declaredOwners.get(path);
+    if (declared !== undefined) {
+      const owner = [...owners.values()].find((candidate) => candidate.sha === declared);
+      if (owner !== undefined) return owner;
+      const subject = git(runner, worktree, ["show", "-s", "--format=%s", declared], true).trim();
+      return { sha: declared, subject };
+    }
+    return owners.get(path);
+  };
+  // A declared owner is validated only when a dirty path actually resolves to it: stale flags on
+  // a clean tree must not fail at usage, but a used-and-invalid declaration is still a usage error.
+  const usedDeclared = new Map(
+    paths.flatMap((path) => {
+      const declared = declaredOwners.get(path);
+      return declared === undefined ? [] : [[path, declared] as const];
+    }),
+  );
+  if (usedDeclared.size > 0) validateSeamOwners(report, runner, worktree, usedDeclared);
+  // Refuse before any git mutation: an unowned path would otherwise ride a fixup for a sibling.
+  const ownerless = paths.filter((path) => resolve(path) === undefined);
+  if (ownerless.length > 0)
+    throw new RepairStop(
+      {
+        kind: "repair",
+        command: "fork:sync repair ownership",
+        detail:
+          `no fork commit in the replayed stack owns ${ownerless.join(", ")}; declare the owner ` +
+          `with --seam-owner '<path>=<full owner sha>' for each`,
+      },
+      report.reportPath,
+    );
+  // Autosquash matches `fixup!` targets by SUBJECT, so an owner whose subject appears twice in the
+  // stack could steal the fixup into the wrong landing; refuse rather than misfold.
+  // Count over ALL declared fork commits in the stack, not the newest-owner-per-path map: an
+  // older commit shadowed by a newer owner for every path is invisible there, yet autosquash
+  // matches the todo by subject and can still steal the fixup into it. Declared `--seam-owner`
+  // shas count too, even when the log cannot resolve them as owners.
+  const declaredSubjectBySha = new Map<string, string>();
+  for (const { sha, subject } of owners.values()) declaredSubjectBySha.set(sha, subject);
+  for (const record of gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${base}..HEAD`],
+    true,
+  )
+    .split("\x1e")
+    .slice(1)) {
+    const [sha = "", subject = "", body = ""] = record.split("\x1f");
+    const trailers = parseForkTrailers(body);
+    if (
+      trailers.domain === undefined ||
+      trailers.tier === undefined ||
+      trailers.repair !== undefined
+    )
+      continue;
+    declaredSubjectBySha.set(sha, subject);
+  }
+  for (const declared of declaredOwners.values()) {
+    if (declaredSubjectBySha.has(declared)) continue;
+    declaredSubjectBySha.set(
+      declared,
+      git(runner, worktree, ["show", "-s", "--format=%s", declared], true).trim(),
+    );
+  }
+  const subjects = new Map<string, number>();
+  for (const subject of declaredSubjectBySha.values())
+    subjects.set(subject, (subjects.get(subject) ?? 0) + 1);
   for (const path of paths) {
-    const owner = owners.get(path);
-    if (owner === undefined || ownerIsProved(owner.sha)) standalone.push(path);
-    else owned.set(owner.sha, [...(owned.get(owner.sha) ?? []), path]);
+    const owner = resolve(path)!;
+    if ((subjects.get(owner.subject) ?? 0) > 1)
+      throw new RepairStop(
+        {
+          kind: "repair",
+          command: "fork:sync repair ownership",
+          detail:
+            `the owner of ${path} has a duplicated subject: "${owner.subject}"; autosquash could ` +
+            `fold the repair into the wrong landing`,
+        },
+        report.reportPath,
+      );
+  }
+  const owned = new Map<string, { readonly subject: string; readonly files: Array<string> }>();
+  for (const path of paths) {
+    const owner = resolve(path)!;
+    const entry = owned.get(owner.sha);
+    if (entry === undefined) owned.set(owner.sha, { subject: owner.subject, files: [path] });
+    else entry.files.push(path);
   }
   // Split the staged repair by owning commit. `reset` only changes the index; each
   // commit below adds exactly its own paths back, so autosquash has one target.
@@ -1746,21 +1846,73 @@ const commitWalkRepairs = (
     ).split("\x1f");
     committed.push({ sha, subject });
   };
-  for (const [sha, files] of owned) {
-    const owner = [...owners.values()].find((candidate) => candidate.sha === sha);
-    if (owner === undefined) throw new Error(`repair owner disappeared: ${sha}`);
-    commit(`fixup! ${owner.subject}`, files);
-  }
-  if (standalone.length > 0) {
-    const message = repairCommitMessage({
-      kind: repairKind(command),
-      tag,
-      domain: repairDomain(runner, worktree, base, standalone),
-      command,
-    });
-    commit(message, standalone);
-  }
+  for (const { subject, files } of owned.values()) commit(`fixup! ${subject}`, files);
   return committed;
+};
+
+/**
+ * Relocates the recorded fold segments after an autosquash that reached below a fold.
+ */
+const relocateFoldSegments = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+): NonNullable<SyncReport["folds"]> => {
+  const base = report.target!.sha;
+  const folds = report.folds ?? [];
+  // An autosquash reaching below a fold rewrites every SHA from its oldest target up, so the
+  // recorded segments no longer bind. Relocation locates each segment's landings by their exact
+  // normalized messages — the trunk replay proof is message-based over trunk ranges
+  // (`originalSeries` / `expectedSeriesWithFolds` / `verifyReplay`), so messages identify a
+  // segment's landings whatever their new SHAs are (RSI-Software/t3code-hyprws#922).
+  const stack = replayMessagesWithShas(runner, worktree, `${base}..HEAD`).map(
+    ({ sha, message }) => ({ sha, message: normalizeCommitMessage(message) }),
+  );
+  const head = git(runner, worktree, ["rev-parse", "HEAD"], true);
+  const relocated: Array<NonNullable<SyncReport["folds"]>[number]> = [];
+  let cursor = 0;
+  for (const segment of folds) {
+    const wanted = segment.originalMessages
+      .split("\x1e")
+      .map(normalizeCommitMessage)
+      .filter((message) => message.length > 0);
+    const matches: Array<number> = [];
+    for (
+      let start = cursor;
+      wanted.length > 0 && start + wanted.length <= stack.length;
+      start += 1
+    ) {
+      const aligned = wanted.every((message, offset) => stack[start + offset]?.message === message);
+      if (aligned) matches.push(start);
+    }
+    if (matches.length > 1)
+      throw new Error(
+        `fold segment replaying ${segment.from.slice(0, 12)}..${segment.to.slice(0, 12)} matches ` +
+          `the autosquashed stack more than once (positions ${matches.map((at) => stack[at]!.sha.slice(0, 12)).join(", ")}); ` +
+          `the walk cannot tell which landing is its own (RSI-Software/t3code-hyprws#922)`,
+      );
+    const at = matches[0] ?? -1;
+    if (at === -1)
+      throw new Error(
+        `fold segment replaying ${segment.from.slice(0, 12)}..${segment.to.slice(0, 12)} cannot be ` +
+          `located in the autosquashed stack: was onto ${segment.onto}, head stays ${head}; the walk ` +
+          `cannot prove its stack (RSI-Software/t3code-hyprws#922)`,
+      );
+    const last = at + wanted.length - 1;
+    if (wanted.length !== segment.originalCount)
+      throw new Error(
+        `fold segment replaying ${segment.from.slice(0, 12)}..${segment.to.slice(0, 12)} commit count ` +
+          `changed: ${segment.originalCount} -> ${wanted.length}`,
+      );
+    relocated.push({
+      ...segment,
+      onto: at === 0 ? base : stack[at - 1]!.sha,
+      replayedHead: stack[last]!.sha,
+      checkedHead: stack[last]!.sha,
+    });
+    cursor = last + 1;
+  }
+  return relocated;
 };
 
 /** `vp run` prints its own command banner above the script's stdout; the JSON starts at its first line. */
@@ -1783,30 +1935,31 @@ const runAdditivePhase = (
   runner: CommandRunner,
   worktree: string,
   verificationEnv: NodeJS.ProcessEnv,
+  declaredOwners: ReadonlyMap<string, string>,
 ): {
   readonly additive: NonNullable<WalkRecord["additive"]>;
-  readonly repairCommit?: { readonly sha: string; readonly subject: string };
+  readonly repairCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }>;
 } => {
   const trees = {
     target: (report.target as NonNullable<typeof report.target>).sha,
     previous: report.source!.sharedBase,
   };
   const first = checkAdditive(runner, worktree, trees);
-  if (first.length === 0) return { additive: { pass: true, attempts: 1, findings: [], fixed: [] } };
+  if (first.length === 0)
+    return {
+      additive: { pass: true, attempts: 1, findings: [], fixed: [] },
+      repairCommits: [],
+    };
   const fixes = applyAdditiveFixes(runner, worktree, trees.target, first);
-  let commit: { readonly sha: string; readonly subject: string } | undefined;
+  let repaired: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
   if (fixes.paths.length > 0) {
-    // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
+    // The fixes are the walk's own rewrite, so they land as `additive` repair commit(s), and the
     // appended trailers are proven in the lane exactly like the repair pass's.
-    const [repaired] = commitWalkRepairs(report, runner, worktree, verificationEnv, {
-      ran: [],
-      dirtiedBy: "additive",
-    });
-    if (repaired === undefined)
+    repaired = commitWalkRepairs(report, runner, worktree, verificationEnv, declaredOwners);
+    if (repaired.length === 0)
       throw new Error("additive repairs dirtied the tree but left no commit");
-    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    const delta = toolingDeltaCheck();
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
-    commit = repaired;
   }
   const retry = checkAdditive(runner, worktree, trees);
   return {
@@ -1815,10 +1968,64 @@ const runAdditivePhase = (
       attempts: 2,
       findings: retry.length === 0 ? first : retry,
       fixed: fixes.fixed,
-      ...(commit === undefined ? {} : { commit: commit.sha }),
+      ...(repaired.length === 0 ? {} : { commit: repaired[repaired.length - 1]!.sha }),
     },
-    ...(commit === undefined ? {} : { repairCommit: commit }),
+    repairCommits: repaired,
   };
+};
+
+/**
+ * Parse `--seam-owner '<path>=<full owner sha>'` entries into a path-to-owner map. Shape only:
+ * whether the sha really is a fork commit in the walked stack is validated against the lane in
+ * `validateSeamOwners`, where a wrong value can name the exact commit it expected instead.
+ */
+export const parseSeamOwners = (values: ReadonlyArray<string>): ReadonlyMap<string, string> => {
+  const owners = new Map<string, string>();
+  for (const value of values.flatMap((entry) => entry.split("\n")).filter(Boolean)) {
+    const separator = value.lastIndexOf("=");
+    const path = value.slice(0, separator);
+    const sha = value.slice(separator + 1);
+    if (separator < 1 || !/^[0-9a-f]{40,64}$/.test(sha))
+      throw new UsageError("--seam-owner must be <path>=<full owner sha>");
+    if (owners.has(path)) throw new UsageError(`--seam-owner declares ${path} twice`);
+    owners.set(path, sha);
+  }
+  return owners;
+};
+
+/**
+ * A declared owner must be a fork commit in `target..HEAD`: reachable from the lane head, above
+ * the target, carrying the fork declaration trailers and no repair marker — the same shape the
+ * owner map itself requires of a discovered owner.
+ */
+const validateSeamOwners = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  owners: ReadonlyMap<string, string>,
+): void => {
+  const base = report.target?.sha;
+  if (base === undefined) throw new UsageError("--seam-owner requires a walked target");
+  for (const [path, sha] of owners) {
+    const exists =
+      runner.run("git", ["cat-file", "-e", `${sha}^{commit}`], worktree).status === 0 &&
+      runner.run("git", ["merge-base", "--is-ancestor", base, sha], worktree).status === 0 &&
+      runner.run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], worktree).status === 0;
+    if (!exists)
+      throw new UsageError(
+        `--seam-owner for ${path} names ${sha}, which is not a fork commit in ${base.slice(0, 12)}..HEAD`,
+      );
+    const body = git(runner, worktree, ["show", "-s", "--format=%B", sha], true);
+    const trailers = parseForkTrailers(body);
+    if (
+      trailers.domain === undefined ||
+      trailers.tier === undefined ||
+      trailers.repair !== undefined
+    )
+      throw new UsageError(
+        `--seam-owner for ${path} names ${sha}, which carries no Fork-Domain/Fork-Tier declaration or a Fork-Repair marker`,
+      );
+  }
 };
 
 export const parseSilentSeam = (value: string): SilentSeam => {
@@ -1864,7 +2071,7 @@ const unblockCheck = (
   cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--report", "--silent-seam"]);
+  assertOnly(values, ["--report", "--silent-seam", "--seam-owner"]);
   let report = readReport(oneValue(values, "--report") ?? "");
   // RSI-Software/t3code-hyprws#388: any hyprws movement past the lease voids the
   // queued checked rehearsal visibly, with the old/new SHAs and the restart
@@ -1873,7 +2080,14 @@ const unblockCheck = (
   const silentSeamRaw = oneValue(values, "--silent-seam", false);
   const silentSeams =
     silentSeamRaw === null ? [] : silentSeamRaw.split("\n").filter(Boolean).map(parseSilentSeam);
-  if (report.stage !== "replayed")
+  const seamOwnerEntries = (oneValue(values, "--seam-owner", false) ?? "")
+    .split("\n")
+    .filter(Boolean);
+  const seamOwners = parseSeamOwners(seamOwnerEntries);
+  // A checked lane may be re-checked to re-render seams and rebind the head (the record
+  // promises reruns keep filled cells); a rewrite stays pinned to its replayed construction.
+  const recheck = report.kind !== "rewrite" && report.stage === "checked";
+  if (report.stage !== "replayed" && !recheck)
     throw new Error(`unblock-check requires replayed state, got ${report.stage}`);
   if (report.kind === "rewrite") {
     if (report.lane === undefined || report.rewrite === undefined)
@@ -1889,6 +2103,24 @@ const unblockCheck = (
   const lane = report.lane!;
   const worktree = lane.worktree;
   const verificationEnv = laneEnv(worktree);
+  // A run stopped after its autosquash retains `walk.repairCommits` entries whose SHAs the rebase
+  // rewrote out of existence. Drop the unreachable ones before they count toward the fixup gate,
+  // and persist the pruned list so no later guard reads a dead sha.
+  const reachableRepairCommits = (report.walk?.repairCommits ?? []).filter(({ sha }) => {
+    const reachable =
+      runner.run("git", ["cat-file", "-e", `${sha}^{commit}`], worktree).status === 0 &&
+      runner.run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], worktree).status === 0;
+    if (!reachable)
+      process.stderr.write(`repair commit ${sha.slice(0, 12)} is no longer reachable; dropped\n`);
+    return reachable;
+  });
+  if (reachableRepairCommits.length !== (report.walk?.repairCommits ?? []).length) {
+    report = {
+      ...report,
+      walk: { ...(report.walk ?? {}), repairCommits: reachableRepairCommits },
+    };
+    writeReport(report);
+  }
   const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
   requireSuccess(
     runner,
@@ -1945,7 +2177,7 @@ const unblockCheck = (
       : (report.target as NonNullable<typeof report.target>).tag;
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
     { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
-    { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
+    toolingDeltaCheck(),
   ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
@@ -1960,30 +2192,132 @@ const unblockCheck = (
     );
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
+  // A lane repaired by hand before the check (`--silent-seam`) reaches this point with a dirty
+  // tree its repairs already clear: the additive proof would read a HEAD missing those fixes and
+  // stop on findings they no longer produce. The check commits them as its own `seam` repair
+  // ahead of the proof, so the proof reads the head that contains the operator's work.
+  let seamCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
+  if (report.kind !== "rewrite") {
+    seamCommits = commitWalkRepairs(report, runner, worktree, verificationEnv, seamOwners);
+    if (seamCommits.length > 0) {
+      // Prove the repair in the lane before the additive proof builds on it.
+      const delta = toolingDeltaCheck();
+      requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+      verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          repairCommits: mergeRepairCommits(report.walk?.repairCommits, seamCommits),
+        },
+      };
+      writeReport(report);
+      installedHead = seamCommits[seamCommits.length - 1]!.sha;
+    }
+  }
+  let additiveCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
+  // The repair-scope formatter runs before every proof: the additive gate and the test battery
+  // must both judge the tree the lane will actually commit, not a tree a later format pass
+  // silently changed.
+  // One walk over the replayed range feeds two consumers: fixup discovery (every `fixup!` on the
+  // lane must reach the autosquash, even one a run interrupted before `writeReport` left behind)
+  // and the formatter scope (every path a `Fork-Repair` commit, a `fixup!`, or a repair commit the
+  // check itself made touches, because a hand-applied repair committed before the check ran never
+  // sat in a conflict resolution and would land unformatted).
+  const laneCommits = gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${report.target!.sha}..HEAD`],
+    true,
+  )
+    .split("\x1e")
+    .slice(1)
+    .map((record) => {
+      const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
+      return {
+        sha,
+        subject,
+        body,
+        paths: lines(files),
+      };
+    });
+  const laneFixups = laneCommits.filter(({ subject }) => subject.startsWith("fixup! "));
+  for (const fixup of laneFixups) {
+    const owner = fixup.subject.slice("fixup! ".length);
+    const owners = laneCommits.filter(
+      ({ subject }) => !subject.startsWith("fixup! ") && subject === owner,
+    );
+    if (owners.length !== 1)
+      throw new Error(
+        `orphan fixup on the lane: "${fixup.subject}" ${owners.length === 0 ? "has no owning fork commit" : "names a duplicated owner"} in ${report.target!.sha}..HEAD`,
+      );
+  }
+  const walkMadeShas = new Set([
+    ...(report.walk?.repairCommits ?? []).map(({ sha }) => sha),
+    ...seamCommits.map(({ sha }) => sha),
+    ...additiveCommits.map(({ sha }) => sha),
+  ]);
+  const repairOwnedPaths = laneCommits
+    .filter(
+      ({ sha, subject, body }) =>
+        subject.startsWith("fixup! ") ||
+        walkMadeShas.has(sha) ||
+        parseForkTrailers(body).repair !== undefined,
+    )
+    .flatMap(({ paths }) => paths);
+  // The resolved paths are formatted inside the conflict resolution; this pass covers the rest of
+  // the union — the paths the lane's repair commits carry. Nothing to format, no command at all.
+  const repairScopeFormat = formatCommand([...new Set(repairOwnedPaths)].sort());
+  if (repairScopeFormat !== null) {
+    const formatted = runRepairs(runner, worktree, [repairScopeFormat], verificationEnv);
+    if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+    // The additive gate reads HEAD, not the worktree, so the formatted tree must be committed
+    // before it runs — exactly like the seam step: commit through the existing repair path and
+    // bind `installedHead` to the commit the proofs will judge. No rerun callback here: every
+    // proof that follows (additive gate, battery) runs after this commit on this tree.
+    const formattedCommits = commitWalkRepairs(
+      report,
+      runner,
+      worktree,
+      verificationEnv,
+      seamOwners,
+    );
+    if (formattedCommits.length > 0) {
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          repairCommits: mergeRepairCommits(report.walk?.repairCommits, formattedCommits),
+        },
+      };
+      writeReport(report);
+      installedHead = formattedCommits[formattedCommits.length - 1]!.sha;
+    }
+  }
   // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
   // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
   // repairs what it can make additive again as its own `additive` repair commit, and re-checks
   // exactly once. A check the machine cannot make pass stops the walk.
-  let additiveCommit: string | undefined;
   if (report.kind !== "rewrite" && report.target !== undefined && report.source !== undefined) {
-    const phase = runAdditivePhase(report, runner, worktree, verificationEnv);
-    additiveCommit = phase.additive.commit;
+    const phase = runAdditivePhase(report, runner, worktree, verificationEnv, seamOwners);
+    additiveCommits = phase.repairCommits;
     report = {
       ...report,
       walk: {
         ...(report.walk ?? {}),
         additive: phase.additive,
-        ...(phase.repairCommit === undefined
+        ...(additiveCommits.length === 0
           ? {}
           : {
-              repairCommits: [...(report.walk?.repairCommits ?? []), phase.repairCommit],
+              repairCommits: mergeRepairCommits(report.walk?.repairCommits, additiveCommits),
             }),
       },
     };
     writeReport(report);
-    // The additive commit is the lane head now; the installed-tree binding must follow it or the
-    // head guard below refuses the tree the walk itself just repaired.
-    if (additiveCommit !== undefined) installedHead = additiveCommit;
+    // The additive commits are the lane head now; the installed-tree binding must follow them or
+    // the head guard below refuses the tree the walk itself just repaired.
+    if (additiveCommits.length > 0)
+      installedHead = additiveCommits[additiveCommits.length - 1]!.sha;
     if (!phase.additive.pass) throw new AdditiveStop(phase.additive.findings, report.reportPath);
   }
   // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
@@ -1997,10 +2331,15 @@ const unblockCheck = (
         .map(({ path }) => path),
     ]),
   ].sort();
+  // Fork-owned tests are the fork's own guards: every tracked `*.fork.test.{ts,tsx}` runs even
+  // when the replay never touched its workspace, grouped by workspace like the focused suites.
+  const forkTests = lines(
+    git(runner, worktree, ["ls-files", "*.fork.test.ts", "*.fork.test.tsx"], true),
+  );
   const repairs = runRepairs(
     runner,
     worktree,
-    verifyPlan(worktree, repairPaths),
+    verifyPlan(worktree, repairPaths, undefined, forkTests),
     verificationEnv,
     () => git(runner, worktree, ["status", "--porcelain"], true).length > 0,
   );
@@ -2016,74 +2355,182 @@ const unblockCheck = (
   const repaired =
     report.kind === "rewrite"
       ? []
-      : commitWalkRepairs(report, runner, worktree, verificationEnv, repairs);
-  let repairCommits = [
-    ...(report.walk?.repairCommits ?? []).filter(
-      (previous) => !repaired.some(({ sha }) => sha === previous.sha),
-    ),
-    ...repaired,
-  ];
+      : commitWalkRepairs(
+          report,
+          runner,
+          worktree,
+          verificationEnv,
+          seamOwners,
+          (formattedPaths) => {
+            // The commit-time formatter rewrote a repair-owned path after the battery ran; the
+            // battery's verdict no longer describes the tree being committed, so rerun it once
+            // on the formatted tree and record the rerun like any other proof.
+            git(runner, worktree, ["add", "-A"], true);
+            const provedTree = git(runner, worktree, ["write-tree"], true);
+            const rerun = runRepairs(
+              runner,
+              worktree,
+              verifyPlan(
+                worktree,
+                [...new Set([...repairPaths, ...formattedPaths])],
+                undefined,
+                forkTests,
+              ),
+              verificationEnv,
+              () => git(runner, worktree, ["status", "--porcelain"], true).length > 0,
+            );
+            for (const run of rerun.ran)
+              verification.push({ command: run.command, result: run.result });
+            if (rerun.failure !== undefined) {
+              report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+              writeReport(report);
+              throw new RepairStop(rerun.failure, report.reportPath);
+            }
+            // The additive gate is cheap and fs-free of ordering, so re-prove it on the same tree.
+            if (
+              report.kind !== "rewrite" &&
+              report.target !== undefined &&
+              report.source !== undefined
+            ) {
+              // The rerun's tree is staged but not committed yet, so the re-proof must read the
+              // proved tree, not HEAD — the commits only land after this callback returns.
+              const postRerun = checkAdditive(
+                runner,
+                worktree,
+                {
+                  target: report.target.sha,
+                  previous: report.source.sharedBase,
+                },
+                { head: provedTree },
+              );
+              if (postRerun.length > 0) {
+                report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+                writeReport(report);
+                throw new AdditiveStop(postRerun, report.reportPath);
+              }
+            }
+            // The staged split below must never commit content the rerun did not prove: any
+            // further drift is a stop, never a second rerun.
+            git(runner, worktree, ["add", "-A"], true);
+            if (git(runner, worktree, ["write-tree"], true) !== provedTree) {
+              report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+              writeReport(report);
+              throw new RepairStop(
+                {
+                  kind: "repair",
+                  command: "fork:sync repair format rerun",
+                  detail: `tree moved after the proof rerun; proved ${provedTree}, found ${git(runner, worktree, ["write-tree"], true)}`,
+                },
+                report.reportPath,
+              );
+            }
+          },
+        );
+  let repairCommits = mergeRepairCommits(report.walk?.repairCommits, repaired);
   if (repaired.length > 0) {
     // Prove the repair in the lane before folding it into its declared owner.
-    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    const delta = toolingDeltaCheck();
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
-  const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
-  if (hasFixups) {
-    // Interactive autosquash matches `fixup!` targets by SUBJECT, so with folds on the stack it
-    // must run from the newest fold's `onto`: a target outside the todo cannot be matched, and an
-    // older commit sharing the subject cannot steal the fixup into the proved prefix
-    // (RSI-Software/t3code-hyprws#922).
-    const autosquashBase =
-      (report.folds ?? []).length > 0
-        ? report.folds![report.folds!.length - 1]!.onto
-        : report.target!.sha;
-    requireSuccess(
-      runner,
-      "git",
-      rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", autosquashBase]),
-      worktree,
-      undefined,
-      { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
-      true,
+  // Autosquash must run for every `fixup!` on the lane: the ones this invocation created and the
+  // ones a run stopped at the repair battery left behind (recorded in `walk.repairCommits`). A
+  // rerun that only looked at its own commits could never fold the retained ones.
+  const retainedRepairCommits = (report.walk?.repairCommits ?? []).filter(({ subject }) =>
+    subject.startsWith("fixup! "),
+  );
+  const hasFixups =
+    laneFixups.length > 0 ||
+    retainedRepairCommits.length > 0 ||
+    [...seamCommits, ...additiveCommits, ...repaired].some(({ subject }) =>
+      subject.startsWith("fixup! "),
     );
-    if (
-      (report.folds ?? []).length > 0 &&
-      runner.run(
-        "git",
-        ["merge-base", "--is-ancestor", report.folds![report.folds!.length - 1]!.onto, "HEAD"],
-        worktree,
-      ).status !== 0
-    )
-      throw new Error("autosquash rewrote the proved fold prefix; the walk cannot prove its stack");
-  }
-  // Fixups no longer exist after autosquash; only standalone bookkeeping remains reportable.
-  repairCommits = repairCommits.filter(({ subject }) => !subject.startsWith("fixup! "));
-  // Autosquash rewrites the SHAs of every commit above its targets, the appended standalone
-  // repairs included. Re-read them from the finished head so the newest fold segment's
-  // `repairCommits` carries the SHAs the replay proof excludes (RSI-Software/t3code-hyprws#922).
+  // The lane head the autosquash must restore on conflict, read from the lane: the seam, additive,
+  // and repair commits have all moved HEAD by now, so an inferred value could restore the wrong
+  // head and leave the lane somewhere the checked report does not name.
+  const preAutosquashHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
   const folds = report.folds ?? [];
-  let foldsWithRepairs = folds;
-  if (folds.length > 0 && repairCommits.length > 0) {
-    // The standalone repairs ride at the head, above the newest fold's `onto`, and autosquash
-    // rewrote their SHAs — so re-identify them by the `Fork-Repair` trailer their message
-    // carries, never by subject: a landing that shares the repair's subject would otherwise
-    // steal its identity (RSI-Software/t3code-hyprws#922).
-    const newestOnto = folds[folds.length - 1]!.onto;
-    const resolved = replayMessagesWithShas(runner, worktree, `${newestOnto}..HEAD`)
-      .filter(({ message }) => isRepairMessage(message))
-      .map(({ sha, message }) => ({
-        sha,
-        subject: normalizeReplayMessages(message).split("\n")[0] ?? "",
-      }));
-    const last = folds.length - 1;
-    const previous = folds[last]!.repairCommits ?? [];
-    const additions = resolved.filter(({ sha }) => !previous.some((item) => item.sha === sha));
-    if (additions.length > 0)
-      foldsWithRepairs = folds.map((fold, position) =>
-        position === last ? { ...fold, repairCommits: [...previous, ...additions] } : fold,
+  if (hasFixups) {
+    // Autosquash always runs from the target: a fixup may target a fork commit below the newest
+    // fold's `onto`, and a todo that starts at the fold would never reach it. This rewrites SHAs
+    // inside the proved prefix, which is why the segments are re-proved below instead of guarded.
+    // Autosquash permutes history, never the final tree — the invariant below pins that.
+    const testedTree = git(runner, worktree, ["rev-parse", "HEAD^{tree}"], true);
+    try {
+      requireSuccess(
+        runner,
+        "git",
+        rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", report.target!.sha]),
+        worktree,
+        undefined,
+        { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+        true,
       );
+    } catch (error) {
+      // Never leave a mid-rebase lane: abort, restore the recorded head, and name the paths.
+      const dirty = git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"], true)
+        .split("\n")
+        .filter(Boolean)
+        .join(", ");
+      git(runner, worktree, ["rebase", "--abort"], true);
+      git(runner, worktree, ["reset", "--hard", preAutosquashHead], true);
+      throw new Error(
+        `the autosquash rebase conflicted${dirty === "" ? "" : ` on ${dirty}`}; the lane was restored to ${preAutosquashHead}`,
+        { cause: error },
+      );
+    }
+    const landedTree = git(runner, worktree, ["rev-parse", "HEAD^{tree}"], true);
+    if (landedTree !== testedTree)
+      throw new Error(
+        `the autosquashed lane's tree changed: tested ${testedTree}, landed ${landedTree}; the landed tree must equal the tested tree`,
+      );
+    // A fixup that survives autosquash would sit at `checked` invisible to every proof.
+    const remaining = git(
+      runner,
+      worktree,
+      ["log", "--format=%s", `${report.target!.sha}..HEAD`],
+      true,
+    )
+      .split("\n")
+      .filter((subject) => subject.startsWith("fixup! "));
+    if (remaining.length > 0)
+      throw new Error(
+        `autosquash left fixup commits on the lane: ${remaining.map((s) => `"${s}"`).join(", ")}`,
+      );
+    // The rewrite moved history under the proof: re-prove the replay over the rewritten stack.
+    verifyReplay(report, runner);
+  }
+  let foldsWithRepairs = folds;
+  if (hasFixups && folds.length > 0) {
+    // The autosquash rewrote SHAs at or above its oldest target, so the recorded fold segments no
+    // longer bind. Relocate each segment by its landings' messages and re-prove the replayed
+    // count against the relocated positions; a segment that cannot be located stops the walk.
+    const relocated = relocateFoldSegments(report, runner, worktree);
+    report = { ...report, folds: relocated };
+    writeReport(report);
+    foldsWithRepairs = relocated;
+  }
+  if (hasFixups) {
+    // The earlier delta reads run while the repairs are still `fixup!` commits, which
+    // `dropTransientFixups` keeps out of the ledger — so they never see the repair diff. Prove
+    // the delta once more on the autosquashed stack, where the owner diff is what the walk will
+    // apply and the wire-shape gate must judge it.
+    const delta = toolingDeltaCheck();
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+    verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
+  }
+  // Fixups no longer exist after autosquash; with repairs folding into their owners, nothing this
+  // run created stays reportable. Older standalone bookkeeping entries on the segments — from a
+  // walk that ran a previous shape — are dropped when autosquash no longer leaves them reachable.
+  repairCommits = repairCommits.filter(({ subject }) => !subject.startsWith("fixup! "));
+  if (hasFixups && foldsWithRepairs.some((fold) => (fold.repairCommits ?? []).length > 0)) {
+    const reachable = (sha: string): boolean =>
+      runner.run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], worktree).status === 0;
+    foldsWithRepairs = foldsWithRepairs.map((fold) =>
+      fold.repairCommits === undefined
+        ? fold
+        : { ...fold, repairCommits: fold.repairCommits.filter(({ sha }) => reachable(sha)) },
+    );
   }
   const checkedHead = hasFixups
     ? git(runner, worktree, ["rev-parse", "HEAD"], true)
@@ -2117,26 +2564,29 @@ const unblockCheck = (
   }
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== checkedHead)
     throw new Error("HEAD changed after the installed-tree check");
+  // The head bindings come from the lane, not from this run's activity: a re-check of a lane
+  // whose fixups an earlier run squashed produces no repairs, yet its recorded `rebasedHead`
+  // and `stackSize` may still name the pre-squash rehearsal head (`Rebased head`, `Final head`,
+  // and `Stack size` all render from these two fields). Bind whenever the lane disagrees with
+  // the record — or this run created repairs — and otherwise, on a clean untouched lane, bind
+  // nothing at all. The fork series is still exactly what the replay proved: `## Repair
+  // commits` names everything appended after it.
+  const laneStackSize = Number(
+    git(runner, worktree, ["rev-list", "--count", `${report.target?.sha ?? ""}..HEAD`], true),
+  );
+  const headDrifted =
+    report.rebasedHead !== undefined &&
+    (checkedHead !== report.rebasedHead || laneStackSize !== report.stackSize);
   report = preserveRecordDecisions({
     ...report,
     stage: "checked",
     installedHead: checkedHead,
-    // A repair moves the lane head the apply publishes, so the record's head and stack size bind
-    // that head. The gate compares them against the checkout, and the fork series is still
-    // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommit === undefined
-      ? {}
-      : {
+    ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+      ? {
           rebasedHead: checkedHead,
-          stackSize: Number(
-            git(
-              runner,
-              worktree,
-              ["rev-list", "--count", `${report.target?.sha ?? ""}..HEAD`],
-              true,
-            ),
-          ),
-        }),
+          stackSize: laneStackSize,
+        }
+      : {}),
     ...(foldsWithRepairs.length > 0 &&
     (foldsWithRepairs !== report.folds ||
       foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
@@ -2149,12 +2599,22 @@ const unblockCheck = (
     ...(ciHead === undefined ? {} : { ciHead }),
     ...(proposedBy === undefined ? {} : { proposedBy }),
     verification,
-    walk: {
-      ...(report.walk ?? {}),
-      repairs: verification,
-      ...(repairCommits.length === 0 ? {} : { repairCommits }),
-    },
-    silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
+    walk: (() => {
+      // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
+      // are now folded into their owners, and an empty list must not leave the stale array behind.
+      const walk = { ...(report.walk ?? {}), repairs: verification };
+      if (repairCommits.length === 0) delete walk.repairCommits;
+      else walk.repairCommits = repairCommits;
+      return walk;
+    })(),
+    // Declared seams replace the recorded rows by path, so the operator repeats only the flags
+    // that changed; a path not re-declared keeps its recorded summary and type.
+    silentSeams: uniqueSilentSeams([
+      ...(report.silentSeams ?? []).filter(
+        (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
+      ),
+      ...silentSeams,
+    ]),
   });
   writeReport(report);
   writeRecord(report);
