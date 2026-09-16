@@ -207,16 +207,30 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
    installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
-   workspace's typecheck, and the focused test files beside the touched sources. What a repair rewrites
-   becomes one bot commit appended after the replayed stack, carrying `Fork-Repair: <tag>`; no replayed
-   fork commit is ever amended. Before repairs, the walk proves the replayed tree purely additive
+   workspace's typecheck, and the focused test files beside the touched sources plus every
+   fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. The repair-scope formatter runs first — it
+   covers every repair commit the lane carries (`Fork-Repair` commits, `fixup!`s, and the walk's own
+   repair commits), so the additive proof and the battery judge the formatted tree — the formatted
+   repairs are committed before the additive gate, which reads HEAD — and if the commit-time
+   formatter rewrites anything after the battery, the battery reruns once on the formatted tree
+   (any drift after that rerun is a stop, never a second rerun). What a repair rewrites
+   becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
+   ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the check discovers every `fixup!`
+   on the lane, recorded or not. After the autosquash the
+   check proves the landed tree equals the tested tree, re-proves the
+   replay, and re-proves the fold segments; a conflicted autosquash is aborted and the lane head
+   restored. Before repairs, the walk proves the replayed tree purely additive
    (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
-   upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure
+   upstream-deleted lines) and repairs a failure once as a `fixup!` to its owner; a failure
    the fix refuses is the `conflict` stop. Only a series
    rewrite pushes the disposable lane and polls every 30 seconds for the CI verdict on the pushed
    head, with a 45-minute ceiling; a timeout fails that gate. Record a repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the walk carries that evidence into the record.
+   `--silent-seam '<path>=<summary>:behaviour'`; the walk carries that evidence into the record, and
+   a lane repaired by hand before the check is committed by the check as its own `seam` repair ahead
+   of the additive proof; repairs always fold into their owning fork commit, the fold segments are
+   re-proved after the autosquash, and `--seam-owner` names the owner of a path no fork commit
+   touched.
    Never substitute repo-wide local checks.
 
    **Stop.** On an objective nightly lane, the `checked` report already carries its proposer,
