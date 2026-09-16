@@ -15157,6 +15157,766 @@
           "recordedAt": "2026-09-15T18:51:07.231Z"
         }
       ]
+    },
+    {
+      "tag": "v0.0.43-nightly.20260916.1825",
+      "before": "085f96b344df0bfef940e6a91d6a8efca774d5ce",
+      "after": "085f96b344df0bfef940e6a91d6a8efca774d5ce",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/1038#issuecomment-5705804331",
+      "conflicts": [
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "e80dd9efb917",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "commit": "e80dd9efb917",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.draft.$draftId.tsx",
+          "commit": "e80dd9efb917",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): add project route subtree",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): preserve project thread routes",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): render scoped project shell",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(desktop): use themed app context menus",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(server): serve paginated child work (#195)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "verdict": "partial",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260910.1473)"
+        },
+        {
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "chore(fork): consolidate fork tooling for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260913.1625)"
+        },
+        {
+          "subject": "refactor(web): pull-request project scope supplied by one prop hook",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(upstream-fixes): external symlink seams sit behind fork-owned files",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(zmux-estate): checkout-move decider cases dispatch from one fork handler",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(upstream-fixes): composer refocus folds into the window-focus predicate",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "hunks": null,
+          "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.draft.$draftId.tsx",
+          "hunks": null,
+          "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "hunks": null,
+          "commit": "ffd66e7fa5252f86ec438341065000d9f826900d",
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubCli.ts",
+          "hunks": null,
+          "commit": "9410c1288a7882d3c44232028d546bf30ed17813",
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubSourceControlProvider.ts",
+          "hunks": null,
+          "commit": "9410c1288a7882d3c44232028d546bf30ed17813",
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "hunks": null,
+          "commit": "76be20c62a127963f92ca6c1f24ac514a1fb8df5",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/settings/settingsSearch.ts",
+          "hunks": null,
+          "commit": "76be20c62a127963f92ca6c1f24ac514a1fb8df5",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.tsx",
+          "hunks": null,
+          "commit": "f32ae7df498267129ed3f78652fa5e22bc145a18",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/sidebar/SidebarChrome.tsx",
+          "hunks": null,
+          "commit": "f32ae7df498267129ed3f78652fa5e22bc145a18",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.tsx",
+          "hunks": null,
+          "commit": "52f8f9724ca4114833aeb482866c668c87eafb2a",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "hunks": null,
+          "commit": "49a87ec9dac2e2fe412a94586e6b3cfc862ef9bd",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "hunks": null,
+          "commit": "bb29fb023c969376bf952652deb3f3e0c35f9419",
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "hunks": null,
+          "commit": "7337c610cd72b14dea44e9a3f3b7f211ccd12fe9",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "71d0122dc6da2517d0f3775d481562e06b4b988d",
+          "subject": "refactor(web): pull-request project scope supplied by one prop hook",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+          "hunks": null,
+          "commit": "47873868f9187b7efc45ddd9f70a5c4e419c96b0",
+          "subject": "refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam",
+          "domain": "worktrunk-hooks"
+        }
+      ],
+      "censusEvidence": {
+        "version": 1,
+        "method": "sequential-rebase-walk-resolution",
+        "sourceSha": "085f96b344df0bfef940e6a91d6a8efca774d5ce",
+        "baseSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+        "targetSha": "052c7ae53e46c705d5fd5dfa995275bc3100744e",
+        "targetTag": "v0.0.43-nightly.20260916.1825",
+        "complete": true,
+        "rows": [
+          {
+            "stop": 1,
+            "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+            "subject": "refactor(web): centralize thread route navigation",
+            "domain": "project-windows",
+            "path": "apps/web/src/components/ChatView.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "fork-hook reapply of `upstream-fixes/composer-refocus-import`, `upstream-fixes/composer-refocus-predicate`, `upstream-fixes/terminal-focus-gate`, `upstream-fixes/terminal-focus-gate-request`, `upstream-fixes/terminal-focus-intent-drawer`, `upstream-fixes/terminal-focus-intent-panel`, `upstream-fixes/terminal-focus-command`, `upstream-fixes/drawer-open-focus-request`, `upstream-fixes/drawer-focus-reset`, `github-issues/chat-view-detail-import`, `github-issues/chat-view-detail-surface` refused: the fork tip's declaration for `upstream-fixes/terminal-focus-gate-request`, `github-issues/chat-view-detail-surface` matches several lines in this commit's fork text, so the tip marker cannot be placed; the fork tip declares `upstream-fixes/composer-refocus-import`, `upstream-fixes/terminal-focus-intent-drawer`, `upstream-fixes/terminal-focus-intent-panel`, `upstream-fixes/drawer-open-focus-request`, `upstream-fixes/drawer-focus-reset`, `github-issues/chat-view-detail-import` but no matching lines exist in this commit (keep-both declined: upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam)"
+          },
+          {
+            "stop": 1,
+            "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+            "subject": "refactor(web): centralize thread route navigation",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam"
+          },
+          {
+            "stop": 1,
+            "commit": "e80dd9efb917ee5c2c8ca74e7d07687f0be18f7f",
+            "subject": "refactor(web): centralize thread route navigation",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.draft.$draftId.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam"
+          },
+          {
+            "stop": 2,
+            "commit": "ffd66e7fa5252f86ec438341065000d9f826900d",
+            "subject": "feat(desktop): route project window intents",
+            "domain": "project-windows",
+            "path": "apps/desktop/src/window/DesktopWindow.ts",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam"
+          },
+          {
+            "stop": 3,
+            "commit": "9410c1288a7882d3c44232028d546bf30ed17813",
+            "subject": "fix(server): keep pull requests on origin",
+            "domain": "upstream-fixes",
+            "path": "apps/server/src/sourceControl/GitHubCli.ts",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam"
+          },
+          {
+            "stop": 3,
+            "commit": "9410c1288a7882d3c44232028d546bf30ed17813",
+            "subject": "fix(server): keep pull requests on origin",
+            "domain": "upstream-fixes",
+            "path": "apps/server/src/sourceControl/GitHubSourceControlProvider.ts",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam"
+          },
+          {
+            "stop": 4,
+            "commit": "76be20c62a127963f92ca6c1f24ac514a1fb8df5",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "fork-hook reapply of `upstream-fixes/settings-row-import`, `upstream-fixes/settings-restore-symlinks-label`, `upstream-fixes/settings-row-mount`, `worktrunk-hooks/settings-restore-env-mode-wire` refused: the fork side of this seam adds lines beyond its marked hooks, so there is no mechanical seam to lift; the fork tip declares `upstream-fixes/settings-row-import`, `upstream-fixes/settings-restore-symlinks-label`, `upstream-fixes/settings-row-mount`, `worktrunk-hooks/settings-restore-env-mode-wire` but no matching lines exist in this commit (keep-both declined: keep-both declined: merged text does not parse ('}' expected.))"
+          },
+          {
+            "stop": 4,
+            "commit": "76be20c62a127963f92ca6c1f24ac514a1fb8df5",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/settings/settingsSearch.ts",
+            "kind": "content",
+            "stage": "keep-both"
+          },
+          {
+            "stop": 5,
+            "commit": "f32ae7df498267129ed3f78652fa5e22bc145a18",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/RightPanelTabs.tsx",
+            "kind": "content",
+            "stage": "upstream-only"
+          },
+          {
+            "stop": 5,
+            "commit": "f32ae7df498267129ed3f78652fa5e22bc145a18",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/sidebar/SidebarChrome.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "fork-hook reapply of `project-windows/sidebar-pr-list-route-import`, `github-issues/sidebar-issues-icon`, `github-issues/sidebar-issues-supported-import`, `github-issues/sidebar-issues-supported`, `github-issues/sidebar-issues-footer-page-import`, `github-issues/sidebar-issues-footer-page`, `github-issues/sidebar-issues-navigate-import`, `github-issues/sidebar-issues-navigate`, `github-issues/sidebar-issues-entry` refused: the fork side of this seam removes base line 151 outside every marked hook, so there is no mechanical seam to lift; the fork tip declares `github-issues/sidebar-issues-supported-import`, `github-issues/sidebar-issues-supported`, `github-issues/sidebar-issues-footer-page-import`, `github-issues/sidebar-issues-footer-page`, `github-issues/sidebar-issues-navigate-import`, `github-issues/sidebar-issues-navigate`, `github-issues/sidebar-issues-entry` but no matching lines exist in this commit (keep-both declined: upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam)"
+          },
+          {
+            "stop": 6,
+            "commit": "52f8f9724ca4114833aeb482866c668c87eafb2a",
+            "subject": "fix(web): add Issues to right-panel launchers (#193)",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/RightPanelTabs.tsx",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "fork-hook reapply of `github-issues/panel-tab-title`, `github-issues/panel-tab-status-icon` refused: the fork side of this seam removes base line 315 outside every marked hook, so there is no mechanical seam to lift (keep-both declined: upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam)"
+          },
+          {
+            "stop": 7,
+            "commit": "49a87ec9dac2e2fe412a94586e6b3cfc862ef9bd",
+            "subject": "Suspend hidden managed zmux terminal attachments",
+            "domain": "zmux-estate",
+            "path": "apps/desktop/src/preload.ts",
+            "kind": "content",
+            "stage": "keep-both"
+          },
+          {
+            "stop": 8,
+            "commit": "bb29fb023c969376bf952652deb3f3e0c35f9419",
+            "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+            "domain": "project-windows",
+            "path": "apps/desktop/src/preload.ts",
+            "kind": "content",
+            "stage": "fork-only"
+          },
+          {
+            "stop": 9,
+            "commit": "7337c610cd72b14dea44e9a3f3b7f211ccd12fe9",
+            "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+            "domain": "backend-attach",
+            "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+            "kind": "content",
+            "stage": "unresolved",
+            "reason": "keep-both declined: merged text does not parse (')' expected.)"
+          },
+          {
+            "stop": 10,
+            "commit": "71d0122dc6da2517d0f3775d481562e06b4b988d",
+            "subject": "refactor(web): pull-request project scope supplied by one prop hook",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+            "kind": "content",
+            "stage": "keep-both"
+          },
+          {
+            "stop": 11,
+            "commit": "47873868f9187b7efc45ddd9f70a5c4e419c96b0",
+            "subject": "refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+            "kind": "content",
+            "stage": "upstream-only"
+          }
+        ]
+      },
+      "walkDecisions": [
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/components/ChatView.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/components/ChatView.tsx"
+        },
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx"
+        },
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/routes/_chat.draft.$draftId.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/routes/_chat.draft.$draftId.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "fb551de546c6896d2afda6a1a2a38b36f735dd5efeae0f657758a9a21eafe806",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/components/ChatView.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "2baff851ea5808771d2994a40def688131a53cfc3ebd3602a7a2d8c329b4141d",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "0e11cc621d5fbf2096f320b86d31608b09bb5bd10d7b5a76fe047a2cd7b70774",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z",
+          "path": "apps/web/src/routes/_chat.draft.$draftId.tsx"
+        },
+        {
+          "kind": "retire",
+          "subject": "refactor(web): centralize thread route navigation",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): render scoped project shell",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): open project windows from hub actions",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): keep pull requests on origin",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): use themed app context menus",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "outcome": "partial",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260916.1825",
+          "recordedAt": "2026-09-16T22:12:12.171Z"
+        }
+      ],
+      "pending": true,
+      "elapsedMs": 447261,
+      "effort": {
+        "model": "claude-fable-5-1",
+        "effort": "medium"
+      }
     }
   ],
   "seamRecords": [
