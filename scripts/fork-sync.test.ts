@@ -38,7 +38,6 @@ import {
   parseConflictRows,
   parseSilentSeam,
   preserveRecordDecisions,
-  reconcileAfterApply,
   repairDomain,
   resumeRererePublication,
   regenerateGeneratedConflicts,
@@ -2945,7 +2944,6 @@ it("walks past a stale mirror line when every leased ref still coheres", () => {
     // preflight declares mirror currency advisory for a tag-pinned walk, so
     // this stale line must not stop it.
     orientation: `mirror:       origin/main aaaaaaaaaaaa, upstream/main bbbbbbbbbbbb\n`,
-    reconciliation: { state: "dispatched", baselineRunId: 1, runUrl: "https://example.test/run" },
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
@@ -2997,7 +2995,6 @@ it("appends the trunk's own missing row before it walks the next target", () => 
     installedHead: B,
     ciHead: B,
     orientation: coherentOrientation,
-    reconciliation: { state: "dispatched", baselineRunId: 1, runUrl: "https://example.test/run" },
   });
   NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
   NodeFS.writeFileSync(applied.recordPath, renderRecord(applied));
@@ -3285,120 +3282,6 @@ it("pins the rewrite gate to the release tag at the fork base", () => {
   }
 });
 
-const dispatchListArgs = [
-  "run",
-  "list",
-  "--workflow",
-  "hyprws-upstream-sync.yml",
-  "--event",
-  "workflow_dispatch",
-  "-L",
-  "10",
-  "--json",
-  "databaseId,url",
-  "--repo",
-  "RSI-Software/t3code-hyprws",
-] as const;
-
-it("identifies the new reconciliation run instead of the old race winner", () => {
-  const root = fixtureRoot();
-  const applied = report(root, { stage: "applied" });
-  const runner = new FakeRunner();
-  runner.setSequence("gh", dispatchListArgs, [
-    { stdout: JSON.stringify([{ databaseId: 10, url: "https://example.test/runs/old" }]) },
-    {
-      stdout: JSON.stringify([
-        { databaseId: 11, url: "https://example.test/runs/new" },
-        { databaseId: 10, url: "https://example.test/runs/old" },
-      ]),
-    },
-  ]);
-  try {
-    const next = reconcileAfterApply(applied, runner);
-    assert.deepStrictEqual(next.reconciliation, {
-      state: "dispatched",
-      baselineRunId: 10,
-      runUrl: "https://example.test/runs/new",
-    });
-    assert.isDefined(
-      runner.calls.find(
-        ({ command, args }) =>
-          command === "gh" &&
-          args.join(" ") ===
-            "workflow run hyprws-upstream-sync.yml --ref hyprws --repo RSI-Software/t3code-hyprws",
-      ),
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("resumes an ambiguous reconciliation without redispatching", () => {
-  const root = fixtureRoot();
-  const applied = report(root, {
-    stage: "applied",
-    reconciliation: { state: "ambiguous", baselineRunId: 10 },
-  });
-  const runner = new FakeRunner();
-  runner.set("gh", dispatchListArgs, {
-    stdout: JSON.stringify([{ databaseId: 12, url: "https://example.test/runs/resumed" }]),
-  });
-  try {
-    const next = reconcileAfterApply(applied, runner);
-    assert.strictEqual(next.reconciliation?.runUrl, "https://example.test/runs/resumed");
-    assert.isFalse(
-      runner.calls.some(
-        ({ command, args }) => command === "gh" && args[0] === "workflow" && args[1] === "run",
-      ),
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("prints resume after an ambiguous reconciliation failure", () => {
-  const root = fixtureRoot();
-  const applied = report(root, { stage: "applied" });
-  NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
-  const runner = new FakeRunner();
-  runner.set("gh", dispatchListArgs, { stdout: "[]" });
-  runner.set(
-    "gh",
-    [
-      "workflow",
-      "run",
-      "hyprws-upstream-sync.yml",
-      "--ref",
-      "hyprws",
-      "--repo",
-      "RSI-Software/t3code-hyprws",
-    ],
-    { status: 1, stderr: "dispatch failed" },
-  );
-  let stderr = "";
-  const original = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    assert.strictEqual(run(["unblock-auto", "--report", applied.reportPath], root, runner), 1);
-    assert.include(stderr, "failed: gh workflow run");
-    assert.include(stderr, `report: ${applied.reportPath}`);
-    assert.strictEqual(
-      validateReport(JSON.parse(NodeFS.readFileSync(applied.reportPath, "utf8"))).reconciliation
-        ?.state,
-      "ambiguous",
-    );
-  } finally {
-    process.stderr.write = original;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
-  }
-});
-
 it("unblock-auto waits out a RUNNING bot that finishes, and fails loudly at the ceiling", () => {
   const root = fixtureRoot();
   const listed = report(root);
@@ -3432,6 +3315,25 @@ it("unblock-auto waits out a RUNNING bot that finishes, and fails loudly at the 
     process.stderr.write = original;
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("records the push trigger on an applied report instead of dispatching", () => {
+  const root = fixtureRoot();
+  const applied = report(root, { stage: "applied", installedHead: B });
+  NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
+  const runner = new FakeRunner();
+  try {
+    assert.strictEqual(run(["unblock-auto", "--report", applied.reportPath], root, runner), 0);
+    assert.isFalse(
+      runner.calls.some(({ command, args }) => command === "gh" && args[0] === "workflow"),
+    );
+    assert.isFalse(runner.calls.some(({ command }) => command === "sleep"));
+    const persisted = validateReport(JSON.parse(NodeFS.readFileSync(applied.reportPath, "utf8")));
+    assert.deepStrictEqual(persisted.reconciliation, { trigger: "push", sha: B });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -4499,7 +4401,6 @@ const additiveWalkFixture = (
     orientation: coherentOrientation,
     conflicts: [],
     verification: [],
-    reconciliation: { state: "dispatched", baselineRunId: 1 },
   } as unknown);
   NodeFS.writeFileSync(reportPath, JSON.stringify(replayed));
   const runner = new AdditiveWalkRunner();
@@ -7650,24 +7551,6 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     const inner = new FakeRunner();
     const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
     setBotResponses(inner, "candidate");
-    inner.set(
-      "gh",
-      [
-        "run",
-        "list",
-        "--workflow",
-        "hyprws-upstream-sync.yml",
-        "--event",
-        "workflow_dispatch",
-        "-L",
-        "10",
-        "--json",
-        "databaseId,url",
-        "--repo",
-        "RSI-Software/t3code-hyprws",
-      ],
-      { stdout: "[]" },
-    );
     return {
       calls,
       run: (command, args, cwd, input, env) => {
@@ -7684,6 +7567,8 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
             return options.patchResult();
           return inner.run(command, args, cwd, input, env);
         }
+        if (command !== "git")
+          assert.fail(`unscripted command reached the wrapper: ${command} ${args.join(" ")}`);
         return system.run(command, args, cwd, input, env);
       },
     };
@@ -7932,17 +7817,11 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const ledger = ledgerEnv(item.trunk, folding.recordPath);
       const runner = wrapperRunner();
       try {
-        let finished: SyncReport;
-        try {
-          finished = execute(["unblock-auto", "--report", folding.reportPath], item.trunk, runner);
-        } catch (error) {
-          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the fold and
-          // the push already landed, so judge the persisted report.
-          void error;
-          finished = validateReport(
-            JSON.parse(NodeFS.readFileSync(folding.reportPath, "utf8")),
-          ) as SyncReport;
-        }
+        const finished: SyncReport = execute(
+          ["unblock-auto", "--report", folding.reportPath],
+          item.trunk,
+          runner,
+        );
         assert.strictEqual(finished.stage, "applied");
         assert.strictEqual(finished.source?.expectedOld, landing);
         assert.strictEqual(finished.folds?.length, 1);
@@ -8392,16 +8271,11 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const ledger = ledgerEnv(item.trunk, checked.recordPath);
       const runner = wrapperRunner();
       try {
-        let finished: SyncReport;
-        try {
-          finished = execute(["unblock-auto", "--report", checked.reportPath], item.trunk, runner);
-        } catch {
-          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the recovery
-          // and the push already landed, so judge the persisted report.
-          finished = validateReport(
-            JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")),
-          ) as SyncReport;
-        }
+        const finished: SyncReport = execute(
+          ["unblock-auto", "--report", checked.reportPath],
+          item.trunk,
+          runner,
+        );
         assert.strictEqual(finished.stage, "applied");
         assert.strictEqual(finished.publication?.outcome, "applied");
         // Resumed in place, never re-listed.
@@ -8464,16 +8338,11 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const ledger = ledgerEnv(item.trunk, stopped.recordPath);
       try {
         const runner = wrapperRunner();
-        let finished: SyncReport;
-        try {
-          finished = execute(["unblock-auto", "--report", stopped.reportPath], item.trunk, runner);
-        } catch {
-          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the fold and
-          // the push already landed, so judge the persisted report.
-          finished = validateReport(
-            JSON.parse(NodeFS.readFileSync(stopped.reportPath, "utf8")),
-          ) as SyncReport;
-        }
+        const finished: SyncReport = execute(
+          ["unblock-auto", "--report", stopped.reportPath],
+          item.trunk,
+          runner,
+        );
         assert.strictEqual(finished.stage, "applied");
         assert.strictEqual(finished.source?.expectedOld, landing);
         assert.strictEqual(finished.reportPath, stopped.reportPath);
