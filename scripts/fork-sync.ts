@@ -801,6 +801,18 @@ const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<str
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
 /**
+ * The lane's own installs rewrite `pnpm-lock.yaml` snapshot hashes in the worktree without staging
+ * them, and `git rebase --continue` refuses any unstaged change before it looks at the index. The
+ * lockfile the step commits is the one in the index, so worktree-only drift on it is discarded
+ * before the rebase continues (RSI-Software/t3code-hyprws#1063).
+ */
+export const discardUnstagedLockfileDrift = (runner: CommandRunner, cwd: string): void => {
+  const drift = git(runner, cwd, ["diff", "--name-only", "--", "pnpm-lock.yaml"], true);
+  if (drift === "") return;
+  git(runner, cwd, ["restore", "--worktree", "--", "pnpm-lock.yaml"], true);
+};
+
+/**
  * A streamed `git rebase` inherits stdio, so its stderr never reaches `CommandResult` — the
  * operator already saw it live. A non-conflict rebase failure still needs a reason on the thrown
  * error, so this reads the worktree's real state instead of the (now-empty) captured stderr.
@@ -1449,6 +1461,7 @@ const unblockRehearse = (
     } else if (pendingRetired) {
       // The rebase drops the emptied commit knowingly via --skip, not by accident
       assertRetiredInLedger(pendingRetiredSubjects, lane.worktree);
+      discardUnstagedLockfileDrift(runner, lane.worktree);
       const continued = runner.run(
         "git",
         rehearsalRebaseArgs(["rebase", "--skip"]),
@@ -1462,6 +1475,7 @@ const unblockRehearse = (
           `git rebase --skip failed without conflicts: ${rebaseFailureDetail(runner, lane.worktree)}`,
         );
     } else {
+      discardUnstagedLockfileDrift(runner, lane.worktree);
       const continued = runner.run(
         "git",
         rehearsalRebaseArgs(["rebase", "--continue"]),

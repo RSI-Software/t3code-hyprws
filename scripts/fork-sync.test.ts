@@ -18,6 +18,7 @@ import {
   completeGeneratedConflictRegeneration,
   conflictResolutionIsReady,
   conflictStopDirtAllowance,
+  discardUnstagedLockfileDrift,
   decisionSurface,
   execute,
   filledDecisionCells,
@@ -1635,6 +1636,23 @@ it("round-trips escaped pipes and backslashes in conflict cells", () => {
     /invalid conflict Resolution cell: unsupported escape \\q/,
   );
   NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
+it("discards worktree-only lockfile drift before the rebase continues, and nothing else", () => {
+  // A lane install rewrites snapshot hashes without staging them; git refuses --continue on any
+  // unstaged change, so the index's lockfile is restored over the worktree copy.
+  const drifted = new FakeRunner();
+  drifted.set("git", rehearsal(["diff", "--name-only", "--", "pnpm-lock.yaml"]), {
+    stdout: "pnpm-lock.yaml\n",
+  });
+  discardUnstagedLockfileDrift(drifted, "/lane");
+  assert.deepStrictEqual(
+    drifted.calls.filter(({ args }) => args.includes("restore")).map(({ args }) => args),
+    [rehearsal(["restore", "--worktree", "--", "pnpm-lock.yaml"])],
+  );
+  const clean = new FakeRunner();
+  discardUnstagedLockfileDrift(clean, "/lane");
+  assert.isFalse(clean.calls.some(({ args }) => args.includes("restore")));
 });
 
 it("allows a conflict stop's dirt at whichever stage the stop was recorded", () => {
