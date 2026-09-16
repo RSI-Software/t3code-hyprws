@@ -503,11 +503,25 @@ it("plans a no-op at the base and rejects an override beyond the clean window", 
     assert.strictEqual(noOp.target?.sha, fixture.base);
     assert.strictEqual(result.status, "no-op");
     assert.strictEqual(result.newSha, null);
+    // On the walk but past the clean fast-forward boundary: position, clean count,
+    // boundary commit, and the omit --target escape hatch.
     assert.throws(
       () => buildAutoRebasePlan(reader, fixture.fork, "v1.1.0-nightly.20260828.1209"),
       UsageError,
+      /^--target v1\.1\.0-nightly\.20260828\.1209 is past the clean fast-forward boundary \(position 3, 2 clean commits, boundary [0-9a-f]+ fix: blocking upstream change \(#8483\)\); omit --target to stop at the newest clean tag$/,
     );
     assert.throws(() => buildAutoRebasePlan(reader, fixture.fork, fixture.stable), UsageError);
+    // A real upstream commit that is not on the first-parent walk from the merge base.
+    git(fixture.root, ["switch", "-c", "upstream-side", fixture.base]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "side.txt"), "side\n");
+    const side = commit(fixture.root, "feat: side upstream commit");
+    git(fixture.root, ["tag", "v1.2.0-nightly.20260828.1210", side]);
+    git(fixture.root, ["switch", "fork-stack"]);
+    assert.throws(
+      () => buildAutoRebasePlan(reader, fixture.fork, "v1.2.0-nightly.20260828.1210"),
+      UsageError,
+      /--target is not on the upstream first-parent walk from the merge base: v1\.2\.0-nightly\.20260828\.1210/,
+    );
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
