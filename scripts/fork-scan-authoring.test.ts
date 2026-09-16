@@ -6,8 +6,34 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
+import { run as runScanCli } from "./fork-scan.ts";
 
 const scanScript = NodePath.join(import.meta.dirname, "fork-scan.ts");
+
+// In-process CLI invocation: capture both streams and the exit status without
+// paying a fresh Node process per case. One subprocess smoke test below keeps
+// the bin wiring proven.
+const scanInProcess = (argv: ReadonlyArray<string>, cwd: string) => {
+  let stdout = "";
+  let stderr = "";
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const status = runScanCli(argv, cwd);
+    return { status, stdout, stderr };
+  } finally {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+  }
+};
 const encodeFixtureJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const authoringCases = [
   {
@@ -470,10 +496,8 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
       const replayed = commit(`add inline ${example.name}\n\n${tagged}`);
 
       const scan = (replayOf: string | null) =>
-        NodeChildProcess.spawnSync(
-          process.execPath,
+        scanInProcess(
           [
-            scanScript,
             "--head",
             replayed,
             "--target",
@@ -483,7 +507,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
             "--no-typecheck",
             ...(replayOf === null ? [] : ["--replay-of", replayOf]),
           ],
-          { cwd: root, encoding: "utf8" },
+          root,
         );
 
       const unscoped = scan(null);
@@ -573,10 +597,8 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
           );
           const bad = commit(`add inline ${example.name}\n\n${tagged}`);
           const scan = (head: string, since: string | null) =>
-            NodeChildProcess.spawnSync(
-              process.execPath,
+            scanInProcess(
               [
-                scanScript,
                 "--head",
                 head,
                 "--target",
@@ -584,7 +606,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
                 "--no-typecheck",
                 ...(since === null ? [] : ["--since", since]),
               ],
-              { cwd: root, encoding: "utf8" },
+              root,
             );
 
           const rejected = scan("HEAD", base);
