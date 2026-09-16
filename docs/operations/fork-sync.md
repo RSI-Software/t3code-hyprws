@@ -630,8 +630,8 @@ gh label view release -R RSI-Software/t3code-hyprws
 
 ### Which events run the fork matrix
 
-`hyprws-ci.yml` produces every context the `hyprws` branch ruleset requires: `Check`, `Test`, and
-the three `Test Server` shards. It runs on a pull request that is opened, pushed to, or reopened, on
+`hyprws-ci.yml` produces every context the `hyprws` branch ruleset requires: `Check`, `Test`,
+`Test Scripts`, and the three `Test Server` shards. It runs on a pull request that is opened, pushed to, or reopened, on
 a push to a fork trunk, rehearsal, or release branch, and on `merge_group`.
 
 It deliberately does not run on `ready_for_review`. GitHub already runs `pull_request` on a draft,
