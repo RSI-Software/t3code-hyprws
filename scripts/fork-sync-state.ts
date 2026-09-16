@@ -538,7 +538,7 @@ Unblock verbs:
   unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
-  unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...]
+  unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...] [--seam-owner <path>=<full owner sha> ...]
   unblock-fold --report <json>                            folds linear trunk movement into the candidate
   unblock-review --report <json> (--sign-off | --withhold <reason>)   (series rewrite only)
   unblock-refresh --report <json>
@@ -631,7 +631,7 @@ export const parseVerbArgs = (
     if (flag === undefined || !flag.startsWith("--")) {
       throw new UsageError(`invalid arguments after ${verb}`);
     }
-    if (values.has(flag) && flag !== "--silent-seam")
+    if (values.has(flag) && flag !== "--silent-seam" && flag !== "--seam-owner")
       throw new UsageError(`duplicate option: ${flag}`);
     if (
       flag === "--dry-run" ||
@@ -647,8 +647,9 @@ export const parseVerbArgs = (
     if (value === undefined || value.startsWith("--")) {
       throw new UsageError(`invalid arguments after ${verb}`);
     }
-    if (flag === "--silent-seam" && values.has(flag)) {
-      values.set(flag, `${values.get(flag)}\n${value}`);
+    if (flag === "--silent-seam" || flag === "--seam-owner") {
+      if (values.has(flag)) values.set(flag, `${values.get(flag)}\n${value}`);
+      else values.set(flag, value);
     } else {
       values.set(flag, value);
     }
