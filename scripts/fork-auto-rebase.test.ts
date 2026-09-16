@@ -329,7 +329,11 @@ const commit = (root: string, subject: string): string => {
   return git(root, ["rev-parse", "HEAD"]);
 };
 
-const fixtureRepository = (): Fixture => {
+// The five-commit history with tags, hook and pushed refs is built once; each test
+// copies the seeded container so fixture construction stops dominating the file.
+let seededContainer: Fixture | null = null;
+
+const seedRepository = (): Fixture => {
   const container = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-auto-rebase-test-"));
   const root = NodePath.join(container, "work");
   const remote = NodePath.join(container, "origin.git");
@@ -386,6 +390,36 @@ const fixtureRepository = (): Fixture => {
   git(root, ["update-ref", "refs/remotes/origin/hyprws", fork]);
   NodeFS.writeFileSync(pushLog, "");
   return { container, root, remote, pushLog, base, stable, cleanNightly, conflict, fork };
+};
+
+const fixtureRepository = (): Fixture => {
+  if (seededContainer === null) seededContainer = seedRepository();
+  const container = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-auto-rebase-test-"));
+  NodeFS.cpSync(seededContainer.container, container, { recursive: true });
+  const root = NodePath.join(container, "work");
+  const remote = NodePath.join(container, "origin.git");
+  const pushLog = NodePath.join(remote, "push-order.log");
+  // The copy carries the seed's absolute paths: rebind the origin URL and the
+  // hook's hardcoded pushLog path to this container. Refs, hooks and remote
+  // state come along and stay per-test.
+  git(root, ["remote", "set-url", "origin", remote]);
+  const hook = NodePath.join(remote, "hooks/post-receive");
+  NodeFS.writeFileSync(
+    hook,
+    `#!/bin/sh\nwhile read old new ref; do printf '%s\\n' "$ref" >> ${JSON.stringify(pushLog)}; done\n`,
+  );
+  NodeFS.chmodSync(hook, 0o755);
+  return {
+    container,
+    root,
+    remote,
+    pushLog,
+    base: seededContainer.base,
+    stable: seededContainer.stable,
+    cleanNightly: seededContainer.cleanNightly,
+    conflict: seededContainer.conflict,
+    fork: seededContainer.fork,
+  };
 };
 
 interface ManualApplyFixture extends Fixture {
