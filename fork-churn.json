@@ -60940,6 +60940,62 @@
       "status": "failed",
       "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry",
+      "trigger": "schedule",
+      "executor": "unknown",
+      "mode": "on",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry/unblock-auto/e934dd33890e6ae37ea38204351cd49cfc2e4753760b203732037a435787c566/snapshot-75acca9fbe08eea5f96520deb40913e6a04dee9ab26b4ab544b6aa92dc66f9e2",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry/unblock-auto/e934dd33890e6ae37ea38204351cd49cfc2e4753760b203732037a435787c566/snapshot-75acca9fbe08eea5f96520deb40913e6a04dee9ab26b4ab544b6aa92dc66f9e2",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry/unblock-auto/e934dd33890e6ae37ea38204351cd49cfc2e4753760b203732037a435787c566/snapshot-75acca9fbe08eea5f96520deb40913e6a04dee9ab26b4ab544b6aa92dc66f9e2",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry/unblock-auto/e934dd33890e6ae37ea38204351cd49cfc2e4753760b203732037a435787c566/snapshot-75acca9fbe08eea5f96520deb40913e6a04dee9ab26b4ab544b6aa92dc66f9e2",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3060cc461458e66842dfb656d979c4acca4dfb20",
+      "attemptId": "35090478820/1/carry/unblock-auto/e934dd33890e6ae37ea38204351cd49cfc2e4753760b203732037a435787c566/snapshot-75acca9fbe08eea5f96520deb40913e6a04dee9ab26b4ab544b6aa92dc66f9e2",
+      "stage": "cache-export",
+      "status": "succeeded",
+      "detail": "workflow rerere cache export result; independent of durable trunk apply",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35090478820"
     }
   ],
   "forecasts": [
