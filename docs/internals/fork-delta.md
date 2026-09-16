@@ -164,7 +164,8 @@ A struct field is optional when its value expression uses `Schema.optional`, `Sc
 
 Keep fork-only contract data in an optional sibling field so released clients can continue to decode
 the upstream wire shape. A reviewed exception carries `Fork-Wire: reviewed <reason>` and remains
-visible in the generated ledger.
+visible in the generated ledger. An addition that restores a literal or field the upstream base
+already ships is not a fork wire change and demands no trailer.
 
 The check is textual rather than a TypeScript AST pass. It cannot see type widening, on-disk settings
 migrations, mobile deep-link parameters, or anything outside exported `Schema.Literals` and
