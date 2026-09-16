@@ -102,9 +102,21 @@ export const buildAutoRebasePlan = (
     }
     const sha = git.run(["rev-parse", `${targetOverride}^{commit}`]).trim();
     const position = positions.get(sha);
-    if (position === undefined || position > feasibility.ffBoundary.cleanCommitCount) {
+    if (position === undefined) {
       throw new UsageError(
-        `--target must be inside the clean upstream first-parent window: ${targetOverride}`,
+        `--target is not on the upstream first-parent walk from the merge base: ${targetOverride}`,
+      );
+    }
+    const cleanCommitCount = feasibility.ffBoundary.cleanCommitCount;
+    if (position > cleanCommitCount) {
+      const boundary = feasibility.ffBoundary.firstConflict;
+      const boundaryDescription = boundary
+        ? `${boundary.shortSha} ${boundary.subject}`
+        : "the end of the clean window";
+      throw new UsageError(
+        `--target ${targetOverride} is past the clean fast-forward boundary ` +
+          `(position ${position}, ${cleanCommitCount} clean commits, boundary ${boundaryDescription}); ` +
+          `omit --target to stop at the newest clean tag`,
       );
     }
     censusTarget = {
