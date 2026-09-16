@@ -9,7 +9,12 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { execute, rewriteBindingMatches, type CommandRunner } from "./fork-sync.ts";
+import {
+  execute,
+  rewriteBindingMatches,
+  run as runForkSyncCli,
+  type CommandRunner,
+} from "./fork-sync.ts";
 import { readReport, renderRecord } from "./fork-sync-state.ts";
 import { syncOutcomeReceipts } from "./fork-churn-outcomes.ts";
 import { outcomeStreak, requireOutcomeReceipts } from "./lib/fork-sync-outcomes.ts";
@@ -41,6 +46,43 @@ const decodeTraceEvent = Schema.decodeUnknownSync(
     Schema.Struct({ event: Schema.String, argv: Schema.optional(Schema.Array(Schema.String)) }),
   ),
 );
+
+// In-process CLI invocation: capture both streams and the exit status without
+// paying a fresh Node process per case. Env overrides mutate process.env inside
+// try/finally so a failing case cannot leak into the next. The strict-usage test
+// below keeps a subprocess smoke slice so bin wiring stays proven.
+const runCli = (
+  argv: ReadonlyArray<string>,
+  cwd: string,
+  env: Record<string, string> = {},
+): { status: number; stdout: string; stderr: string } => {
+  let stdout = "";
+  let stderr = "";
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+  const saved: Record<string, string | undefined> = {};
+  for (const key of Object.keys(env)) saved[key] = process.env[key];
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  Object.assign(process.env, env);
+  try {
+    const status = runForkSyncCli(argv, cwd);
+    return { status, stdout, stderr };
+  } finally {
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+    for (const key of Object.keys(env)) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
+};
 
 const git = (root: string, args: ReadonlyArray<string>, input?: string): string =>
   NodeChildProcess.execFileSync("git", [...args], { cwd: root, input, encoding: "utf8" }).trim();
@@ -723,28 +765,13 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
             NodePath.join(root, ".git/objects") + "\n",
           );
         const before = git(root, ["count-objects", "-v"]);
-        const cli = NodeChildProcess.spawnSync(
-          process.execPath,
-          [
-            NodePath.join(import.meta.dirname, "fork-sync.ts"),
-            "rewrite-build",
-            "--manifest",
-            manifestPath,
-            "--json",
-          ],
-          {
-            cwd: root,
-            encoding: "utf8",
-            env: {
-              ...process.env,
-              GIT_TRACE2_EVENT: tracePath,
-              ...(indicator === "environment"
-                ? { GIT_ALTERNATE_OBJECT_DIRECTORIES: NodePath.join(root, ".git/objects") }
-                : {}),
-              ...(indicator === "redirected-config" ? redirectedConfig : {}),
-            },
-          },
-        );
+        const cli = runCli(["rewrite-build", "--manifest", manifestPath, "--json"], root, {
+          GIT_TRACE2_EVENT: tracePath,
+          ...(indicator === "environment"
+            ? { GIT_ALTERNATE_OBJECT_DIRECTORIES: NodePath.join(root, ".git/objects") }
+            : {}),
+          ...(indicator === "redirected-config" ? redirectedConfig : {}),
+        });
         assert.strictEqual(cli.status, 3, `${indicator}: ${cli.stdout}\n${cli.stderr}`);
         assert.match(
           cli.stdout,
@@ -877,17 +904,7 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           () => buildRewrite(root, raw),
           /explicit empty subtrees|unsupported tree path/,
         );
-        const cli = NodeChildProcess.spawnSync(
-          process.execPath,
-          [
-            NodePath.join(import.meta.dirname, "fork-sync.ts"),
-            "rewrite-build",
-            "--manifest",
-            manifestPath,
-            "--json",
-          ],
-          { cwd: root, encoding: "utf8" },
-        );
+        const cli = runCli(["rewrite-build", "--manifest", manifestPath, "--json"], root);
         assert.strictEqual(cli.status, 3, cli.stdout);
         assert.isFalse(yield* fs.exists(`${manifestPath}.receipt.json`));
         yield* fs.writeFileString(`${manifestPath}.receipt.json`, "{}");
@@ -1079,6 +1096,8 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
       const { root, directory, fs, manifest } = yield* fixture();
       const path = NodePath.join(directory, "manifest.json");
       yield* fs.writeFileString(path, encodeJson(manifest));
+      // Subprocess smoke slice: strict usage and complete JSON stay proven through the
+      // real bin wiring; the rejection matrix below runs the CLI in-process.
       const invokeFrom = (cwd: string, ...args: string[]) =>
         NodeChildProcess.spawnSync(
           process.execPath,
@@ -1086,6 +1105,9 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           { cwd, encoding: "utf8" },
         );
       const invoke = (...args: string[]) => invokeFrom(root, ...args);
+      const rejectFrom = (cwd: string, ...args: string[]) =>
+        runCli(["rewrite-build", ...args], cwd);
+      const reject = (...args: string[]) => rejectFrom(root, ...args);
       const refs = git(root, ["show-ref"]);
       const help = invoke("--help");
       assert.strictEqual(help.status, 0);
@@ -1099,19 +1121,19 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
       const subdirectory = NodePath.join(root, "ordered");
       const before = git(root, ["count-objects", "-v"]);
       for (const cwd of [root, subdirectory]) {
-        const rejected = invokeFrom(cwd, "--manifest", "inside.json", "--json");
+        const rejected = rejectFrom(cwd, "--manifest", "inside.json", "--json");
         assert.strictEqual(rejected.status, 3, rejected.stdout);
         assert.include(rejected.stdout, "outside the repository");
       }
       const redirected = NodePath.join(directory, "redirected");
       yield* fs.symlink(root, redirected);
-      const symlinked = invoke("--manifest", NodePath.join(redirected, "inside.json"), "--json");
+      const symlinked = reject("--manifest", NodePath.join(redirected, "inside.json"), "--json");
       assert.strictEqual(symlinked.status, 3, symlinked.stdout);
       assert.isFalse(yield* fs.exists(`${inside}.receipt.json`));
       const blocked = NodePath.join(directory, "blocked.json");
       yield* fs.writeFileString(blocked, encodeJson(manifest));
       yield* fs.symlink(NodePath.join(root, "missing-receipt"), `${blocked}.receipt.json`);
-      const dangling = invoke("--manifest", blocked, "--json");
+      const dangling = reject("--manifest", blocked, "--json");
       assert.strictEqual(dangling.status, 3, dangling.stdout);
       assert.isFalse(yield* fs.exists(NodePath.join(root, "missing-receipt")));
       assert.strictEqual(git(root, ["count-objects", "-v"]), before);
@@ -1127,7 +1149,7 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           proofs: [{ ...proof, artifact: "proofs/linked.json" }, ...manifest.proofs.slice(1)],
         }),
       );
-      const linkedProof = invoke("--manifest", linkedManifestPath, "--json");
+      const linkedProof = reject("--manifest", linkedManifestPath, "--json");
       assert.strictEqual(linkedProof.status, 3, linkedProof.stdout);
       assert.include(linkedProof.stdout, "proof artifact must be a regular file");
       assert.isFalse(yield* fs.exists(`${linkedManifestPath}.receipt.json`));
@@ -1139,12 +1161,12 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           proofs: [{ ...proof, artifact: "proofs/missing.json" }, ...manifest.proofs.slice(1)],
         }),
       );
-      const missingProof = invoke("--manifest", missingManifestPath, "--json");
+      const missingProof = reject("--manifest", missingManifestPath, "--json");
       assert.strictEqual(missingProof.status, 3, missingProof.stdout);
       assert.include(missingProof.stdout, "missing rewrite proof artifact");
       assert.isFalse(yield* fs.exists(`${missingManifestPath}.receipt.json`));
       yield* fs.writeFileString(proofPath, "tampered\n");
-      const unproved = invoke("--manifest", path, "--json");
+      const unproved = reject("--manifest", path, "--json");
       assert.strictEqual(unproved.status, 3, unproved.stdout);
       assert.include(unproved.stdout, "proof artifact digest mismatch");
       assert.isFalse(yield* fs.exists(`${path}.receipt.json`));
@@ -1179,7 +1201,7 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           ],
         }),
       );
-      const unattested = invoke("--manifest", path, "--json");
+      const unattested = reject("--manifest", path, "--json");
       assert.strictEqual(unattested.status, 3, unattested.stdout);
       assert.include(unattested.stdout, "did not attest this source");
       assert.isFalse(yield* fs.exists(`${path}.receipt.json`));
