@@ -8026,6 +8026,34 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
     }
   });
 
+  it("admits the stopped step's staged index and generated drift beside the named rows", () => {
+    // git stages every path it auto-merged in the in-progress commit and the executor stages its
+    // machine outcomes beside them; the rehearse verb restores and regenerates the lockfile itself.
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    try {
+      validateAutoLane(
+        stopped,
+        runnerWithStatus(
+          `M  ${declinedPath}`,
+          "M  apps/web/src/components/CommandPalette.tsx",
+          "A  apps/web/src/threadRoutes.ts",
+          " M pnpm-lock.yaml",
+        ),
+      );
+      assert.throws(
+        () =>
+          validateAutoLane(
+            stopped,
+            runnerWithStatus(`M  ${declinedPath}`, " M apps/web/src/threadRoutes.ts"),
+          ),
+        /rehearsal lane worktree is not clean: apps\/web\/src\/threadRoutes\.ts/,
+      );
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
   it("refuses dirt outside the paths the stop named, and names it", () => {
     const root = fixtureRoot();
     const stopped = stoppedReport(root);
