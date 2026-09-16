@@ -59970,6 +59970,43 @@
       }
     },
     {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35045262858/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260915.1766",
@@ -60426,6 +60463,61 @@
       "status": "failed",
       "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35043617516"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "d7076bcf96759eee6cb2ac40f9554b889dbb5718",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/1038#issuecomment-5686395138"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "719a76ca1dbf5490f1aa33ffb9966301e02be9a9",
+      "attemptId": "35045262858/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35045262858"
     }
   ],
   "forecasts": [
