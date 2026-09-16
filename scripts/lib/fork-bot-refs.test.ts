@@ -136,6 +136,68 @@ it("refuses same-key disagreement without overwriting either resolution", () => 
   });
 });
 
+const variantFiles = (root: string, key: string, files: Record<string, string>): string => {
+  const directory = NodePath.join(root, ".git", "rr-cache", key);
+  NodeFS.mkdirSync(directory, { recursive: true });
+  for (const [name, content] of Object.entries(files))
+    NodeFS.writeFileSync(NodePath.join(directory, name), content);
+  return saveRerereCache(root, "rerere: test snapshot")!;
+};
+
+it("opens a new variant when the same key already holds a different preimage", () => {
+  withPublishers((left, right, remote) => {
+    // The rr-cache id hashes only the conflict hunks, so the same seam under a moved
+    // context reaches the shared ref as the same key with a different preimage. Git
+    // numbers such variants per clone; the walk that resolved it is not overwritten
+    // and not refused.
+    publishRerereSnapshot(right, variantFiles(right, "seam", { preimage: "older context\n" }));
+    const snapshot = variantFiles(left, "seam", {
+      preimage: "newer context\n",
+      postimage: "resolved\n",
+    });
+    assert.match(publishRerereSnapshot(left, snapshot), /^[a-f0-9]{40}$/);
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage"), "older context\n");
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage"), null);
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage.1"), "newer context\n");
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage.1"), "resolved\n");
+  });
+});
+
+it("fills the shared variant whose preimage the resolution matches", () => {
+  withPublishers((left, right, remote) => {
+    // Earlier stopped walks published the seam as unresolved variants; a local
+    // clone numbers its own sighting 0. The resolution lands beside the matching
+    // preimage instead of contending with variant 0, and a second walk that
+    // resolves it the same way is a no-op rather than a disagreement.
+    publishRerereSnapshot(
+      right,
+      variantFiles(right, "seam", {
+        preimage: "older context\n",
+        "preimage.1": "other context\n",
+        "preimage.2": "newer context\n",
+      }),
+    );
+    const snapshot = variantFiles(left, "seam", {
+      preimage: "newer context\n",
+      postimage: "resolved\n",
+    });
+    const published = publishRerereSnapshot(left, snapshot);
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage.2"), "resolved\n");
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage"), null);
+    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage.3"), null);
+    assert.strictEqual(publishRerereSnapshot(left, snapshot), published);
+    const contested = variantFiles(right, "seam", {
+      preimage: "newer context\n",
+      postimage: "resolved differently\n",
+    });
+    assert.throws(
+      () => publishRerereSnapshot(right, contested),
+      /resolution disagreement at seam\/postimage\.2/,
+    );
+    assert.strictEqual(resolveBotRef(remote, RERERE_REF), published);
+  });
+});
+
 it("never publishes a regenerated lockfile entry and never calls it a disagreement", () => {
   withPublishers((left, right, remote) => {
     const notes: string[] = [];
