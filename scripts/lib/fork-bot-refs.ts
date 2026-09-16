@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - Bot-owned refs are Git plumbing that runs before an Effect runtime exists.
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off - Bot-owned refs are Git plumbing that runs before an Effect runtime exists.
 
 // The bot-owned `refs/fork/*` family carries walk data that is not fork behaviour.
 // Each ref is an orphan history the bot appends to and never rebases, so the fork
@@ -295,21 +295,43 @@ export const saveRerereCache = (root: string, message: string, ref = RERERE_REF)
 };
 
 /** Merge immutable cache snapshots, refusing a different resolution for the same key. */
-const rerereEntries = (root: string, commit: string | null): Map<string, string> => {
+const rerereEntries = (
+  root: string,
+  commit: string | null,
+): { entries: Map<string, string>; regenerated: Set<string> } => {
   const entries = new Map<string, string>();
-  if (commit === null) return entries;
+  // A regenerated file — `pnpm-lock.yaml` is rebuilt on every walk — is never a human
+  // resolution, and its postimage can never agree across two walks. Git's rr-cache key
+  // carries no path, so identify such entries by the preimage's first line and skip them
+  // in both publication directions instead of failing or publishing a stale lockfile.
+  const regenerated = new Set<string>();
+  if (commit === null) return { entries, regenerated };
+  const rows: Array<{ blob: string; path: string }> = [];
   for (const row of gitText(root, ["ls-tree", "-rz", commit]).split("\0")) {
     if (row === "") continue;
     const match = /^100644 blob ([a-f0-9]+)\t(.+)$/.exec(row);
     if (match === null) throw new Error(`unsupported rerere cache entry: ${row}`);
     const [, blob, path] = match;
     if (blob === undefined || path === undefined) throw new Error("invalid rerere entry");
+    rows.push({ blob, path });
+  }
+  for (const { blob, path } of rows) {
     // Git rewrites thisimage while checking an unresolved conflict. It is not a
     // reusable resolution and must not contend with another walk's observation.
     if (/\/thisimage(?:\.\d+)?$/.test(path)) continue;
+    if (/^[0-9a-f]{40,64}\/preimage$/.test(path)) {
+      const id = path.split("/")[0]!;
+      if (gitText(root, ["cat-file", "blob", blob]).startsWith("lockfileVersion:")) {
+        regenerated.add(id);
+        continue;
+      }
+    }
     entries.set(path, blob);
   }
-  return entries;
+  for (const id of regenerated) {
+    for (const path of [...entries.keys()]) if (path.startsWith(`${id}/`)) entries.delete(path);
+  }
+  return { entries, regenerated };
 };
 
 const remoteRerereHead = (root: string): string | null => {
@@ -341,10 +363,17 @@ export const publishRerereSnapshot = (
   push: typeof pushRerereSnapshot = pushRerereSnapshot,
 ): string => {
   const pending = rerereEntries(root, snapshot);
+  // One note per skipped id, not one per leased attempt.
+  const noted = new Set<string>();
   for (let attempt = 1; attempt <= 3; attempt++) {
     const expectedOld = remoteRerereHead(root);
-    const merged = rerereEntries(root, expectedOld);
-    for (const [path, blob] of pending) {
+    const merged = rerereEntries(root, expectedOld).entries;
+    for (const id of pending.regenerated)
+      if (!noted.has(id)) {
+        noted.add(id);
+        console.log(`note: skipping regenerated lockfile rerere entry ${id}/postimage`);
+      }
+    for (const [path, blob] of pending.entries) {
       const existing = merged.get(path);
       if (existing !== undefined && existing !== blob)
         throw new Error(
@@ -396,6 +425,8 @@ export const publishRerereSnapshot = (
 /**
  * Restore the shared rerere cache into `.git/rr-cache`. Returns false when the ref
  * does not exist yet, which is the first-run state rather than a failure.
+ * Regenerated-lockfile entries are never restored: an older walk's published lockfile
+ * resolution would replay a stale lockfile over this walk's regenerated one.
  */
 export const restoreRerereCache = (root: string, ref = RERERE_REF): boolean => {
   if (resolveBotRef(root, ref) === null) return false;
@@ -412,6 +443,14 @@ export const restoreRerereCache = (root: string, ref = RERERE_REF): boolean => {
     });
     if (checkout.status !== 0)
       throw new Error(`git checkout-index into ${cache} failed: ${checkout.stderr.trim()}`);
+    for (const id of NodeFS.readdirSync(cache)) {
+      const preimage = NodePath.join(cache, id, "preimage");
+      if (!NodeFS.existsSync(preimage)) continue;
+      if (NodeFS.readFileSync(preimage, "utf8").startsWith("lockfileVersion:")) {
+        NodeFS.rmSync(NodePath.join(cache, id), { recursive: true, force: true });
+        console.log(`note: skipping regenerated lockfile rerere entry ${id}/postimage`);
+      }
+    }
     return true;
   });
 };
