@@ -319,7 +319,7 @@ const rerereEntries = (
     // Git rewrites thisimage while checking an unresolved conflict. It is not a
     // reusable resolution and must not contend with another walk's observation.
     if (/\/thisimage(?:\.\d+)?$/.test(path)) continue;
-    if (/^[0-9a-f]{40,64}\/preimage$/.test(path)) {
+    if (/^[0-9a-f]{40,64}\/preimage(?:\.\d+)?$/.test(path)) {
       const id = path.split("/")[0]!;
       if (gitText(root, ["cat-file", "blob", blob]).startsWith("lockfileVersion:")) {
         regenerated.add(id);
@@ -332,6 +332,84 @@ const rerereEntries = (
     for (const path of [...entries.keys()]) if (path.startsWith(`${id}/`)) entries.delete(path);
   }
   return { entries, regenerated };
+};
+
+const variantPath = /^([^/]+)\/(preimage|postimage)(?:\.(\d+))?$/;
+
+type RerereVariant = { preimage?: string; postimage?: string };
+
+/** Group `<id>/{pre,post}image[.N]` rows into git's per-id variant slots. */
+const rerereVariants = (
+  entries: Map<string, string>,
+): { variants: Map<string, Map<number, RerereVariant>>; plain: Map<string, string> } => {
+  const variants = new Map<string, Map<number, RerereVariant>>();
+  const plain = new Map<string, string>();
+  for (const [path, blob] of entries) {
+    const match = variantPath.exec(path);
+    if (match === null) {
+      plain.set(path, blob);
+      continue;
+    }
+    const [, id, kind, index] = match;
+    const slots = variants.get(id!) ?? new Map<number, RerereVariant>();
+    const slot = index === undefined ? 0 : Number(index);
+    slots.set(slot, { ...slots.get(slot), [kind!]: blob });
+    variants.set(id!, slots);
+  }
+  return { variants, plain };
+};
+
+/**
+ * Add `pending` to `merged` by git's rerere identity, not by path. An rr-cache id
+ * hashes only the conflict hunks, so the same seam under a different context is the
+ * same id with a different preimage, and git numbers such variants per clone
+ * (`preimage.N`/`postimage.N`). A pending variant therefore joins the shared slot
+ * whose preimage it equals, or opens a new slot after the highest one. Only a
+ * different postimage for the same preimage is a disagreement.
+ */
+const mergeRerereEntries = (
+  merged: Map<string, string>,
+  pending: Map<string, string>,
+): Map<string, string> => {
+  const target = rerereVariants(merged);
+  const source = rerereVariants(pending);
+  for (const [path, blob] of source.plain) {
+    const existing = target.plain.get(path);
+    if (existing !== undefined && existing !== blob)
+      throw new Error(
+        `rerere resolution disagreement at ${path}; neither resolution was overwritten`,
+      );
+    target.plain.set(path, blob);
+  }
+  for (const [id, slots] of source.variants) {
+    const shared = target.variants.get(id) ?? new Map<number, RerereVariant>();
+    target.variants.set(id, shared);
+    for (const variant of slots.values()) {
+      const match = [...shared].find(
+        ([, candidate]) =>
+          variant.preimage !== undefined && candidate.preimage === variant.preimage,
+      );
+      if (match === undefined) {
+        shared.set(shared.size === 0 ? 0 : Math.max(...shared.keys()) + 1, { ...variant });
+        continue;
+      }
+      const [slot, candidate] = match;
+      if (variant.postimage === undefined) continue;
+      if (candidate.postimage !== undefined && candidate.postimage !== variant.postimage)
+        throw new Error(
+          `rerere resolution disagreement at ${id}/postimage${slot === 0 ? "" : `.${slot}`}; neither resolution was overwritten`,
+        );
+      candidate.postimage = variant.postimage;
+    }
+  }
+  const result = new Map(target.plain);
+  for (const [id, slots] of target.variants)
+    for (const [slot, variant] of slots)
+      for (const kind of ["preimage", "postimage"] as const) {
+        const blob = variant[kind];
+        if (blob !== undefined) result.set(`${id}/${kind}${slot === 0 ? "" : `.${slot}`}`, blob);
+      }
+  return result;
 };
 
 const remoteRerereHead = (root: string): string | null => {
@@ -367,20 +445,12 @@ export const publishRerereSnapshot = (
   const noted = new Set<string>();
   for (let attempt = 1; attempt <= 3; attempt++) {
     const expectedOld = remoteRerereHead(root);
-    const merged = rerereEntries(root, expectedOld).entries;
     for (const id of pending.regenerated)
       if (!noted.has(id)) {
         noted.add(id);
         console.log(`note: skipping regenerated lockfile rerere entry ${id}/postimage`);
       }
-    for (const [path, blob] of pending.entries) {
-      const existing = merged.get(path);
-      if (existing !== undefined && existing !== blob)
-        throw new Error(
-          `rerere resolution disagreement at ${path}; neither resolution was overwritten`,
-        );
-      merged.set(path, blob);
-    }
+    const merged = mergeRerereEntries(rerereEntries(root, expectedOld).entries, pending.entries);
     const tree = temporaryIndex((indexFile) => {
       const env = { ...process.env, GIT_INDEX_FILE: indexFile };
       const input = [...merged].map(([path, blob]) => `100644 ${blob}\t${path}\0`).join("");
