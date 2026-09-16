@@ -4654,6 +4654,78 @@ it("the additive verdict follows the formatted content the format commit carried
   }
 });
 
+it("the post-rerun additive re-proof reads the proved tree, not the stale HEAD", () => {
+  const state = dirtyRepairRun();
+  // Staged before format (t1), formatted (t2), proved at rerun start (t2), stable after (t2).
+  state.runner.setSequence("git", rehearsal(["write-tree"]), [
+    { stdout: "tree111111111111111111111111111111111111111\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+  ]);
+  const provedTree = "tree222222222222222222222222222222222222222";
+  // The stale HEAD passes the sweep; only the proved tree carries the shrunken declarations.
+  state.runner.set("git", rehearsal(["show", "HEAD:scripts/demo.test.ts"]), {
+    stdout: FORMATTED_TEST,
+  });
+  state.runner.set("git", rehearsal([`show ${provedTree}:scripts/demo.test.ts`]), {
+    stdout: UNFORMATTED_TEST,
+  });
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", B, "--", "apps", "packages", "scripts"]),
+    {
+      stdout: "scripts/demo.test.ts\0",
+    },
+  );
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "apps", "packages", "scripts"]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set(
+    "git",
+    rehearsal([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "-z",
+      provedTree,
+      "--",
+      "apps",
+      "packages",
+      "scripts",
+    ]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set("git", rehearsal([`show ${B}:scripts/demo.test.ts`]), {
+    stdout: FORMATTED_TEST,
+  });
+  try {
+    let findings: ReadonlyArray<unknown> | undefined;
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      findings = (error as { findings?: ReadonlyArray<unknown> }).findings;
+    }
+    // Only a re-proof against the proved tree can see the shrunken declarations at all: the
+    // stale HEAD serves passing content.
+    assert.isDefined(findings, "the walk did not stop on the proved tree's additive findings");
+    assert.isTrue(
+      findings.some(
+        (finding) =>
+          typeof finding === "object" &&
+          finding !== null &&
+          (finding as { check?: string }).check === "tests",
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("a tree that drifts again after the proof rerun stops the walk instead of rerunning twice", () => {
   const state = dirtyRepairRun();
   // Staged before format, after format, proved at rerun start, then drifted after the rerun.

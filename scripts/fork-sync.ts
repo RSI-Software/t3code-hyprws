@@ -2392,10 +2392,17 @@ const unblockCheck = (
               report.target !== undefined &&
               report.source !== undefined
             ) {
-              const postRerun = checkAdditive(runner, worktree, {
-                target: report.target.sha,
-                previous: report.source.sharedBase,
-              });
+              // The rerun's tree is staged but not committed yet, so the re-proof must read the
+              // proved tree, not HEAD — the commits only land after this callback returns.
+              const postRerun = checkAdditive(
+                runner,
+                worktree,
+                {
+                  target: report.target.sha,
+                  previous: report.source.sharedBase,
+                },
+                { head: provedTree },
+              );
               if (postRerun.length > 0) {
                 report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
                 writeReport(report);
