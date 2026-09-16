@@ -475,6 +475,25 @@ it("selects dependency setup from shared-base-to-target manifest changes", () =>
   }
 });
 
+it("selects fresh install when only pnpm-workspace.yaml changes", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    git(fixture.root, ["switch", "--detach", fixture.cleanNightly]);
+    NodeFS.writeFileSync(
+      NodePath.join(fixture.root, "pnpm-workspace.yaml"),
+      "onlyBuiltDependencies:\n  - esbuild\n",
+    );
+    const workspaceTarget = commit(fixture.root, "build: change upstream workspace config");
+    assert.strictEqual(
+      selectVerificationDependencySetup(reader, fixture.base, workspaceTarget),
+      "fresh-install",
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
 it("plans a no-op at the base and rejects an override beyond the clean window", () => {
   const fixture = fixtureRepository();
   try {
