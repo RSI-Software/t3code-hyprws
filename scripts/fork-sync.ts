@@ -2903,17 +2903,17 @@ export const validateAutoLane = (report: SyncReport, runner: CommandRunner): voi
  * picture. A rename or copy pairs its new path with the original in a second record; the original
  * is not lane dirt of its own, so it is consumed and dropped.
  */
-const porcelainPaths = (status: string): ReadonlyArray<string> => {
-  const paths: Array<string> = [];
+const porcelainEntries = (status: string): ReadonlyArray<{ path: string; staged: boolean }> => {
+  const entries: Array<{ path: string; staged: boolean }> = [];
   const fields = status.split("\0");
   for (let index = 0; index < fields.length; index += 1) {
     const entry = fields[index];
     if (entry === undefined || entry.length < 4) continue;
-    paths.push(entry.slice(3));
     const xystatus = entry.slice(0, 2);
+    entries.push({ path: entry.slice(3), staged: !/^[ ?!]/.test(xystatus) });
     if (xystatus.includes("R") || xystatus.includes("C")) index += 1;
   }
-  return paths;
+  return entries;
 };
 
 /**
@@ -2928,6 +2928,12 @@ const porcelainPaths = (status: string): ReadonlyArray<string> => {
  * for the same reason (RSI-Software/t3code-hyprws#748). A lane with no conflict stop on its report
  * is fresh or finished and stays strictly clean; dirt outside the stopped rows refuses and names
  * it.
+ *
+ * The rows are not the whole of the stopped step, though: git stages every path it auto-merged
+ * cleanly in the same in-progress commit, and the executor's own machine outcomes are staged
+ * beside them, so at a conflict stop the index is the walk's own material and every staged path is
+ * admitted. A generated path the rehearse verb restores and regenerates on continuation is
+ * admitted unstaged too. Unstaged dirt anywhere else still refuses and is named.
  */
 export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<string> => {
   if (report.walk?.stop?.reason !== "conflict") return new Set();
@@ -2942,7 +2948,13 @@ export const validateAutoLaneClean = (report: SyncReport, runner: CommandRunner)
   const status = git(runner, report.lane.worktree, ["status", "--porcelain", "-z"], true);
   if (status === "") return;
   const allowed = conflictStopDirtAllowance(report);
-  const offenders = porcelainPaths(status).filter((path) => !allowed.has(path));
+  const conflictStop = report.walk?.stop?.reason === "conflict";
+  const offenders = porcelainEntries(status)
+    .filter(
+      ({ path, staged }) =>
+        !allowed.has(path) && !(conflictStop && (staged || isGeneratedPath(path))),
+    )
+    .map(({ path }) => path);
   if (offenders.length > 0)
     throw new Error(`rehearsal lane worktree is not clean: ${[...new Set(offenders)].join(", ")}`);
 };
