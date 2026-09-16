@@ -259,6 +259,7 @@ export const selectVerificationDependencySetup = (
     "--",
     "pnpm-lock.yaml",
     "package.json",
+    "pnpm-workspace.yaml",
     ":(glob)**/package.json",
   ]);
   if (dependencyDiff.status !== 0 && dependencyDiff.status !== 1) {
