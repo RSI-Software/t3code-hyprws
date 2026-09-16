@@ -163,8 +163,8 @@ jobs:
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
 
-  # Everything except `t3` (apps/server); see upstream ci.yml for why
-  # `--parallel` is safe here.
+  # Everything except `t3` (apps/server) and the fork's own scripts
+  # suite; see upstream ci.yml for why `--parallel` is safe here.
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -192,7 +192,39 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test
+
+  # The fork's scripts suite is large and does not shrink with the
+  # product; a dedicated job keeps it from holding a pooled slot while
+  # `web` queues behind it.
+  test_scripts:
+    name: Test Scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Test
+        run: vp run --filter @t3tools/scripts test
 
   # apps/server runs its files one at a time; sharding spreads them over
   # runners instead of workers, exactly as upstream does.
