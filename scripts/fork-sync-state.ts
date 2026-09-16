@@ -437,11 +437,9 @@ export interface SyncReport {
     readonly commit?: string;
     readonly error?: string;
   };
-  readonly reconciliation?: {
-    readonly state: "dispatched" | "ambiguous";
-    readonly runUrl?: string;
-    readonly baselineRunId?: number;
-  };
+  /** The leased apply's push to `hyprws` starts the next workflow run; the report records that
+   * trigger rather than a second dispatched run. */
+  readonly reconciliation?: { readonly trigger: "push"; readonly sha: string };
   readonly walk?: WalkRecord;
 }
 
@@ -708,6 +706,12 @@ export const validateReport = (value: unknown): SyncReport => {
       (publication.commit !== undefined && !FULL_SHA.test(publication.commit)))
   )
     throw new Error("report rerere publication is invalid");
+  const reconciliation = report.reconciliation;
+  if (
+    reconciliation !== undefined &&
+    (reconciliation.trigger !== "push" || !FULL_SHA.test(reconciliation.sha))
+  )
+    throw new Error("report reconciliation is invalid");
   const rewrite = report.rewrite;
   const archive = rewrite?.archive;
   if (archive !== undefined) {
