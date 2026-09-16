@@ -799,8 +799,9 @@ Repair runs inside the same invocation, scoped to what the replay touched: the f
 resolved paths and every repair commit the lane carries (`Fork-Repair` commits, `fixup!`s, and the
 walk's own repairs) runs before the proofs, then `typecheck` for each touched workspace, the focused
 test files beside the touched sources, and every fork-owned `*.fork.test.{ts,tsx}` tracked in the
-lane; if the commit-time formatter rewrites anything after the battery, the battery reruns once on
-the formatted tree. There is no full battery in the lane and no wait on a remote verdict — trunk CI
+lane; the formatted repairs are committed before the additive gate, which reads HEAD, and if the
+commit-time formatter rewrites anything after the battery, the battery reruns once on the formatted
+tree — any drift after that rerun is a stop, never a second rerun. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
 resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit

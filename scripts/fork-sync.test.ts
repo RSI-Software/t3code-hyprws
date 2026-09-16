@@ -4492,7 +4492,34 @@ it("a rerun proves the replay through the fixups a stopped run left and folds th
   }
 });
 
-it("the repair-scope formatter runs before the additive proof and the battery", () => {
+const FORMATTED_TEST = 'it("a");\nit("b");\n';
+const UNFORMATTED_TEST = 'it("a");\n';
+
+/** Serves the committed (formatted) test content only once a `git commit` has been observed. */
+const contentAfterCommit = (inner: FakeRunner, worktree: string, path: string): CommandRunner => {
+  let committed = false;
+  return {
+    run: (command, args, cwd, input, env) => {
+      if (command === "vp" && args[0] === "fmt" && args.includes(path)) {
+        const target = NodePath.join(worktree, path);
+        NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+        NodeFS.writeFileSync(target, FORMATTED_TEST);
+      }
+      if (command === "git" && args.includes("commit")) committed = true;
+      const headIndex = args.findIndex(
+        (arg) => typeof arg === "string" && arg.startsWith(`HEAD:${path}`),
+      );
+      // Before the format commit the HEAD read is answered here (and stays unrecorded); after it
+      // the read delegates to the recorded fake, which serves the committed content implicitly.
+      if (command === "git" && headIndex !== -1 && !committed) {
+        return { status: 0, stdout: UNFORMATTED_TEST, stderr: "" };
+      }
+      return inner.run(command, args, cwd ?? "", input, env);
+    },
+  };
+};
+
+it("the repair-scope formatter commits before the additive gate reads HEAD", () => {
   const state = repairingRun();
   const hand = "e".repeat(40);
   state.runner.set(
@@ -4501,30 +4528,151 @@ it("the repair-scope formatter runs before the additive proof and the battery", 
     {
       stdout:
         `\x1e${hand}\x1fchore(fork): refresh workflow reviews for v1.2.3\x1f` +
-        `Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Repair: hand\n\x1f.github/fork-workflow-reviews.json\n`,
+        `Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Repair: hand\n\x1fscripts/demo.test.ts\n`,
     },
   );
+  // The additive sweep sees exactly this test file; upstream carries both declarations.
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", B, "--", "apps", "packages", "scripts"]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set("git", rehearsal(["show", `${B}:scripts/demo.test.ts`]), {
+    stdout: FORMATTED_TEST,
+  });
+  state.runner.set("git", rehearsal(["show", "HEAD:scripts/demo.test.ts"]), {
+    stdout: FORMATTED_TEST,
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${"f".repeat(40)}\x1ffixup! chore(fork): refresh workflow reviews for v1.2.3\n`,
+  });
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [
+    { stdout: "" },
+    { stdout: " M scripts/demo.test.ts\n" },
+    { stdout: "" },
+    { stdout: "" },
+    { stdout: "" },
+  ]);
+  state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
+    stdout: "scripts/demo.test.ts\n",
+  });
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "apps", "packages", "scripts"]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set("git", rehearsal(["log", "--format=%s", `${B}..HEAD`]), {
+    stdout: "feat: one\n",
+  });
   try {
     const checked = execute(
       ["unblock-check", "--report", state.reportPath],
       state.root,
-      state.runner,
+      contentAfterCommit(state.runner, state.worktree, "scripts/demo.test.ts"),
     );
     assert.strictEqual(checked.stage, "checked");
     const formatAt = state.runner.calls.findIndex(
       ({ command, args }) => command === "vp" && args[0] === "fmt",
     );
-    // The additive proof reads the tree without issuing commands, so the first command proof
-    // after it is the battery's typecheck; the formatter must precede it.
-    const batteryAt = state.runner.calls.findIndex(
-      ({ command, args }) => command === "vp" && args.includes("typecheck"),
+    const commitAt = state.runner.calls.findIndex(
+      ({ command, args }) => command === "git" && args.includes("commit"),
     );
-
-    assert.notStrictEqual(formatAt, -1, "the repair-scope formatter never ran");
+    const headReadAt = state.runner.calls.findIndex(
+      ({ command, args }) => command === "git" && args.includes("HEAD:scripts/demo.test.ts"),
+    );
+    assert.isTrue(formatAt !== -1 && commitAt !== -1 && headReadAt !== -1);
     assert.isTrue(
-      formatAt < batteryAt,
-      "the formatter must run before the proofs that judge the tree it rewrites",
+      formatAt < commitAt && commitAt < headReadAt,
+      "the formatted tree must be committed between the format pass and the additive HEAD read",
     );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("the additive verdict follows the formatted content the format commit carried", () => {
+  const state = repairingRun();
+  const hand = "e".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${hand}\x1fchore(fork): refresh workflow reviews for v1.2.3\x1f` +
+        `Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Repair: hand\n\x1fscripts/demo.test.ts\n`,
+    },
+  );
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", B, "--", "apps", "packages", "scripts"]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set("git", rehearsal(["show", `${B}:scripts/demo.test.ts`]), {
+    stdout: FORMATTED_TEST,
+  });
+  state.runner.set("git", rehearsal(["show", "HEAD:scripts/demo.test.ts"]), {
+    stdout: FORMATTED_TEST,
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${"f".repeat(40)}\x1ffixup! chore(fork): refresh workflow reviews for v1.2.3\n`,
+  });
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [
+    { stdout: "" },
+    { stdout: " M scripts/demo.test.ts\n" },
+    { stdout: "" },
+    { stdout: "" },
+    { stdout: "" },
+  ]);
+  state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
+    stdout: "scripts/demo.test.ts\n",
+  });
+  state.runner.set(
+    "git",
+    rehearsal(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "apps", "packages", "scripts"]),
+    { stdout: "scripts/demo.test.ts\0" },
+  );
+  state.runner.set("git", rehearsal(["log", "--format=%s", `${B}..HEAD`]), {
+    stdout: "feat: one\n",
+  });
+  try {
+    // The wrapper serves the unformatted content until the format commit lands, so an
+    // implementation that skips the commit reads a shrunken test file and stops additive.
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      contentAfterCommit(state.runner, state.worktree, "scripts/demo.test.ts"),
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(checked.walk?.additive?.pass);
+    assert.deepStrictEqual(checked.walk?.additive?.findings, []);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a tree that drifts again after the proof rerun stops the walk instead of rerunning twice", () => {
+  const state = dirtyRepairRun();
+  // Staged before format, after format, proved at rerun start, then drifted after the rerun.
+  state.runner.setSequence("git", rehearsal(["write-tree"]), [
+    { stdout: "tree111111111111111111111111111111111111111\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+    { stdout: "tree333333333333333333333333333333333333333\n" },
+  ]);
+  try {
+    let detail = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      detail = String(
+        (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+      );
+    }
+    assert.include(detail, "tree moved after the proof rerun; proved tree2222");
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });

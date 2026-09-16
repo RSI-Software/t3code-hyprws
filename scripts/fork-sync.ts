@@ -2271,6 +2271,28 @@ const unblockCheck = (
   if (repairScopeFormat !== null) {
     const formatted = runRepairs(runner, worktree, [repairScopeFormat], verificationEnv);
     if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+    // The additive gate reads HEAD, not the worktree, so the formatted tree must be committed
+    // before it runs — exactly like the seam step: commit through the existing repair path and
+    // bind `installedHead` to the commit the proofs will judge. No rerun callback here: every
+    // proof that follows (additive gate, battery) runs after this commit on this tree.
+    const formattedCommits = commitWalkRepairs(
+      report,
+      runner,
+      worktree,
+      verificationEnv,
+      seamOwners,
+    );
+    if (formattedCommits.length > 0) {
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          repairCommits: mergeRepairCommits(report.walk?.repairCommits, formattedCommits),
+        },
+      };
+      writeReport(report);
+      installedHead = formattedCommits[formattedCommits.length - 1]!.sha;
+    }
   }
   // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
   // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
@@ -2343,6 +2365,8 @@ const unblockCheck = (
             // The commit-time formatter rewrote a repair-owned path after the battery ran; the
             // battery's verdict no longer describes the tree being committed, so rerun it once
             // on the formatted tree and record the rerun like any other proof.
+            git(runner, worktree, ["add", "-A"], true);
+            const provedTree = git(runner, worktree, ["write-tree"], true);
             const rerun = runRepairs(
               runner,
               worktree,
@@ -2361,6 +2385,37 @@ const unblockCheck = (
               report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
               writeReport(report);
               throw new RepairStop(rerun.failure, report.reportPath);
+            }
+            // The additive gate is cheap and fs-free of ordering, so re-prove it on the same tree.
+            if (
+              report.kind !== "rewrite" &&
+              report.target !== undefined &&
+              report.source !== undefined
+            ) {
+              const postRerun = checkAdditive(runner, worktree, {
+                target: report.target.sha,
+                previous: report.source.sharedBase,
+              });
+              if (postRerun.length > 0) {
+                report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+                writeReport(report);
+                throw new AdditiveStop(postRerun, report.reportPath);
+              }
+            }
+            // The staged split below must never commit content the rerun did not prove: any
+            // further drift is a stop, never a second rerun.
+            git(runner, worktree, ["add", "-A"], true);
+            if (git(runner, worktree, ["write-tree"], true) !== provedTree) {
+              report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+              writeReport(report);
+              throw new RepairStop(
+                {
+                  kind: "repair",
+                  command: "fork:sync repair format rerun",
+                  detail: `tree moved after the proof rerun; proved ${provedTree}, found ${git(runner, worktree, ["write-tree"], true)}`,
+                },
+                report.reportPath,
+              );
             }
           },
         );

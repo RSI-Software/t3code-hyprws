@@ -210,9 +210,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    workspace's typecheck, and the focused test files beside the touched sources plus every
    fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. The repair-scope formatter runs first — it
    covers every repair commit the lane carries (`Fork-Repair` commits, `fixup!`s, and the walk's own
-   repair commits), so the additive proof and the battery judge the formatted tree — and if the
-   commit-time formatter rewrites anything after the battery, the battery reruns once on the
-   formatted tree. What a repair rewrites
+   repair commits), so the additive proof and the battery judge the formatted tree — the formatted
+   repairs are committed before the additive gate, which reads HEAD — and if the commit-time
+   formatter rewrites anything after the battery, the battery reruns once on the formatted tree
+   (any drift after that rerun is a stop, never a second rerun). What a repair rewrites
    becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
    ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the check discovers every `fixup!`
    on the lane, recorded or not. After the autosquash the
