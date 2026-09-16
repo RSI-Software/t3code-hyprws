@@ -30,7 +30,10 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a release tag
 A file is shared when the fork changed it above its upstream base and upstream changed it too on the
 way to the target, which is where a rebase merges two intents into one file. `fork:scan` fails when a
 domain's own commits change a shared file its scan table does not list. Fork CI runs it on every push
-against live `upstream/main` as an advisory step. The automated sync verifies the replay against its
+against live `upstream/main` as an advisory step. The scheduled trunk lane (`scan-live-upstream` in
+`hyprws-upstream-sync.yml`) is advisory too: it writes the scan output and gap count to the step
+summary and always exits 0, because upstream moving past the trunk base is the normal state and a red
+run on every cadence trains nobody to read it (RSI-Software/t3code-hyprws#1017). The automated sync verifies the replay against its
 selected clean tag; when a conflict needs a person, gates 3 and 4 of the
 [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) unblock flow run the blocking scan against the
 human-selected target. The [fork sync runbook](../operations/fork-sync.md) connects the feasibility

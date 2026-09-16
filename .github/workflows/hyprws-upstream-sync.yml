@@ -69,12 +69,13 @@ jobs:
           git push origin upstream/main:refs/heads/main
           git push origin --tags
 
-  # The blocking live-upstream rebase scan. The PR lane runs the same scan
-  # against live upstream/main only advisory, because upstream landing a
-  # commit on a shared file is not the fault of the pull request under test;
-  # there it fails silently by design (a ::warning:: is its only signal). On
-  # trunk the blame is ours, so a missing scan row for a file upstream now
-  # touches must fail here, on a cadence and in a lane that can act on it.
+  # The advisory live-upstream rebase scan. It runs the same scan against
+  # live upstream/main as the PR lane, which fails silently by design (a
+  # ::warning:: is its only signal). Here the full output lands in the step
+  # summary so the live gap count stays visible, but the job always exits 0:
+  # upstream having moved past the trunk base is the normal state, not a
+  # fault of this workflow, and a red run on every scheduled cadence trains
+  # nobody to read it. The report job still owns the actionable gap view.
   # Independent of `mirror`: the scan fetches live upstream/main itself, so it
   # must still run when the mirror token is missing or the mirror fails. It is
   # deliberately not a dependency of `rebase`, which reports and never gates
@@ -102,7 +103,17 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
       - name: Scan against live upstream/main
-        run: vp run fork:scan --no-typecheck
+        run: |
+          set +e
+          vp run fork:scan --no-typecheck 2>&1 | tee "$RUNNER_TEMP/fork-scan.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            printf '## Live upstream rebase scan\n\n'
+            printf 'Exit code `%s`. Upstream having moved past the trunk base is the normal state; this job is advisory and never fails the run.\n\n```\n' "$code"
+            cat "$RUNNER_TEMP/fork-scan.log"
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   forecast:
     name: Forecast
