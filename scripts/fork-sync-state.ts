@@ -496,7 +496,16 @@ export interface WalkRecord {
   readonly decisions?: ReadonlyArray<WalkDecision>;
   /** The stack the walk replayed, measured at replay completion (RSI-Software/t3code-hyprws#672). */
   readonly size?: WalkSize;
-  readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
+  readonly stop?: {
+    readonly reason: WalkStopReason;
+    readonly detail: string;
+    /**
+     * Lane paths the stop leaves dirty on purpose: a resumed walk may carry dirt on exactly
+     * these paths, the way it may on the conflict rows' paths
+     * (RSI-Software/t3code-hyprws#1071).
+     */
+    readonly paths?: ReadonlyArray<string>;
+  };
   /**
    * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
    * an unpublished ledger is a stop the walk reports, never a later step's silent omission
