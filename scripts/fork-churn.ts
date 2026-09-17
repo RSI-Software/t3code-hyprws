@@ -134,17 +134,14 @@ export const trunkRepairCommits = (
 /** How many trailing ledger entries the cost gate inspects (RSI-Software/t3code-hyprws#1019). */
 export const WALK_COST_WINDOW = 5;
 
-/** Every entry in the window carries both fields, or the gate names what is missing. */
+/** Every entry in the window carries elapsedMs, or the gate names what is missing. */
 export const walkCostGaps = (
   entries: ReadonlyArray<ChurnEntry>,
   window = WALK_COST_WINDOW,
 ): ReadonlyArray<string> =>
-  entries.slice(-window).flatMap((entry) => {
-    const missing: Array<string> = [];
-    if (entry.elapsedMs === undefined) missing.push("elapsedMs");
-    if (entry.effort === undefined) missing.push("effort");
-    return missing.length === 0 ? [] : [`${entry.tag}: missing ${missing.join(" and ")}`];
-  });
+  entries
+    .slice(-window)
+    .flatMap((entry) => (entry.elapsedMs === undefined ? [`${entry.tag}: missing elapsedMs`] : []));
 
 interface WalkReportProbe {
   readonly recordPath?: unknown;
@@ -1065,9 +1062,11 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
 
 /**
  * The cost gate (RSI-Software/t3code-hyprws#1019): every entry in the trailing window
- * carries elapsedMs and effort, or the gate fails naming the gap. Legacy rows written
- * before the fields existed stay valid outside the window; inside it they are the
- * failure this condition exists to force. Pending rows count: a stopped walk is a walk.
+ * carries elapsedMs, or the gate fails naming the gap. Legacy rows written before the
+ * field existed stay valid outside the window; inside it they are the failure this
+ * condition exists to force. Pending rows count: a stopped walk is a walk. Effort is
+ * recorded but never required: only a host attestation carries it, so a delegated walk
+ * never records it and the gate cannot ask for it (RSI-Software/t3code-hyprws#1090).
  */
 const verifyWalkCost = (args: ReadonlyArray<string>, root: string): number => {
   if (args.length > 0) throw new UsageError("usage: fork-churn verify-cost");
@@ -1079,9 +1078,8 @@ const verifyWalkCost = (args: ReadonlyArray<string>, root: string): number => {
     );
     return 1;
   }
-  process.stdout.write(
-    `walk cost complete: trailing ${Math.min(entries.length, WALK_COST_WINDOW)} walk(s) carry elapsedMs and effort\n`,
-  );
+  const count = Math.min(entries.length, WALK_COST_WINDOW);
+  process.stdout.write(`walk cost complete: trailing ${count} walk(s) carry elapsedMs\n`);
   return 0;
 };
 
