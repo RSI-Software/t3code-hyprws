@@ -53,6 +53,7 @@ import {
   resolveAutoTarget,
   resolveUnblockTarget,
   run,
+  stopChurnRow,
   SystemRunner,
   validateAutoLane,
   validateNightlyReview,
@@ -8339,6 +8340,122 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
       NodeFS.realpathSync(root).startsWith(NodeFS.realpathSync(NodeOS.tmpdir()))
     )
       NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A mirror-and-report walk through a conflict stop publishes nothing
+ * (RSI-Software/t3code-hyprws#1088): the pending row is written locally and the remote ref keeps
+ * its prior SHA. A carried runner walk still pushes. Both halves assert the append argv itself,
+ * not merely the absence of a network call.
+ */
+it("a mirror-and-report conflict stop writes its pending row locally, never pushed (#1088)", () => {
+  const root = fixtureRoot();
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  NodeChildProcess.execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "base"], {
+    cwd: root,
+  });
+  const declinedPath = "apps/web/seam.ts";
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  const remote = NodePath.join(root, "ledger-remote.git");
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "--bare", remote]);
+  NodeChildProcess.execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
+  writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+  NodeChildProcess.execFileSync("git", ["push", "--quiet", remote, `${CHURN_REF}:${CHURN_REF}`], {
+    cwd: root,
+  });
+  const prior = NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+    cwd: remote,
+    encoding: "utf8",
+  })
+    .toString()
+    .trim();
+  const issueBody = [
+    NodeFS.readFileSync(stopped.recordPath, "utf8"),
+    "",
+    "## Sequential rebase census",
+    "",
+    "<!-- prettier-ignore -->",
+    "| File | Hunks | Fork commit | Domain |",
+    "| --- | ---: | --- | --- |",
+    "| `apps/web/seam.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+  ].join("\n");
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    [
+      "#!/usr/bin/env node",
+      `process.stdout.write(JSON.stringify({ body: ${JSON.stringify(issueBody)}, url: "https://example.test/issues/352", comments: [] }));`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    // Mirror-and-report: no botCarried flag, so the append argv carries no --push — the
+    // receipt line the flag controls prints without "(pushed)" — and the remote ref never
+    // moves, while the local ledger keeps the pending row.
+    let localStop = { output: "" };
+    const mirrorStderr = withCapturedStderr(() => {
+      localStop = captureStdout(() => stopChurnRow(stopped));
+    });
+    assert.strictEqual(mirrorStderr, "");
+    assert.match(localStop.output, /appended v0\.0\.42: \d+ conflict\(s\) on refs\/fork\/churn\n/);
+    assert.notInclude(localStop.output, "(pushed)");
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+        cwd: remote,
+        encoding: "utf8",
+      })
+        .toString()
+        .trim(),
+      prior,
+    );
+    const local = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(
+      local.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+    assert.strictEqual(local[0]?.pending, true);
+    // The carried runner lane keeps the mutating path: same stop shape, now with --push, and
+    // the remote ref advances to the pushed row.
+    const carriedStop = captureStdout(() => stopChurnRow({ ...stopped, botCarried: true }));
+    assert.match(carriedStop.output, /\(pushed\)/);
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+        cwd: remote,
+        encoding: "utf8",
+      })
+        .toString()
+        .trim() !== prior,
+      true,
+    );
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
   }
 });
 
