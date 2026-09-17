@@ -939,13 +939,30 @@ export const baseDecisionRows = (report: SyncReport): ReadonlyMap<string, Decisi
   }
   for (const row of report.conflicts) {
     if (row.class !== "retire-candidate" && row.class !== "human") continue;
+    // A conflict stop the human resolved and published is a keep decision by that human
+    // (RSI-Software/t3code-hyprws#1069): the row carries it as keep decided by human with the
+    // stop as its evidence, so Gate 4 asks only for a decision no stop has already collected.
+    // A still-open stop row (agentSafe TODO) keeps TODO and stays the human's question. Rows
+    // the executor already decided (mechanical, seam-moved, retire-candidate) never count as
+    // hand resolutions: only the published `human` stop class carries the keep.
+    const resolvedByHand =
+      row.class === "human" &&
+      row.decidedBy === "human" &&
+      row.resolution === "resolved by hand in the lane" &&
+      row.agentSafe !== "TODO" &&
+      row.agentSafe !== "pending regeneration";
     const existing = decisions.get(row.subject);
     decisions.set(row.subject, {
       subject: row.subject,
       domain: row.domain,
-      classSummary: existing === undefined ? row.class : `${existing.classSummary}; ${row.class}`,
-      action: existing?.action ?? "TODO",
-      decidedBy: existing?.decidedBy ?? row.decidedBy,
+      classSummary:
+        existing === undefined
+          ? row.class
+          : resolvedByHand
+            ? existing.classSummary
+            : `${existing.classSummary}; ${row.class}`,
+      action: resolvedByHand ? "keep" : (existing?.action ?? "TODO"),
+      decidedBy: resolvedByHand ? ("human" as const) : (existing?.decidedBy ?? row.decidedBy),
     });
   }
   return decisions;
