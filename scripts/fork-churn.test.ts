@@ -18,6 +18,8 @@ import {
   renderMarkdown,
   run,
   trunkRepairCommits,
+  walkCostGaps,
+  WALK_COST_WINDOW,
   walkElapsedMs,
   type ChurnEntry,
 } from "./fork-churn.ts";
@@ -2166,5 +2168,49 @@ it("composes evidence-bearing seam records that the single import path accepts",
     assert.deepStrictEqual(readChurnState(root).seamRecords, recorded);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const costedEntry = (tag: string): ChurnEntry => ({
+  ...entry(tag, []),
+  elapsedMs: 60_000,
+  effort: { model: "test-model", effort: "high" },
+});
+
+it("fails the trailing walk-cost window when any entry lacks elapsedMs or effort (#1019)", () => {
+  assert.strictEqual(WALK_COST_WINDOW, 5);
+  // A full-cost window passes; legacy rows outside the window stay valid.
+  assert.deepStrictEqual(
+    walkCostGaps([
+      entry("v0", []),
+      ...["v1", "v2", "v3", "v4", "v5"].map((tag) => costedEntry(tag)),
+    ]),
+    [],
+  );
+  // Each missing field is named by tag; a row missing both names both.
+  assert.deepStrictEqual(walkCostGaps([costedEntry("v1"), { ...entry("v2", []), elapsedMs: 1 }]), [
+    "v2: missing effort",
+  ]);
+  assert.deepStrictEqual(walkCostGaps([entry("v1", [])]), ["v1: missing elapsedMs and effort"]);
+  // A short ledger checks what it has: every row counts, pending rows included.
+  assert.deepStrictEqual(
+    walkCostGaps([{ ...costedEntry("v1"), pending: true as const }, entry("v2", [])]),
+    ["v2: missing elapsedMs and effort"],
+  );
+});
+
+it("verify-cost reads the live ledger and exits 1 on a gap (#1019)", () => {
+  const root = ledgerRepository([costedEntry("v1"), entry("v2", [])]);
+  try {
+    assert.strictEqual(run(["verify-cost"], root), 1);
+    assert.strictEqual(run(["verify-cost", "--push"], root), 2);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+  const complete = ledgerRepository(["v1", "v2"].map((tag) => costedEntry(tag)));
+  try {
+    assert.strictEqual(run(["verify-cost"], complete), 0);
+  } finally {
+    NodeFS.rmSync(complete, { recursive: true, force: true });
   }
 });
