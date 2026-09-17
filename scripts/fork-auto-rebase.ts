@@ -221,6 +221,45 @@ const censusUnavailableReason = (root: string, error: unknown): string => {
   return normalized || "unknown census failure";
 };
 
+/**
+ * The bounded failure reason for a failed auto-rebase attempt receipt
+ * (RSI-Software/t3code-hyprws#1018). Machine-dependent text (absolute paths, temporary
+ * worktrees, pids) would make the stored detail environment-dependent, so it is stripped
+ * the way censusUnavailableReason strips its own — the ledger keeps the reason, never the
+ * free text (RSI-Software/t3code-hyprws#1012).
+ */
+export const autoFailureReason = (root: string, error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message
+    .replaceAll(root, "<repository>")
+    .replace(/\/(?:private\/)?tmp\/[^\s/:]+(?:-files)?/g, "<temporary-worktree>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+  return normalized || "unknown auto-rebase failure";
+};
+
+/** The phase that owned the throw, so the receipt names where the walk died. */
+export type AutoFailurePhase = "plan" | "execute";
+
+/**
+ * Leave the failure receipt the retain step reads: the rebase wrote its outcome declarations
+ * before executing, so a throw after that point still leaves an attempt identity plus this
+ * bounded reason, and the always() retain step records a failed stage instead of silence.
+ */
+export const writeAutoFailure = (
+  root: string,
+  issueJson: string,
+  phase: AutoFailurePhase,
+  error: unknown,
+): void => {
+  NodeFS.mkdirSync(NodePath.dirname(NodePath.resolve(root, issueJson)), { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.resolve(root, `${issueJson}.failure.json`),
+    `${JSON.stringify({ version: 1, phase, reason: autoFailureReason(root, error) })}\n`,
+  );
+};
+
 const blockedReport = (
   plan: Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility">,
   census: RebaseStopCensus | null,
@@ -535,7 +574,16 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
         plan,
         options,
       );
-    const result = executeAutoRebase(root, options, plan);
+    let result: AutoRebaseResult;
+    try {
+      result = executeAutoRebase(root, options, plan);
+    } catch (error) {
+      // The declarations are already on disk, so the always() retain step can still record
+      // this attempt: leave the bounded failure receipt it reads
+      // (RSI-Software/t3code-hyprws#1018).
+      if (options.issueJson !== null) writeAutoFailure(root, options.issueJson, "execute", error);
+      throw error;
+    }
     const summary = renderSummary(result);
     if (options.summary !== null) writeOutput(NodePath.resolve(root, options.summary), summary);
     else process.stdout.write(summary);

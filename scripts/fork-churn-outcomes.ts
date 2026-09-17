@@ -123,6 +123,11 @@ export const prepareAutoOutcome = (
   );
 };
 
+export interface AutoFailureReceipt {
+  readonly phase: string;
+  readonly reason: string;
+}
+
 export const autoOutcomeReceipts = (
   declarations: ReadonlyArray<OutcomeReceipt>,
   result: AutoRebaseResult | null,
@@ -133,12 +138,15 @@ export const autoOutcomeReceipts = (
     /** Distinguishes "no lesson assessed" from "blocking seams" without a new ledger status. */
     readonly reason?: "lesson-unavailable" | "blocking-seams";
   },
+  /** A bounded execution failure the rebase left beside its declarations. */
+  failure?: AutoFailureReceipt,
 ): ReadonlyArray<OutcomeReceipt> => {
   const receipts = [...declarations];
   const targets = declarations.filter((row) => row.kind === "target");
   for (const attempt of declarations.filter(
     (row): row is OutcomeAttempt => row.kind === "attempt",
   )) {
+    const failed = result === null && failure !== undefined;
     const selected = result?.target?.sha === attempt.targetSha;
     const blocked =
       result?.blocked !== null &&
@@ -149,30 +157,42 @@ export const autoOutcomeReceipts = (
       stage(
         attempt,
         "selection",
-        result === null
-          ? "unknown"
-          : blocked
-            ? "blocked"
-            : selected
-              ? "succeeded"
-              : "not-attempted",
-        result === null
-          ? "planner retained identity; execution did not produce a terminal report"
-          : blocked
-            ? "target blocked by retained census"
-            : selected
-              ? "selected clean target"
-              : "candidate was not selected for apply",
+        failed
+          ? "failed"
+          : result === null
+            ? "unknown"
+            : blocked
+              ? "blocked"
+              : selected
+                ? "succeeded"
+                : "not-attempted",
+        failed
+          ? `auto-rebase ${failure.phase} failed: ${failure.reason}`
+          : result === null
+            ? "planner retained identity; execution did not produce a terminal report"
+            : blocked
+              ? "target blocked by retained census"
+              : selected
+                ? "selected clean target"
+                : "candidate was not selected for apply",
       ),
     );
     receipts.push(
       stage(
         attempt,
         "verification",
-        selected && result?.newSha ? "succeeded" : result === null ? "unknown" : "not-attempted",
+        selected && result?.newSha
+          ? "succeeded"
+          : failed
+            ? "failed"
+            : result === null
+              ? "unknown"
+              : "not-attempted",
         selected && result?.newSha
           ? "replay verifier completed before publication"
-          : "no passing replay verification receipt",
+          : failed
+            ? `auto-rebase ${failure.phase} failed: ${failure.reason}`
+            : "no passing replay verification receipt",
         selected && result?.newSha ? result.newSha : undefined,
       ),
     );
@@ -186,12 +206,16 @@ export const autoOutcomeReceipts = (
           !result.dryRun &&
           result.newSha
           ? "succeeded"
-          : result === null
-            ? "unknown"
-            : "not-attempted",
+          : failed
+            ? "failed"
+            : result === null
+              ? "unknown"
+              : "not-attempted",
         selected && result?.status === "advanced" && result.mode === "on" && !result.dryRun
           ? "leased trunk publication completed"
-          : "no successful trunk apply receipt",
+          : failed
+            ? `auto-rebase ${failure.phase} failed: ${failure.reason}`
+            : "no successful trunk apply receipt",
         selected &&
           result?.status === "advanced" &&
           result.mode === "on" &&
@@ -764,7 +788,17 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
       reportingPath && NodeFS.existsSync(reportingPath)
         ? JSON.parse(NodeFS.readFileSync(reportingPath, "utf8"))
         : undefined;
-    receipts = autoOutcomeReceipts(readBundle(declarations), result, reporting);
+    // A failure receipt beside the declarations means the rebase selected its targets and
+    // then threw: the always() retain step records the failed attempt instead of silence
+    // (RSI-Software/t3code-hyprws#1018). The reason is bounded at write time, so the stored
+    // detail stays deterministic and out of the digested payload
+    // (RSI-Software/t3code-hyprws#1012).
+    const failurePath = `${path}.failure.json`;
+    const failure =
+      result === null && NodeFS.existsSync(failurePath)
+        ? (JSON.parse(NodeFS.readFileSync(failurePath, "utf8")) as AutoFailureReceipt)
+        : undefined;
+    receipts = autoOutcomeReceipts(readBundle(declarations), result, reporting, failure);
   }
   if (process.env.FORK_OUTCOME_EXPORT)
     saveBundle(process.env.FORK_OUTCOME_EXPORT, [...readChurnState(root).outcomes, ...receipts]);
