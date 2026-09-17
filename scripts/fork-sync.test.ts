@@ -5741,6 +5741,37 @@ it("carries a decision cell filled in the record through the regeneration a chec
   }
 });
 
+// RSI-Software/t3code-hyprws#1068: the unblock-auto checked branch must carry a cell the
+// operator filled after the check through the regeneration it performs, the same way the
+// check and rehearse verbs do. A check signs the surface first; the auto relaunch reads the
+// signed record back and must not render the filled cells back to TODO.
+it("carries a decision cell filled after the check through the checked-branch regeneration", () => {
+  const state = undecidedRun();
+  const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    signRecord(recordPath, "keep", "human");
+    const resumed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    const carried = preserveRecordDecisions(resumed);
+    NodeFS.writeFileSync(state.reportPath, JSON.stringify(carried));
+    const reread = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    const regenerated = renderRecord(autoGateFour(reread));
+    const row = regenerated.split("\n").find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
+    assert.include(row ?? "", "| keep |");
+    assert.include(row ?? "", "| human |");
+    validateSignedRecord(regenerated, { ...reread, installedHead: reread.installedHead ?? A });
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 // RSI-Software/t3code-hyprws#695: a refresh rebinds the head and the stack size. The decision
 // cells are not a binding, they are the human's answer, and `unblock-check` already keeps them.
 it("carries a decision cell filled in the record through the regeneration a refresh performs", () => {
