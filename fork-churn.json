@@ -16902,6 +16902,453 @@
         }
       ],
       "elapsedMs": 134775
+    },
+    {
+      "tag": "v0.0.43-nightly.20260917.1837",
+      "before": "5413ba085a8ec9ad8372dba2385037f730c9fd17",
+      "after": "5413ba085a8ec9ad8372dba2385037f730c9fd17",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/1065",
+      "conflicts": [
+        {
+          "path": "packages/contracts/src/keybindings.ts",
+          "commit": "10d17c8288f7",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "outcome executor: keep both (co-insertion; consider keeping ours)",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "packages/shared/src/keybindings.ts",
+          "commit": "10d17c8288f7",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "outcome executor: keep both (co-insertion; consider keeping ours)",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "commit": "421c462e1f03",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "human",
+          "resolution": "TODO",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "verdict": "partial",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "refactor(desktop): centralize preview window policy",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(dev): open isolated test apps alongside stable",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(mobile): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(workspace-files): ignored workspace files sit behind fork-owned seams",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(web): one fork component for the GitHub link destination; one project resolver",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        },
+        {
+          "subject": "fix(fork-sync): mark the single-substitution seams so the walk can lift them",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260915.1752)"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/web/src/components/settings/KeybindingsSettings.tsx",
+          "hunks": null,
+          "commit": "10d17c8288f79f8ec7b6e23ef51754a5bd09a2e5",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows"
+        },
+        {
+          "path": "packages/contracts/src/keybindings.ts",
+          "hunks": null,
+          "commit": "10d17c8288f79f8ec7b6e23ef51754a5bd09a2e5",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows"
+        },
+        {
+          "path": "packages/shared/src/keybindings.ts",
+          "hunks": null,
+          "commit": "10d17c8288f79f8ec7b6e23ef51754a5bd09a2e5",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/package.json",
+          "hunks": null,
+          "commit": "859f916997daa1eb97f9ec00b3056fcc0ee0904d",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "hunks": null,
+          "commit": "859f916997daa1eb97f9ec00b3056fcc0ee0904d",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "hunks": null,
+          "commit": "859f916997daa1eb97f9ec00b3056fcc0ee0904d",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "hunks": null,
+          "commit": "421c462e1f0373085af380f972cb297eb4882f47",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "hunks": null,
+          "commit": "421c462e1f0373085af380f972cb297eb4882f47",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.tsx",
+          "hunks": null,
+          "commit": "f7494ded86680778e7222a614089f95fd4a23317",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "hunks": null,
+          "commit": "f7494ded86680778e7222a614089f95fd4a23317",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "hunks": null,
+          "commit": "a576e728f52392d425607e3c3eb0d533ab65ac6a",
+          "subject": "fix(web): keep the files explorer tab when a file opens (#84)",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbar.tsx",
+          "hunks": null,
+          "commit": "5f64c25170f5a35912cb41a24fd5b03c659b5d20",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+          "hunks": null,
+          "commit": "5f64c25170f5a35912cb41a24fd5b03c659b5d20",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "hunks": null,
+          "commit": "5f64c25170f5a35912cb41a24fd5b03c659b5d20",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "apps/web/src/hooks/useThreadActions.ts",
+          "hunks": null,
+          "commit": "bd6e7c975aa89053dcece9378153b615b9ae5096",
+          "subject": "fix(web): confirm batch worktree deletion once (#156)",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/ChatMarkdown.tsx",
+          "hunks": null,
+          "commit": "cf386354a96c931f0f9c90d0f02b7b7bbe3b45a9",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/server/src/terminal/Manager.ts",
+          "hunks": null,
+          "commit": "c3c16b95d3e97fa459603c25d7e114c7270569f2",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "hunks": null,
+          "commit": "851aee2b1450363b1579d823d88258ee901fe605",
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.test.ts",
+          "hunks": null,
+          "commit": "613411d51b36f046117a347839fbb610842b9c7d",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "hunks": null,
+          "commit": "e91ef0866cf03e2394541660f397d7318841fd0c",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/web/package.json",
+          "hunks": null,
+          "commit": "2891f353712fac65478989251240242e5764b110",
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.test.ts",
+          "hunks": null,
+          "commit": "9221560afd9bfc95b9387eea0bba223416dd42c3",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/web/src/components/ChatMarkdown.tsx",
+          "hunks": null,
+          "commit": "166a71b7689827fc932157c0bba1b4458acdcdf5",
+          "subject": "refactor(web): one fork component for the GitHub link destination; one project resolver",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.tsx",
+          "hunks": null,
+          "commit": "c597818ad87016f4b725baf69b36ec0ba93844be",
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues"
+        }
+      ],
+      "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "ba6adba51abf7328bca6d3419c5b5c0a6c434143029eb132c2bd9072c9dd904a",
+          "outcome": "keep-both",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z",
+          "path": "packages/contracts/src/keybindings.ts"
+        },
+        {
+          "kind": "conflict",
+          "subject": "5abdc9324cd1caa8532dff859ced84b464fcfef58f8112480dcc51580dafe87c",
+          "outcome": "keep-both",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z",
+          "path": "packages/shared/src/keybindings.ts"
+        },
+        {
+          "kind": "retire",
+          "subject": "refactor(web): centralize thread route navigation",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): open project windows from hub actions",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "outcome": "partial",
+          "decidedBy": "machine",
+          "tag": "v0.0.43-nightly.20260917.1837",
+          "recordedAt": "2026-09-17T11:34:15.433Z"
+        }
+      ],
+      "pending": true,
+      "elapsedMs": 152651
     }
   ],
   "seamRecords": [
