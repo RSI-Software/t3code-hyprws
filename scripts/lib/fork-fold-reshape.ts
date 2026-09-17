@@ -259,6 +259,16 @@ const parseHunks = (diff: string): ReadonlyArray<DiffHunk> => {
  * Attribute every path of `git diff P R` to one originating fork commit. Removed/changed lines
  * blame against P; pure additions take the nearest adjacent blamed line. Per path, every hunk
  * must agree on the origin. Returns refusals instead of guessing.
+ *
+ * A hunk that blames to another reshape in the same manifest is a chain, not an origin: every
+ * reshape edits the same shared seams (a registry file's last row, a barrel's last export), so a
+ * later reshape's blame routinely lands on an earlier one rather than on real fork content.
+ * `foldOrder` is the `--reshape` list order (the fold order, not commit history order). A hunk
+ * blaming to a reshape earlier in that order resolves transitively to whatever real origin
+ * `resolvedOrigins` already recorded for that reshape at this same path — that reshape already
+ * ran, its own origin is settled. A hunk blaming to a reshape later in fold order, or to a path
+ * an earlier reshape left unresolved (excluded, or itself refused), still refuses by name: a
+ * transitive resolution that guesses is worse than the refusal it would replace.
  */
 const attributeReshape = (
   git: FoldGit,
@@ -268,11 +278,14 @@ const attributeReshape = (
   overrides: ReadonlySet<string>,
   leaves: ReadonlySet<string>,
   order: ReadonlyArray<string>,
+  foldOrder: ReadonlyMap<string, number>,
+  resolvedOrigins: ReadonlyMap<string, ReadonlyMap<string, string>>,
 ): {
   paths: ReadonlyMap<string, string>;
   refusals: ReadonlyArray<string>;
   excluded: ReadonlyArray<string>;
 } => {
+  const currentPosition = foldOrder.get(reshape) ?? -1;
   const parent = git(["rev-parse", `${reshape}^`]).trim();
   const hunks = parseHunks(
     git(["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", parent, reshape]),
@@ -336,11 +349,20 @@ const attributeReshape = (
         refusals.push(
           `${hunkName(hunk)} attributes to ${shortSha(origin)}, outside base..source (upstream or older than base)`,
         );
-      else if (origin !== null && reshapeSet.has(origin))
-        refusals.push(
-          `${hunkName(hunk)} attributes to reshape ${shortSha(origin)}; chains fold later, out of scope`,
-        );
-      else if (origin !== null) candidates.add(origin);
+      else if (origin !== null && reshapeSet.has(origin)) {
+        const originPosition = foldOrder.get(origin);
+        const alreadyFolded = originPosition !== undefined && originPosition < currentPosition;
+        const transitive = alreadyFolded ? resolvedOrigins.get(origin)?.get(path) : undefined;
+        if (transitive !== undefined) candidates.add(transitive);
+        else if (alreadyFolded)
+          refusals.push(
+            `${hunkName(hunk)} attributes to reshape ${shortSha(origin)}, already folded earlier in this manifest, but ${path} has no recorded origin there`,
+          );
+        else
+          refusals.push(
+            `${hunkName(hunk)} attributes to reshape ${shortSha(origin)}; chains fold later, out of scope`,
+          );
+      } else if (origin !== null) candidates.add(origin);
     }
     if (refusals.some((reason) => reason.startsWith(`${hunkName(owned[0]!)} `))) continue;
     if (candidates.size > 1) {
@@ -410,6 +432,9 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
   const stack = new Set(commits);
   const reshapes = input.reshapes.map((sha) => git(["rev-parse", `${sha}^{commit}`]).trim());
   const reshapeSet = new Set(reshapes);
+  // The `--reshape` list order is the fold order: a hunk chains to an earlier name in that list,
+  // never to a later one, regardless of where either reshape sits in commit history.
+  const foldOrder = new Map(reshapes.map((sha, index) => [sha, index]));
   for (const reshape of reshapes)
     if (!stack.has(reshape)) refusals.push(`reshape ${shortSha(reshape)} is not in base..source`);
   if (refusals.length > 0) return { refused: true, reasons: refusals };
@@ -431,6 +456,10 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
   // diff carried the path). Anything else the operator passed did nothing, and the record says so.
   const attributed = new Map<string, string>();
   const excluded = new Set<string>();
+  // Per reshape, the real (never-a-reshape) origin it settled on for each path it attributed —
+  // built up in fold order so a later reshape's `attributeReshape` call can resolve a chain to an
+  // earlier one transitively, without re-deriving it.
+  const resolvedOriginsByReshape = new Map<string, Map<string, string>>();
   const blobContent = (oid: string): string => {
     const known = blobMemo.get(oid);
     if (known !== undefined) return known;
@@ -465,12 +494,16 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       overrides,
       input.leave ?? new Set(),
       commits,
+      foldOrder,
+      resolvedOriginsByReshape,
     );
     refusals.push(...pathRefusals);
     for (const path of reshapeExcluded) excluded.add(path);
     const readTree = makeTreeReader(git, [...paths.keys()]);
     const parentEntries = readTree(git(["rev-parse", `${parent}^{tree}`]).trim());
     const reshapeEntries = readTree(git(["rev-parse", `${reshape}^{tree}`]).trim());
+    const reshapeResolved = new Map<string, string>();
+    resolvedOriginsByReshape.set(reshape, reshapeResolved);
     for (const [path, blamed] of paths) {
       const override = input.attribute?.get(path);
       let origin = override ?? blamed;
@@ -487,6 +520,9 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       if (start < 0 || end < 0)
         refusals.push(`${path}: origin ${shortSha(origin)} is not in base..source`);
       if (refusals.length > 0) continue;
+      // This reshape's own origin for `path` is now settled; a later reshape in fold order that
+      // chains to this one on the same path resolves to it, instead of refusing.
+      reshapeResolved.set(path, origin);
       const parentBlob = parentEntries.get(path) ?? null;
       const reshapeBlob = reshapeEntries.get(path) ?? null;
       if (parentBlob === null && reshapeBlob === null) continue;
@@ -504,36 +540,59 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
               origin: RewriteOrigin;
             }
           >();
-        if (slotChanges.has(path)) {
-          refusals.push(`${path}: already folded at ${shortSha(slotCommit)} by an earlier reshape`);
-          continue;
-        }
-        const before = readTree(treeOf.get(slotCommit) ?? "").get(path) ?? null;
+        // Two reshapes can share a slot on the same path (a shared registry file's slot range
+        // overlaps). Sequence the second fold's 3-way merge on top of the first's already-folded
+        // result instead of refusing: `ours` is the slot's current blob, whichever reshape (if
+        // any) last set it; `before` stays the pre-any-fold value, for the read-set and for the
+        // final schema entry.
+        const existing = slotChanges.get(path);
+        const before =
+          existing !== undefined
+            ? existing.before
+            : (readTree(treeOf.get(slotCommit) ?? "").get(path) ?? null);
+        const ours = existing !== undefined ? existing.after : before;
         let after: FoldEntry | null;
         if (parentBlob === null)
           after = reshapeBlob; // R created the path: every slot takes R's blob.
-        else if (before === null)
-          after = reshapeBlob; // Absent at C, present at R: R's blob.
+        else if (ours === null)
+          after = reshapeBlob; // Absent so far, present at R: R's blob.
         else if (reshapeBlob === null)
           after = null; // R deleted the path: the deletion propagates.
-        else if (before.oid === reshapeBlob.oid)
-          continue; // Already folded here.
-        else if (before.oid === parentBlob.oid)
+        else if (ours.oid === reshapeBlob.oid)
+          after = ours; // Already folded here.
+        else if (ours.oid === parentBlob.oid)
           after = reshapeBlob; // ours == base: the merge reproduces theirs.
         else {
-          const merged = mergeBlob(git, parentBlob.oid, before.oid, reshapeBlob.oid, blobContent);
+          const merged = mergeBlob(git, parentBlob.oid, ours.oid, reshapeBlob.oid, blobContent);
           if (merged === null) {
-            refusals.push(`${path}: fold conflicts at ${shortSha(slotCommit)}`);
+            refusals.push(
+              `${path}: fold conflicts at ${shortSha(slotCommit)}${existing === undefined ? "" : ` sequencing ${shortSha(reshape)} after an earlier fold`}`,
+            );
             continue;
           }
-          if (merged === before.oid) continue; // The merge reproduces C's blob: nothing to fold.
-          after = { mode: before.mode, type: "blob", oid: merged };
+          after = merged === ours.oid ? ours : { mode: ours.mode, type: "blob", oid: merged };
+        }
+        if (before === null ? after === null : after !== null && after.oid === before.oid) {
+          // The sequence (one fold, or two) nets out to no change at this slot.
+          slotChanges.delete(path);
+          if (slotChanges.size === 0) changesBySlot.delete(slotCommit);
+          continue;
         }
         slotChanges.set(path, {
           before,
           after,
-          reason: `fold ${shortSha(reshape)}: ${subjects.get(reshape) ?? ""}`,
-          origin: override === undefined ? { kind: "blame" } : { kind: "operator", commit: origin },
+          reason:
+            existing === undefined
+              ? `fold ${shortSha(reshape)}: ${subjects.get(reshape) ?? ""}`
+              : `${existing.reason}; fold ${shortSha(reshape)}: ${subjects.get(reshape) ?? ""}`,
+          // Provenance is per path, not per slot: a slot a second reshape sequences onto keeps
+          // the first reshape's kind rather than re-deciding it mid-range.
+          origin:
+            existing !== undefined
+              ? existing.origin
+              : override === undefined
+                ? { kind: "blame" }
+                : { kind: "operator", commit: origin },
         });
         changesBySlot.set(slotCommit, slotChanges);
         if (override !== undefined) attributed.set(path, origin);
