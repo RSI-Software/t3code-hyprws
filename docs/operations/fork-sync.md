@@ -517,8 +517,9 @@ issue body:
 
 - `environment` — the lane cannot test at all (the runner is missing, or a repair command never
   reached a status).
-- `conflict` — the resolver cannot produce a result for a row, or the resolutions it produced do not
-  hold under the lane's own scoped typecheck and tests.
+- `conflict` — the resolver cannot produce a result for a row, the resolutions it produced do not
+  hold under the lane's own scoped typecheck and tests, a `fork:scan` finding names an unhealthy
+  replay, or workflow drift needs a human's adaptation decision.
 
 Anything else that halts the walk is a bug in the walk, not a decision waiting for a human.
 
@@ -810,7 +811,14 @@ commit-time formatter rewrites anything after the battery, the battery reruns on
 tree — any drift after that rerun is a stop, never a second rerun. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
-resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit
+resolutions the walk staged do not hold. Before the scan proof, the check repairs workflow drift
+it can review mechanically: when the fork side of a drifted workflow copy is byte-identical to
+the last review, it commits a refreshed reviews entry as its own fork-meta repair commit; drift
+a human must adapt stops the walk with the drift as its surface and the reviews path in the
+stop's allowance, so the resumed walk admits the operator's refreshed file. A `fork:scan`
+failure the lane can act on is likewise the `conflict` stop with the scan's finding as its
+surface, so the walk is picked up with the walk verbs — repair the finding in the lane and rerun
+the check — rather than rerun from `failed:`. Whatever a repair rewrites becomes a `fixup!` commit
 to its owning fork commit and is autosquashed from the target during the check (an ownerless path
 needs `--seam-owner '<path>=<full owner sha>'`; the check discovers every `fixup!` on the lane,
 recorded or not). The check only
