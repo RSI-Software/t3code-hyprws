@@ -601,9 +601,16 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       { cwd: root },
     ),
   ) as IssueView;
+  // A stopped walk is a walk, but its record is not on the issue yet: the stop writes the row
+  // before any record is posted, so a pending append without a verbatim match binds the block
+  // issue itself and names the record `record-decisions` posts later; the `record-decisions`
+  // rewrite then upgrades the URL to the posted comment because the record matches by then
+  // (RSI-Software/t3code-hyprws#1057). The applied row keeps the strict pointer: the apply
+  // posted the record (or republishes it in place) before the row.
   const recordUrl =
     issueView.comments.find((comment) => comment.body.trim() === record.trim())?.url ??
-    (issueView.body.trim() === record.trim() ? issueView.url : undefined);
+    (issueView.body.trim() === record.trim() ? issueView.url : undefined) ??
+    (pending ? issueView.url : undefined);
   if (recordUrl === undefined)
     throw new Error(`record does not match issue ${issue} body or comments`);
   // The census is provenance for the row, not permission to write it. The block issue's census is
@@ -651,8 +658,10 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       return undefined;
     }
   })();
-  // Every decision the walk recorded, carried from the record's own decision lines. A pending
-  // row from the stop keeps its decisions — the upgrade merges rather than drops (#662).
+  // Every decision the walk recorded, carried from the record's own decision lines. A rewrite
+  // keeps both sides: the existing pending row's decisions merged with the new record's — and
+  // the sharper pointer wins, so a `record-decisions` rewrite upgrades the stop's issue-URL
+  // binding to the posted comment URL once the record matches (#662, RSI-Software/t3code-hyprws#1057).
   let walkDecisions: ReadonlyArray<WalkDecision> = parseDecisionRecords(record);
   if (pendingEntry !== undefined)
     for (const decision of pendingEntry.walkDecisions ?? [])
