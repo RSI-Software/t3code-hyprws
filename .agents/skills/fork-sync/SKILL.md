@@ -205,7 +205,13 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    ```
 
    The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
-   installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
+   installs at the final replay head, and runs scan and ledger locally. Before the scan it repairs
+   workflow drift it can review mechanically — a drifted copy whose fork side is byte-identical
+   to the last review gets a refreshed reviews entry committed as the check's own fork-meta
+   repair; drift a human must adapt is the `conflict` stop with the reviews path in the stop's
+   allowance — and a scan failure the lane can act on is the `conflict` stop with the finding as
+   its surface, so the walk resumes with the walk verbs instead of rerunning from `failed:`.
+   It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
    workspace's typecheck, and the focused test files beside the touched sources plus every
    fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. The repair-scope formatter runs first — it
