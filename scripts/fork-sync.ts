@@ -3559,9 +3559,13 @@ const publishWalkOutcomes = (report: SyncReport): SyncReport =>
 
 /**
  * The stopped walk's ledger row: pending until the walk completes, so census and hot seams skip
- * it, and the upgrade on the applied append carries the recorded decisions forward (#662).
+ * it, and the upgrade on the applied append carries the recorded decisions forward (#662). The
+ * caller decides whether the row is published: only the carried runner lane and the explicit
+ * `record-decisions` verb push, so a mirror-and-report walk stops without moving the shared ref
+ * (RSI-Software/t3code-hyprws#1088). A local-only row still feeds the resume readers, which all
+ * degrade to no prior record when the ledger is unreachable.
  */
-const publishPendingDecisionRow = (report: SyncReport, tag: string): SyncReport =>
+const publishPendingDecisionRow = (report: SyncReport, tag: string, publish: boolean): SyncReport =>
   ledgerWrite(report, "pending decision row", () =>
     appendChurnRow(
       [
@@ -3576,7 +3580,7 @@ const publishPendingDecisionRow = (report: SyncReport, tag: string): SyncReport 
         "--after",
         report.source?.sha ?? "",
         "--pending",
-        "--push",
+        ...(publish ? ["--push"] : []),
       ],
       report.repositoryRoot,
     ),
@@ -3691,7 +3695,7 @@ export const recordDecisions = (
       ? `record: ${recordUrl}\n`
       : `record: ${recordUrl} (already posted)\n`,
   );
-  publishPendingDecisionRow(published, tag);
+  publishPendingDecisionRow(published, tag, true);
   for (const row of declined)
     process.stdout.write(`recorded: ${row.path} (${row.seamKey ?? "no seam key"}) by hand\n`);
   return published;
@@ -4248,12 +4252,14 @@ const stopAuto = (surface: string, reportPath: string): never => {
 /**
  * A stopped walk is a walk: it owes the ledger the same pending row `record-decisions` writes
  * (RSI-Software/t3code-hyprws#1023), written here so the row exists even when no maintainer ever
- * follows up. The write is best-effort — a churn bookkeeping failure must never mask why the walk
- * stopped, and must never turn the stop into a different error — but it is never silent: a
- * missing record and a failed write are named as the different outcomes they are, with the path
- * the write looked for.
+ * follows up. Only the carried runner lane publishes it: an operator walk writes it locally, so
+ * rehearsing past a conflict stop mutates no shared state, and the applied append upgrades the
+ * local row on the mutating path (RSI-Software/t3code-hyprws#1088). The write is best-effort — a
+ * churn bookkeeping failure must never mask why the walk stopped, and must never turn the stop
+ * into a different error — but it is never silent: a missing record and a failed write are named
+ * as the different outcomes they are, with the path the write looked for.
  */
-const stopChurnRow = (stopped: SyncReport): void => {
+export const stopChurnRow = (stopped: SyncReport): void => {
   const before = stopped.source?.expectedOld;
   const target = stopped.target;
   if (target === undefined || before === undefined) {
@@ -4275,7 +4281,10 @@ const stopChurnRow = (stopped: SyncReport): void => {
     return;
   }
   try {
-    publishPendingDecisionRow(stopped, target.tag);
+    // `botModeRefusal` keeps every operator walk out of mode `on`, so `botCarried` — which
+    // already requires mode `on` — is exactly the runner lane that keeps publishing. Absent or
+    // ambiguous, write local.
+    publishPendingDecisionRow(stopped, target.tag, stopped.botCarried === true);
   } catch (error) {
     process.stderr.write(
       `churn row write failed; the stop reason is unchanged: ${
