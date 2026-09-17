@@ -684,10 +684,15 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     pendingEntry === undefined
       ? [...entries, row]
       : entries.map((entry) => (entry.tag === tag ? row : entry));
-  // The document is a frozen mirror (#476). Precompute it before moving the ref so a
-  // malformed delta cannot leave a locally appended row behind after a failed command.
+  // Precompute the document before moving the ref so a malformed delta cannot leave a locally
+  // appended row behind after a failed command. A committed document that declares itself the
+  // frozen mirror (#476) is left untouched, as `render` already refuses to regenerate it (#1074).
   const documentPath = NodePath.join(root, DOCUMENT_PATH);
-  const renderedDocument = NodeFS.existsSync(documentPath) ? renderForRoot(root, next) : null;
+  const renderedDocument =
+    NodeFS.existsSync(documentPath) &&
+    !declaresFrozenMirror(NodeFS.readFileSync(documentPath, "utf8"))
+      ? renderForRoot(root, next)
+      : null;
   const commit = writeChurnLedger(root, next, `churn: ${tag}${pending ? " (decisions)" : ""}`);
   // A null lease only happens on a never-seeded ref, which readDurableLedger already refused.
   if (push && lease !== null) publishBotRefLease(root, lease, commit);
