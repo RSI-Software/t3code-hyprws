@@ -1504,11 +1504,22 @@ const unblockRehearse = (
     const commit = currentCommit(runner, report.lane.worktree);
     const rerereResolved = rerereResolvedPaths(runner, report.lane.worktree, conflicts);
     const additions = rehearsalConflictRows(commit, conflicts, rerereResolved);
-    report = preserveRecordDecisions({
-      ...report,
-      stage: "conflicts",
-      conflicts: [...report.conflicts, ...additions],
-    });
+    // A rehearsal conflict is an ordinary walk stop: `walk.stop` names it, so a resumed walk's
+    // dirty-lane allowance covers the automerge material the stop staged and record-decisions
+    // accepts the report (RSI-Software/t3code-hyprws#922, #1089). The same shape the fold conflict
+    // stop writes.
+    report = preserveRecordDecisions(
+      recordWalkStop(
+        {
+          ...report,
+          stage: "conflicts",
+          conflicts: [...report.conflicts, ...additions],
+        },
+        `rehearsal conflict at ${commit.subject} (${commit.sha.slice(0, 12)}): ${conflicts.join(
+          ", ",
+        )}`,
+      ),
+    );
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
