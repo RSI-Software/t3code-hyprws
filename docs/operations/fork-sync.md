@@ -775,6 +775,11 @@ reported the next operator task. It does not mean the entire upstream lane was c
 
 ## Unblocking a `rebase-blocked` issue
 
+Run the walk from a disposable worktree off the trunk (`git worktree add --detach <dir>
+origin/hyprws`); a bare worktree has no dependencies, so run `node scripts/setup-worktree.ts`
+inside it once before the first `vp run` — it installs dependencies and links the canonical
+`.env` files, without which `vp run fork:sync` fails module resolution.
+
 `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]` walks one eligible tag to the
 end in a single invocation. It selects the open walk target (or the newest offered tag), accepts a
 coherent orientation, resolves every conflict, repairs the lane, runs the guards, applies under the

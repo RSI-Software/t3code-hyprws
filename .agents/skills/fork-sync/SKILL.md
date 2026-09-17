@@ -11,6 +11,11 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 
 ## Entry point: unblock
 
+Run from a disposable worktree off `origin/hyprws` (`git worktree add --detach <dir>
+origin/hyprws`) and run `node scripts/setup-worktree.ts` inside it once before any `vp run` — it
+installs dependencies and links the canonical `.env` files, without which `vp run fork:sync` fails
+module resolution.
+
 ### Same-base historical preparation
 
 When the original fork patches need reconstruction, first finish the reviewed executable manifest
