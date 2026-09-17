@@ -166,7 +166,11 @@ authenticated.
   executable manifest and proof refusals. `fold-reshape` derives such a manifest from landed
   reshape squashes — per-path blame attribution (`--attribute` and `--leave` overrides, recorded in
   the manifest so a reviewer can read them back), a 3-way blob merge propagated through every slot
-  between origin and reshape as unreferenced blobs, and the manifest JSON as the only ref. The
+  between origin and reshape as unreferenced blobs, and the manifest JSON as the only ref.
+  `--reshape` accepts a comma-separated list to batch several landed reshapes into one manifest;
+  list order is the fold order, not commit history order, because a reshape that folds first
+  settles its own origin for a path, and a later reshape's blame chaining to that same reshape
+  (a shared seam, not a real fork commit) resolves through it instead of refusing. The
   script renders and validates the Markdown record schema; its focused tests are the schema
   definition.
 - `vp run fork:auto-rebase --fetch --mode candidate`: Reads the rebase feasibility window directly,
