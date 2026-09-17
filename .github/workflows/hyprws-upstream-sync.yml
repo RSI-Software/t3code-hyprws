@@ -336,6 +336,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json"
 
+      # The walk-cost gate (RSI-Software/t3code-hyprws#1090): fails when any row in
+      # the trailing five-walk window lacks elapsedMs. It reads the same published
+      # refs/fork/churn the section above renders — resolveBotRef fetches it from
+      # origin when the checkout has not seen it, so no explicit fetch is needed.
+      # Advisory, not blocking: two legacy rows in the current window predate the
+      # field, and the window only heals by landing more walks. The sync operator
+      # owns the gap: read it on the scheduled cadence (docs/operations/fork-sync.md).
+      - name: Verify walk cost window
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          node scripts/fork-churn.ts verify-cost 2>&1 | tee "$RUNNER_TEMP/fork-walk-cost.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::walk cost window is incomplete (exit $code): see the step summary"
+            {
+              printf '## Walk cost window (advisory) failed\n\n```\n'
+              cat "$RUNNER_TEMP/fork-walk-cost.log"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
+
       # `outcome` skips when the rebase never wrote its outcome declarations, so a
       # rebase that died before selecting a target leaves its own error as the last
       # red step rather than this one.

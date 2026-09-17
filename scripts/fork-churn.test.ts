@@ -2177,9 +2177,9 @@ const costedEntry = (tag: string): ChurnEntry => ({
   effort: { model: "test-model", effort: "high" },
 });
 
-it("fails the trailing walk-cost window when any entry lacks elapsedMs or effort (#1019)", () => {
+it("fails the trailing walk-cost window when any entry lacks elapsedMs (#1019)", () => {
   assert.strictEqual(WALK_COST_WINDOW, 5);
-  // A full-cost window passes; legacy rows outside the window stay valid.
+  // A costed window passes; legacy rows outside the window stay valid.
   assert.deepStrictEqual(
     walkCostGaps([
       entry("v0", []),
@@ -2187,15 +2187,15 @@ it("fails the trailing walk-cost window when any entry lacks elapsedMs or effort
     ]),
     [],
   );
-  // Each missing field is named by tag; a row missing both names both.
-  assert.deepStrictEqual(walkCostGaps([costedEntry("v1"), { ...entry("v2", []), elapsedMs: 1 }]), [
-    "v2: missing effort",
+  // Each missing row is named by tag; a recorded effort never decides the gate (#1090).
+  assert.deepStrictEqual(walkCostGaps([costedEntry("v1"), entry("v2", [])]), [
+    "v2: missing elapsedMs",
   ]);
-  assert.deepStrictEqual(walkCostGaps([entry("v1", [])]), ["v1: missing elapsedMs and effort"]);
+  assert.deepStrictEqual(walkCostGaps([{ ...entry("v2", []), elapsedMs: 1 }]), []);
   // A short ledger checks what it has: every row counts, pending rows included.
   assert.deepStrictEqual(
     walkCostGaps([{ ...costedEntry("v1"), pending: true as const }, entry("v2", [])]),
-    ["v2: missing elapsedMs and effort"],
+    ["v2: missing elapsedMs"],
   );
 });
 
