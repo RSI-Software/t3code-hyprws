@@ -2029,11 +2029,42 @@ it("asks a record for decisions and a go, never a login or a date", () => {
     assert.notInclude(rendered, "Human sanity");
     // Every claim is the rendered default, so the surface asks for nothing else.
     assert.include(decisionSurface(rendered), "Stop. Obtain every decision and an explicit go.\n");
-    assert.throws(() => validateSignedRecord(rendered, checked), /keep\/retire\/partial/);
+    assert.throws(() => validateSignedRecord(rendered, checked), /unsigned decision row/);
     const decided = rendered.replace("| TODO |", "| retire |");
     // An action nobody signed is the rendered default, not a decision the walk may land on.
-    assert.throws(() => validateSignedRecord(decided, checked), /records no decider/);
+    assert.throws(() => validateSignedRecord(decided, checked), /unsigned decision row/);
     validateSignedRecord(decided.replace("| TODO |", "| human |"), checked);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+// RSI-Software/t3code-hyprws#1069: when Gate 4 refuses, it prints the whole surface, not only
+// the first row, so the operator sees every decision still owed in one refusal.
+it("names every unsigned row when Gate 4 refuses", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    installedHead: B,
+    orientationDecisions: orientationDecisionRows(
+      "  [candidate] `feat(web): first subject` (workspace-files)\n  [candidate] `feat(web): second subject` (workspace-files)",
+    ),
+  });
+  try {
+    const rendered = renderRecord(checked);
+    let message = "";
+    try {
+      validateSignedRecord(rendered, checked);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.include(message, "record has 2 unsigned decision row(s):");
+    assert.include(message, "feat(web): first subject");
+    assert.include(message, "feat(web): second subject");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
@@ -3818,7 +3849,11 @@ it("retries a failed check without accumulating evidence and normalizes old dupl
       /scan failed/,
     );
     const failed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
-    assert.deepStrictEqual(failed.silentSeams, JSON.parse(before).silentSeams);
+    // RSI-Software/t3code-hyprws#1072: the seam supplied on this failing run is recorded at
+    // entry, before the battery runs, so the failed check keeps the declared seam. The
+    // entry merge dedupes exact rows, so the legacy doubled row on the report collapses to
+    // one even though the battery failed.
+    assert.deepStrictEqual(failed.silentSeams, [parseSilentSeam(input)]);
     state.runner.set("vp", scan, { status: 0 });
     const retried = execute(
       ["unblock-check", "--report", state.reportPath],
@@ -5768,6 +5803,66 @@ it("carries a decision cell filled after the check through the checked-branch re
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("carries a hand-resolved conflict stop as a keep decided by human", () => {
+  // RSI-Software/t3code-hyprws#1069: a hand-resolved conflict stop is a keep decision by the
+  // human who resolved it, so the Fork commits row carries keep decided by human and Gate 4
+  // asks only for a decision no stop has already collected.
+  const root = fixtureRoot();
+  const state = report(root, {
+    orientationDecisions: orientationDecisionRows(
+      "  [candidate] `feat(fork): move the seam` (web)",
+    ),
+    conflicts: [
+      {
+        commit: A,
+        subject: "feat(fork): move the seam",
+        domain: "web",
+        path: "apps/web/seam.ts",
+        class: "human",
+        resolution: "resolved by hand in the lane",
+        agentSafe: "no",
+        decidedBy: "human",
+      },
+    ],
+  });
+  try {
+    const rows = renderRecord(state)
+      .split("\n")
+      .find((line) => line.startsWith("| `feat(fork): move the seam` |"));
+    assert.include(rows ?? "", "| keep |");
+    assert.include(rows ?? "", "| human |");
+    assert.notInclude(rows ?? "", "; human");
+    // The published stop class is what carries the keep: a still-open human row with TODO cells
+    // stays the human's question, never a silent keep.
+    const open = report(root, {
+      conflicts: [
+        {
+          commit: A,
+          subject: "feat(fork): move the seam",
+          domain: "web",
+          path: "apps/web/seam.ts",
+          class: "human",
+          resolution: "TODO",
+          agentSafe: "TODO",
+          decidedBy: "TODO",
+        },
+      ],
+    });
+    try {
+      const openRow = renderRecord(open)
+        .split("\n")
+        .find((line) => line.startsWith("| `feat(fork): move the seam` |"));
+      assert.include(openRow ?? "", "| TODO |");
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(open.reportPath), { recursive: true, force: true });
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
@@ -8021,9 +8116,14 @@ it("retire decisions tolerate the TODO Action cells a stop's record carries", ()
   NodeFS.mkdirSync(NodePath.dirname(stopped.recordPath), { recursive: true });
   NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
   const record = NodeFS.readFileSync(stopped.recordPath, "utf8");
-  // The record really does carry the undecidable row the walk used to choke on.
+  // The hand-resolved stop row reads as the human's keep (RSI-Software/t3code-hyprws#1069),
+  // never as a second TODO question for the same resolution.
   assert.include(record, `\`${declinedSubject}\``);
-  assert.include(record, "| TODO |");
+  const decisionRow = record
+    .split("\n")
+    .find((line) => line.startsWith(`| \`${declinedSubject}\` |`));
+  assert.include(decisionRow ?? "", "| keep |");
+  assert.include(decisionRow ?? "", "| human |");
   // The retire-only read tolerates it and names nothing retired from it.
   assert.deepStrictEqual([...retiredSubjectsForTest(stopped)], []);
 });
