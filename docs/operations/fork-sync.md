@@ -501,6 +501,22 @@ commit and one for the bot-pushed rebased head.
 The mode governs the bot only. An unblock apply snapshots and announces the stable tags it crosses
 in every mode, because those tags leave the bot's window the moment the apply lands.
 
+### Which walk modes publish, per ref
+
+A mirror-and-report walk (`off`, or any operator walk that is not carried) publishes no bot ref
+of any kind: rehearsing past a conflict stop writes the pending churn row locally and leaves
+every remote ref at its prior SHA. Only the runner lane and the explicit human verbs publish.
+(The `candidate`-mode `hyprws-next` publication in the modes table above is the bot's, not
+the walk's: an unblock never moves `hyprws-previous`, `hyprws-next`, or a release ref.)
+
+| Walk shape                                       | `hyprws` / `hyprws-next` | `refs/fork/churn` | `refs/fork/rerere` | Issue comments |
+| ------------------------------------------------ | ------------------------ | ----------------- | ------------------ | -------------- |
+| `unblock-auto` in `off` (mirror and report)      | no                       | no (local row)    | no                 | no             |
+| `unblock-auto` in `candidate`, operator lane     | no                       | no (local row)    | no                 | no             |
+| `unblock-auto --bot-carried` (runner, mode `on`) | yes                      | yes               | yes                | yes            |
+| `record-decisions` (explicit human verb)         | no                       | yes               | yes                | yes            |
+| `unblock-apply` (explicit human verb)            | yes                      | yes               | yes                | yes            |
+
 ### Carried unblock walk
 
 In `on` mode a blocked candidate does not stop at the report. The workflow's carry job restores the
