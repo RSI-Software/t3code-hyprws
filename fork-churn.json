@@ -67225,6 +67225,43 @@
       }
     },
     {
+      "kind": "attempt",
+      "targetSha": "052c7ae53e46c705d5fd5dfa995275bc3100744e",
+      "attemptId": "35249797827/1/rebase",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "5413ba085a8ec9ad8372dba2385037f730c9fd17",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "052c7ae53e46c705d5fd5dfa995275bc3100744e",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "052c7ae53e46c705d5fd5dfa995275bc3100744e",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "052c7ae53e46c705d5fd5dfa995275bc3100744e",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.43-nightly.20260917.1837",
@@ -68121,6 +68158,70 @@
       "status": "failed",
       "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35216733234"
+    },
+    {
+      "kind": "target",
+      "target": {
+        "tag": "v0.0.43-nightly.20260917.1866",
+        "sha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665"
+      },
+      "eligible": true,
+      "reason": "selected tagged target under the fork tag policy"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "5413ba085a8ec9ad8372dba2385037f730c9fd17",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/1065#issuecomment-5709705214"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d4d5d12e8ba086cfbf79ca3adeb4156b46ead665",
+      "attemptId": "35249797827/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35249797827"
     }
   ],
   "forecasts": [
