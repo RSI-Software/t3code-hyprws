@@ -204,7 +204,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    vp run fork:sync unblock-check --report <report>
    ```
 
-   The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
+   The verb pins importer lock drift to its owner itself — the newest fork commit whose lockfile
+   diff introduces each moved specifier — commits the regenerated lockfile as a `fixup!` to it, and
+   continues; it throws only when no fork commit introduces a moved specifier, or two owners
+   disagree, and then names that. It discards snapshots-only drift,
    installs at the final replay head, and runs scan and ledger locally. Before the scan it repairs
    workflow drift it can review mechanically — a drifted copy whose fork side is byte-identical
    to the last review gets a refreshed reviews entry committed as the check's own fork-meta
