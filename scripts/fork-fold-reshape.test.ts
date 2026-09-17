@@ -13,6 +13,7 @@ import { buildRewrite } from "./lib/fork-rewrite-build.ts";
 
 const git = (root: string, args: ReadonlyArray<string>, input?: string): string =>
   NodeChildProcess.execFileSync("git", [...args], { cwd: root, input, encoding: "utf8" });
+const shortSha = (sha: string): string => sha.slice(0, 12);
 const commitAll = (root: string, message: string): string => {
   git(root, ["add", "."]);
   git(root, ["commit", "--quiet", "-m", message]);
@@ -412,6 +413,111 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
         assert.strictEqual(receipt.finalTree, result.sourceTree);
       }
     }),
+  );
+
+  it.effect(
+    "chains a later reshape's blame to an earlier reshape's own origin, sequenced tree-neutrally",
+    () =>
+      Effect.gen(function* () {
+        const repo = yield* fixture([
+          { message: "feat: seeds the hook registry", files: { "hooks.ts": "seed\n" } },
+          {
+            message: "reshape: fold hookA into the registry",
+            files: { "hooks.ts": "seed\nhookA-fold\n" },
+          },
+          {
+            message: "reshape: fold hookB into the registry",
+            files: { "hooks.ts": "seed\nhookA-fold\nhookB-fold\n" },
+          },
+        ]);
+        const reshapeA = repo.shas[1]!;
+        const reshapeB = repo.shas[2]!;
+        // `--reshape` order is the fold order: reshapeA folds first, so reshapeB's pure-addition
+        // hunk (which blames to reshapeA, a shared-file seam, not a real fork commit) resolves
+        // transitively to reshapeA's own already-settled origin instead of refusing.
+        const result = derive(repo, reshapeB, [reshapeA, reshapeB]);
+        assert.strictEqual("refused" in result, false, JSON.stringify(result));
+        if (!("refused" in result)) {
+          assert.strictEqual(result.slots.length, 3);
+          // The origin commit and reshapeA's own commit both carry folded content; reshapeB (the
+          // last commit, excluded from the propagation range) survives with an empty diff.
+          assert.strictEqual(result.expected.changedSlots, 2);
+          assert.strictEqual(result.slots[2]!.changes.length, 0);
+          const originChanges = result.slots[0]!.changes;
+          assert.strictEqual(originChanges.length, 1); // one entry per path, not one per reshape.
+          assert.strictEqual(originChanges[0]!.path, "hooks.ts");
+          // The origin slot is where both reshapes' folds land: the reason names both, proving the
+          // second fold sequenced onto the first's result instead of overwriting or duplicating it.
+          assert.include(originChanges[0]!.reason, shortSha(reshapeA));
+          assert.include(originChanges[0]!.reason, shortSha(reshapeB));
+          const receipt = buildRewrite(repo.root, Buffer.from(JSON.stringify(result)));
+          assert.strictEqual(receipt.finalTree, result.sourceTree);
+          assert.strictEqual(receipt.slots[0]!.treeChanged, true);
+          assert.strictEqual(receipt.slots[1]!.treeChanged, true);
+          assert.strictEqual(receipt.slots[2]!.treeChanged, false);
+        }
+      }),
+  );
+
+  it.effect(
+    "still refuses a chain to a reshape later in fold order, regardless of commit history order",
+    () =>
+      Effect.gen(function* () {
+        const repo = yield* fixture([
+          { message: "feat: seeds the hook registry", files: { "hooks.ts": "seed\n" } },
+          {
+            message: "reshape: fold hookA into the registry",
+            files: { "hooks.ts": "seed\nhookA-fold\n" },
+          },
+          {
+            message: "reshape: fold hookB into the registry",
+            files: { "hooks.ts": "seed\nhookA-fold\nhookB-fold\n" },
+          },
+        ]);
+        const reshapeA = repo.shas[1]!;
+        const reshapeB = repo.shas[2]!;
+        // Same two reshapes, same commits; only the `--reshape` list order reverses. reshapeB now
+        // folds before reshapeA is settled, so the identical chain still refuses, by name.
+        const result = derive(repo, reshapeB, [reshapeB, reshapeA]);
+        assert.strictEqual("refused" in result, true);
+        if ("refused" in result)
+          assert.include(
+            result.reasons.join("\n"),
+            `attributes to reshape ${shortSha(reshapeA)}; chains fold later, out of scope`,
+          );
+      }),
+  );
+
+  it.effect(
+    "still refuses a chain to an earlier-in-order reshape that never settled its own origin",
+    () =>
+      Effect.gen(function* () {
+        const repo = yield* fixture([
+          { message: "feat: unrelated fork commit", files: { "other.ts": "x\nfork\n" } },
+          {
+            message: "reshape: adds a brand-new hook file",
+            files: { "hooks.ts": "hookA-fold\n" },
+          },
+          {
+            message: "reshape: fold hookB into the registry",
+            files: { "hooks.ts": "hookA-fold\nhookB-fold\n" },
+          },
+        ]);
+        const reshapeA = repo.shas[1]!;
+        const reshapeB = repo.shas[2]!;
+        // reshapeA's own hunk refuses (a brand-new file has no adjacent blamed context), so it
+        // never records an origin for hooks.ts. reshapeB's hunk still chains to it — folding first
+        // does not mean a transitive resolution can guess what reshapeA itself could not settle.
+        const result = derive(repo, reshapeB, [reshapeA, reshapeB]);
+        assert.strictEqual("refused" in result, true);
+        if ("refused" in result) {
+          assert.include(result.reasons.join("\n"), "no adjacent fork-blamed context");
+          assert.include(
+            result.reasons.join("\n"),
+            `attributes to reshape ${shortSha(reshapeA)}, already folded earlier in this manifest, but hooks.ts has no recorded origin there`,
+          );
+        }
+      }),
   );
 
   it.effect("reads each slot tree once regardless of how many paths are attributed", () =>
