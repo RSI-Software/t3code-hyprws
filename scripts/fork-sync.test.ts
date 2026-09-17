@@ -85,6 +85,7 @@ import {
 import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
+import { WORKFLOW_REVIEWS_PATH } from "./lib/fork-workflow-drift.ts";
 import {
   CHURN_LEDGER_FILE,
   CHURN_REF,
@@ -3839,6 +3840,8 @@ it("retries a failed check without accumulating evidence and normalizes old dupl
     const before = NodeFS.readFileSync(state.reportPath, "utf8");
     const scan = ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"];
     state.runner.set("vp", scan, { status: 1, stderr: "scan failed" });
+    // A scan failure is the walk's conflict stop, with the scan's finding as its surface
+    // (RSI-Software/t3code-hyprws#1071): the retry below picks the walk up with the same verb.
     assert.throws(
       () =>
         execute(
@@ -3846,7 +3849,7 @@ it("retries a failed check without accumulating evidence and normalizes old dupl
           state.root,
           state.runner,
         ),
-      /scan failed/,
+      /repair: vp run --no-cache fork:scan --target v1\.2\.3/,
     );
     const failed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
     // RSI-Software/t3code-hyprws#1072: the seam supplied on this failing run is recorded at
@@ -5625,39 +5628,227 @@ it("refuses a rewritten fork commit even with a repair appended", () => {
   }
 });
 
-it("unblock-auto prints the resume line after a Gate 3 failure", () => {
+it("a scan failure stops the walk as a conflict with the finding as its surface (#1071)", () => {
   const state = replayedRun();
   state.runner.set("vp", ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"], {
     status: 1,
-    stderr: "scan failed",
+    stderr: "typecheck: fork-owned file fails on rehearsed head: apps/web/src/app.ts",
   });
-  let stderr = "";
-  const original = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString();
-    return true;
-  }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(
-      run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
-      1,
+    let output = "";
+    withCapturedStderr(() => {
+      output = captureStdout(() => {
+        assert.strictEqual(
+          run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
+          2,
+        );
+      }).output;
+    });
+    assert.include(output, "Stop (conflict). The replayed resolutions do not hold");
+    assert.include(output, "vp run --no-cache fork:scan --target v1.2.3");
+    assert.include(
+      output,
+      "typecheck: fork-owned file fails on rehearsed head: apps/web/src/app.ts",
     );
-    assert.include(stderr, "failed: vp run --no-cache fork:scan --target v1.2.3");
-    const bundle = JSON.parse(NodeFS.readFileSync(`${state.reportPath}.outcome.json`, "utf8")) as {
-      receipts: Array<{ kind: string; stage?: string; status?: string; detail?: string }>;
-    };
-    assert.isTrue(
-      bundle.receipts.some(
-        (row) =>
-          row.kind === "stage" &&
-          row.stage === "verification" &&
-          row.status === "failed" &&
-          row.detail?.includes("scan failed"),
+    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+    // Nothing applied: a stopped walk never pushes the trunk.
+    assert.isFalse(
+      state.runner.calls.some(({ args }) =>
+        args.some((arg) => arg.startsWith("--force-with-lease=refs/heads/hyprws")),
       ),
     );
-    assert.include(stderr, `report: ${state.reportPath}\n`);
   } finally {
-    process.stderr.write = original;
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+const driftedReviewsFixture = (options: {
+  forkMoved: boolean;
+}): {
+  reviews: string;
+  upstreamCommit: string;
+  oldUpstreamBlob: string;
+  newUpstreamBlob: string;
+  forkBlob: string;
+} => {
+  const upstreamCommit = "d".repeat(40);
+  const introducing = "e".repeat(40);
+  const oldUpstreamBlob = "f".repeat(40);
+  const newUpstreamBlob = "0".repeat(40);
+  const forkBlob = "1".repeat(40);
+  const staleForkBlob = "2".repeat(40);
+  const releaseUpstream = "3".repeat(40);
+  const releaseFork = "4".repeat(40);
+  const releaseCommit = "5".repeat(40);
+  const reviews = JSON.stringify({
+    version: 2,
+    reviews: [
+      {
+        upstream: ".github/workflows/ci.yml",
+        fork: ".github/workflows/hyprws-ci.yml",
+        upstreamCommit,
+        upstreamBlob: oldUpstreamBlob,
+        forkBlob: options.forkMoved ? staleForkBlob : forkBlob,
+        disposition: "adapted",
+        reason: "Use GitHub runners.",
+      },
+      {
+        upstream: ".github/workflows/release.yml",
+        fork: ".github/workflows/hyprws-release.yml",
+        upstreamCommit: releaseCommit,
+        upstreamBlob: releaseUpstream,
+        forkBlob: releaseFork,
+        disposition: "adapted",
+        guards: ["release-outcome-evidence-v1"],
+        reason: "Keep Linux x64 AppImage-only fork releases.",
+      },
+    ],
+  });
+  return { reviews, upstreamCommit, oldUpstreamBlob, newUpstreamBlob, forkBlob };
+};
+
+const setDriftResponses = (
+  runner: FakeRunner,
+  fixture: ReturnType<typeof driftedReviewsFixture>,
+  options: { forkMoved: boolean },
+): void => {
+  const show = ["-c", "core.commentChar=auto", "show", `HEAD:${WORKFLOW_REVIEWS_PATH}`];
+  runner.set("git", show, { stdout: fixture.reviews });
+  const blob = (ref: string, path: string, value: string): void => {
+    runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", `${ref}:${path}`], {
+      stdout: `${value}\n`,
+    });
+  };
+  blob("v1.2.3", ".github/workflows/ci.yml", fixture.newUpstreamBlob);
+  blob(
+    "HEAD",
+    ".github/workflows/hyprws-ci.yml",
+    options.forkMoved ? "6".repeat(40) : fixture.forkBlob,
+  );
+  blob("v1.2.3", ".github/workflows/release.yml", "3".repeat(40));
+  blob("HEAD", ".github/workflows/hyprws-release.yml", "4".repeat(40));
+  blob(fixture.upstreamCommit, ".github/workflows/ci.yml", fixture.oldUpstreamBlob);
+  blob("5".repeat(40), ".github/workflows/release.yml", "3".repeat(40));
+  // The release guard reads the fork copy at HEAD; the lane's real copy passes it.
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "show", "HEAD:.github/workflows/hyprws-release.yml"],
+    {
+      stdout: NodeFS.readFileSync(
+        new URL("../.github/workflows/hyprws-release.yml", import.meta.url),
+        "utf8",
+      ),
+    },
+  );
+};
+
+it("refreshes mechanically reviewable workflow drift as its own fork-meta repair (#1071)", () => {
+  const state = replayedRun();
+  const refreshedSha = "d".repeat(40);
+  const fixture = driftedReviewsFixture({ forkMoved: false });
+  setDriftResponses(state.runner, fixture, { forkMoved: false });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H", "HEAD"]), {
+    stdout: `${refreshedSha}\n`,
+  });
+  // The installed-tree read sees the replayed head; every read after the refresh commit
+  // sees the commit the walk just appended.
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
+    { stdout: `${A}\n` },
+    ...Array.from({ length: 6 }, () => ({ stdout: `${refreshedSha}\n` })),
+  ]);
+  NodeFS.mkdirSync(NodePath.join(state.worktree, ".github"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(state.worktree, WORKFLOW_REVIEWS_PATH), fixture.reviews);
+  // The upstream commit that introduced the current upstream content.
+  state.runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--format=%H",
+      "v1.2.3",
+      "--",
+      ".github/workflows/ci.yml",
+    ],
+    { stdout: `${"e".repeat(40)}\n` },
+  );
+  state.runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "rev-parse", `${"e".repeat(40)}:.github/workflows/ci.yml`],
+    { stdout: `${fixture.newUpstreamBlob}\n` },
+  );
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const commit = state.runner.calls.find(
+      ({ command, args }) =>
+        command === "git" &&
+        args.some((arg) => arg.includes("refresh workflow reviews for v1.2.3")),
+    );
+    assert.isDefined(commit);
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.strictEqual(checked.stage, "checked");
+    assert.strictEqual(checked.walk?.repairCommits?.length, 1);
+    assert.strictEqual(
+      checked.walk?.repairCommits?.[0]?.subject,
+      "chore(fork): refresh workflow reviews for v1.2.3",
+    );
+    const written = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(state.worktree, WORKFLOW_REVIEWS_PATH), "utf8"),
+    ) as { reviews: Array<{ upstream: string; upstreamBlob: string; upstreamCommit: string }> };
+    const ci = written.reviews.find(({ upstream }) => upstream === ".github/workflows/ci.yml");
+    assert.strictEqual(ci?.upstreamBlob, fixture.newUpstreamBlob);
+    assert.strictEqual(ci?.upstreamCommit, "e".repeat(40));
+    // The scan proof ran after the refresh commit, against the refreshed head.
+    const scanOrder = state.runner.calls.findIndex(
+      ({ command, args }) => command === "vp" && args.includes("fork:scan"),
+    );
+    const commitOrder = state.runner.calls.findIndex(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    assert.isBelow(commitOrder, scanOrder);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stops on human-owned workflow drift with the reviews path in the allowance (#1071)", () => {
+  const state = replayedRun();
+  const fixture = driftedReviewsFixture({ forkMoved: true });
+  setDriftResponses(state.runner, fixture, { forkMoved: true });
+  NodeFS.mkdirSync(NodePath.join(state.worktree, ".github"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(state.worktree, WORKFLOW_REVIEWS_PATH), fixture.reviews);
+  try {
+    let output = "";
+    withCapturedStderr(() => {
+      output = captureStdout(() => {
+        assert.strictEqual(
+          run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
+          2,
+        );
+      }).output;
+    });
+    assert.include(output, "Stop (conflict).");
+    assert.include(
+      output,
+      "workflow-drift: .github/workflows/ci.yml -> .github/workflows/hyprws-ci.yml: upstream workflow changed since review",
+    );
+    assert.include(output, WORKFLOW_REVIEWS_PATH);
+    // The scan never ran: the drift stop precedes the proof.
+    assert.isFalse(state.runner.calls.some(({ args }) => args.includes("fork:scan")));
+    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+    assert.deepStrictEqual(stopped.walk?.stop?.paths, [WORKFLOW_REVIEWS_PATH]);
+    // The resumed walk admits the operator's refreshed reviews file.
+    state.runner.set("git", ["-c", "core.commentChar=auto", "status", "--porcelain", "-z"], {
+      stdout: ` M ${WORKFLOW_REVIEWS_PATH}\0`,
+    });
+    validateAutoLane(stopped, state.runner);
+  } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
