@@ -148,8 +148,13 @@ const proveAndUpdate = (
     position === index ? { ...fold, replayedHead: head } : fold,
   );
   const { activeFold: _cleared, ...rest } = report;
+  // A proved fold regresses the walk to replayed, which passes and supersedes any earlier battery
+  // stop the report carries (RSI-Software/t3code-hyprws#1073). The fold module cannot import the
+  // walk module, so it drops the field inline the same way `clearWalkStop` does there.
+  const { stop: _superseded, ...walk } = rest.walk ?? {};
+  const cleared = { ...rest, ...(rest.walk === undefined ? {} : { walk }) };
   const updated = context.preserveRecordDecisions({
-    ...rest,
+    ...cleared,
     stage: "replayed",
     folds,
     source: { ...report.source!, expectedOld: segment.to },
