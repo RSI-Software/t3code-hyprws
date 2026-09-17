@@ -142,6 +142,11 @@ export interface RepairFailure {
   readonly kind: "environment" | "repair";
   readonly command: string;
   readonly detail: string;
+  /**
+   * Lane paths the stop leaves dirty on purpose: a resumed walk may carry dirt on exactly these
+   * paths beside the conflict rows (RSI-Software/t3code-hyprws#1071).
+   */
+  readonly paths?: ReadonlyArray<string>;
 }
 
 export interface RepairOutcome {
