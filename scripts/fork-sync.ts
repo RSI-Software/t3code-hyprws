@@ -2184,6 +2184,105 @@ const refreshWorkflowReviews = (
   return { sha: sha.trim(), subject };
 };
 
+/**
+ * The lockfile specifiers a `pnpm-lock.yaml` carries: trimmed `name: version` lines under the
+ * `specifiers:` blocks of the `importers:` section. A moved specifier is a line the regenerated
+ * lockfile adds — a version bump reads as a removed old line plus an added new one — and the
+ * added line is the pickaxe string that finds the fork commit introducing it.
+ */
+const lockSpecifierLines = (lockfile: string): ReadonlySet<string> => {
+  const specifiers = new Set<string>();
+  const importerSection = section(lockfile, "importers:");
+  const lines = importerSection.split("\n");
+  let inSpecifiers = false;
+  for (const line of lines) {
+    const indent = line.length - line.trimStart().length;
+    const trimmed = line.trim();
+    if (indent === 4 && trimmed.length > 0) inSpecifiers = trimmed === "specifiers:";
+    else if (inSpecifiers && indent === 6 && trimmed.includes(":")) specifiers.add(trimmed);
+  }
+  return specifiers;
+};
+
+/**
+ * Importer drift the walk assigns itself (RSI-Software/t3code-hyprws#1070): the newest fork
+ * commit whose lockfile diff introduces each moved specifier owns the regenerated lockfile, which
+ * the check commits as a `fixup!` to it and continues on. The lane's own fixup discovery folds it
+ * into its owner at the autosquash below. It throws only when no fork commit introduces a moved
+ * specifier — or two owners disagree — and then names that. The series rewrite is excluded: its
+ * head is a constructed manifest result, so the check names the pinned owner instead of
+ * committing onto it.
+ */
+const assignImporterDrift = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  after: string,
+): string => {
+  const range =
+    report.kind === "rewrite" ? `${report.rewrite!.base}..HEAD` : `${report.target!.sha}..HEAD`;
+  const beforeSpecifiers = lockSpecifierLines(readHeadFile(runner, worktree, "pnpm-lock.yaml"));
+  const moved = [...lockSpecifierLines(after)].filter(
+    (specifier) => !beforeSpecifiers.has(specifier),
+  );
+  const owners = new Map<string, string>();
+  for (const specifier of moved.sort()) {
+    const introducers = lines(
+      git(
+        runner,
+        worktree,
+        ["log", "--format=%H", `-S${specifier}`, range, "--", "pnpm-lock.yaml"],
+        true,
+      ),
+    );
+    let owner: string | undefined;
+    for (const candidate of introducers) {
+      // Only a declared fork commit can own the drift: a repair owns no domain of its own.
+      const trailers = parseForkTrailers(
+        git(runner, worktree, ["show", "-s", "--format=%B", candidate], true),
+      );
+      if (
+        trailers.domain !== undefined &&
+        trailers.tier !== undefined &&
+        trailers.repair === undefined
+      ) {
+        owner = candidate;
+        break;
+      }
+    }
+    if (owner === undefined)
+      throw new Error(
+        `pnpm-lock.yaml importer drift has no owning fork commit: no commit in ${range} introduces ${specifier}; fold the regenerated lockfile into its manifest-owning fork commit by hand`,
+      );
+    owners.set(specifier, owner);
+  }
+  if (moved.length === 0)
+    throw new Error(
+      `pnpm-lock.yaml importer drift names no moved specifier; fold the regenerated lockfile into its manifest-owning fork commit by hand`,
+    );
+  const distinct = [...new Set(owners.values())];
+  if (distinct.length !== 1)
+    throw new Error(
+      `pnpm-lock.yaml importer drift has no single owner: ${[...owners]
+        .map(([specifier, owner]) => `${specifier} from ${owner.slice(0, 12)}`)
+        .join(", ")}; fold the regenerated lockfile into its manifest-owning fork commit by hand`,
+    );
+  const sha = distinct[0]!;
+  const subject = git(runner, worktree, ["show", "-s", "--format=%s", sha], true).trim();
+  if (report.kind === "rewrite")
+    throw new Error(
+      `pnpm-lock.yaml importer drift belongs to ${sha.slice(0, 12)} "${subject}"; the rewrite head is constructed, so fold the regenerated lockfile there by hand and rebuild the manifest`,
+    );
+  botGit(runner, worktree, ["add", "--", "pnpm-lock.yaml"]);
+  botGit(runner, worktree, ["commit", "--no-verify", "-m", `fixup! ${subject}`]);
+  process.stderr.write(
+    `importer drift ${moved.sort().join(", ")} assigned to ${sha.slice(0, 12)} "${subject}"\n`,
+  );
+  // The fixup is the lane head now: the install below must read the committed lockfile, not the
+  // replayed one it compared against.
+  return readHeadFile(runner, worktree, "pnpm-lock.yaml");
+};
+
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -2252,7 +2351,7 @@ const unblockCheck = (
     };
     writeReport(report);
   }
-  const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
+  let before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
   requireSuccess(
     runner,
     "vp",
@@ -2263,28 +2362,7 @@ const unblockCheck = (
   );
   const after = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
   const drift = lockDriftClass(before, after);
-  if (drift === "importers") {
-    const owners = lines(
-      git(
-        runner,
-        worktree,
-        [
-          "log",
-          "--format=%s",
-          report.kind === "rewrite"
-            ? `${report.rewrite!.base}..HEAD`
-            : `${report.target!.sha}..HEAD`,
-          "--",
-          "package.json",
-          ":(glob)**/package.json",
-        ],
-        true,
-      ),
-    );
-    throw new Error(
-      `pnpm-lock.yaml importer drift must be folded into its manifest-owning fork commit; candidates: ${owners.join(" | ") || "none"}`,
-    );
-  }
+  if (drift === "importers") before = assignImporterDrift(report, runner, worktree, after);
   if (drift === "snapshots") restoreSnapshotDrift(runner, worktree);
   requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv, true);
   const installedAfter = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
