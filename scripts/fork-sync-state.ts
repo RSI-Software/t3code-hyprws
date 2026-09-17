@@ -561,6 +561,12 @@ Rewrite publication requires rewrite-rehearse --manifest <reviewed-json>.
 Build writes unreferenced objects and <manifest>.receipt.json, never refs or an index.
 Build exits: 0 verified; 1 runtime; 2 usage/schema; 3 stale/unsupported proof.
 
+fold-reshape's --reshape list order is the fold order, not commit history order: a reshape folds
+before every name after it in the list. A later reshape's hunk may chain to an earlier name in the
+list (blame lands on it instead of a real fork commit, a shared seam like a registry file's last
+row) and resolves through that reshape's own settled origin; a hunk chaining to a later name still
+refuses, by name.
+
 Stable verbs:
   stable-list [--output <external-json>]
   stable-prepare --report <json> --issue <human-selected-issue>
