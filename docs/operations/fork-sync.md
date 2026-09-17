@@ -356,6 +356,12 @@ invocation ID, while readback reuses the retained snapshot evidence. Set
 `FORK_OUTCOME_EXECUTOR=agent` or `human` before an operator's sync invocation; otherwise
 that executor remains unknown. `FORK_OUTCOME_EXPORT` saves an importable bundle before
 ledger publication. Workflow artifacts retain raw reports and outcome bundles for 90 days.
+A walk row carries what the walk cost: `elapsedMs` from the walk report beside the record
+and `effort` from the host handoff attestation. Both render as absent when the sources are
+unavailable, never as a guess. `node scripts/fork-churn.ts verify-cost` fails when any entry
+in the trailing five-walk window lacks either field, pending rows included; legacy rows
+written before the fields existed stay valid outside the window.
+
 A `--push` import starts from the published `refs/fork/churn`, so an existing checkout appends
 to a ledger another writer already advanced without a manual fetch. When origin moves between
 that lease and the push, publication refuses with the local, remote and expected SHAs, restores
