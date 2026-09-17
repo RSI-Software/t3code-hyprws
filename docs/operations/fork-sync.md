@@ -357,10 +357,16 @@ invocation ID, while readback reuses the retained snapshot evidence. Set
 that executor remains unknown. `FORK_OUTCOME_EXPORT` saves an importable bundle before
 ledger publication. Workflow artifacts retain raw reports and outcome bundles for 90 days.
 A walk row carries what the walk cost: `elapsedMs` from the walk report beside the record
-and `effort` from the host handoff attestation. Both render as absent when the sources are
-unavailable, never as a guess. `node scripts/fork-churn.ts verify-cost` fails when any entry
-in the trailing five-walk window lacks either field, pending rows included; legacy rows
-written before the fields existed stay valid outside the window.
+and `effort` from the host handoff attestation. Both render as absent when the sources
+are unavailable, never as a guess. `effort` stays decoration, never a gate: only a host
+attestation carries it, so a delegated walk records none and no writer ever fills it
+(RSI-Software/t3code-hyprws#1090). `node scripts/fork-churn.ts verify-cost` fails when
+any entry in the trailing five-walk window lacks `elapsedMs`, pending rows included;
+legacy rows written before the field existed stay valid outside the window. The gate
+runs as the advisory `Verify walk cost window` step of the `rebase` job in
+`.github/workflows/hyprws-upstream-sync.yml`, next to the churn section it checks; that
+workflow is scheduled every six hours and on every `hyprws` push, and the sync operator
+reads a red window on that cadence.
 
 A `--push` import starts from the published `refs/fork/churn`, so an existing checkout appends
 to a ledger another writer already advanced without a manual fetch. When origin moves between
