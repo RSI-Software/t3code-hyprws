@@ -8663,6 +8663,74 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
       cleanup(root, stopped.reportPath);
     }
   });
+
+  it("a rehearsal stop names itself, so a resumed walk admits its own automerges (#1089)", () => {
+    // A hand-driven unblock-rehearse stop used to write `stage: conflicts` with no `walk.stop`,
+    // so a resumed walk refused the lane's own staged automerge material. The stop now names
+    // itself the way the fold conflict stop always has, and the allowance applies unchanged.
+    const root = fixtureRoot();
+    const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+    // The fresh path the continued rebase conflicts on; the dirt it stages is the walk's own.
+    const restoppedPath = "apps/web/src/components/CommandPalette.tsx";
+    const conflicted = report(root, {
+      stage: "conflicts",
+      target: { tag: "v1.2.3", sha: B },
+      source: { sha: C, expectedOld: C, sharedBase: A },
+      lane: { branch: laneBranch, worktree },
+      orientation: coherentOrientation,
+      originalMessages: "feat: one\x1e",
+      originalCount: 1,
+      walk: { startedAt: "2026-09-09T00:00:00.000Z" },
+      // A row the operator already resolved by hand: the record check passes, and the continued
+      // rebase stops again on a fresh upstream commit.
+      conflicts: [
+        {
+          commit: A,
+          subject: "feat(upstream): moved the drawer",
+          domain: "web",
+          path: declinedPath,
+          class: "human",
+          resolution: "resolved by hand in the lane",
+          agentSafe: "no",
+          decidedBy: "human",
+        },
+      ],
+    });
+    NodeFS.writeFileSync(conflicted.reportPath, JSON.stringify(conflicted));
+    NodeFS.writeFileSync(conflicted.recordPath, renderRecord(conflicted));
+    const runner = new FakeRunner();
+    runner.set("git", rehearsalRebaseArgs(["rebase", "--continue"]), { status: 1 });
+    runner.set("git", rehearsal(["diff", "--name-only", "--diff-filter=U"]), {
+      stdout: `${restoppedPath}\n`,
+    });
+    runner.set("git", rehearsal(["-c", "rerere.enabled=true", "rerere", "remaining"]), {
+      stdout: `${restoppedPath}\n`,
+    });
+    runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s%x1f%b", "REBASE_HEAD"]), {
+      stdout: `${B}\x1ffeat(upstream): moved the palette\x1f`,
+    });
+    try {
+      execute(["unblock-rehearse", "--report", conflicted.reportPath], root, runner);
+      const stopped = JSON.parse(
+        NodeFS.readFileSync(conflicted.reportPath, "utf8"),
+      ) as unknown as SyncReport;
+      // The report names its own stop, with the same fields any conflict stop carries.
+      assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+      assert.include(stopped.walk?.stop?.detail ?? "", "feat(upstream): moved the palette");
+      assert.include(stopped.walk?.stop?.detail ?? "", restoppedPath);
+      // So the resumed walk admits the staged automerge material the stop left behind, beside
+      // the rows the report already named.
+      validateAutoLane(stopped, runnerWithStatus(`M  ${restoppedPath}`));
+      assert.deepStrictEqual([...conflictStopDirtAllowance(stopped)].sort(), [
+        restoppedPath,
+        declinedPath,
+      ]);
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+      NodeFS.rmSync(worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(conflicted.reportPath), { recursive: true, force: true });
+    }
+  });
 });
 
 describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
