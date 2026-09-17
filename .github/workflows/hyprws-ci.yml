@@ -163,8 +163,8 @@ jobs:
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
 
-  # Everything except `t3` (apps/server) and the fork's own scripts
-  # suite; see upstream ci.yml for why `--parallel` is safe here.
+  # Everything except `t3` (apps/server), `web`, and the fork's own
+  # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -192,7 +192,35 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test
+
+  # `web` runs alone: its editable-file highlighting tests sit close to
+  # upstream's 15 s per-test budget on a GitHub-hosted runner, and time
+  # out whenever the pooled job is under load (fork issue 1053). Upstream
+  # tunes that budget for Blacksmith, so the fork widens it here rather
+  # than in the shared vite config.
+  test_web:
+    name: Test Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Test
+        run: vp run --filter @t3tools/web test --testTimeout=60000
 
   # The fork's scripts suite is large and does not shrink with the
   # product; a dedicated job keeps it from holding a pooled slot while
