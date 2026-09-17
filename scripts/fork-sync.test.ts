@@ -3876,6 +3876,130 @@ it("retries a failed check without accumulating evidence and normalizes old dupl
   }
 });
 
+const importerDriftRun = (): ReturnType<typeof replayedRun> => {
+  const state = replayedRun();
+  const clean = "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 1.0.0\n";
+  const drifted = clean.replace("foo: 1.0.0", "foo: 2.0.0");
+  NodeFS.writeFileSync(NodePath.join(state.worktree, "pnpm-lock.yaml"), drifted);
+  state.runner.set("git", ["-c", "core.commentChar=auto", "show", "HEAD:pnpm-lock.yaml"], {
+    stdout: clean,
+  });
+  return state;
+};
+
+it("assigns importer drift to the fork commit that introduces the moved specifier (#1070)", () => {
+  const state = importerDriftRun();
+  const owner = "d".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%H", "-Sfoo: 2.0.0", `${B}..HEAD`, "--", "pnpm-lock.yaml"]),
+    { stdout: `${owner}\n` },
+  );
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%B", owner]), {
+    stdout:
+      "feat(web): add rich Markdown editing (#28)\n\nFork-Domain: markdown-editing\nFork-Tier: core\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%s", owner]), {
+    stdout: "feat(web): add rich Markdown editing (#28)\n",
+  });
+  // The first two reads see the replayed head; the third, after the fixup commit, sees the
+  // committed lockfile, not the replayed one.
+  state.runner.setSequence(
+    "git",
+    ["-c", "core.commentChar=auto", "show", "HEAD:pnpm-lock.yaml"],
+    [
+      {
+        stdout: "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 1.0.0\n",
+      },
+      {
+        stdout: "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 1.0.0\n",
+      },
+      {
+        stdout: "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 2.0.0\n",
+      },
+    ],
+  );
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    const fixup = state.runner.calls.find(
+      ({ command, args }) =>
+        command === "git" &&
+        args.some((arg) => arg === "fixup! feat(web): add rich Markdown editing (#28)"),
+    );
+    assert.isDefined(fixup);
+    const search = state.runner.calls.find(
+      ({ command, args }) =>
+        command === "git" && args.includes("-Sfoo: 2.0.0") && args.includes("pnpm-lock.yaml"),
+    );
+    assert.isDefined(search);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("names the moved specifier no fork commit introduces (#1070)", () => {
+  const state = importerDriftRun();
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%H", "-Sfoo: 2.0.0", `${B}..HEAD`, "--", "pnpm-lock.yaml"]),
+    { stdout: "" },
+  );
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /no commit in .* introduces foo: 2\.0\.0;/,
+    );
+    assert.isFalse(state.runner.calls.some(({ args }) => args.some((arg) => arg === "commit")));
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses importer drift two owners disagree on (#1070)", () => {
+  const state = importerDriftRun();
+  NodeFS.writeFileSync(
+    NodePath.join(state.worktree, "pnpm-lock.yaml"),
+    "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 2.0.0\n      bar: 3.0.0\n",
+  );
+  const first = "d".repeat(40);
+  const second = "e".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%H", "-Sbar: 3.0.0", `${B}..HEAD`, "--", "pnpm-lock.yaml"]),
+    { stdout: `${second}\n` },
+  );
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%H", "-Sfoo: 2.0.0", `${B}..HEAD`, "--", "pnpm-lock.yaml"]),
+    { stdout: `${first}\n` },
+  );
+  for (const sha of [first, second]) {
+    state.runner.set("git", rehearsal(["show", "-s", "--format=%B", sha]), {
+      stdout: `subject ${sha.slice(0, 8)}\n\nFork-Domain: markdown-editing\nFork-Tier: core\n`,
+    });
+  }
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /has no single owner/,
+    );
+    assert.isFalse(state.runner.calls.some(({ args }) => args.some((arg) => arg === "commit")));
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("installs the replayed tree before the scan that typechecks it", () => {
   const { runner, root, worktree } = checkedRun();
   try {
