@@ -741,7 +741,21 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
       ];
     } else {
       captureSyncOutcome(readReport(path));
-      receipts = readBundle(`${path}.outcome.json`);
+      const declarations = `${path}.outcome.json`;
+      // A report that bound no target or source declares no attempt: the walk died before
+      // selecting a target (a lease yield refuses in requireBotCarrier before
+      // declareSyncOutcome runs), so captureSyncOutcome retained nothing and there is no
+      // attempt identity to record. The step that actually refused owns the error
+      // (RSI-Software/t3code-hyprws#1056). This post-step runs on always() and must not
+      // become the run's last red step, mirroring the auto-report guard
+      // (RSI-Software/t3code-hyprws#1009).
+      if (!NodeFS.existsSync(declarations)) {
+        process.stderr.write(
+          `churn: no sync outcome declarations at ${declarations}; nothing to retain\n`,
+        );
+        return 0;
+      }
+      receipts = readBundle(declarations);
     }
     if (process.env.FORK_OUTCOME_CACHE_EXPORT) {
       const attempts = receipts.filter((row): row is OutcomeAttempt => row.kind === "attempt");
