@@ -914,6 +914,125 @@ it("records the stopped walk's own elapsed and effort on the pending row and ren
   }
 });
 
+it("a pending append without a posted record binds the issue and the rewrite upgrades it (#1057)", () => {
+  const root = ledgerRepository([]);
+  const recordPath = NodePath.join(root, "record.md");
+  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  const stub = stubGhAndGhb(root, recordPath);
+  // The stop path: nothing verbatim on the issue, so the verbatim match fails — the
+  // pending row still lands, bound to the block issue itself.
+  const censusBody = [
+    "## Sequential rebase census",
+    "",
+    "A throwaway rebase rehearsal to `v1` found 0 conflicting fork commits.",
+    "",
+    "| File | Hunks | Fork commit | Domain |",
+    "| --- | ---: | --- | --- |",
+    "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
+    "",
+  ].join("\n");
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: censusBody,
+    comments: [],
+    url: "https://example.test/issues/1",
+  });
+  const args = [
+    "append",
+    "--record",
+    "record.md",
+    "--issue",
+    "1",
+    "--tag",
+    "v1",
+    "--before",
+    A,
+    "--after",
+    B,
+    "--pending",
+  ];
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(args, root), 0, stderr);
+    assert.strictEqual(
+      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]?.recordUrl,
+      "https://example.test/issues/1",
+    );
+    // `record-decisions` posts the record, so the same rewrite now matches verbatim and
+    // upgrades the binding to the posted comment.
+    process.env.FAKE_GH_RESPONSE = JSON.stringify({
+      body: censusBody,
+      comments: [
+        {
+          body: NodeFS.readFileSync(recordPath, "utf8"),
+          url: "https://example.test/issues/1#issuecomment-2",
+        },
+      ],
+      url: "https://example.test/issues/1",
+    });
+    assert.strictEqual(run(args, root), 0);
+    const rewritten = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!);
+    assert.strictEqual(rewritten.length, 1);
+    assert.strictEqual(rewritten[0]?.recordUrl, "https://example.test/issues/1#issuecomment-2");
+    assert.strictEqual(rewritten[0]?.pending, true);
+  } finally {
+    stub.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("an applied append without a posted record still refuses the write (#1057)", () => {
+  const root = ledgerRepository([]);
+  const recordPath = NodePath.join(root, "record.md");
+  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  const stub = stubGhAndGhb(root, recordPath);
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: [
+      "## Sequential rebase census",
+      "",
+      "A throwaway rebase rehearsal to `v1` found 0 conflicting fork commits.",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
+      "",
+    ].join("\n"),
+    comments: [],
+    url: "https://example.test/issues/1",
+  });
+  const trunkBase = trunkCommit(root, undefined, "feat(fork): base");
+  const trunkHead = trunkCommit(root, trunkBase, "feat(fork): applied identity");
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          trunkBase,
+          "--after",
+          trunkHead,
+        ],
+        root,
+      ),
+      1,
+    );
+    assert.deepStrictEqual(parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!), []);
+  } finally {
+    stub.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("an append leaves a committed frozen mirror untouched (#1074)", () => {
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
