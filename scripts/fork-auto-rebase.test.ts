@@ -135,6 +135,7 @@ import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.t
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import { createRebasedStack, verifyReplayShape } from "./fork-auto-rebase-plan.ts";
 import {
+  autoFailureReason,
   buildAutoRebasePlan,
   executeAutoRebase,
   parseArgs,
@@ -181,6 +182,25 @@ it("parses bot modes and output flags", () => {
   );
   assert.throws(() => parseArgs(["--mode", "maybe"]), UsageError);
   assert.throws(() => parseArgs(["--fetch", "--fetch"]), UsageError);
+});
+
+it("bounds the auto-rebase failure reason deterministically", () => {
+  // Machine-dependent text never reaches the stored receipt: the root and temporary
+  // worktrees are stripped, whitespace collapses, and the reason is bounded
+  // (RSI-Software/t3code-hyprws#1018, RSI-Software/t3code-hyprws#1012).
+  const root = "/repository/checkout";
+  const reason = autoFailureReason(
+    root,
+    new Error(
+      `leased push failed at ${root}/lane pid 12345\n  /tmp/fork-rebase-census-abc123 Steele\nsecond   line`,
+    ),
+  );
+  assert.strictEqual(
+    reason,
+    "leased push failed at <repository>/lane pid 12345 <temporary-worktree> Steele second line",
+  );
+  assert.isTrue(reason.length <= 500);
+  assert.strictEqual(autoFailureReason(root, new Error("")), "unknown auto-rebase failure");
 });
 
 it("keeps push authentication in git config environment variables", () => {
