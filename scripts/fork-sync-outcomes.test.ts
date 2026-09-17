@@ -330,6 +330,28 @@ const syncReport = (state: SyncReport["stage"]): SyncReport => ({
   ciHead: C,
   rererePublication: { state: "pending", error: "cache lease failed" },
 });
+it("records a failed auto-rebase execution with its bounded reason", () => {
+  // A rebase that selected its targets and then threw leaves declarations plus a failure
+  // receipt; the retain step records failed stages instead of silence
+  // (RSI-Software/t3code-hyprws#1018).
+  const rows = autoOutcomeReceipts([target, attempt()], null, undefined, {
+    phase: "execute",
+    reason: "leased push hyprws failed: refusing to push",
+  });
+  const stages = summarizeOutcomes(rows)[0]!.stages;
+  assert.strictEqual(stages.find((row) => row.stage === "selection")?.status, "failed");
+  assert.strictEqual(stages.find((row) => row.stage === "verification")?.status, "failed");
+  assert.strictEqual(stages.find((row) => row.stage === "apply")?.status, "failed");
+  assert.strictEqual(
+    stages.find((row) => row.stage === "selection")?.detail,
+    "auto-rebase execute failed: leased push hyprws failed: refusing to push",
+  );
+  // Without the failure receipt the missing result stays unknown, never failed.
+  const unknownStages = summarizeOutcomes(autoOutcomeReceipts([target, attempt()], null))[0]!
+    .stages;
+  assert.strictEqual(unknownStages.find((row) => row.stage === "selection")?.status, "unknown");
+});
+
 it("retains durable apply with pending cache but never mistakes a checked lane for apply", () => {
   const applied = summarizeOutcomes(syncOutcomeReceipts(syncReport("applied"), "carry"))[0]!;
   assert.strictEqual(applied.appliedSha, C);
