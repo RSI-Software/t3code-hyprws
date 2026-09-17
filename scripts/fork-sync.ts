@@ -95,6 +95,12 @@ import {
 } from "./fork-sync-fold-verb.ts";
 import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
 import { buildWalkSize, type WalkSize } from "./lib/fork-walk-size.ts";
+import {
+  parseWorkflowReviews,
+  readWorkflowDrift,
+  WORKFLOW_REVIEWS_PATH,
+  type WorkflowDrift,
+} from "./lib/fork-workflow-drift.ts";
 
 import {
   reconcileStableCandidates,
@@ -2080,6 +2086,104 @@ export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   };
 };
 
+/**
+ * Workflow drift the walk repairs mechanically (RSI-Software/t3code-hyprws#1071): the drift
+ * reader binds the reviews file at the lane head, so only a commit clears it. When the fork side
+ * of a drifted copy is byte-identical to the last review, the upstream side moved alone and the
+ * check refreshes the entry itself as its own fork-meta repair commit. Anything else — a missing
+ * or provenance-broken review, a fork side that moved, or a guard the unchanged fork copy now
+ * trips — is a human's adaptation decision and stops the walk with the drift as its surface.
+ */
+const refreshWorkflowReviews = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  tag: string,
+  target: string,
+): { readonly sha: string; readonly subject: string } | undefined => {
+  const laneGit = {
+    run: (args: ReadonlyArray<string>): string => gitRaw(runner, worktree, [...args], true),
+  };
+  // The scan below is the proof; when the reviews cannot even be read, it names the state.
+  let drifts: ReadonlyArray<WorkflowDrift>;
+  try {
+    drifts = readWorkflowDrift(laneGit, "HEAD", target);
+  } catch {
+    return undefined;
+  }
+  const drifted = drifts.filter(({ problem }) => problem !== undefined);
+  if (drifted.length === 0) return undefined;
+  const mechanical = drifted.filter(
+    (drift) =>
+      drift.problem === "upstream workflow changed since review" &&
+      drift.review !== undefined &&
+      drift.review.forkBlob === drift.forkBlob,
+  );
+  if (mechanical.length !== drifted.length) {
+    const surfaces = drifted.map(
+      ({ upstream, fork, problem }) => `  - workflow-drift: ${upstream} -> ${fork}: ${problem}`,
+    );
+    throw new RepairStop(
+      {
+        kind: "repair",
+        command: `fork:sync workflow review ${tag}`,
+        // The reviews path stays in the stop's allowance: the resumed walk admits the operator's
+        // refreshed reviews file beside the conflict rows.
+        paths: [WORKFLOW_REVIEWS_PATH],
+        detail: `the replayed stack drifts from its reviewed workflows; adapt the fork copy or justify no-change in ${WORKFLOW_REVIEWS_PATH}, commit it as a fork-meta repair commit carrying Fork-Domain: fork-meta, Fork-Tier: bugfix, Fork-Upstreamable: no and Fork-Repair: ${tag}, then rerun unblock-check:\n${surfaces.join("\n")}`,
+      },
+      report.reportPath,
+    );
+  }
+  const raw = NodeFS.readFileSync(NodePath.join(worktree, WORKFLOW_REVIEWS_PATH), "utf8");
+  const reviews = parseWorkflowReviews(raw);
+  const refreshed = reviews.map((review) => {
+    const drift = mechanical.find(({ upstream }) => upstream === review.upstream);
+    if (drift === undefined) return review;
+    const touched = lines(
+      gitRaw(runner, worktree, ["log", "--format=%H", target, "--", drift.upstream], true),
+    );
+    let upstreamCommit: string | undefined;
+    for (const candidate of touched) {
+      if (
+        gitRaw(runner, worktree, ["rev-parse", `${candidate}:${drift.upstream}`], true).trim() ===
+        drift.upstreamBlob
+      ) {
+        upstreamCommit = candidate;
+        break;
+      }
+    }
+    upstreamCommit ??= gitRaw(runner, worktree, ["rev-parse", `${target}^{commit}`], true).trim();
+    return {
+      ...review,
+      upstreamCommit,
+      upstreamBlob: drift.upstreamBlob,
+      reason: `${review.reason} Reviewed again at ${tag} with no fork change (mechanical walk refresh: the fork copy is byte-identical to the last review).`,
+    };
+  });
+  const document = JSON.parse(raw) as { readonly version: number };
+  NodeFS.writeFileSync(
+    NodePath.join(worktree, WORKFLOW_REVIEWS_PATH),
+    `${JSON.stringify({ version: document.version, reviews: refreshed }, null, 2)}\n`,
+  );
+  const subject = `chore(fork): refresh workflow reviews for ${tag}`;
+  botGit(runner, worktree, ["add", "--", WORKFLOW_REVIEWS_PATH]);
+  botGit(runner, worktree, [
+    "commit",
+    "--no-verify",
+    "-m",
+    subject,
+    "-m",
+    `The fork copies stay byte-identical; only the upstream fingerprints move, so the reviews are refreshed mechanically at ${tag}.`,
+    "-m",
+    `Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: ${tag}`,
+  ]);
+  const [sha = ""] = git(runner, worktree, ["show", "-s", "--format=%H", "HEAD"], true).split(
+    "\x1f",
+  );
+  return { sha: sha.trim(), subject };
+};
+
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -2202,23 +2306,50 @@ const unblockCheck = (
           (report.rewrite as NonNullable<typeof report.rewrite>).base,
         ))
       : (report.target as NonNullable<typeof report.target>).tag;
-  const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
-    { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
-    toolingDeltaCheck(),
-  ];
-  const verification: Array<{ command: string; result: string }> = [];
-  for (const command of commands) {
-    requireSuccess(
-      runner,
-      command.command,
-      command.args,
-      worktree,
-      undefined,
-      verificationEnv,
-      true,
-    );
-    verification.push({ command: commandText(command.command, command.args), result: "passed" });
+  // Workflow drift binds the reviews file at the lane head, so a refreshed reviews file in the
+  // working tree never clears the scan — only a commit does. The check refreshes a mechanically
+  // reviewable entry itself before the scan, or stops on drift a human must adapt
+  // (RSI-Software/t3code-hyprws#1071). The series rewrite is excluded: its head is a constructed
+  // manifest result, so an extra commit there would contradict the proposal its reviewer signed.
+  if (report.kind !== "rewrite" && report.target !== undefined) {
+    const refreshed = refreshWorkflowReviews(report, runner, worktree, scanTag, scanTag);
+    if (refreshed !== undefined) {
+      // Prove the repair in the lane before the scan builds on it.
+      const delta = toolingDeltaCheck();
+      requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          repairCommits: mergeRepairCommits(report.walk?.repairCommits, [refreshed]),
+        },
+      };
+      writeReport(report);
+      installedHead = refreshed.sha;
+    }
   }
+  const scan = { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] };
+  const verification: Array<{ command: string; result: string }> = [];
+  try {
+    requireSuccess(runner, scan.command, scan.args, worktree, undefined, verificationEnv, true);
+  } catch (error) {
+    // A scan failure the lane can act on is a conflict stop with the scan's finding as its
+    // surface, so the walk is picked up with the walk verbs rather than rerun from failed:
+    // the operator repairs the finding in the lane and reruns the check
+    // (RSI-Software/t3code-hyprws#1071).
+    throw new RepairStop(
+      {
+        kind: "repair",
+        command: commandText(scan.command, scan.args),
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      report.reportPath,
+    );
+  }
+  verification.push({ command: commandText(scan.command, scan.args), result: "passed" });
+  const delta = toolingDeltaCheck();
+  requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+  verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   // A lane repaired by hand before the check (`--silent-seam`) reaches this point with a dirty
   // tree its repairs already clear: the additive proof would read a HEAD missing those fixes and
   // stop on findings they no longer produce. The check commits them as its own `seam` repair
@@ -2972,6 +3103,7 @@ export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<strin
   return new Set([
     ...report.conflicts.map(({ path }) => path),
     ...(report.walk.additive?.findings ?? []).map(({ path }) => path),
+    ...(report.walk.stop.paths ?? []),
   ]);
 };
 
@@ -4061,10 +4193,16 @@ const stopWalk = (
   reason: WalkStopReason,
   detail: string,
   started: number,
+  /** Lane paths the stop leaves dirty on purpose; a resumed walk admits dirt on exactly these. */
+  paths?: ReadonlyArray<string>,
 ): never => {
   const stopped: SyncReport = {
     ...report,
-    walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started, stop: { reason, detail } },
+    walk: {
+      ...(report.walk ?? {}),
+      elapsedMs: Date.now() - started,
+      stop: { reason, detail, ...(paths === undefined ? {} : { paths }) },
+    },
   };
   writeReport(stopped);
   stopChurnRow(stopped);
@@ -4965,6 +5103,7 @@ const walkOnce = (
           ? `The lane cannot test: ${error.failure.command}\n${error.failure.detail}`
           : `The replayed resolutions do not hold: ${error.failure.command}\n${error.failure.detail}`,
         started,
+        error.failure.paths,
       );
     if (error instanceof AdditiveStop) {
       // The check wrote its findings to the report before stopping, so the retained report — not
