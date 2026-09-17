@@ -88,9 +88,22 @@ it("keeps the walk's own stop surface and drops install and rebase-progress nois
     assert.notInclude(surface, noise);
 });
 
-it("keeps nothing when the walk never reached its target rule", () => {
-  assert.strictEqual(
-    extractStopSurface(["Setup Vite+ cache hit", "install failed"].join("\n")),
-    "",
+it("falls back to the filtered whole log when the walk never reached its target rule", () => {
+  // A walk that dies before selecting a target still leaves its error lines for the agent
+  // picking it up: the same noise filtering applies, just without the slice.
+  const surface = extractStopSurface(
+    [
+      "Setup Vite+ cache hit",
+      "Progress: resolved 1868, reused 1837, downloaded 0, added 1868, done",
+      "install failed: network unreachable",
+      "resume: node scripts/fork-sync.ts unblock-auto --resume --report /tmp/r/report.json",
+      "report: /tmp/r/report.json",
+      "",
+    ].join("\n"),
   );
+  assert.include(surface, "Setup Vite+ cache hit");
+  assert.include(surface, "install failed: network unreachable");
+  assert.notInclude(surface, "Progress: resolved 1868");
+  assert.notInclude(surface, "--resume --report");
+  assert.notInclude(surface, "report: /tmp/r");
 });

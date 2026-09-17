@@ -107,17 +107,18 @@ const STOP_NOISE = [
 
 /**
  * Keep the walk's own stop surface: from the target rule through the `## Walk` record.
- * Lines before the target rule are setup noise; without a target rule the whole log is
- * setup noise and nothing is kept. Within the surface, rebase-progress and install lines
- * are dropped but the walk's own verdicts (lockfile verdicts, CONFLICT rows, the rebase
- * error, `Stop (...)`, the `## Walk` record) are kept verbatim.
+ * Lines before the target rule are setup noise. Without a target rule the walk died
+ * before selecting one (a lease yield, a setup failure, an install-step crash), and an
+ * empty fence would leave the agent picking the walk up with nothing at all — noise can
+ * be read past, silence cannot — so the same filtering applies to the whole log instead.
+ * Within the surface, rebase-progress and install lines are dropped but the walk's own
+ * verdicts (lockfile verdicts, CONFLICT rows, the rebase error, `Stop (...)`, the `## Walk`
+ * record) are kept verbatim.
  */
 export const extractStopSurface = (log: string): string => {
   const lines = log.split("\n");
   const start = lines.findIndex((line) => line.startsWith("target rule: "));
-  if (start === -1) return "";
-  return lines
-    .slice(start)
+  return (start === -1 ? lines : lines.slice(start))
     .filter(
       (line) =>
         !line.startsWith("resume: node scripts/fork-sync.ts") &&
