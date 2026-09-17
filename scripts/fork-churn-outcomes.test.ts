@@ -580,6 +580,38 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
     }),
   );
 
+  // A carry that yields the lease refuses before declareSyncOutcome runs, so the report
+  // binds no target and the declaration bundle never exists: runOutcome still returns 0
+  // with the `nothing to retain` note instead of dying on the missing file
+  // (RSI-Software/t3code-hyprws#1056).
+  it.effect("skips sync retention when the carry declared no outcome", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-yield-" });
+      const report = {
+        schemaVersion: 1,
+        stage: "listed",
+        repositoryRoot: root,
+        reportPath: NodePath.join(root, "sync-report.json"),
+        recordPath: NodePath.join(root, "record.md"),
+        issue: { number: 1, title: "yielded lease", blockingSha: "a".repeat(40) },
+        candidates: [],
+        conflicts: [],
+        verification: [],
+      };
+      yield* fs.writeFileString(NodePath.join(root, "sync-report.json"), yield* encode(report));
+      const skipped = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--sync-report", "sync-report.json"],
+        { cwd: root, env: { ...process.env }, encoding: "utf8" },
+      );
+      assert.strictEqual(skipped.status, 0, skipped.stderr);
+      assert.include(skipped.stderr, "nothing to retain");
+      assert.strictEqual(skipped.stdout, "");
+      assert.isFalse(yield* fs.exists(NodePath.join(root, "sync-report.json.outcome.json")));
+    }),
+  );
+
   it.effect("skips retention when the rebase declared no outcome", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
