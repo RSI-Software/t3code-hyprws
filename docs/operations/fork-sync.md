@@ -974,7 +974,8 @@ The report and record stay outside the repository and new rehearsals never add t
 
 A series rewrite keeps its two sessions: the host owns the proposal, another session owns the review
 verdict, and a reviewer sign-off is never counted as a human choice. Every transition still refuses
-stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed
+stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned or ambiguously owned
+importer drift, failed
 checks, or a missing/stale/same-session/withheld review. Movement that cannot fold voids the report: the
 walk re-lists from the moved trunk by itself, and a single verb restarts at `unblock-list`.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
