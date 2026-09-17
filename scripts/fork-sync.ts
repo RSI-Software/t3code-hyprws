@@ -1535,13 +1535,17 @@ const unblockRehearse = (
   );
   // Every walk records the size of the stack it replayed (RSI-Software/t3code-hyprws#672).
   const size = walkSizeRecord(report, runner);
-  report = preserveRecordDecisions({
-    ...report,
-    stage: "replayed",
-    rebasedHead,
-    stackSize,
-    walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-  });
+  // The replay passing supersedes any earlier battery stop the walk carries: the resumed walk
+  // proved the series it once stopped on (RSI-Software/t3code-hyprws#1073).
+  report = preserveRecordDecisions(
+    clearWalkStop({
+      ...report,
+      stage: "replayed",
+      rebasedHead,
+      stackSize,
+      walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
+    }),
+  );
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -2813,45 +2817,49 @@ const unblockCheck = (
   const headDrifted =
     report.rebasedHead !== undefined &&
     (checkedHead !== report.rebasedHead || laneStackSize !== report.stackSize);
-  report = preserveRecordDecisions({
-    ...report,
-    stage: "checked",
-    installedHead: checkedHead,
-    ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
-      ? {
-          rebasedHead: checkedHead,
-          stackSize: laneStackSize,
-        }
-      : {}),
-    ...(foldsWithRepairs.length > 0 &&
-    (foldsWithRepairs !== report.folds ||
-      foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
-      ? {
-          folds: foldsWithRepairs.map((fold, position) =>
-            position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
-          ),
-        }
-      : {}),
-    ...(ciHead === undefined ? {} : { ciHead }),
-    ...(proposedBy === undefined ? {} : { proposedBy }),
-    verification,
-    walk: (() => {
-      // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
-      // are now folded into their owners, and an empty list must not leave the stale array behind.
-      const walk = { ...(report.walk ?? {}), repairs: verification };
-      if (repairCommits.length === 0) delete walk.repairCommits;
-      else walk.repairCommits = repairCommits;
-      return walk;
-    })(),
-    // Declared seams replace the recorded rows by path, so the operator repeats only the flags
-    // that changed; a path not re-declared keeps its recorded summary and type.
-    silentSeams: uniqueSilentSeams([
-      ...(report.silentSeams ?? []).filter(
-        (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
-      ),
-      ...silentSeams,
-    ]),
-  });
+  report = preserveRecordDecisions(
+    clearWalkStop({
+      ...report,
+      stage: "checked",
+      installedHead: checkedHead,
+      ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+        ? {
+            rebasedHead: checkedHead,
+            stackSize: laneStackSize,
+          }
+        : {}),
+      ...(foldsWithRepairs.length > 0 &&
+      (foldsWithRepairs !== report.folds ||
+        foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
+        ? {
+            folds: foldsWithRepairs.map((fold, position) =>
+              position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
+            ),
+          }
+        : {}),
+      ...(ciHead === undefined ? {} : { ciHead }),
+      ...(proposedBy === undefined ? {} : { proposedBy }),
+      verification,
+      walk: (() => {
+        // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
+        // are now folded into their owners, and an empty list must not leave the stale array behind.
+        const walk = { ...(report.walk ?? {}), repairs: verification };
+        if (repairCommits.length === 0) delete walk.repairCommits;
+        else walk.repairCommits = repairCommits;
+        return walk;
+      })(),
+      // Declared seams replace the recorded rows by path, so the operator repeats only the flags
+      // that changed; a path not re-declared keeps its recorded summary and type.
+      silentSeams: uniqueSilentSeams([
+        ...(report.silentSeams ?? []).filter(
+          (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
+        ),
+        ...silentSeams,
+      ]),
+      // A checked lane passed the repair battery the walk once stopped on, so the resumed walk no
+      // longer carries that stop (RSI-Software/t3code-hyprws#1073).
+    }),
+  );
   writeReport(report);
   writeRecord(report);
   const leaseSha = report.source?.expectedOld ?? report.rewrite?.originSha;
@@ -3390,11 +3398,13 @@ const appliedPushRecovery = (report: SyncReport, runner: CommandRunner): SyncRep
     })();
   if (!landed) return report;
   const receipt = report.publication;
-  const recovered: SyncReport = {
+  // The recovered walk already pushed: an earlier battery stop it carries is superseded, so the
+  // resumed applied walk never prints it as current (RSI-Software/t3code-hyprws#1073).
+  const recovered: SyncReport = clearWalkStop({
     ...report,
     stage: "applied",
     publication: { ...receipt, outcome: "applied" },
-  };
+  });
   writeReport(recovered);
   process.stdout.write(
     `apply: origin/hyprws carries the leased push ${receipt.head}; resuming publication\n`,
@@ -3981,7 +3991,9 @@ const unblockApply = (
       : report.rewrite;
   // The push landed: persist the applied stage before any publication step, so a failure below
   // leaves a resumable applied push rather than a stranded trunk (RSI-Software/t3code-hyprws#922).
-  report = {
+  // The apply passing supersedes any earlier battery stop the walk carries: the applied summary
+  // must not print it as current (RSI-Software/t3code-hyprws#1073).
+  report = clearWalkStop({
     ...report,
     stage: "applied",
     recordCommentUrl,
@@ -3990,7 +4002,7 @@ const unblockApply = (
       state: "pending",
       snapshot: rerereSnapshot,
     },
-  };
+  });
   writeReport(report);
   if (isRewrite) {
     // The reuse path must keep naming the record that was pushed: a fold before this apply
@@ -4263,6 +4275,18 @@ const stopChurnRow = (stopped: SyncReport): void => {
 };
 
 /**
+ * A stage that passes supersedes any stop an earlier battery wrote: drop `walk.stop` on the
+ * report the walk carries forward, so the summary of an applied walk never prints a stale stop
+ * as its current state (RSI-Software/t3code-hyprws#1073). A fresh `stopWalk` re-adds the field
+ * when the walk stops again, so only the latest stop is ever current.
+ */
+const clearWalkStop = (report: SyncReport): SyncReport => {
+  if (report.walk?.stop === undefined) return report;
+  const { stop: _superseded, ...walk } = report.walk;
+  return { ...report, walk };
+};
+
+/**
  * Record the stop before raising it, so the report the workflow uploads and the issue body it
  * posts carry the same sentence.
  */
@@ -4340,7 +4364,9 @@ const refreshRehearsalHead = (report: SyncReport, runner: CommandRunner): SyncRe
   // `unblock-check` already keeps a cell the operator filled, and the refresh has to keep it too:
   // without this the rebind re-mints every `Decided by` cell back to `TODO`, and `unblock-apply`
   // then refuses one verb later on answers nobody withdrew (RSI-Software/t3code-hyprws#695).
-  const preserved = preserveRecordDecisions(next);
+  // The rebind is also a passing stage: an earlier battery stop the report carries is superseded
+  // (RSI-Software/t3code-hyprws#1073).
+  const preserved = preserveRecordDecisions(clearWalkStop(next));
   writeReport(preserved);
   writeRecord(preserved);
   return preserved;
