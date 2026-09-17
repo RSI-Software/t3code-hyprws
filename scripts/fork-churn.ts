@@ -131,6 +131,21 @@ export const trunkRepairCommits = (
     });
 };
 
+/** How many trailing ledger entries the cost gate inspects (RSI-Software/t3code-hyprws#1019). */
+export const WALK_COST_WINDOW = 5;
+
+/** Every entry in the window carries both fields, or the gate names what is missing. */
+export const walkCostGaps = (
+  entries: ReadonlyArray<ChurnEntry>,
+  window = WALK_COST_WINDOW,
+): ReadonlyArray<string> =>
+  entries.slice(-window).flatMap((entry) => {
+    const missing: Array<string> = [];
+    if (entry.elapsedMs === undefined) missing.push("elapsedMs");
+    if (entry.effort === undefined) missing.push("effort");
+    return missing.length === 0 ? [] : [`${entry.tag}: missing ${missing.join(" and ")}`];
+  });
+
 interface WalkReportProbe {
   readonly recordPath?: unknown;
   readonly target?: { readonly tag?: unknown };
@@ -1048,8 +1063,30 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
   return 0;
 };
 
+/**
+ * The cost gate (RSI-Software/t3code-hyprws#1019): every entry in the trailing window
+ * carries elapsedMs and effort, or the gate fails naming the gap. Legacy rows written
+ * before the fields existed stay valid outside the window; inside it they are the
+ * failure this condition exists to force. Pending rows count: a stopped walk is a walk.
+ */
+const verifyWalkCost = (args: ReadonlyArray<string>, root: string): number => {
+  if (args.length > 0) throw new UsageError("usage: fork-churn verify-cost");
+  const entries = readDurableLedger(root);
+  const gaps = walkCostGaps(entries);
+  if (gaps.length > 0) {
+    process.stderr.write(
+      `walk cost incomplete in the trailing ${WALK_COST_WINDOW} walk(s):\n${gaps.map((gap) => `  - ${gap}`).join("\n")}\n`,
+    );
+    return 1;
+  }
+  process.stdout.write(
+    `walk cost complete: trailing ${Math.min(entries.length, WALK_COST_WINDOW)} walk(s) carry elapsedMs and effort\n`,
+  );
+  return 0;
+};
+
 const USAGE =
-  "usage: fork-churn append <options> | compose --plan <json> --out <json> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push]";
+  "usage: fork-churn append <options> | compose --plan <json> --out <json> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push] | verify-cost";
 
 const HELP = `Record fork rebase evidence and target outcomes through distribution.
 ${USAGE}
@@ -1103,6 +1140,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb === "report") return report(args, root);
     if (verb === "seed") return seed(args, root);
     if (verb === "migrate-subjects") return migrateSubjects(args, root);
+    if (verb === "verify-cost") return verifyWalkCost(args, root);
     if (verb !== "render") throw new UsageError(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new UsageError("usage: fork-churn render [--check]");
