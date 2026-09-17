@@ -2094,6 +2094,19 @@ const unblockCheck = (
   const silentSeamRaw = oneValue(values, "--silent-seam", false);
   const silentSeams =
     silentSeamRaw === null ? [] : silentSeamRaw.split("\n").filter(Boolean).map(parseSilentSeam);
+  // A seam the operator supplies is recorded before the check runs (RSI-Software/
+  // t3code-hyprws#1072): a battery failure later in the same run must not drop it, and a
+  // relaunch without the flag still carries it into the record. The merge runs through
+  // uniqueSilentSeams so a re-declared path keeps its first evidence object and arrival
+  // order, and exact duplicates — including legacy doubled rows already on the report —
+  // collapse to one.
+  if (silentSeams.length > 0) {
+    report = {
+      ...report,
+      silentSeams: uniqueSilentSeams([...silentSeams, ...(report.silentSeams ?? [])]),
+    };
+    writeReport(report);
+  }
   const seamOwnerEntries = (oneValue(values, "--seam-owner", false) ?? "")
     .split("\n")
     .filter(Boolean);
@@ -2677,20 +2690,25 @@ export const decisionSurface = (record: string): string => {
 
 export const validateSignedRecord = (record: string, report: SyncReport): void => {
   if (/^Grounding pending:/m.test(record)) throw new Error("record still has pending grounding");
-  for (const line of decisionSurface(record)
+  const rows = decisionSurface(record)
     .split("\n")
-    .filter((row) => row.startsWith("|"))) {
+    .filter((row) => row.startsWith("|"));
+  const offending = rows.filter((line) => {
     const cells = splitTableCells(line) ?? [];
-    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[3] ?? ""))
-      throw new Error(`decision row has no keep/retire/partial action: ${line}`);
-    // An inherited verdict carries a human's prior answer forward but is visibly distinct:
-    // `inherited (<tag>)` never silently becomes `human`. It still counts as a signed row for
-    // Gate 4 so only genuinely new or changed candidates block landing.
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[3] ?? "")) return true;
+    // An inherited verdict carries a human's prior answer forward but stays visibly distinct:
+    // `inherited (<tag>)` never silently becomes `human`, yet still counts as signed so only
+    // genuinely new or changed candidates block landing.
     const decider = cells[5] ?? "";
     const isInherited = decider.startsWith("inherited (") && decider.endsWith(")");
-    if (!["human", "agent"].includes(decider) && !isInherited)
-      throw new Error(`decision row records no decider: ${line}`);
-  }
+    return !["human", "agent"].includes(decider) && !isInherited;
+  });
+  // Gate 4 names the whole surface (RSI-Software/t3code-hyprws#1069), not only the first row,
+  // so the operator sees every decision still owed in one refusal.
+  if (offending.length > 0)
+    throw new Error(
+      [`record has ${offending.length} unsigned decision row(s):`, ...offending].join("\n"),
+    );
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
 };
 
