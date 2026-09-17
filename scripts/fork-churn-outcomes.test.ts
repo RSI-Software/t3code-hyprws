@@ -486,6 +486,100 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
 
   // The workflow runs this step on `always()`, so a rebase that died before declaring a
   // target must not be followed by a second, misleading failure here.
+  // A rebase that declared its targets and then threw leaves a failure receipt beside the
+  // declarations; the always() retain step records failed stages instead of silence
+  // (RSI-Software/t3code-hyprws#1018).
+  it.effect("retains a failed auto-rebase execution from its failure receipt", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-failed-" });
+      const git = (args: ReadonlyArray<string>) =>
+        NodeChildProcess.execFileSync("git", [...args], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      git(["init", "--initial-branch=fixture"]);
+      git(["config", "user.name", "Fixture"]);
+      git(["config", "user.email", "fixture@example.invalid"]);
+      git(["commit", "--allow-empty", "-m", "target"]);
+      const targetSha = git(["rev-parse", "HEAD"]);
+      git(["commit", "--allow-empty", "-m", "fork"]);
+      const sourceSha = git(["rev-parse", "HEAD"]);
+      const gitRef = `refs/tags/v1-nightly.1`;
+      git(["update-ref", gitRef, targetSha]);
+      writeBotRefFile(
+        root,
+        CHURN_REF,
+        CHURN_LEDGER_FILE,
+        '{"version":2,"walks":[],"seamRecords":[]}\n',
+        "legacy seed",
+      );
+      const target = {
+        kind: "target",
+        target: { tag: "v1-nightly.1", sha: targetSha },
+        eligible: true,
+        reason: "selected tagged target under the fork tag policy",
+      };
+      const attempt = {
+        kind: "attempt",
+        targetSha,
+        attemptId: "42/1/rebase",
+        trigger: "push",
+        executor: "bot",
+        mode: "on",
+        sourceSha,
+        runUrl: "https://example.test/runs/42",
+      };
+      yield* fs.writeFileString(
+        NodePath.join(root, "issues.json.outcome.json"),
+        yield* encode({ version: 1, receipts: [target, attempt] }),
+      );
+      yield* fs.writeFileString(
+        NodePath.join(root, "issues.json.failure.json"),
+        yield* encode({
+          version: 1,
+          phase: "execute",
+          reason: "leased push hyprws failed: refusing to push",
+        }),
+      );
+      // No issues.json result: the rebase threw before writing one.
+      const failed = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--auto-report", "issues.json"],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "42",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_JOB: "rebase",
+          },
+          encoding: "utf8",
+        },
+      );
+      assert.strictEqual(failed.status, 0, failed.stderr);
+      const outcome = decode(failed.stdout);
+      assert.strictEqual(
+        outcome.stages.find((row: { stage: string }) => row.stage === "selection")?.status,
+        "failed",
+      );
+      assert.strictEqual(
+        outcome.stages.find((row: { stage: string }) => row.stage === "apply")?.status,
+        "failed",
+      );
+      assert.include(
+        (
+          outcome.stages.find((row: { stage: string }) => row.stage === "selection") as {
+            detail: string;
+          }
+        )?.detail ?? "",
+        "leased push hyprws failed",
+      );
+      assert.strictEqual(outcome.appliedSha, null);
+    }),
+  );
+
   it.effect("skips retention when the rebase declared no outcome", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
