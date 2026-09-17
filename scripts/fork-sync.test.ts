@@ -3726,6 +3726,41 @@ const order = (runner: FakeRunner, command: string, args: ReadonlyArray<string>)
     (call) => call.command === command && call.args.join(" ") === args.join(" "),
   );
 
+/**
+ * A stage that passes supersedes an earlier battery stop: a report that stopped on the repair
+ * battery, then checks clean, carries no `walk.stop` — and the summary never prints the stale
+ * stop after a later apply line (RSI-Software/t3code-hyprws#1073).
+ */
+it("a passing check clears the battery stop a resumed walk carries", () => {
+  const state = replayedRun();
+  const stopped = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...stopped,
+      walk: {
+        ...(stopped.walk ?? {}),
+        repairs: [{ command: "vp test run failing.ts", result: "failed" }],
+        stop: { reason: "conflict", detail: "The replayed resolutions do not hold." },
+      },
+    }),
+  );
+  setCiSuccess(state.runner, state.branch);
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.walk?.stop, undefined);
+    assert.include(walkSummary(checked), "- stop: none");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("unblock-check persists explicit silent seam evidence", () => {
   const state = checkedRun("apps/desktop/src/preview/Manager.ts=adapt return type:type");
   try {
