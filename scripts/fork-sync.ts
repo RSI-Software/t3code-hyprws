@@ -4870,6 +4870,10 @@ const walkOnce = (
     }
 
     if (report.stage === "checked") {
+      // A cell the operator filled after the check is the decision (RSI-Software/
+      // t3code-hyprws#1068): preserve it before the regeneration, the same way the check and
+      // rehearse verbs do, or the rewrite renders every filled cell back to TODO.
+      report = preserveRecordDecisions(report);
       report = autoGateFour(report);
       writeReport(report);
       writeRecord(report);
