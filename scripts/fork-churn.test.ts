@@ -914,6 +914,54 @@ it("records the stopped walk's own elapsed and effort on the pending row and ren
   }
 });
 
+it("an append leaves a committed frozen mirror untouched (#1074)", () => {
+  const root = ledgerRepository([]);
+  const recordPath = NodePath.join(root, "record.md");
+  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  const documentPath = NodePath.join(root, DOCUMENT_PATH);
+  NodeFS.mkdirSync(NodePath.dirname(documentPath), { recursive: true });
+  const frozen = [
+    "# Fork conflict churn",
+    "",
+    "> Deprecated. `refs/fork/churn` is the ledger; this document is a frozen mirror.",
+    "",
+    "- Entries: 0",
+    "",
+  ].join("\n");
+  NodeFS.writeFileSync(documentPath, frozen);
+  const stub = stubGhAndGhb(root, recordPath);
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          A,
+          "--after",
+          B,
+        ],
+        root,
+      ),
+      0,
+    );
+    // The ref moved; the mirror the render verb refuses to regenerate did not.
+    assert.strictEqual(
+      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!.tag,
+      "v1",
+    );
+    assert.strictEqual(NodeFS.readFileSync(documentPath, "utf8"), frozen);
+  } finally {
+    stub.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("a stopped row never carries another walk's elapsed, and an unavailable handoff renders absent (#1023)", () => {
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
