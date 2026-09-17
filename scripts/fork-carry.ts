@@ -58,9 +58,11 @@ const rerereSave = (argv: ReadonlyArray<string>, root: string): number => {
 const STOP_HEADING = "## Carried walk stopped";
 
 /**
- * The stop surface verbatim, so the agent that picks the walk up reads exactly what
- * the walk refused on. The runner's report is gone by then, so every line pointing at a
- * runner-local report is replaced by the local restart.
+ * The walk's own stop surface verbatim, so the agent that picks the walk up reads exactly what
+ * the walk refused on. The surface runs from the target rule to the `## Walk` record; install
+ * and rebase-progress noise carries no decision and is dropped
+ * (RSI-Software/t3code-hyprws#1058). The runner's report is gone by then, so every line
+ * pointing at a runner-local report is replaced by the local restart.
  */
 export const renderStopComment = (log: string, tag: string): string =>
   [
@@ -76,16 +78,55 @@ export const renderStopComment = (log: string, tag: string): string =>
     "Stop surface from the carried walk:",
     "",
     "```",
-    log
-      .split("\n")
-      .filter(
-        (line) =>
-          !line.startsWith("resume: node scripts/fork-sync.ts") && !line.startsWith("report: /"),
-      )
-      .join("\n")
-      .trimEnd(),
+    extractStopSurface(log),
     "```",
   ].join("\n");
+
+/** Install, download, and rebase-progress lines carry no stop decision. */
+const STOP_NOISE = [
+  /^Scope: /,
+  /^Lockfile is up to date, resolution step is skipped$/,
+  /^Packages: /,
+  /^Progress: /,
+  /^\++$/,
+  /^\. prepare[:$]/,
+  /^\. prepare: /,
+  /^Done in /,
+  /^\.+\/.* install[:$]/,
+  /^\.+\/.* install: /,
+  /^devDependencies:$/,
+  /^\+ \S+ \S+/,
+  /^warning: Support for 'core\.commentChar/,
+  /^Rebasing \(\d+\/\d+\)/,
+  /^Auto-merging /,
+  /^Recorded preimage for /,
+  /^hint: /,
+  /^warning: pending decision row: /,
+  /^churn row write failed; /,
+];
+
+/**
+ * Keep the walk's own stop surface: from the target rule through the `## Walk` record.
+ * Lines before the target rule are setup noise; without a target rule the whole log is
+ * setup noise and nothing is kept. Within the surface, rebase-progress and install lines
+ * are dropped but the walk's own verdicts (lockfile verdicts, CONFLICT rows, the rebase
+ * error, `Stop (...)`, the `## Walk` record) are kept verbatim.
+ */
+export const extractStopSurface = (log: string): string => {
+  const lines = log.split("\n");
+  const start = lines.findIndex((line) => line.startsWith("target rule: "));
+  if (start === -1) return "";
+  return lines
+    .slice(start)
+    .filter(
+      (line) =>
+        !line.startsWith("resume: node scripts/fork-sync.ts") &&
+        !line.startsWith("report: /") &&
+        !STOP_NOISE.some((noise) => noise.test(line)),
+    )
+    .join("\n")
+    .trimEnd();
+};
 
 const stopSurface = (argv: ReadonlyArray<string>, root: string): number => {
   const report = readSyncReport(optionValue(argv, "--report"));
