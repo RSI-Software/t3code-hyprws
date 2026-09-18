@@ -9,11 +9,11 @@ import * as NodePath from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
-  agentProvenance,
   announceStableCandidates,
   autoGateFour,
   baseReleaseTag,
   autoResolveConflicts,
+  callerProvenance,
   collectRetireEvidence,
   completeGeneratedConflictRegeneration,
   conflictResolutionIsReady,
@@ -25,6 +25,7 @@ import {
   filterRetiredMessagesForTest,
   forkCommitIdentifiers,
   gateVerificationEnv,
+  hostProvenance,
   identifyRerereResolvedPaths,
   laneExecutablePath,
   lockDriftClass,
@@ -1978,23 +1979,31 @@ it("requires a fresh review verdict for a nightly apply", () => {
   }
 });
 
-it("binds runtime provenance to the active ghb host handoff", () => {
+it("binds a walk to its host and a sign-off to the caller itself", () => {
   const runner = new FakeRunner();
-  runner.set("ghb", ["attest", "handoff"], {
-    stdout: JSON.stringify({
-      schema: "ghb.host-handoff.v1",
-      host: {
-        role: "host",
-        iface: "claude",
-        provider: "anthropic",
-        model: "claude-opus-5",
-        effort: "high",
-        harness: "claude-code@2.1.259",
-        session: "review-2",
-      },
-    }),
+  const worker = {
+    role: "worker",
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    effort: "high",
+    harness: "claude-code@2.1.259",
+    session: "review-2",
+  };
+  const host = { ...worker, role: "host", session: "walk-1" };
+  runner.set("ghb", ["attest", "caller"], {
+    stdout: JSON.stringify({ schema: "ghb.caller.v1", caller: worker, host }),
   });
-  assert.deepStrictEqual(agentProvenance(runner, "/repo"), {
+  // The one envelope answers both questions differently: a handed-off worker proposes as its
+  // host and reviews as itself, so the two roles can never collapse onto one session
+  // (RSI-Software/t3code-hyprws#1112).
+  assert.deepStrictEqual(hostProvenance(runner, "/repo"), {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    session: "walk-1",
+  });
+  assert.deepStrictEqual(callerProvenance(runner, "/repo"), {
     iface: "claude",
     provider: "anthropic",
     model: "claude-opus-5",
@@ -2002,16 +2011,23 @@ it("binds runtime provenance to the active ghb host handoff", () => {
   });
   assert.deepInclude(runner.calls[0], {
     command: "ghb",
-    args: ["attest", "handoff"],
+    args: ["attest", "caller"],
     cwd: "/repo",
   });
 
-  runner.set("ghb", ["attest", "handoff"], { stdout: "not json" });
-  assert.throws(() => agentProvenance(runner, "/repo"), /invalid ghb handoff JSON/);
-  runner.set("ghb", ["attest", "handoff"], {
-    stdout: JSON.stringify({ schema: "ghb.host-handoff.v2", host: {} }),
+  // A host caller is its own host, and both readers agree on it.
+  runner.set("ghb", ["attest", "caller"], {
+    stdout: JSON.stringify({ schema: "ghb.caller.v1", caller: host }),
   });
-  assert.throws(() => agentProvenance(runner, "/repo"), /unsupported ghb handoff schema/);
+  assert.strictEqual(hostProvenance(runner, "/repo").session, "walk-1");
+  assert.strictEqual(callerProvenance(runner, "/repo").session, "walk-1");
+
+  runner.set("ghb", ["attest", "caller"], { stdout: "not json" });
+  assert.throws(() => hostProvenance(runner, "/repo"), /invalid ghb caller JSON/);
+  runner.set("ghb", ["attest", "caller"], {
+    stdout: JSON.stringify({ schema: "ghb.caller.v2", caller: host }),
+  });
+  assert.throws(() => hostProvenance(runner, "/repo"), /unsupported ghb caller schema/);
 });
 
 it("asks a record for decisions and a go, never a login or a date", () => {
