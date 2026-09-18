@@ -28,12 +28,18 @@ import * as NodePerfHooks from "node:perf_hooks";
 import { requireSuccess, type PositionedTag } from "./fork-auto-rebase-plan.ts";
 import { CensusPartialRecord } from "./lib/fork-census-partial.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+import {
+  judgeSeamShape,
+  manifestHooksFor,
+  readConflictStages,
+} from "./lib/fork-conflict-outcomes.ts";
 import { resolveConflictPath, type ConflictResolution } from "./lib/fork-conflict-resolution.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import { makeProgressReporter } from "./lib/fork-progress.ts";
 import type { GitCommandResult } from "./lib/fork-rebase-feasibility.ts";
 import {
   censusTotals,
+  type CensusShape,
   type CensusStage,
   type RebaseStopCensus,
   type SequentialCensusEvidence,
@@ -115,6 +121,32 @@ const censusStage = (resolution: ConflictResolution): CensusStage =>
 const censusReason = (resolution: ConflictResolution): { readonly reason?: string } =>
   resolution.stage === "unresolved" ? { reason: resolution.outcome.reason } : {};
 
+/**
+ * The shape this seam carries at the replayed commit (RSI-Software/t3code-hyprws#1101), and on a
+ * hooked one the keys that carry it, which is what the ledger keys the seam on.
+ *
+ * `addition` is a path upstream has never had — no merge base and no upstream side — so the fork
+ * owns it outright and it costs nothing to carry across a rebase. `hooked` is a seam the re-apply
+ * gate can lift whole. Everything else is `woven`, and deliberately so: the census says woven
+ * whenever it cannot prove one of the other two, so the carry-cost figure over-counts rather than
+ * flattering the fork. A path the manifest does not cover is woven without reading a blob, which
+ * is also what keeps this judgement off the rehearsal's clock for the paths that are most of them.
+ */
+const censusShape = (
+  runner: SystemCommandRunner,
+  worktree: string,
+  path: string,
+  forkTipRef: string,
+  present: { readonly base: boolean; readonly ours: boolean },
+): { readonly shape: CensusShape; readonly hooks?: ReadonlyArray<string> } => {
+  if (!present.base && !present.ours) return { shape: "addition" };
+  if (manifestHooksFor(path).length === 0) return { shape: "woven" };
+  const stages = readConflictStages(runner, worktree, path, forkTipRef);
+  if (stages === null) return { shape: "woven" };
+  const judged = judgeSeamShape(path, stages);
+  return judged.shape === "hooked" ? { shape: "hooked", hooks: judged.hooks } : { shape: "woven" };
+};
+
 /** Why a generated path is an operator stop here and not in the walk. */
 const GENERATED_REASON =
   "generated path: the walk restores HEAD and regenerates it, which this rehearsal cannot run";
@@ -144,7 +176,7 @@ export const rehearseStopCensus = (
   const progress = makeProgressReporter("census");
   const partial = new CensusPartialRecord(root, { sourceSha: headSha, targetSha: target.sha });
   const observed = (complete: boolean): SequentialCensusEvidence => ({
-    version: 1,
+    version: 2,
     method: "sequential-rebase-walk-resolution",
     sourceSha: headSha,
     baseSha,
@@ -235,6 +267,9 @@ export const rehearseStopCensus = (
         const base = hasStage(stages, 1);
         const ours = hasStage(stages, 2);
         const theirs = hasStage(stages, 3);
+        // Judged before resolution: the executor stages its own result, and the index stages this
+        // reads are gone once it has.
+        const shape = censusShape(runner, worktree, path, headSha, { base, ours });
         // A generated path is the walk's own: it restores HEAD and runs the generator. This
         // rehearsal has no installed toolchain to run it with, so it has not seen the path
         // resolve and records it as an operator stop rather than claiming the walk's result.
@@ -246,6 +281,7 @@ export const rehearseStopCensus = (
               // headSha is the fork tip this rehearsal replays: the gate reads its markers for
               // seams the replayed commit predates (RSI-Software/t3code-hyprws#1030).
               forkTipRef: headSha,
+              replaySha: commit,
             });
         rows.push({
           stop: stopCount,
@@ -262,6 +298,7 @@ export const rehearseStopCensus = (
                   ? "content"
                   : "other-unmerged",
           stage: censusStage(resolution),
+          ...shape,
           ...censusReason(resolution),
         });
         // rerere already wrote its resolution into the worktree; the executor already staged its
