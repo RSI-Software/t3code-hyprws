@@ -15,6 +15,7 @@ import {
   renderLessonGuidance,
   preferredLessonBoundary,
   lessonHotSeams,
+  unownedHotSeams,
   lessonObservations,
   lessonAssessmentUnavailable,
 } from "./fork-lesson-guidance.ts";
@@ -128,6 +129,40 @@ it("deduplicates frozen copies of legacy censuses without creating single-occurr
     lessonHotSeams({ ...evidence, seamRecords: [record, next] }).get(file.path)?.walkCount,
     2,
   );
+});
+
+it("counts and lists the hot seams no reviewed boundary owns", () => {
+  // `ChatView.tsx` is in the boundary table, `useNowMinute.ts` is not; both are hot on the same
+  // evidence, so the split proves ownership decides the list rather than heat.
+  const owned = "apps/web/src/components/ChatView.tsx";
+  const unowned = "apps/web/src/hooks/useNowMinute.ts";
+  const files = [owned, unowned].map((path) => ({
+    path,
+    subject: "bootstrap physical window",
+    commit: A,
+    domain: "project-windows",
+    hunks: null,
+  }));
+  const snapshot: CensusSnapshot = { tag: "v1", fixedAt: B, files };
+  const evidence = {
+    walks: [],
+    seamRecords: [
+      seamRecord(freezeObservation(snapshot)),
+      seamRecord(freezeObservation({ ...snapshot, tag: "v2" })),
+    ],
+  };
+  assert.strictEqual(lessonHotSeams(evidence).size, 2);
+  assert.deepStrictEqual(
+    unownedHotSeams(evidence).map((seam) => seam.path),
+    [unowned],
+  );
+  const output = renderLessonGuidance(
+    { ref: CHURN_REF, sha: A, remoteSha: null, freshness: "offline", detail: "fixture", raw: "" },
+    evidence,
+  );
+  assert.include(output, "Unowned hot seams: 1 of 2 hot seam(s)");
+  assert.include(output, `  ${unowned} [2 census observation(s)`);
+  assert.notInclude(output, `  ${owned} [2 census observation(s)`);
 });
 
 it("orders stable tags after the nightlies they release, by recorded sequence", () => {
