@@ -3928,6 +3928,35 @@ it("retries a failed check without accumulating evidence and normalizes old dupl
   }
 });
 
+it("carries the failing command's own output out of a check stop", () => {
+  const state = checkedRun("apps/a.ts=adapt return type:type");
+  try {
+    const scan = ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"];
+    state.runner.set("vp", scan, { status: 1, stderr: "apps/a.ts(12,3): TS2322 not assignable" });
+    // `unblock-check` has no stop handler of its own, so whatever the error carries is the whole
+    // record the operator gets — on stderr and on the outcome sidecar. Without the detail the
+    // stop names a command and nothing about why it failed
+    // (RSI-Software/t3code-hyprws#1113).
+    const stop = (() => {
+      try {
+        execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    })();
+    assert.ok(stop instanceof Error);
+    // The classified command stays the first line, so the existing stop surfaces keep reading;
+    // the captured output follows it rather than replacing it.
+    assert.match(stop.message, /^repair: vp run --no-cache fork:scan --target v1\.2\.3\n/);
+    assert.include(stop.message, "apps/a.ts(12,3): TS2322 not assignable");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 const importerDriftRun = (): ReturnType<typeof replayedRun> => {
   const state = replayedRun();
   const clean = "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers:\n      foo: 1.0.0\n";
