@@ -505,6 +505,10 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
     const reshapeResolved = new Map<string, string>();
     resolvedOriginsByReshape.set(reshape, reshapeResolved);
     for (const [path, blamed] of paths) {
+      // Scoped to this path, not to the run: a refusal elsewhere must not stop this path from
+      // settling its origin, or the first refusal anywhere silently empties `reshapeResolved` and
+      // every later chain resolution reports a missing origin it would otherwise have found.
+      const refusalsBefore = refusals.length;
       const override = input.attribute?.get(path);
       let origin = override ?? blamed;
       if (override !== undefined) origin = git(["rev-parse", `${override}^{commit}`]).trim();
@@ -519,7 +523,7 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       const end = commits.indexOf(reshape);
       if (start < 0 || end < 0)
         refusals.push(`${path}: origin ${shortSha(origin)} is not in base..source`);
-      if (refusals.length > 0) continue;
+      if (refusals.length > refusalsBefore) continue;
       // This reshape's own origin for `path` is now settled; a later reshape in fold order that
       // chains to this one on the same path resolves to it, instead of refusing.
       reshapeResolved.set(path, origin);
