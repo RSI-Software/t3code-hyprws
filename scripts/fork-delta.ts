@@ -33,6 +33,14 @@ import {
   type WireShapeFinding,
 } from "./lib/fork-wire-shapes.ts";
 import {
+  buildHookDebtReport,
+  hookDebtPaths,
+  probePathHookDebt,
+  renderHookDebtReport,
+} from "./lib/fork-hook-debt.ts";
+import { type ForkHooksManifest } from "./lib/fork-conflict-outcomes.ts";
+import { FORK_HOOKS } from "./lib/fork-hooks.ts";
+import {
   EMPTY_RETIREMENT_LEDGER,
   readForkRetirementLedger,
   retirementDecision,
@@ -828,6 +836,12 @@ const command = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    hookDebt: Flag.boolean("hook-debt").pipe(
+      Flag.withDescription(
+        "Print the hook-debt probe: per upstream-owned tip-marked file, per key, resolvable, absent, or unprobeable at the replay position, plus reshape candidates grouping gapped commits by overlapping tip-marked file sets.",
+      ),
+      Flag.withDefault(false),
+    ),
     upstream: Flag.string("upstream").pipe(
       Flag.withDescription(
         "With --inventory, the upstream target to compare against (default: upstream/main).",
@@ -841,7 +855,7 @@ const command = Command.make(
       Flag.optional,
     ),
   },
-  ({ base, head, check, json, domain, shas, squashBody, inventory, upstream }) =>
+  ({ base, head, check, json, domain, shas, squashBody, inventory, upstream, hookDebt }) =>
     Effect.gen(function* () {
       if (Option.isSome(squashBody)) {
         const missingRefs = [
@@ -872,6 +886,72 @@ const command = Command.make(
           return;
         }
         process.stdout.write("ok: prospective squash carries its fork trailers and wire review\n");
+        return;
+      }
+      if (hookDebt) {
+        // The baseline names its own position: the newest nightly tag the repository carries,
+        // resolved here rather than hardcoded, so the printed report is reproducible from the
+        // refs alone (RSI-Software/t3code-hyprws#1096).
+        const tagList = yield* runGit(
+          ["-c", "core.quotePath=false", "tag", "--list", "*nightly*", "--sort=-creatordate"],
+          process.cwd(),
+        );
+        const nightlyTag = tagList.stdout.split("\n").map((line) => line.trim())[0];
+        const target = Option.getOrElse(upstream, () => nightlyTag ?? "upstream/main");
+        const debtHead = Option.getOrElse(head, () => "HEAD");
+        const manifest = FORK_HOOKS as ForkHooksManifest;
+        const debtBase = yield* resolveMergeBase(target, debtHead, process.cwd());
+        const debtCommits = dropTransientFixups(yield* readForkLog(debtBase, debtHead));
+        const statsBySha = yield* readCommitNumstat(debtCommits.map(({ sha }) => sha));
+        const markedPaths = new Set(hookDebtPaths(manifest));
+        const readBlob = Effect.fn("readHookDebtBlob")(function* (ref: string, path: string) {
+          const result = yield* runGit(["show", `${ref}:${path}`], process.cwd());
+          return result.exitCode === 0 ? result.stdout : undefined;
+        });
+        const probes = yield* Effect.forEach(
+          debtCommits,
+          (commit) =>
+            Effect.gen(function* () {
+              const touched =
+                statsBySha.get(commit.sha)?.files.filter((path) => markedPaths.has(path)) ?? [];
+              const verdicts = yield* Effect.forEach(touched, (path) =>
+                Effect.gen(function* () {
+                  const [commitText, tipText] = yield* Effect.all(
+                    [readBlob(commit.sha, path), readBlob(debtHead, path)],
+                    { concurrency: "unbounded" },
+                  );
+                  return {
+                    path,
+                    verdicts: probePathHookDebt(path, manifest, commitText, tipText),
+                  };
+                }),
+              );
+              return {
+                commitShort: commit.short,
+                commitSha: commit.sha,
+                subject: commit.subject,
+                probes: verdicts,
+              };
+            }),
+          { concurrency: 4 },
+        );
+        const report = buildHookDebtReport(
+          probes.flatMap(({ commitShort, commitSha, subject, probes: pathProbes }) =>
+            pathProbes.map(({ path, verdicts }) => ({
+              commitShort,
+              commitSha,
+              subject,
+              path,
+              verdicts,
+            })),
+          ),
+        );
+        process.stdout.write(
+          renderHookDebtReport(report, {
+            label: nightlyTag === undefined ? "upstream target" : "nightly tag",
+            ref: target,
+          }),
+        );
         return;
       }
       if (inventory) {
