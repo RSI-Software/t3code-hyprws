@@ -300,13 +300,14 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
             if (command === "ghb")
               return ok(
                 encodeJson({
-                  schema: "ghb.host-handoff.v1",
-                  host: reviewer
+                  schema: "ghb.caller.v1",
+                  caller: reviewer
                     ? {
                         role: "host",
                         iface: "claude",
                         provider: "anthropic",
                         model: "claude-opus-4-6",
+                        effort: "high",
                         session: "independent-review",
                       }
                     : {
@@ -314,6 +315,7 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
                         iface: "codex",
                         provider: "openai",
                         model: "gpt-6-astra",
+                        effort: "high",
                         session: "walking-host",
                       },
                 }),
