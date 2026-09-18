@@ -26,13 +26,21 @@ Blocked reports distinguish sequential replay observations from pairwise feasibi
 The sequential census retains its source, base, target, stop ordinal, replayed commit, path and
 Git conflict kind; its totals come from those same rows. Continuation provisionally takes the
 fork-side index stage (or deletion), with rerere disabled. It records no resolution verdict.
-The versioned `sequential-census-v1` evidence survives in the churn ledger as `censusEvidence`.
+The versioned `sequential-census-v2` evidence survives in the churn ledger as `censusEvidence`, and
+also records each row's seam shape: a `hooked` row names the manifest keys that carry it, a `woven`
+row is keyed on its location, an `addition` row is fork-owned at that position. Shape is what makes
+carry cost computable, so an unprovable seam records `woven` and over-counts recurring cost rather
+than flattering the fork. A stored `v1` row carries no shape and keeps the identity it was minted
+with; the two schemes never compare, so a `v1` observation can never establish that a `v2` seam is
+absent.
 Hunk counts are unknown for these observations, not zero. Legacy rows without that provenance
 remain labelled pairwise feasibility overlap; their old aggregate census counts have no retained
 stop rows. Method changes and partial censuses break comparison continuity, so neither can prove
 a seam disappeared. A partial census remains useful evidence but cannot decide a clean replay.
 
-The churn reporter keeps unresolved path/subject/domain identities through ordinary replays.
+The churn reporter keeps unresolved seam identities through ordinary replays: a hooked seam on its
+manifest keys, so a path or subject rewrite does not mint a new one, and every other seam on its
+path, subject and domain.
 An absent seam is only not observed; it is never an inferred repair. Before changing a seam's
 path, subject or patch split, store its full census and reviewed aliases with `fork:churn record`.
 A repair names its change and guard, and a separate maintainer-attested verification names the
