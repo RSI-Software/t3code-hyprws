@@ -10,6 +10,13 @@ export interface CensusFile {
   readonly commit: string;
   readonly subject?: string;
   readonly domain: string;
+  /**
+   * The manifest keys a `shape: "hooked"` census row was keyed on. Absent on every row a v1 census
+   * produced and on every unhooked v2 row, and never materialised when absent: a stored observation
+   * is re-digested from its parsed payload, so a field the stored JSON never carried would move
+   * every historical seam id.
+   */
+  readonly hooks?: ReadonlyArray<string>;
 }
 
 export interface CensusSnapshot {
@@ -86,8 +93,17 @@ export const seamRecord = <T extends SeamPayload>(payload: T): T & { readonly id
   id: digest(payload),
 });
 
-/** Ordinary replays preserve this observation identity; reviewed mappings extend it. */
+/**
+ * Ordinary replays preserve this observation identity; reviewed mappings extend it.
+ *
+ * A hooked row is keyed on its manifest keys instead of its location, so the seam survives the path
+ * move or subject rewrite that used to mint a fresh record and strand the old one. Every other row
+ * keeps the original tuple, which is what makes a stored v1 observation re-digest to the id it
+ * already carries: it has no `hooks`, so it takes the same branch it always took.
+ */
 const tuple = (row: CensusFile): string => {
+  if (row.hooks !== undefined && row.hooks.length > 0)
+    return JSON.stringify(["hook", [...row.hooks].toSorted()]);
   if (row.subject === undefined) throw new Error(`census subject is not enriched: ${row.commit}`);
   return JSON.stringify([row.path, row.subject, row.domain]);
 };
@@ -107,6 +123,7 @@ export const censusFilesFromEvidence = (
     commit: row.commit,
     subject: row.subject,
     domain: row.domain ?? "?",
+    ...(row.hooks === undefined ? {} : { hooks: row.hooks }),
   }));
 
 export const freezeObservation = (snapshot: CensusSnapshot): FrozenObservation => ({
@@ -173,18 +190,26 @@ export const requireSeamPayload = (value: unknown): SeamPayload => {
       object(row, ["id", "kind", "method", "tag", "files", "evidence"]);
       if (!Array.isArray(row.files)) throw new Error("observation needs frozen files");
       const files = row.files.map((value: unknown): CensusFile => {
-        const file = object(value, ["path", "hunks", "commit", "subject", "domain"]);
+        const file = object(value, ["path", "hunks", "commit", "subject", "domain", "hooks"]);
         if (
           file.hunks !== null &&
           (typeof file.hunks !== "number" || !Number.isSafeInteger(file.hunks) || file.hunks < 0)
         )
           throw new Error("invalid observation hunks");
+        if (
+          file.hooks !== undefined &&
+          (!Array.isArray(file.hooks) ||
+            file.hooks.length === 0 ||
+            file.hooks.some((hook) => typeof hook !== "string"))
+        )
+          throw new Error("invalid observation hooks");
         return {
           path: text(file.path),
           hunks: file.hunks,
           commit: text(file.commit),
           domain: text(file.domain),
           ...(file.subject === undefined ? {} : { subject: text(file.subject) }),
+          ...(file.hooks === undefined ? {} : { hooks: file.hooks as ReadonlyArray<string> }),
         };
       });
       const evidence = row.evidence === null ? null : requireSequentialCensusEvidence(row.evidence);
@@ -192,13 +217,7 @@ export const requireSeamPayload = (value: unknown): SeamPayload => {
       if (row.method !== method) throw new Error("observation measurement method mismatch");
       const tag = text(row.tag);
       if (evidence !== null) {
-        const observedFiles = evidence.rows.map((item) => ({
-          path: item.path,
-          hunks: null,
-          commit: item.commit,
-          subject: item.subject,
-          domain: item.domain ?? "?",
-        }));
+        const observedFiles = censusFilesFromEvidence(evidence);
         if (evidence.targetTag !== tag || canonical(observedFiles) !== canonical(files))
           throw new Error("frozen census rows or target do not match their provenance");
       }
@@ -386,26 +405,40 @@ export interface SeamAssessment {
   readonly reason: string;
 }
 
+/**
+ * The basis a verdict is comparable against: the measurement method, and the identity scheme the
+ * observation keyed its rows on. A v2 census keys a hooked row on its manifest keys instead of its
+ * location, so a scheme-1 id absent from a scheme-2 observation may be the same seam under a new
+ * id rather than a seam that is gone. Absence is therefore only establishable within one basis,
+ * exactly as it already was across the legacy→sequential method boundary.
+ */
+const observationBasis = (observation: FrozenObservation): string =>
+  `${observation.method} v${observation.evidence?.version ?? 1}`;
+
 export const assessSeams = (
   snapshots: ReadonlyArray<CensusSnapshot>,
   records: ReadonlyArray<SeamRecord>,
 ): ReadonlyArray<SeamAssessment> => {
   const registry = recordRegistry(records);
   const states = new Map<string, SeamAssessment>();
+  const observedBases = new Map<string, Set<string>>();
   const observedMethods = new Map<string, Set<FrozenObservation["method"]>>();
-  const absent = new Map<string, Set<FrozenObservation["method"]>>();
+  const absent = new Map<string, Set<string>>();
   const observations = snapshots.map(freezeObservation);
   for (const observation of observations) {
     const present = new Set<string>();
+    const basis = observationBasis(observation);
     for (const file of observation.files) {
       const id = registry.identity(file);
       present.add(id);
       const previous = states.get(id);
+      const bases = observedBases.get(id) ?? new Set<string>();
+      bases.add(basis);
+      observedBases.set(id, bases);
       const methods = observedMethods.get(id) ?? new Set<FrozenObservation["method"]>();
       methods.add(observation.method);
       observedMethods.set(id, methods);
-      const returned =
-        absent.get(id)?.has(observation.method) === true || previous?.blocking === true;
+      const returned = absent.get(id)?.has(basis) === true || previous?.blocking === true;
       states.set(id, {
         id,
         path: file.path,
@@ -426,23 +459,26 @@ export const assessSeams = (
     for (const [id, state] of states) {
       if (present.has(id)) continue;
       const partial = observation.evidence?.complete === false;
+      const changedBasis = !observedBases.get(id)?.has(basis);
       const changedMethod = !observedMethods.get(id)?.has(observation.method);
-      if (!partial && !changedMethod) {
-        const methods = absent.get(id) ?? new Set<FrozenObservation["method"]>();
-        methods.add(observation.method);
-        absent.set(id, methods);
+      if (!partial && !changedBasis) {
+        const bases = absent.get(id) ?? new Set<string>();
+        bases.add(basis);
+        absent.set(id, bases);
       }
       states.set(id, {
         ...state,
         tag: observation.tag,
-        status: partial || changedMethod ? "unknown" : "not-observed",
+        status: partial || changedBasis ? "unknown" : "not-observed",
         // An unknown identity awaits fresh evidence; it never inherits a block.
-        blocking: partial || changedMethod ? false : state.blocking,
+        blocking: partial || changedBasis ? false : state.blocking,
         reason: partial
           ? "Partial census cannot establish absence."
           : changedMethod
             ? "Different measurement method cannot establish absence of the retained identity."
-            : "Not observed; unresolved identity retained.",
+            : changedBasis
+              ? "Different identity scheme cannot establish absence of the retained identity."
+              : "Not observed; unresolved identity retained.",
       });
     }
   }
