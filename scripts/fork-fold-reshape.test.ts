@@ -520,6 +520,40 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
       }),
   );
 
+  it.effect("resolves a chain across an unrelated reshape's refusal earlier in the manifest", () =>
+    Effect.gen(function* () {
+      const repo = yield* fixture([
+        { message: "feat: seeds the hook registry", files: { "hooks.ts": "seed\n" } },
+        { message: "reshape: adds a brand-new unrelated file", files: { "orphan.ts": "new\n" } },
+        {
+          message: "reshape: fold hookA into the registry",
+          files: { "hooks.ts": "seed\nhookA-fold\n" },
+        },
+        {
+          message: "reshape: fold hookB into the registry",
+          files: { "hooks.ts": "seed\nhookA-fold\nhookB-fold\n" },
+        },
+      ]);
+      const [, orphan, reshapeA, reshapeB] = repo.shas;
+      // The orphan reshape refuses on its own path and nothing else. That refusal must not stop
+      // reshapeA from settling `hooks.ts`, or reshapeB's chain reports an origin that is missing
+      // only because an unrelated path failed first.
+      const result = derive(repo, reshapeB!, [orphan!, reshapeA!, reshapeB!]);
+      assert.strictEqual("refused" in result, true);
+      if ("refused" in result) {
+        const reasons = result.reasons.join("\n");
+        assert.include(reasons, "no adjacent fork-blamed context");
+        assert.notInclude(reasons, "no recorded origin");
+        assert.notInclude(reasons, "chains fold later");
+        assert.strictEqual(
+          result.reasons.filter((reason) => reason.includes("hooks.ts")).length,
+          0,
+          reasons,
+        );
+      }
+    }),
+  );
+
   it.effect("reads each slot tree once regardless of how many paths are attributed", () =>
     Effect.gen(function* () {
       const filler: Array<{ message: string; files: Record<string, string> }> = [];
