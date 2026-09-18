@@ -19,6 +19,12 @@
 // (`pnpm-lock.yaml`, `*.gen.ts`) and fork-owned files are outside the rule; both
 // reuse the scanner's existing ownership classification, not a second one.
 //
+// Cause (a) additionally requires a path whose grammar has a marker comment
+// (`MARKER_CAPABLE_PATH`). On `package.json` or a Markdown file the remedy the
+// warning names cannot be written, so charging it would be an unsatisfiable
+// block once the rule is adopted. The other three causes still apply there:
+// rewriting an upstream line is reshape debt whatever the file is.
+//
 // What the one-construct check does not catch: fork logic hidden in nested
 // expressions of one allowed element, several fork calls chained in one `const`
 // initializer, attribute helpers on an in-scope element, and any shape where
@@ -40,6 +46,15 @@ import { unexplainedRemovalLines } from "./fork-hook-alignment.ts";
 
 /** Generated dependency and codegen state no fork domain owns by hand. */
 export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
+
+/**
+ * The grammars in which a marker form is a comment. All three forms are C-family — a `//`
+ * line, a `/* *\/` block suffix, a JSX comment — so a path outside this set cannot carry the
+ * remedy the unmarked-addition warning names: JSON has no comment at all, and `//` in
+ * Markdown or YAML is body text. Only that clause is suppressed there. Rewriting an upstream
+ * line stays reshape debt on every path, markable or not.
+ */
+export const MARKER_CAPABLE_PATH = /\.(?:[cm]?[jt]sx?|css|scss)$/;
 
 // A marked line hook must be exactly one of these shapes. The property/spread
 // shape additionally names a fork identifier; the others are structural.
@@ -281,7 +296,7 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
       constructViolations.push(markerLine);
     }
 
-    if (unmarked.length > 0)
+    if (unmarked.length > 0 && MARKER_CAPABLE_PATH.test(path))
       details.push(
         `${path}: adds ${unmarked.length} line(s) outside a marked fork-hook; mark each hook line with ` +
           "`// fork-hook: <domain>/<name>`" +
