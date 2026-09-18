@@ -65,6 +65,18 @@ export interface ConflictStages {
 }
 
 /**
+ * Where in the replay a caller is standing, threaded explicitly and never inferred from ambient
+ * rebase state. `forkTipRef` lets the hook gate read markers the replayed commit predates
+ * (RSI-Software/t3code-hyprws#1030); `sha` is the replayed commit a tip-absence refusal names, so a
+ * maintainer can go straight to the position whose code the tip's declaration outran
+ * (RSI-Software/t3code-hyprws#1101). Either may be absent; the gate then says what it can.
+ */
+export interface ReplayPosition {
+  readonly forkTipRef?: string;
+  readonly sha?: string;
+}
+
+/**
  * Fork doctrine, in the order a maintainer applies it:
  *
  * 1. only upstream moved, so upstream's text stands;
@@ -604,6 +616,43 @@ const forkSideHookOnlyRefusal = (
   return null;
 };
 
+/** The shape a census row records for one conflicted seam (RSI-Software/t3code-hyprws#1101). */
+export interface SeamShape {
+  readonly shape: "hooked" | "woven";
+  /** The manifest keys carrying this seam; empty on a woven one, which is keyed on its path. */
+  readonly hooks: ReadonlyArray<string>;
+}
+
+/**
+ * Whether the fork side of this seam is carried entirely by declared hooks, and by which keys.
+ * `hooked` is the same judgement the re-apply gate makes — every fork line inside a marked hook
+ * span, counting the spans the tip locates here — so a seam the census calls hooked is one the walk
+ * can lift mechanically. Anything else is `woven`: fork lines are interleaved with upstream's and a
+ * maintainer owns the seam. The ledger keys a hooked seam on its keys rather than its location, so
+ * it survives an upstream rename; a woven seam keeps the location identity every v1 record used.
+ */
+export const judgeSeamShape = (
+  path: string,
+  stages: ConflictStages,
+  manifest: ForkHooksManifest = FORK_HOOKS,
+): SeamShape => {
+  const owned = new Set(manifestHooksFor(path, manifest).map(({ key }) => key));
+  if (owned.size === 0) return { shape: "woven", hooks: [] };
+  const resolved = resolveTipHookSpans(path, stages, manifest);
+  const hooks = [
+    ...new Set([
+      ...parseForkHookMarkers(stages.theirs)
+        .map(({ key }) => key)
+        .filter((key) => owned.has(key)),
+      ...resolved.spans.keys(),
+    ]),
+  ].toSorted();
+  if (hooks.length === 0) return { shape: "woven", hooks: [] };
+  return forkSideHookOnlyRefusal(stages, resolved) === null
+    ? { shape: "hooked", hooks }
+    : { shape: "woven", hooks: [] };
+};
+
 /**
  * Every hook re-apply decline names the gate that turned the path away, and keeps keep-both's
  * reason after it: that stop is still why the path is unresolved, and the re-applier only says
@@ -624,6 +673,16 @@ const hookDeclined = (
   ...(detail === undefined || detail === "" ? {} : { detail }),
 });
 
+/**
+ * What a tip-declared key whose code is absent from the replayed commit means, in the words the
+ * ledger requires (RSI-Software/t3code-hyprws#1101). The seam is not unmarked: the marking commit
+ * is simply later in the stack than the position being replayed, so the fix is to fold the marking
+ * commit into its origin, not to mark anything. A refusal that blamed the fork side for carrying
+ * unmarked lines would send a maintainer looking for a seam to mark that already exists.
+ */
+const tipAbsence = (absent: ReadonlyArray<string>, replaySha?: string): string =>
+  `tip declares ${absent.map((key) => `\`${key}\``).join(", ")} whose code is absent at replay position ${replaySha === undefined ? "this commit" : `\`${replaySha}\``}; fold pending`;
+
 const hookReapply = (
   runner: CommandRunner,
   worktree: string,
@@ -632,6 +691,7 @@ const hookReapply = (
   keepBothReason: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
   verify = true,
+  replaySha?: string,
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
   const entries = manifestHooksFor(path, manifest);
   if (entries.length === 0) return null;
@@ -644,9 +704,7 @@ const hookReapply = (
   const absentTipNote =
     resolvedTipSpans.absent.length === 0
       ? ""
-      : `; the fork tip declares ${resolvedTipSpans.absent
-          .map((key) => `\`${key}\``)
-          .join(", ")} but no matching lines exist in this commit`;
+      : `; ${tipAbsence(resolvedTipSpans.absent, replaySha)}`;
   if (!isVerifiablePath(path))
     return hookDeclined(
       path,
@@ -672,9 +730,14 @@ const hookReapply = (
     );
   const refusal = forkSideHookOnlyRefusal(stages, resolvedTipSpans);
   if (refusal !== null)
+    // A path whose tip declaration is absent here fails this gate *because* it is absent: the lines
+    // are the hook's, and only the marker is missing at this position. Naming the fork side unmarked
+    // would be the wrong diagnosis, so tip-absence owns the refusal whenever it is in play.
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} refused: the fork side of this seam ${refusal}, so there is no mechanical seam to lift${absentTipNote}`,
+      resolvedTipSpans.absent.length > 0
+        ? `fork-hook reapply of ${keys} refused: ${tipAbsence(resolvedTipSpans.absent, replaySha)}`
+        : `fork-hook reapply of ${keys} refused: the fork side of this seam ${refusal}, so there is no mechanical seam to lift`,
       keepBothReason,
     );
   const upstream = resolveConflictsToUpstream(merged.text);
@@ -1151,9 +1214,9 @@ export const executeConflictOutcome = (
   path: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
   verifyHookReapply = true,
-  forkTipRef?: string,
+  replay: ReplayPosition = {},
 ): OutcomeResult => {
-  const stages = readConflictStages(runner, worktree, path, forkTipRef);
+  const stages = readConflictStages(runner, worktree, path, replay.forkTipRef);
   if (stages === null)
     return {
       path,
@@ -1188,6 +1251,7 @@ export const executeConflictOutcome = (
             kept.reason,
             manifest,
             verifyHookReapply,
+            replay.sha,
           );
           if (reapplied === null) return kept;
           if ("reason" in reapplied) return reapplied;
