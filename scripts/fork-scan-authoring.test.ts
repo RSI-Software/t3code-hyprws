@@ -633,4 +633,163 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         }),
     );
   }
+
+  // RSI-Software/t3code-hyprws#1097: a fork-hook marker added to an
+  // upstream-owned file must be co-authored with the construct it marks.
+  it.effect(
+    "reshape-split refuses split markers, accepts co-authoring, and keeps rewrite branches advisory",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-reshape-split-" });
+        const git = (args: ReadonlyArray<string>) =>
+          NodeChildProcess.execFileSync("git", [...args], {
+            cwd: root,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          }).trim();
+        const write = Effect.fn("writeReshapeSplitFixture")(function* (
+          path: string,
+          content: string,
+        ) {
+          const absolute = NodePath.join(root, path);
+          yield* fs.makeDirectory(NodePath.dirname(absolute), { recursive: true });
+          yield* fs.writeFileString(absolute, content);
+        });
+        const commit = (message: string) => {
+          git(["add", "."]);
+          git([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "-m",
+            message,
+          ]);
+          return git(["rev-parse", "HEAD"]);
+        };
+        const path = "apps/web/src/components/Sidebar.tsx";
+        const upstreamText = "export function upstreamMetadata() {}\n";
+        git(["init", "--initial-branch=fork"]);
+        const workflowPairs = ["ci", "release"].map((name) => ({
+          upstream: `.github/workflows/${name}.yml`,
+          fork: `.github/workflows/hyprws-${name}.yml`,
+        }));
+        for (const pair of workflowPairs) {
+          yield* write(pair.upstream, "jobs: {}\n");
+          yield* write(pair.fork, "jobs: {}\n");
+        }
+        yield* write(path, upstreamText);
+        yield* write(
+          "docs/internals/fork-delta.md",
+          "# Fork delta\n\n## project-windows\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n| `apps/web/src/components/Sidebar.tsx` | Fixture |\n",
+        );
+        const base = commit("upstream base");
+        const trailers = "Fork-Domain: project-windows\nFork-Tier: core";
+        yield* write(
+          ".github/fork-workflow-reviews.json",
+          yield* encodeFixtureJson({
+            version: 1,
+            reviews: workflowPairs.map((pair) => ({
+              ...pair,
+              upstreamCommit: base,
+              upstreamBlob: git(["rev-parse", `${base}:${pair.upstream}`]),
+              forkBlob: git(["rev-parse", `${base}:${pair.fork}`]),
+              disposition: "no-change",
+              reason: "Fixture workflows are unchanged.",
+            })),
+          }),
+        );
+        const bootstrap = commit(`record workflow reviews\n\n${trailers}`);
+        const scan = (
+          head: string,
+          since: string | null,
+          sameTreeRewriteOf: string | null = null,
+        ) =>
+          scanInProcess(
+            [
+              "--head",
+              head,
+              "--target",
+              base,
+              "--no-typecheck",
+              ...(since === null ? [] : ["--since", since]),
+              ...(sameTreeRewriteOf === null ? [] : ["--same-tree-rewrite-of", sameTreeRewriteOf]),
+            ],
+            root,
+          );
+
+        // Tip reshape: an earlier fork commit adds the construct unmarked, a
+        // later one attaches only the marker.
+        const construct = "const forcedGroup = resolveSidebarPhysicalScope(input);";
+        yield* write(path, `${upstreamText}${construct}\n`);
+        const constructCommit = commit(`add unmarked sidebar scope\n\n${trailers}`);
+        const unmarked = scan("HEAD", bootstrap);
+        assert.strictEqual(unmarked.status, 0, unmarked.stderr);
+        yield* write(
+          path,
+          `${upstreamText}${construct} // fork-hook: project-windows/sidebar-physical-scope\n`,
+        );
+        const splitCommit = commit(`attach marker to sidebar scope\n\n${trailers}`);
+        const split = scan("HEAD", bootstrap);
+        assert.strictEqual(split.status, 1, split.stderr);
+        assert.include(split.stdout, "reshape-split");
+        assert.include(split.stdout, "fold-reshape");
+        assert.include(split.stdout, constructCommit.slice(0, 7));
+
+        // The same marker co-authored with its construct in one commit passes.
+        git(["checkout", "-b", "coauthored", bootstrap]);
+        yield* write(
+          path,
+          `${upstreamText}${construct} // fork-hook: project-windows/sidebar-physical-scope\n`,
+        );
+        commit(`add marked sidebar scope\n\n${trailers}`);
+        const coauthored = scan("HEAD", bootstrap);
+        assert.strictEqual(coauthored.status, 0, coauthored.stderr);
+        assert.notInclude(coauthored.stdout, "reshape-split");
+
+        // Partial rewrite: the marker rewrites only the closing line of a
+        // construct whose opening lines pre-exist.
+        git(["checkout", "-b", "partial", bootstrap]);
+        yield* write(
+          path,
+          `${upstreamText}const detail = makeSidebarDetail(\n  input.scope,\n);\n`,
+        );
+        const detailCommit = commit(`add unmarked sidebar detail\n\n${trailers}`);
+        yield* write(
+          path,
+          `${upstreamText}const detail = makeSidebarDetail(\n  input.scope,\n); // fork-hook: project-windows/sidebar-detail\n`,
+        );
+        commit(`mark the closing line only\n\n${trailers}`);
+        const partial = scan("HEAD", bootstrap);
+        assert.strictEqual(partial.status, 1, partial.stderr);
+        assert.include(partial.stdout, "reshape-split");
+        assert.include(partial.stdout, detailCommit.slice(0, 7));
+
+        // A same-tree rewrite branch is the legitimate reshape lane: advisory.
+        const rewritten = NodeChildProcess.execFileSync(
+          "git",
+          ["commit-tree", git(["rev-parse", `${splitCommit}^{tree}`]), "-p", bootstrap],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GIT_AUTHOR_NAME: "Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+              GIT_COMMITTER_NAME: "Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+            },
+            input: `rewrite history\n\n${trailers}\n`,
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        ).trim();
+        const rewriteBranch = scan(rewritten, bootstrap, splitCommit);
+        assert.strictEqual(rewriteBranch.status, 0, rewriteBranch.stderr);
+        assert.notInclude(rewriteBranch.stdout, "reshape-split");
+      }),
+  );
 });

@@ -24,7 +24,12 @@ import {
 } from "./fork-lesson-guidance.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
-import { FORK_HOOKS } from "./lib/fork-hooks.ts";
+import {
+  FORK_HOOKS,
+  FORK_HOOK_BLOCK_SUFFIX,
+  parseForkHookMarkers,
+  stripForkHookLineMarker,
+} from "./lib/fork-hooks.ts";
 import {
   readWorkflowDrift,
   WORKFLOW_REVIEWS_PATH,
@@ -40,6 +45,7 @@ import {
   significantTestLines,
   type CommitPatch,
   type GuardInput,
+  type MarkerSplitOwner,
   type ScanWarning,
 } from "./fork-scan-guards.ts";
 
@@ -657,6 +663,105 @@ const readUpstreamHookLines = (
 
 // The guard rules read one patch per warned commit, so `--since` is what keeps
 // a pull request's run proportional to the commits it adds.
+// A fork-hook marker and the construct it marks must be authored by the same
+// commit. For each warned commit that adds a marker line to an upstream-owned
+// file, the marked span is read in the commit's own tree and every construct
+// line is measured against the parent blob: a line the parent already carried
+// — an unchanged construct line, or a rewrite that only attaches the marker —
+// is a split reshape, and blame on the parent names the commit that owns it.
+// Runs only for commits with marker lines, one blame per offending file, so a
+// scan stays proportional to the reshapes it actually contains.
+const stripMarkerForms = (line: string): string =>
+  stripForkHookLineMarker(line)
+    .replace(FORK_HOOK_BLOCK_SUFFIX, "")
+    .replace(/\{\/\*\s*fork-hook(?:-end)?[^*]*\*\/\}\s*/g, "")
+    .trim();
+
+const readMarkerSplitOwners = (
+  git: GitReader,
+  commits: ReadonlyArray<{ readonly sha: string }>,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamFiles: ReadonlySet<string>,
+): ReadonlyMap<string, ReadonlyArray<MarkerSplitOwner>> => {
+  const owners = new Map<string, Array<MarkerSplitOwner>>();
+  for (const commit of commits) {
+    const patch = patchesBySha.get(commit.sha);
+    if (patch === undefined) continue;
+    const found: Array<MarkerSplitOwner> = [];
+    const paths = [...patch.changedLines]
+      .filter(
+        ([path, change]) =>
+          upstreamFiles.has(path) &&
+          !GENERATED_HOOK_PATH.test(path) &&
+          change.added.some((line) => line.includes("fork-hook:")),
+      )
+      .map(([path]) => path)
+      .toSorted((left, right) => left.localeCompare(right));
+    for (const path of paths) {
+      let targetText: string;
+      let parentText: string;
+      try {
+        targetText = git.run(["show", `${commit.sha}:${path}`]);
+        parentText = git.run(["show", `${commit.sha}^:${path}`]);
+      } catch {
+        continue; // An unreadable side leaves no evidence the construct pre-existed.
+      }
+      const hooks = parseForkHookMarkers(targetText);
+      if (hooks.length === 0) continue;
+      const targetLines = targetText.split("\n");
+      const parentIndex = new Map<string, number>();
+      for (const [index, line] of parentText.split("\n").entries()) {
+        const text = stripMarkerForms(line);
+        if (text.length > 0 && !parentIndex.has(text)) parentIndex.set(text, index + 1);
+      }
+      let ownedLine: number | null = null;
+      let ownedText = "";
+      for (const hook of hooks) {
+        for (let line = hook.startLine; line <= hook.endLine && ownedLine === null; line += 1) {
+          const text = stripMarkerForms(targetLines[line - 1] ?? "");
+          // Bare punctuation and comment-only lines (`});`, `</>`) carry no
+          // construct: they exist in almost every parent and would read as
+          // pre-existing on their own.
+          if (text.length === 0 || !/[A-Za-z_$]/.test(text)) continue;
+          // A bare opener (`import {`, `export {`) matches almost any parent
+          // file while carrying no construct of its own: a multi-line import
+          // or declaration is judged by its named lines, not its bracket.
+          if (/^[A-Za-z_$][\w$]*\s*\{$/.test(text)) continue;
+          const parent = parentIndex.get(text);
+          // A line the parent does not carry is this commit's own, added or
+          // not. A line the parent carries is a split: an added line matching
+          // a parent line is a marker attach onto pre-existing code, and a
+          // non-added line in the span is pre-existing by definition.
+          if (parent === undefined) continue;
+          ownedLine = parent;
+          ownedText = text;
+        }
+        if (ownedLine !== null) break;
+      }
+      if (ownedLine === null) continue;
+      let owner = "<unknown>";
+      try {
+        const porcelain = git.run([
+          "--no-pager",
+          "blame",
+          "--line-porcelain",
+          `-L${ownedLine},${ownedLine}`,
+          `${commit.sha}^`,
+          "--",
+          path,
+        ]);
+        const sha = /^([0-9a-f]{40})\s/.exec(porcelain)?.[1];
+        if (sha !== undefined) owner = sha.slice(0, 7);
+      } catch {
+        // Blame failure keeps the refusal; only the owner name is lost.
+      }
+      found.push({ path, owner: owner === "<unknown>" ? owner : `${owner} (${ownedText})` });
+    }
+    if (found.length > 0) owners.set(commit.sha, found);
+  }
+  return owners;
+};
+
 const buildGuardInput = (
   git: GitReader,
   options: ScanOptions,
@@ -711,6 +816,7 @@ const buildGuardInput = (
     upstreamTestFiles,
     upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
     forkHooks: new Set(Object.keys(FORK_HOOKS)),
+    markerSplitOwners: readMarkerSplitOwners(git, guardCommits, patchesBySha, upstreamFiles),
     upstreamHookLines: readUpstreamHookLines(git, range.target, patchesBySha, upstreamFiles),
   };
 };

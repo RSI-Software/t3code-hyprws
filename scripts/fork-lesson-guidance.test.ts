@@ -43,10 +43,17 @@ const decode = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const empty = '{"version":2,"walks":[],"seamRecords":[]}';
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
 
+/**
+ * `upstream-test` and `reshape-split` judge the shape of a commit, not the contents of a named
+ * source file, so neither owns an entry in AUTHORING_GUARD_TARGETS and neither has a lesson
+ * boundary to scope. Every other adopted guard names its real targets here.
+ */
+const SHAPE_ONLY_GUARDS: ReadonlySet<string> = new Set(["upstream-test", "reshape-split"]);
+
 it("covers every adopted named guard's real source targets with scoped lesson guidance", () => {
   assert.deepStrictEqual(
     Object.keys(AUTHORING_GUARD_TARGETS).toSorted(),
-    [...ADOPTED_AUTHORING_GUARDS].filter((rule) => rule !== "upstream-test").toSorted(),
+    [...ADOPTED_AUTHORING_GUARDS].filter((rule) => !SHAPE_ONLY_GUARDS.has(rule)).toSorted(),
   );
   const policyReferences = {
     "terminal-attachment-boundary": 582,
