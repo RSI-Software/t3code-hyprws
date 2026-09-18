@@ -21,7 +21,7 @@ import {
 } from "./fork-scan-guards.ts";
 import { commitFilesArguments, parseCommitFiles } from "./fork-scan.ts";
 import { FORK_HOOKS } from "./lib/fork-hooks.ts";
-import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
+import { GENERATED_HOOK_PATH, MARKER_CAPABLE_PATH } from "./lib/fork-hook-guard.ts";
 
 const RS = "";
 
@@ -1391,6 +1391,54 @@ it("keeps generated paths and fork-owned files outside the rule", () => {
     }).filter((warning) => warning.rule === "fork-hook-seam");
     assert.deepStrictEqual(warnings, [], path);
   }
+});
+
+// A `//` line is a comment in the C-family grammars and body text everywhere else, so on a
+// path with no marker comment the unmarked-addition remedy cannot be written. Suppressing
+// that one cause is what lets the rule be adopted without blocking an ordinary
+// `package.json` edit; every other cause is unaffected by the file's grammar.
+const seamOn = (path: string, changed: { added: Array<string>; removed: Array<string> }) => {
+  const input = hookPatch("+const extra = compute(spawnTarget);\n");
+  return collectScanWarnings({
+    ...input,
+    filesBySha: new Map([[hookSha, [path]]]),
+    patchesBySha: new Map(
+      [...input.patchesBySha].map(([sha, p]) => [
+        sha,
+        { ...p, changedLines: new Map([[path, changed]]) },
+      ]),
+    ),
+    upstreamFiles: new Set([path, hookPath]),
+    upstreamHookLines: new Map(),
+  }).filter((warning) => warning.rule === "fork-hook-seam");
+};
+
+it("does not charge unmarked additions on a path with no marker comment", () => {
+  for (const path of ["package.json", "docs/internals/fork-delta.md", ".github/workflows/ci.yml"]) {
+    assert.isFalse(MARKER_CAPABLE_PATH.test(path), path);
+    assert.deepStrictEqual(
+      seamOn(path, { added: ['+  "fork:delta": "vp"'], removed: [] }),
+      [],
+      path,
+    );
+  }
+  for (const path of [
+    "apps/web/src/index.css",
+    "apps/web/src/a.tsx",
+    "packages/shared/src/b.mts",
+  ]) {
+    assert.match(path, MARKER_CAPABLE_PATH);
+    assert.strictEqual(seamOn(path, { added: ["+const extra = 1;"], removed: [] }).length, 1, path);
+  }
+});
+
+it("still charges an upstream rewrite on a path with no marker comment", () => {
+  const warnings = seamOn("package.json", {
+    added: ['+  "build": "tsc --build"'],
+    removed: ['-  "build": "tsc"'],
+  });
+  assert.strictEqual(warnings.length, 1);
+  assert.match(warnings[0]!.detail, /removes or rewrites 1 upstream line/);
 });
 
 it("scores a multi-line import hook whole: its leading lines are not woven debt", () => {
