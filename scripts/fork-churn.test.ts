@@ -33,7 +33,7 @@ import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
 import { freezeObservation, seamRecord } from "./lib/fork-churn-seams.ts";
-import { parseHostHandoff } from "./lib/fork-host-handoff.ts";
+import { parseCallerAttestation } from "./lib/fork-agent-identity.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
   NIGHTLY_REVIEW_EVIDENCE,
@@ -601,44 +601,46 @@ it("renders a walk's repairs, including tooling repairs, in the Walks table", ()
   }
 });
 
-it("parses the host handoff envelope once, schema and identity pinned", () => {
-  const envelope = {
-    schema: "ghb.host-handoff.v1",
-    host: {
-      role: "host",
-      iface: "claude",
-      provider: "anthropic",
-      model: "claude-opus-5",
-      effort: "high",
-      harness: "claude-code@2.1.266",
-      session: "walk-1",
-    },
-  };
-  assert.deepStrictEqual(parseHostHandoff(JSON.stringify(envelope)), {
+it("parses the caller attestation once, schema and both identities pinned", () => {
+  const worker = {
+    role: "worker",
     iface: "claude",
     provider: "anthropic",
     model: "claude-opus-5",
     effort: "high",
-    session: "walk-1",
-  });
-  assert.throws(() => parseHostHandoff("not json"), /invalid ghb handoff JSON/);
+    harness: "claude-code@2.1.266",
+    session: "reviewer-1",
+  };
+  const host = { ...worker, role: "host", session: "walk-1" };
+  const envelope = { schema: "ghb.caller.v1", caller: worker, host };
+  // A handed-off worker answers with itself as the caller and with the host it carries, so a
+  // sign-off and a walk attestation can read the same envelope and get different agents.
+  const handedOff = parseCallerAttestation(JSON.stringify(envelope));
+  assert.strictEqual(handedOff.caller.session, "reviewer-1");
+  assert.strictEqual(handedOff.caller.role, "worker");
+  assert.strictEqual(handedOff.host?.session, "walk-1");
+  // A host caller carries no separate host block and is its own host.
+  const direct = parseCallerAttestation(JSON.stringify({ schema: "ghb.caller.v1", caller: host }));
+  assert.strictEqual(direct.host, null);
+  assert.strictEqual(direct.caller.session, "walk-1");
+  assert.throws(() => parseCallerAttestation("not json"), /invalid ghb caller JSON/);
   assert.throws(
-    () => parseHostHandoff(JSON.stringify({ ...envelope, schema: "ghb.host-handoff.v2" })),
-    /unsupported ghb handoff schema/,
+    () => parseCallerAttestation(JSON.stringify({ ...envelope, schema: "ghb.caller.v2" })),
+    /unsupported ghb caller schema/,
+  );
+  // A worker with no host block has no host identity to offer; absence is not a promotion.
+  assert.throws(
+    () => parseCallerAttestation(JSON.stringify({ schema: "ghb.caller.v1", caller: worker })),
+    /names no host and the caller is not one/,
   );
   assert.throws(
     () =>
-      parseHostHandoff(
-        JSON.stringify({ schema: envelope.schema, host: { ...envelope.host, role: "worker" } }),
-      ),
+      parseCallerAttestation(JSON.stringify({ ...envelope, host: { ...host, role: "worker" } })),
     /invalid host role/,
   );
   assert.throws(
-    () =>
-      parseHostHandoff(
-        JSON.stringify({ schema: envelope.schema, host: { ...envelope.host, effort: "" } }),
-      ),
-    /host handoff effort/,
+    () => parseCallerAttestation(JSON.stringify({ ...envelope, host: { ...host, effort: "" } })),
+    /caller attestation host effort/,
   );
 });
 
@@ -808,7 +810,7 @@ it("writes the applied row when the host handoff is unavailable, effort rendered
   }
 });
 
-/** The fake gh and ghb a pending append needs: the record lookup answered, the handoff attested. */
+/** The fake gh and ghb a pending append needs: the record lookup answered, the caller attested. */
 const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void } => {
   const bin = NodePath.join(root, "bin");
   NodeFS.mkdirSync(bin, { recursive: true });
@@ -822,8 +824,8 @@ const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void }
     [
       "#!/usr/bin/env node",
       "process.stdout.write(JSON.stringify({",
-      '  schema: "ghb.host-handoff.v1",',
-      '  host: { role: "host", iface: "claude", provider: "anthropic", model: "test-model", effort: "high", session: "s1" },',
+      '  schema: "ghb.caller.v1",',
+      '  caller: { role: "host", iface: "claude", provider: "anthropic", model: "test-model", effort: "high", session: "s1" },',
       "}));",
       "",
     ].join("\n"),
