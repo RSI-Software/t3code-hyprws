@@ -4180,7 +4180,13 @@ class RepairStop extends Error {
   readonly reportPath: string;
 
   constructor(failure: RepairFailure, reportPath: string) {
-    super(`${failure.kind === "environment" ? "environment" : "repair"}: ${failure.command}`);
+    // The command names what stopped; only the captured output says why. `unblock-auto` composes
+    // both into its stop reason, but every other verb lets this error reach the top-level handler,
+    // where the message is the whole record — on stderr and on the outcome sidecar. Carrying the
+    // detail here is what stops those verbs from reporting a stop nobody can diagnose
+    // (RSI-Software/t3code-hyprws#1113).
+    const head = `${failure.kind === "environment" ? "environment" : "repair"}: ${failure.command}`;
+    super(failure.detail.length > 0 ? `${head}\n${failure.detail}` : head);
     this.failure = failure;
     this.reportPath = reportPath;
   }
