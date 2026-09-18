@@ -930,7 +930,7 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       timeLimitSeconds: 360,
     });
     assert.deepStrictEqual(evidence, {
-      version: 1,
+      version: 2,
       method: "sequential-rebase-walk-resolution",
       sourceSha: fixture.fork,
       baseSha: fixture.base,
@@ -946,6 +946,9 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
           stage: "unresolved",
           path: "shared.txt",
           kind: "content",
+          // Upstream owns the path and no manifest hook covers it, so the seam is woven and the
+          // ledger keys it on its location (RSI-Software/t3code-hyprws#1101).
+          shape: "woven",
           reason:
             "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam",
         },
