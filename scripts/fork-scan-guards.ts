@@ -18,6 +18,13 @@
 //   authorization or project-window bridge capability grows inside upstream's
 //   preload/IPC/manager modules instead of the fork-owned WindowPolicy pair.
 //
+// - fork-hook-seam: the commit weaves fork lines into an upstream-owned file
+//   outside a marked hook, or its marker is not one declared construct.
+// - reshape-split: the commit adds a fork-hook marker covering lines the
+//   parent tree already carried, so marker and construct are authored by
+//   different commits; blame names the owning commit and fold-reshape is the
+//   lane that reshape belongs in.
+//
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
 
@@ -44,7 +51,8 @@ export type ScanWarningRule =
   | "thread-route-navigation"
   | "github-issue-settings-search"
   | "mobile-ignored-file-listing"
-  | "fork-hook-seam";
+  | "fork-hook-seam"
+  | "reshape-split";
 
 // Exact integration targets used by the real matchers and the lesson-guidance
 // coverage invariant. Upstream test ownership is a separate generic policy.
@@ -122,6 +130,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "agent-spawn-navigation",
   "rich-markdown-boundary",
   "desktop-preview-ownership",
+  "reshape-split",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -141,7 +150,13 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "github-issue-settings-search",
   "mobile-ignored-file-listing",
   "fork-hook-seam",
+  "reshape-split",
 ];
+
+export interface MarkerSplitOwner {
+  readonly path: string;
+  readonly owner: string;
+}
 
 export interface ScanWarning {
   readonly rule: ScanWarningRule;
@@ -250,6 +265,12 @@ export interface GuardInput {
   // Manifest keys from scripts/lib/fork-hooks.ts. A marker outside this set is
   // a hook the sync walk cannot reason about.
   readonly forkHooks: ReadonlySet<string>;
+  // Marked-construct lines a warned commit did not author itself, keyed by
+  // commit sha: one entry per upstream-owned file whose fork-hook marker
+  // covers a line the parent tree already carried, with the blame owner of
+  // the earliest such line. Computed by the scan runner because blame needs
+  // git; an absent map is an empty map.
+  readonly markerSplitOwners?: ReadonlyMap<string, ReadonlyArray<MarkerSplitOwner>>;
   // The target-tree significant lines of the upstream-owned files the warned
   // commits remove lines from, so a fork deletion of its own earlier hook line
   // is not refused as an upstream removal. Populated only for the files the
@@ -870,6 +891,18 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       upstreamLines: input.upstreamHookLines ?? new Map(),
     }))
       warn("fork-hook-seam", detail);
+
+    // Adopted: a fork-hook marker added to an upstream-owned file must be
+    // co-authored with the construct it marks. A marker attached to a line the
+    // parent tree already carried — including a partial rewrite where only
+    // some construct lines are new — splits the authoring of a reshape across
+    // commits, so it is refused and pointed at the fold lane.
+    for (const split of input.markerSplitOwners?.get(commit.sha) ?? []) {
+      warn(
+        "reshape-split",
+        `${split.path}: fork-hook marker covers line(s) authored by ${split.owner}; author the marker and its construct in one commit, or fold the reshape via fold-reshape (vp run fork:sync fold-reshape --reshape <sha>)`,
+      );
+    }
 
     // The re-declaration is matched by name across the whole commit: moving an
     // upstream declaration into a fork-owned file is the common form of this
