@@ -57,8 +57,27 @@ const CENSUS_STAGES: ReadonlySet<string> = new Set<CensusStage>([
   "unmeasured",
 ]);
 
+/**
+ * What the fork side of a conflicted path *is*, judged at the replayed commit rather than at the
+ * tip. The ledger recorded resolution effort and never structure, so it could not say whether a
+ * recurring conflict was a seam a guard could retire or a hook that merely moved
+ * (RSI-Software/t3code-hyprws#1101).
+ *
+ * - `hooked` — every fork-added line at that commit sits inside a marked hook the manifest knows.
+ * - `woven` — fork lines are interleaved with upstream code outside any marked hook.
+ * - `addition` — the path is fork-owned; there is no upstream side to weave into.
+ *
+ * `unclassified` is not a value: a v1 row recorded no shape and reads through `censusRowShape`.
+ */
+export type CensusShape = "hooked" | "woven" | "addition";
+
+const CENSUS_SHAPES: ReadonlySet<string> = new Set<CensusShape>(["hooked", "woven", "addition"]);
+
+/** The stored payload version. v2 adds per-row `shape` and `hooks`; v1 carries neither. */
+export type CensusVersion = 1 | 2;
+
 export interface SequentialCensusEvidence {
-  readonly version: 1;
+  readonly version: CensusVersion;
   readonly method: CensusMethod;
   readonly sourceSha: string;
   readonly baseSha: string;
@@ -90,12 +109,35 @@ export interface SequentialCensusEvidence {
      * machine (RSI-Software/t3code-hyprws#1012).
      */
     readonly reason?: string;
+    /**
+     * What the fork side of this path is at the replayed commit. Present on a `version: 2` row and
+     * absent on every v1 one; read it through `censusRowShape`, never directly. The parser must not
+     * materialise it, for the digest reason `stage` carries above.
+     */
+    readonly shape?: CensusShape;
+    /**
+     * The `<domain>/<name>` manifest keys whose marked hooks hold every fork-added line here.
+     * Present only on a `shape: "hooked"` row, where it is non-empty and sorted, and absent on
+     * every other row. It is the identity a hooked seam is keyed on, so a seam survives the path
+     * move or subject rewrite that used to mint a fresh record.
+     */
+    readonly hooks?: ReadonlyArray<string>;
   }>;
 }
 
 /** A row that predates the resolution stages recorded none; its observation measures a conflict only. */
 export const censusRowStage = (row: SequentialCensusEvidence["rows"][number]): CensusStage =>
   row.stage ?? "unmeasured";
+
+/** A v1 row recorded no structure; only a v2 census judged shape at the replayed commit. */
+export const censusRowShape = (
+  row: SequentialCensusEvidence["rows"][number],
+): CensusShape | "unclassified" => row.shape ?? "unclassified";
+
+/** The manifest keys this row is seam-keyed on, empty on a row that is not hooked. */
+export const censusRowHooks = (
+  row: SequentialCensusEvidence["rows"][number],
+): ReadonlyArray<string> => row.hooks ?? [];
 
 /** What the walk recorded against this stop, or `null` on a row that carries no reason. */
 export const censusRowReason = (row: SequentialCensusEvidence["rows"][number]): string | null =>
@@ -130,11 +172,95 @@ export const censusResolutionSplit = (rows: SequentialCensusEvidence["rows"]) =>
   };
 };
 
-/** The marker retains exact paths and provenance independently of Markdown escaping. */
+/**
+ * The same rows split by what the fork side *is* rather than by what resolving it cost. A v1
+ * census contributes only to `unclassifiedFileCount`, so a reader can tell an absent measurement
+ * from a measured zero.
+ */
+export const censusShapeSplit = (rows: SequentialCensusEvidence["rows"]) => {
+  const count = (shape: CensusShape | "unclassified") =>
+    rows.filter((row) => censusRowShape(row) === shape).length;
+  return {
+    hookedFileCount: count("hooked"),
+    wovenFileCount: count("woven"),
+    additionFileCount: count("addition"),
+    unclassifiedFileCount: count("unclassified"),
+  };
+};
+
+/**
+ * Per-domain carry cost: how much of each domain's conflict pressure a guard could retire, and how
+ * much is woven into upstream code and therefore recurs every walk
+ * (RSI-Software/t3code-hyprws#443). The ledger recorded resolution effort and never structure, so
+ * this was unmeasurable until a v2 census judged shape.
+ *
+ * `recurring` counts distinct woven paths, not rows: the same path conflicting at four stops is one
+ * seam an operator carries, not four. A domain whose rows are all unclassified reports
+ * `measured: false`, so an absent measurement never reads as a domain with no carry cost.
+ */
+export const censusCarryCost = (rows: SequentialCensusEvidence["rows"]) => {
+  const domains = new Map<string, SequentialCensusEvidence["rows"][number][]>();
+  for (const row of rows) {
+    const key = row.domain ?? "?";
+    domains.set(key, [...(domains.get(key) ?? []), row]);
+  }
+  return [...domains]
+    .map(([domain, owned]) => {
+      const shaped = owned.filter((row) => censusRowShape(row) !== "unclassified");
+      const paths = (shape: CensusShape) =>
+        new Set(owned.filter((row) => censusRowShape(row) === shape).map((row) => row.path)).size;
+      return {
+        domain,
+        measured: shaped.length > 0,
+        recurring: paths("woven"),
+        retirable: paths("hooked"),
+        owned: paths("addition"),
+        conflictFileCount: owned.length,
+        forkCommitCount: new Set(owned.map((row) => row.commit)).size,
+      };
+    })
+    .sort((left, right) => right.recurring - left.recurring || left.domain.localeCompare(right.domain));
+};
+
+/**
+ * The marker retains exact paths and provenance independently of Markdown escaping. Both stored
+ * versions parse: a v1 marker is still the only record of every census written before the shape
+ * fields existed, and re-digesting one must keep yielding its historical seam ids.
+ */
 export const parseSequentialCensusEvidence = (body: string): SequentialCensusEvidence | null => {
-  const marker = /<!-- sequential-census-v1:(.*?) -->/.exec(body)?.[1];
+  const marker = /<!-- sequential-census-v[12]:(.*?) -->/.exec(body)?.[1];
   if (marker === undefined) return null;
   return requireSequentialCensusEvidence(JSON.parse(marker));
+};
+
+/**
+ * The shape fields are version-gated in both directions. A v1 payload carrying them would be a
+ * v2 row mislabelled, and its seam ids would not match the v1 ones already stored against it; a v2
+ * row missing `shape` would read as `unclassified` and silently drop out of the carry-cost count
+ * the version exists to produce.
+ */
+const requireRowShape = (version: CensusVersion, row: Record<string, unknown>) => {
+  if (version === 1) {
+    if (row.shape !== undefined || row.hooks !== undefined)
+      throw new Error("census v1 row carries v2 shape fields");
+    return;
+  }
+  if (typeof row.shape !== "string" || !CENSUS_SHAPES.has(row.shape))
+    throw new Error("census v2 row records no shape");
+  if (row.shape !== "hooked") {
+    if (row.hooks !== undefined) throw new Error("census hooks on an unhooked row");
+    return;
+  }
+  if (
+    !Array.isArray(row.hooks) ||
+    row.hooks.length === 0 ||
+    row.hooks.some((hook) => typeof hook !== "string")
+  )
+    throw new Error("census hooked row names no hook");
+  const sorted = [...(row.hooks as string[])].toSorted();
+  if (row.hooks.some((hook, index) => hook !== sorted[index]))
+    throw new Error("census hooks are not sorted");
+  if (new Set(row.hooks).size !== row.hooks.length) throw new Error("census hooks repeat a key");
 };
 
 export const requireSequentialCensusEvidence = (value: unknown): SequentialCensusEvidence => {
@@ -143,7 +269,7 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
   const sha = (value: unknown): value is string =>
     typeof value === "string" && /^[0-9a-f]{40,64}$/.test(value);
   if (
-    evidence.version !== 1 ||
+    (evidence.version !== 1 && evidence.version !== 2) ||
     (evidence.method !== "sequential-rebase-stage3-provisional" &&
       evidence.method !== "sequential-rebase-walk-resolution") ||
     !sha(evidence.sourceSha) ||
@@ -154,6 +280,7 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
     !Array.isArray(evidence.rows)
   )
     throw new Error("invalid census provenance");
+  const version = evidence.version as CensusVersion;
   const stops = new Map<number, string>();
   const pathsAtStops = new Set<string>();
   const rows = evidence.rows.map((item: unknown): SequentialCensusEvidence["rows"][number] => {
@@ -175,6 +302,7 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
       (row.reason !== undefined && typeof row.reason !== "string")
     )
       throw new Error("invalid census stop row");
+    requireRowShape(version, row);
     const priorCommit = stops.get(row.stop);
     const identity = `${row.stop}\u0000${row.path}`;
     if ((priorCommit !== undefined && priorCommit !== row.commit) || pathsAtStops.has(identity)) {
@@ -191,10 +319,12 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
       kind: row.kind,
       ...(row.stage === undefined ? {} : { stage: row.stage as CensusStage }),
       ...(row.reason === undefined ? {} : { reason: row.reason }),
+      ...(row.shape === undefined ? {} : { shape: row.shape as CensusShape }),
+      ...(row.hooks === undefined ? {} : { hooks: row.hooks as ReadonlyArray<string> }),
     };
   });
   return {
-    version: 1,
+    version,
     method: evidence.method as CensusMethod,
     sourceSha: evidence.sourceSha,
     baseSha: evidence.baseSha,
@@ -334,6 +464,29 @@ const censusSplitProse = (
   ];
 };
 
+/**
+ * The carry-cost table RSI-Software/t3code-hyprws#443 asks for, which only a v2 census can fill.
+ * It ranks by recurring seams rather than by conflict volume, because a domain with many hooked
+ * conflicts costs a guard once while a domain with few woven ones costs an operator every walk.
+ */
+const censusCarryCostProse = (evidence: SequentialCensusEvidence): ReadonlyArray<string> => {
+  const rows = censusCarryCost(evidence.rows);
+  const split = censusShapeSplit(evidence.rows);
+  return [
+    "",
+    "### Carry cost by domain",
+    "",
+    `Shape is judged at the replayed commit: ${split.hookedFileCount} hooked, ${split.wovenFileCount} woven, ${split.additionFileCount} fork-owned${split.unclassifiedFileCount === 0 ? "" : `, ${split.unclassifiedFileCount} unclassified`}. Recurring counts distinct woven paths, so a path conflicting at several stops is one seam an operator carries, not several.`,
+    "",
+    "| Domain | Recurring | Retirable | Fork-owned | Conflict files | Fork commits |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map(
+      (row) =>
+        `| ${inlineCode(row.domain)} | ${row.measured ? row.recurring : "?"} | ${row.measured ? row.retirable : "?"} | ${row.measured ? row.owned : "?"} | ${row.conflictFileCount} | ${row.forkCommitCount} |`,
+    ),
+  ];
+};
+
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
@@ -386,14 +539,15 @@ export const buildBlockedIssue = (
                 "Continuation provisionally takes fork-side index stage 3 (or its deletion) with rerere disabled. These observations record no human or agent resolution verdict.",
               ]
             : censusSplitProse(evidence, split!)),
+          ...(evidence.version === 1 ? [] : censusCarryCostProse(evidence)),
           "",
-          "| Stop | File | Conflict kind | Stage | Replayed fork commit | Domain |",
-          "| ---: | --- | --- | --- | --- | --- |",
+          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain |`,
+          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- |`,
           ...evidence.rows.map(
             (row) =>
-              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} | ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
           ),
-          `<!-- sequential-census-v1:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
+          `<!-- sequential-census-v${evidence.version}:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
         ]),
     ...(stopCensus?.truncatedBy === "stop-limit"
       ? [
