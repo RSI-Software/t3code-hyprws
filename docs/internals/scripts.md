@@ -152,6 +152,17 @@ authenticated.
   proving the selected head has exactly the source ref's full tree. `--replay-of <ref>` does the same
   for a rebase rehearsal, only after proving the head omits that trunk and sits on a tagged upstream
   commit the trunk has not reached.
+- `vp run fork:retire-pass`: Runs the retire pass over the fold worklist (`scripts/fork-retire-pass.ts`),
+  the P0 gate before the first fold: retire before reshape. It takes `--worklist <file>` of subjects
+  (one per line; markdown checkboxes and `(ledger: …)` annotations are tolerated), `--target <ref>`
+  upstream tree to probe, `--base <ref>` and `--source <ref>` resolving subjects to commits (defaults:
+  merge base of `upstream/main` and `HEAD`). Each row reuses the walk's own retire predicates —
+  `retireCandidateMatches` scoped by `RETIRE_PROBE_EXCLUSIONS` and `isRetireEvidenceSite` — and emits
+  `retire-candidate` with its evidence sites, `no-evidence`, or `not-in-range`. Verdicts are read back
+  from the fork retirement ledger keyed by subject and shown as `retire`/`keep`/`partial`/`pending`;
+  the driver writes nothing and drops nothing. When at least half the probed rows read retire
+  candidate it prints the over-broad-read warning from RSI-Software/t3code-hyprws#688, because a
+  probe that reads everything as retire buries the proven keeps. `--json` emits the rows for tooling.
 - `vp run fork:sync <verb>`: Owns the human unblock state machine in one versioned external report
   (`scripts/fork-sync.ts`). `unblock-list` emits selectable targets without accepting one;
   `unblock-orient` binds the human's explicit selection; repeatable `unblock-rehearse` calls create
