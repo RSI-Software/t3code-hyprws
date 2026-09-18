@@ -29,6 +29,7 @@ import {
 } from "./lib/fork-retirement-ledger.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
+import { parseCallerAttestation, type CallerAttestation } from "./lib/fork-agent-identity.ts";
 import {
   readConflictStages,
   seamKey,
@@ -2804,7 +2805,7 @@ const unblockCheck = (
     // with no separate resume round-trip to record one.
     if (proposedBy === undefined) {
       try {
-        proposedBy = agentProvenance(runner, cwd);
+        proposedBy = hostProvenance(runner, cwd);
       } catch (error) {
         throw new Error(
           `nightly proposal provenance unavailable: ${error instanceof Error ? error.message : String(error)}; rerun unblock-check from an agent host session with ghb runtime attestation available`,
@@ -2958,28 +2959,32 @@ const writeNightlyReviewRecord = (report: SyncReport, record: string): void => {
   });
 };
 
-export const agentProvenance = (
+const callerAttestation = (runner: CommandRunner, cwd: string): CallerAttestation =>
+  parseCallerAttestation(requireSuccess(runner, "ghb", ["attest", "caller"], cwd));
+
+/**
+ * The host behind this session. A walk attestation names the host that drove the walk, so a
+ * worker holding the host's envelope answers with that host rather than with itself.
+ */
+export const hostProvenance = (
   runner: CommandRunner = new SystemRunner(),
   cwd = process.cwd(),
 ): AgentProvenance => {
-  const raw = requireSuccess(runner, "ghb", ["attest", "handoff"], cwd);
-  let handoff: unknown;
-  try {
-    handoff = JSON.parse(raw);
-  } catch {
-    throw new Error("agent provenance received invalid ghb handoff JSON");
-  }
-  if (typeof handoff !== "object" || handoff === null)
-    throw new Error("agent provenance received invalid ghb handoff");
-  const envelope = handoff as Record<string, unknown>;
-  if (envelope.schema !== "ghb.host-handoff.v1")
-    throw new Error("agent provenance received unsupported ghb handoff schema");
-  if (typeof envelope.host !== "object" || envelope.host === null)
-    throw new Error("agent provenance ghb handoff has no host identity");
-  const host = envelope.host as Record<string, unknown>;
-  if (host.role !== "host") throw new Error("agent provenance ghb handoff has invalid host role");
-  return requireAgentProvenance(host, "agent provenance");
+  const attestation = callerAttestation(runner, cwd);
+  return requireAgentProvenance(attestation.host ?? attestation.caller, "agent provenance");
 };
+
+/**
+ * This session's own identity. A sign-off must name the agent that reviewed, never the host it was
+ * handed off from: a peer-spawned reviewer inherits the spawner's envelope, and answering with the
+ * host would record the proposing session as its own reviewer
+ * (RSI-Software/t3code-hyprws#1112).
+ */
+export const callerProvenance = (
+  runner: CommandRunner = new SystemRunner(),
+  cwd = process.cwd(),
+): AgentProvenance =>
+  requireAgentProvenance(callerAttestation(runner, cwd).caller, "reviewer provenance");
 
 const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyReviewEvidence => {
   if (
@@ -3085,7 +3090,7 @@ const unblockReview = (
     throw new Error(
       "nightly review is already recorded; restart the proposal instead of replacing it",
     );
-  const reviewer = agentProvenance(runner, cwd);
+  const reviewer = callerProvenance(runner, cwd);
   if (reviewer.session === proposer.session)
     throw new Error("nightly review refuses a verdict from the proposing session");
   const record = NodeFS.readFileSync(report.recordPath, "utf8");
