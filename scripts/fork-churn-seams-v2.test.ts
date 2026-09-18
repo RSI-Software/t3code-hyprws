@@ -93,7 +93,10 @@ it("keys a hooked row on its manifest keys, so a path or subject rewrite keeps t
     seamIdentity({ ...original, hooks: ["github-issues/issue-row"] }),
   );
   // Order is not identity: the key set is.
-  assert.strictEqual(seamIdentity(original), seamIdentity({ ...original, hooks: [...hooks].reverse() }));
+  assert.strictEqual(
+    seamIdentity(original),
+    seamIdentity({ ...original, hooks: hooks.toReversed() }),
+  );
   // An unhooked row in the same place keeps the location identity, so v1 records are untouched.
   const { hooks: _hooks, ...unhooked } = original;
   assert.notStrictEqual(seamIdentity(original), seamIdentity(unhooked));
@@ -102,7 +105,9 @@ it("keys a hooked row on its manifest keys, so a path or subject rewrite keeps t
 it("version-gates the shape fields in both directions", () => {
   const hooked = row({ path: "seam.ts", shape: "hooked", hooks: ["upstream-fixes/patch"] });
   assert.doesNotThrow(() => requireSequentialCensusEvidence(evidence(2, [hooked])));
-  assert.doesNotThrow(() => requireSequentialCensusEvidence(evidence(1, [row({ path: "seam.ts" })])));
+  assert.doesNotThrow(() =>
+    requireSequentialCensusEvidence(evidence(1, [row({ path: "seam.ts" })])),
+  );
   assert.throws(
     () => requireSequentialCensusEvidence(evidence(1, [hooked])),
     /v1 row carries v2 shape fields/,
@@ -111,12 +116,13 @@ it("version-gates the shape fields in both directions", () => {
     () => requireSequentialCensusEvidence(evidence(2, [row({ path: "seam.ts" })])),
     /records no shape/,
   );
+  const { hooks: _hooks, ...hookless } = hooked;
+  assert.throws(() => requireSequentialCensusEvidence(evidence(2, [hookless])), /names no hook/);
   assert.throws(
-    () => requireSequentialCensusEvidence(evidence(2, [{ ...hooked, hooks: undefined }])),
-    /names no hook/,
-  );
-  assert.throws(
-    () => requireSequentialCensusEvidence(evidence(2, [{ ...row({ path: "x" }), shape: "woven", hooks: ["a/b"] }])),
+    () =>
+      requireSequentialCensusEvidence(
+        evidence(2, [{ ...row({ path: "x" }), shape: "woven", hooks: ["a/b"] }]),
+      ),
     /hooks on an unhooked row/,
   );
   assert.throws(
@@ -142,19 +148,35 @@ it("parses both stored marker versions and never materialises an absent field", 
     parseSequentialCensusEvidence(`<!-- sequential-census-v2:${JSON.stringify(second)} -->`),
     second,
   );
-  assert.isFalse(Object.hasOwn(parseSequentialCensusEvidence(`<!-- sequential-census-v2:${JSON.stringify(second)} -->`)!.rows[0]!, "hooks"));
+  assert.isFalse(
+    Object.hasOwn(
+      parseSequentialCensusEvidence(`<!-- sequential-census-v2:${JSON.stringify(second)} -->`)!
+        .rows[0]!,
+      "hooks",
+    ),
+  );
 });
 
 it("counts carry cost by distinct woven path, and says when a domain was never measured", () => {
   const rows = [
     row({ path: "a.ts", domain: "upstream-fixes", shape: "woven" }),
     row({ path: "a.ts", domain: "upstream-fixes", shape: "woven", commit: B }),
-    row({ path: "b.ts", domain: "upstream-fixes", shape: "hooked", hooks: ["upstream-fixes/patch"] }),
+    row({
+      path: "b.ts",
+      domain: "upstream-fixes",
+      shape: "hooked",
+      hooks: ["upstream-fixes/patch"],
+    }),
     row({ path: "c.ts", domain: "custom-agents", shape: "addition" }),
   ];
   const [first, second] = censusCarryCost(evidence(2, rows).rows);
   assert.deepStrictEqual(
-    { domain: first!.domain, measured: first!.measured, recurring: first!.recurring, retirable: first!.retirable },
+    {
+      domain: first!.domain,
+      measured: first!.measured,
+      recurring: first!.recurring,
+      retirable: first!.retirable,
+    },
     { domain: "upstream-fixes", measured: true, recurring: 1, retirable: 1 },
   );
   assert.strictEqual(first!.conflictFileCount, 3);
@@ -163,7 +185,9 @@ it("counts carry cost by distinct woven path, and says when a domain was never m
     { domain: second!.domain, recurring: second!.recurring, owned: second!.owned },
     { domain: "custom-agents", recurring: 0, owned: 1 },
   );
-  const legacy = censusCarryCost(evidence(1, [row({ path: "a.ts", domain: "upstream-fixes" })]).rows);
+  const legacy = censusCarryCost(
+    evidence(1, [row({ path: "a.ts", domain: "upstream-fixes" })]).rows,
+  );
   assert.isFalse(legacy[0]!.measured);
   assert.strictEqual(censusShapeSplit(evidence(2, rows).rows).unclassifiedFileCount, 0);
 });
@@ -173,12 +197,15 @@ it("cannot establish absence across the identity-scheme boundary", () => {
   const verdicts = assessSeams(
     [
       snapshot(evidence(1, [located])),
-      snapshot(evidence(2, [row({ path: "seam.ts", shape: "hooked", hooks: ["upstream-fixes/patch"] })])),
+      snapshot(
+        evidence(2, [row({ path: "seam.ts", shape: "hooked", hooks: ["upstream-fixes/patch"] })]),
+      ),
     ],
     [],
   );
   const carried = verdicts.find((verdict) => verdict.status !== "observed");
-  assert.strictEqual(carried?.status, "unknown");
+  assert.ok(carried);
+  assert.strictEqual(carried.status, "unknown");
   assert.isFalse(carried.blocking);
   assert.match(carried.reason, /identity scheme/);
   // The v2 row is its own observed identity rather than a silent replacement of the v1 one.

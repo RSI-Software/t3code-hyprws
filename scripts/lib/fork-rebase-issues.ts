@@ -202,7 +202,9 @@ export const censusCarryCost = (rows: SequentialCensusEvidence["rows"]) => {
   const domains = new Map<string, SequentialCensusEvidence["rows"][number][]>();
   for (const row of rows) {
     const key = row.domain ?? "?";
-    domains.set(key, [...(domains.get(key) ?? []), row]);
+    const owned = domains.get(key);
+    if (owned === undefined) domains.set(key, [row]);
+    else owned.push(row);
   }
   return [...domains]
     .map(([domain, owned]) => {
@@ -219,7 +221,9 @@ export const censusCarryCost = (rows: SequentialCensusEvidence["rows"]) => {
         forkCommitCount: new Set(owned.map((row) => row.commit)).size,
       };
     })
-    .sort((left, right) => right.recurring - left.recurring || left.domain.localeCompare(right.domain));
+    .sort(
+      (left, right) => right.recurring - left.recurring || left.domain.localeCompare(right.domain),
+    );
 };
 
 /**
