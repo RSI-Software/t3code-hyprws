@@ -48,7 +48,7 @@ import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { appendDecision, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
-import { readHostHandoff } from "./lib/fork-host-handoff.ts";
+import { readHostIdentity } from "./lib/fork-agent-identity.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 import { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
@@ -665,7 +665,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
   const elapsedMs = walkElapsedMs(recordPath, tag);
   const handoff = (() => {
     try {
-      return readHostHandoff(root);
+      return readHostIdentity(root);
     } catch {
       return undefined;
     }
