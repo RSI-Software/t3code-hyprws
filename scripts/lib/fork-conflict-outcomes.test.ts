@@ -995,14 +995,9 @@ it("lifts a seam the replayed fork blob predates by reading the fork tip's marke
   try {
     stageConflict(root, path, stages);
     const tipRef = stageTip(root, path, marked);
-    const outcome = executeConflictOutcome(
-      typecheckRunner(),
-      root,
-      path,
-      routeManifest,
-      true,
-      tipRef,
-    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, routeManifest, true, {
+      forkTipRef: tipRef,
+    });
     assert.isFalse(
       isUnresolved(outcome),
       `expected the tip's markers to lift the seam: ${isUnresolved(outcome) ? outcome.reason : ""}`,
@@ -1029,7 +1024,7 @@ it("resolves an already-marked fork blob identically with and without the tip bl
         path,
         routeManifest,
         true,
-        tipRef,
+        tipRef === undefined ? {} : { forkTipRef: tipRef },
       );
       assert.isFalse(isUnresolved(outcome));
       if (isUnresolved(outcome)) return null;
@@ -1064,14 +1059,9 @@ it("refuses an ambiguous tip declaration and names the key", () => {
         "}); // fork-hook: upstream-fixes/test-sub\nexport const tail = workspaceFileListing({\n  a: 1,\n});\n",
       ),
     );
-    const outcome = executeConflictOutcome(
-      typecheckRunner(),
-      root,
-      path,
-      gateManifest,
-      true,
-      tipRef,
-    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest, true, {
+      forkTipRef: tipRef,
+    });
     assert.isTrue(isUnresolved(outcome), "expected the ambiguous declaration to refuse");
     if (!isUnresolved(outcome)) return;
     assert.include(outcome.reason, "`upstream-fixes/test-sub`");
@@ -1082,7 +1072,7 @@ it("refuses an ambiguous tip declaration and names the key", () => {
   }
 });
 
-it("skips an absent tip declaration, so the seam declines for its own reason", () => {
+it("refuses an absent tip declaration as tip-absence, never as an unmarked fork side", () => {
   const path = ROUTE_SCREEN;
   const root = fixture();
   try {
@@ -1093,22 +1083,23 @@ it("skips an absent tip declaration, so the seam declines for its own reason", (
       theirs: stripLineMarkers(routeScreenStages().theirs),
     });
     const tipRef = stageTip(root, path, renamed);
-    const outcome = executeConflictOutcome(
-      typecheckRunner(),
-      root,
-      path,
-      routeManifest,
-      true,
-      tipRef,
-    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, routeManifest, true, {
+      forkTipRef: tipRef,
+      sha: "f".repeat(40),
+    });
     assert.isTrue(isUnresolved(outcome), "expected the absent declaration to skip");
     if (!isUnresolved(outcome)) return;
-    assert.include(outcome.reason, "outside every marked hook");
+    // The lines are the hook's and only its marker is missing here, so blaming the fork side for
+    // carrying unmarked lines would send a maintainer looking for a seam that already exists
+    // (RSI-Software/t3code-hyprws#1101).
+    assert.notInclude(outcome.reason, "outside every marked hook");
     assert.include(outcome.reason, "keep-both declined");
-    // Absent is visible: the refusal names every key the tip declared but this commit lacks.
+    // Absent is visible: the refusal names every key the tip declared but this commit lacks, and
+    // the replay position whose code the marking commit outran.
     for (const key of ROUTE_KEYS) assert.include(outcome.reason, `\`${key}\``);
-    assert.include(outcome.reason, "the fork tip declares");
-    assert.include(outcome.reason, "no matching lines exist in this commit");
+    assert.include(outcome.reason, "whose code is absent at replay position");
+    assert.include(outcome.reason, `\`${"f".repeat(40)}\``);
+    assert.include(outcome.reason, "fold pending");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -1127,14 +1118,9 @@ it("the resolved text carries no marker the replayed fork blob did not carry", (
         "",
       ).theirs,
     );
-    const outcome = executeConflictOutcome(
-      typecheckRunner(),
-      root,
-      path,
-      gateManifest,
-      true,
-      tipRef,
-    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest, true, {
+      forkTipRef: tipRef,
+    });
     assert.isFalse(isUnresolved(outcome));
     if (isUnresolved(outcome)) return;
     const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
@@ -1168,14 +1154,9 @@ it("locates a closing-delimiter marker by its whole statement, not the marked li
         "  }), // fork-hook: upstream-fixes/test-sub",
       )}\n}\n\n${tail}`,
     );
-    const outcome = executeConflictOutcome(
-      typecheckRunner(),
-      root,
-      path,
-      gateManifest,
-      true,
-      tipRef,
-    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest, true, {
+      forkTipRef: tipRef,
+    });
     assert.isFalse(isUnresolved(outcome), "expected the whole-statement match to locate the span");
     if (isUnresolved(outcome)) return;
     assert.strictEqual(outcome.source, "hook-reapply");

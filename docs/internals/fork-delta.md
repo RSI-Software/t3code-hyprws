@@ -222,6 +222,17 @@ in its report's walk record, measured at replay completion against the pinned ta
 where the shared count has signal, and before any repair commit is appended. Repairs are
 excluded from the recorded size the same way.
 
+The gate reads a hook's declaration from the fork tip and its placement from the replayed blob,
+and the tip wins. A seam whose owning commit predates the commit that marked it carries no
+marker in the blob the walk is standing on, so judging placement from the blob alone would
+refuse every such seam as unmarked — which is where in the stack the marker happens to sit, not
+a property of the seam. An in-file marker still wins where the blob carries one; otherwise the
+tip's marked span is located in the fork side, and only an absent (zero sites) or ambiguous
+(several) result refuses. An absent one says so — `tip declares <key> whose code is absent at
+replay position <sha>; fold pending` — rather than blaming an unmarked fork side, because the
+lines are the hook's and only the marker is missing at that position. The replay position is
+threaded in explicitly and never inferred from ambient rebase state.
+
 A `.fork.` in a filename is a reader signal and nothing else. It marks a fork-owned module for a
 human reading a tree; no guard decides on it, and renaming a file changes no scan result. It is
 applied by convention rather than enforced, so its absence proves nothing about a file: a
