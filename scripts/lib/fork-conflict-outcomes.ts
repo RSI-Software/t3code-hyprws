@@ -395,10 +395,14 @@ const resolveConflictsToUpstream = (diff3: string): string | null => {
 };
 
 /** The manifest the walk replays against; tests may scope it to their fixture's entries. */
-type ForkHooksManifest = typeof FORK_HOOKS;
+export type ForkHooksManifest = typeof FORK_HOOKS;
 
-/** The manifest entries whose upstream-owned file is this path, in manifest order. */
-const manifestHooksFor = (
+/**
+ * The manifest entries whose upstream-owned file is this path, in manifest order. Exported for
+ * the hook-debt probe, which shares it with the gate so the two cannot disagree about which keys
+ * a path owns (RSI-Software/t3code-hyprws#1096).
+ */
+export const manifestHooksFor = (
   path: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
 ): ReadonlyArray<{
