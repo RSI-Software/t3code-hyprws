@@ -556,6 +556,20 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
   return seams;
 };
 
+/**
+ * Hot seams no reviewed boundary owns, worst first. The boundary table is hand-maintained, so a
+ * seam that keeps costing walks can sit outside it indefinitely and nothing says so
+ * (RSI-Software/t3code-hyprws#1020). Counting the hole is what makes
+ * `RSI-Software/t3code-hyprws#443`'s guard condition answerable from one report.
+ */
+export const unownedHotSeams = (evidence: LessonEvidence) =>
+  [...lessonHotSeams(evidence)]
+    .filter(([path]) => preferredLessonBoundary(path) === undefined)
+    .map(([path, seam]) => ({ path, ...seam }))
+    .toSorted(
+      (left, right) => right.walkCount - left.walkCount || left.path.localeCompare(right.path),
+    );
+
 export const renderLessonSource = (source: LessonSource, evidence: LessonEvidence): string =>
   [
     `Lesson evidence: ${source.ref} at ${source.sha ?? "unknown"}; freshness=${source.freshness}; origin=${source.remoteSha ?? "unknown"}`,
@@ -565,6 +579,8 @@ export const renderLessonSource = (source: LessonSource, evidence: LessonEvidenc
 
 export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvidence): string => {
   const rows = lessonInventory(evidence);
+  const hot = lessonHotSeams(evidence);
+  const unowned = unownedHotSeams(evidence);
   return [
     renderLessonSource(source, evidence),
     `Lesson inventory: ${rows.length} paths; ${rows.filter((row) => row.original).length} original paths retained. Presence, absence and named guards do not prove repair.`,
@@ -572,6 +588,11 @@ export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvide
     ...rows.map(
       (row) =>
         `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.bridged === "legacy" ? " (bridged: legacy)" : ""}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
+    ),
+    `Unowned hot seams: ${unowned.length} of ${hot.size} hot seam(s) have no reviewed preferred boundary. A hot seam keeps costing walks; without an owner nothing names the guard that would stop it.`,
+    ...unowned.map(
+      (seam) =>
+        `  ${seam.path} [${seam.walkCount} ${seam.countUnit}; worst ${seam.worstClass}] -> no owning issue`,
     ),
     "",
   ].join("\n");
