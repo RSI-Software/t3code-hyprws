@@ -58,6 +58,11 @@ export interface ConflictResolutionOptions {
    * (RSI-Software/t3code-hyprws#1030). Never inferred from ambient rebase state.
    */
   readonly forkTipRef?: string;
+  /**
+   * The replayed commit's sha, threaded so a tip-absence refusal can name the position whose code
+   * the tip's declaration outran (RSI-Software/t3code-hyprws#1101).
+   */
+  readonly replaySha?: string;
 }
 
 const CONFLICTED_TEXT = /^(?:<{7}|={7}|>{7})/m;
@@ -115,7 +120,10 @@ export const resolveConflictPath = (
     path,
     options.manifest ?? FORK_HOOKS,
     options.verifyHookReapply ?? true,
-    options.forkTipRef,
+    {
+      ...(options.forkTipRef === undefined ? {} : { forkTipRef: options.forkTipRef }),
+      ...(options.replaySha === undefined ? {} : { sha: options.replaySha }),
+    },
   );
   return isUnresolved(outcome)
     ? { path, stage: "unresolved", outcome }
