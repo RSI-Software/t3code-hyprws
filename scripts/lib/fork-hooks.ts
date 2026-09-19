@@ -985,9 +985,9 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   // RSI-Software/t3code-hyprws#1099. Each scar rule refuses an inline implementation on one of
   // these paths and directs the author to move it to a fork-owned file, leaving a narrow
   // integration call behind — and that call is an added line `fork-hook-seam` charges unless it
-  // carries a marker this manifest declares. The seam is not woven yet on any of them, so
-  // `fork:delta --hook-debt` reports these keys `absent` until one is; that is the true reading,
-  // and it is what makes the prescribed remedy reachable instead of a rule with no legal exit.
+  // carries a marker this manifest declares. The seam is not woven yet on any of them; declaring
+  // the destination up front is what makes the prescribed remedy reachable instead of a rule
+  // with no legal exit.
   "markdown-editing/markdown-file-link-meta": {
     path: "apps/web/src/markdown-links.ts",
     anchor: { kind: "after-decl", symbol: "shouldOpenMarkdownFileLinkInEditor" },
