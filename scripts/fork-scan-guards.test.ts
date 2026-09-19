@@ -523,6 +523,7 @@ it("keeps a path hot only while the ledger charged for it more than once", () =>
   const seams = readHotSeams(churn);
   assert.deepStrictEqual([...seams.keys()], ["apps/web/src/components/ChatView.tsx"]);
   assert.deepStrictEqual(seams.get("apps/web/src/components/ChatView.tsx"), {
+    kind: "conflict",
     walkCount: 2,
     worstClass: "seam-moved",
     countUnit: "conflict walk(s)",

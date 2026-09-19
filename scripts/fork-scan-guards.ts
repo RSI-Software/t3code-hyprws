@@ -167,6 +167,10 @@ export interface ScanWarning {
 }
 
 export interface HotSeam {
+  // Which unit `walkCount` is in. The guard only reads membership, but the value carries the
+  // discriminant because a conflict walk and a census observation are not comparable counts
+  // (RSI-Software/t3code-hyprws#1020).
+  readonly kind: "conflict" | "census";
   readonly walkCount: number;
   readonly countUnit: string;
   readonly worstClass: string;
