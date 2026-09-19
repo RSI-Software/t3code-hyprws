@@ -21,6 +21,8 @@ import {
   readLessonEvidence,
   renderLessonGuidance,
   resolveLessonSource,
+  staleBoundaryDeclarations,
+  type StaleBoundaryDeclaration,
 } from "./fork-lesson-guidance.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
@@ -105,6 +107,7 @@ export interface ScanResult {
   readonly domains: ReadonlyArray<DomainScan>;
   readonly overlaps: ReadonlyArray<ScanOverlap>;
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
+  readonly staleBoundaries: ReadonlyArray<StaleBoundaryDeclaration>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<ScanWarning>;
@@ -376,6 +379,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     domains,
     overlaps: overlaps.toSorted((left, right) => left.path.localeCompare(right.path)),
     typecheckGaps: [],
+    staleBoundaries: [],
     undeclaredDomains,
     untaggedCommits,
     warnings: input.guard === undefined ? [] : collectScanWarnings(input.guard),
@@ -392,6 +396,10 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
+  ),
+  ...result.staleBoundaries.map(
+    ({ owner, kind, path }) =>
+      `lesson-boundary: ${kind} path no longer exists: ${path} (policy reference #${owner})`,
   ),
   ...result.workflowDrift.flatMap((drift) =>
     drift.problem === undefined
@@ -416,6 +424,11 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
   if (result.typecheckGaps.length > 0) {
     summary.push(
       `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file`,
+    );
+  }
+  if (result.staleBoundaries.length > 0) {
+    summary.push(
+      `failed: ${result.staleBoundaries.length} stale lesson boundary declaration(s); the census numerator counts seams with a reviewed boundary, so a renamed or deleted path silently lowers it. Correct the entry in scripts/fork-lesson-guidance.ts, or mark it retired where the path is meant to be gone`,
     );
   }
   const workflowGaps = result.workflowDrift.filter(({ problem }) => problem !== undefined).length;
@@ -866,6 +879,9 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
     const result: ScanResult = {
       ...scanned,
+      // Read against the working tree, not the rehearsed head: a rename lands in the tree that
+      // renamed it, which is the walk that must fail on the entry it orphaned.
+      staleBoundaries: staleBoundaryDeclarations(root),
       typecheckGaps: typecheckCurrentHead
         ? findForkOwnedTypecheckGaps(
             root,
