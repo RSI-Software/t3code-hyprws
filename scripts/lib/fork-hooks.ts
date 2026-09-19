@@ -980,6 +980,50 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/RightPanelTabs.tsx",
     anchor: { kind: "after-decl", symbol: "pull-requests" },
   },
+
+  // Destinations for the scar rules' own prescribed repair, declared on
+  // RSI-Software/t3code-hyprws#1099. Each scar rule refuses an inline implementation on one of
+  // these paths and directs the author to move it to a fork-owned file, leaving a narrow
+  // integration call behind — and that call is an added line `fork-hook-seam` charges unless it
+  // carries a marker this manifest declares. The seam is not woven yet on any of them, so
+  // `fork:delta --hook-debt` reports these keys `absent` until one is; that is the true reading,
+  // and it is what makes the prescribed remedy reachable instead of a rule with no legal exit.
+  "markdown-editing/markdown-file-link-meta": {
+    path: "apps/web/src/markdown-links.ts",
+    anchor: { kind: "after-decl", symbol: "shouldOpenMarkdownFileLinkInEditor" },
+  },
+  "zmux-estate/terminal-attachment-retention": {
+    path: "apps/web/src/state/terminalSessions.ts",
+    anchor: { kind: "after-decl", symbol: "useAttachedTerminalSession" },
+  },
+  "custom-agents/codex-provider-agent-options": {
+    path: "apps/server/src/provider/Layers/CodexProvider.ts",
+    anchor: { kind: "after-call", symbol: "mapCodexModelCapabilities" },
+  },
+  "project-windows/sidebar-physical-scope": {
+    path: "apps/web/src/components/Sidebar.tsx",
+    anchor: { kind: "after-decl", symbol: "threadProjectOrderKey" },
+  },
+  "project-windows/chat-route-family": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-decl", symbol: "shouldRedirectInputToComposer" },
+  },
+  "project-windows/command-palette-route-family": {
+    path: "apps/web/src/components/CommandPalette.tsx",
+    anchor: { kind: "after-decl", symbol: "CommandPalette" },
+  },
+  "project-windows/new-thread-route-family": {
+    path: "apps/web/src/hooks/useHandleNewThread.ts",
+    anchor: { kind: "after-decl", symbol: "useHandleNewThread" },
+  },
+  "project-windows/environment-shell-bootstrap": {
+    path: "apps/web/src/state/shell.ts",
+    anchor: { kind: "after-decl", symbol: "allEnvironmentShellsBootstrappedAtom" },
+  },
+  "github-issues/settings-search-availability": {
+    path: "apps/web/src/components/settings/settingsSearch.ts",
+    anchor: { kind: "after-decl", symbol: "getThreadAutoSettlementSearchAvailability" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
