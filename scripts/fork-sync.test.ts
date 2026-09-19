@@ -2325,6 +2325,12 @@ const retireFixture = (): { root: string; tag: string } => {
   write("fork-present.ts", "export const SharedWindowScope = 2;\n");
   run("add", "-A");
   run("commit", "-m", "feat: present in the target tree");
+  // Relocation only: the base's own name moves behind a fork seam, so the diff's `+` lines harvest
+  // it as if the fork had introduced it.
+  NodeFS.rmSync(NodePath.join(root, "upstream.ts"));
+  write("fork-relocated.ts", "export const upstreamOnly = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "refactor: relocate the upstream name behind a seam");
   return { root, tag: "v1.2.3" };
 };
 
@@ -2335,6 +2341,9 @@ it("tests retire candidates against the target tree instead of proximity", () =>
     runner.run("git", args, root).stdout.trim();
   const targetSha = git("rev-parse", `refs/tags/${tag}^{commit}`);
   const source = git("rev-parse", "HEAD");
+  // The shared base predates the upstream adoption, so the target grows the name the fork also
+  // carries. A base that already defined it would mean the fork never authored it.
+  const sharedBase = git("rev-list", "--max-parents=0", "HEAD");
   const decisions = [
     { subject: "feat: absent from the target tree", domain: "fork-meta" },
     { subject: "feat: present in the target tree", domain: "fork-meta" },
@@ -2344,7 +2353,7 @@ it("tests retire candidates against the target tree instead of proximity", () =>
       runner,
       root,
       targetSha,
-      { sharedBase: targetSha, source },
+      { sharedBase, source },
       decisions,
     );
     assert.deepStrictEqual(
@@ -2358,6 +2367,34 @@ it("tests retire candidates against the target tree instead of proximity", () =>
       identifier: "SharedWindowScope",
       location: "upstream.ts:2",
     });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// RSI-Software/t3code-hyprws#1105: the probe harvests names off the diff's `+` lines, so a pure
+// relocation reads as the fork introducing a name the target has carried all along.
+it("drops an identifier the shared base already defines", () => {
+  const { root } = retireFixture();
+  const runner = new SystemRunner();
+  const git = (...args: ReadonlyArray<string>): string =>
+    runner.run("git", args, root).stdout.trim();
+  try {
+    const evidence = collectRetireEvidence(
+      runner,
+      root,
+      git("rev-parse", "refs/tags/v1.2.3^{commit}"),
+      { sharedBase: git("rev-list", "--max-parents=0", "HEAD"), source: git("rev-parse", "HEAD") },
+      [
+        {
+          subject: "refactor: relocate the upstream name behind a seam",
+          domain: "fork-meta",
+          verdict: "candidate" as const,
+          decidedBy: "human" as const,
+        },
+      ],
+    );
+    assert.deepStrictEqual(evidence, []);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
