@@ -883,8 +883,8 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       );
     }
 
-    // Warn-only by construction: `fork-hook-seam` is not adopted, so this only
-    // ever adds advisory warnings, never scan failures on its own.
+    // `fork-hook-seam` is in `ADOPTED_AUTHORING_GUARDS`, so a warning it raises on an
+    // authored commit is a scan refusal, not advice; historical range stays advisory.
     for (const detail of forkHookSeamWarnings({
       commit,
       files,
