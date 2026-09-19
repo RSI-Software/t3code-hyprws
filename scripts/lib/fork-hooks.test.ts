@@ -277,12 +277,16 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
 // key therefore has no legal repair at all (RSI-Software/t3code-hyprws#1099).
 it("gives every scar-rule target a manifest key", () => {
   const owned = new Set(Object.values(FORK_HOOKS).map((entry) => entry.path));
-  // The retired parser is the one exemption: its rule refuses every line, because the path must
-  // stay deleted rather than carry a seam.
-  const retired = AUTHORING_GUARD_TARGETS["pull-request-project-scope"].retiredParser;
+  // A retired path is the one exemption: its rule refuses every line, so no marked shape is legal on
+  // it and a key would mean nothing. Read the exemption off the `retiredParser` target name rather
+  // than off one rule, so a second rule that retires a path is exempt without editing this test.
   const missing = Object.values(AUTHORING_GUARD_TARGETS)
-    .flatMap((targets) => Object.values(targets))
-    .filter((path) => path !== retired && !owned.has(path));
+    .flatMap((targets) =>
+      Object.entries(targets)
+        .filter(([target]) => target !== "retiredParser")
+        .map(([, path]) => path),
+    )
+    .filter((path) => !owned.has(path));
   assert.deepStrictEqual(
     missing,
     [],
