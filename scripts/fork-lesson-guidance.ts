@@ -1,5 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off - Read-only Git evidence for standalone authoring scans.
-import { parseLedger, parseChurnState, hotSeams, type ChurnEntry } from "./fork-churn-ledger.ts";
+import {
+  parseLedger,
+  parseChurnState,
+  hotSeams,
+  CLASS_RANK,
+  type ChurnEntry,
+} from "./fork-churn-ledger.ts";
+import type { ConflictClass } from "./fork-sync-state.ts";
 import {
   assessSeams,
   freezeObservation,
@@ -530,13 +537,34 @@ export const lessonInventory = (evidence: LessonEvidence) => {
     }));
 };
 
+/**
+ * A hot seam counted in one of two units. `kind` keeps them apart because the counts are not
+ * comparable: a conflict walk is rebase cost already paid, while a census observation only records
+ * that the fork still touches the path. Ranking one list by both numbers puts a cheap path above an
+ * expensive one (RSI-Software/t3code-hyprws#1020).
+ */
+export type LessonHotSeam =
+  | {
+      readonly kind: "conflict";
+      readonly walkCount: number;
+      readonly countUnit: "conflict walk(s)";
+      readonly worstClass: ConflictClass;
+    }
+  | {
+      readonly kind: "census";
+      readonly walkCount: number;
+      readonly countUnit: "census observation(s)";
+      readonly worstClass: "repeated retained census observation";
+    };
+
 export const lessonHotSeams = (evidence: LessonEvidence) => {
-  const seams = new Map(
+  const seams = new Map<string, LessonHotSeam>(
     hotSeams(evidence.walks).map((row) => [
       row.path,
       {
+        kind: "conflict",
         walkCount: row.walkCount,
-        worstClass: row.worstClass as string,
+        worstClass: row.worstClass,
         countUnit: "conflict walk(s)",
       },
     ]),
@@ -549,6 +577,7 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
   for (const [path, count] of observed)
     if (count > 1 && !seams.has(path))
       seams.set(path, {
+        kind: "census",
         walkCount: count,
         worstClass: "repeated retained census observation",
         countUnit: "census observation(s)",
@@ -557,18 +586,34 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
 };
 
 /**
- * Hot seams no reviewed boundary owns, worst first. The boundary table is hand-maintained, so a
- * seam that keeps costing walks can sit outside it indefinitely and nothing says so
- * (RSI-Software/t3code-hyprws#1020). Counting the hole is what makes
+ * Hot seams no reviewed boundary owns, split by unit and each list worst first. The boundary table
+ * is hand-maintained, so a seam that keeps costing walks can sit outside it indefinitely and
+ * nothing says so (RSI-Software/t3code-hyprws#1020). Counting the hole is what makes
  * `RSI-Software/t3code-hyprws#443`'s guard condition answerable from one report.
+ *
+ * The conflict list repeats the churn ledger's own tiebreak, so two seams stopped by the same
+ * number of walks stay ordered by the worst class either one reached.
  */
-export const unownedHotSeams = (evidence: LessonEvidence) =>
-  [...lessonHotSeams(evidence)]
+export const unownedHotSeams = (evidence: LessonEvidence) => {
+  const unowned = [...lessonHotSeams(evidence)]
     .filter(([path]) => preferredLessonBoundary(path) === undefined)
-    .map(([path, seam]) => ({ path, ...seam }))
-    .toSorted(
-      (left, right) => right.walkCount - left.walkCount || left.path.localeCompare(right.path),
-    );
+    .map(([path, seam]) => ({ path, ...seam }));
+  return {
+    conflict: unowned
+      .filter((seam) => seam.kind === "conflict")
+      .toSorted(
+        (left, right) =>
+          right.walkCount - left.walkCount ||
+          CLASS_RANK.get(right.worstClass)! - CLASS_RANK.get(left.worstClass)! ||
+          left.path.localeCompare(right.path),
+      ),
+    census: unowned
+      .filter((seam) => seam.kind === "census")
+      .toSorted(
+        (left, right) => right.walkCount - left.walkCount || left.path.localeCompare(right.path),
+      ),
+  };
+};
 
 export const renderLessonSource = (source: LessonSource, evidence: LessonEvidence): string =>
   [
@@ -589,10 +634,16 @@ export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvide
       (row) =>
         `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.bridged === "legacy" ? " (bridged: legacy)" : ""}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
     ),
-    `Unowned hot seams: ${unowned.length} of ${hot.size} hot seam(s) have no reviewed preferred boundary. A hot seam keeps costing walks; without an owner nothing names the guard that would stop it.`,
-    ...unowned.map(
+    `Unowned hot seams: ${unowned.conflict.length + unowned.census.length} of ${hot.size} hot seam(s) have no reviewed preferred boundary, ${unowned.conflict.length} by conflict walk and ${unowned.census.length} by census observation. The two counts are listed apart because they are not comparable.`,
+    `  Unowned by conflict walk: ${unowned.conflict.length}, worst first. Each one stopped a rebase, so each wants a reviewed boundary and the guard that would stop the next walk. Only a human review can add one; this list is the ask.`,
+    ...unowned.conflict.map(
       (seam) =>
-        `  ${seam.path} [${seam.walkCount} ${seam.countUnit}; worst ${seam.worstClass}] -> no owning issue`,
+        `    ${seam.path} [${seam.walkCount} ${seam.countUnit}; worst ${seam.worstClass}] -> no owning issue; needs a reviewed boundary`,
+    ),
+    `  Unowned by census observation: ${unowned.census.length}, deliberately unowned. A census observation records that the fork still touches the path, not that a rebase paid for it, so there is no measured cost for a boundary to reduce. These stay unowned until a conflict walk moves one into the list above.`,
+    ...unowned.census.map(
+      (seam) =>
+        `    ${seam.path} [${seam.walkCount} ${seam.countUnit}] -> deliberately unowned: presence, not rebase cost`,
     ),
     "",
   ].join("\n");
