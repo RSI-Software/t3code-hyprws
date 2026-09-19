@@ -19,6 +19,7 @@ import {
   statementStartLine,
   stripForkHookLineMarker,
 } from "./fork-hooks.ts";
+import { AUTHORING_GUARD_TARGETS } from "../fork-scan-guards.ts";
 import { FORK_DOMAINS } from "./fork-trailers.ts";
 
 const repoRoot = NodePath.resolve(
@@ -268,4 +269,23 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
   const open = jsx.split("\n").findIndex((line) => line.includes("fork-hook:"));
   const close = jsx.split("\n").findIndex((line) => line.includes("fork-hook-end"));
   assert.isTrue(close > open + 1, `pair must wrap a construct:\n${jsx}`);
+});
+
+// Each scar rule refuses an inline implementation and directs the author to a fork-owned module.
+// The narrow call that stays behind is an added line on an upstream-owned path, which
+// `fork-hook-seam` charges unless it carries a marker the manifest knows. A named target with no
+// key therefore has no legal repair at all (RSI-Software/t3code-hyprws#1099).
+it("gives every scar-rule target a manifest key", () => {
+  const owned = new Set(Object.values(FORK_HOOKS).map((entry) => entry.path));
+  // The retired parser is the one exemption: its rule refuses every line, because the path must
+  // stay deleted rather than carry a seam.
+  const retired = AUTHORING_GUARD_TARGETS["pull-request-project-scope"].retiredParser;
+  const missing = Object.values(AUTHORING_GUARD_TARGETS)
+    .flatMap((targets) => Object.values(targets))
+    .filter((path) => path !== retired && !owned.has(path));
+  assert.deepStrictEqual(
+    missing,
+    [],
+    `scar targets without a fork-hook key:\n${missing.join("\n")}`,
+  );
 });
