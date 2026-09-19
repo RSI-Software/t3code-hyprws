@@ -1342,8 +1342,11 @@ it("still charges a removal outside every marked span, with a marked hook elsewh
   assert.match(warnings[0]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
 });
 
-it("never refuses: the rule is absent from the adopted set", () => {
-  assert.isFalse(ADOPTED_AUTHORING_GUARDS.has("fork-hook-seam"));
+it("refuses: the rule is in the adopted set", () => {
+  // Adopted on RSI-Software/t3code-hyprws#1099, once the scar rules' own prescribed repair —
+  // move the implementation to a fork-owned file and leave one narrow marked call behind —
+  // scanned clean under it. Until then the rule only warned.
+  assert.isTrue(ADOPTED_AUTHORING_GUARDS.has("fork-hook-seam"));
 });
 
 it("exempts a commit only when Fork-Tier is bugfix and Fork-Upstreamable is yes", () => {
