@@ -33,6 +33,8 @@ const buildRepository = (root: string): void => {
   git(["config", "user.email", "test@example.invalid"]);
   git(["config", "user.name", "retire-pass test"]);
   write("README.md", "base\n");
+  // The shared base already owns this name; both the fork and upstream inherit it.
+  write("src/upstream-home.ts", "export const relocatedUpstreamHandle = 'base';\n");
   git(["add", "."]);
   git(["commit", "-m", "base"]);
   git(["checkout", "-b", "target"]);
@@ -53,6 +55,12 @@ const buildRepository = (root: string): void => {
   write("src/other-seam.ts", "export const quixoticallyUnmentionedHandle = 'fork';\n");
   git(["add", "."]);
   git(["commit", "-m", "feat(seam): quixoticallyUnmentionedHandle stays fork-owned"]);
+  // Relocation only: the base's own name moves behind a fork seam, so the diff's `+` lines harvest
+  // it as if the fork had introduced it, and the target still defines it where it never left.
+  NodeFS.rmSync(NodePath.join(root, "src/upstream-home.ts"));
+  write("src/fork-relocated.ts", "export const relocatedUpstreamHandle = 'fork';\n");
+  git(["add", "--all"]);
+  git(["commit", "-m", "refactor(seam): relocate relocatedUpstreamHandle behind the fork seam"]);
   git(["checkout", "main"]);
 };
 
@@ -135,6 +143,21 @@ describe("retirePass", () => {
       target: "target",
     });
     expect(rows[0]?.status).toBe("no-evidence");
+    expect(rows[0]?.sites).toEqual([]);
+  });
+
+  // RSI-Software/t3code-hyprws#1105: without the base filter the probe reads a relocation as its
+  // own supersession, because the identifier it harvests from the `+` lines was never fork-authored.
+  it("drops an identifier the shared base already defines", () => {
+    const root = makeRepository("fork-retire-pass-relocated-");
+    const rows = retirePass(runner, root, {
+      worklist: ["refactor(seam): relocate relocatedUpstreamHandle behind the fork seam"],
+      base: "main",
+      source: "fork",
+      target: "target",
+    });
+    expect(rows[0]?.status).toBe("no-evidence");
+    expect(rows[0]?.identifiers).not.toContain("relocatedUpstreamHandle");
     expect(rows[0]?.sites).toEqual([]);
   });
 
