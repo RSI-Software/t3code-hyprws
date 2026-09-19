@@ -20,17 +20,21 @@ Conflicts are machine-owned and never yours to pre-empt, under the [conflict doc
 
 ### The two legal stops
 
+A stop halts the walk; it does not summon a human by itself.
 Both are written into the report and the notification issue.
 
-| Stop          | Cause                                     |
-| ------------- | ----------------------------------------- |
-| `environment` | The lane cannot test at all               |
-| `conflict`    | The executor declined a row               |
-| `conflict`    | A staged fix fails typecheck or its tests |
+| Stop          | Cause                                     | Yours to resolve      |
+| ------------- | ----------------------------------------- | --------------------- |
+| `environment` | The lane cannot test at all               | No                    |
+| `conflict`    | The executor declined a row               | When it triages clear |
+| `conflict`    | A staged fix fails typecheck or its tests | When it triages clear |
 
 Anything else that halts the walk is a bug in the walk.
 Pick a stopped walk up by hand with the [manual verbs](#manual-verbs).
-Whatever you decide there is a human decision and is recorded as one.
+
+A `conflict` stop hands you the row; it does not hand it to the human.
+Resolve every `clear` row and walk on, and stop only for a `judgement` row.
+That stop alone is a human decision and is recorded as one.
 
 After resolving and staging the declined paths, flush them with `record-decisions` so the next tag's walk reads the seam from the record ([decision records](../../../../docs/operations/fork-sync.md#decision-records)).
 No maintainer decides the same seam twice.
@@ -103,11 +107,12 @@ Continue only after the human confirms the exact target.
 
 ### 3. Rehearse
 
-At a stop, preserve upstream intent and recommend `mechanical`, `seam-moved`, `retire-candidate`, or `human` for each non-generated row.
-Only the human's exact classification may be recorded.
+Preserve upstream intent and classify each non-generated row `mechanical`, `seam-moved`, `retire-candidate`, or `human`.
 
-**Stop.** Apply the stop shape and the retire-candidate test to every conflict row and unresolved human choice.
-Continue only after the human supplies the exact classification for every row.
+Classify and resolve `mechanical` and `seam-moved` rows yourself, then continue.
+Only a `retire-candidate` or `human` row stops, and only the human's exact classification may be recorded for it.
+
+**Stop only if one exists.** Apply the stop shape and the retire-candidate test to those rows.
 A clean replay still owes the report's count and byte-identical-message proof.
 
 ### 4. Check
@@ -179,4 +184,4 @@ Hand the emitted report and record paths to a reviewer in another session, who r
 - **Gate refuses:** a missing or stale review
 - **Gate refuses:** a same-session or withheld one
 
-The unblock walk is exempt, carrying no agent judgement verdict: its outcomes come from doctrine the code applies, and its two legal stops hand the row to a human instead of deciding it.
+The unblock walk is exempt, carrying no agent judgement verdict: its outcomes come from doctrine the code applies, and it escalates only the rows that doctrine reserves for a human.

@@ -28,22 +28,43 @@ Read it when something refuses, not before.
 
 ## Stop shape
 
-Both entry points stop the same way.
-A stop hands a decision to the human; it never takes one.
+Both entry points triage the same way.
+Triage is not a stop: only a `judgement` row stops the walk.
 
-At a stop, first reproduce the emitted decision surface verbatim and unchanged.
+At a handback, first reproduce the emitted decision surface verbatim and unchanged.
 Then write one triage line per decision, in exactly one of these forms:
 
-| Form                      | Line                                                                                |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| Mechanical or unambiguous | `clear: <recommendation>. <one-line reason>`                                        |
-| A real choice             | `judgement: <recommendation>. <reading A> vs <reading B>; <why the recommendation>` |
+| Row class                               | Triage      | Then                    |
+| --------------------------------------- | ----------- | ----------------------- |
+| `generated`, `mechanical`, `seam-moved` | `clear`     | Resolve it and continue |
+| `human`, `retire-candidate`             | `judgement` | Stop for the human      |
 
+```text
+clear:     <resolution>. <one-line reason>
+judgement: <recommendation>. <reading A> vs <reading B>; <why>
+```
+
+### Clear
+
+`clear` means no human is needed, so never ask for one.
+Resolve the row, record the reason in the report, and keep walking.
+
+An executor handback is a row the machine could not take, not a refusal of you.
+Triage it like any other row; `clear` there is yours to resolve.
+
+- **Test:** one resolution compiles, others do not
+- **Or:** both sides are additive and both used
+- **Doubt** about intent makes it `judgement`
+- **Never** widen `clear` to dodge a stop
+
+### Judgement
+
+Stop only once a `judgement` row exists, and carry every `clear` resolution into that report.
 A `judgement` line carries enough context for a reader who has not seen the diff.
-Then ask the human's exact word for every decision, and stop.
+Then ask the human's exact word for the `judgement` rows alone.
 
-- **Answer** the whole set, not the first line
-- **Continue when:** each decision names its subject
+- **Answer** every judgement row, not the first
+- **Continue when:** each names its subject
 - **And:** the human gives an explicit go
 - **Record only** the decisions supplied
 - **Never** record a recommendation as a decision

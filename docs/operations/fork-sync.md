@@ -765,7 +765,7 @@ The digest binds header bindings, conflict and decision rows, silent-seam verdic
 A new proposal or movement requires a new review; never copy review fields between reports.
 
 The unblock walk is not subject to this gate.
-It carries no agent judgement verdict to review: conflict outcomes come from doctrine the code applies, verification is the lane repair it ran, and its two legal stops hand the row to a human instead of deciding it.
+It carries no agent judgement verdict to review: conflict outcomes come from doctrine the code applies, verification is the lane repair it ran, and its two legal stops escalate only the rows that doctrine reserves for a human.
 A stopped walk is picked up in a host agent session, and whatever that session decides by hand is a human decision recorded in the record.
 
 ### Decision records
