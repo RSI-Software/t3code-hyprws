@@ -35,6 +35,31 @@ const scanInProcess = (argv: ReadonlyArray<string>, cwd: string) => {
   }
 };
 const encodeFixtureJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+// One legal marked line per scar rule, keyed by the upstream path it sits on. Each is a single
+// construct under `fork-hook-seam`'s grammar and carries a marker, so that rule is satisfied — and
+// each still spells the token its own scar rule refuses. The two guards judge different things:
+// `fork-hook-seam` judges shape, a scar rule judges which token appears, so neither subsumes the
+// other and adoption retires none of them (RSI-Software/t3code-hyprws#1099).
+const markedScarViolations: Readonly<Record<string, string>> = {
+  "apps/web/src/components/files/FilePreviewPanel.tsx": 'import { Editor } from "@milkdown/core";',
+  "apps/web/src/components/chat/MessagesTimeline.tsx":
+    "const openTarget = resolveAgentSpawnOpenTarget(input);",
+  "apps/web/src/state/terminalSessions.ts": "useEffect(() => syncRetained(input));",
+  "apps/server/src/provider/Layers/ClaudeProvider.ts":
+    "const withClaudeAgentOptions = makeOptions(baseModels);",
+  "apps/web/src/components/Sidebar.tsx": "const forcedProjectGroup = findPhysicalGroup(scope);",
+  "apps/web/src/components/ChatView.tsx":
+    "const resolveThreadRouteFamily = makeRouteFamilyResolver(params);",
+  "apps/web/src/routes/_chat.pull-requests.tsx": "const titleCounts = buildTitleCounts(rows);",
+  "apps/web/src/components/settings/settingsSearch.ts":
+    'registerEntry({ id: "github-issue-handoff-prompt" });',
+  "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx":
+    "const listing = useWorkspaceFiles(showIgnoredFiles);",
+  "apps/desktop/src/preload.ts":
+    "contextBridge.exposeInMainWorld(OPEN_PROJECT_WINDOW_CHANNEL, api);",
+};
+
 const authoringCases = [
   {
     name: "rich Markdown editor loading",
@@ -272,6 +297,16 @@ const authoringCases = [
     hookKey: "workspace-files/mobile-inspector-ignored-listing-import",
     rule: "mobile-ignored-file-listing",
     domain: "workspace-files",
+  },
+  {
+    name: "desktop project-window bridge",
+    sourcePath: "apps/desktop/src/preload.ts",
+    inlineImplementation: 'const OPEN_PROJECT_WINDOW_CHANNEL = "preview:open-project-window";',
+    forkPath: "apps/desktop/src/WindowPolicy.preload.ts",
+    integrationCall: "const bridge = createWindowPolicyBridge(contextBridge);",
+    hookKey: "project-windows/desktop-preload-window-bridge",
+    rule: "desktop-preview-ownership",
+    domain: "project-windows",
   },
 ] as const;
 
@@ -657,15 +692,57 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
           yield* write(example.forkPath, `${example.inlineImplementation}\n`);
           // An unrelated existing rule stays advisory in the same selected range.
           yield* write("fixture.lock", "fixture dependency\n");
-          commit(`move ${example.name} behind fork call\n\n${tagged}`);
+          const repairedSha = commit(`move ${example.name} behind fork call\n\n${tagged}`);
           const repaired = scan("HEAD", bad);
           assert.strictEqual(repaired.status, 0, repaired.stderr);
           assert.include(repaired.stdout, "lockfile");
           assert.include(repaired.stdout, "advisory");
           assert.notInclude(repaired.stdout, rule);
+
+          // Satisfying `fork-hook-seam` does not satisfy the scar rule. This line is one marked
+          // construct, so the seam rule has nothing to charge, and it is still the implementation
+          // the scar rule exists to keep off this path.
+          const markedViolation = markedScarViolations[sourcePath];
+          // Cases sharing a rule share one pin, so a missing entry here is normal. The suite-level
+          // coverage test is what refuses a rule with no pin at all, including one lost to a typo.
+          if (markedViolation !== undefined) {
+            yield* write(
+              sourcePath,
+              `export function upstreamMetadata() {}\n${example.integrationCall} // fork-hook: ${example.hookKey}\n${markedViolation} // fork-hook: ${example.hookKey}\n`,
+            );
+            commit(`mark ${example.name} violation in place\n\n${tagged}`);
+            const marked = scan("HEAD", repairedSha);
+            assert.strictEqual(marked.status, 1, marked.stderr);
+            assert.include(marked.stdout, rule);
+            assert.notInclude(marked.stdout, "fork-hook-seam");
+          }
         }),
     );
   }
+
+  // The pin above is keyed by `sourcePath`, so a key that matches no case is not a failure, it is a
+  // silently skipped pin. Coverage is asserted per rule instead: every scar rule the table exercises
+  // must reach at least one marked violation, or its non-subsumption is unproven
+  // (RSI-Software/t3code-hyprws#1099).
+  it("pins a marked violation for every scar rule the table exercises", () => {
+    const pinned = new Set(
+      authoringCases
+        .filter((example) => markedScarViolations[example.sourcePath] !== undefined)
+        .map((example) => example.rule),
+    );
+    const unpinned = [...new Set(authoringCases.map((example) => example.rule))]
+      .filter((rule) => !pinned.has(rule))
+      .toSorted();
+    assert.deepStrictEqual(
+      unpinned,
+      [],
+      `scar rules with no marked-violation pin:\n${unpinned.join("\n")}`,
+    );
+    const stray = Object.keys(markedScarViolations)
+      .filter((path) => !authoringCases.some((example) => example.sourcePath === path))
+      .toSorted();
+    assert.deepStrictEqual(stray, [], `pin paths matching no authoring case:\n${stray.join("\n")}`);
+  });
 
   // RSI-Software/t3code-hyprws#1097: a fork-hook marker added to an
   // upstream-owned file must be co-authored with the construct it marks.
