@@ -14,7 +14,7 @@ import {
  * family selection; the resolvers support execution-time reads after awaits.
  * One policy boundary does not mean one call or one diff hunk per file: an
  * upstream consumer spends one call per distinct navigation event, and
- * `docs/fork/internals/thread-route-navigation.md` holds that budget.
+ * `docs/fork/internals/fork-delta.md#project-windows` holds that budget.
  * `thread-route-navigation` guards the boundary imports and inline policy.
  *
  * Recheck the selected upstream tag's hooks, lib and router surfaces before

@@ -2,115 +2,89 @@
 
 > Fork-only inventory for `RSI-Software/t3code-hyprws`.
 
-[Fork development](./fork-development.md) owns discipline: branch topology, rebase rules, and commit hygiene.
-This document owns the inventory: each change, its owning domain, and what would let us delete it.
+[Fork development](./fork-development.md) owns discipline; this document owns the inventory.
 Read it first when deciding whether a change belongs in the fork at all.
 
-The commit list is generated, because commit hashes rot on every rebase.
+The commit list is generated, because hashes rot on every rebase.
 
 ```bash
-vp run fork:delta           # Markdown ledger grouped by domain and tier
-vp run fork:delta --check   # exit 1 when a fork commit lacks a valid trailer
+vp run fork:delta           # ledger grouped by domain and tier
+vp run fork:delta --check   # exit 1 on a missing or invalid trailer
 vp run fork:delta --json    # the same ledger for tooling
-vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain and commit (default target: upstream/main)
+vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain
 ```
 
-It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
+Default range is `upstream/main..HEAD`; `--base` and `--head` override it.
+The pull-request conflict forecast is informational: one upstream tip, no completeness or freshness guarantee.
 
-**Conflict forecast.** The pull-request comment reports each proposed fork commit that conflicts with the current `origin/main` tip, its domain, and its files.
-It is informational: one upstream tip, no completeness or freshness guarantee.
+## Rebase scans
 
-Each domain's **Rebase scan** table is checked the same way.
+Each domain's **Rebase scan** table lists the upstream paths its commits touch.
 
 ```bash
-vp run fork:scan                    # every domain's scan against live upstream/main
-vp run fork:scan --target vX.Y.Z    # the same walk pinned to a release tag
+vp run fork:scan                    # every domain against live upstream/main
+vp run fork:scan --target vX.Y.Z    # the same walk pinned to a tag
 ```
 
-A file is shared when the fork changed it above its upstream base and upstream changed it too on the way to the target, which is where a rebase merges two intents into one file.
-`fork:scan` fails when a domain's own commits change a shared file its scan table does not list.
-Every code span in a Path cell is one pattern: `*` stays inside a path segment, `**` spans them.
+**Shared file:** the fork changed it above its base and upstream changed it too on the way to the target.
+`fork:scan` fails when a domain's own commits change a shared file its table omits.
+Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` spans them.
 
-**Where the scan runs**
+| Where                                                                   | Mode                     | Against               |
+| ----------------------------------------------------------------------- | ------------------------ | --------------------- |
+| Fork CI                                                                 | Advisory, every push     | live `upstream/main`  |
+| `scan-live-upstream` in `hyprws-upstream-sync.yml`                      | Advisory, always exits 0 | trunk base            |
+| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) gates 3 and 4 | Blocking                 | human-selected target |
 
-| Where                                                                   | Mode                                                                                                                                                                                    | Against                                      |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Fork CI                                                                 | Advisory, every push                                                                                                                                                                    | live `upstream/main`                         |
-| `scan-live-upstream` in `hyprws-upstream-sync.yml`                      | Advisory, writes output and gap count to the step summary, always exits 0 because upstream moving past the trunk base is normal and a red run on every cadence trains nobody to read it | trunk base (RSI-Software/t3code-hyprws#1017) |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) gates 3 and 4 | Blocking, when a conflict needs a person                                                                                                                                                | human-selected target                        |
+The sync job writes its output and gap count to the step summary.
+Upstream moving past the trunk base is normal, so a red run there trains nobody to read it (RSI-Software/t3code-hyprws#1017).
+The [fork sync runbook](../operations/fork-sync.md) connects feasibility, bot summary, blocked issue, and human rehearsal.
 
-The automated sync verifies the replay against its selected clean tag.
-The [fork sync runbook](../operations/fork-sync.md) connects the feasibility boundary, bot run summary, blocked issue, and human rehearsal.
-
-**Stale fork mocks.** On every upstream rebase, for each `*.fork.test.*` sibling that mocks a service, diff its mock's key set against the sibling `*.test.*` mock of the same service.
-A key present upstream and absent in the fork sibling is a stale mock even when both suites are green; the `custom-agents` rebase scan row records the symptom.
-Those sibling files are already listed in the domain tables.
+**Stale fork mocks.** On every rebase, diff each `*.fork.test.*` mock key set against the sibling `*.test.*` mock of the same service.
+A key present upstream and absent in the fork sibling is stale even when both suites pass.
+The `custom-agents` scan row records the symptom.
 
 ## Why the fork exists
 
-The fork carries a small set of independent domains that upstream T3 Code does not provide.
-Each domain has its own need, patch boundary, and retirement condition.
+The fork carries independent domains upstream does not provide.
+Each has its own need, patch boundary, and retirement condition.
 
 Project-scoped windows were the first.
-Upstream's desktop app is single-window by construction, with no window registry or per-window scope, and Electron forwards a second launch to the first window instead of opening another.
-The premise here is that a project window is the unit of desktop organization, each one free to live on its own Hyprland workspace.
+Upstream's desktop app is single-window by construction: no window registry, no per-window scope, and a second launch forwards to the first window.
+The premise is that a project window is the unit of desktop organization, each free to live on its own Hyprland workspace.
 
 ### The upstream-supported alternative
 
-Point a browser at a self-hosted T3 backend and open one project per window.
-Sessions, authentication, providers, and state are shared because it is the same server, and none of the project-window fork machinery is needed.
+Point a browser at a self-hosted backend and open one project per window.
+One server means shared sessions, authentication, providers, and state, with none of the fork machinery.
 
-Browser mode still trails Electron for terminal workflows and nested in-app browser windows: the in-app browser preview is desktop-only, and `apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
-
-At practical parity, normal browser windows are sufficient, and a small PWA-style Electron shell around the web client would also be enough.
-That retires the `project-windows` domain, not the fork; the other domains keep their own reasons to exist.
+Browser mode still trails Electron for terminal workflows and nested in-app browser windows.
+`apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
+At practical parity, plain browser windows or a small PWA-style Electron shell suffice.
+That retires `project-windows`, not the fork.
 
 ## Tiers
 
 Every fork change carries one tier.
 
-| Tier     | Meaning                                            | On retirement                        |
-| -------- | -------------------------------------------------- | ------------------------------------ |
-| `core`   | The domain does not work without it.               | Deleted with the domain.             |
-| `qol`    | Polish. Drop it and the domain still works.        | Reassess individually.               |
-| `bugfix` | A defect fix. Note whether upstream reproduces it. | Dropped once upstream supersedes it. |
+| Tier     | Meaning                                  | On retirement                       |
+| -------- | ---------------------------------------- | ----------------------------------- |
+| `core`   | The domain does not work without it      | Deleted with the domain             |
+| `qol`    | Polish; the domain works without it      | Reassess individually               |
+| `bugfix` | A defect fix; note upstream reproduction | Dropped once upstream supersedes it |
 
-A `bugfix` that upstream reproduces is a retire candidate, not delta we want to carry.
-Wait for upstream to fix it on its own, then drop the commit at the next rebase.
-The fork never asks upstream to make that happen.
+A `bugfix` upstream reproduces is a retire candidate, not delta to carry.
+Wait for upstream's own fix, then drop the commit at the next rebase.
 
 Every signalled commit gets one retirement outcome during the rebase.
 
-| Outcome     | Where it lands                                                                                             |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| **Retire**  | Dropped subject under [Retired](#retired)                                                                  |
-| **Keep**    | Subject and reason under [Kept](#kept), so the next report does not ask again                              |
-| **Partial** | Both tables; the replacement cell says what upstream supplied, the keep reason what fork behaviour remains |
+| Outcome     | Where it lands                                |
+| ----------- | --------------------------------------------- |
+| **Retire**  | Dropped subject under [Retired](#retired)     |
+| **Keep**    | Subject and reason under [Kept](#kept)        |
+| **Partial** | Both tables: replacement cell and keep reason |
 
 ## Trailers
-
-Every fork commit carries `Fork-Domain` and `Fork-Tier`.
-A `bugfix` also carries `Fork-Upstreamable`, so the ledger can tell a retire candidate from a fork-only fix.
-
-**`Fork-Upstreamable: yes` is a tracking tag only.**
-It marks a commit upstream is likely to supersede, so the rebase feasibility walk can flag it as a retire candidate.
-It never means "send this upstream", and it never authorizes posting to `pingdotgg/t3code`.
-The fork posts no pull request, issue, comment, review, or reaction upstream until at least 2026-11-27, possibly ever; only the human may lift that rule.
-
-```text
-feat(desktop): register windows by identity
-
-Fork-Domain: project-windows
-Fork-Tier: core
-```
-
-```text
-fix(web): stop new threads waiting on an unreachable project file
-
-Fork-Domain: project-windows
-Fork-Tier: bugfix
-Fork-Upstreamable: yes
-```
 
 | Trailer             | Values                        | Required on              |
 | ------------------- | ----------------------------- | ------------------------ |
@@ -120,451 +94,486 @@ Fork-Upstreamable: yes
 | `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
 | `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair   |
 
-A commit may carry other trailers, and historical ones still parse: `Fork-Budget` rows on trunk commits are inert history (RSI-Software/t3code-hyprws#672, retired by RSI-Software/t3code-hyprws#941) and are not rewritten.
+```text
+fix(web): stop new threads waiting on an unreachable project file
 
-`Fork-Repair` marks what the sync walk's own repair pass rewrote after replaying the fork stack onto a tag, and it is what keeps such a commit out of the fork series the replay proofs compare.
+Fork-Domain: project-windows
+Fork-Tier: bugfix
+Fork-Upstreamable: yes
+```
 
-`vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
-A rebase preserves trailers, so the log stays queryable after every sync.
+`Fork-Upstreamable: yes` is a tracking tag for the feasibility walk, never authorization to post upstream; `AGENTS.md` owns that rule.
+`Fork-Repair` marks what a sync walk's repair pass rewrote, which is what keeps that commit out of the replayed fork series.
+Historical trailers still parse: `Fork-Budget` rows are inert history (RSI-Software/t3code-hyprws#672, retired by RSI-Software/t3code-hyprws#941) and are not rewritten.
+`vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
 
-**Squash-body mode.** On a pull request, fork CI also runs `vp run fork:delta --check --base origin/hyprws --head <head-sha> --squash-body <file>`, and both refs must be explicit.
+**Squash-body mode.** Fork CI also runs `vp run fork:delta --check --base origin/hyprws --head <head-sha> --squash-body <file>`, with both refs explicit.
 
-| Rule                                                                      | Why                                                                                    |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Compares the merge-base tree with the exact head                          | work that landed on the live base is not counted as a change in the prospective squash |
-| Validates those findings against the body's final trailer paragraph       | that paragraph becomes the squash commit's trailers                                    |
-| A review trailer carried only by a branch commit cannot satisfy the check | it does not survive the squash                                                         |
-| Historical baseline entries never exempt a new pull request               | every new wire exception needs its own reviewed body trailer                           |
+| Rule                                                          | Why                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------- |
+| Compares the merge-base tree with the exact head              | work already on the base is not a squash change     |
+| Validates findings against the body's final trailer paragraph | that paragraph becomes the squash trailers          |
+| A trailer carried only by a branch commit cannot satisfy it   | it does not survive the squash                      |
+| Historical baseline entries exempt no new pull request        | every new wire exception needs its own body trailer |
 
-[`fork-wire-baseline.md`](./fork-wire-baseline.md) records wire findings that shipped before this check existed.
-A new commit uses `Fork-Wire: reviewed <reason>` for an approved exception and never adds itself to the baseline.
-A baseline key the stack no longer produces is a stale warning; delete it during normal maintenance.
+[`fork-wire-baseline.md`](./fork-wire-baseline.md) records wire findings that predate the check.
+A new commit uses `Fork-Wire: reviewed <reason>` and never adds itself to the baseline.
+A baseline key the stack no longer produces is stale; delete it during normal maintenance.
 
 ## Wire compatibility
 
-`vp run fork:delta --check` refuses a fork commit that changes a shipped contract under `packages/contracts/src/` in one of these ways:
+`vp run fork:delta --check` refuses a fork commit that changes a shipped contract under `packages/contracts/src/`.
 
-| Binding                         | Refused change                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| Exported `Schema.Literals`      | Adds a member                                                                        |
-| Exported `Schema.Struct`        | Adds a required field                                                                |
-| Exported `Schema.Struct`        | Removes or renames a field                                                           |
-| Any exported schema             | Removes it, renames it, or switches it between `Schema.Literals` and `Schema.Struct` |
-| `packages/contracts/src/ipc.ts` | Any change, unless its only extracted changes add optional fields                    |
+| Binding                         | Refused change                               |
+| ------------------------------- | -------------------------------------------- |
+| Exported `Schema.Literals`      | Adds a member                                |
+| Exported `Schema.Struct`        | Adds a required field                        |
+| Exported `Schema.Struct`        | Removes or renames a field                   |
+| Any exported schema             | Removes it, renames it, or switches its kind |
+| `packages/contracts/src/ipc.ts` | Any change beyond added optional fields      |
 
-A struct field is optional when its value expression uses `Schema.optional`, `Schema.optionalKey`, `Schema.optionalWith`, `withDecodingDefault`, or `withConstructorDefault`.
-
-Keep fork-only contract data in an optional sibling field so released clients still decode the upstream wire shape.
-A reviewed exception carries `Fork-Wire: reviewed <reason>` and stays visible in the generated ledger.
-An addition that restores a literal or field the upstream base already ships is not a fork wire change and needs no trailer.
+A field is optional when its value uses `Schema.optional`, `Schema.optionalKey`, `Schema.optionalWith`, `withDecodingDefault`, or `withConstructorDefault`.
+Keep fork-only contract data in an optional sibling field so released clients still decode the upstream shape.
+Restoring a literal or field the upstream base already ships is not a fork wire change.
 
 The check is textual, not a TypeScript AST pass.
-It cannot see type widening, on-disk settings migrations, mobile deep-link parameters, or anything outside exported `Schema.Literals` and `Schema.Struct` bindings; review those boundaries separately.
+It cannot see type widening, on-disk settings migrations, mobile deep-link parameters, or anything outside those bindings; review them separately.
 
 ## Carry cost
 
-Carry cost is decided per commit, by the parent direction's levers (retire, reshape, automate, or accept, RSI-Software/t3code-hyprws#665), never by a numeric cap.
-There is no budget table and no ceiling arithmetic anywhere in the gates.
+Decided per commit by the levers retire, reshape, automate, or accept (RSI-Software/t3code-hyprws#665).
+There is no numeric cap, budget table, or ceiling arithmetic in any gate.
 
-**Accept is never "as-is".** A kept commit must have a mechanical seam: fork code in fork-only files, and upstream files carrying only marked hook lines the sync walk re-applies.
+**Accept is never "as-is".** A kept commit needs a mechanical seam: fork code in fork-only files, and upstream files carrying only marked hook lines the walk re-applies.
 
-**Marking a hook**
+### Marking a hook
 
-| Case           | Marker                                                                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Single line    | trailing `// fork-hook: <domain>/<name>`                                                                                                |
-| Multi-line JSX | the comment pair `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end */}`                                                         |
-| Manifest       | every marker is also listed in `FORK_HOOKS` in `scripts/lib/fork-hooks.ts`                                                              |
-| Charging       | `scripts/lib/fork-hooks.ts` is fork-owned, so a marker and its manifest entry land in one commit and the manifest edit is never charged |
+| Case           | Marker                                                                           |
+| -------------- | -------------------------------------------------------------------------------- |
+| Single line    | trailing `// fork-hook: <domain>/<name>`                                         |
+| Multi-line JSX | the pair `{/* fork-hook: <domain>/<name> */}` and `{/* fork-hook-end */}`        |
+| Manifest       | every marker also listed in `FORK_HOOKS` in `scripts/lib/fork-hooks.ts`          |
+| Charging       | `scripts/lib/fork-hooks.ts` is fork-owned, so its manifest edit is never charged |
 
-**A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export (`export { X };`, optionally `export type { X };`).
+**A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
 
 **A hook never removes or modifies an upstream line**, with two exceptions.
 
-| Exception                                                         | Why                                                                |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
-| A marked JSX region may re-indent the lines it wraps              | a wrap is the only way one JSX element is expressible at all       |
-| An in-place substitution may remove the upstream line it replaces | the replacing line carries the marker, the removed line needs none |
+| Exception                                             | Why                                                   |
+| ----------------------------------------------------- | ----------------------------------------------------- |
+| A marked JSX region may re-indent what it wraps       | a wrap is the only way one JSX element is expressible |
+| An in-place substitution removes the line it replaces | the replacing line carries the marker                 |
 
-**The removal rule is one positional rule**, and both ends of it run the same alignment (`unexplainedRemoval` in `scripts/lib/fork-hook-alignment.ts`): align the base side against the fork side over significant lines, and accept a removed base line only when the position it was removed from falls inside a marked span.
+### The removal rule
 
-| Case                                         | Result                                                           |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| A marked hook elsewhere in the file          | absorbs nothing                                                  |
-| A removal outside every marked span          | refused by the walk, charged by the `fork-hook-seam` guard alike |
-| A needed deletion with no marked replacement | still reshape debt with a named reason                           |
+One positional rule, run at both ends by `unexplainedRemoval` in `scripts/lib/fork-hook-alignment.ts`.
+Align the base side against the fork side over significant lines, and accept a removed base line only when its position falls inside a marked span.
+
+| Case                                         | Result                                           |
+| -------------------------------------------- | ------------------------------------------------ |
+| A marked hook elsewhere in the file          | absorbs nothing                                  |
+| A removal outside every marked span          | refused by the walk, charged by `fork-hook-seam` |
+| A needed deletion with no marked replacement | reshape debt with a named reason                 |
 
 **Replay re-application.** At a replay stop the walk re-inserts a marked hook by its manifest anchor when that anchor resolves to exactly one site in the merged upstream text.
-Zero sites, several, or an end marker it cannot place leaves an ordinary `conflict` stop naming the hook.
+Zero sites, several, or an unplaceable end marker leaves an ordinary `conflict` stop naming the hook.
 
-**The `fork-hook-seam` guard** refuses a fork commit that adds outside a marked hook, deletes a line the upstream tree carries outside that rule, or marks a hook the manifest does not know.
+### The `fork-hook-seam` guard
 
-| Aspect                         | Rule                                                                                                                                                  |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fork side                      | judged by the same rule, rebuilt from the upstream blob and the diff's own positions                                                                  |
-| Unreconstructable              | charged, never exempted                                                                                                                               |
-| Removal gap                    | on top of the alignment, every addition in it must be a line-kind marked hook, so the guard charges some seams the walk accepts and never the reverse |
-| Outside the rule               | a commit carrying `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes`, and generated paths (`pnpm-lock.yaml`, `*.gen.ts`)                            |
-| Generated and dependency files | never scored as reshape debt; the sync walk restores HEAD and regenerates them instead of resolving them by hand                                      |
-| Historical range               | advisory, so the woven trunk is unaffected                                                                                                            |
+It refuses an addition outside a marked hook, a deletion outside the removal rule, or a marker the manifest does not know.
 
+| Aspect                         | Rule                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| Fork side                      | judged by the same rule, rebuilt from the upstream blob and the diff's positions |
+| Unreconstructable              | charged, never exempted                                                          |
+| Removal gap                    | every addition in it must be a line-kind marked hook                             |
+| Outside the rule               | `Fork-Tier: bugfix` with `Fork-Upstreamable: yes`, and generated paths           |
+| Generated and dependency files | never reshape debt; the walk restores HEAD and regenerates them                  |
+| Historical range               | advisory, so the woven trunk is unaffected                                       |
+
+The guard charges some seams the walk accepts, never the reverse.
 It is in `ADOPTED_AUTHORING_GUARDS`.
-The scar rules each refuse an inline implementation and direct the author to a fork-owned file, and the narrow integration call that stays behind is itself an added line this guard charges, so the two only compose once that call carries a marker.
-Adoption is what makes that the single authored shape.
+Each scar rule refuses an inline implementation and directs the author to a fork-owned file, and the narrow call left behind is itself a charged added line, so the two compose only once that call carries a marker.
 
-**Measurement informs, it never enforces.** `vp run fork:delta --inventory` measures commit counts, lines, and shared files per domain.
-
-| Subject                              | Rule                                                                                                                                                                        |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Walk repairs (`Fork-Repair` commits) | stay visible in the inventory's per-commit table, their lines stay out of the domain sums                                                                                   |
-| A reshape's census                   | read after its fold, never per PR: `vp run fork:sync fold-reshape` derives the fold manifest that lands it into the originating fork commit (see [Scripts](./scripts.md))   |
-| Every `fork:sync` walk               | records the same three numbers for the stack it replayed (total fork commits, the per-domain table, the shared-file count) in its report's walk record                      |
-| That size                            | measured at replay completion against the pinned target tag, where the shared count has signal, and before any repair commit is appended; repairs are excluded the same way |
+### Declaration and placement
 
 **Declaration comes from the fork tip, placement from the replayed blob, and the tip wins.**
-A seam whose owning commit predates the commit that marked it carries no marker in the blob the walk is standing on, so judging placement from the blob alone would refuse every such seam as unmarked, which is where in the stack the marker happens to sit, not a property of the seam.
+A seam whose owning commit predates the commit that marked it carries no marker in the blob the walk stands on, so judging from the blob alone would refuse every such seam for where the marker sits in the stack.
 
-| Case                      | Resolution                                                                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The blob carries a marker | the in-file marker still wins                                                                                                                                                                                             |
-| Otherwise                 | the tip's marked span is located in the fork side, and only an absent (zero sites) or ambiguous (several) result refuses                                                                                                  |
-| Absent                    | says so, as `tip declares <key> whose code is absent at replay position <sha>; fold pending`, rather than blaming an unmarked fork side, because the lines are the hook's and only the marker is missing at that position |
-| Replay position           | threaded in explicitly, never inferred from ambient rebase state                                                                                                                                                          |
+| Case                      | Resolution                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| The blob carries a marker | the in-file marker wins                                                                      |
+| Otherwise                 | locate the tip's marked span in the fork side                                                |
+| Absent or ambiguous       | refuse                                                                                       |
+| Absent                    | reported as `tip declares <key> whose code is absent at replay position <sha>; fold pending` |
+| Replay position           | threaded in explicitly, never inferred from ambient rebase state                             |
 
-**A `.fork.` in a filename is a reader signal and nothing else.**
-It marks a fork-owned module for a human reading a tree; no guard decides on it, and renaming a file changes no scan result.
-It is convention rather than enforcement, so its absence proves nothing about a file: a fork-only file without it is an accepted shape.
-Its one placement rule is for test files, in [Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
+### Measurement
 
-So a per-file diff against the base tag says nothing about seam growth until the path is known to exist upstream: every line of a fork-only file is an added line, and its residual is its own size.
-Establish which kind of file it is first.
+**Measurement informs, it never enforces.** `vp run fork:delta --inventory` measures commits, lines, and shared files per domain.
+
+| Subject                | Rule                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `Fork-Repair` commits  | visible per commit, excluded from domain sums                                  |
+| A reshape's census     | read after its fold, never per pull request                                    |
+| Every `fork:sync` walk | records commit total, per-domain table, and shared-file count                  |
+| That size              | measured at replay completion against the pinned tag, before any repair commit |
+
+`vp run fork:sync fold-reshape` derives the fold manifest that lands a reshape into its originating commit (see [Scripts](./scripts.md)).
+
+**A `.fork.` in a filename is a reader signal only.**
+No guard decides on it, and renaming a file changes no scan result.
+Its absence proves nothing: a fork-only file without it is an accepted shape.
+Its one placement rule is [Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
+
+A per-file diff against the base says nothing about seam growth until the path is known to exist upstream.
 
 ```bash
-git cat-file -e origin/main:<path>   # exit 128: fork-only, so its residual carries no signal
+git cat-file -e origin/main:<path>   # exit 128: fork-only, residual carries no signal
 ```
 
 ## Domain index
 
-| Domain                                  | Status | Tiers present     | Retires when                                                        |
-| --------------------------------------- | ------ | ----------------- | ------------------------------------------------------------------- |
-| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                       |
-| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile browser bookmarks.       |
-| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach to a running local server.            |
-| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.               |
-| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection.                        |
-| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing.                          |
-| [workspace-files](#workspace-files)     | Active | core              | Upstream supports ignored and trusted linked artifacts.             |
-| [fork-meta](#fork-meta)                 | Active | qol               | Never. It documents the fork itself.                                |
-| [distribution](#distribution)           | Active | core              | Never, while the fork ships its own builds.                         |
-| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix.                           |
-| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named thread groups and a return to automatic order. |
-| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager.           |
-| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream worktree lifecycle exposes create and remove hooks.        |
+| Domain                                  | Status | Tiers present     | Retires when                                                |
+| --------------------------------------- | ------ | ----------------- | ----------------------------------------------------------- |
+| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window                |
+| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile bookmarks        |
+| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach to a running server           |
+| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop        |
+| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection                 |
+| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing                   |
+| [workspace-files](#workspace-files)     | Active | core              | Upstream supports ignored and trusted linked artifacts      |
+| [fork-meta](#fork-meta)                 | Active | qol               | Never; it documents the fork itself                         |
+| [distribution](#distribution)           | Active | core              | Never, while the fork ships its own builds                  |
+| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix                    |
+| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named groups and a return to automatic       |
+| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager    |
+| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream worktree lifecycle exposes create and remove hooks |
 
-Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
-
-## Current upstream sync
-
-| Field                                      | Value                                                                   |
-| ------------------------------------------ | ----------------------------------------------------------------------- |
-| Upstream base                              | `v0.0.37-nightly.20260830.1226`                                         |
-| Rehearsed stack                            | 135 fork commits                                                        |
-| Applied stack                              | 136 fork commits, including the fork-meta commit that records this sync |
-| Retired at `v0.0.37-nightly.20260830.1226` | none                                                                    |
 
 ## Retired
 
-| Fork commit                                               | Domain          | Upstream replacement                                                                                                                                                                                                                                                                                                                                                                                                               | Retired at                    |
-| --------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| fix(web): scope markdown actions to thread environment    | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines `threadRef?.environmentId ?? explicitEnvironmentId ?? null` at the same binding in `apps/web/src/components/ChatMarkdown.tsx`, leaving `resolveChatMarkdownEnvironmentId` a redundant wrapper.                                                                                                                                                                                       | v0.0.35                       |
-| fix(web): upload media in pull request descriptions       | upstream-fixes  | `pingdotgg/t3code#8235` replaces the attachment extension-inference generalization with typed `image \| file` claims, streamed bodies, and the advertised 50 MB limit. The `gh-image` pull-request publication path remains fork-owned.                                                                                                                                                                                            | v0.0.36                       |
-| `fix(provider): resolve repo skills per workspace (#188)` | upstream-fixes  | `pingdotgg/t3code#9210` (`bc918e7`) adds per-workspace provider snapshots upstream: `snapshotForCwd` on every driver, `refreshWorkspaceSnapshot` in the registry, `workspaceSnapshots` on `ServerProvider`, and the client resolvers. That supersedes the fork's `providers.workspaceSkills` RPC, its contract schemas, the client atom family, the chat-view preference, and the Codex pair, all of which came out of the commit. | v0.0.39-nightly.20260902.1261 |
-| feat(web): add manual sidebar thread ordering             | thread-ordering | Upstream persists per-thread active order server side. `activeOrderKey` is on the thread contract in `packages/contracts/src/orchestration.ts`, written by the reorder command in `apps/server/src/orchestration/decider.ts`, and read by the sidebar drag path in `apps/web/src/components/Sidebar.tsx`. The fork's client-local order store is superseded. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.   | v0.0.41-nightly.20260908.1414 |
-| `fix(web): make sidebar thread ordering direct (#246)`    | thread-ordering | Same upstream `activeOrderKey` path supersedes drop-to-manual ordering. The order-mode marker this commit carried has no upstream equivalent; it is rewritten on top of `activeOrderKey` under RSI-Software/t3code-hyprws#907, not restored. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.                                                                                                                   | v0.0.41-nightly.20260908.1414 |
-| fix(web): keep sidebar groups in automatic order          | thread-ordering | Grouping now layers over upstream's `activeOrderKey` instead of a fork-owned order, so the automatic-order carve-out has no fork order left to protect. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.                                                                                                                                                                                                        | v0.0.41-nightly.20260908.1414 |
+| Fork commit                                               | Domain          | Upstream replacement                                                                                                                                     | Retired at                    |
+| --------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| fix(web): scope markdown actions to thread environment    | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines the same binding in `ChatMarkdown.tsx`, leaving the fork resolver redundant.                               | v0.0.35                       |
+| fix(web): upload media in pull request descriptions       | upstream-fixes  | `pingdotgg/t3code#8235` ships typed `image \| file` claims, streamed bodies, and a 50 MB limit. The `gh-image` path stays fork-owned.                    | v0.0.36                       |
+| `fix(provider): resolve repo skills per workspace (#188)` | upstream-fixes  | `pingdotgg/t3code#9210` (`bc918e7`) adds per-workspace provider snapshots, superseding the fork's RPC, schemas, atom family, preference, and Codex pair. | v0.0.39-nightly.20260902.1261 |
+| feat(web): add manual sidebar thread ordering             | thread-ordering | Upstream persists `activeOrderKey` server side, superseding the fork's client-local order store. Verdict in the RSI-Software/t3code-hyprws#657 walk.     | v0.0.41-nightly.20260908.1414 |
+| `fix(web): make sidebar thread ordering direct (#246)`    | thread-ordering | Same `activeOrderKey` path. The order-mode marker is rewritten on top of it under RSI-Software/t3code-hyprws#907, not restored.                          | v0.0.41-nightly.20260908.1414 |
+| fix(web): keep sidebar groups in automatic order          | thread-ordering | Grouping now layers over `activeOrderKey`, so the carve-out has no fork order left to protect.                                                           | v0.0.41-nightly.20260908.1414 |
 
-References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never live links.
-A retired-only subject must no longer be present in the fork stack; `fork:delta --check` reports it as `retired but present` until the rebase drops it.
+Upstream references here are code-spanned records, never live links.
+A retired-only subject must no longer be present in the stack; `fork:delta --check` reports it as `retired but present` until the rebase drops it.
 
 ## Kept
 
-| Fork commit                                                                             | Domain           | Reason                                                                                                                                                                                                                                                                                                | Reviewed at                   |
-| --------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| refactor(web): add physical project sidebar scope                                       | project-windows  | The target removes only an unrelated stage-badge helper; `isProjectInSidebarScope` remains the only physical project-window sidebar scope.                                                                                                                                                            | v0.0.37-nightly.20260830.1227 |
-| fix(web): upload media in pull request descriptions                                     | upstream-fixes   | Partial remains correct: `pingdotgg/t3code#8235` supplies typed, streamed attachment plumbing, while the fork-only `gh-image` publication path, editor flow, RPC, and settings surface remain.                                                                                                        | v0.0.39-nightly.20260907.1332 |
-| fix(web): retain completed thread timing                                                | upstream-fixes   | No upstream commit supplies completed-turn age, duration, or durable Done behavior in the sidebar rows.                                                                                                                                                                                               | v0.0.39-nightly.20260907.1332 |
-| `feat(web): add rich Markdown editing (#28)`                                            | markdown-editing | The Expo/Uniwind mobile lockfile update retains Milkdown and frontmatter dependencies and does not touch the Rich/Source editor, safe frontmatter round trip, or MDX boundary.                                                                                                                        | v0.0.37-nightly.20260830.1226 |
-| refactor(web): centralize thread route navigation                                       | project-windows  | Upstream changed the new-thread hook nearby but did not add project-window route scoping.                                                                                                                                                                                                             | v0.0.37-nightly.20260829.1224 |
-| feat(web): render scoped project shell                                                  | project-windows  | The target's root-route work does not provide a scoped project shell.                                                                                                                                                                                                                                 | v0.0.37-nightly.20260829.1224 |
-| fix(desktop): isolate project preview and drafts                                        | project-windows  | Generic file attachments widened the draft shape but do not replace project-window preview and draft namespacing.                                                                                                                                                                                     | v0.0.37-nightly.20260829.1224 |
-| feat(web): open project windows from hub actions                                        | project-windows  | Upstream rewrote keybinding settings but did not add project-window bridge actions.                                                                                                                                                                                                                   | v0.0.37-nightly.20260829.1224 |
-| feat(terminal): attach thread terminals to the checkout's managed zmux session          | zmux-estate      | Settings overlap does not provide external-session attachment.                                                                                                                                                                                                                                        | v0.0.37-nightly.20260829.1224 |
-| feat(server): bind thread worktrees to a managed zmux session                           | zmux-estate      | Upstream service-layer changes do not bind thread worktrees to zmux.                                                                                                                                                                                                                                  | v0.0.37-nightly.20260829.1224 |
-| One setting drives terminal attach and worktree binding for zmux                        | zmux-estate      | The target has no combined terminal/worktree zmux mode.                                                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
-| `fix(server): follow external workspace symlinks globally (#66)`                        | upstream-fixes   | No `followExternalWorkspaceSymlinks` setting exists upstream; the upstream symlink commits there cover skills discovery and theme files, not workspace reads.                                                                                                                                         | v0.0.39-nightly.20260907.1332 |
-| feat(issues): add GitHub Issues surface scoped to project windows                       | github-issues    | Generic attachment and environment capability work does not provide the fork's Issues list, detail, or hand-off behavior.                                                                                                                                                                             | v0.0.37-nightly.20260829.1224 |
-| feat(server): run Worktrunk hooks around thread worktrees                               | worktrunk-hooks  | Upstream server composition does not provide Worktrunk lifecycle hooks.                                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
-| fix(web): returning to a thread focuses the composer, not its terminal                  | upstream-fixes   | `ecf3716fd19` adds window-tab-back composer refocus only; the target has no `chat.focusComposer`/`terminal.focus` hop or thread-navigation focus ownership.                                                                                                                                           | v0.0.39-nightly.20260907.1332 |
-| feat(web): move Worktrunk hook controls onto the worktree surfaces                      | worktrunk-hooks  | The target does not add the fork's Worktrunk controls or lifecycle behavior.                                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
-| feat: New worktrunk thread mode replaces the Worktrunk hook switches                    | worktrunk-hooks  | The target does not add a third thread environment mode or its wire-safe compatibility pair.                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
-| `fix(server): preserve attributed child work (#177)`                                    | custom-agents    | The target's `routeCodexChildNotification` still routes `item/*` deltas to `drop` via `CHILD_CHATTER_METHODS`, so attributed child work still vanishes.                                                                                                                                               | v0.0.39-nightly.20260907.1332 |
-| `fix(provider): resolve repo skills per workspace (#188)`                               | upstream-fixes   | Partial. Upstream's `snapshotForCwd` merges `skills` alone, and its Claude capabilities probe cache stays capacity 1 keyed on binary plus resolved HOME. The fork keeps the cwd-keyed probe cache at capacity 16 and merges the workspace probe's `slashCommands` into the snapshot.                  | v0.0.39-nightly.20260907.1332 |
-| `feat(web): group sidebar threads into named sections (#205)`                           | thread-ordering  | The target removes only the unrelated stage-badge helper and does not provide named thread sections or group-drop behavior.                                                                                                                                                                           | v0.0.37-nightly.20260830.1227 |
-| `feat(web): add GitHub link destination controls (#178)`                                | github-issues    | Markdown and settings overlap did not provide the fork's GitHub link destination control. Upstream-owned `ChatMarkdown.test.tsx` favicon-privacy test edited: fork renders PR URLs as `GitHubDestinationLink` chips (no `GitHubIcon`), so the brand-mark assertion targets bare `https://github.com`. | v0.0.37-nightly.20260829.1224 |
-| `docs(fork): consolidate fork documentation for the domain flatten (#671)`              | fork-meta        | Carries the fork documentation set, including the fork sync runbook folded in from `docs(fork): fork sync runbook for the auto-rebase model`. Environment-theme glossary additions are independent of the fork synchronization model.                                                                 | v0.0.37-nightly.20260829.1224 |
-| `fix(contracts): released clients decode threads from a worktrunk server (#233)`        | worktrunk-hooks  | Environment-theme settings do not replace the two-value wire mode plus exact fork-mode sibling required by released clients.                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
-| fix(web): scale titlebar padding with interface zoom                                    | upstream-fixes   | The target still declares bare `--workspace-topbar-height: env(titlebar-area-height, 52px)` and does not supply the fork's `max()` interface-zoom floor.                                                                                                                                              | v0.0.39-nightly.20260907.1332 |
-| `fix(server): provider spawns drop another harness identity (#108)`                     | upstream-fixes   | The target has no `packages/shared/src/env.ts` or `CLAUDECODE` scrub, and `mergeProviderInstanceEnvironment` still takes two parameters with no driver-kind argument.                                                                                                                                 | v0.0.39-nightly.20260907.1332 |
-| fix(web): thread jump keys switch threads while the terminal has focus                  | upstream-fixes   | The target's `ThreadTerminalDrawer.tsx` still lacks `shouldForwardThreadTerminalShortcut` and `THREAD_TERMINAL_WINDOW_COMMANDS`, so jump keys stay trapped in the terminal.                                                                                                                           | v0.0.39-nightly.20260907.1332 |
-| fix(web): stop new threads waiting on an unreachable project file                       | project-windows  | `v0.0.39-nightly.20260907.1332` still awaits `executeAtomQuery` unbounded in `t3ProjectFileDefaults.ts` while `useHandleNewThread` awaits it, so an unreachable environment still leaves the new-thread route with nothing rendered.                                                                  | v0.0.39-nightly.20260907.1332 |
-| fix(server): keep pull requests on origin                                               | upstream-fixes   | The target's `RepositoryIdentityResolver` still prefers `upstream` over `origin` and no `gh` pull-request call carries an explicit `--repo` selector, so a fork checkout with both remotes still opens pull requests against pingdotgg.                                                               | v0.0.39-nightly.20260907.1332 |
-| Thread terminals and agents stop inheriting the launcher's tmux pane                    | upstream-fixes   | The target has no `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR` scrub anywhere in `packages/shared` or `apps/server`, so a T3 Code launched from tmux/zmux still leaks its pane into thread terminals and provider spawns.                                                                                         | v0.0.39-nightly.20260907.1332 |
-| fix: setup script terminals print a completion or failure marker                        | upstream-fixes   | The target's `ProjectSetupScriptRunner` still writes the bare `${script.command}\r`; a failed setup script still scrolls by silently.                                                                                                                                                                 | v0.0.39-nightly.20260907.1332 |
-| `fix(web): keep the files explorer tab when a file opens (#84)`                         | upstream-fixes   | The target's `rightPanelStore.openFile` still filters out the standalone `files` surface before adding the file tab, so opening a file still consumes the explorer and closing the last file tab still shuts the panel.                                                                               | v0.0.39-nightly.20260907.1332 |
-| feat(web): show which pane owns keyboard focus                                          | upstream-fixes   | The target has no `:focus-within` cue on the chat view container or `ComposerSurface.Host`, so composer, terminal drawer, and right-panel focus remain visually indistinguishable.                                                                                                                    | v0.0.39-nightly.20260907.1332 |
-| fix(desktop): use themed app context menus                                              | upstream-fixes   | The target still routes every renderer context menu through native `desktopBridge.showContextMenu` and pops native menus for app actions, so desktop menus still lose T3's theme, icons, and hierarchy.                                                                                               | v0.0.39-nightly.20260907.1332 |
-| `fix(web): confirm batch worktree deletion once (#156)`                                 | upstream-fixes   | The target has only the single-thread `getOrphanedWorktreePathForThread`; no batch orphan helper or confirm-once flow for multi-thread deletion exists.                                                                                                                                               | v0.0.39-nightly.20260907.1332 |
-| `fix(desktop): honor embedded browser wheel zoom (#169)`                                | upstream-fixes   | The target never handles the guest `zoom-changed` event in `preview/Manager.ts`, so Ctrl+wheel in an embedded browser still cannot move the tab's authoritative zoom.                                                                                                                                 | v0.0.39-nightly.20260907.1332 |
-| `fix(desktop): prevent embedded browser zoom flash (#174)`                              | upstream-fixes   | The target still changes the window zoom level first and restores guests afterwards via `reapplyZoom()`, so the flash window remains; `preserveGuestZooms` wraps the mutation instead.                                                                                                                | v0.0.39-nightly.20260907.1332 |
-| fix(server): GitManager hook tests pin the fixture hook path                            | upstream-fixes   | The target's `GitManager.test.ts` still pins no `core.hooksPath`, so developer global hook configuration can still break the fixture.                                                                                                                                                                 | v0.0.39-nightly.20260907.1332 |
-| fix(desktop): keep AppImage launch paths stable                                         | upstream-fixes   | The target still publishes the versioned `T3-Code-${version}-${arch}.${ext}` artifact name; pending upstream fix `pingdotgg/t3code#8983` has not reached any tag.                                                                                                                                     | v0.0.39-nightly.20260907.1332 |
-| fix(server): ignore dependency installs in dev watch                                    | upstream-fixes   | The target still runs `"dev": "node --watch src/bin.ts"`, so worktree setup dependency installs still restart the dev backend and kill the first provider turn.                                                                                                                                       | v0.0.39-nightly.20260907.1332 |
-| fix(worktree): make setup independent of shell environment                              | upstream-fixes   | The target's `t3.json` setup actions still expand `$T3CODE_PROJECT_ROOT` through the launching shell (`ln -sf $T3CODE_PROJECT_ROOT/.env .env`); no dependency-free `setup:worktree` command exists.                                                                                                   | v0.0.39-nightly.20260907.1332 |
-| fix(worktree): bootstrap before Vite+ task discovery                                    | upstream-fixes   | Fixes the fork's own bootstrap ordering: `vp run setup:worktree` needs Vite+ installed before it can run. The target has no `setup-worktree` command, so the cold-worktree chicken-and-egg cannot arise upstream.                                                                                     | v0.0.39-nightly.20260907.1332 |
-| fix(server): exclude dependency churn from watch roots                                  | upstream-fixes   | Follow-on to the dev-watch fix: the target has no per-package source watch roots, so package `node_modules` churn still restarts the server.                                                                                                                                                          | v0.0.39-nightly.20260907.1332 |
-| fix(mobile): finish bounded diff tokenization                                           | upstream-fixes   | The target bounds mobile diff work by rows, line, and batch characters but never passes `tokenizeTimeLimit`, so Shiki's default 500 ms per-line cutoff still produces partial tokens and advances grammar state.                                                                                      | v0.0.39-nightly.20260907.1332 |
-| refactor(github-issues): the right-panel store surfaces move behind marked hooks        | github-issues    | Retire evidence is circular: the probe matched identifiers this commit only relocated. The target carries no `scripts/lib/fork-hooks.ts` and no `*.fork.tsx` file, so the marked right-panel seam has no upstream owner.                                                                              | v0.0.43-nightly.20260917.1880 |
-| refactor(github-issues): Issues surface registrations sit behind marked hooks           | github-issues    | The deliverable is the registration seam, not the Issues surface. Upstream ships neither the hook marker vocabulary nor a fork-owned registration file.                                                                                                                                               | v0.0.43-nightly.20260917.1880 |
-| refactor(workspace-files): ignored workspace files sit behind fork-owned seams          | workspace-files  | The ignored-files behavior is upstream's; the fork-owned seam holding it is not. The target has no `*.fork.ts` counterpart to absorb it.                                                                                                                                                              | v0.0.43-nightly.20260917.1880 |
-| refactor(web): centralize thread window route scoping behind one fork hook              | project-windows  | Project-window route scoping is fork-only. The target's thread routing carries no window scope, so the single hook this commit centralizes has nothing upstream to defer to.                                                                                                                          | v0.0.43-nightly.20260917.1880 |
-| refactor(agents): custom agents sit behind fork-owned boundaries                        | fork-meta        | A boundary refactor over fork-only custom-agent code. Upstream supplies neither the boundary files nor the custom-agent surface they wrap.                                                                                                                                                            | v0.0.43-nightly.20260917.1880 |
-| refactor(upstream-fixes): pull-request media upload behind marked hooks                 | upstream-fixes   | The partial verdict already recorded for `fix(web): upload media in pull request descriptions` governs the behavior; this commit only moves the surviving fork half behind markers upstream does not have.                                                                                            | v0.0.43-nightly.20260917.1880 |
-| refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules | worktrunk-hooks  | Worktrunk thread mode is fork-only and its keep is already recorded. Relocating it behind fork-owned modules cannot be superseded by a target that lacks both.                                                                                                                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam               | worktrunk-hooks  | The enum seam exists so the fork's extra thread mode replays onto upstream's enum. The target still ships the unextended enum.                                                                                                                                                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(upstream-fixes): external symlink seams sit behind fork-owned files            | upstream-fixes   | `fix(server): follow external workspace symlinks globally (#66)` remains kept; the target still has no global follow. The seam that carries it is fork-owned by construction.                                                                                                                         | v0.0.43-nightly.20260917.1880 |
-| refactor(web): pull-request project scope supplied by one prop hook                     | project-windows  | `PullRequestsSearch` matched upstream because it is upstream's own interface that this commit merely touched. The added prop hook carries project-window scope the target has no concept of.                                                                                                          | v0.0.43-nightly.20260917.1880 |
-| refactor(server): child-work custom-agent seams sit behind fork-owned files             | custom-agents    | The attributed-child-work keep is recorded separately; this commit only files its server half behind fork-owned modules the target does not carry.                                                                                                                                                    | v0.0.43-nightly.20260917.1880 |
-| refactor(web): composer custom-agent seams sit behind fork-owned files                  | custom-agents    | Same seam, client half. The composer custom-agent surface is fork-only and the target's composer has no attachment point for it.                                                                                                                                                                      | v0.0.43-nightly.20260917.1880 |
-| refactor(fork-meta): re-apply carries a multi-line line hook whole                      | fork-meta        | Fork rebase machinery. Nothing in the target's tree participates in fork hook re-apply, so no upstream replacement is possible in principle.                                                                                                                                                          | v0.0.43-nightly.20260917.1880 |
-| refactor(sidebar): isolate physical scope from upstream derivation                      | project-windows  | The isolation exists so upstream's sidebar derivation replays untouched. `SidebarPhysicalScopeContext.tsx` is absent from the target.                                                                                                                                                                 | v0.0.43-nightly.20260917.1880 |
-| refactor(desktop): centralize preview window policy                                     | project-windows  | `WindowPolicy.ts` and `WindowPolicy.preload.ts` are absent from the target; the centralization has no upstream counterpart to collapse into.                                                                                                                                                          | v0.0.43-nightly.20260917.1880 |
-| fix(desktop): keep preview window policy behind one fork boundary                       | project-windows  | Follows the centralization above and shares its evidence: the boundary files exist only on the fork.                                                                                                                                                                                                  | v0.0.43-nightly.20260917.1880 |
-| refactor(web): isolate project-window pull request scope                                | fork-meta        | `project.$environmentId.$projectId.pull-requests.tsx` is fork-only. The strongest retire reading (this commit's deletions of `pullRequestListRoute.ts` and `-pullRequestsPage.test.tsx`) is disproved: both files were fork-created and never existed upstream.                                       | v0.0.43-nightly.20260917.1880 |
-| refactor(web): read physical sidebar scope from an ambient provider                     | project-windows  | The provider supplies fork-only physical scope. `LegacySidebar` matched the target only inside a module path segment of an `import` line, which is not a definition site for this identifier.                                                                                                         | v0.0.43-nightly.20260917.1880 |
-| refactor(web): share project pathname parsing                                           | project-windows  | The shared parser serves project-window routes the target does not have. Its matches upstream are on generic pathname helpers it did not introduce.                                                                                                                                                   | v0.0.43-nightly.20260917.1880 |
+| Fork commit                                                                             | Domain           | Reason                                                                                           | Reviewed at                   |
+| --------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ | ----------------------------- |
+| refactor(web): add physical project sidebar scope                                       | project-windows  | `isProjectInSidebarScope` remains the only physical scope.                                       | v0.0.37-nightly.20260830.1227 |
+| fix(web): upload media in pull request descriptions                                     | upstream-fixes   | Partial: the fork-only `gh-image` publication path remains.                                      | v0.0.39-nightly.20260907.1332 |
+| fix(web): retain completed thread timing                                                | upstream-fixes   | No upstream completed-turn age, duration, or Done behavior.                                      | v0.0.39-nightly.20260907.1332 |
+| `feat(web): add rich Markdown editing (#28)`                                            | markdown-editing | Lockfile churn only; editor and MDX boundary untouched.                                          | v0.0.37-nightly.20260830.1226 |
+| refactor(web): centralize thread route navigation                                       | project-windows  | Upstream added no project-window route scoping.                                                  | v0.0.37-nightly.20260829.1224 |
+| feat(web): render scoped project shell                                                  | project-windows  | Upstream root-route work gives no scoped shell.                                                  | v0.0.37-nightly.20260829.1224 |
+| fix(desktop): isolate project preview and drafts                                        | project-windows  | A wider draft shape is not window namespacing.                                                   | v0.0.37-nightly.20260829.1224 |
+| feat(web): open project windows from hub actions                                        | project-windows  | The keybinding rewrite added no bridge actions.                                                  | v0.0.37-nightly.20260829.1224 |
+| feat(terminal): attach thread terminals to the checkout's managed zmux session          | zmux-estate      | Settings overlap is not external-session attachment.                                             | v0.0.37-nightly.20260829.1224 |
+| feat(server): bind thread worktrees to a managed zmux session                           | zmux-estate      | Upstream binds no thread worktree to zmux.                                                       | v0.0.37-nightly.20260829.1224 |
+| One setting drives terminal attach and worktree binding for zmux                        | zmux-estate      | No combined terminal and worktree zmux mode.                                                     | v0.0.37-nightly.20260829.1224 |
+| `fix(server): follow external workspace symlinks globally (#66)`                        | upstream-fixes   | No `followExternalWorkspaceSymlinks`; upstream covers skills and themes.                         | v0.0.39-nightly.20260907.1332 |
+| feat(issues): add GitHub Issues surface scoped to project windows                       | github-issues    | No upstream Issues list, detail, or hand-off.                                                    | v0.0.37-nightly.20260829.1224 |
+| feat(server): run Worktrunk hooks around thread worktrees                               | worktrunk-hooks  | Upstream composition provides no Worktrunk hooks.                                                | v0.0.37-nightly.20260829.1224 |
+| fix(web): returning to a thread focuses the composer, not its terminal                  | upstream-fixes   | `ecf3716fd19` refocuses on window-tab-back only.                                                 | v0.0.39-nightly.20260907.1332 |
+| feat(web): move Worktrunk hook controls onto the worktree surfaces                      | worktrunk-hooks  | The target adds no Worktrunk controls or lifecycle.                                              | v0.0.37-nightly.20260829.1224 |
+| feat: New worktrunk thread mode replaces the Worktrunk hook switches                    | worktrunk-hooks  | No third env mode or wire-safe compatibility pair.                                               | v0.0.37-nightly.20260829.1224 |
+| `fix(server): preserve attributed child work (#177)`                                    | custom-agents    | `CHILD_CHATTER_METHODS` still drops `item/*` deltas.                                             | v0.0.39-nightly.20260907.1332 |
+| `fix(provider): resolve repo skills per workspace (#188)`                               | upstream-fixes   | Partial: the fork keeps a cwd-keyed probe cache and merges `slashCommands`.                      | v0.0.39-nightly.20260907.1332 |
+| `feat(web): group sidebar threads into named sections (#205)`                           | thread-ordering  | No named sections or group-drop behavior.                                                        | v0.0.37-nightly.20260830.1227 |
+| `feat(web): add GitHub link destination controls (#178)`                                | github-issues    | No upstream link destination control; the `ChatMarkdown.test.tsx` brand assertion is retargeted. | v0.0.37-nightly.20260829.1224 |
+| `docs(fork): consolidate fork documentation for the domain flatten (#671)`              | fork-meta        | Carries the whole fork documentation set.                                                        | v0.0.37-nightly.20260829.1224 |
+| `fix(contracts): released clients decode threads from a worktrunk server (#233)`        | worktrunk-hooks  | Theme settings do not replace the wire mode pair.                                                | v0.0.37-nightly.20260829.1224 |
+| fix(web): scale titlebar padding with interface zoom                                    | upstream-fixes   | The target lacks the `max()` interface-zoom floor.                                               | v0.0.39-nightly.20260907.1332 |
+| `fix(server): provider spawns drop another harness identity (#108)`                     | upstream-fixes   | No `packages/shared/src/env.ts` or `CLAUDECODE` scrub.                                           | v0.0.39-nightly.20260907.1332 |
+| fix(web): thread jump keys switch threads while the terminal has focus                  | upstream-fixes   | No `shouldForwardThreadTerminalShortcut`; jump keys stay trapped.                                | v0.0.39-nightly.20260907.1332 |
+| fix(web): stop new threads waiting on an unreachable project file                       | project-windows  | `t3ProjectFileDefaults.ts` still awaits `executeAtomQuery` unbounded.                            | v0.0.39-nightly.20260907.1332 |
+| fix(server): keep pull requests on origin                                               | upstream-fixes   | The resolver still prefers `upstream` and passes no `--repo`.                                    | v0.0.39-nightly.20260907.1332 |
+| Thread terminals and agents stop inheriting the launcher's tmux pane                    | upstream-fixes   | No `TMUX` scrub in `packages/shared` or `apps/server`.                                           | v0.0.39-nightly.20260907.1332 |
+| fix: setup script terminals print a completion or failure marker                        | upstream-fixes   | The runner still writes the bare command line.                                                   | v0.0.39-nightly.20260907.1332 |
+| `fix(web): keep the files explorer tab when a file opens (#84)`                         | upstream-fixes   | `openFile` still filters out the standalone `files` surface.                                     | v0.0.39-nightly.20260907.1332 |
+| feat(web): show which pane owns keyboard focus                                          | upstream-fixes   | No `:focus-within` cue on either host element.                                                   | v0.0.39-nightly.20260907.1332 |
+| fix(desktop): use themed app context menus                                              | upstream-fixes   | Renderer menus still go through native `showContextMenu`.                                        | v0.0.39-nightly.20260907.1332 |
+| `fix(web): confirm batch worktree deletion once (#156)`                                 | upstream-fixes   | Only the single-thread orphan helper exists.                                                     | v0.0.39-nightly.20260907.1332 |
+| `fix(desktop): honor embedded browser wheel zoom (#169)`                                | upstream-fixes   | Guest `zoom-changed` is still unhandled in `preview/Manager.ts`.                                 | v0.0.39-nightly.20260907.1332 |
+| `fix(desktop): prevent embedded browser zoom flash (#174)`                              | upstream-fixes   | Window zoom still changes before `reapplyZoom()`.                                                | v0.0.39-nightly.20260907.1332 |
+| fix(server): GitManager hook tests pin the fixture hook path                            | upstream-fixes   | The upstream test pins no `core.hooksPath`.                                                      | v0.0.39-nightly.20260907.1332 |
+| fix(desktop): keep AppImage launch paths stable                                         | upstream-fixes   | The versioned artifact name still ships; `pingdotgg/t3code#8983` is untagged.                    | v0.0.39-nightly.20260907.1332 |
+| fix(server): ignore dependency installs in dev watch                                    | upstream-fixes   | The server dev script is still a bare `node --watch`.                                            | v0.0.39-nightly.20260907.1332 |
+| fix(worktree): make setup independent of shell environment                              | upstream-fixes   | `t3.json` still expands through the launching shell.                                             | v0.0.39-nightly.20260907.1332 |
+| fix(worktree): bootstrap before Vite+ task discovery                                    | upstream-fixes   | Fork-only ordering; upstream has no `setup-worktree`.                                            | v0.0.39-nightly.20260907.1332 |
+| fix(server): exclude dependency churn from watch roots                                  | upstream-fixes   | No per-package source watch roots upstream.                                                      | v0.0.39-nightly.20260907.1332 |
+| fix(mobile): finish bounded diff tokenization                                           | upstream-fixes   | `tokenizeTimeLimit` is still never passed.                                                       | v0.0.39-nightly.20260907.1332 |
+| refactor(github-issues): the right-panel store surfaces move behind marked hooks        | github-issues    | Retire evidence is circular; no `fork-hooks.ts` upstream.                                        | v0.0.43-nightly.20260917.1880 |
+| refactor(github-issues): Issues surface registrations sit behind marked hooks           | github-issues    | Upstream has no hook vocabulary or registration file.                                            | v0.0.43-nightly.20260917.1880 |
+| refactor(workspace-files): ignored workspace files sit behind fork-owned seams          | workspace-files  | No `*.fork.ts` counterpart to absorb the seam.                                                   | v0.0.43-nightly.20260917.1880 |
+| refactor(web): centralize thread window route scoping behind one fork hook              | project-windows  | Upstream thread routing carries no window scope.                                                 | v0.0.43-nightly.20260917.1880 |
+| refactor(agents): custom agents sit behind fork-owned boundaries                        | fork-meta        | Upstream supplies neither the boundaries nor the surface.                                        | v0.0.43-nightly.20260917.1880 |
+| refactor(upstream-fixes): pull-request media upload behind marked hooks                 | upstream-fixes   | Only moves the surviving fork half behind markers.                                               | v0.0.43-nightly.20260917.1880 |
+| refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules | worktrunk-hooks  | The target lacks both the mode and the modules.                                                  | v0.0.43-nightly.20260917.1880 |
+| refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam               | worktrunk-hooks  | The target still ships the unextended enum.                                                      | v0.0.43-nightly.20260917.1880 |
+| refactor(upstream-fixes): external symlink seams sit behind fork-owned files            | upstream-fixes   | Still no global follow; the seam is fork-owned.                                                  | v0.0.43-nightly.20260917.1880 |
+| refactor(web): pull-request project scope supplied by one prop hook                     | project-windows  | The prop hook carries scope the target has no concept of.                                        | v0.0.43-nightly.20260917.1880 |
+| refactor(server): child-work custom-agent seams sit behind fork-owned files             | custom-agents    | Files the target does not carry.                                                                 | v0.0.43-nightly.20260917.1880 |
+| refactor(web): composer custom-agent seams sit behind fork-owned files                  | custom-agents    | The composer has no upstream attachment point.                                                   | v0.0.43-nightly.20260917.1880 |
+| refactor(fork-meta): re-apply carries a multi-line line hook whole                      | fork-meta        | Nothing upstream participates in fork hook re-apply.                                             | v0.0.43-nightly.20260917.1880 |
+| refactor(sidebar): isolate physical scope from upstream derivation                      | project-windows  | `SidebarPhysicalScopeContext.tsx` is absent from the target.                                     | v0.0.43-nightly.20260917.1880 |
+| refactor(desktop): centralize preview window policy                                     | project-windows  | `WindowPolicy*.ts` is absent from the target.                                                    | v0.0.43-nightly.20260917.1880 |
+| fix(desktop): keep preview window policy behind one fork boundary                       | project-windows  | Shares the centralization evidence above.                                                        | v0.0.43-nightly.20260917.1880 |
+| refactor(web): isolate project-window pull request scope                                | fork-meta        | The deleted files were fork-created, never upstream.                                             | v0.0.43-nightly.20260917.1880 |
+| refactor(web): read physical sidebar scope from an ambient provider                     | project-windows  | The match was an import path segment, not a definition.                                          | v0.0.43-nightly.20260917.1880 |
+| refactor(web): share project pathname parsing                                           | project-windows  | The matches are generic helpers it did not introduce.                                            | v0.0.43-nightly.20260917.1880 |
 
-A kept reason documents the fork behaviour that the overlap signal did not replace.
-A subject in both Retired and Kept is a partial decision and stays in the active fork ledger.
+A kept reason documents the fork behaviour the overlap signal did not replace.
+A subject in both tables is a partial decision and stays in the active ledger.
 
 ## project-windows
 
 ### Need
 
-One T3 Code window per project, placeable on its own Hyprland workspace.
-It sits beside that project's editor, terminals, and browser.
+One T3 Code window per project, placeable on its own Hyprland workspace, beside that project's editor, terminals, and browser.
 The hub stays as the all-projects view; it stops being the only view.
 
 ### Shape
 
-The core is a project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
+A project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
 
-`lib/threadRouteNavigation.ts` owns route-family selection for the upstream chat, command palette, new-thread, and thread-action integrations.
-Their separate navigation calls preserve upstream lifecycle sites, and the hooks resolve current router params when each navigation executes, including after awaited work.
+#### Thread route navigation
+
+Two route families exist: the hub renders every project at `/$environmentId/$threadId`, a project window renders one at `/project/$environmentId/$projectId/thread/$threadId`.
+Every navigation must land in the window that issued it, so no upstream chat file hardcodes a route.
+`apps/web/src/threadRoutes.ts` defines both families and `resolveThreadRouteFamily`.
+`apps/web/src/lib/threadRouteNavigation.ts` is the fork-owned boundary upstream files import.
+
+| Export                                           | Use it when                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| `useThreadRouteFamily()`                         | A component picks the family at render time                    |
+| `resolveThreadRouteFamily(params)`               | A callback resolves the family after awaited work              |
+| `resolveThreadRouteDeparture(params, threadRef)` | A callback leaves the thread, falling back to the family index |
+
+The hooks read router params at execution time on purpose.
+A navigation that awaits first would resolve against render-time params and could leave a project window for the hub.
 The blocking `thread-route-navigation` authoring guard keeps direct resolver imports and inline family policy out of those files.
-One policy boundary does not imply one call or one patch hunk per file: [Thread route navigation](./thread-route-navigation.md) holds the per-file call-site budget.
+
+**Call-site budget.** One policy boundary does not imply one call or one patch hunk per file.
+Upstream owns where navigation happens; the fork owns only which family it targets.
+Each upstream file spends one boundary call per distinct upstream navigation event, plus one hook call when it selects at render time.
+
+| Upstream file                                | Boundary calls | Events served                                           |
+| -------------------------------------------- | -------------- | ------------------------------------------------------- |
+| `apps/web/src/components/ChatView.tsx`       | 1 hook + 4     | stored draft, new draft, background thread, next thread |
+| `apps/web/src/components/CommandPalette.tsx` | 1 hook + 3     | latest thread, searched thread, project-row resume      |
+| `apps/web/src/hooks/useHandleNewThread.ts`   | 3              | created draft, raced draft, settled draft id            |
+| `apps/web/src/hooks/useThreadActions.ts`     | 1              | leave a deleted thread for its fallback                 |
+
+**Adding a call** means an upstream navigation event gained a route target: edit the table in the same change.
+**Collapsing two calls** is correct only when the events themselves merged upstream.
+Upstream has no route-family concept, so nothing retires this boundary yet.
+An upstream equivalent must preserve hub and project dispatch plus execution-time parameter reads.
+
+#### Windows and IPC
 
 Launch intents reach the right window through the single-instance lock and hash routes.
 Previews, composer drafts, and preview IPC are namespaced per window.
-Desktop IPC that upstream authorizes against the single main window authorizes against the registry instead, so a project window keeps the features the hub has.
-The preload policy accepts the complete desktop bridge, so the leased replay keeps upstream's profile-aware bridge assembly intact and drops the original preview-isolation split.
+Desktop IPC upstream authorizes against the single main window authorizes against the registry instead.
+The preload policy accepts the complete desktop bridge, keeping upstream's profile-aware assembly intact.
+Entry points are hub project actions, the command palette, a keybinding, and renderer IPC, all gated on `window.desktopBridge.openProjectWindow`.
 
-Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
-All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
+#### Sidebar scope
 
 Physical sidebar policy lives in `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`.
-Both sidebar renderers delegate exact environment and project filtering to it, and the modern sidebar passes its existing project groups and logical selection into the same adapter for effective scope and physical keys.
+Both renderers delegate exact environment and project filtering to it, and the modern sidebar passes its groups and logical selection into the same adapter.
 Missing project metadata keeps the physical key instead of opening the all-project scope.
-The caller owns selection storage and its setter, so a tagged replay keeps upstream persistence and readiness handling without a fork replacement.
+The caller owns selection storage and its setter, so a tagged replay keeps upstream persistence.
 Grouping, search, menus, manual order, and navigation stay in their existing derivation points.
 
-The scope reaches those renderers ambiently through `apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`.
-The project route provides it and each sidebar reads it, so `AppSidebarLayout`, `Sidebar`, and `LegacySidebar` keep the exact upstream declarations they had.
-Carrying the ref as a prop meant deleting and re-declaring all three, and `AppSidebarLayout.tsx` alone paid for it every time upstream touched that render tree.
+The scope reaches the renderers ambiently through `apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`.
+The project route provides it and each sidebar reads it, so `AppSidebarLayout`, `Sidebar`, and `LegacySidebar` keep their exact upstream declarations.
+Carrying the ref as a prop meant re-declaring all three every time upstream touched that render tree.
 No provider means the hub, so the web client is unchanged without a project window.
-The `sidebar-physical-scope` authoring guard rejects direct physical matching added back to either upstream renderer while permitting the adapter calls.
+The `sidebar-physical-scope` guard rejects direct physical matching added back to either renderer while permitting the adapter calls.
 
-QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope.
-The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`.
-`apps/web/src/components/pullRequest/PullRequestProjectScope.ts` adapts the upstream Pull Requests page through narrow scope and filter calls, while the project route explicitly reuses the hub route's exported page component and search validator.
-`apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` adds the scoped route, and `apps/web/src/components/sidebar/SidebarChrome.tsx` resolves its project-window entry point.
-Scoped PR and Issues readiness lives in `apps/web/src/state/windowProjectBootstrap.fork.ts`.
-It observes only the named environment and preserves snapshot, initial retry, and settled disconnect behavior, while `state/shell.ts` keeps upstream's all-environment bootstrap loop.
+#### Scoped lists and QoL
+
+QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher, route test naming, and list scope.
+The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `WindowProjectScopeToggle.tsx`.
+`PullRequestProjectScope.ts` adapts the upstream Pull Requests page through narrow scope and filter calls, and the project route reuses the hub page component and search validator.
+Scoped PR and Issues readiness lives in `apps/web/src/state/windowProjectBootstrap.fork.ts`, which observes only the named environment while `state/shell.ts` keeps upstream's all-environment loop.
 The adopted `pull-request-project-scope` guard rejects inline route policy, nullable-project picker policy, the retired duplicate search module, and scoped bootstrap declarations in upstream shell state.
 Narrow adapter calls, upstream option derivation, and the hub validator stay the integration points during original-patch repair.
-Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
-The eager Lucide development-load guard tracks pending `pingdotgg/t3code#9943` at head `307b29ec`; retire the fork patch when the first upstream tag contains equivalent optimizer configuration and regression coverage.
+Two bugfixes reproduce on an unmodified upstream build and are retire candidates; the rest are fork-only.
+The eager Lucide development-load guard tracks pending `pingdotgg/t3code#9943` at head `307b29ec`; retire it once a tag carries equivalent optimizer configuration and coverage.
 
-An auto-update relaunch is one of those fork-only defects.
-`quitAndInstall` destroys every window and comes back with no arguments, which is correct upstream because there is one window to come back to.
+#### Update relaunch
+
+`quitAndInstall` destroys every window and returns with no arguments, which is correct upstream where one window exists.
 Here it collapses a workspace-per-project layout into a single hub window.
-`apps/desktop/src/window/DesktopWindowSession.ts` writes a one-shot manifest of the open windows just before the install tears them down, and the next launch consumes it before `openArguments` so an explicit launch intent still wins.
+`apps/desktop/src/window/DesktopWindowSession.ts` writes a one-shot manifest just before the install tears the windows down, and the next launch consumes it before `openArguments`, so an explicit intent still wins.
 `apps/desktop/src/window/hyprland.ts` reads each window's workspace over the compositor socket and moves the restored window back silently.
-Neither decides where a window belongs; they only put back an arrangement the user already made, so `AGENTS.md`'s rule against encoding compositor policy holds.
-Off Hyprland every operation is a no-op and the windows simply reopen.
+Neither decides where a window belongs, so `AGENTS.md`'s rule against encoding compositor policy holds.
+Off Hyprland every operation is a no-op.
+
+#### Dev app launcher
 
 **`dev:app`** is development-only operator tooling, not shipped window policy.
 It creates one retained editable fixture project and launches external web, native preview, or Electron against checkout-local state.
 
-| Concern     | Behavior                                                                                                                                                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace   | the desktop path takes `+1` or `-1` relative to the invoking app's numbered workspace, a positive absolute id, or `none`, resolving relative placement once and passing the absolute target through the existing watcher                                |
-| Environment | it drops the invoking app's dev-runner environment before loading repository configuration, so the child cannot inherit the stable server's ports, home, or instance selector                                                                           |
-| Profile     | development Electron gets a checkout-local `.t3/electron` profile, isolating Clerk state and the single-instance lock without changing provider credential discovery, while packaged and ordinary development launches keep upstream profile resolution |
-| Placement   | each restarted Electron main process stages exact-title map and activation-suppression rules, uses `showInactive`, verifies and silently corrects placement, then disables or neutralizes only the temporary map rule                                   |
-| Compositor  | the adapter keeps legacy keyword rules for old Hyprland and uses named, targeted Lua rule handles only when the running compositor reports a Lua-capable version and active Lua config provider                                                         |
-| Isolation   | concurrent worktrees get separate homes, Electron profiles, titles, state records, process groups, debug ports, and build output                                                                                                                        |
+| Concern     | Behavior                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Workspace   | takes `+1`, `-1`, a positive absolute id, or `none`, resolving relative placement once                                      |
+| Environment | drops the invoking app's dev-runner environment before loading repository configuration                                     |
+| Profile     | development Electron gets a checkout-local `.t3/electron` profile; packaged launches keep upstream resolution               |
+| Placement   | stages exact-title map and activation-suppression rules, uses `showInactive`, verifies, then neutralizes the temporary rule |
+| Compositor  | keeps legacy keyword rules, and uses named Lua rule handles only on a Lua-capable compositor                                |
+| Isolation   | concurrent worktrees get separate homes, profiles, titles, records, process groups, ports, and output                       |
 
-The desktop development graph refreshes the server bundle in place without cleaning and runs no web client build, so the shared `apps/web/dist` and `apps/server/dist/client` pair stays byte-identical for every other client of the checkout.
+The desktop development graph refreshes the server bundle in place and runs no web client build, so `apps/web/dist` and `apps/server/dist/client` stay byte-identical for other clients.
+
+#### Project identity
 
 Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
-A project window starts with its project id as the window title.
-Hyprland keeps that value as `initialTitle`.
-
-Tooling an agent runs from inside a project window can therefore find its own window without guessing from `cwd`.
-`ProviderSessionStartInput.projectId` carries the id; the binding persists it so recovery after a restart keeps it.
-
-Run `vp run fork:delta` for the commit list.
+A project window starts with its project id as the window title, which Hyprland keeps as `initialTitle`.
+Tooling an agent runs inside a project window can therefore find its own window without guessing from `cwd`.
+`ProviderSessionStartInput.projectId` carries the id, and the binding persists it across a restart.
 
 ### Retirement condition
 
 Delete this domain when either holds.
 
-| Condition                                                                                                        |
-| ---------------------------------------------------------------------------------------------------------------- |
-| Browser mode reaches practical Electron parity for this workflow, including terminals and nested browser windows |
-| Upstream ships its own multi-window or project-scoped window support                                             |
+| Condition                                                                                      |
+| ---------------------------------------------------------------------------------------------- |
+| Browser mode reaches practical Electron parity, including terminals and nested browser windows |
+| Upstream ships its own multi-window or project-scoped window support                           |
 
 The first is the likely one.
-`previewBridge.ts` returning something other than `null` on web is one signal to re-open this question.
-Verify the complete browser/Electron gap before retiring the domain.
+`previewBridge.ts` returning something other than `null` on web is one signal to re-open the question.
+Verify the complete browser and Electron gap before retiring.
 
 ### Rebase scan
 
-After every rebase onto upstream, check these before trusting a clean merge.
-
 The named preview guard is `preserves profile partitions and window ownership through the assembled preload` in `apps/desktop/src/ipc/methods/preview.fork.test.ts`.
-It exercises the actual preload, IPC validation, WindowPolicy, PreviewManager, and BrowserSession over isolated Electron storage.
-Profile clearing must preserve other profiles, and equal hub/project tab IDs must stay independent.
+It exercises the real preload, IPC validation, WindowPolicy, PreviewManager, and BrowserSession over isolated Electron storage.
+Profile clearing must preserve other profiles, and equal hub and project tab IDs must stay independent.
 
-| Path                                                                                                                                | Why it matters                                                                                                                |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `apps/desktop/src/window/DesktopWindow.ts`                                                                                          | The window service the fork makes plural and the no-focus dev launch seam.                                                    |
-| `apps/desktop/src/app/DesktopConfig.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/src/app/DesktopAppIdentity.ts` | Carry development-only placement and checkout-local Electron profile overrides.                                               |
-| `package.json`, `t3.json`, `scripts/dev-app*.ts`, `scripts/lib/dev-app*.ts`                                                         | Expose and guard the shared isolated development launcher.                                                                    |
-| `scripts/dev-desktop-agent.ts`, `scripts/lib/dev-desktop-agent.ts`                                                                  | Allocate the worktree CDP endpoint and derive the explicit launch workspace.                                                  |
-| `.agents/skills/test-t3-app/**`, `docs/fork/internals/scripts.md`                                                                   | Keep agent testing guidance on the shared launcher and retained fixture.                                                      |
-| `apps/desktop/src/window/WindowIdentity.ts`                                                                                         | Fork-only. A conflict means upstream added its own identity model.                                                            |
-| `apps/desktop/src/window/DesktopWindowSession.ts`                                                                                   | Fork-only. The manifest that carries windows across an update.                                                                |
-| `apps/desktop/src/window/hyprland.ts`                                                                                               | Fork-only. The only place that speaks to the compositor.                                                                      |
-| `apps/desktop/src/backend/DesktopBackendPool.test.ts`                                                                               | Covers the shared backend pool lifecycle used by project windows.                                                             |
-| `apps/desktop/src/updates/DesktopUpdates.ts`                                                                                        | Captures the session before `destroyAll`. Upstream edits this file.                                                           |
-| `apps/server/src/provider/providerSessionEnvironment.ts`                                                                            | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.                                                             |
-| `apps/server/src/provider/Layers/*Adapter.ts`                                                                                       | Every adapter passes that identity into its runtime.                                                                          |
-| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                              | Covers project identity propagation through Codex.                                                                            |
-| `apps/server/src/provider/Layers/ProviderService.ts`                                                                                | Owns project-scoped provider session startup.                                                                                 |
-| `apps/server/src/provider/Layers/ProviderService.test.ts`                                                                           | Covers project-scoped provider session startup.                                                                               |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                                                                    | Carries `projectId` on the provider session start input.                                                                      |
-| `apps/server/src/keybindings.test.ts`                                                                                               | Covers project-window keybinding dispatch.                                                                                    |
-| `apps/desktop/src/app/DesktopClerk.ts`                                                                                              | Single-instance lock and deep-link forwarding.                                                                                |
-| `apps/desktop/src/preview/Manager.ts`                                                                                               | Upstream preview behavior delegates through the fork ownership boundary.                                                      |
-| `apps/desktop/src/preview/Manager.test.ts`                                                                                          | Covers shared native preview behavior behind that boundary.                                                                   |
-| `apps/desktop/src/preview/WindowPolicy*.ts`                                                                                         | Fork-owned window ownership, sender authorization, and the project-window bridge capability.                                  |
-| `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                                                                | Guards routing, authorization, disposal, and the added project-window capabilities.                                           |
-| `apps/desktop/src/preview/Manager.fork.test.ts`                                                                                     | Exercises real manager tab namespacing and cross-window denial.                                                               |
-| `apps/desktop/src/ipc/methods/preview.fork.test.ts`                                                                                 | Guards preload/IPC profile clearing and independent hub/project tab ownership.                                                |
-| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                                                                            | Narrow preview-policy integrations; the preload bridge literal stays upstream-shaped.                                         |
-| `apps/desktop/src/ipc/methods/snapShot.ts`                                                                                          | Upstream authorizes snapshot IPC against the main window alone; the fork widens it to the registry.                           |
-| `apps/desktop/src/ipc/methods/snapShotSender.fork.ts`, `apps/desktop/src/ipc/methods/snapShot.fork.test.ts`                         | Fork-only. Registry-backed sender resolution and its project-window proof.                                                    |
-| `packages/contracts/src/ipc.ts`                                                                                                     | `openProjectWindow` lives here.                                                                                               |
-| `apps/web/src/routes/project.*`                                                                                                     | Fork-only route subtree.                                                                                                      |
-| `apps/web/src/routes/__root.tsx`                                                                                                    | Mounts the scoped project shell at the root.                                                                                  |
-| `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`                                                           | Keeps Pull Requests inside the scoped project shell.                                                                          |
-| `apps/web/src/desktopProjectWindows.ts`                                                                                             | Bridge detection, the scoped window ref, and the brand target.                                                                |
-| `apps/web/src/windowProjectScope.ts`                                                                                                | Shared project-window list-scope resolver and storage key.                                                                    |
-| `apps/web/src/components/WindowProjectScopeToggle.tsx`                                                                              | Shared project/all-project segmented control.                                                                                 |
-| `apps/web/src/components/pullRequest/PullRequestProjectScope.ts`                                                                    | Fork-owned physical scope policy and project-route adapter.                                                                   |
-| `apps/web/src/components/pullRequest/PullRequestProjectScope.fork.test.ts`                                                          | Guards physical, all-project, remote, and search-patch scope behavior.                                                        |
-| `apps/web/src/components/pullRequest/pullRequestProjectFilter.logic.ts`                                                             | Upstream project-filter choice derivation; the fork calls it instead of re-deriving picker rows.                              |
-| `apps/web/src/components/pullRequest/pullRequestProjectFilter.logic.test.ts`                                                        | Upstream coverage for that derivation, including dedupe and selection retention.                                              |
-| `apps/web/src/components/pullRequest/PullRequestsUnavailableState.tsx`                                                              | Upstream error presentation, including the refreshing retry affordance.                                                       |
-| `apps/web/src/components/ui/menu.tsx`                                                                                               | Upstream radio-item indicator the filter menu renders.                                                                        |
-| `apps/web/src/components/ui/refresh-icon.tsx`, `apps/web/src/components/ui/spinner.tsx`, `apps/web/src/lib/visibleAnimation.ts`     | Upstream loading and refresh feedback the list chrome renders.                                                                |
-| `apps/web/src/lib/visibleAnimation.test.ts`                                                                                         | Upstream coverage for visibility-gated animation.                                                                             |
-| `apps/web/src/index.css`                                                                                                            | Upstream animation utilities those indicators consume.                                                                        |
-| `apps/web/src/state/pullRequests.ts`                                                                                                | Upstream merged-list refresh override the hub refresh path calls.                                                             |
-| `apps/web/src/state/windowProjectBootstrap.fork.ts`, `apps/web/src/state/windowProjectBootstrap.fork.test.ts`                       | Scoped readiness shared by PRs and Issues, including remote retry transitions.                                                |
-| `apps/web/src/state/shell.ts`                                                                                                       | Retains upstream all-environment bootstrap and project readiness ownership.                                                   |
-| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                                                                 | Resolves Pull Requests and brand navigation in the active window scope.                                                       |
-| `apps/web/src/components/ChatView.tsx`                                                                                              | Project-window navigation and local dev-action terminal/preview handoff; retain cancellation before terminal writes.          |
-| `apps/web/src/browser/devAppPreviewHandoff.ts` and `devAppPreviewHandoff.fork.test.ts`                                              | Fork-owned local-environment guard and streamed readiness; cold builds must outlive the attachment timeout.                   |
-| `apps/web/vite.config.ts`                                                                                                           | Lucide dynamic-import optimization exclusion; retire only with the matching upstream fix.                                     |
-| `apps/web/src/lucideOptimizer.test.ts`                                                                                              | Real optimization guard for that exclusion; retire with its Vite hunk.                                                        |
-| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                                                                         | Project settings reached from scoped project-window chrome.                                                                   |
-| `apps/web/src/components/settings/KeybindingsSettings.tsx`                                                                          | Gates project-window keybinding visibility.                                                                                   |
-| `apps/web/src/hooks/useThreadActions.ts`                                                                                            | Thread actions must retain the active project-window scope.                                                                   |
-| `apps/web/src/components/Sidebar.logic.ts`                                                                                          | Compatibility export delegates physical scope to the fork policy adapter.                                                     |
-| `apps/web/src/components/Sidebar.logic.test.ts`                                                                                     | Existing fixture exports stay available for the fork-owned tests.                                                             |
-| `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`                                                                           | Fork-owned exact physical scope adapter; accepts caller-owned logical state.                                                  |
-| `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                                 | Scope, missing metadata, search, grouping, hub setter and ordering proofs.                                                    |
-| `apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`                                                                   | Fork-owned ambient scope; keeps the upstream sidebar declarations untouched.                                                  |
-| `apps/web/src/routes/project.$environmentId.$projectId.tsx`                                                                         | Fork-owned project route; provides the physical scope around upstream's layout.                                               |
-| `apps/web/src/components/Sidebar.tsx`                                                                                               | Applies the active project-window scope to the shared sidebar.                                                                |
-| `apps/web/src/components/LegacySidebar.tsx`                                                                                         | Keeps project scope in the legacy sidebar.                                                                                    |
-| `apps/web/src/composerDraftStore.ts`                                                                                                | Persists drafts within project-window thread scope.                                                                           |
-| `apps/web/src/composerDraftStore.test.ts`                                                                                           | Covers project-scoped draft restoration.                                                                                      |
-| `apps/web/src/hooks/useHandleNewThread.ts`                                                                                          | Starts new threads inside the active project window.                                                                          |
-| `docs/user/thread-sidebar.md`                                                                                                       | Documents the scoped sidebar on a page upstream also edits.                                                                   |
-| `docs/user/keybindings.md`                                                                                                          | Documents project-window keyboard entry points.                                                                               |
-| `apps/web/src/routeTree.gen.ts`                                                                                                     | Generated. Regenerate rather than resolving by hand.                                                                          |
-| `apps/web/src/components/preview/previewBridge.ts`                                                                                  | The retirement signal. Read it on every rebase.                                                                               |
-| `apps/web/src/components/CommandPalette.tsx`                                                                                        | Entry point, and a busy upstream file.                                                                                        |
-| `apps/web/src/components/ChatMarkdown.tsx`                                                                                          | Shared with `github-issues`; neither domain owns it alone.                                                                    |
-| `packages/contracts/src/keybindings.ts`                                                                                             | Defines the project-window keybinding action.                                                                                 |
-| `packages/shared/src/keybindings.ts`                                                                                                | Maps the project-window keybinding action across clients.                                                                     |
-| `apps/desktop/src/app/DesktopApp.ts`                                                                                                | Routes a launch intent to the window that owns the project.                                                                   |
-| `apps/desktop/src/app/DesktopLifecycle.test.ts`                                                                                     | Covers window registration, intent routing, and post-update restore.                                                          |
-| `apps/desktop/src/main.ts`                                                                                                          | Consumes the restore manifest before `openArguments`.                                                                         |
-| `apps/desktop/src/updates/DesktopUpdates.test.ts`                                                                                   | Covers the session capture that survives `quitAndInstall`.                                                                    |
-| `apps/desktop/src/window/DesktopApplicationMenu.test.ts`                                                                            | Covers the menu entries that open a project window.                                                                           |
-| `apps/desktop/src/window/DesktopWindow.test.ts`                                                                                     | Covers plural windows, preview namespacing, and the dev launch seam.                                                          |
-| `apps/web/src/components/AppSidebarLayout.tsx`                                                                                      | Carries the physical project sidebar scope.                                                                                   |
-| `apps/web/src/components/pullRequest/PullRequestListFilters.tsx`                                                                    | Narrow visibility flag delegates project-window scope to the fork adapter.                                                    |
-| `apps/web/src/components/pullRequest/PullRequestListFilters.fork.test.tsx`                                                          | Guards the scoped picker seam without extending the upstream test file.                                                       |
-| `apps/web/src/routes/_chat.draft.$draftId.tsx`                                                                                      | Hub draft route that must keep the project routes reachable.                                                                  |
-| `apps/web/src/routes/_chat.pull-requests.tsx`                                                                                       | Hub twin of the scoped Pull Requests route.                                                                                   |
-| `packages/contracts/src/provider.ts`                                                                                                | Carries `projectId` on provider session start.                                                                                |
-| `package.json`                                                                                                                      | Holds the `dev:desktop:agent` launcher script.                                                                                |
-| `docs/fork/internals/scripts.md`                                                                                                    | Documents that launcher.                                                                                                      |
-| `apps/desktop/src/electron/ElectronWindow.ts`                                                                                       | The Electron window wrapper the fork keys by `WindowIdentity` so an update restores each project window to its own workspace. |
-| `apps/web/src/routes/_chat.index.tsx`                                                                                               | Renders the shared `DraftStartError` retry the hub and project-scoped draft routes both use.                                  |
-| `apps/web/src/routes/settings.tsx`                                                                                                  | Uses `useLeaveFullPage` so Settings closes back into the project window instead of navigating the hub away.                   |
-| `apps/server/vite.config.ts`                                                                                                        | Adds the `dev:bundle` task the isolated desktop dev launch builds through.                                                    |
-| `apps/server/package.json`                                                                                                          | Holds the `build:bundle:dev` script that task is invoked by.                                                                  |
-| `.agents/skills/test-t3-mobile/SKILL.md`                                                                                            | Tells mobile verification to reuse a `dev:app` checkout's backend and port instead of starting a second one.                  |
-| `apps/desktop/src/app/DesktopEnvironment.test.ts`                                                                                   | Covers `T3CODE_DESKTOP_DEVTOOLS` opting a dev run out of automatic devtools.                                                  |
+| Path                                                                                                                                | Why it matters                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `apps/desktop/src/window/DesktopWindow.ts`                                                                                          | Window service the fork makes plural; no-focus dev launch seam.                       |
+| `apps/desktop/src/app/DesktopConfig.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/src/app/DesktopAppIdentity.ts` | Development-only placement and checkout-local profile overrides.                      |
+| `package.json`, `t3.json`, `scripts/dev-app*.ts`, `scripts/lib/dev-app*.ts`                                                         | Expose and guard the shared isolated development launcher.                            |
+| `scripts/dev-desktop-agent.ts`, `scripts/lib/dev-desktop-agent.ts`                                                                  | Worktree CDP endpoint and explicit launch workspace.                                  |
+| `.agents/skills/test-t3-app/**`, `docs/fork/internals/scripts.md`                                                                   | Agent testing guidance for the launcher and fixture.                                  |
+| `apps/desktop/src/window/WindowIdentity.ts`                                                                                         | Fork-only. A conflict means upstream added an identity model.                         |
+| `apps/desktop/src/window/DesktopWindowSession.ts`                                                                                   | Fork-only. Manifest carrying windows across an update.                                |
+| `apps/desktop/src/window/hyprland.ts`                                                                                               | Fork-only. The only compositor client.                                                |
+| `apps/desktop/src/backend/DesktopBackendPool.test.ts`                                                                               | Shared backend pool lifecycle.                                                        |
+| `apps/desktop/src/updates/DesktopUpdates.ts`                                                                                        | Captures the session before `destroyAll`; upstream edits it.                          |
+| `apps/server/src/provider/providerSessionEnvironment.ts`                                                                            | `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.                                           |
+| `apps/server/src/provider/Layers/*Adapter.ts`                                                                                       | Every adapter passes that identity into its runtime.                                  |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                              | Project identity propagation through Codex.                                           |
+| `apps/server/src/provider/Layers/ProviderService.ts`                                                                                | Project-scoped provider session startup.                                              |
+| `apps/server/src/provider/Layers/ProviderService.test.ts`                                                                           | Covers that startup.                                                                  |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                                                                    | Carries `projectId` on session start input.                                           |
+| `apps/server/src/keybindings.test.ts`                                                                                               | Project-window keybinding dispatch.                                                   |
+| `apps/desktop/src/app/DesktopClerk.ts`                                                                                              | Single-instance lock and deep-link forwarding.                                        |
+| `apps/desktop/src/preview/Manager.ts`                                                                                               | Upstream preview delegates through the fork boundary.                                 |
+| `apps/desktop/src/preview/Manager.test.ts`                                                                                          | Shared native preview behind that boundary.                                           |
+| `apps/desktop/src/preview/WindowPolicy*.ts`                                                                                         | Fork-owned ownership, authorization, and bridge capability.                           |
+| `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                                                                | Routing, authorization, disposal, project-window capabilities.                        |
+| `apps/desktop/src/preview/Manager.fork.test.ts`                                                                                     | Real manager tab namespacing and cross-window denial.                                 |
+| `apps/desktop/src/ipc/methods/preview.fork.test.ts`                                                                                 | Preload profile clearing and independent tab ownership.                               |
+| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                                                                            | Narrow preview-policy integrations; bridge literal stays upstream-shaped.             |
+| `apps/desktop/src/ipc/methods/snapShot.ts`                                                                                          | Fork widens main-window authorization to the registry.                                |
+| `apps/desktop/src/ipc/methods/snapShotSender.fork.ts`, `apps/desktop/src/ipc/methods/snapShot.fork.test.ts`                         | Fork-only registry-backed sender resolution and its proof.                            |
+| `packages/contracts/src/ipc.ts`                                                                                                     | `openProjectWindow` lives here.                                                       |
+| `apps/web/src/routes/project.*`                                                                                                     | Fork-only route subtree.                                                              |
+| `apps/web/src/routes/__root.tsx`                                                                                                    | Mounts the scoped project shell at the root.                                          |
+| `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`                                                           | Keeps Pull Requests inside the scoped shell.                                          |
+| `apps/web/src/desktopProjectWindows.ts`                                                                                             | Bridge detection, scoped window ref, brand target.                                    |
+| `apps/web/src/windowProjectScope.ts`                                                                                                | Shared list-scope resolver and storage key.                                           |
+| `apps/web/src/components/WindowProjectScopeToggle.tsx`                                                                              | Shared project and all-project segmented control.                                     |
+| `apps/web/src/components/pullRequest/PullRequestProjectScope.ts`                                                                    | Fork-owned physical scope policy and route adapter.                                   |
+| `apps/web/src/components/pullRequest/PullRequestProjectScope.fork.test.ts`                                                          | Physical, all-project, remote, and search-patch scope.                                |
+| `apps/web/src/components/pullRequest/pullRequestProjectFilter.logic.ts`                                                             | Upstream filter-choice derivation the fork calls.                                     |
+| `apps/web/src/components/pullRequest/pullRequestProjectFilter.logic.test.ts`                                                        | Upstream coverage for that derivation.                                                |
+| `apps/web/src/components/pullRequest/PullRequestsUnavailableState.tsx`                                                              | Upstream error presentation and refresh affordance.                                   |
+| `apps/web/src/components/ui/menu.tsx`                                                                                               | Upstream radio-item indicator the filter menu renders.                                |
+| `apps/web/src/components/ui/refresh-icon.tsx`, `apps/web/src/components/ui/spinner.tsx`, `apps/web/src/lib/visibleAnimation.ts`     | Upstream loading and refresh feedback.                                                |
+| `apps/web/src/lib/visibleAnimation.test.ts`                                                                                         | Upstream coverage for visibility-gated animation.                                     |
+| `apps/web/src/index.css`                                                                                                            | Upstream animation utilities those indicators consume.                                |
+| `apps/web/src/state/pullRequests.ts`                                                                                                | Upstream merged-list refresh override.                                                |
+| `apps/web/src/state/windowProjectBootstrap.fork.ts`, `apps/web/src/state/windowProjectBootstrap.fork.test.ts`                       | Scoped readiness for PRs and Issues, with retry transitions.                          |
+| `apps/web/src/state/shell.ts`                                                                                                       | Retains upstream all-environment bootstrap ownership.                                 |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                                                                 | Pull Requests and brand navigation in the active scope.                               |
+| `apps/web/src/components/ChatView.tsx`                                                                                              | Window navigation and dev-action handoff; retain cancellation before terminal writes. |
+| `apps/web/src/browser/devAppPreviewHandoff.ts` and `devAppPreviewHandoff.fork.test.ts`                                              | Local-environment guard and streamed readiness; cold builds outlive the timeout.      |
+| `apps/web/vite.config.ts`                                                                                                           | Lucide optimization exclusion; retire with the upstream fix.                          |
+| `apps/web/src/lucideOptimizer.test.ts`                                                                                              | Real optimization guard; retire with its Vite hunk.                                   |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                                                                         | Project settings reached from scoped chrome.                                          |
+| `apps/web/src/components/settings/KeybindingsSettings.tsx`                                                                          | Gates project-window keybinding visibility.                                           |
+| `apps/web/src/hooks/useThreadActions.ts`                                                                                            | Thread actions retain the active window scope.                                        |
+| `apps/web/src/components/Sidebar.logic.ts`                                                                                          | Compatibility export delegates to the fork adapter.                                   |
+| `apps/web/src/components/Sidebar.logic.test.ts`                                                                                     | Fixture exports stay available to fork-owned tests.                                   |
+| `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`                                                                           | Fork-owned exact scope adapter; caller-owned logical state.                           |
+| `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                                 | Scope, missing metadata, search, grouping, setter, ordering.                          |
+| `apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`                                                                   | Fork-owned ambient scope; upstream declarations untouched.                            |
+| `apps/web/src/routes/project.$environmentId.$projectId.tsx`                                                                         | Fork-owned project route providing the physical scope.                                |
+| `apps/web/src/components/Sidebar.tsx`                                                                                               | Applies the active scope to the shared sidebar.                                       |
+| `apps/web/src/components/LegacySidebar.tsx`                                                                                         | Keeps project scope in the legacy sidebar.                                            |
+| `apps/web/src/composerDraftStore.ts`                                                                                                | Persists drafts within window thread scope.                                           |
+| `apps/web/src/composerDraftStore.test.ts`                                                                                           | Covers project-scoped draft restoration.                                              |
+| `apps/web/src/hooks/useHandleNewThread.ts`                                                                                          | Starts new threads inside the active window.                                          |
+| `docs/user/thread-sidebar.md`                                                                                                       | Documents the scoped sidebar; upstream also edits it.                                 |
+| `docs/user/keybindings.md`                                                                                                          | Documents project-window keyboard entry points.                                       |
+| `apps/web/src/routeTree.gen.ts`                                                                                                     | Generated. Regenerate rather than resolving by hand.                                  |
+| `apps/web/src/components/preview/previewBridge.ts`                                                                                  | The retirement signal. Read it on every rebase.                                       |
+| `apps/web/src/components/CommandPalette.tsx`                                                                                        | Entry point, and a busy upstream file.                                                |
+| `apps/web/src/components/ChatMarkdown.tsx`                                                                                          | Shared with `github-issues`; neither domain owns it.                                  |
+| `packages/contracts/src/keybindings.ts`                                                                                             | Defines the project-window keybinding action.                                         |
+| `packages/shared/src/keybindings.ts`                                                                                                | Maps that action across clients.                                                      |
+| `apps/desktop/src/app/DesktopApp.ts`                                                                                                | Routes a launch intent to the owning window.                                          |
+| `apps/desktop/src/app/DesktopLifecycle.test.ts`                                                                                     | Registration, intent routing, post-update restore.                                    |
+| `apps/desktop/src/main.ts`                                                                                                          | Consumes the restore manifest before `openArguments`.                                 |
+| `apps/desktop/src/updates/DesktopUpdates.test.ts`                                                                                   | Session capture surviving `quitAndInstall`.                                           |
+| `apps/desktop/src/window/DesktopApplicationMenu.test.ts`                                                                            | Menu entries that open a project window.                                              |
+| `apps/desktop/src/window/DesktopWindow.test.ts`                                                                                     | Plural windows, preview namespacing, dev launch seam.                                 |
+| `apps/web/src/components/AppSidebarLayout.tsx`                                                                                      | Carries the physical project sidebar scope.                                           |
+| `apps/web/src/components/pullRequest/PullRequestListFilters.tsx`                                                                    | Narrow visibility flag delegates scope to the adapter.                                |
+| `apps/web/src/components/pullRequest/PullRequestListFilters.fork.test.tsx`                                                          | Guards the scoped picker seam outside the upstream test.                              |
+| `apps/web/src/routes/_chat.draft.$draftId.tsx`                                                                                      | Hub draft route keeping the project routes reachable.                                 |
+| `apps/web/src/routes/_chat.pull-requests.tsx`                                                                                       | Hub twin of the scoped Pull Requests route.                                           |
+| `packages/contracts/src/provider.ts`                                                                                                | Carries `projectId` on provider session start.                                        |
+| `package.json`                                                                                                                      | Holds the `dev:desktop:agent` launcher script.                                        |
+| `docs/fork/internals/scripts.md`                                                                                                    | Documents that launcher.                                                              |
+| `apps/desktop/src/electron/ElectronWindow.ts`                                                                                       | Keyed by `WindowIdentity` so an update restores each workspace.                       |
+| `apps/web/src/routes/_chat.index.tsx`                                                                                               | Shared `DraftStartError` retry for both draft routes.                                 |
+| `apps/web/src/routes/settings.tsx`                                                                                                  | `useLeaveFullPage` closes Settings back into the window.                              |
+| `apps/server/vite.config.ts`                                                                                                        | Adds the `dev:bundle` task the isolated launch builds through.                        |
+| `apps/server/package.json`                                                                                                          | Holds the `build:bundle:dev` script that task invokes.                                |
+| `.agents/skills/test-t3-mobile/SKILL.md`                                                                                            | Reuse a `dev:app` backend and port instead of a second one.                           |
+| `apps/desktop/src/app/DesktopEnvironment.test.ts`                                                                                   | `T3CODE_DESKTOP_DEVTOOLS` opting out of automatic devtools.                           |
 
 ## browser-bookmarks
 
 ### Need
 
-The embedded browser needs durable shortcuts for sites used by one project and sites used across every project window in the same T3 Code profile.
+Durable embedded-browser shortcuts, scoped per project and per T3 Code profile.
 
 ### Shape
 
-The web client persists a profile-global collection and project-keyed collections in local storage. A Chrome-style star in the browser address field saves, moves, or removes the current page. New browser tabs show non-empty Project and Global sections before recent pages and local servers.
-
-The store normalizes URLs before deduplication, caps collection and project counts, and listens for storage changes so open project windows converge without a server contract or desktop IPC surface.
+The web client persists a profile-global collection and project-keyed collections in local storage.
+A Chrome-style star in the address field saves, moves, or removes the current page.
+New browser tabs show non-empty Project and Global sections before recent pages and local servers.
+The store normalizes URLs before deduplication, caps collection and project counts, and listens for storage changes.
+Open project windows converge without a server contract or desktop IPC surface.
 
 ### Retirement condition
 
@@ -572,21 +581,21 @@ Delete this domain when upstream ships durable browser bookmarks with both proje
 
 ### Rebase scan
 
-| Path                                                           | Why inspect it on rebase                                                |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `apps/web/src/browserBookmarkStore.ts`                         | Fork-only persistence and project/global scope model.                   |
-| `apps/web/src/browserBookmarkStore.test.ts`                    | Fork-only storage, migration, isolation, and scope movement coverage.   |
-| `apps/web/src/browserHistoryStore.ts`                          | Exposes the existing normalized project identity to the bookmark store. |
-| `apps/web/src/components/preview/PreviewBookmarkCard.tsx`      | Fork-only bookmark row.                                                 |
-| `apps/web/src/components/preview/PreviewBookmarkMenu.tsx`      | Fork-only star and scope menu.                                          |
-| `apps/web/src/components/preview/PreviewBookmarkMenu.test.tsx` | Fork-only menu interaction and accessibility coverage.                  |
-| `apps/web/src/components/preview/PreviewChromeRow.tsx`         | Shared browser chrome where the address-field star is mounted.          |
-| `apps/web/src/components/preview/PreviewEmptyState.tsx`        | Shared new-tab page where bookmark sections are rendered.               |
-| `apps/web/src/components/preview/PreviewEmptyState.test.tsx`   | Shared new-tab ordering and empty-section coverage.                     |
-| `apps/web/src/components/preview/PreviewView.tsx`              | Shared browser orchestration and cross-window synchronization.          |
-| `docs/fork/user/browser.md`                                    | Fork-only user documentation for bookmark scopes and profile locality.  |
-| `README.md`, `docs/README.md`                                  | Shared documentation indexes that link the browser guide.               |
-| `apps/web/src/components/preview/PreviewView.test.tsx`         | Covers bookmarking beside upstream preview behaviour.                   |
+| Path                                                           | Why it matters                                 |
+| -------------------------------------------------------------- | ---------------------------------------------- |
+| `apps/web/src/browserBookmarkStore.ts`                         | Fork-only persistence and scope model.         |
+| `apps/web/src/browserBookmarkStore.test.ts`                    | Storage, migration, isolation, scope movement. |
+| `apps/web/src/browserHistoryStore.ts`                          | Supplies the normalized project identity.      |
+| `apps/web/src/components/preview/PreviewBookmarkCard.tsx`      | Fork-only bookmark row.                        |
+| `apps/web/src/components/preview/PreviewBookmarkMenu.tsx`      | Fork-only star and scope menu.                 |
+| `apps/web/src/components/preview/PreviewBookmarkMenu.test.tsx` | Menu interaction and accessibility.            |
+| `apps/web/src/components/preview/PreviewChromeRow.tsx`         | Shared chrome where the star is mounted.       |
+| `apps/web/src/components/preview/PreviewEmptyState.tsx`        | Shared new-tab page rendering the sections.    |
+| `apps/web/src/components/preview/PreviewEmptyState.test.tsx`   | New-tab ordering and empty sections.           |
+| `apps/web/src/components/preview/PreviewView.tsx`              | Browser orchestration and cross-window sync.   |
+| `docs/fork/user/browser.md`                                    | Fork-only user documentation.                  |
+| `README.md`, `docs/README.md`                                  | Shared indexes linking the browser guide.      |
+| `apps/web/src/components/preview/PreviewView.test.tsx`         | Bookmarking beside upstream preview behaviour. |
 
 ## github-issues
 
@@ -596,105 +605,110 @@ Browse GitHub issues and hand one to an agent on web and desktop, with project-w
 
 ### Shape
 
-The contracts and server expose read-only issue list and detail requests through the existing GitHub CLI integration. Lists degrade per project, merge capable environments, and keep environment identity on every client-side reference.
+Contracts and server expose read-only issue list and detail requests through the existing GitHub CLI integration.
+Lists degrade per project, merge capable environments, and keep environment identity on every client-side reference.
 
-The web renderer provides hub and project-window routes with search, state and project filters, project/all-project scope, issue descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer. The hand-off prompt is an environment-scoped template configured under Source Control settings. The palette intentionally has a “Go to Issues” command but no matching “Go to Pull Requests” command.
+The web renderer provides hub and project-window routes with search, state and project filters, descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer.
+The hand-off prompt is an environment-scoped template under Source Control settings.
+The palette has a "Go to Issues" command and deliberately no "Go to Pull Requests" twin.
 
-The handoff search item is registered by `githubIssueSettingsSearch.ts` through `useAvailableSettingsSearchItems`, after upstream availability filtering.
-The adopted `github-issue-settings-search` authoring guard rejects adding its item back into the upstream settings registry.
+`githubIssueSettingsSearch.ts` registers the handoff search item through `useAvailableSettingsSearchItems`, after upstream availability filtering.
+The adopted `github-issue-settings-search` guard rejects adding that item back into the upstream registry.
 Keep the extension's ordering, fallback, and deduplication when repairing the original registry patch.
 
 ### Retirement condition
 
-Delete the service and UI when upstream ships a stable GitHub Issues list, detail, and agent hand-off across web and desktop with multi-environment scoping. If upstream ships only the core service, retire this domain's service and UI while keeping the project-window scope adapter under `project-windows`.
+Delete the service and UI when upstream ships a stable GitHub Issues list, detail, and agent hand-off across web and desktop with multi-environment scoping.
+If upstream ships only the core service, retire this domain's service and UI while keeping the project-window scope adapter under `project-windows`.
 
 ### Rebase scan
 
-| Path                                                                               | Why it matters                                                                                                   |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `packages/contracts/src/githubIssue.ts`                                            | Wire issue shapes and tagged failures.                                                                           |
-| `packages/contracts/src/settings.ts`                                               | Environment-scoped issue hand-off prompt template.                                                               |
-| `packages/contracts/src/rpc.ts`, `packages/contracts/src/environment.ts`           | RPC registration and optional capability.                                                                        |
-| `apps/server/src/githubIssue/**`                                                   | GitHub CLI normalization, discovery, list, and detail service.                                                   |
-| `apps/server/src/sourceControl/GitHubCli.ts`                                       | Shared process boundary; excluded upstream CLI changes land here.                                                |
-| `apps/server/src/ws.ts`, `apps/server/src/server.ts`                               | Handler and server-lifetime service wiring.                                                                      |
-| `apps/server/src/auth/RpcAuthorization.ts`                                         | Read-only authorization scopes.                                                                                  |
-| `apps/server/src/environment/ServerEnvironment.ts`                                 | Static capability advertisement.                                                                                 |
-| `apps/server/src/environment/ServerEnvironment.test.ts`                            | Covers GitHub Issues capability advertisement.                                                                   |
-| `packages/contracts/src/environment.test.ts`                                       | Covers the optional GitHub Issues environment capability.                                                        |
-| `packages/client-runtime/src/state/githubIssues.ts`                                | Client-neutral atoms and multi-environment identity.                                                             |
-| `packages/client-runtime/package.json`                                             | Client state package dependencies.                                                                               |
-| `apps/web/src/routes/_chat.issues.tsx`                                             | Hub list and shared page implementation.                                                                         |
-| `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                                                                                    |
-| `apps/web/src/components/githubIssue/githubIssueRouteSearch.ts`                    | Shared route search contract.                                                                                    |
-| `apps/web/src/components/githubIssue/GitHubIssueDetailPanel.tsx`                   | Detail rendering and configurable composer hand-off.                                                             |
-| `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting and fork-owned search anchor.                                                             |
-| `apps/web/src/components/settings/githubIssueSettingsSearch.ts`                    | Fork-owned issue hand-off search registration.                                                                   |
-| `apps/web/src/components/settings/githubIssueSettingsSearch.fork.test.ts`          | Guards registry order and hand-off search.                                                                       |
-| `apps/web/src/components/settings/useAvailableSettingsSearchItems.ts`              | Attaches the fork search item.                                                                                   |
-| `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                                                               |
-| `apps/web/src/rightPanelStore.test.ts`                                             | Covers the persisted Issues panel selection.                                                                     |
-| `apps/web/src/components/RightPanelTabs.test.tsx`                                  | Covers the Issues launcher tab.                                                                                  |
-| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.                                                                          |
-| `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                                                                                    |
-| `apps/web/src/lib/openPullRequestLink.test.ts`                                     | Covers issue URL claiming alongside pull requests.                                                               |
-| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                | Scoped sidebar entry point.                                                                                      |
-| `apps/web/src/components/CommandPalette.tsx`                                       | Scoped command-palette entry point.                                                                              |
-| `docs/user/source-control.md`                                                      | Documents GitHub Issues browsing and hand-off.                                                                   |
-| `apps/desktop/src/settings/DesktopClientSettings.test.ts`                          | Covers the GitHub link destination setting.                                                                      |
-| `apps/server/src/pullRequest/PullRequestService.ts`                                | Serves the issue and pull-request data this surface reads.                                                       |
-| `apps/server/src/pullRequest/PullRequestService.test.ts`                           | Covers link destinations and description media upload.                                                           |
-| `apps/web/src/components/ChatMarkdown.test.tsx`                                    | Covers GitHub link rendering in chat.                                                                            |
-| `apps/web/src/components/CommandPalette.logic.ts`                                  | Adds the Issues entry point.                                                                                     |
-| `apps/web/src/components/CommandPalette.logic.test.ts`                             | Covers that entry point.                                                                                         |
-| `apps/web/src/components/settings/SourceControlSettings.tsx`                       | Hosts the configurable issue handoff prompt.                                                                     |
-| `apps/web/src/components/settings/settingsSearch.ts`                               | Indexes the fork's GitHub link destination settings.                                                             |
-| `apps/web/src/routes/_chat.pull-requests.tsx`                                      | Hub route the Issues surface sits beside.                                                                        |
-| `apps/web/src/state/pullRequests.ts`                                               | Client state shared by issues and pull requests.                                                                 |
-| `packages/contracts/src/index.ts`                                                  | Exports the issues contracts.                                                                                    |
-| `packages/contracts/src/settings.test.ts`                                          | Covers the settings this domain adds.                                                                            |
-| `apps/web/src/routeTree.gen.ts`                                                    | Generated tree carrying the hub and project-scoped Issues routes; regenerate it instead of resolving it by hand. |
+| Path                                                                               | Why it matters                                       |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `packages/contracts/src/githubIssue.ts`                                            | Wire issue shapes and tagged failures.               |
+| `packages/contracts/src/settings.ts`                                               | Environment-scoped hand-off prompt template.         |
+| `packages/contracts/src/rpc.ts`, `packages/contracts/src/environment.ts`           | RPC registration and optional capability.            |
+| `apps/server/src/githubIssue/**`                                                   | CLI normalization, discovery, list, detail service.  |
+| `apps/server/src/sourceControl/GitHubCli.ts`                                       | Shared process boundary for excluded CLI changes.    |
+| `apps/server/src/ws.ts`, `apps/server/src/server.ts`                               | Handler and server-lifetime service wiring.          |
+| `apps/server/src/auth/RpcAuthorization.ts`                                         | Read-only authorization scopes.                      |
+| `apps/server/src/environment/ServerEnvironment.ts`                                 | Static capability advertisement.                     |
+| `apps/server/src/environment/ServerEnvironment.test.ts`                            | Covers that advertisement.                           |
+| `packages/contracts/src/environment.test.ts`                                       | Covers the optional capability.                      |
+| `packages/client-runtime/src/state/githubIssues.ts`                                | Client-neutral atoms and multi-environment identity. |
+| `packages/client-runtime/package.json`                                             | Client state package dependencies.                   |
+| `apps/web/src/routes/_chat.issues.tsx`                                             | Hub list and shared page implementation.             |
+| `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                        |
+| `apps/web/src/components/githubIssue/githubIssueRouteSearch.ts`                    | Shared route search contract.                        |
+| `apps/web/src/components/githubIssue/GitHubIssueDetailPanel.tsx`                   | Detail rendering and configurable hand-off.          |
+| `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting and fork-owned search anchor. |
+| `apps/web/src/components/settings/githubIssueSettingsSearch.ts`                    | Fork-owned hand-off search registration.             |
+| `apps/web/src/components/settings/githubIssueSettingsSearch.fork.test.ts`          | Guards registry order and hand-off search.           |
+| `apps/web/src/components/settings/useAvailableSettingsSearchItems.ts`              | Attaches the fork search item.                       |
+| `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                   |
+| `apps/web/src/rightPanelStore.test.ts`                                             | Covers the persisted Issues selection.               |
+| `apps/web/src/components/RightPanelTabs.test.tsx`                                  | Covers the Issues launcher tab.                      |
+| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.              |
+| `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                        |
+| `apps/web/src/lib/openPullRequestLink.test.ts`                                     | Covers claiming beside pull requests.                |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                | Scoped sidebar entry point.                          |
+| `apps/web/src/components/CommandPalette.tsx`                                       | Scoped command-palette entry point.                  |
+| `docs/user/source-control.md`                                                      | Documents browsing and hand-off.                     |
+| `apps/desktop/src/settings/DesktopClientSettings.test.ts`                          | Covers the GitHub link destination setting.          |
+| `apps/server/src/pullRequest/PullRequestService.ts`                                | Serves the data this surface reads.                  |
+| `apps/server/src/pullRequest/PullRequestService.test.ts`                           | Link destinations and description media upload.      |
+| `apps/web/src/components/ChatMarkdown.test.tsx`                                    | GitHub link rendering in chat.                       |
+| `apps/web/src/components/CommandPalette.logic.ts`                                  | Adds the Issues entry point.                         |
+| `apps/web/src/components/CommandPalette.logic.test.ts`                             | Covers that entry point.                             |
+| `apps/web/src/components/settings/SourceControlSettings.tsx`                       | Hosts the configurable handoff prompt.               |
+| `apps/web/src/components/settings/settingsSearch.ts`                               | Indexes the link destination settings.               |
+| `apps/web/src/routes/_chat.pull-requests.tsx`                                      | Hub route the Issues surface sits beside.            |
+| `apps/web/src/state/pullRequests.ts`                                               | Client state shared with pull requests.              |
+| `packages/contracts/src/index.ts`                                                  | Exports the issues contracts.                        |
+| `packages/contracts/src/settings.test.ts`                                          | Covers the settings this domain adds.                |
+| `apps/web/src/routeTree.gen.ts`                                                    | Generated tree carrying both routes; regenerate it.  |
 
 ## custom-agents
 
 ### Need
 
 Choose a provider-native custom agent as the main Claude or Codex thread.
-Upstream T3 Code exposes model options but has no main-thread custom-agent control.
+Upstream exposes model options but no main-thread custom-agent control.
 
 ### Shape
 
 Provider model capabilities carry an `agent` select descriptor.
-The web composer renders that descriptor in its own picker beside the model and reasoning controls.
-Compact web and mobile surfaces reuse the existing provider-options menus.
+The web composer renders it in its own picker beside the model and reasoning controls, and compact web and mobile surfaces reuse the existing provider-options menus.
 
-Claude agent inventory comes from the Agent SDK initialization result.
-The selected name becomes the SDK's `--agent` launch argument.
+| Provider | Inventory                       | Applied as                                                     |
+| -------- | ------------------------------- | -------------------------------------------------------------- |
+| Claude   | Agent SDK initialization result | the `--agent` launch argument                                  |
+| Codex    | `<CODEX_HOME>/agents/*.toml`    | `thread/start` or `thread/resume` config and instruction layer |
 
-`ClaudeAgentOptions.fork.ts` owns SDK agent normalization, Claude's model-option descriptor, and the `--agent` launch-argument override.
-`CodexAgentOptions.fork.ts` owns Codex's descriptor and the discovery decorator the driver composes into its existing snapshot pipeline.
-Provider setup, `CodexDriver.ts`, and `ClaudeAdapter.ts` keep only the small discovery and result adaptation calls, so upstream initialization, auth, model, and usage changes replay independently.
-The driver acquires no platform service of its own for agent discovery: `makeCodexAgentOptionsDecorator` acquires `FileSystem` and `Path` inside the sibling and returns a decorator, so upstream's `checkProvider` keeps its `R = never` shape and its concurrent `Effect.zipWith`.
-The `provider-agent-boundary` authoring guard rejects reintroducing those declarations into `ClaudeProvider.ts`, `CodexProvider.ts`, `CodexDriver.ts`, or `ClaudeAdapter.ts`.
-Codex discovery stays in `CodexAgents.ts`, and neither helper shares provider policy.
-
-Child activity redaction, truncation, and the changed-file shape stay in `childItemRenderDetail.ts`, while `ClaudeChildItemDetail.fork.ts` maps Claude's tool vocabulary onto it so the adapter keeps one call per emission point.
-Session identity stays in `providerSessionEnvironment.ts`, and launcher environment scrubbing stays in the existing environment helpers.
-Keep the small provider-service identity persistence and reactor agent-change joins: extracting those joins would duplicate their upstream owners.
-
-Codex agent inventory comes from `<CODEX_HOME>/agents/*.toml`.
-
-The selected definition becomes a `thread/start` or `thread/resume` config and instruction layer.
-Project definitions can override personal Codex definitions with the same name at session start.
-
+Project Codex definitions override personal ones of the same name at session start.
 Selections persist in `modelSelection.options` and restore with the provider binding.
 Changing the root agent restarts the provider session before the next turn.
 
-The Agents panel also folds provider-native Codex and Claude child work into one roster.
-Selecting a child opens a read-only detail surface backed by authenticated, paginated activity history and the existing live thread stream.
-Provider-owned child identity stays server-side, and an unsupported provider reports that detail is unavailable instead of presenting an inert row.
-Timeline spawn CTAs keep upstream markup and presentation, while `AgentSpawnNavigation.ts` owns the fork's direct-child versus fleet-roster selection.
-The adopted `agent-spawn-navigation` authoring guard rejects direct target-resolution imports and calls, and the old inline target-selection closure in `MessagesTimeline.tsx`, while allowing the handler, widened callback arguments, and upstream CTA markup.
+#### Boundaries
+
+`ClaudeAgentOptions.fork.ts` owns SDK agent normalization, Claude's descriptor, and the launch-argument override.
+`CodexAgentOptions.fork.ts` owns Codex's descriptor and the discovery decorator the driver composes into its snapshot pipeline.
+Provider setup, `CodexDriver.ts`, and `ClaudeAdapter.ts` keep only the small discovery and result adaptation calls, so upstream initialization, auth, model, and usage changes replay independently.
+`makeCodexAgentOptionsDecorator` acquires `FileSystem` and `Path` inside the sibling, so upstream's `checkProvider` keeps its `R = never` shape and concurrent `Effect.zipWith`.
+The `provider-agent-boundary` guard rejects reintroducing those declarations into `ClaudeProvider.ts`, `CodexProvider.ts`, `CodexDriver.ts`, or `ClaudeAdapter.ts`.
+Codex discovery stays in `CodexAgents.ts`, and neither helper shares provider policy.
+
+Child activity redaction, truncation, and the changed-file shape stay in `childItemRenderDetail.ts`, while `ClaudeChildItemDetail.fork.ts` maps Claude's tool vocabulary onto it.
+Session identity stays in `providerSessionEnvironment.ts`, and launcher scrubbing stays in the existing environment helpers.
+Keep the small provider-service identity persistence and reactor agent-change joins: extracting them would duplicate their upstream owners.
+
+#### Agents panel
+
+The panel folds provider-native Codex and Claude child work into one roster.
+Selecting a child opens a read-only detail surface backed by authenticated, paginated activity history and the live thread stream.
+Provider-owned child identity stays server-side, and an unsupported provider reports detail as unavailable instead of presenting an inert row.
+Timeline spawn CTAs keep upstream markup, while `AgentSpawnNavigation.ts` owns direct-child versus fleet-roster selection.
+The adopted `agent-spawn-navigation` guard rejects direct target-resolution imports and the old inline selection closure in `MessagesTimeline.tsx`, while allowing the handler, widened callback arguments, and upstream CTA markup.
 
 ### Retirement condition
 
@@ -703,85 +717,80 @@ The upstream behavior must persist the selection and apply it on new and resumed
 
 ### Rebase scan
 
-| Path                                                                                                                                                                                                                                                                                                                                             | Why it matters                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web/src/components/chat/ChatComposer.tsx`                                                                                                                                                                                                                                                                                                  | Owns the composer control order.                                                                                                                                                                   |
-| `apps/web/src/components/chat/TraitsPicker.tsx`                                                                                                                                                                                                                                                                                                  | Splits root agents from model traits.                                                                                                                                                              |
-| `apps/web/src/components/chat/composerProviderState.tsx`                                                                                                                                                                                                                                                                                         | Renders capability-driven composer controls.                                                                                                                                                       |
-| `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                                                                                                                                                                                                                              | Discovers Claude agents.                                                                                                                                                                           |
-| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                                                                                                                                                                                                                               | Calls the fork's launch-argument and child-detail seams.                                                                                                                                           |
-| `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`                                                                                                                                                                                                                                                                                          | Covers Claude agent discovery and launch behavior.                                                                                                                                                 |
-| `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                                                                                                                                                                                                                                | Discovers and parses Codex agent definitions.                                                                                                                                                      |
-| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                                                                                                                                                                                | Applies Codex agent selection at the adapter boundary.                                                                                                                                             |
-| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                                                                                                                                                                                                                                           | Covers Codex agent selection and session behavior.                                                                                                                                                 |
-| `apps/server/src/provider/Layers/CodexCollabWire.test.ts`                                                                                                                                                                                                                                                                                        | Covers Codex custom-agent collaboration wire behavior.                                                                                                                                             |
-| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                                                                                                                                                                                                                         | Layers Codex agent config and instructions onto a thread.                                                                                                                                          |
-| `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                                                                                                                                                                                                                               | Builds the Codex agent select descriptor.                                                                                                                                                          |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`                                                                                                                                                                                                          | Restarts sessions when the root agent changes.                                                                                                                                                     |
-| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`, `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.activity.test.ts`                                                                                                                                                                                             | Stamps child-owned provider activity for reconstruction.                                                                                                                                           |
-| `apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts`                                                                                                                                                                                                                                                                               | Covers custom-agent orchestration behavior.                                                                                                                                                        |
-| `apps/server/src/orchestration/ActivityPayloadProjection.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts`                                                                                                                                                    | Keeps snapshot and live activity projections ordered.                                                                                                                                              |
-| `apps/server/src/server.test.ts`                                                                                                                                                                                                                                                                                                                 | Covers custom-agent behavior through server seams.                                                                                                                                                 |
-| `apps/server/package.json`, `pnpm-lock.yaml`                                                                                                                                                                                                                                                                                                     | The `smol-toml` dependency the Codex parser needs.                                                                                                                                                 |
-| `packages/client-runtime/package.json`                                                                                                                                                                                                                                                                                                           | Client activity package dependencies.                                                                                                                                                              |
-| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                                                                                                                                                                                                                                | Own the generic provider-option contract.                                                                                                                                                          |
-| `docs/user/providers-codex.md`                                                                                                                                                                                                                                                                                                                   | Documents Codex custom-agent selection.                                                                                                                                                            |
-| `packages/contracts/src/orchestration.ts`, `packages/contracts/src/environmentHttp.ts`                                                                                                                                                                                                                                                           | Carry agent selection and bounded child activity pages.                                                                                                                                            |
-| `packages/client-runtime/src/state/orchestration.ts`, `packages/client-runtime/src/state/threadReducer.ts`, `packages/client-runtime/src/state/subagentRuntime.ts`, `packages/client-runtime/src/state/subagentRuntime.test.ts`, `packages/client-runtime/src/state/subagentDetail.ts`, `packages/client-runtime/src/state/agentActivityHttp.ts` | Load, sequence, and merge retained/live child activity.                                                                                                                                            |
-| `apps/mobile/src/lib/threadActivity.ts`, `apps/mobile/src/lib/threadActivity.test.ts`                                                                                                                                                                                                                                                            | Preserve snapshot order before sequenced live activity.                                                                                                                                            |
-| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/AgentsPanel.tsx`, `apps/web/src/components/AgentDetailPanel.tsx`                                                                                                                                                                                                                | Own the roster and read-only child inspector.                                                                                                                                                      |
-| `apps/web/src/rightPanelStore.ts`                                                                                                                                                                                                                                                                                                                | Persists thread-scoped child selection.                                                                                                                                                            |
-| `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                                                                                                                                                                                                                              | Narrowly mounts fork navigation around the upstream CTA.                                                                                                                                           |
-| `apps/web/src/components/chat/AgentSpawnNavigation*`                                                                                                                                                                                                                                                                                             | Fork-owned child selection and behavioral guard.                                                                                                                                                   |
-| `apps/web/src/rightPanelStore.test.ts`                                                                                                                                                                                                                                                                                                           | Covers the persisted panel selection for child work.                                                                                                                                               |
-| `apps/server/src/checkpointing/CheckpointDiffQuery.test.ts`                                                                                                                                                                                                                                                                                      | Covers the diff detail served with child work.                                                                                                                                                     |
-| `apps/server/src/orchestration/ActivityPayloadProjection.test.ts`                                                                                                                                                                                                                                                                                | Covers child-work activity payloads.                                                                                                                                                               |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`                                                                                                                                                                                                                                                                                | Projects child work into the snapshot.                                                                                                                                                             |
-| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts`                                                                                                                                                                                                                                                                          | Covers attributed child results.                                                                                                                                                                   |
-| `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts`                                                                                                                                                                                                                                                                              | Paginates child work.                                                                                                                                                                              |
-| `apps/server/src/project/ProjectSetupScriptRunner.test.ts`                                                                                                                                                                                                                                                                                       | Covers setup-script markers and child-work paging.                                                                                                                                                 |
-| `apps/server/src/provider/Drivers/CodexDriver.ts`                                                                                                                                                                                                                                                                                                | Composes agent discovery and per-workspace skills.                                                                                                                                                 |
-| `apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts`                                                                                                                                                                                                                                                                                | Covers agent capability probing.                                                                                                                                                                   |
-| `apps/server/src/provider/Layers/CodexAdapter.fork.test.ts`, `apps/server/src/provider/Layers/ProviderService.fork.test.ts`, `apps/web/src/keybindings.fork.test.ts`, `apps/web/src/uiStateStore.fork.test.ts`, `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                              | These siblings restate upstream service shapes, layer wiring, exported helper names, and state literals; an upstream rename or added member breaks the sibling rather than the upstream test file. |
-| `apps/server/src/provider/Layers/ProviderSessionReaper.test.ts`                                                                                                                                                                                                                                                                                  | Covers reaping a session that owns child work.                                                                                                                                                     |
-| `apps/server/src/serverRuntimeStartup.test.ts`                                                                                                                                                                                                                                                                                                   | Covers startup wiring for paginated child work.                                                                                                                                                    |
-| `apps/web/src/components/chat/composerProviderState.test.tsx`                                                                                                                                                                                                                                                                                    | Covers agent selection in the composer.                                                                                                                                                            |
-| `apps/web/src/connection/runtime.ts`                                                                                                                                                                                                                                                                                                             | Client runtime that carries agent and child-work state.                                                                                                                                            |
-| `apps/web/src/providerModels.ts`                                                                                                                                                                                                                                                                                                                 | Lists the selectable agents per provider.                                                                                                                                                          |
-| `docs/user/providers-claude.md`                                                                                                                                                                                                                                                                                                                  | Documents main-thread agent selection.                                                                                                                                                             |
-| `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                                                                                                                                                                                        | Covers child work in the thread reducer.                                                                                                                                                           |
-| `packages/contracts/src/providerRuntime.ts`                                                                                                                                                                                                                                                                                                      | Carries child result and diff detail.                                                                                                                                                              |
-| `README.md`                                                                                                                                                                                                                                                                                                                                      | The fork documentation index links `docs/fork/user/agents.md`, and upstream edits that list.                                                                                                       |
-| `apps/server/src/project/AgentSessionScanner.test.ts`                                                                                                                                                                                                                                                                                            | Upstream literal of the snapshot-query shape; a new one arrives without the fork's `getAgentActivitySnapshot` member and only typecheck catches it.                                                |
+| Path                                                                                                                                                                                                                                                                                                                                             | Why it matters                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/components/chat/ChatComposer.tsx`                                                                                                                                                                                                                                                                                                  | Owns the composer control order.                                                                                            |
+| `apps/web/src/components/chat/TraitsPicker.tsx`                                                                                                                                                                                                                                                                                                  | Splits root agents from model traits.                                                                                       |
+| `apps/web/src/components/chat/composerProviderState.tsx`                                                                                                                                                                                                                                                                                         | Renders capability-driven composer controls.                                                                                |
+| `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                                                                                                                                                                                                                              | Discovers Claude agents.                                                                                                    |
+| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                                                                                                                                                                                                                               | Calls the launch-argument and child-detail seams.                                                                           |
+| `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`                                                                                                                                                                                                                                                                                          | Claude agent discovery and launch behavior.                                                                                 |
+| `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                                                                                                                                                                                                                                | Discovers and parses Codex agent definitions.                                                                               |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                                                                                                                                                                                | Applies Codex selection at the adapter boundary.                                                                            |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                                                                                                                                                                                                                                           | Codex agent selection and session behavior.                                                                                 |
+| `apps/server/src/provider/Layers/CodexCollabWire.test.ts`                                                                                                                                                                                                                                                                                        | Codex custom-agent collaboration wire behavior.                                                                             |
+| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                                                                                                                                                                                                                         | Layers Codex config and instructions onto a thread.                                                                         |
+| `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                                                                                                                                                                                                                               | Builds the Codex agent select descriptor.                                                                                   |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`                                                                                                                                                                                                          | Restarts sessions when the root agent changes.                                                                              |
+| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`, `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.activity.test.ts`                                                                                                                                                                                             | Stamps child-owned activity for reconstruction.                                                                             |
+| `apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts`                                                                                                                                                                                                                                                                               | Custom-agent orchestration behavior.                                                                                        |
+| `apps/server/src/orchestration/ActivityPayloadProjection.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts`                                                                                                                                                    | Keeps snapshot and live activity projections ordered.                                                                       |
+| `apps/server/src/server.test.ts`                                                                                                                                                                                                                                                                                                                 | Custom-agent behavior through server seams.                                                                                 |
+| `apps/server/package.json`, `pnpm-lock.yaml`                                                                                                                                                                                                                                                                                                     | The `smol-toml` dependency the Codex parser needs.                                                                          |
+| `packages/client-runtime/package.json`                                                                                                                                                                                                                                                                                                           | Client activity package dependencies.                                                                                       |
+| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                                                                                                                                                                                                                                | Own the generic provider-option contract.                                                                                   |
+| `docs/user/providers-codex.md`                                                                                                                                                                                                                                                                                                                   | Documents Codex custom-agent selection.                                                                                     |
+| `packages/contracts/src/orchestration.ts`, `packages/contracts/src/environmentHttp.ts`                                                                                                                                                                                                                                                           | Agent selection and bounded child activity pages.                                                                           |
+| `packages/client-runtime/src/state/orchestration.ts`, `packages/client-runtime/src/state/threadReducer.ts`, `packages/client-runtime/src/state/subagentRuntime.ts`, `packages/client-runtime/src/state/subagentRuntime.test.ts`, `packages/client-runtime/src/state/subagentDetail.ts`, `packages/client-runtime/src/state/agentActivityHttp.ts` | Load, sequence, and merge retained and live child activity.                                                                 |
+| `apps/mobile/src/lib/threadActivity.ts`, `apps/mobile/src/lib/threadActivity.test.ts`                                                                                                                                                                                                                                                            | Snapshot order before sequenced live activity.                                                                              |
+| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/AgentsPanel.tsx`, `apps/web/src/components/AgentDetailPanel.tsx`                                                                                                                                                                                                                | Own the roster and read-only child inspector.                                                                               |
+| `apps/web/src/rightPanelStore.ts`                                                                                                                                                                                                                                                                                                                | Persists thread-scoped child selection.                                                                                     |
+| `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                                                                                                                                                                                                                              | Narrowly mounts fork navigation around the upstream CTA.                                                                    |
+| `apps/web/src/components/chat/AgentSpawnNavigation*`                                                                                                                                                                                                                                                                                             | Fork-owned child selection and behavioral guard.                                                                            |
+| `apps/web/src/rightPanelStore.test.ts`                                                                                                                                                                                                                                                                                                           | Persisted panel selection for child work.                                                                                   |
+| `apps/server/src/checkpointing/CheckpointDiffQuery.test.ts`                                                                                                                                                                                                                                                                                      | Diff detail served with child work.                                                                                         |
+| `apps/server/src/orchestration/ActivityPayloadProjection.test.ts`                                                                                                                                                                                                                                                                                | Child-work activity payloads.                                                                                               |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`                                                                                                                                                                                                                                                                                | Projects child work into the snapshot.                                                                                      |
+| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts`                                                                                                                                                                                                                                                                          | Attributed child results.                                                                                                   |
+| `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts`                                                                                                                                                                                                                                                                              | Paginates child work.                                                                                                       |
+| `apps/server/src/project/ProjectSetupScriptRunner.test.ts`                                                                                                                                                                                                                                                                                       | Setup-script markers and child-work paging.                                                                                 |
+| `apps/server/src/provider/Drivers/CodexDriver.ts`                                                                                                                                                                                                                                                                                                | Composes agent discovery and per-workspace skills.                                                                          |
+| `apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts`                                                                                                                                                                                                                                                                                | Agent capability probing.                                                                                                   |
+| `apps/server/src/provider/Layers/CodexAdapter.fork.test.ts`, `apps/server/src/provider/Layers/ProviderService.fork.test.ts`, `apps/web/src/keybindings.fork.test.ts`, `apps/web/src/uiStateStore.fork.test.ts`, `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                              | These siblings restate upstream shapes, wiring, helper names, and state literals, so an upstream rename breaks the sibling. |
+| `apps/server/src/provider/Layers/ProviderSessionReaper.test.ts`                                                                                                                                                                                                                                                                                  | Reaping a session that owns child work.                                                                                     |
+| `apps/server/src/serverRuntimeStartup.test.ts`                                                                                                                                                                                                                                                                                                   | Startup wiring for paginated child work.                                                                                    |
+| `apps/web/src/components/chat/composerProviderState.test.tsx`                                                                                                                                                                                                                                                                                    | Agent selection in the composer.                                                                                            |
+| `apps/web/src/connection/runtime.ts`                                                                                                                                                                                                                                                                                                             | Client runtime carrying agent and child-work state.                                                                         |
+| `apps/web/src/providerModels.ts`                                                                                                                                                                                                                                                                                                                 | Lists the selectable agents per provider.                                                                                   |
+| `docs/user/providers-claude.md`                                                                                                                                                                                                                                                                                                                  | Documents main-thread agent selection.                                                                                      |
+| `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                                                                                                                                                                                        | Child work in the thread reducer.                                                                                           |
+| `packages/contracts/src/providerRuntime.ts`                                                                                                                                                                                                                                                                                                      | Carries child result and diff detail.                                                                                       |
+| `README.md`                                                                                                                                                                                                                                                                                                                                      | The fork index links `docs/fork/user/agents.md`; upstream edits that list.                                                  |
+| `apps/server/src/project/AgentSessionScanner.test.ts`                                                                                                                                                                                                                                                                                            | Upstream literal of the snapshot-query shape; only typecheck catches a missing `getAgentActivitySnapshot`.                  |
 
 ## markdown-editing
 
 ### Need
 
-T3 Code renders Markdown previews and edits Markdown source, but it has no rich editing mode.
-The fork needs one surface where a user can edit the rendered document and still save Markdown.
+T3 Code renders Markdown previews and edits Markdown source, but has no rich editing mode.
+The fork needs one surface that edits the rendered document and still saves Markdown.
 
 ### Shape
 
 The web file preview offers Rich and Source modes for `.md` files.
 Rich mode uses a lazy-loaded Milkdown editor with CommonMark, GFM, YAML frontmatter, history, and clipboard support.
-
 It reuses the existing optimistic file cache and save coordinator, so local and remote environments share one path.
+MDX stays on the rendered preview because the pipeline cannot preserve JSX safely, and truncated files stay read-only.
 
-MDX stays on the existing rendered preview because the Markdown pipeline cannot preserve JSX safely.
-Truncated files remain read-only.
-
-The adopted `rich-markdown-boundary` authoring guard rejects editor imports and inline rich surfaces in FilePreviewPanel, and `normalizeDotSegments` implementations in the shared Markdown link resolver.
+The adopted `rich-markdown-boundary` guard rejects editor imports and inline rich surfaces in FilePreviewPanel, and `normalizeDotSegments` implementations in the shared link resolver.
 Keep the preview boundary mount and document-link adapter in their fork-owned modules.
-The preview-mode, rich-editor link, and save-coordinator tests guard behavior, and the real scan CLI fixtures prove rejected additions and accepted boundary calls.
-During historical repair, derive the lockfile from the accepted manifests with `vp i`; never replay the old generated dependency patch or add another lockfile mechanism.
+Preview-mode, rich-editor link, and save-coordinator tests guard behavior, and the real scan CLI fixtures prove rejected additions and accepted boundary calls.
+During historical repair, derive the lockfile from the accepted manifests with `vp i`; never replay the old generated dependency patch.
 
-The manifest declares the granular `@milkdown/*` packages the boundary imports, never the `@milkdown/kit` umbrella or `@milkdown/react`.
-The umbrella re-exports what is already imported, and the React wrapper depends on `@milkdown/crepe`, which drags a Vue runtime and CodeMirror into a React-only app and hundreds of lines into the fork's lockfile delta.
+**Dependencies.** The manifest declares the granular `@milkdown/*` packages the boundary imports, never `@milkdown/kit` or `@milkdown/react`.
+The umbrella re-exports what is already imported, and the React wrapper depends on `@milkdown/crepe`, which drags a Vue runtime and CodeMirror into a React-only app.
 The binding that wrapper provided is one mount effect in `MarkdownRichEditor.tsx`.
-`richMarkdownDependencies.fork.test.ts` holds the manifest to exactly the imported set, and `vp run fork:lockfile` proves the lockfile still records the specifiers that manifest declares.
-
-Run `vp run fork:delta` for the commit list.
+`richMarkdownDependencies.fork.test.ts` holds the manifest to exactly the imported set, and `vp run fork:lockfile` proves the lockfile still records those specifiers.
 
 ### Retirement condition
 
@@ -790,53 +799,44 @@ The replacement must use the existing file-save path and avoid loading its edito
 
 ### Rebase scan
 
-| Path                                                                                 | Why it matters                                                                     |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `apps/web/src/components/files/FilePreviewPanel.tsx`                                 | Narrow mount for the fork-owned Rich/Source boundary in the upstream preview.      |
-| `apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx`                      | Fork-owned mode gating, lazy editor mount, and existing file-save-path adapter.    |
-| `apps/web/src/components/files/RichMarkdownPreviewBoundary.fork.test.ts`             | Guards Markdown, MDX, host-file, reveal, truncation, and ordinary-file modes.      |
-| `apps/web/src/components/files/MarkdownRichEditor.tsx`                               | Fork-only Milkdown lifecycle and change publisher.                                 |
-| `apps/web/src/components/files/markdownPipeline.ts`, `markdownPipeline.test.ts`      | Fork-only syntax, serialization, and round-trip coverage.                          |
-| `apps/web/src/components/files/markdownEditorPresentation.ts`                        | Fork-only task, link, code-block, and syntax presentation.                         |
-| `apps/web/src/components/files/richMarkdownEditorLinks.ts`                           | Normalizes document-relative rich-editor links after the shared upstream resolver. |
-| `apps/web/src/components/files/richMarkdownEditorLinks.fork.test.ts`                 | Guards workspace-contained, escaping, Windows, and external rich-editor links.     |
-| `apps/web/src/components/files/markdownFrontmatter.ts`, `markdownSerializerFixes.ts` | Fork-only frontmatter and list round-trip support.                                 |
-| `apps/web/src/components/files/markdown-rich-editor.css`                             | Fork-only rich editor presentation.                                                |
-| `apps/web/src/components/files/richMarkdownDependencies.fork.test.ts`                | Holds the Milkdown manifest to the packages the boundary imports.                  |
-| `apps/web/package.json`                                                              | Accepted granular Milkdown, frontmatter, and round-trip-test manifests.            |
-| `pnpm-lock.yaml`                                                                     | Generated from accepted manifests by the registered lockfile policy, never merged. |
-| `apps/web/src/components/ChatMarkdown.tsx`                                           | Upstream preview changes may replace this domain.                                  |
-| `docs/README.md`                                                                     | Indexes the fork's Markdown editing documentation.                                 |
+| Path                                                                                 | Why it matters                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`                                 | Narrow mount for the fork-owned Rich/Source boundary.         |
+| `apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx`                      | Mode gating, lazy mount, file-save-path adapter.              |
+| `apps/web/src/components/files/RichMarkdownPreviewBoundary.fork.test.ts`             | Markdown, MDX, host-file, reveal, truncation modes.           |
+| `apps/web/src/components/files/MarkdownRichEditor.tsx`                               | Fork-only Milkdown lifecycle and change publisher.            |
+| `apps/web/src/components/files/markdownPipeline.ts`, `markdownPipeline.test.ts`      | Syntax, serialization, round-trip coverage.                   |
+| `apps/web/src/components/files/markdownEditorPresentation.ts`                        | Task, link, code-block, and syntax presentation.              |
+| `apps/web/src/components/files/richMarkdownEditorLinks.ts`                           | Normalizes document-relative links after the shared resolver. |
+| `apps/web/src/components/files/richMarkdownEditorLinks.fork.test.ts`                 | Contained, escaping, Windows, and external links.             |
+| `apps/web/src/components/files/markdownFrontmatter.ts`, `markdownSerializerFixes.ts` | Frontmatter and list round-trip support.                      |
+| `apps/web/src/components/files/markdown-rich-editor.css`                             | Fork-only rich editor presentation.                           |
+| `apps/web/src/components/files/richMarkdownDependencies.fork.test.ts`                | Holds the Milkdown manifest to the imported set.              |
+| `apps/web/package.json`                                                              | Accepted granular Milkdown and round-trip manifests.          |
+| `pnpm-lock.yaml`                                                                     | Generated by the lockfile policy, never merged.               |
+| `apps/web/src/components/ChatMarkdown.tsx`                                           | Upstream preview changes may replace this domain.             |
+| `docs/README.md`                                                                     | Indexes the fork's Markdown editing documentation.            |
 
 ## fork-meta
 
 ### Need
 
-The fork's own documentation and conventions.
-This domain exists so documentation and tooling commits are not mis-filed under a product domain.
+The fork's own documentation, conventions, and tooling.
+The domain exists so documentation and tooling commits are not mis-filed under a product domain.
 
 ### Shape
 
-| Item                                                                                                                        | Role                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                                                  | The fork sections                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| This document, [Fork development](./fork-development.md), the [Fork sync](../operations/fork-sync.md) runbook               | Fork documentation                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `scripts/fork-delta.ts`                                                                                                     | With its `fork:delta` alias in the root `package.json`                                                                                                                                                                                                                                                                                                                                                                                        |
-| `scripts/fork-preflight.ts`                                                                                                 | With its `fork:preflight` alias, the precondition check every sync gate runs first                                                                                                                                                                                                                                                                                                                                                            |
-| `fork:sync rewrite-build`                                                                                                   | Constructs reviewed same-base history through `scripts/lib/fork-rewrite-build.ts`; exact snapshot, metadata, and final-tree receipts bind the existing nightly review and leased apply. Batch transforms remain external, and rewrite attempts preserve existing outcome eligibility                                                                                                                                                          |
-| `scripts/fork-orient.ts`                                                                                                    | With its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block                                                                                                                                                                                                                                                                                                                                        |
-| `scripts/fork-scan.ts`                                                                                                      | With its `fork:scan` alias, the guard that keeps a domain's rebase scan honest                                                                                                                                                                                                                                                                                                                                                                |
-| `scripts/fork-workflow-checkout.test.ts`                                                                                    | Keeps every fork workflow checkout off `persist-credentials: false`; `hyprws-upstream-sync.yml` scrubs its token after checkout when needed                                                                                                                                                                                                                                                                                                   |
-| `scripts/fork-lesson-guidance.ts`                                                                                           | Resolves declared lesson evidence without moving refs, and reconciles the full original scope with live observations and preferred authoring boundaries                                                                                                                                                                                                                                                                                       |
-| `scripts/fork-rebase-report.ts`                                                                                             | Its artifact sibling, and `.github/workflows/hyprws-upstream-sync.yml`                                                                                                                                                                                                                                                                                                                                                                        |
-| `scripts/fork-churn.ts outcome`                                                                                             | Its focused receipt collector and pure outcome model, which retain eligible targets and immutable attempts through exact-SHA apply and distribution. The v3 ledger preserves legacy walks and seam records, always-run sync and release collectors retain failures, and release recovery reuses the applied target. Evidence consistency guards refuse changed terminal receipts, unreviewed tag aliases, and incomplete distribution success |
-| [fork sync runbook](../operations/fork-sync.md), repo-local [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill | The bot-first sync model, bot-owned refs, human unblock, and stable-cut procedures                                                                                                                                                                                                                                                                                                                                                            |
-| `scripts/fork-auto-rebase.ts`                                                                                               | With its `fork:auto-rebase` alias. It advances the fork stack only to a tagged commit inside the report's clean window, snapshots intermediate stable bases, preserves the previous trunk head, and reports conflicts through fork-local issues                                                                                                                                                                                               |
-| `scripts/fork-sync-gate.ts`                                                                                                 | Keeps human syncs stable-only unless the caller explicitly passes `--allow-nightly`                                                                                                                                                                                                                                                                                                                                                           |
-| `scripts/fork-upstream-watch.ts`                                                                                            | With its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps                                                                                                                                                                                                                                                                                                                                              |
-| `scripts/fork-upstream-refs.ts`                                                                                             | With its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream                                                                                                                                                                                                                                                                                                                                          |
-| `.github/pull_request_template.md` fork trailer section                                                                     | And `scripts/lib/fork-pr-template.ts`, the guard that keeps its domain list equal to `FORK_DOMAINS`                                                                                                                                                                                                                                                                                                                                           |
-| `scripts/lib/fork-progress.ts`                                                                                              | The throttled stderr reporter every long fork gate shares, and `scripts/lib/fork-test-quiet.ts`, which the fork's own test files import to silence it                                                                                                                                                                                                                                                                                         |
+| Item                                                                                              | Role                                                 |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                    |
+| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                   |
+| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; [Scripts](./scripts.md) indexes them |
+| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | Bot-first sync, unblock, and stable-cut procedure    |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The bot lane and its fork-local issue upserts        |
+| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`             |
+| `scripts/lib/fork-progress.ts`, `scripts/lib/fork-test-quiet.ts`                                  | Shared gate progress reporter and its test silencer  |
+
+Every fork workflow checkout stays off `persist-credentials: false`, pinned by `scripts/fork-workflow-checkout.test.ts`.
 
 ### Retirement condition
 
@@ -844,80 +844,77 @@ Retired with the fork.
 
 ### Rebase scan
 
-| Path                                                                                                                                                                                   | Why it matters                                                                                                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                                                                                                             | Upstream edits these often and they carry fork-only sections.                                                                                                                                                 |
-| `package.json` scripts block                                                                                                                                                           | The `fork:*` aliases sit between upstream aliases.                                                                                                                                                            |
-| `docs/fork/internals/scripts.md`                                                                                                                                                       | Carries the `fork:*` script entries.                                                                                                                                                                          |
-| `docs/internals/ci.md`                                                                                                                                                                 | Documents fork-specific CI and advisory scan behavior.                                                                                                                                                        |
-| `docs/internals/glossary.md`                                                                                                                                                           | Carries fork-sync glossary terms and references.                                                                                                                                                              |
-| `scripts/*.ts` siblings                                                                                                                                                                | The ledger script copies their Effect CLI shape.                                                                                                                                                              |
-| `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts`                                                                                                                          | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection.                                                                                                                    |
-| `scripts/lib/fork-churn-compose.ts`                                                                                                                                                    | Fork-only. Produces the evidence-bearing seam bundle the ledger imports; a conflict means upstream grew its own record producer.                                                                              |
-| `.github/workflows/hyprws-upstream-sync.yml`                                                                                                                                           | Owns bot mode, runner setup, and fork-local issue upserts.                                                                                                                                                    |
-| `.github/pull_request_template.md`                                                                                                                                                     | Carries the fork trailer block every squash body needs; `fork:delta --check` refuses its domain list drifting from `FORK_DOMAINS`.                                                                            |
-| `packages/contracts/src/settings.test.ts`, `apps/web/src/components/ChatView.logic.test.ts`, `apps/web/src/components/Sidebar.logic.test.ts`                                           | Fork cases live in `*.fork.test.ts` siblings, so these files keep only upstream cases and take upstream edits cleanly.                                                                                        |
-| `apps/server/src/provider/Layers/CodexAdapter.test.ts`, `apps/server/src/pullRequest/PullRequestService.test.ts`, `apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts` | Fork cases live in `*.fork.test.ts` siblings, and the fork only appends to these upstream-owned files; a changed upstream assertion is refused.                                                               |
-| `apps/web/src/components/RightPanelTabs.test.tsx`, `apps/web/src/keybindings.test.ts`, `apps/web/src/rightPanelStore.test.ts`                                                          | Fork cases live in `*.fork.test.*` siblings, and the fork only appends to these upstream-owned files; a changed upstream assertion is refused.                                                                |
-| `apps/server/src/serverRuntimeStartup.ts`                                                                                                                                              | Reconciles the fork's legacy generated worktree setup commands before accepting commands.                                                                                                                     |
-| `apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts`                                                                                                                      | Fork-owned sibling migration keeps capability-probe coverage out of the upstream test file.                                                                                                                   |
-| `pnpm-lock.yaml`                                                                                                                                                                       | Upstream regenerates it constantly. Domain commits here only undo accidental install drift; a real dependency change belongs to the domain that needs it.                                                     |
-| `docs/operations/release.md`                                                                                                                                                           | Documents the upstream base and delta revision the fork release workflow stamps into every release body.                                                                                                      |
-| `apps/server/src/project/RepositoryIdentityResolver.test.ts`, `apps/web/src/localApi.test.ts`                                                                                          | Fork cases live in `*.fork.test.ts` siblings, so these keep only upstream cases and take upstream edits cleanly.                                                                                              |
-| `apps/desktop/src/preview/Manager.test.ts`                                                                                                                                             | Selected-target test ownership keeps fork preview cases out of this upstream file.                                                                                                                            |
-| `apps/desktop/src/updates/DesktopUpdates.test.ts`                                                                                                                                      | Retains the `capture` install step the project-window session manifest adds before `quitAndInstall`.                                                                                                          |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts`                                                                                                                 | Retains `checkoutMove: null` in the upstream projection fixtures.                                                                                                                                             |
-| `apps/server/src/provider/ProviderInstanceEnvironment.test.ts`                                                                                                                         | Retains the explicit tmux environment expectations the fork's pane isolation depends on.                                                                                                                      |
-| `apps/server/src/workspace/WorkspaceFileSystem.test.ts`                                                                                                                                | Retains the fork's server-settings layer inside the upstream filesystem harness.                                                                                                                              |
-| `apps/web/src/uiStateStore.test.ts`                                                                                                                                                    | Retains the manual sidebar ordering cases beside the upstream store cases.                                                                                                                                    |
-| `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                              | Retains the fork's snapshot-prefix repair expectation for out-of-order activity rows.                                                                                                                         |
-| `apps/server/src/pullRequest/GitHubPullRequestCli.ts`                                                                                                                                  | The fork-sync repairs un-export `GITHUB_IMAGE_EXTENSION_VERSION` and move the attachment error to `Schema.TaggedError`; upstream keeps editing the same class, so each repair replays as a one-line conflict. |
-| `apps/server/src/workspace/WorkspaceEntries.test.ts`                                                                                                                                   | The `*.fork.test.ts` sibling migration removed the ignored-files case here; upstream keeps adding cases in the same block, so a rebase must keep the case deleted without losing upstream's additions.        |
-| `apps/web/src/components/CommandPalette.tsx`                                                                                                                                           | The typecheck repair adds `buildThreadRouteParams` to the thread-route import; upstream keeps refactoring the palette's imports, so the repaired import line is the conflict.                                 |
-| `apps/web/src/components/Sidebar.tsx`                                                                                                                                                  | The additive repair folds `buildThreadRouteParams` into the thread-route import beside upstream's names; Sidebar is upstream's busiest file, so the repair lands as an import-adjacent conflict.              |
-| `apps/web/src/routes/_chat.pull-requests.tsx`                                                                                                                                          | The fork-sync repairs reshape `PullRequestsSearch` and this route after each rebase; upstream keeps editing the same route, so each repair re-derives against upstream's newest shape.                        |
-| `apps/web/src/routes/__root.tsx`                                                                                                                                                       | Fork-sync repairs toggle the bare `<Outlet />` inside `AppSidebarLayout` to keep the project shell compiling; conflicts resolve to the `project-windows` shape, not upstream's.                               |
-| `third-party-licenses.config.json`                                                                                                                                                     | The fork appends a generated notice for its `format` dependency; upstream regenerates the same list, so the entry is an adjacent-insert conflict.                                                             |
-| `apps/desktop/src/preview/Manager.ts`                                                                                                                                                  | Repairs rework overlapping pick sessions with swap-and-cancel plus a settle guard, and move the preview error to `Schema.TaggedError`.                                                                        |
-| `apps/server/package.json`                                                                                                                                                             | A repair shortens `build:bundle:dev` to `vp pack --no-clean`, dropping the service-launcher pack.                                                                                                             |
-| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                      | Repairs re-attach the fork-hook import markers and the `.fork.ts` module swaps.                                                                                                                               |
-| `apps/server/src/provider/Layers/ProviderService.test.ts`                                                                                                                              | The fork-owned sibling migration removed a case here and left the `getAgentActivitySnapshot` stub the file needs to typecheck.                                                                                |
-| `apps/server/src/usage/UsageService.ts`                                                                                                                                                | A repair re-applies the third argument the fork gives `mergeProviderInstanceEnvironment`.                                                                                                                     |
-| `apps/web/src/components/LegacySidebar.tsx`                                                                                                                                            | The additive repair folds `buildThreadRouteParams` into the thread-route import.                                                                                                                              |
-| `docs/user/thread-sidebar.md`                                                                                                                                                          | A repair removes the Manual and Automatic mode prose the fork does not ship.                                                                                                                                  |
-| `apps/desktop/src/app/DesktopEnvironment.test.ts`                                                                                                                                      | The fork-owned sibling migration removed the dev-agent placement case from the upstream file.                                                                                                                 |
-| `apps/desktop/src/app/DesktopEnvironment.ts`                                                                                                                                           | A repair unexports `resolveDesktopDevAgentPlacement` once its only caller moved to the fork sibling.                                                                                                          |
-| `apps/web/src/components/Sidebar.logic.ts`                                                                                                                                             | The same repair unexports `sidebarThreadGroupSortableId`.                                                                                                                                                     |
+| Path                                                                                                                                                                                   | Why it matters                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                                                                                                             | Upstream edits these often; they carry fork-only sections.                          |
+| `package.json` scripts block                                                                                                                                                           | The `fork:*` aliases sit between upstream aliases.                                  |
+| `docs/fork/internals/scripts.md`                                                                                                                                                       | Carries the `fork:*` script entries.                                                |
+| `docs/internals/ci.md`                                                                                                                                                                 | Documents fork CI and advisory scan behavior.                                       |
+| `docs/internals/glossary.md`                                                                                                                                                           | Carries fork-sync glossary terms.                                                   |
+| `scripts/*.ts` siblings                                                                                                                                                                | The ledger script copies their Effect CLI shape.                                    |
+| `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts`                                                                                                                          | Bot ref safety, replay checks, issue payloads, clean-tag selection.                 |
+| `scripts/lib/fork-churn-compose.ts`                                                                                                                                                    | Fork-only seam bundle producer; a conflict means upstream grew one.                 |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                                                                                                           | Bot mode, runner setup, fork-local issue upserts.                                   |
+| `.github/pull_request_template.md`                                                                                                                                                     | Trailer block every squash body needs; its domain list may not drift.               |
+| `packages/contracts/src/settings.test.ts`, `apps/web/src/components/ChatView.logic.test.ts`, `apps/web/src/components/Sidebar.logic.test.ts`                                           | Fork cases live in `*.fork.test.ts` siblings, so these take upstream edits cleanly. |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`, `apps/server/src/pullRequest/PullRequestService.test.ts`, `apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts` | The fork only appends here; a changed upstream assertion is refused.                |
+| `apps/web/src/components/RightPanelTabs.test.tsx`, `apps/web/src/keybindings.test.ts`, `apps/web/src/rightPanelStore.test.ts`                                                          | Same append-only rule against the `*.fork.test.*` siblings.                         |
+| `apps/server/src/serverRuntimeStartup.ts`                                                                                                                                              | Reconciles legacy generated worktree setup commands.                                |
+| `apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts`                                                                                                                      | Sibling migration keeps probe coverage out of the upstream file.                    |
+| `pnpm-lock.yaml`                                                                                                                                                                       | Upstream regenerates it constantly; commits here only undo install drift.           |
+| `docs/operations/release.md`                                                                                                                                                           | Documents the base and delta revision stamped into releases.                        |
+| `docs/user/source-control.md`                                                                                                                                                          | Carries a rewritten link into `docs/fork/user/`; upstream edits it.                 |
+| `apps/server/src/project/RepositoryIdentityResolver.test.ts`, `apps/web/src/localApi.test.ts`                                                                                          | Fork cases live in siblings; these take upstream edits cleanly.                     |
+| `apps/desktop/src/preview/Manager.test.ts`                                                                                                                                             | Selected-target ownership keeps fork preview cases out.                             |
+| `apps/desktop/src/updates/DesktopUpdates.test.ts`                                                                                                                                      | Retains the `capture` step before `quitAndInstall`.                                 |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts`                                                                                                                 | Retains `checkoutMove: null` in upstream fixtures.                                  |
+| `apps/server/src/provider/ProviderInstanceEnvironment.test.ts`                                                                                                                         | Retains the explicit tmux environment expectations.                                 |
+| `apps/server/src/workspace/WorkspaceFileSystem.test.ts`                                                                                                                                | Retains the fork's server-settings layer in the harness.                            |
+| `apps/web/src/uiStateStore.test.ts`                                                                                                                                                    | Retains manual sidebar ordering cases.                                              |
+| `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                              | Retains the snapshot-prefix repair expectation.                                     |
+| `apps/server/src/pullRequest/GitHubPullRequestCli.ts`                                                                                                                                  | Repairs un-export a constant and move the error to `Schema.TaggedError`.            |
+| `apps/server/src/workspace/WorkspaceEntries.test.ts`                                                                                                                                   | The sibling migration deleted a case upstream keeps adding beside.                  |
+| `apps/web/src/components/CommandPalette.tsx`                                                                                                                                           | The repaired `buildThreadRouteParams` import line is the conflict.                  |
+| `apps/web/src/components/Sidebar.tsx`                                                                                                                                                  | Same import repair in upstream's busiest file.                                      |
+| `apps/web/src/routes/_chat.pull-requests.tsx`                                                                                                                                          | Repairs reshape `PullRequestsSearch` and this route each rebase.                    |
+| `apps/web/src/routes/__root.tsx`                                                                                                                                                       | Conflicts resolve to the `project-windows` shape, not upstream's.                   |
+| `third-party-licenses.config.json`                                                                                                                                                     | Generated notice for the fork's `format` dependency.                                |
+| `apps/desktop/src/preview/Manager.ts`                                                                                                                                                  | Repairs rework overlapping pick sessions and the error type.                        |
+| `apps/server/package.json`                                                                                                                                                             | A repair shortens `build:bundle:dev` to `vp pack --no-clean`.                       |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                      | Repairs re-attach fork-hook markers and `.fork.ts` swaps.                           |
+| `apps/server/src/provider/Layers/ProviderService.test.ts`                                                                                                                              | Keeps the `getAgentActivitySnapshot` stub the file needs.                           |
+| `apps/server/src/usage/UsageService.ts`                                                                                                                                                | Re-applies the third `mergeProviderInstanceEnvironment` argument.                   |
+| `apps/web/src/components/LegacySidebar.tsx`                                                                                                                                            | Folds `buildThreadRouteParams` into the thread-route import.                        |
+| `docs/user/thread-sidebar.md`                                                                                                                                                          | A repair removes mode prose the fork does not ship.                                 |
+| `apps/desktop/src/app/DesktopEnvironment.test.ts`                                                                                                                                      | Sibling migration removed the dev-agent placement case.                             |
+| `apps/desktop/src/app/DesktopEnvironment.ts`                                                                                                                                           | Unexports `resolveDesktopDevAgentPlacement`.                                        |
+| `apps/web/src/components/Sidebar.logic.ts`                                                                                                                                             | Unexports `sidebarThreadGroupSortableId`.                                           |
 
 ## distribution
 
 ### Need
 
 Upstream releases ship upstream code, so a fork user needs a fork build and a fork update feed.
-Upstream's workflows also target Blacksmith runners the fork does not have.
+Upstream workflows also target Blacksmith runners the fork does not have.
 
 ### Shape
 
-| Item                                   | Role                                                                                                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/hyprws-ci.yml`      | Runs checks, tests, the fork ledger, the upstream-citation guard, and the desktop build on `hyprws` and stable candidate branches                                                         |
-| `.github/workflows/hyprws-release.yml` | Keeps human-cut `vX.Y.Z-hyprws.N` stable releases and publishes a `vX.Y.Z-hyprws-nightly.YYYYMMDD.N` prerelease on every `hyprws` landing, with a six-hour changed-head check as fallback |
-| `scripts/fork-release-version.ts`      | Resolves channel metadata and the previous tag within that channel                                                                                                                        |
+| Item                                   | Role                                                             |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `.github/workflows/hyprws-ci.yml`      | Checks, tests, ledger, citation guard, desktop build             |
+| `.github/workflows/hyprws-release.yml` | Human-cut stable releases plus a prerelease per `hyprws` landing |
+| `scripts/fork-release-version.ts`      | Resolves channel metadata and the previous tag in that channel   |
 
-`hyprws-release.yml` omits upstream's `concurrency.queue: max` deliberately.
-Upstream only fires nightlies on a schedule behind a six-hour gap, so its nightly lane never holds more than one pending run; the fork's per-landing trigger queues a build per commit, and the default single pending slot supersedes the ones the newest commit already contains.
+Stable tags are `vX.Y.Z-hyprws.N`; nightlies are `vX.Y.Z-hyprws-nightly.YYYYMMDD.N`, with a six-hour changed-head check as fallback.
+`hyprws-release.yml` omits upstream's `concurrency.queue: max` deliberately: the fork's per-landing trigger queues a build per commit, and the default single pending slot supersedes ones the newest commit already contains.
+Both workflows run on GitHub-hosted runners, free for a public repository.
 
-Both workflows run on GitHub-hosted runners, which are free for a public repository.
+`scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`, so fork builds update from fork releases.
+electron-updater matches a release by the tag's first semver prerelease identifier and derives the update-file name from it.
+The fork's nightly tags therefore need the user-facing `nightly` channel to reach the updater as `hyprws-nightly`, with a matching `hyprws-nightly-linux.yml` asset.
+`apps/desktop/src/updates/updateChannels.fork.ts` owns that mapping (RSI-Software/t3code-hyprws#762).
 
-`scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
-Fork builds therefore update from fork releases.
-
-electron-updater matches a GitHub release to the updater channel by the release tag's first semver prerelease identifier, and derives the update-file name from that identifier.
-So the fork's `vX.Y.Z-hyprws-nightly.*` tags need the user-facing `nightly` channel to reach the updater as `hyprws-nightly`, with electron-builder publishing a matching `hyprws-nightly-linux.yml` asset.
-`apps/desktop/src/updates/updateChannels.fork.ts` owns that mapping (`RSI-Software/t3code-hyprws#762`).
-
-Upstream workflows stay in the tree untouched and disabled.
-Editing or deleting them is a standing rebase conflict.
+Upstream workflows stay in the tree untouched and disabled; editing or deleting them is a standing rebase conflict.
 [Fork sync](../operations/fork-sync.md) owns the disable step.
 
 ### Retirement condition
@@ -926,44 +923,43 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 
 ### Rebase scan
 
-| Path                                                   | Why it matters                                                                                                   |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                             | Copy new checks or setup steps into `hyprws-ci.yml`.                                                             |
-| `.github/workflows/release.yml`                        | Copy job-shape and Linux build changes into `hyprws-release.yml`.                                                |
-| `scripts/resolve-nightly-release.ts`                   | Shared next-patch helpers used by fork nightlies.                                                                |
-| `scripts/build-desktop-artifact.ts`                    | Build inputs, icon tooling, and update-channel resolution.                                                       |
-| `scripts/build-desktop-artifact.test.ts`               | Covers desktop artifact and update-channel behavior.                                                             |
-| `scripts/update-release-package-versions.ts`           | Stable and nightly release version alignment.                                                                    |
-| `apps/desktop/src/updates/updateChannels.fork.ts`      | Fork-only updater channel mapping; keeps the tag identifier in one place.                                        |
-| `apps/desktop/src/updates/DesktopUpdates.fork.test.ts` | Fork-owned proof for that mapping.                                                                               |
-| `apps/desktop/src/updates/DesktopUpdates.ts`           | One-line call site for the channel mapping; upstream owns the file and edits it often.                           |
-| `apps/desktop/src/updates/updatesTestHarness.ts`       | Test-only channel recording for the fork mapping test.                                                           |
-| `package.json` `engines` and `packageManager`          | Runner toolchain expectations.                                                                                   |
-| `docs/fork/internals/scripts.md`                       | Documents the fork's release and upstream-sync scripts.                                                          |
-| `README.md`                                            | Carries the fork's rewritten introduction, which is what tells a reader these are fork builds and fork releases. |
-| `apps/server/src/cloud/pinnedRuntime.ts`               | Carries the fork tarball install path at the pinned-runtime archive seam.                                        |
+| Path                                                   | Why it matters                                         |
+| ------------------------------------------------------ | ------------------------------------------------------ |
+| `.github/workflows/ci.yml`                             | Copy new checks or setup steps into `hyprws-ci.yml`.   |
+| `.github/workflows/release.yml`                        | Copy job-shape and Linux build changes across.         |
+| `scripts/resolve-nightly-release.ts`                   | Shared next-patch helpers used by fork nightlies.      |
+| `scripts/build-desktop-artifact.ts`                    | Build inputs, icon tooling, update-channel resolution. |
+| `scripts/build-desktop-artifact.test.ts`               | Desktop artifact and update-channel behavior.          |
+| `scripts/update-release-package-versions.ts`           | Stable and nightly version alignment.                  |
+| `apps/desktop/src/updates/updateChannels.fork.ts`      | Fork-only channel mapping in one place.                |
+| `apps/desktop/src/updates/DesktopUpdates.fork.test.ts` | Fork-owned proof for that mapping.                     |
+| `apps/desktop/src/updates/DesktopUpdates.ts`           | One-line call site in a file upstream edits often.     |
+| `apps/desktop/src/updates/updatesTestHarness.ts`       | Test-only channel recording.                           |
+| `package.json` `engines` and `packageManager`          | Runner toolchain expectations.                         |
+| `docs/fork/internals/scripts.md`                       | Documents the release and upstream-sync scripts.       |
+| `README.md`                                            | Carries the rewritten introduction naming fork builds. |
+| `apps/server/src/cloud/pinnedRuntime.ts`               | Fork tarball install path at the pinned-runtime seam.  |
 
 ## backend-attach
 
 ### Need
 
-The developer runs `t3code-backend.service` on this machine and serves it publicly.
-Upstream's desktop app always spawns its own backend, so the AppImage and the service cannot both be up: the app finds `3773` busy, takes another port, and opens a second writer on the one `~/.t3/userdata/state.sqlite`.
-The runbook worked around that by never opening the GUI.
-
-The desktop app must attach to a backend it did not spawn, on the same machine and the same T3 home, and report one environment for it.
+The developer runs `t3code-backend.service` and serves it publicly.
+Upstream's desktop app always spawns its own backend, so app and service cannot both be up: the app finds `3773` busy, takes another port, and opens a second writer on the one `state.sqlite`.
+The desktop app must attach to a backend it did not spawn, on the same machine and T3 home, and report one environment for it.
 
 ### Shape
 
-| Piece                                                | Behavior                                                                                                                                                                                                                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/desktop/src/app/DesktopBackendMode.ts`         | Resolves the effective mode. A `managed` configuration flips to `client-only` when a live `server-runtime.json` names a reachable server, and the decision is logged on the `desktop.startup` span with its `source`                                                                              |
-| `apps/desktop/src/app/DesktopRunningLocalServers.ts` | Discovers those servers and mints a pairing URL through the bundled `t3 pair --json`. It cross-checks the returned environment id and origin, and rejects a URL whose path is not `/pair`, whose search is not empty, or whose token is not in the hash                                           |
-| `packages/shared/src/serverRuntimeState.ts`          | Holds the runtime-state read both the server and the desktop main process need. The fork's `devUrl` field rides with it                                                                                                                                                                           |
-| Client-only mode                                     | Registers no spawned primary, so `getLocalEnvironmentBootstraps` returns an empty list and the renderer has no same-origin environment                                                                                                                                                            |
-| `apps/web/src/connection/DesktopLocalAutoPair.tsx`   | Closes that gap. It pairs the attached server once per launch, only while the saved environment list is empty, only in client-only mode, and only when discovery returns exactly one server. A user who removes the environment on purpose is not re-paired behind their back within that session |
+| Piece                                                | Behavior                                                                                                                                                                            |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/app/DesktopBackendMode.ts`         | Resolves the effective mode; `managed` flips to `client-only` when a live `server-runtime.json` names a reachable server, logged on the `desktop.startup` span                      |
+| `apps/desktop/src/app/DesktopRunningLocalServers.ts` | Discovers servers and mints a pairing URL through `t3 pair --json`, cross-checking environment id and origin, and rejecting a bad path, non-empty search, or token outside the hash |
+| `packages/shared/src/serverRuntimeState.ts`          | Holds the runtime-state read both the server and the desktop main process need, carrying the fork's `devUrl`                                                                        |
+| Client-only mode                                     | Registers no spawned primary, so the renderer has no same-origin environment                                                                                                        |
+| `apps/web/src/connection/DesktopLocalAutoPair.tsx`   | Pairs once per launch, only while the saved list is empty, only in client-only mode, and only for exactly one discovered server                                                     |
 
-The fork adds neither the launch flag nor the persistent setting: both come from upstream's own design and ride in this domain unchanged.
+A user who removes the environment on purpose is not re-paired within that session.
+The fork adds neither the launch flag nor the persistent setting: both come from upstream's design and ride here unchanged.
 
 ### Retirement condition
 
@@ -973,62 +969,64 @@ Retire commit by commit as upstream lands the pieces.
 
 ### Rebase scan
 
-| Path                                                      | Why it matters                                                                                                                                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/desktop/src/backend/DesktopBackendManager.ts`       | Upstream moves spawn lifecycle here, including the exit-code contract.                                                                           |
-| `apps/desktop/src/backend/DesktopBackendConfiguration.ts` | Upstream moves the packaged port here; attach reads the same value.                                                                              |
-| `apps/desktop/src/app/DesktopBackendMode.ts`              | Fork-owned mode resolution and its `existing-server` source.                                                                                     |
-| `apps/desktop/src/app/DesktopRunningLocalServers.ts`      | Discovery, the bundled pair call, and the pairing-URL validator.                                                                                 |
-| `apps/desktop/src/app/DesktopEnvironment.ts`              | Registers the attached environment instead of a spawned primary.                                                                                 |
-| `apps/desktop/src/app/DesktopLifecycle.ts`                | Skips backend startup and shutdown in client-only mode.                                                                                          |
-| `apps/desktop/src/window/DesktopWindow.ts`                | Shared with `project-windows`; the only window-layer conflict in the series.                                                                     |
-| `apps/desktop/src/ipc/methods/backendMode.ts`             | Reads and writes the persisted mode over IPC.                                                                                                    |
-| `apps/desktop/src/ipc/methods/localServerDiscovery.ts`    | Exposes discovery and pairing to the renderer.                                                                                                   |
-| `apps/desktop/src/ipc/methods/window.ts`                  | Returns no local bootstrap in client-only mode.                                                                                                  |
-| `apps/desktop/src/settings/DesktopAppSettings.ts`         | Persists the backend mode.                                                                                                                       |
-| `apps/desktop/src/main.ts`                                | Parses `--backend-mode`.                                                                                                                         |
-| `apps/desktop/src/preload.ts`                             | Bridges discovery and pairing.                                                                                                                   |
-| `apps/server/src/cli/pair.ts`                             | Upstream adds `--json` and moves its state read into `packages/shared`.                                                                          |
-| `apps/server/src/serverRuntimeState.ts`                   | The module the read moves out of; carries the fork's `devUrl` field.                                                                             |
-| `packages/shared/src/serverRuntimeState.ts`               | The moved read, used by the desktop main process.                                                                                                |
-| `packages/shared/package.json`                            | Its subpath export; a standing adjacent-insert conflict.                                                                                         |
-| `packages/contracts/src/localServerDiscovery.ts`          | The discovery and pairing wire shapes.                                                                                                           |
-| `packages/contracts/src/ipc.ts`                           | Carries those IPC methods.                                                                                                                       |
-| `packages/contracts/src/settings.ts`                      | Carries the persisted backend mode.                                                                                                              |
-| `packages/client-runtime/src/state/authHttp.ts`           | Credential exchange for a server the client did not spawn.                                                                                       |
-| `packages/client-runtime/src/state/auth.ts`               | Consumes it.                                                                                                                                     |
-| `packages/client-runtime/src/connection/presentation.ts`  | Names an attached local environment.                                                                                                             |
-| `apps/web/src/connection/DesktopLocalAutoPair.tsx`        | Fork-owned. The subset's only renderer consumer of `pairLocalServer`.                                                                            |
-| `apps/web/src/environments/primary/target.ts`             | Reports client-only mode to the renderer.                                                                                                        |
-| `apps/web/src/environmentPresence.ts`                     | Answers whether any environment is reachable.                                                                                                    |
-| `apps/web/src/routes/__root.tsx`                          | Gates the client-only auth state and mounts the auto-pair.                                                                                       |
-| `apps/desktop/src/app/DesktopConnectionCatalogStore.ts`   | The catalog write creates its temp file with mode `0600` so connection credentials stay private; upstream keeps editing the same write path.     |
-| `apps/desktop/src/settings/DesktopClientSettings.test.ts` | The fork's only delta here is fixture and formatting alignment from the attach squash; take upstream wholesale on conflict.                      |
-| `apps/web/src/lib/openPullRequestLink.ts`                 | The fork's only delta here is a formatting pass; take upstream wholesale on conflict.                                                            |
-| `docs/user/source-control.md`                             | The fork's only delta here is a formatting pass; take upstream wholesale on conflict.                                                            |
-| `apps/desktop/src/electron/ElectronProtocol.ts`           | Carries the fork-owned static protocol registration a client-only packaged launch serves from.                                                   |
-| `apps/desktop/src/app/DesktopEnvironment.test.ts`         | A repair repoints the packaged renderer expectation at the unpackaged `/repo/apps/server/dist/client` path a client-only launch serves from.     |
-| `apps/desktop/src/app/DesktopLifecycle.test.ts`           | Adds the `handleRendererReady` stub the attach-aware lifecycle needs to typecheck.                                                               |
-| `apps/desktop/src/backend/DesktopBackendPool.test.ts`     | The same stub for the pool that attaches instead of spawning.                                                                                    |
-| `apps/desktop/src/window/DesktopApplicationMenu.test.ts`  | The same stub for the menu's lifecycle double.                                                                                                   |
-| `apps/server/src/config.ts`                               | Derives `serverRuntimeStatePath` through `deriveServerRuntimeStatePath` so a dev launch and an attaching client agree on one runtime-state file. |
+| Path                                                      | Why it matters                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `apps/desktop/src/backend/DesktopBackendManager.ts`       | Upstream moves spawn lifecycle and the exit-code contract here.         |
+| `apps/desktop/src/backend/DesktopBackendConfiguration.ts` | Upstream moves the packaged port here; attach reads it.                 |
+| `apps/desktop/src/app/DesktopBackendMode.ts`              | Fork-owned mode resolution and its `existing-server` source.            |
+| `apps/desktop/src/app/DesktopRunningLocalServers.ts`      | Discovery, the bundled pair call, the URL validator.                    |
+| `apps/desktop/src/app/DesktopEnvironment.ts`              | Registers the attached environment instead of a spawned primary.        |
+| `apps/desktop/src/app/DesktopLifecycle.ts`                | Skips backend startup and shutdown in client-only mode.                 |
+| `apps/desktop/src/window/DesktopWindow.ts`                | Shared with `project-windows`; the only window-layer conflict.          |
+| `apps/desktop/src/ipc/methods/backendMode.ts`             | Reads and writes the persisted mode over IPC.                           |
+| `apps/desktop/src/ipc/methods/localServerDiscovery.ts`    | Exposes discovery and pairing to the renderer.                          |
+| `apps/desktop/src/ipc/methods/window.ts`                  | Returns no local bootstrap in client-only mode.                         |
+| `apps/desktop/src/settings/DesktopAppSettings.ts`         | Persists the backend mode.                                              |
+| `apps/desktop/src/main.ts`                                | Parses `--backend-mode`.                                                |
+| `apps/desktop/src/preload.ts`                             | Bridges discovery and pairing.                                          |
+| `apps/server/src/cli/pair.ts`                             | Upstream adds `--json` and moves its state read out.                    |
+| `apps/server/src/serverRuntimeState.ts`                   | The module the read moves out of; carries `devUrl`.                     |
+| `packages/shared/src/serverRuntimeState.ts`               | The moved read, used by the desktop main process.                       |
+| `packages/shared/package.json`                            | Its subpath export; a standing adjacent-insert conflict.                |
+| `packages/contracts/src/localServerDiscovery.ts`          | Discovery and pairing wire shapes.                                      |
+| `packages/contracts/src/ipc.ts`                           | Carries those IPC methods.                                              |
+| `packages/contracts/src/settings.ts`                      | Carries the persisted backend mode.                                     |
+| `packages/client-runtime/src/state/authHttp.ts`           | Credential exchange for a server the client did not spawn.              |
+| `packages/client-runtime/src/state/auth.ts`               | Consumes it.                                                            |
+| `packages/client-runtime/src/connection/presentation.ts`  | Names an attached local environment.                                    |
+| `apps/web/src/connection/DesktopLocalAutoPair.tsx`        | Fork-owned; the only renderer consumer of `pairLocalServer`.            |
+| `apps/web/src/environments/primary/target.ts`             | Reports client-only mode to the renderer.                               |
+| `apps/web/src/environmentPresence.ts`                     | Answers whether any environment is reachable.                           |
+| `apps/web/src/routes/__root.tsx`                          | Gates client-only auth state and mounts the auto-pair.                  |
+| `apps/desktop/src/app/DesktopConnectionCatalogStore.ts`   | Catalog temp file uses mode `0600`; upstream edits the write path.      |
+| `apps/desktop/src/settings/DesktopClientSettings.test.ts` | Fixture and formatting alignment only; take upstream on conflict.       |
+| `apps/web/src/lib/openPullRequestLink.ts`                 | Formatting pass only; take upstream on conflict.                        |
+| `docs/user/source-control.md`                             | Formatting pass only; take upstream on conflict.                        |
+| `apps/desktop/src/electron/ElectronProtocol.ts`           | Static protocol registration a client-only packaged launch serves from. |
+| `apps/desktop/src/app/DesktopEnvironment.test.ts`         | Repoints the packaged renderer expectation at the unpackaged path.      |
+| `apps/desktop/src/app/DesktopLifecycle.test.ts`           | Adds the `handleRendererReady` stub for typecheck.                      |
+| `apps/desktop/src/backend/DesktopBackendPool.test.ts`     | The same stub for the attaching pool.                                   |
+| `apps/desktop/src/window/DesktopApplicationMenu.test.ts`  | The same stub for the menu's lifecycle double.                          |
+| `apps/server/src/config.ts`                               | `deriveServerRuntimeStatePath` keeps dev and attach on one file.        |
 
 ## workspace-files
 
 ### Need
 
 Agent review artifacts often live in ignored scratch directories, or in scratch shared across worktrees.
-The workspace file surface must keep those paths hidden by default while letting the operator reveal and read artifacts they deliberately created.
+The workspace file surface must hide those paths by default while letting the operator reveal and read artifacts they deliberately created.
 
 ### Shape
 
-| Aspect      | Rule                                                                                                                                                                                                                                                                                               |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preference  | A client-local preference includes gitignored paths in workspace file listings on demand                                                                                                                                                                                                           |
-| Surfaces    | The file-tree toolbar and General settings expose the same persisted preference                                                                                                                                                                                                                    |
-| Mobile      | Resolves the optional listing input through `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`, keeping device state and reveal/reset policy behind one fork-owned boundary while the shared routes retain their environment connection                                               |
-| Guard       | The adopted `mobile-ignored-file-listing` authoring guard rejects inline ignored-file preference or request policy in `ThreadFilesRouteScreen.tsx` and `thread-file-navigator-pane.tsx`. Keep the helper call and each surface's environment and file-inspector gates during original-patch repair |
-| Containment | Listing ignored paths never changes repository ignore rules or weakens file-read containment                                                                                                                                                                                                       |
+| Aspect      | Rule                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| Preference  | A client-local preference includes gitignored paths on demand                                              |
+| Surfaces    | The file-tree toolbar and General settings expose the same preference                                      |
+| Mobile      | `ignoredWorkspaceFileListing.ts` keeps device state and reveal/reset policy behind one fork-owned boundary |
+| Guard       | `mobile-ignored-file-listing` rejects inline preference or request policy in the two mobile surfaces       |
+| Containment | Listing ignored paths never changes ignore rules or weakens file-read containment                          |
+
+Keep the helper call and each surface's environment and file-inspector gates during original-patch repair.
 
 ### Retirement condition
 
@@ -1036,106 +1034,106 @@ Delete this domain when upstream can reveal ignored workspace paths on demand an
 
 ### Rebase scan
 
-| Path                                                                                                                                                       | Why it matters                                                                                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `apps/server/src/workspace/WorkspaceEntries.ts`                                                                                                            | Combines the normal index with ignored VCS paths.                                                                          |
-| `apps/server/src/vcs/GitVcsDriver.ts`                                                                                                                      | Lists ignored paths through Git's native rules.                                                                            |
-| `packages/contracts/src/project.ts`                                                                                                                        | Carries the optional listing request.                                                                                      |
-| `packages/contracts/src/settings.ts`                                                                                                                       | Persists the client-local preference.                                                                                      |
-| `apps/web/src/components/files/FileBrowserPanel.tsx`                                                                                                       | Owns the file-tree toolbar toggle.                                                                                         |
-| `apps/web/src/components/settings/SettingsPanels.tsx`                                                                                                      | Owns the web/desktop settings entry point.                                                                                 |
-| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`                                                                                            | Fork-owned mobile reveal/reset policy and listing-input adapter.                                                           |
-| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.fork.test.ts`                                                                                  | Guards ordinary, ignored, reset, unresolved, and host-path listing inputs.                                                 |
-| `apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx`                                                                                                | Narrow route integration; environment selection stays upstream-shaped.                                                     |
-| `apps/mobile/src/features/files/thread-file-navigator-pane.tsx`                                                                                            | Reuses the same listing boundary in the adaptive inspector.                                                                |
-| `apps/mobile/src/features/files/FileTreeBrowser.tsx`, `apps/mobile/src/features/files/fileTree.ts`, `apps/mobile/src/features/files/fileTree.fork.test.ts` | Preserve, present, and guard ignored state in the mobile tree.                                                             |
-| `apps/mobile/src/features/settings/SettingsRouteScreen.tsx`                                                                                                | Exposes the preference in mobile settings.                                                                                 |
-| `apps/server/src/workspace/WorkspaceFileSystem.ts`                                                                                                         | Retains containment and trusted-link read behavior.                                                                        |
-| `apps/server/src/server.ts`                                                                                                                                | Provides the workspace filesystem layer.                                                                                   |
-| `apps/desktop/src/settings/DesktopClientSettings.test.ts`                                                                                                  | Covers the ignored-files preference.                                                                                       |
-| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                        | Persists that preference on mobile.                                                                                        |
-| `apps/web/src/components/files/projectFilesQueryState.ts`                                                                                                  | Carries the ignored-files query state.                                                                                     |
-| `apps/web/src/components/settings/settingsSearch.ts`                                                                                                       | Indexes the files settings this domain adds.                                                                               |
-| `packages/contracts/src/settings.test.ts`                                                                                                                  | Covers that settings schema addition.                                                                                      |
-| `README.md`                                                                                                                                                | Carries the Workspace files bullets in the fork's feature list.                                                            |
-| `apps/server/src/workspace/WorkspaceEntries.test.ts`                                                                                                       | Wires `VcsDriverRegistry` into the harness; upstream keeps extending the same harness, so the wiring is the reapply point. |
-| `apps/server/src/orchestration/decider.ts`                                                                                                                 | Carries the `decider-thread-env-mode-wire` fork-hook marker the seam pass added.                                           |
+| Path                                                                                                                                                       | Why it matters                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `apps/server/src/workspace/WorkspaceEntries.ts`                                                                                                            | Combines the normal index with ignored VCS paths.               |
+| `apps/server/src/vcs/GitVcsDriver.ts`                                                                                                                      | Lists ignored paths through Git's native rules.                 |
+| `packages/contracts/src/project.ts`                                                                                                                        | Carries the optional listing request.                           |
+| `packages/contracts/src/settings.ts`                                                                                                                       | Persists the client-local preference.                           |
+| `apps/web/src/components/files/FileBrowserPanel.tsx`                                                                                                       | Owns the file-tree toolbar toggle.                              |
+| `apps/web/src/components/settings/SettingsPanels.tsx`                                                                                                      | Owns the web and desktop settings entry point.                  |
+| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`                                                                                            | Fork-owned mobile reveal/reset policy and listing adapter.      |
+| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.fork.test.ts`                                                                                  | Ordinary, ignored, reset, unresolved, host-path inputs.         |
+| `apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx`                                                                                                | Narrow route integration; environment selection stays upstream. |
+| `apps/mobile/src/features/files/thread-file-navigator-pane.tsx`                                                                                            | Reuses the same boundary in the adaptive inspector.             |
+| `apps/mobile/src/features/files/FileTreeBrowser.tsx`, `apps/mobile/src/features/files/fileTree.ts`, `apps/mobile/src/features/files/fileTree.fork.test.ts` | Preserve, present, and guard ignored state in the mobile tree.  |
+| `apps/mobile/src/features/settings/SettingsRouteScreen.tsx`                                                                                                | Exposes the preference in mobile settings.                      |
+| `apps/server/src/workspace/WorkspaceFileSystem.ts`                                                                                                         | Retains containment and trusted-link read behavior.             |
+| `apps/server/src/server.ts`                                                                                                                                | Provides the workspace filesystem layer.                        |
+| `apps/desktop/src/settings/DesktopClientSettings.test.ts`                                                                                                  | Covers the ignored-files preference.                            |
+| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                        | Persists that preference on mobile.                             |
+| `apps/web/src/components/files/projectFilesQueryState.ts`                                                                                                  | Carries the ignored-files query state.                          |
+| `apps/web/src/components/settings/settingsSearch.ts`                                                                                                       | Indexes the files settings this domain adds.                    |
+| `packages/contracts/src/settings.test.ts`                                                                                                                  | Covers that settings schema addition.                           |
+| `README.md`                                                                                                                                                | Carries the Workspace files bullets in the feature list.        |
+| `apps/server/src/workspace/WorkspaceEntries.test.ts`                                                                                                       | Wires `VcsDriverRegistry` into the harness; the reapply point.  |
+| `apps/server/src/orchestration/decider.ts`                                                                                                                 | Carries the `decider-thread-env-mode-wire` fork-hook marker.    |
 
 ## thread-ordering
 
 ### Need
 
 Operators need related active threads kept together in named groups, and a way back to automatic order after a manual drag.
-Upstream persists per-thread active order under `activeOrderKey` but has no group concept, and once a drop writes that key nothing clears it except settling the thread.
+Upstream persists per-thread active order under `activeOrderKey` but has no group concept, and nothing clears that key except settling the thread.
 
 ### Shape
 
-| Aspect       | Rule                                                                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grouping     | Web and desktop group active threads into named sections. A center drop on another active thread creates or extends a group; an edge drop falls through to upstream's reorder   |
-| Storage      | Group membership, names, and collapsed state are client-local and layer over upstream's `activeOrderKey`. The fork stores no thread order of its own                            |
-| Removal      | Dragging outside a group removes the member. A one-member group dissolves automatically                                                                                         |
-| Collapsed    | A collapsed group holds one slot in the drop order: its header replaces the anchor row                                                                                          |
-| Names        | Initial and regenerated group names use the server's existing thread-title generation path. Group headers also support inline manual renaming and dissolution                   |
-| Scope        | Grouping is limited to active, unpinned threads in the same physical project. Pinned, snoozed, and settled ordering stays unchanged                                             |
-| Order marker | A compact marker below the project filter shows the current order mode and offers the return to automatic order. Not implemented yet; tracked in RSI-Software/t3code-hyprws#907 |
+| Aspect       | Rule                                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Grouping     | A center drop on another active thread creates or extends a group; an edge drop falls through to upstream's reorder              |
+| Storage      | Membership, names, and collapsed state are client-local over `activeOrderKey`; the fork stores no order of its own               |
+| Removal      | Dragging outside a group removes the member, and a one-member group dissolves                                                    |
+| Collapsed    | A collapsed group holds one slot: its header replaces the anchor row                                                             |
+| Names        | Initial and regenerated names use the server's thread-title generation; headers also rename inline and dissolve                  |
+| Scope        | Active, unpinned threads in the same physical project only                                                                       |
+| Order marker | A compact marker below the project filter offers the return to automatic order; not implemented (RSI-Software/t3code-hyprws#907) |
 
 ### Retirement condition
 
 Delete this domain when an upstream release provides named thread groups with persistent membership and a control that returns active threads to automatic order.
 
 The fork's own manual ordering was retired at `v0.0.41-nightly.20260908.1414`; see the three `thread-ordering` rows in [Retired](#retired).
-What remains here is grouping plus the order-mode control, both built on upstream's `activeOrderKey`.
+What remains is grouping plus the order-mode control, both built on `activeOrderKey`.
 
 ### Rebase scan
 
-| Path                                                        | Why it matters                                                      |
-| ----------------------------------------------------------- | ------------------------------------------------------------------- |
-| `apps/web/src/components/Sidebar.logic.ts`                  | Builds the group layout over upstream's active order.               |
-| `apps/web/src/components/Sidebar.logic.test.ts`             | Covers grouping beside upstream ordering.                           |
-| `apps/web/src/components/Sidebar.logic.fork.test.ts`        | Fork-owned grouping cases.                                          |
-| `apps/web/src/components/Sidebar.tsx`                       | Owns the group drag interaction and the header row.                 |
-| `apps/web/src/components/SidebarThreadGroup.tsx`            | Renders group headers and name controls.                            |
-| `apps/web/src/components/SidebarRenameInput.tsx`            | Inline group rename input.                                          |
-| `apps/web/src/state/threadGroups.ts`                        | Web group state.                                                    |
-| `apps/web/src/uiStateStore.ts`                              | Persists client-local group membership, names, and collapsed state. |
-| `apps/web/src/uiStateStore.test.ts`                         | Covers that persistence.                                            |
-| `apps/web/src/connection/runtime.ts`                        | Client runtime that carries the sidebar section grouping.           |
-| `packages/client-runtime/src/state/threadGroups.ts`         | Shared group model for web and mobile.                              |
-| `packages/client-runtime/src/state/threadGroupTitleHttp.ts` | Remote-safe group title generation client.                          |
-| `packages/client-runtime/package.json`                      | Client grouping package dependencies.                               |
-| `packages/contracts/src/environmentHttp.ts`                 | Types remote-safe group title generation.                           |
-| `apps/server/src/orchestration/ThreadGroupTitles.ts`        | Reuses the thread-title generation service.                         |
-| `apps/server/src/orchestration/http.ts`                     | Routes the group-title generation request.                          |
-| `docs/user/thread-sidebar.md`                               | Documents the user-visible behavior.                                |
+| Path                                                        | Why it matters                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------- |
+| `apps/web/src/components/Sidebar.logic.ts`                  | Builds the group layout over upstream's active order. |
+| `apps/web/src/components/Sidebar.logic.test.ts`             | Grouping beside upstream ordering.                    |
+| `apps/web/src/components/Sidebar.logic.fork.test.ts`        | Fork-owned grouping cases.                            |
+| `apps/web/src/components/Sidebar.tsx`                       | Group drag interaction and the header row.            |
+| `apps/web/src/components/SidebarThreadGroup.tsx`            | Renders group headers and name controls.              |
+| `apps/web/src/components/SidebarRenameInput.tsx`            | Inline group rename input.                            |
+| `apps/web/src/state/threadGroups.ts`                        | Web group state.                                      |
+| `apps/web/src/uiStateStore.ts`                              | Persists membership, names, collapsed state.          |
+| `apps/web/src/uiStateStore.test.ts`                         | Covers that persistence.                              |
+| `apps/web/src/connection/runtime.ts`                        | Client runtime carrying sidebar section grouping.     |
+| `packages/client-runtime/src/state/threadGroups.ts`         | Shared group model for web and mobile.                |
+| `packages/client-runtime/src/state/threadGroupTitleHttp.ts` | Remote-safe group title generation client.            |
+| `packages/client-runtime/package.json`                      | Client grouping package dependencies.                 |
+| `packages/contracts/src/environmentHttp.ts`                 | Types remote-safe group title generation.             |
+| `apps/server/src/orchestration/ThreadGroupTitles.ts`        | Reuses the thread-title generation service.           |
+| `apps/server/src/orchestration/http.ts`                     | Routes the group-title request.                       |
+| `docs/user/thread-sidebar.md`                               | Documents the user-visible behavior.                  |
 
 ## upstream-fixes
 
 ### Need
 
 Fixes the fork needs now that belong to no fork domain and would be correct in upstream T3 Code as they stand.
-They sit at the bottom of the stack so each one drops without touching a product domain once upstream ships its own fix.
-The fork does not offer them upstream; it waits for upstream to fix the defect and then retires the commit.
+They sit at the bottom of the stack so each drops without touching a product domain.
+The fork does not offer them upstream; it waits for upstream's own fix and retires the commit.
 
 ### Shape
 
-| Aspect  | Rule                                                                                                        |
-| ------- | ----------------------------------------------------------------------------------------------------------- |
-| Commit  | One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes` as a retire-candidate tag |
-| Lane    | Created from `upstream/main`, so the fix carries no fork dependency                                         |
-| Helpers | None shared across fixes; each must drop alone                                                              |
+| Aspect  | Rule                                                                              |
+| ------- | --------------------------------------------------------------------------------- |
+| Commit  | One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes` |
+| Lane    | Created from `upstream/main`, so the fix carries no fork dependency               |
+| Helpers | None shared across fixes; each must drop alone                                    |
 
 ### Terminal focus contract
 
 Three commits share one behavior contract while each still drops alone.
 A rebase that drops one must re-check the other two against it.
 
-| Aspect         | Contract                                                                                                                                                                                                                                            |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keys           | Thread jump keys, previous/next, and the command palette shortcut switch threads while the terminal has focus; every other key stays in the shell                                                                                                   |
-| Navigation     | Thread navigation always lands in the composer, even when that thread's terminal drawer is open                                                                                                                                                     |
-| Terminal focus | Taken only on an explicit request: opening the drawer, creating or splitting a terminal, or `` ctrl+` `` from the composer. `` ctrl+` `` from the terminal returns to the composer with the drawer open; closing the drawer returns to the composer |
-| Focus ring     | The focused pane (composer, terminal drawer, right panel) shows a static ring in the focus-ring color; no animation                                                                                                                                 |
+| Aspect         | Contract                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Keys           | Thread jump keys, previous/next, and the palette shortcut switch threads while the terminal has focus; every other key stays in the shell                                |
+| Navigation     | Thread navigation always lands in the composer, even with the terminal drawer open                                                                                       |
+| Terminal focus | Taken only on explicit request: opening the drawer, creating or splitting a terminal, or `` ctrl+` `` from the composer. Returning and closing both land in the composer |
+| Focus ring     | The focused pane shows a static ring in the focus-ring color; no animation                                                                                               |
 
 Proof: `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `ChatView.logic.test.ts`, and a Chrome pass on each landing.
 
@@ -1159,18 +1157,57 @@ Upstream spawns a plain shell per terminal and owns no session manager, so a thr
 
 ### Shape
 
-| Aspect              | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Session mode        | `terminalSessionMode` is the single zmux switch: `"zmux"` attaches new thread terminals through `zmux open` to the session `zmux session resolve` names for the checkout, binds a new thread worktree through `zmux wt --adopt`, verifies the adopted worktree, public target, native tmux target, and native identity with an immediate `zmux session resolve --cwd`, and kills that session after the worktree is removed. T3 snapshots the native session ID, tmux server generation, and creation epoch before removal and gives that exact identity back to zmux for conditional cleanup on the same configured endpoint, so a refused removal preserves its processes and a concurrent rename, rebind, or server restart cannot redirect cleanup to another session. If zmux cannot provide the complete identity, T3 preserves the session and reports an inspection-only manual recovery action. The physical checkout owns its managed session; threads and attached external clients are consumers of that session and do not create separate cleanup ownership. Zmux may still refuse cleanup when shared viewers make removal unsafe; T3 preserves every viewer, process, and durable record and reports that partial result instead of detaching clients to force deletion. Adoption reports whether the exact session was created, reused, restored, or renamed; Git or pre-remove refusals preserve both the worktree and managed session and remain visible on the thread. |
-| Legacy setting      | The retired `zmuxSessions` boolean folds into `terminalSessionMode` on load (`migrateLegacyZmuxSettings`); an old opt-in without an explicit mode becomes `"zmux"`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Fallback            | Every fallback to a plain shell prints its reason into the terminal buffer, and a missing `zmux` binary degrades silently to upstream behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Demand leases       | Visible terminal surfaces hold demand leases. Web uses document visibility; Electron uses shown, non-minimized main-process project-window demand over optional typed IPC and deliberately excludes focus. Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand. Client attach streams release immediately, then a server-owned cancellable grace timer detaches only the `zmux open` PTY; zero-demand opens use a longer configurable first-attach deadline. Resume re-resolves the thread's persisted checkout before attaching, so branch renames follow the current verified target and removed or replaced worktrees cannot reuse a retained target; requested grid, retained UI layout, and bounded T3 scrollback remain client-owned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Checkout moves      | Threads can move between existing checkouts through a durable requested/effective transition. The server resolves both physical identities, compares the expected checkout root plus server-owned branch and worktree context, and queues behind active or pending turns. Unrelated message, session, and activity updates do not invalidate the move. Ordered checkout leases serialize source and destination mutation, while a dedicated drainable worker keeps a blocked move from stalling unrelated provider commands.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Provider relocation | A move relocates a provider only when that thread already has a live provider runtime. Dormant threads move their durable metadata without spawning a provider and record a null effective provider checkout. Codex, Claude, Cursor, Grok, OpenCode, and Antigravity reuse their existing adapter continuation path and native resume cursor for live runtimes. Partial failures retain provider availability, completed provider steps, and the observed effective provider checkout. Detached `HEAD` remains a server-resolved checkout identity and is never synthesized into a branch override.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Persistence         | The durable `projection_threads.checkout_move_json` column is fork-owned through the idempotent `apps/server/src/persistence/ForkSchema.ts` pass (run in the SQLite setup after `runMigrations`), never a numbered upstream migration: upstream's sequential ids collide on rebase. The same pass repairs shipped fork nightlies (`v0.0.39-hyprws-nightly.20260906.337`–`.341`) that recorded the fork column as migration row `(48, "ProjectionThreadCheckoutMove")` by deleting exactly that row before `runMigrations`, so upstream's real 048 still runs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Follow and pin      | Terminal follow and pin behavior belongs to each client. Follow-mode terminals react to committed thread metadata on that client; pinned terminals and external zmux clients stay on their current checkout. Checkout-move commands and durable state do not carry terminal attachment identities or claim ownership of remote viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Suspension          | Managed suspension stays internal. Existing wire statuses and activity events remain decodable by released clients; current clients observe the optional `attachmentStatus` sibling. Suspended activity and labels are last-known values. Full suspended records count toward bounded inactive retention; eviction removes their metadata but keeps a separately bounded exact-target identity lease without killing tmux targets.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Binder              | `apps/server/src/zmux/` holds the binder; the terminal manager and the worktree workflow call it through `ProcessRunner` with the inherited tmux variables stripped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+#### Session mode
+
+`terminalSessionMode` is the single zmux switch.
+`"zmux"` attaches new thread terminals through `zmux open` to the session `zmux session resolve` names for the checkout, binds a new thread worktree through `zmux wt --adopt`, and verifies the adopted worktree, public target, native tmux target, and native identity with an immediate `zmux session resolve --cwd`.
+
+| Aspect              | Rule                                                                                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cleanup             | T3 snapshots native session id, server generation, and creation epoch before worktree removal and gives that exact identity back for conditional cleanup on the same endpoint |
+| Incomplete identity | T3 preserves the session and reports an inspection-only manual recovery action                                                                                                |
+| Ownership           | The physical checkout owns its managed session; threads and external clients are consumers                                                                                    |
+| Refusal             | A refused or shared-viewer removal preserves every viewer, process, and durable record and reports the partial result                                                         |
+| Adoption            | Reports whether the exact session was created, reused, restored, or renamed; Git or pre-remove refusals stay visible on the thread                                            |
+| Legacy setting      | `zmuxSessions` folds into `terminalSessionMode` on load; an old opt-in becomes `"zmux"`                                                                                       |
+| Fallback            | Every fallback to a plain shell prints its reason; a missing `zmux` binary degrades silently                                                                                  |
+| Binder              | `apps/server/src/zmux/` holds the binder, called through `ProcessRunner` with inherited tmux variables stripped                                                               |
+
+#### Demand leases
+
+Visible terminal surfaces hold demand leases.
+Web uses document visibility; Electron uses shown, non-minimized project-window demand over optional typed IPC and deliberately excludes focus.
+Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand.
+Client attach streams release immediately, then a server-owned cancellable grace timer detaches only the `zmux open` PTY; zero-demand opens use a longer configurable first-attach deadline.
+Resume re-resolves the thread's persisted checkout before attaching, so renames follow the current verified target and removed worktrees cannot reuse a retained one.
+Requested grid, retained UI layout, and bounded T3 scrollback stay client-owned.
+
+#### Checkout moves
+
+Threads move between existing checkouts through a durable requested and effective transition.
+The server resolves both physical identities, compares the expected checkout root plus server-owned branch and worktree context, and queues behind active or pending turns.
+Unrelated message, session, and activity updates do not invalidate the move.
+Ordered checkout leases serialize source and destination mutation, and a dedicated drainable worker keeps a blocked move from stalling unrelated provider commands.
+
+A move relocates a provider only when that thread already has a live provider runtime.
+Dormant threads move durable metadata without spawning a provider and record a null effective provider checkout.
+Every provider reuses its existing adapter continuation path and native resume cursor.
+Partial failures retain provider availability, completed steps, and the observed effective checkout.
+Detached `HEAD` stays a server-resolved identity and is never synthesized into a branch override.
+
+Terminal follow and pin belong to each client.
+Follow-mode terminals react to committed thread metadata on that client; pinned terminals and external zmux clients stay put.
+Move commands and durable state carry no terminal attachment identities.
+
+#### Persistence and suspension
+
+The durable `projection_threads.checkout_move_json` column is fork-owned through the idempotent `apps/server/src/persistence/ForkSchema.ts` pass, run after `runMigrations`, never a numbered upstream migration whose sequential ids collide on rebase.
+The same pass repairs shipped nightlies (`v0.0.39-hyprws-nightly.20260906.337` through `.341`) that recorded the fork column as migration row `(48, "ProjectionThreadCheckoutMove")`, deleting exactly that row before `runMigrations`.
+
+Managed suspension stays internal.
+Existing wire statuses and activity events stay decodable by released clients, which observe the optional `attachmentStatus` sibling.
+Suspended activity and labels are last-known values.
+Full suspended records count toward bounded inactive retention; eviction removes metadata but keeps a separately bounded exact-target identity lease without killing tmux targets.
 
 ### Retirement condition
 
@@ -1178,88 +1215,93 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 
 ### Rebase scan
 
-| Path                                                                                                                                                                       | Why it matters                                                                                                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/server/src/terminal/Manager.ts`                                                                                                                                      | Shell candidate resolution, demand leases, and managed PTY suspension.                                                                                                                                                                                          |
-| `apps/server/src/terminal/ManagedAttachmentLifecycle.ts`                                                                                                                   | Fork-only cancellable hidden-surface attachment state machine.                                                                                                                                                                                                  |
-| `apps/web/src/components/ThreadTerminalDrawer.tsx`                                                                                                                         | Surface and browser/Electron window demand determine attachment leases.                                                                                                                                                                                         |
-| `apps/web/src/components/onboarding/WelcomeWizard.tsx`                                                                                                                     | Second `TerminalViewport` call site; upstream owns it, so fork-required viewport props must be passed here too.                                                                                                                                                 |
-| `apps/web/src/state/terminalSessions.ts`                                                                                                                                   | Retained hook only; preserve upstream metadata indexing.                                                                                                                                                                                                        |
-| `apps/web/src/state/terminalAttachmentRetention.fork.ts`                                                                                                                   | Fork-only buffer/error retention across demand-gated attach streams.                                                                                                                                                                                            |
-| `apps/web/src/state/terminalSessions.test.ts`, `apps/web/src/state/terminalAttachmentRetention.fork.test.ts`                                                               | Upstream owns the metadata-selector suite; only retention cases belong in the fork sibling.                                                                                                                                                                     |
-| `apps/desktop/src/window/DesktopWindow.ts`                                                                                                                                 | BrowserWindow lifecycle publishes per-project-window demand.                                                                                                                                                                                                    |
-| `apps/desktop/src/preview/WindowPolicy.preload.ts`                                                                                                                         | Optional typed demand bridge keeps older desktop shells compatible.                                                                                                                                                                                             |
-| `packages/client-runtime/src/state/terminal.ts`                                                                                                                            | Attach atoms release without the generic subscription idle TTL.                                                                                                                                                                                                 |
-| `packages/contracts/src/terminal.ts`                                                                                                                                       | Optional attachment status preserves released-client wire decoding.                                                                                                                                                                                             |
-| `apps/server/src/git/GitWorkflowService.ts`                                                                                                                                | Worktree create and remove; the bind and unbind calls hook here.                                                                                                                                                                                                |
-| `apps/server/src/server.test.ts`                                                                                                                                           | Covers zmux attachment and fallback through server seams.                                                                                                                                                                                                       |
-| `apps/server/src/server.ts`                                                                                                                                                | Provides the zmux binder layer.                                                                                                                                                                                                                                 |
-| `apps/server/src/zmux/**`                                                                                                                                                  | Fork-only. A conflict means upstream grew its own session model.                                                                                                                                                                                                |
-| `packages/contracts/src/settings.ts`                                                                                                                                       | `terminalSessionMode` and its legacy migration sit between upstream keys.                                                                                                                                                                                       |
-| `apps/web/src/components/settings/SettingsPanels.tsx`                                                                                                                      | Settings UI for the switch; a busy upstream file.                                                                                                                                                                                                               |
-| `apps/server/src/ws.ts`                                                                                                                                                    | Shares worktree lifecycle wiring with the zmux binder.                                                                                                                                                                                                          |
-| `apps/desktop/src/ipc/channels.ts`                                                                                                                                         | Carries the suspend channel for a hidden terminal.                                                                                                                                                                                                              |
-| `apps/desktop/src/window/DesktopWindow.test.ts`                                                                                                                            | Covers suspension when a window hides.                                                                                                                                                                                                                          |
-| `apps/server/src/git/GitManager.ts`                                                                                                                                        | Binds a thread worktree to its managed session.                                                                                                                                                                                                                 |
-| `apps/server/src/git/GitManager.test.ts`                                                                                                                                   | Covers that binding.                                                                                                                                                                                                                                            |
-| `apps/server/src/serverSettings.ts`                                                                                                                                        | Composes managed-zmux migration with other stored server modes.                                                                                                                                                                                                 |
-| `apps/server/src/serverSettings.test.ts`                                                                                                                                   | Covers the single setting that drives attach and binding.                                                                                                                                                                                                       |
-| `apps/web/src/components/ThreadTerminalDrawer.test.ts`                                                                                                                     | Covers focus and suspension in the drawer.                                                                                                                                                                                                                      |
-| `apps/web/src/components/settings/settingsSearch.ts`                                                                                                                       | Indexes the zmux settings.                                                                                                                                                                                                                                      |
-| `packages/client-runtime/src/state/runtime.test.ts`                                                                                                                        | Covers suspended attachment state.                                                                                                                                                                                                                              |
-| `packages/contracts/src/git.ts`                                                                                                                                            | Carries the managed session binding.                                                                                                                                                                                                                            |
-| `packages/contracts/src/ipc.ts`                                                                                                                                            | Declares the suspend channel.                                                                                                                                                                                                                                   |
-| `packages/contracts/src/settings.test.ts`                                                                                                                                  | Covers the zmux setting schema.                                                                                                                                                                                                                                 |
-| `apps/server/src/processRunner.ts`                                                                                                                                         | Strips tmux inheritance for binder calls; upstream edits break bind.                                                                                                                                                                                            |
-| `apps/server/src/orchestration/decider.ts`                                                                                                                                 | Decides the durable requested and effective checkout-move states, and rejects a turn start on a moving thread.                                                                                                                                                  |
-| `apps/server/src/orchestration/projector.ts`                                                                                                                               | Projects `checkoutMove` and the resulting checkout root onto thread read models.                                                                                                                                                                                |
-| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`                                                                                                               | Carries those move fields through projection and provides `ProjectionThreadCheckoutMoveRepositoryLive` in `OrchestrationProjectionPipelineLive`'s chain; that provide line is the fork hook a rebase resolver must keep.                                        |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`                                                                                                          | Reads move state into the snapshots a reconnecting client loads.                                                                                                                                                                                                |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts`                                                                                                     | Covers that snapshot field.                                                                                                                                                                                                                                     |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                                                                                                           | Owns the checkout-move worker, its sorted leases, and typed validation failures.                                                                                                                                                                                |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`                                                                                                      | Covers provider relocation and move validation.                                                                                                                                                                                                                 |
-| `apps/server/src/orchestration/Layers/CheckpointReactor.ts`                                                                                                                | Reconciles managed sessions after a branch change.                                                                                                                                                                                                              |
-| `apps/server/src/orchestration/Layers/CheckpointReactor.test.ts`                                                                                                           | Covers that reconciliation.                                                                                                                                                                                                                                     |
-| `packages/contracts/src/orchestration.ts`                                                                                                                                  | Wire shapes for the checkout-move commands, events, and payloads.                                                                                                                                                                                               |
-| `packages/contracts/src/index.ts`                                                                                                                                          | Re-exports `checkoutMove.ts` from the export block upstream also edits.                                                                                                                                                                                         |
-| `packages/client-runtime/src/operations/checkoutMove.fork.ts`, `packages/client-runtime/src/operations/commands.ts`, `packages/client-runtime/src/state/threadCommands.ts` | The fork owns the move command implementation; `commands.ts` keeps a two-line re-export hook so its export surface never changes, and `threadCommands.ts` keeps only the atom wiring on the shared serial scheduler so a move still queues behind active turns. |
-| `apps/web/src/state/entities.ts`                                                                                                                                           | The web environment merge calls the fork merge helper; upstream keeps `threadDetail.ts` untouched.                                                                                                                                                              |
-| `packages/client-runtime/src/state/checkoutMove.ts`                                                                                                                        | Re-attaches the shell's `checkoutMove` after the upstream environment-thread merge, keeping `threadDetail.ts` byte-identical upstream.                                                                                                                          |
-| `apps/web/src/components/ChatView.tsx`                                                                                                                                     | Resolves a terminal's launch location from its checkout mode and attachment identity.                                                                                                                                                                           |
-| `apps/web/src/components/BranchToolbarBranchSelector.tsx`                                                                                                                  | Locks branch selection while a checkout move is in flight and surfaces its requested/effective state.                                                                                                                                                           |
-| `apps/web/src/terminal/ghostty/surface.ts`                                                                                                                                 | Adds `resetSession`, which clears replaced-PTY state without discarding the viewer.                                                                                                                                                                             |
-| `docs/architecture/terminal-renderers.md`                                                                                                                                  | Documents the managed zmux visibility lifecycle and its demand leases.                                                                                                                                                                                          |
-| `docs/user/source-control.md`                                                                                                                                              | Documents moving a started thread between checkouts.                                                                                                                                                                                                            |
-| `docs/internals/terminal-runtime.md`                                                                                                                                       | Holds the managed-attachment lifecycle prose. Upstream already moved this page once from `docs/architecture/terminal-renderers.md`.                                                                                                                             |
-| `apps/server/src/git/CheckoutMutationCoordinator.ts`, `apps/server/src/project/AgentSessionImporter.test.ts`                                                               | The coordinator is a new required dependency of `ProviderCommandReactor`; every upstream suite that builds that reactor layer must also provide `CheckoutMutationCoordinator.layer` and a `VcsDriverRegistry`.                                                  |
-| `apps/server/src/persistence/ThreadsCheckoutMove.fork.ts`, `apps/server/src/persistence/ThreadsCheckoutMove.fork.test.ts`                                                  | Fork-owned decorator over the upstream thread repository and its only reader/writer for the checkout move; the upstream persistence schema and SQL stay upstream-identical.                                                                                     |
-| `apps/server/src/persistence/ForkSchema.ts`                                                                                                                                | Owns the idempotent `checkout_move_json` column creation (and the shipped-nightly migration repair), never a numbered upstream migration.                                                                                                                       |
-| `apps/desktop/src/preload.ts`                                                                                                                                              | Wraps `desktopBridge` in `exposePreviewCapability` and drops its `openProjectWindow` and `projectWindowRef` members.                                                                                                                                            |
-| `apps/mobile/src/features/terminal/ThreadTerminalRouteScreen.tsx`                                                                                                          | Carries the mobile checkout-move state, route-scoped Follow and Pin, and the move command wiring.                                                                                                                                                               |
-| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                                        | Persists the `terminalCheckoutModes` preference.                                                                                                                                                                                                                |
-| `apps/server/integration/OrchestrationEngineHarness.integration.ts`                                                                                                        | Wires `ProviderCommandReactor` and the checkout mutation coordinator into the harness.                                                                                                                                                                          |
-| `packages/client-runtime/package.json`                                                                                                                                     | Exports the `./state/checkout-move` subpath the clients import.                                                                                                                                                                                                 |
+| Path                                                                                                                                                                       | Why it matters                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/terminal/Manager.ts`                                                                                                                                      | Shell candidate resolution, demand leases, PTY suspension.                                                          |
+| `apps/server/src/terminal/ManagedAttachmentLifecycle.ts`                                                                                                                   | Fork-only cancellable hidden-surface state machine.                                                                 |
+| `apps/web/src/components/ThreadTerminalDrawer.tsx`                                                                                                                         | Surface and window demand determine attachment leases.                                                              |
+| `apps/web/src/components/onboarding/WelcomeWizard.tsx`                                                                                                                     | Second `TerminalViewport` call site; fork props go here too.                                                        |
+| `apps/web/src/state/terminalSessions.ts`                                                                                                                                   | Retained hook only; preserve upstream metadata indexing.                                                            |
+| `apps/web/src/state/terminalAttachmentRetention.fork.ts`                                                                                                                   | Fork-only buffer and error retention across attach streams.                                                         |
+| `apps/web/src/state/terminalSessions.test.ts`, `apps/web/src/state/terminalAttachmentRetention.fork.test.ts`                                                               | Only retention cases belong in the fork sibling.                                                                    |
+| `apps/desktop/src/window/DesktopWindow.ts`                                                                                                                                 | BrowserWindow lifecycle publishes per-window demand.                                                                |
+| `apps/desktop/src/preview/WindowPolicy.preload.ts`                                                                                                                         | Optional typed demand bridge for older shells.                                                                      |
+| `packages/client-runtime/src/state/terminal.ts`                                                                                                                            | Attach atoms release without the generic idle TTL.                                                                  |
+| `packages/contracts/src/terminal.ts`                                                                                                                                       | Optional attachment status preserves released-client decoding.                                                      |
+| `apps/server/src/git/GitWorkflowService.ts`                                                                                                                                | Worktree create and remove; bind and unbind hook here.                                                              |
+| `apps/server/src/server.test.ts`                                                                                                                                           | Zmux attachment and fallback through server seams.                                                                  |
+| `apps/server/src/server.ts`                                                                                                                                                | Provides the zmux binder layer.                                                                                     |
+| `apps/server/src/zmux/**`                                                                                                                                                  | Fork-only. A conflict means upstream grew a session model.                                                          |
+| `packages/contracts/src/settings.ts`                                                                                                                                       | `terminalSessionMode` and its migration sit between upstream keys.                                                  |
+| `apps/web/src/components/settings/SettingsPanels.tsx`                                                                                                                      | Settings UI for the switch; a busy upstream file.                                                                   |
+| `apps/server/src/ws.ts`                                                                                                                                                    | Shares worktree lifecycle wiring with the binder.                                                                   |
+| `apps/desktop/src/ipc/channels.ts`                                                                                                                                         | Carries the suspend channel for a hidden terminal.                                                                  |
+| `apps/desktop/src/window/DesktopWindow.test.ts`                                                                                                                            | Suspension when a window hides.                                                                                     |
+| `apps/server/src/git/GitManager.ts`                                                                                                                                        | Binds a thread worktree to its managed session.                                                                     |
+| `apps/server/src/git/GitManager.test.ts`                                                                                                                                   | Covers that binding.                                                                                                |
+| `apps/server/src/serverSettings.ts`                                                                                                                                        | Composes the migration with other stored server modes.                                                              |
+| `apps/server/src/serverSettings.test.ts`                                                                                                                                   | The single setting driving attach and binding.                                                                      |
+| `apps/web/src/components/ThreadTerminalDrawer.test.ts`                                                                                                                     | Focus and suspension in the drawer.                                                                                 |
+| `apps/web/src/components/settings/settingsSearch.ts`                                                                                                                       | Indexes the zmux settings.                                                                                          |
+| `packages/client-runtime/src/state/runtime.test.ts`                                                                                                                        | Suspended attachment state.                                                                                         |
+| `packages/contracts/src/git.ts`                                                                                                                                            | Carries the managed session binding.                                                                                |
+| `packages/contracts/src/ipc.ts`                                                                                                                                            | Declares the suspend channel.                                                                                       |
+| `packages/contracts/src/settings.test.ts`                                                                                                                                  | Covers the zmux setting schema.                                                                                     |
+| `apps/server/src/processRunner.ts`                                                                                                                                         | Strips tmux inheritance; upstream edits break bind.                                                                 |
+| `apps/server/src/orchestration/decider.ts`                                                                                                                                 | Decides move states and rejects a turn on a moving thread.                                                          |
+| `apps/server/src/orchestration/projector.ts`                                                                                                                               | Projects `checkoutMove` and the resulting checkout root.                                                            |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`                                                                                                               | The `ProjectionThreadCheckoutMoveRepositoryLive` provide line is the fork hook.                                     |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`                                                                                                          | Reads move state into reconnect snapshots.                                                                          |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts`                                                                                                     | Covers that snapshot field.                                                                                         |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                                                                                                           | Owns the move worker, sorted leases, typed failures.                                                                |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`                                                                                                      | Provider relocation and move validation.                                                                            |
+| `apps/server/src/orchestration/Layers/CheckpointReactor.ts`                                                                                                                | Reconciles managed sessions after a branch change.                                                                  |
+| `apps/server/src/orchestration/Layers/CheckpointReactor.test.ts`                                                                                                           | Covers that reconciliation.                                                                                         |
+| `packages/contracts/src/orchestration.ts`                                                                                                                                  | Wire shapes for move commands, events, payloads.                                                                    |
+| `packages/contracts/src/index.ts`                                                                                                                                          | Re-exports `checkoutMove.ts` from a block upstream edits.                                                           |
+| `packages/client-runtime/src/operations/checkoutMove.fork.ts`, `packages/client-runtime/src/operations/commands.ts`, `packages/client-runtime/src/state/threadCommands.ts` | Fork owns the move command; `commands.ts` keeps a two-line re-export hook and `threadCommands.ts` only atom wiring. |
+| `apps/web/src/state/entities.ts`                                                                                                                                           | The web merge calls the fork merge helper.                                                                          |
+| `packages/client-runtime/src/state/checkoutMove.ts`                                                                                                                        | Re-attaches `checkoutMove` after the upstream merge, keeping `threadDetail.ts` identical.                           |
+| `apps/web/src/components/ChatView.tsx`                                                                                                                                     | Resolves launch location from checkout mode and attachment.                                                         |
+| `apps/web/src/components/BranchToolbarBranchSelector.tsx`                                                                                                                  | Locks branch selection while a move is in flight.                                                                   |
+| `apps/web/src/terminal/ghostty/surface.ts`                                                                                                                                 | `resetSession` clears replaced-PTY state without discarding the viewer.                                             |
+| `docs/architecture/terminal-renderers.md`                                                                                                                                  | Documents the visibility lifecycle and demand leases.                                                               |
+| `docs/user/source-control.md`                                                                                                                                              | Documents moving a started thread between checkouts.                                                                |
+| `docs/internals/terminal-runtime.md`                                                                                                                                       | Managed-attachment lifecycle prose; upstream moved this page once.                                                  |
+| `apps/server/src/git/CheckoutMutationCoordinator.ts`, `apps/server/src/project/AgentSessionImporter.test.ts`                                                               | Every suite building `ProviderCommandReactor` must provide the coordinator and a `VcsDriverRegistry`.               |
+| `apps/server/src/persistence/ThreadsCheckoutMove.fork.ts`, `apps/server/src/persistence/ThreadsCheckoutMove.fork.test.ts`                                                  | Fork-owned decorator and only reader/writer; upstream schema stays identical.                                       |
+| `apps/server/src/persistence/ForkSchema.ts`                                                                                                                                | Owns idempotent column creation and the nightly repair.                                                             |
+| `apps/desktop/src/preload.ts`                                                                                                                                              | Wraps `desktopBridge` in `exposePreviewCapability` and drops two members.                                           |
+| `apps/mobile/src/features/terminal/ThreadTerminalRouteScreen.tsx`                                                                                                          | Mobile move state, route-scoped Follow and Pin, command wiring.                                                     |
+| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                                        | Persists the `terminalCheckoutModes` preference.                                                                    |
+| `apps/server/integration/OrchestrationEngineHarness.integration.ts`                                                                                                        | Wires the reactor and coordinator into the harness.                                                                 |
+| `packages/client-runtime/package.json`                                                                                                                                     | Exports the `./state/checkout-move` subpath.                                                                        |
 
 ## worktrunk-hooks
 
 ### Need
 
-A thread worktree behaves like one the operator created with `wt switch --create` on the same project: the hooks in `.config/wt.toml` seed the checkout on create and clean up on remove.
-Upstream runs `git worktree add` and `git worktree remove` directly, so a project that depends on those hooks gets a bare worktree and leaves per-branch state behind.
+A thread worktree behaves like one created with `wt switch --create` on the same project: the hooks in `.config/wt.toml` seed the checkout on create and clean up on remove.
+Upstream runs `git worktree add` and `remove` directly, so a project depending on those hooks gets a bare worktree and leaves per-branch state behind.
 
 ### Shape
 
-| Aspect           | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mode             | `ThreadEnvMode` gains `worktrunk` beside upstream's `local` and `worktree`: a fresh git worktree that also runs the project's Worktrunk hooks. It is a sibling option labelled "New worktrunk" wherever upstream offers "New worktree": the New threads settings section, a project's Workspace default, `defaultThreadEnvMode` in `t3.json`, and the composer's Workspace picker. Upstream's `worktree` mode is untouched.                                                                                                                                                                                                                                                                                                |
-| Wire             | `worktrunk` never crosses the wire. Every wire schema keeps upstream's two-value `WireThreadEnvMode` and carries the exact mode in an optional `defaultThreadEnvModeFork` sibling, because a released client validates the field and drops the whole payload on an unknown literal. Storage, persisted events, the projection database, and `t3.json` keep the wide `ThreadEnvMode`; `@t3tools/shared/threadEnvMode` owns both directions and `settings.json` migrates a stored `"worktrunk"` into the pair on read.                                                                                                                                                                                                       |
-| Marker and hooks | A `worktrunk` thread sends `prepareWorktree.worktrunk: true` on its first turn. The server then drops a `t3-worktrunk` marker beside git's own `locked` file in the worktree's gitdir (`.git/worktrees/<name>/`) and runs `wt hook pre-start` and `wt hook post-start` in the new worktree, ahead of the `t3.json` setup script. Removing a marked worktree runs `wt hook pre-remove` in it first and `wt hook post-remove` in the primary checkout after; `git worktree remove` deletes the marker with the gitdir, so no thread or project state records the mode. Local VCS status reports `worktrunk: true` while the marker exists, which is how a started thread's composer reads "Worktrunk" instead of "Worktree". |
-| Hook execution   | Every hook runs headless through `wt hook <type> --yes`: `pre-*` hooks block, `post-start` returns once `wt` has detached its hooks, and a failed create hook lands as an error activity on the thread                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Gating           | `.config/wt.toml` in the project and `wt` on the server's PATH gate every hook; a mode without either degrades silently to upstream `worktree` behaviour. There is no separate on/off switch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Unsupported      | Not supported: pull-request threads (two-valued `local`/`worktree`, no hooks) and mobile, which maps a `worktrunk` default to a plain worktree                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Paths            | Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Runner           | `apps/server/src/worktrunk/` holds the hook runner; it calls `wt` through `ProcessRunner` with the inherited tmux variables stripped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Persistence      | The domain carries no persistence column. An earlier shape added one through an idempotent pass in `ForkSchema.ts`, because upstream's numbered migration list collides on rebase; a future fork column needs that pattern again, never a numbered upstream migration.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Aspect          | Rule                                                                                                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mode            | `ThreadEnvMode` gains `worktrunk` beside `local` and `worktree`, labelled "New worktrunk" wherever upstream offers "New worktree"; upstream's `worktree` is untouched                                     |
+| Wire            | `worktrunk` never crosses the wire: schemas keep the two-value `WireThreadEnvMode` plus an optional `defaultThreadEnvModeFork` sibling, because a released client drops a payload with an unknown literal |
+| Storage         | Events, projection database, and `t3.json` keep the wide `ThreadEnvMode`; `@t3tools/shared/threadEnvMode` owns both directions and `settings.json` migrates on read                                       |
+| Marker          | A `worktrunk` thread sends `prepareWorktree.worktrunk: true` on its first turn; the server drops a `t3-worktrunk` marker in the worktree gitdir                                                           |
+| Hooks           | `wt hook pre-start` and `post-start` run in the new worktree ahead of the `t3.json` setup script; `pre-remove` runs there and `post-remove` in the primary checkout                                       |
+| Marker lifetime | `git worktree remove` deletes the marker with the gitdir, so no thread or project state records the mode                                                                                                  |
+| Hook execution  | Every hook runs headless through `wt hook <type> --yes`; `pre-*` block, `post-start` returns once `wt` detached, a failed create hook lands as error activity                                             |
+| Gating          | `.config/wt.toml` and `wt` on PATH gate every hook; without either the mode degrades to upstream `worktree`. There is no separate switch                                                                  |
+| Unsupported     | Pull-request threads and mobile, which maps a `worktrunk` default to a plain worktree                                                                                                                     |
+| Paths           | Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`                                                                                                                     |
+| Runner          | `apps/server/src/worktrunk/` holds the runner, called through `ProcessRunner` with tmux variables stripped                                                                                                |
+| Persistence     | No persistence column. A future fork column needs the idempotent `ForkSchema.ts` pattern, never a numbered upstream migration                                                                             |
+
+Local VCS status reports `worktrunk: true` while the marker exists, which is how a started thread's composer reads "Worktrunk".
 
 ### Retirement condition
 
@@ -1267,67 +1309,64 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 
 ### Rebase scan
 
-| Path                                                                   | Why it matters                                                                                                                                                               |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/server/src/worktrunk/**`                                         | Fork-only. A conflict means upstream grew its own worktree hook model.                                                                                                       |
-| `apps/server/src/provider/Drivers/AntigravityDriver.ts`                | Keeps provider child environments aligned with Worktrunk scrubbing.                                                                                                          |
-| `packages/contracts/src/environment.ts`                                | `ThreadEnvMode` carries the third literal; a new upstream mode lands beside it.                                                                                              |
-| `packages/contracts/src/orchestration.ts`                              | `prepareWorktree.worktrunk` on the bootstrap payload.                                                                                                                        |
-| `packages/shared/src/threadEnvMode.ts`                                 | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.                                                                                         |
-| `packages/contracts/src/settings.ts`                                   | `defaultThreadEnvMode` pair on server settings plus its patch and migration.                                                                                                 |
-| `packages/contracts/src/settings.test.ts`                              | Covers the worktrunk default beside upstream settings.                                                                                                                       |
-| `apps/server/src/serverSettings.ts`                                    | Chains the stored-`worktrunk` settings migration.                                                                                                                            |
-| `apps/server/src/orchestration/decider.ts`                             | Folds the wire pair back into the wide mode on the persisted event.                                                                                                          |
-| `apps/server/src/orchestration/projector.ts`                           | Splits the stored mode into the wire pair for the in-memory read model.                                                                                                      |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`      | Splits the stored mode into the wire pair on every project snapshot.                                                                                                         |
-| `apps/web/src/hooks/useHandleNewThread.ts`                             | Resolves the effective new-thread mode from the wire pair.                                                                                                                   |
-| `packages/shared/src/serverSettings.ts`                                | Replaces the thread-mode pair wholesale instead of deep-merging it.                                                                                                          |
-| `apps/server/src/ws.ts`                                                | Thread bootstrap worktree create; the create hooks run before the setup script.                                                                                              |
-| `apps/server/src/server.ts`                                            | Provides the Worktrunk hook runner layer.                                                                                                                                    |
-| `apps/server/src/server.test.ts`                                       | Covers worktrunk lifecycle behavior through server seams.                                                                                                                    |
-| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`           | Shares durable activity sequencing with worktrunk-owned thread projection changes.                                                                                           |
-| `packages/contracts/src/git.ts`                                        | `worktrunk` on the local status result.                                                                                                                                      |
-| `apps/server/src/git/GitWorkflowService.ts`                            | Status carries the marker; on remove it decides the pre-remove and post-remove calls.                                                                                        |
-| `apps/web/src/components/BranchToolbar.logic.ts`                       | `EnvMode`, its labels, and every worktree-shaped resolver.                                                                                                                   |
-| `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`             | Composer Workspace picker; the third item, its icon, and the locked label.                                                                                                   |
-| `apps/web/src/components/BranchToolbarBranchSelector.tsx`              | Routes the branch selector through `isWorktreeEnvMode`.                                                                                                                      |
-| `apps/web/src/components/BranchToolbar.tsx`                            | Mobile-width Workspace menu; the same third item.                                                                                                                            |
-| `apps/web/src/components/ChatView.tsx`                                 | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.                                                                                             |
-| `apps/web/src/components/ChatView.logic.ts`                            | Shares worktree-shaped thread-start logic with the worktrunk mode.                                                                                                           |
-| `apps/web/src/composerDraftStore.ts`                                   | Keeps worktrunk-backed drafts aligned with thread startup.                                                                                                                   |
-| `apps/web/src/lib/chatThreadActions.ts`                                | Routes worktrunk thread actions through the shared startup path.                                                                                                             |
-| `apps/web/src/components/settings/SettingsPanels.tsx`                  | New threads select; a busy upstream file.                                                                                                                                    |
-| `apps/web/src/components/settings/settingsSearch.ts`                   | Indexes the worktrunk mode in shared settings search.                                                                                                                        |
-| `apps/web/src/components/settings/settingsSearch.test.ts`              | Covers worktrunk settings-search entries beside upstream preferences.                                                                                                        |
-| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`            | Project Workspace select.                                                                                                                                                    |
-| `apps/mobile/src/features/threads/new-task-flow-provider.tsx`          | Maps a `worktrunk` default to `worktree`.                                                                                                                                    |
-| `apps/server/src/git/GitManager.ts`                                    | Runs the Worktrunk hooks around a thread worktree.                                                                                                                           |
-| `apps/server/src/git/GitManager.test.ts`                               | Covers hook invocation and the pinned fixture path.                                                                                                                          |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts` | Covers the thread env mode in the snapshot.                                                                                                                                  |
-| `apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts`   | Covers the worktrunk thread mode decision.                                                                                                                                   |
-| `apps/web/src/components/GitActionsControl.tsx`                        | Hosts the worktree surfaces that replaced the hook switches.                                                                                                                 |
-| `packages/shared/src/projectSettings.ts`                               | Carries the `defaultThreadEnvModeFork` sibling through project-scope resolution and override clearing; upstream keeps editing `resolveProjectSettings` around the same loop. |
-| `packages/shared/src/projectSettings.test.ts`                          | Covers the sibling riding a project override and dropping with its wire slot; upstream keeps adding cases beside them.                                                       |
-| `apps/web/src/components/settings/SettingInheritance.tsx`              | Decodes the stored fork env mode so each inheritance layer shows the real mode, not the wire stand-in.                                                                       |
-| `apps/web/src/components/settings/scopedSettings.ts`                   | Scopes `defaultThreadEnvModeFork` alongside the upstream scoped settings.                                                                                                    |
-| `apps/web/src/components/settings/scopedSettings.test.ts`              | Covers that scoping beside the upstream cases.                                                                                                                               |
-| `packages/shared/package.json`                                         | Exports the `./threadEnvMode.fork` subpath those modules import.                                                                                                             |
-| `apps/server/src/persistence/Services/ProjectionProjects.ts`           | Decodes `defaultThreadEnvMode` through `ForkThreadEnvMode` and carries the optional `worktrunkHooks` column.                                                                 |
+| Path                                                                   | Why it matters                                                     |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `apps/server/src/worktrunk/**`                                         | Fork-only. A conflict means upstream grew a hook model.            |
+| `apps/server/src/provider/Drivers/AntigravityDriver.ts`                | Keeps child environments aligned with Worktrunk scrubbing.         |
+| `packages/contracts/src/environment.ts`                                | `ThreadEnvMode` carries the third literal.                         |
+| `packages/contracts/src/orchestration.ts`                              | `prepareWorktree.worktrunk` on the bootstrap payload.              |
+| `packages/shared/src/threadEnvMode.ts`                                 | `isWorktreeEnvMode`; `=== "worktree"` must route through it.       |
+| `packages/contracts/src/settings.ts`                                   | `defaultThreadEnvMode` pair, its patch and migration.              |
+| `packages/contracts/src/settings.test.ts`                              | Worktrunk default beside upstream settings.                        |
+| `apps/server/src/serverSettings.ts`                                    | Chains the stored-`worktrunk` settings migration.                  |
+| `apps/server/src/orchestration/decider.ts`                             | Folds the wire pair back into the wide mode.                       |
+| `apps/server/src/orchestration/projector.ts`                           | Splits the stored mode into the wire pair.                         |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`      | Same split on every project snapshot.                              |
+| `apps/web/src/hooks/useHandleNewThread.ts`                             | Resolves the effective new-thread mode from the pair.              |
+| `packages/shared/src/serverSettings.ts`                                | Replaces the thread-mode pair wholesale, not deep-merged.          |
+| `apps/server/src/ws.ts`                                                | Thread bootstrap create; hooks run before the setup script.        |
+| `apps/server/src/server.ts`                                            | Provides the Worktrunk hook runner layer.                          |
+| `apps/server/src/server.test.ts`                                       | Worktrunk lifecycle through server seams.                          |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`           | Shares activity sequencing with worktrunk thread projection.       |
+| `packages/contracts/src/git.ts`                                        | `worktrunk` on the local status result.                            |
+| `apps/server/src/git/GitWorkflowService.ts`                            | Status carries the marker and decides the remove hooks.            |
+| `apps/web/src/components/BranchToolbar.logic.ts`                       | `EnvMode`, its labels, every worktree-shaped resolver.             |
+| `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`             | Composer Workspace picker: third item, icon, locked label.         |
+| `apps/web/src/components/BranchToolbarBranchSelector.tsx`              | Routes the branch selector through `isWorktreeEnvMode`.            |
+| `apps/web/src/components/BranchToolbar.tsx`                            | Mobile-width Workspace menu; the same third item.                  |
+| `apps/web/src/components/ChatView.tsx`                                 | Sends `worktrunk: true` and feeds the status flag.                 |
+| `apps/web/src/components/ChatView.logic.ts`                            | Shares worktree-shaped thread-start logic.                         |
+| `apps/web/src/composerDraftStore.ts`                                   | Keeps worktrunk-backed drafts aligned with startup.                |
+| `apps/web/src/lib/chatThreadActions.ts`                                | Routes worktrunk actions through the shared startup path.          |
+| `apps/web/src/components/settings/SettingsPanels.tsx`                  | New threads select; a busy upstream file.                          |
+| `apps/web/src/components/settings/settingsSearch.ts`                   | Indexes the worktrunk mode in settings search.                     |
+| `apps/web/src/components/settings/settingsSearch.test.ts`              | Covers those entries beside upstream preferences.                  |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`            | Project Workspace select.                                          |
+| `apps/mobile/src/features/threads/new-task-flow-provider.tsx`          | Maps a `worktrunk` default to `worktree`.                          |
+| `apps/server/src/git/GitManager.ts`                                    | Runs the Worktrunk hooks around a thread worktree.                 |
+| `apps/server/src/git/GitManager.test.ts`                               | Hook invocation and the pinned fixture path.                       |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts` | Thread env mode in the snapshot.                                   |
+| `apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts`   | The worktrunk thread mode decision.                                |
+| `apps/web/src/components/GitActionsControl.tsx`                        | Hosts the worktree surfaces that replaced the switches.            |
+| `packages/shared/src/projectSettings.ts`                               | Carries the sibling through project-scope resolution and clearing. |
+| `packages/shared/src/projectSettings.test.ts`                          | Covers the sibling riding an override and dropping with its slot.  |
+| `apps/web/src/components/settings/SettingInheritance.tsx`              | Decodes the stored fork env mode per inheritance layer.            |
+| `apps/web/src/components/settings/scopedSettings.ts`                   | Scopes `defaultThreadEnvModeFork` alongside upstream.              |
+| `apps/web/src/components/settings/scopedSettings.test.ts`              | Covers that scoping beside the upstream cases.                     |
+| `packages/shared/package.json`                                         | Exports the `./threadEnvMode.fork` subpath.                        |
+| `apps/server/src/persistence/Services/ProjectionProjects.ts`           | Decodes through `ForkThreadEnvMode`; carries `worktrunkHooks`.     |
 
 ## Adding a domain
 
 A new domain needs its own section with the same four headings, and a row in the domain index.
 Its name becomes the `Fork-Domain` trailer of its first commit.
 
-Answer three questions before opening one:
+| #   | Question                                                |
+| --- | ------------------------------------------------------- |
+| 1   | What does upstream not do, stated as behavior?          |
+| 2   | What would upstream ship for this domain to be deleted? |
+| 3   | Which upstream paths does it touch?                     |
 
-| #   | Question                                                                  |
-| --- | ------------------------------------------------------------------------- |
-| 1   | What does upstream not do, stated as behavior rather than implementation? |
-| 2   | What would upstream have to ship for this domain to be deleted?           |
-| 3   | Which upstream paths does it touch, so a rebase scan can find collisions? |
-
-If the third answer is "many files across unrelated systems", the change is probably a bugfix rather than a domain, and it belongs to `upstream-fixes`.
-
-Keep the domain's new code in its own files so it replays cleanly onto upstream.
+If the third answer is "many files across unrelated systems", the change is probably a bugfix and belongs to `upstream-fixes`.
+Keep the domain's new code in its own files so it replays cleanly.
 See [Extracting a domain](./fork-development.md#extracting-a-domain).

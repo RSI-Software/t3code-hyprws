@@ -761,7 +761,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.threadRouteNavigationAdded) {
       warn(
         "thread-route-navigation",
-        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts/useThreadActions.ts gains direct route-family policy; use lib/threadRouteNavigation, retain execution-time parameter reads at navigation sites, and keep the call-site budget in docs/fork/internals/thread-route-navigation.md current",
+        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts/useThreadActions.ts gains direct route-family policy; use lib/threadRouteNavigation, retain execution-time parameter reads at navigation sites, and keep the call-site budget in docs/fork/internals/fork-delta.md#project-windows current",
       );
     }
     if (patch.richMarkdownImplementationAdded) {
