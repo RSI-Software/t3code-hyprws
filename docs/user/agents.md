@@ -1,14 +1,14 @@
 # Agents panel
 
-The Agents panel shows subagents started by the current thread. Rows keep their spawn order while
-status, current activity, elapsed time, and usage update in place.
+The Agents panel lists subagents started by the current thread, in spawn order.
+Status, current activity, elapsed time, and usage update in place.
 
-Select a Codex or Claude child to open its read-only activity history. The detail view combines
-retained activity with new events as they arrive and remains available after reconnecting. Use
-**Back** or <kbd>Escape</kbd> to return to the roster.
+Select a Codex or Claude child to open its activity history.
+The view keeps retained activity, adds new events as they arrive, and survives a reconnect.
+Press <kbd>Escape</kbd> to return to the roster.
 
-A spawn card for one child opens that child's detail directly. A card for several children opens
-the roster at that group without choosing one for you.
+A spawn card opens the child it names, or the roster at that group when it names several.
 
-Child detail is observational. It has no prompt, steer, stop, resume, or other control. Providers
-that do not expose durable child activity show that limitation explicitly.
+**Child detail is read-only.**
+There is no prompt, steer, stop, or resume.
+A provider without durable child activity says so in the panel.

@@ -1,39 +1,39 @@
 # Fork strategy scorecard
 
-> Current system graded against the [fork strategy](./fork-strategy.md) target, ordered as a
-> migration sequence. Update the grades and snapshot when the gap moves.
+> Current system graded against the [fork strategy](./fork-strategy.md) target, ordered as a migration sequence. Update the grades and snapshot when the gap moves.
 
 **Legend** · Grades A–F · Value 💎💎💎 major / 💎💎 solid / 💎 nice · Effort 🟢 easy / 🟡 moderate / 🔴 heavy
 
-Waves order the work: remove recurring friction first, then build the instruments that make later
-calls evidence-based, then convert prose contracts to machine contracts, and restructure only once
-the instruments prove where it pays. No hurry; each wave stands on its own.
+Waves order the work: remove recurring friction, then build the instruments that make later calls evidence-based, then convert prose contracts to machine contracts, and restructure only once the instruments prove where it pays.
+Each wave stands on its own. No hurry.
 
-## Wave 1 — quick wins
+## Wave 1: quick wins
 
-| Dimension           | Now | Target | Value  | Effort | Gap                                                                                                                                                          |
-| ------------------- | :-: | :----: | :----: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Regenerable files   |  A  |   A    | 💎💎💎 |   🟢   | At target. `pnpm-lock.yaml` is the registered `generated` class: restored from `HEAD`, re-derived with `vp install --lockfile-only`, never merged.           |
-| Operational records |  A  |   A    |  💎💎  |   🟢   | At target. Human rehearsal records post as blocked-issue comments; the apply gate requires `--record <path>` and refuses a record inside the repository.     |
-| Release provenance  |  A  |   A    |   💎   |   🟢   | At target. Release bodies stamp `Delta revision:`, a stable range-hash over the stack's ordered patch-ids (`scripts/fork-release-delta-rev.ts`).             |
-| Granularity policy  | A−  |   A−   |   💎   |   🟢   | At target. The development guide states it: a seam commit carries one intent and stays small; fork-only paths need no curation; the stack is never squashed. |
+All at target.
 
-## Wave 2 — instruments
+| Dimension           | Now | Target | Value  | Effort | Gap                                                                                                                                               |
+| ------------------- | :-: | :----: | :----: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Regenerable files   |  A  |   A    | 💎💎💎 |   🟢   | `pnpm-lock.yaml` is the registered `generated` class: restored from `HEAD`, re-derived with `vp install --lockfile-only`, never merged.           |
+| Operational records |  A  |   A    |  💎💎  |   🟢   | Human rehearsal records post as blocked-issue comments; the apply gate requires `--record <path>` and refuses a record inside the repository.     |
+| Release provenance  |  A  |   A    |   💎   |   🟢   | Release bodies stamp `Delta revision:`, a stable range-hash over the stack's ordered patch-ids (`scripts/fork-release-delta-rev.ts`).             |
+| Granularity policy  | A−  |   A−   |   💎   |   🟢   | Stated in the development guide: a seam commit carries one intent and stays small; fork-only paths need no curation; the stack is never squashed. |
 
-| Dimension             | Now | Target | Value  | Effort | Gap                                                                                                                                                    |
-| --------------------- | :-: | :----: | :----: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Seam-pressure metrics |  D  |   A    | 💎💎💎 |   🟡   | No metrics exist; refactor-vs-automate calls run on feel. A churn × shared-file report per domain is the prerequisite for every later structural call. |
-| Delta-log             |  B  |   A    |  💎💎  |   🟡   | The branch is the only delta identity and each rebase erases its history. Append one record per accepted state; pairs with release provenance.         |
+## Wave 2: instruments
 
-## Wave 3 — machine contracts
+| Dimension             | Now | Target | Value  | Effort | Gap                                                                                                                                            |
+| --------------------- | :-: | :----: | :----: | :----: | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Seam-pressure metrics |  D  |   A    | 💎💎💎 |   🟡   | No metrics exist; refactor-vs-automate calls run on feel. A churn × shared-file report per domain gates every later structural call.           |
+| Delta-log             |  B  |   A    |  💎💎  |   🟡   | The branch is the only delta identity and each rebase erases its history. Append one record per accepted state; pairs with release provenance. |
 
-| Dimension        | Now | Target | Value  | Effort | Gap                                                                                                                                                                                                              |
-| ---------------- | :-: | :----: | :----: | :----: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Seam manifests   |  B  |   A    | 💎💎💎 |   🔴   | `fork:scan` catches undeclared shared files, but the scan tables are prose with no anchors, widths, or budgets. Converting them to authoritative manifests is the biggest single lever and touches every domain. |
-| Retirement watch | B−  |   A−   |  💎💎  |   🟡   | Retire conditions are prose a human walks each rebase. Machine-watch `retire-when` rules through the existing upstream watch.                                                                                    |
-| Typed gates      | B+  |   A    |   💎   |   🟡   | Gated skills exist but verdicts are partly prose. Type them, and pin the four human decision points explicitly.                                                                                                  |
+## Wave 3: machine contracts
 
-## Wave 4 — heavy lifts
+| Dimension        | Now | Target | Value  | Effort | Gap                                                                                                                                                                                      |
+| ---------------- | :-: | :----: | :----: | :----: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Seam manifests   |  B  |   A    | 💎💎💎 |   🔴   | `fork:scan` catches undeclared shared files, but its tables are prose with no anchors, widths, or budgets. Authoritative manifests are the biggest single lever, and touch every domain. |
+| Retirement watch | B−  |   A−   |  💎💎  |   🟡   | Retire conditions are prose a human walks each rebase. Machine-watch `retire-when` rules through the existing upstream watch.                                                            |
+| Typed gates      | B+  |   A    |   💎   |   🟡   | Gated skills exist but verdicts are partly prose. Type them, and pin the four human decision points explicitly.                                                                          |
+
+## Wave 4: heavy lifts
 
 | Dimension   | Now | Target | Value | Effort | Gap                                                                                                                                             |
 | ----------- | :-: | :----: | :---: | :----: | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,16 +43,16 @@ the instruments prove where it pays. No hurry; each wave stands on its own.
 
 ## Continuous
 
-**Seam reshaping** — 💎💎💎 🔴, never a wave. 278 of the delta's 477 files sit in upstream's 90-day
-churn path. That number only shrinks through case-by-case reshaping (retire, or move logic into
-fork-only paths behind a narrow hook), prioritized by the wave-2 pressure report.
+**Seam reshaping**: 💎💎💎 🔴, never a wave.
+278 of the delta's 477 files sit in upstream's 90-day churn path.
+That number only shrinks through case-by-case reshaping (retire, or move logic into fork-only paths behind a narrow hook), prioritized by the wave-2 pressure report.
 
 ## Already at target
 
-Candidate/promote/release machinery (A−): `hyprws-next`, `hyprws-previous`, leased promotion,
-candidate mode. Keep as is.
+Candidate/promote/release machinery (A−): `hyprws-next`, `hyprws-previous`, leased promotion, candidate mode.
+Keep as is.
 
-## Snapshot — 2026-08-31
+## Snapshot: 2026-08-31
 
 Measured over `merge-base(hyprws, main)..hyprws`, upstream churn window 90 days:
 
@@ -63,5 +63,5 @@ Measured over `merge-base(hyprws, main)..hyprws`, upstream churn window 90 days:
 | Fork-only (added) files            |                                                       196 |
 | Modified upstream files            |                                                       281 |
 | Delta files in upstream churn path |                                                 278 (58%) |
-| fork-meta commits                  |       64 (18% seam ratio — the cheapest 40% of the stack) |
+| fork-meta commits                  |        64 (18% seam ratio: the cheapest 40% of the stack) |
 | Highest seam-ratio domains         | worktrunk-hooks 87%, thread-ordering 81%, zmux-estate 82% |

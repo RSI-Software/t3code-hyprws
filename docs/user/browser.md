@@ -1,20 +1,27 @@
 # Browser bookmarks
 
-The desktop browser can keep frequently used pages close to the project where you use them or available everywhere in the same T3 Code profile.
+The desktop browser keeps frequently used pages close to the project where you use them, or available everywhere in the same T3 Code profile.
 
 ## Save a page
 
-Open a page, then select the star at the right of the address field. Choose one scope:
+Open a page, then select the star in the address field and choose a scope:
 
-- **Project bookmark** appears only while browsing from the current project.
-- **Global bookmark** appears from every project window that uses the same T3 Code profile.
+| Scope                | Appears in                                   |
+| -------------------- | -------------------------------------------- |
+| **Project bookmark** | the current project only                     |
+| **Global bookmark**  | every project window on this T3 Code profile |
 
-The star is filled when the current page is bookmarked. Open it again to move the bookmark between scopes or remove it.
+Open the star again to change the scope or remove the bookmark.
 
 ## Open a bookmark
 
-Open a new browser tab. Saved pages appear before Recently used and Local servers, with Project bookmarks first and Global bookmarks second. Select a bookmark to open it in the current tab.
+Open a new browser tab.
+Saved pages list ahead of Recently used and Local servers, Project bookmarks first.
+Select one to open it in the current tab.
 
-Empty bookmark sections stay hidden. Bookmarks persist across app restarts, and equivalent URL forms are kept as one bookmark.
+## Notes
 
-Global bookmarks are local to the current T3 Code profile. They do not sync to a different profile, server, or device.
+- **Persistence:** survives app restarts.
+- **URL forms:** equivalents count as one.
+- **Global scope:** current profile only.
+- **Sync:** none, to any profile or device.

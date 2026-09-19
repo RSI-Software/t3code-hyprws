@@ -1,19 +1,24 @@
-# Fork test divergence — upstream test files touched in place
+# Fork test divergence
 
-Measured with:
+> Upstream test files the fork touches in place.
+
+Measured against tag `v0.0.41-nightly.20260909.1426` with:
 
 ```sh
 git diff --numstat v0.0.41-nightly.20260909.1426 origin/hyprws -- '*.test.ts' '*.test.tsx' \
   | grep -v '\.fork\.test\.'
 ```
 
-against tag `v0.0.41-nightly.20260909.1426`. The command returns **146 files**: 56 are upstream test files the fork edits in place; the other 90 are fork-authored test files created without the `*.fork.test.*` suffix, which therefore also match the grep. Totals: +32,462 / −198.
+**146 files**, totals +32,462 / −198: 56 upstream test files the fork edits in place, plus 90 fork-authored files that lack the `*.fork.test.*` suffix and so match the grep too.
 
-Counts are taken at `hyprws` commit `b20eb5e34f`. Each file's class is durable, but a later fork
-commit that touches a listed file moves that row's line count and the totals with it; rerun the
-command above before quoting a number.
+Counts are taken at `hyprws` commit `b20eb5e34f`. Each file's class is durable, but any later fork commit that touches a listed file moves that row's line count and the totals, so rerun the command before quoting a number.
 
-Classes: `append` (fork only added; upstream assertions untouched), `rewrite` (an upstream assertion's meaning changed), `deletion` (an upstream assertion or case removed). New fork-authored files carry no upstream assertions, so they are classed `append` with kind _new-file_.
+**Classes**
+
+- **append**: upstream assertions untouched
+- **rewrite**: an upstream assertion changed meaning
+- **deletion**: upstream assertion or case removed
+- **new-file**: fork-authored, so classed `append`
 
 ## Summary
 
@@ -26,14 +31,7 @@ Classes: `append` (fork only added; upstream assertions untouched), `rewrite` (a
 
 ## Upstream test files edited in place (56)
 
-This table is read by machine. `fork:scan` and the additive gate refuse a fork commit that changes
-or removes a line in an upstream test file, and they exempt exactly the paths in the first column
-of this table — parsed out of this file at the head being scanned, not restated as a constant in
-`scripts/`. So a file leaves the append-only baseline by leaving this table, which is the same edit
-that records its migration to a `*.fork.test.*` sibling. The other lists of backticked paths in
-this report are prose and grant nothing; a missing or unparseable report grants nothing either,
-because an absent allow-list must never read as a licence. Keep the count in this heading accurate:
-`scripts/lib/fork-test-debt.test.ts` asserts it against the number of rows.
+This table is read by machine. `fork:scan` and the additive gate refuse a fork commit that changes or removes a line in an upstream test file, and exempt exactly the first-column paths, parsed out of this file at the scanned head rather than restated as a constant in `scripts/`. A file leaves the append-only baseline by leaving this table, the same edit that records its migration to a `*.fork.test.*` sibling. Every other backticked path list here is prose and grants nothing; a missing or unparseable report grants nothing either, because an absent allow-list must never read as a licence. Keep this heading's count accurate: `scripts/lib/fork-test-debt.test.ts` asserts it against the number of rows.
 
 | File                                                                   | Diff       | Class    |
 | ---------------------------------------------------------------------- | ---------- | -------- |
@@ -94,30 +92,49 @@ because an absent allow-list must never read as a licence. Keep the count in thi
 | `packages/contracts/src/settings.test.ts`                              | +4 / −4    | append   |
 | `scripts/build-desktop-artifact.test.ts`                               | +3 / −0    | append   |
 
-## `rewrite` rows — assertion affected and owning commit
+## `rewrite` rows: assertion affected and owning commit
 
-- `apps/desktop/src/app/DesktopClerk.test.ts` (+7 / −3) — `cfd9465bd5f`: `assert.deepEqual(registeredEvents, ["second-instance"])` weakened to `assert.include`; `clerk.configure` → `clerk.configure(() => Effect.void)`.
-- `apps/desktop/src/preview/Manager.test.ts` (+87 / −16) — `f5839c6d0ff`: Three upstream expectations rewritten: guest `zoom-changed` events are now adopted instead of ignored; `reapplyZoom` → `preserveGuestZooms` with embedder-before-guest ordering; window-close race error `PreviewMainWindowClosedError` → `PreviewTabNotFoundError`.
-- `apps/desktop/src/updates/DesktopUpdates.test.ts` (+4 / −4) — `38dd3f2c626`: All `installSteps` assertions gained a leading `"capture"` step.
-- `apps/server/src/orchestration/Layers/CheckpointReactor.test.ts` (+54 / −36) — `85a40bb55be`: “does not adopt a drifted checkout from %s when the worktree is shared by another thread” inverted to “adopts a drifted checkout … for idle threads sharing the worktree” (expected branch stays `threadBranch` + no PR refresh → both threads follow the renamed ref).
-- `apps/server/src/project/ProjectSetupScriptRunner.test.ts` (+3 / −2) — `43c71f57602`: Expected terminal write payloads `"npm install\r"` / `"bun install\r"` → wrapped with `&& echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r`.
-- `apps/server/src/project/RepositoryIdentityResolver.test.ts` (+14 / −15) — `118436798ca`: Expected `locator.remoteName` `upstream` → `origin`; refresh now keeps `julius/t3code` on `add` instead of adopting `t3tools/t3code` (`canonicalKey`/`displayName` expectations rewritten).
-- `apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts` (+2 / −1) — `5ec7743785d`: SDK fixture `agents: []` → a `fable` agent; expected probe result gains an `agents` field.
-- `apps/server/src/provider/Layers/CodexAdapter.test.ts` (+8 / −2) — `9b8512d68fb`: Upstream `deepStrictEqual` of the whole runtime-factory start-options object → split into `environment` checks (`T3CODE_THREAD_ID` set, `T3CODE_PROJECT_ID` unset) plus a partial `deepStrictEqual` of the remainder.
-- `apps/server/src/provider/Layers/CodexCollabWire.test.ts` (+10 / −7) — `9736354e8ce`: “drops only enumerated child chatter” asserted `item/agentMessage/delta`, `item/reasoning/textDelta`, and `item/commandExecution/outputDelta` are dropped; the fork moved them into the forwarded passthrough list.
-- `apps/server/src/provider/ProviderInstanceEnvironment.test.ts` (+23 / −5) — `6937937a6b0`: “leaves inherited provider homes unchanged” now expects only the own driver's home (`CODEX_HOME` _or_ `CLAUDE_CONFIG_DIR`), not both; the override case went from `toMatchObject` to strict `toEqual` with `TMUX`/`TMUX_PANE` pinning.
-- `apps/server/src/pullRequest/PullRequestService.test.ts` (+20 / −7) — `cfd9465bd5f`: Upstream case “refuses a repository that does not belong to the requested project” inverted in place to “reads a repository …” (expected `PullRequestOperationError` → expects success).
-- `apps/server/src/sourceControl/GitHubSourceControlProvider.test.ts` (+30 / −3) — `118436798ca`: Expected gh `pr create` argv gains `--repo github.com/rsi-software/t3code-hyprws`; `createInput` expectation gains `repository`; `getChangeRequest`/`createPullRequest` calls now pass a `context` argument.
-- `apps/web/src/components/ChatMarkdown.test.tsx` (+3 / −3) — `b5868db8aec`: GitHub-icon favicon input changed from `https://github.com/pingdotgg/t3code/pull/1` to bare `https://github.com`.
-- `apps/web/src/components/chat/composerProviderState.test.tsx` (+5 / −4) — `5ec7743785d`: Three plan-mode tests switched provider `codex` → `opencode` in both input and expected state.
-- `apps/web/src/components/settings/settingsSearch.test.ts` (+8 / −1) — `97d07d3beda`: `searchSettings("external links")[0]` equals `browser-link-target` → relaxed to `.find(id === "browser-link-target")` anywhere in the results; a new external-workspace-symlinks assertion was inserted into an upstream case.
-- `apps/web/src/keybindings.test.ts` (+7 / −2) — `5995bebfd61`: “never shows jump hints while the terminal is focused” inverted to “shows jump hints … because the drawer forwards them” (`assert.isFalse` → `assert.isTrue`).
-- `apps/web/src/rightPanelStore.test.ts` (+16 / −8) — `9dc747be4b9`: “replaces the standalone explorer with peer file surfaces” inverted to “keeps the standalone explorer beside peer file surfaces” (expected `surfaces` no longer drop `files`); agents-surface expectations reshaped to the extended `agentsSurface` object.
-- `packages/client-runtime/src/state/threadReducer.test.ts` (+12 / −6) — `eb9298b51ee`: Live-append ordering expectation changed from `[activity-a, activity-b, activity-null]` to `[activity-null, activity-a, activity-b, activity-c]`; the “snapshot loads freeze the null-sequence prefix” premise was replaced (snapshot prefix is repaired, not frozen).
+Table order; diffs stay in the table above.
+
+**`apps/desktop/src/app/DesktopClerk.test.ts`** (`cfd9465bd5f`): `assert.deepEqual(registeredEvents, ["second-instance"])` weakened to `assert.include`; `clerk.configure` became `clerk.configure(() => Effect.void)`.
+
+**`apps/desktop/src/preview/Manager.test.ts`** (`f5839c6d0ff`): three upstream expectations rewritten. Guest `zoom-changed` events are now adopted instead of ignored; `reapplyZoom` became `preserveGuestZooms` with embedder-before-guest ordering; the window-close race error `PreviewMainWindowClosedError` became `PreviewTabNotFoundError`.
+
+**`apps/desktop/src/updates/DesktopUpdates.test.ts`** (`38dd3f2c626`): all `installSteps` assertions gained a leading `"capture"` step.
+
+**`apps/server/src/orchestration/Layers/CheckpointReactor.test.ts`** (`85a40bb55be`): "does not adopt a drifted checkout from %s when the worktree is shared by another thread" inverted to "adopts a drifted checkout ... for idle threads sharing the worktree". The expected branch stays `threadBranch` with no PR refresh, so both threads follow the renamed ref.
+
+**`apps/server/src/project/ProjectSetupScriptRunner.test.ts`** (`43c71f57602`): expected terminal write payloads `"npm install\r"` and `"bun install\r"` are now wrapped with `&& echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r`.
+
+**`apps/server/src/project/RepositoryIdentityResolver.test.ts`** (`118436798ca`): expected `locator.remoteName` moved from `upstream` to `origin`; refresh now keeps `julius/t3code` on `add` instead of adopting `t3tools/t3code`, rewriting the `canonicalKey` and `displayName` expectations.
+
+**`apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts`** (`5ec7743785d`): SDK fixture `agents: []` became a `fable` agent, and the expected probe result gained an `agents` field.
+
+**`apps/server/src/provider/Layers/CodexAdapter.test.ts`** (`9b8512d68fb`): the upstream `deepStrictEqual` of the whole runtime-factory start-options object split into `environment` checks (`T3CODE_THREAD_ID` set, `T3CODE_PROJECT_ID` unset) plus a partial `deepStrictEqual` of the remainder.
+
+**`apps/server/src/provider/Layers/CodexCollabWire.test.ts`** (`9736354e8ce`): "drops only enumerated child chatter" asserted that `item/agentMessage/delta`, `item/reasoning/textDelta`, and `item/commandExecution/outputDelta` are dropped; the fork moved them into the forwarded passthrough list.
+
+**`apps/server/src/provider/ProviderInstanceEnvironment.test.ts`** (`6937937a6b0`): "leaves inherited provider homes unchanged" now expects only the own driver's home (`CODEX_HOME` or `CLAUDE_CONFIG_DIR`), not both; the override case went from `toMatchObject` to a strict `toEqual` with `TMUX` and `TMUX_PANE` pinning.
+
+**`apps/server/src/pullRequest/PullRequestService.test.ts`** (`cfd9465bd5f`): the upstream case "refuses a repository that does not belong to the requested project" was inverted in place to "reads a repository ...", so the expected `PullRequestOperationError` became success.
+
+**`apps/server/src/sourceControl/GitHubSourceControlProvider.test.ts`** (`118436798ca`): the expected gh `pr create` argv gained `--repo github.com/rsi-software/t3code-hyprws`; the `createInput` expectation gained `repository`; `getChangeRequest` and `createPullRequest` calls now pass a `context` argument.
+
+**`apps/web/src/components/ChatMarkdown.test.tsx`** (`b5868db8aec`): the GitHub-icon favicon input changed from `https://github.com/pingdotgg/t3code/pull/1` to bare `https://github.com`.
+
+**`apps/web/src/components/chat/composerProviderState.test.tsx`** (`5ec7743785d`): three plan-mode tests switched provider `codex` to `opencode` in both input and expected state.
+
+**`apps/web/src/components/settings/settingsSearch.test.ts`** (`97d07d3beda`): `searchSettings("external links")[0]` equals `browser-link-target` was relaxed to a `.find(id === "browser-link-target")` anywhere in the results, and a new external-workspace-symlinks assertion was inserted into an upstream case.
+
+**`apps/web/src/keybindings.test.ts`** (`5995bebfd61`): "never shows jump hints while the terminal is focused" inverted to "shows jump hints ... because the drawer forwards them", turning `assert.isFalse` into `assert.isTrue`.
+
+**`apps/web/src/rightPanelStore.test.ts`** (`9dc747be4b9`): "replaces the standalone explorer with peer file surfaces" inverted to "keeps the standalone explorer beside peer file surfaces", so the expected `surfaces` no longer drop `files`; agents-surface expectations were reshaped to the extended `agentsSurface` object.
+
+**`packages/client-runtime/src/state/threadReducer.test.ts`** (`eb9298b51ee`): the live-append ordering expectation changed from `[activity-a, activity-b, activity-null]` to `[activity-null, activity-a, activity-b, activity-c]`, and the "snapshot loads freeze the null-sequence prefix" premise was replaced, because the snapshot prefix is repaired, not frozen.
 
 ## `deletion` rows
 
-- `apps/web/src/localApi.test.ts` (+0 / −5) — `3f9e734d640` (removed the upstream `showContextMenu` delegation assertions — the `showContextMenu` bridge mock, the `items` fixture, `api.contextMenu.show(items)` resolving `"delete"`, and `expect(showContextMenu).toHaveBeenCalledWith(items, undefined)`. The follow-up additive-gate repair walk `cfd9465bd5f` reported `findings: 0` and did not restore them (tracked by RSI-Software/t3code-hyprws#697)).
+**`apps/web/src/localApi.test.ts`** (`3f9e734d640`): removed the upstream `showContextMenu` delegation assertions, namely the `showContextMenu` bridge mock, the `items` fixture, `api.contextMenu.show(items)` resolving `"delete"`, and `expect(showContextMenu).toHaveBeenCalledWith(items, undefined)`. The follow-up additive-gate repair walk `cfd9465bd5f` reported `findings: 0` and did not restore them, tracked by RSI-Software/t3code-hyprws#697.
 
 ## Fork-authored test files missing the `*.fork.test` suffix (90, kind new-file)
 

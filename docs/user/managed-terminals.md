@@ -1,15 +1,56 @@
 # Managed terminals and checkout moves
 
-When **Managed zmux terminals** is enabled in project settings, T3 Code keeps a thread's shell attached to the zmux session owned by its checkout. The first terminal open may create or restore that session. A failure is shown in the terminal instead of silently opening a different shell.
+With **Managed zmux terminals** on in project settings, a thread's shell attaches to the zmux session owned by its checkout.
+The first terminal open may create or restore that session.
+A failure is reported in the terminal instead of silently opening a different shell.
 
-Moving a started thread to another existing checkout waits while a turn is active or waiting to start. The branch selector shows the requested and effective checkout while the move is queued. After the turn settles, T3 Code resumes the provider in the destination and commits the thread's new checkout. Each connected client then reattaches its following terminal views from that committed state; a remote or disconnected client does the same after it receives the state on reconnect. Hidden terminals stay asleep. A partial move lists the steps that succeeded and offers **Retry**. A completed move offers **Undo**, which is accepted only while the physical checkout still matches the completed move. Web, desktop, and mobile show the same status and recovery action.
+## Requirements
 
-Terminal views follow their thread by default. Choose **Pin to this checkout** in the terminal menu to keep that device's view at its current checkout. The preference is local to that browser or mobile device. Choose **Follow thread checkout** to reattach that same view to the thread's current effective checkout. Other devices and external zmux clients are not closed or moved by a pinned view.
+Managed terminals need a compatible `zmux` on the T3 server host, including `zmux checkout ensure` and `zmux open --ready-token`.
+Those commands may exist before a numbered zmux release includes them.
+Remote browsers and mobile devices use the server host's zmux, not a binary on the client.
 
-Follow and pin controls are temporarily disabled while a move is queued or preparing. This keeps the local terminal intent stable until the authoritative transition settles. Terminal attachment identities and follow or pin preferences stay local to each device; they are not included in a checkout move request.
+If zmux is unavailable or too old, T3 Code preserves the existing terminal and reports the failure.
+Update or configure zmux on the host, then retry.
 
-Managed terminals require the T3 server host to provide a compatible `zmux` binary. The required command surface includes `zmux checkout ensure` and `zmux open --ready-token`; these commands may exist before a numbered zmux release includes them. Remote browsers and mobile devices use the server host's zmux installation, not a binary installed on the client.
+## Move a thread to another checkout
 
-If zmux is unavailable or too old, T3 Code preserves the existing terminal and reports an actionable failure. Update or configure zmux on the server host, then retry the terminal open or checkout move. A restorable session is restored through zmux before attachment. T3 Code never infers a replacement from a shell's current directory.
+1. The move queues while a turn runs or waits.
+2. Branch selector shows requested and effective.
+3. The turn settles; the provider resumes there.
+4. The new checkout commits.
+5. Clients reattach following terminals.
 
-Managed attachment uses explicit shell escape mode when it starts a shell through zmux. Shell startup files and environment variables still apply inside the attached shell; T3 Code does not move arbitrary processes between checkouts.
+A remote or disconnected client reattaches once it receives the committed state.
+Hidden terminals stay asleep.
+
+**Recovery**
+
+| Outcome      | Offer                                               |
+| ------------ | --------------------------------------------------- |
+| **Partial**  | the steps that succeeded, plus **Retry**            |
+| **Complete** | **Undo**, while the physical checkout still matches |
+
+Web, desktop, and mobile show the same status and recovery action.
+
+## Follow or pin a terminal
+
+Terminal views follow their thread by default.
+
+| Choice                     | Effect                                        |
+| -------------------------- | --------------------------------------------- |
+| **Pin to this checkout**   | keeps this device's view where it is          |
+| **Follow thread checkout** | reattaches to the thread's effective checkout |
+
+The preference is local to that browser or mobile device.
+Pinning does not close or move other devices or external zmux clients.
+
+Both controls are disabled while a move is queued or preparing.
+Attachment identities and follow or pin preferences are never sent in a move request.
+
+## Shell behavior
+
+Managed attachment starts the shell through zmux in explicit escape mode.
+Shell startup files and environment variables still apply inside the attached shell.
+A restorable session is restored through zmux before attachment.
+T3 Code never infers a replacement checkout from a shell's current directory, and never moves arbitrary processes between checkouts.
