@@ -15,6 +15,7 @@ import {
   renderScanWarnings,
   significantTestLines,
   ADOPTED_AUTHORING_GUARDS,
+  AUTHORING_GUARD_TARGETS,
   UPSTREAM_FOOTPRINT_BUDGET,
   UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS,
   type GuardInput,
@@ -1820,4 +1821,29 @@ it("reads a real temp-repo commit: marked hooks pass, woven edits draw exactly t
   assert.match(wovenWarnings[0]?.detail ?? "", /outside a marked fork-hook/);
   assert.match(wovenWarnings[1]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
   assert.match(wovenWarnings[2]?.detail ?? "", /missing from FORK_HOOKS/);
+});
+
+// Each scar rule refuses an inline implementation and directs the author to a fork-owned module.
+// The narrow call that stays behind is an added line on an upstream-owned path, which
+// `fork-hook-seam` charges unless it carries a marker the manifest knows. A named target with no
+// key therefore has no legal repair at all (RSI-Software/t3code-hyprws#1099). This lives beside the
+// guards rather than beside the manifest because `apps/desktop/tsconfig.json` includes
+// `scripts/lib`, so a test under there may not import out of that directory.
+it("gives every scar-rule target a manifest key", () => {
+  const owned = new Set(Object.values(FORK_HOOKS).map((entry) => entry.path));
+  // A retired path is the one exemption: its rule refuses every line, so no marked shape is legal on
+  // it and a key would mean nothing. Read the exemption off the `retiredParser` target name rather
+  // than off one rule, so a second rule that retires a path is exempt without editing this test.
+  const missing = Object.values(AUTHORING_GUARD_TARGETS)
+    .flatMap((targets) =>
+      Object.entries(targets)
+        .filter(([target]) => target !== "retiredParser")
+        .map(([, path]) => path),
+    )
+    .filter((path) => !owned.has(path));
+  assert.deepStrictEqual(
+    missing,
+    [],
+    `scar targets without a fork-hook key:\n${missing.join("\n")}`,
+  );
 });
