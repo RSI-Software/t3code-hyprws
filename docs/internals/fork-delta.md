@@ -552,6 +552,8 @@ Profile clearing must preserve other profiles, while equal hub/project tab IDs r
 | `apps/desktop/src/electron/ElectronWindow.ts`                                                                                       | The Electron window wrapper the fork keys by `WindowIdentity` so an update restores each project window to its own workspace. |
 | `apps/web/src/routes/_chat.index.tsx`                                                                                               | Renders the shared `DraftStartError` retry the hub and project-scoped draft routes both use.                                  |
 | `apps/web/src/routes/settings.tsx`                                                                                                  | Uses `useLeaveFullPage` so Settings closes back into the project window instead of navigating the hub away.                   |
+| `apps/server/vite.config.ts`                                                                                                        | Adds the `dev:bundle` task the isolated desktop dev launch builds through.                                                    |
+| `apps/server/package.json`                                                                                                          | Holds the `build:bundle:dev` script that task is invoked by.                                                                  |
 
 ## browser-bookmarks
 
@@ -906,6 +908,13 @@ Retired with the fork.
 | `apps/web/src/routes/_chat.pull-requests.tsx`                                                                                                                                          | The fork-sync repairs reshape `PullRequestsSearch` and this route after each rebase; upstream keeps editing the same route, so each repair re-derives against upstream's newest shape.                        |
 | `apps/web/src/routes/__root.tsx`                                                                                                                                                       | Fork-sync repairs toggle the bare `<Outlet />` inside `AppSidebarLayout` to keep the project shell compiling; conflicts resolve to the `project-windows` shape, not upstream's.                               |
 | `third-party-licenses.config.json`                                                                                                                                                     | The fork appends a generated notice for its `format` dependency; upstream regenerates the same list, so the entry is an adjacent-insert conflict.                                                             |
+| `apps/desktop/src/preview/Manager.ts`                                                                                                                                                  | Repairs rework overlapping pick sessions with swap-and-cancel plus a settle guard, and move the preview error to `Schema.TaggedError`.                                                                        |
+| `apps/server/package.json`                                                                                                                                                             | A repair shortens `build:bundle:dev` to `vp pack --no-clean`, dropping the service-launcher pack.                                                                                                             |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                      | Repairs re-attach the fork-hook import markers and the `.fork.ts` module swaps.                                                                                                                               |
+| `apps/server/src/provider/Layers/ProviderService.test.ts`                                                                                                                              | The fork-owned sibling migration removed a case here and left the `getAgentActivitySnapshot` stub the file needs to typecheck.                                                                                |
+| `apps/server/src/usage/UsageService.ts`                                                                                                                                                | A repair re-applies the third argument the fork gives `mergeProviderInstanceEnvironment`.                                                                                                                     |
+| `apps/web/src/components/LegacySidebar.tsx`                                                                                                                                            | The additive repair folds `buildThreadRouteParams` into the thread-route import.                                                                                                                              |
+| `docs/user/thread-sidebar.md`                                                                                                                                                          | A repair removes the Manual and Automatic mode prose the fork does not ship.                                                                                                                                  |
 
 ## distribution
 
@@ -958,6 +967,7 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | `package.json` `engines` and `packageManager`          | Runner toolchain expectations.                                                                                   |
 | `docs/internals/scripts.md`                            | Documents the fork's release and upstream-sync scripts.                                                          |
 | `README.md`                                            | Carries the fork's rewritten introduction, which is what tells a reader these are fork builds and fork releases. |
+| `apps/server/src/cloud/pinnedRuntime.ts`               | Carries the fork tarball install path at the pinned-runtime archive seam.                                        |
 
 ## backend-attach
 
@@ -1034,6 +1044,7 @@ settings half. Retire commit by commit as upstream lands the pieces.
 | `apps/desktop/src/settings/DesktopClientSettings.test.ts` | The fork's only delta here is fixture and formatting alignment from the attach squash; take upstream wholesale on conflict.                  |
 | `apps/web/src/lib/openPullRequestLink.ts`                 | The fork's only delta here is a formatting pass; take upstream wholesale on conflict.                                                        |
 | `docs/user/source-control.md`                             | The fork's only delta here is a formatting pass; take upstream wholesale on conflict.                                                        |
+| `apps/desktop/src/electron/ElectronProtocol.ts`           | Carries the fork-owned static protocol registration a client-only packaged launch serves from.                                               |
 
 ## workspace-files
 
@@ -1081,6 +1092,7 @@ explicitly trusted artifact links shared across worktrees.
 | `packages/contracts/src/settings.test.ts`                                                                                                                  | Covers that settings schema addition.                                                                                      |
 | `README.md`                                                                                                                                                | Carries the Workspace files bullets in the fork's feature list.                                                            |
 | `apps/server/src/workspace/WorkspaceEntries.test.ts`                                                                                                       | Wires `VcsDriverRegistry` into the harness; upstream keeps extending the same harness, so the wiring is the reapply point. |
+| `apps/server/src/orchestration/decider.ts`                                                                                                                 | Carries the `decider-thread-env-mode-wire` fork-hook marker the seam pass added.                                           |
 
 ## thread-ordering
 
@@ -1257,6 +1269,11 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `apps/server/src/git/CheckoutMutationCoordinator.ts`, `apps/server/src/project/AgentSessionImporter.test.ts`                                                               | The coordinator is a new required dependency of `ProviderCommandReactor`; every upstream suite that builds that reactor layer must also provide `CheckoutMutationCoordinator.layer` and a `VcsDriverRegistry`.                                                  |
 | `apps/server/src/persistence/ThreadsCheckoutMove.fork.ts`, `apps/server/src/persistence/ThreadsCheckoutMove.fork.test.ts`                                                  | Fork-owned decorator over the upstream thread repository and its only reader/writer for the checkout move; the upstream persistence schema and SQL stay upstream-identical.                                                                                     |
 | `apps/server/src/persistence/ForkSchema.ts`                                                                                                                                | Owns the idempotent `checkout_move_json` column creation (and the shipped-nightly migration repair), never a numbered upstream migration.                                                                                                                       |
+| `apps/desktop/src/preload.ts`                                                                                                                                              | Wraps `desktopBridge` in `exposePreviewCapability` and drops its `openProjectWindow` and `projectWindowRef` members.                                                                                                                                            |
+| `apps/mobile/src/features/terminal/ThreadTerminalRouteScreen.tsx`                                                                                                          | Carries the mobile checkout-move state, route-scoped Follow and Pin, and the move command wiring.                                                                                                                                                               |
+| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                                        | Persists the `terminalCheckoutModes` preference.                                                                                                                                                                                                                |
+| `apps/server/integration/OrchestrationEngineHarness.integration.ts`                                                                                                        | Wires `ProviderCommandReactor` and the checkout mutation coordinator into the harness.                                                                                                                                                                          |
+| `packages/client-runtime/package.json`                                                                                                                                     | Exports the `./state/checkout-move` subpath the clients import.                                                                                                                                                                                                 |
 
 ## worktrunk-hooks
 
@@ -1324,6 +1341,10 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/web/src/components/GitActionsControl.tsx`                        | Hosts the worktree surfaces that replaced the hook switches.                                                                                                                 |
 | `packages/shared/src/projectSettings.ts`                               | Carries the `defaultThreadEnvModeFork` sibling through project-scope resolution and override clearing; upstream keeps editing `resolveProjectSettings` around the same loop. |
 | `packages/shared/src/projectSettings.test.ts`                          | Covers the sibling riding a project override and dropping with its wire slot; upstream keeps adding cases beside them.                                                       |
+| `apps/web/src/components/settings/SettingInheritance.tsx`              | Decodes the stored fork env mode so each inheritance layer shows the real mode, not the wire stand-in.                                                                       |
+| `apps/web/src/components/settings/scopedSettings.ts`                   | Scopes `defaultThreadEnvModeFork` alongside the upstream scoped settings.                                                                                                    |
+| `apps/web/src/components/settings/scopedSettings.test.ts`              | Covers that scoping beside the upstream cases.                                                                                                                               |
+| `packages/shared/package.json`                                         | Exports the `./threadEnvMode.fork` subpath those modules import.                                                                                                             |
 
 ## Adding a domain
 
