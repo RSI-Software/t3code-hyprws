@@ -14,6 +14,8 @@ import {
   resolveLessonSource,
   renderLessonGuidance,
   preferredLessonBoundary,
+  citedBoundaryFiles,
+  staleBoundaryDeclarations,
   lessonHotSeams,
   unownedHotSeams,
   lessonObservations,
@@ -113,6 +115,36 @@ it("covers every adopted named guard's real source targets with scoped lesson gu
       preferredLessonBoundary(path)?.boundary ?? "",
       "exact file-local harness deferral",
     );
+});
+
+// Boundary prose is written for a reader, so the second file in a sentence usually drops its
+// directory once the first has established one.
+it("resolves a bare basename in boundary prose against the directory before it", () => {
+  assert.deepStrictEqual(
+    citedBoundaryFiles(
+      "ownership only: apps/desktop/src/preview/WindowPolicy.ts and WindowPolicy.preload.ts",
+    ),
+    [
+      "apps/desktop/src/preview/WindowPolicy.ts",
+      "apps/desktop/src/preview/WindowPolicy.preload.ts",
+    ],
+  );
+  // No directory is established yet, so there is nothing to resolve against and nothing is guessed.
+  assert.deepStrictEqual(citedBoundaryFiles("keep WindowPolicy.ts as it is"), []);
+  // Prose that names no file at all is a policy statement, not a stale citation.
+  assert.deepStrictEqual(citedBoundaryFiles("never hand-merge generated dependency state"), []);
+});
+
+// RSI-Software/t3code-hyprws#1125: the census numerator counts hot seams that have a reviewed
+// boundary, and the array is hand-written strings. A rename can only lose a match, so a stale entry
+// lowers the count for a reason no row records. Run against the real tree, because the tree that
+// renames a file is the one this must fail in.
+it("keeps every declared and cited lesson boundary path resolvable", () => {
+  const root = NodePath.join(import.meta.dirname, "..");
+  assert.deepStrictEqual(
+    staleBoundaryDeclarations(root).map(({ kind, path }) => `${kind} ${path}`),
+    [],
+  );
 });
 
 it("deduplicates frozen copies of legacy censuses without creating single-occurrence hot warnings", () => {
@@ -595,7 +627,7 @@ it("routes retained hot paths to their reviewed issue scope and implementation b
     ],
     ["apps/web/src/components/files/FilePreviewPanel.tsx", 538, "RichMarkdownPreviewBoundary.tsx"],
     ["apps/web/src/markdown-links.ts", 538, "richMarkdownEditorLinks.ts"],
-    ["apps/web/src/components/chat/MessagesTimeline.tsx", 537, "AgentSpawnNavigation.ts"],
+    ["apps/web/src/components/chat/MessagesTimeline.tsx", 537, "AgentSpawnNavigation.fork.ts"],
     ["apps/web/src/components/settings/settingsSearch.ts", 539, "githubIssueSettingsSearch.ts"],
     ["apps/web/src/components/ChatView.tsx", 446, "thread-route navigation only"],
     [
