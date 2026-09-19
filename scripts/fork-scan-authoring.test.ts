@@ -6,6 +6,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
+import { UPSTREAM_FOOTPRINT_BUDGET } from "./fork-scan-guards.ts";
 import { run as runScanCli } from "./fork-scan.ts";
 
 const scanScript = NodePath.join(import.meta.dirname, "fork-scan.ts");
@@ -743,6 +744,173 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
       .toSorted();
     assert.deepStrictEqual(stray, [], `pin paths matching no authoring case:\n${stray.join("\n")}`);
   });
+
+  // The six upstream-owned files `6ea3f9f` wove fork lines into, and one fork line each in the
+  // shape it used: a preference read, a listing flag, a settings row. The paths are the real ones
+  // from the v0.0.39-nightly.20260902.1256 census, so this fixture is the commit re-authored, not a
+  // commit shaped like it.
+  const reauthoredSeventyThree: Readonly<Record<string, string>> = {
+    "apps/web/src/components/files/FileBrowserPanel.tsx":
+      "const showIgnored = preferences.value.showIgnoredFiles === true;",
+    "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx":
+      "const listing = useWorkspaceFiles(cwd, showIgnoredFiles);",
+    "apps/mobile/src/features/settings/SettingsRouteScreen.tsx":
+      'const ignoredRow = buildToggleRow("showIgnoredFiles");',
+    "apps/mobile/src/persistence/mobile-preferences.ts":
+      "const showIgnoredFiles = readPreference(store, false);",
+    "apps/desktop/src/settings/DesktopClientSettings.test.ts":
+      'it("reveals ignored workspace files", () => {});',
+    "packages/contracts/src/settings.test.ts": 'it("accepts the ignored-files setting", () => {});',
+  };
+
+  // RSI-Software/t3code-hyprws#1099, close condition 5. The post-mortem's claim is that `#73` could
+  // not be authored again, and until now nothing tested it. `#73` is also the commit
+  // `UPSTREAM_FOOTPRINT_BUDGET` was measured from, which is the trap: the budget is its own file
+  // count, so the rule named after it does not fire on it. What refuses it is `fork-hook-seam`,
+  // once per woven file, plus the scar rules the individual paths carry.
+  it.effect("refuses a re-authored #73 on every upstream file it wove", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-reauthored-73-" });
+      const git = (args: ReadonlyArray<string>) =>
+        NodeChildProcess.execFileSync("git", [...args], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      const write = Effect.fn("writeSeventyThreeFixture")(function* (
+        path: string,
+        content: string,
+      ) {
+        const absolute = NodePath.join(root, path);
+        yield* fs.makeDirectory(NodePath.dirname(absolute), { recursive: true });
+        yield* fs.writeFileString(absolute, content);
+      });
+      const commit = (message: string) => {
+        git(["add", "."]);
+        git([
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgSign=false",
+          "commit",
+          "-m",
+          message,
+        ]);
+        return git(["rev-parse", "HEAD"]);
+      };
+      const woven = Object.keys(reauthoredSeventyThree);
+      const upstreamText = "export function upstreamMetadata() {}\n";
+      git(["init", "--initial-branch=fork"]);
+      const workflowPairs = ["ci", "release"].map((name) => ({
+        upstream: `.github/workflows/${name}.yml`,
+        fork: `.github/workflows/hyprws-${name}.yml`,
+      }));
+      for (const pair of workflowPairs) {
+        yield* write(pair.upstream, "jobs: {}\n");
+        yield* write(pair.fork, "jobs: {}\n");
+      }
+      for (const path of woven) yield* write(path, upstreamText);
+      yield* write(
+        "docs/internals/fork-delta.md",
+        [
+          "# Fork delta",
+          "",
+          "## workspace-files",
+          "",
+          "### Rebase scan",
+          "",
+          "| Path | Why |",
+          "| --- | --- |",
+          ...woven.map((path) => `| \`${path}\` | Fixture |`),
+          "",
+        ].join("\n"),
+      );
+      const base = commit("upstream base");
+      yield* write(
+        ".github/fork-workflow-reviews.json",
+        yield* encodeFixtureJson({
+          version: 1,
+          reviews: workflowPairs.map((pair) => ({
+            ...pair,
+            upstreamCommit: base,
+            upstreamBlob: git(["rev-parse", `${base}:${pair.upstream}`]),
+            forkBlob: git(["rev-parse", `${base}:${pair.fork}`]),
+            disposition: "no-change",
+            reason: "Fixture workflows are unchanged.",
+          })),
+        }),
+      );
+      const bootstrap = commit(
+        "record workflow reviews\n\nFork-Domain: workspace-files\nFork-Tier: core",
+      );
+      const scan = (head: string, since: string | null) =>
+        scanInProcess(
+          [
+            "--head",
+            head,
+            "--target",
+            base,
+            "--no-typecheck",
+            ...(since === null ? [] : ["--since", since]),
+          ],
+          root,
+        );
+
+      for (const [path, forkLine] of Object.entries(reauthoredSeventyThree))
+        yield* write(path, `${upstreamText}${forkLine}\n`);
+      const reauthored = commit(
+        "feat(files): reveal ignored workspace files\n\nFork-Domain: workspace-files\nFork-Tier: core",
+      );
+      const refused = scan("HEAD", bootstrap);
+      assert.strictEqual(refused.status, 1, refused.stderr);
+      // The tally is the assertion, not the rule names. Every rule prints its name whether it is
+      // adopted or merely advisory, so a name alone proves nothing; only the adopted count
+      // separates them. Six is `fork-hook-seam` charging each woven file on its own, three is the
+      // scar rules the individual paths carry. Un-adopt the seam rule and this line reads 3.
+      assert.include(refused.stdout, "failed: 9 adopted authoring guard warning(s)");
+      for (const path of woven)
+        assert.match(
+          refused.stdout,
+          new RegExp(
+            `fork-hook-seam\\s+\\S+\\s+workspace-files\\s+${path.replaceAll(".", "\\.")}:`,
+          ),
+        );
+      // The scar rules that grew out of this commit still name their own paths.
+      assert.include(refused.stdout, "mobile-ignored-file-listing");
+      assert.include(refused.stdout, "upstream-test");
+      // `footprint` is silent, and would be advisory even if it fired. `#73` touches exactly
+      // `UPSTREAM_FOOTPRINT_BUDGET` files, and the rule charges more than the budget. A guard
+      // calibrated on one commit does not refuse that commit, which is why adoption could not rest
+      // on it (RSI-Software/t3code-hyprws#939).
+      assert.strictEqual(woven.length, UPSTREAM_FOOTPRINT_BUDGET);
+      assert.notInclude(refused.stdout, "footprint");
+
+      // The dual-trailered lane exempts `fork-hook-seam`, and a woven seam still does not land
+      // through it: the scar rules are separate rules and are not exempted. The named-rule question
+      // on RSI-Software/t3code-hyprws#939 stays closed while that holds.
+      git(["checkout", "-q", "-b", "bugfix-lane", bootstrap]);
+      for (const [path, forkLine] of Object.entries(reauthoredSeventyThree))
+        yield* write(path, `${upstreamText}${forkLine}\n`);
+      commit(
+        "fix(files): reveal ignored workspace files\n\nFork-Domain: workspace-files\nFork-Tier: bugfix\nFork-Upstreamable: yes",
+      );
+      const lane = scan("HEAD", bootstrap);
+      assert.strictEqual(lane.status, 1, lane.stderr);
+      // Nine minus the six the exemption drops. The lane forgives the seam and nothing else.
+      assert.include(lane.stdout, "failed: 3 adopted authoring guard warning(s)");
+      assert.notInclude(lane.stdout, "fork-hook-seam");
+      assert.include(lane.stdout, "mobile-ignored-file-listing");
+      assert.include(lane.stdout, "upstream-test");
+
+      // The historical range stays advisory, so the trunk that already carries `#73` still scans.
+      const historical = scan(reauthored, null);
+      assert.strictEqual(historical.status, 0, historical.stderr);
+      assert.include(historical.stdout, "advisory");
+    }),
+  );
 
   // RSI-Software/t3code-hyprws#1097: a fork-hook marker added to an
   // upstream-owned file must be co-authored with the construct it marks.
