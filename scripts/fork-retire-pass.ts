@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import {
   forkCommitIdentifiers,
+  identifiersAuthoredByFork,
   retireCandidateMatches,
   SystemRunner,
   type CommandRunner,
@@ -26,10 +27,11 @@ import { forkCommitSourceExtensions } from "./lib/fork-retire-probe.ts";
  * retire before reshape, so before the first fold this driver walks the P0-confirmed worklist and
  * emits one candidate row per subject with its evidence sites in the target tree.
  *
- * It consumes the library predicates `fork-sync.ts` already runs on every walk — `retireCandidateMatches`
- * greps the target tree scoped by `RETIRE_PROBE_EXCLUSIONS` and admits a hit only where
- * `isRetireEvidenceSite` says the fork identifier is defined or imported in a file type
- * `forkCommitSourceExtensions` derives from the commit's own diff. Nothing here re-scores a hit.
+ * It consumes the library predicates `fork-sync.ts` already runs on every walk — `identifiersAuthoredByFork`
+ * drops every harvested name the shared base already defines, and `retireCandidateMatches` greps the
+ * target tree scoped by `RETIRE_PROBE_EXCLUSIONS` and admits a hit only where `isRetireEvidenceSite`
+ * says the fork identifier is defined or imported in a file type `forkCommitSourceExtensions` derives
+ * from the commit's own diff. Nothing here re-scores a hit.
  *
  * The output is human-adjudicated, never auto-applied. An unscoped probe once read roughly 35 of 40
  * rows as retire (RSI-Software/t3code-hyprws#688), so when the candidate share of the probed list is
@@ -140,6 +142,7 @@ export const retirePass = (
   options: RetirePassOptions,
 ): ReadonlyArray<RetirePassRow> => {
   const targetSha = git(root, ["rev-parse", `${options.target}^{commit}`]);
+  const baseSha = git(root, ["rev-parse", `${options.base}^{commit}`]);
   const commits = commitSubjects(root, options.base, options.source);
   const verdicts = ledgerVerdicts(root);
   return options.worklist.map((subject) => {
@@ -149,14 +152,15 @@ export const retirePass = (
       return { subject, status: "not-in-range", identifiers: [], sites: [], verdict };
     }
     const diff = gitRaw(root, ["show", "--format=", "--unified=0", "--no-color", commit]);
-    const identifiers = forkCommitIdentifiers(diff);
-    const matches = retireCandidateMatches(
+    const extensions = forkCommitSourceExtensions(diff);
+    const identifiers = identifiersAuthoredByFork(
       runner,
       root,
-      targetSha,
-      identifiers,
-      forkCommitSourceExtensions(diff),
+      baseSha,
+      forkCommitIdentifiers(diff),
+      extensions,
     );
+    const matches = retireCandidateMatches(runner, root, targetSha, identifiers, extensions);
     return {
       subject,
       status: matches.length > 0 ? "retire-candidate" : "no-evidence",

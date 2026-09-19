@@ -4797,14 +4797,14 @@ export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
 };
 
 /**
- * Greps the target tag's tree for identifiers the fork commit introduced, over product source only
- * and counting a hit only where the name is defined or imported in a file type the commit itself
- * changed. Proximity is not evidence, and neither is prose (RSI-Software/t3code-hyprws#688).
+ * Greps one tree for identifiers, over product source only, keeping a hit only where the name is
+ * defined or imported in a file type the commit itself changed. Proximity is not evidence, and
+ * neither is prose (RSI-Software/t3code-hyprws#688).
  */
-export const retireCandidateMatches = (
+const evidenceSites = (
   runner: CommandRunner,
   root: string,
-  targetSha: string,
+  treeSha: string,
   identifiers: ReadonlyArray<string>,
   extensions: ReadonlySet<string>,
 ): RetireEvidence["matches"] => {
@@ -4818,7 +4818,7 @@ export const retireCandidateMatches = (
       "-n",
       "--fixed-strings",
       ...identifiers.flatMap((value) => ["-e", value]),
-      targetSha,
+      treeSha,
       "--",
       ...RETIRE_PROBE_EXCLUSIONS,
     ],
@@ -4826,7 +4826,7 @@ export const retireCandidateMatches = (
   );
   if (result.status === 1) return [];
   if (result.status !== 0)
-    throw new Error(`git grep against ${targetSha} failed: ${result.stderr.trim()}`);
+    throw new Error(`git grep against ${treeSha} failed: ${result.stderr.trim()}`);
   const matches: Array<{ identifier: string; location: string }> = [];
   const seen = new Set<string>();
   for (const line of result.stdout.split("\n")) {
@@ -4847,6 +4847,41 @@ export const retireCandidateMatches = (
     matches.push({ identifier, location: `${path}:${parsed[2] ?? ""}` });
   }
   return matches;
+};
+
+/**
+ * Greps the target tag's tree for identifiers the fork commit introduced.
+ */
+export const retireCandidateMatches = (
+  runner: CommandRunner,
+  root: string,
+  targetSha: string,
+  identifiers: ReadonlyArray<string>,
+  extensions: ReadonlySet<string>,
+): RetireEvidence["matches"] => evidenceSites(runner, root, targetSha, identifiers, extensions);
+
+/**
+ * Drops every harvested name the shared base already carries. {@link forkCommitIdentifiers} reads
+ * `+` lines, so a commit that relocates an upstream name behind a fork seam harvests that name as
+ * if it had introduced it. The probe then finds the name in the target tree, where it never left,
+ * and reads the commit as superseded by its own origin (RSI-Software/t3code-hyprws#1105).
+ *
+ * The base is tested by exactly the standard the target is, so a name only mentioned at the base
+ * still leaves real evidence intact; only a name upstream already defines or imports is dropped.
+ */
+export const identifiersAuthoredByFork = (
+  runner: CommandRunner,
+  root: string,
+  baseSha: string,
+  identifiers: ReadonlyArray<string>,
+  extensions: ReadonlySet<string>,
+): ReadonlyArray<string> => {
+  const owned = new Set(
+    evidenceSites(runner, root, baseSha, identifiers, extensions).map(
+      ({ identifier }) => identifier,
+    ),
+  );
+  return identifiers.filter((value) => !owned.has(value));
 };
 
 /** Tests every orientation retire candidate against the target tag's tree. */
@@ -4871,20 +4906,21 @@ export const collectRetireEvidence = (
     const commit = commits.get(row.subject);
     if (commit === undefined) return [];
     const diff = gitRaw(runner, root, ["show", "--format=", "--unified=0", "--no-color", commit]);
-    const identifiers = forkCommitIdentifiers(diff);
+    const extensions = forkCommitSourceExtensions(diff);
+    const identifiers = identifiersAuthoredByFork(
+      runner,
+      root,
+      range.sharedBase,
+      forkCommitIdentifiers(diff),
+      extensions,
+    );
     if (identifiers.length === 0) return [];
     return [
       {
         subject: row.subject,
         commit,
         identifiers,
-        matches: retireCandidateMatches(
-          runner,
-          root,
-          targetSha,
-          identifiers,
-          forkCommitSourceExtensions(diff),
-        ),
+        matches: retireCandidateMatches(runner, root, targetSha, identifiers, extensions),
       },
     ];
   });
