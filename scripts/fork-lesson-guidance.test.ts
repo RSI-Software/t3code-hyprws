@@ -45,11 +45,17 @@ const empty = '{"version":2,"walks":[],"seamRecords":[]}';
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
 
 /**
- * `upstream-test` and `reshape-split` judge the shape of a commit, not the contents of a named
- * source file, so neither owns an entry in AUTHORING_GUARD_TARGETS and neither has a lesson
- * boundary to scope. Every other adopted guard names its real targets here.
+ * `upstream-test`, `reshape-split` and `fork-hook-seam` judge the shape of a commit, not the
+ * contents of a named source file, so none owns an entry in AUTHORING_GUARD_TARGETS and none has
+ * a lesson boundary to scope. `fork-hook-seam` reaches every upstream-owned path rather than a
+ * reviewed list, which is why naming targets for it would be naming the whole upstream tree.
+ * Every other adopted guard names its real targets here.
  */
-const SHAPE_ONLY_GUARDS: ReadonlySet<string> = new Set(["upstream-test", "reshape-split"]);
+const SHAPE_ONLY_GUARDS: ReadonlySet<string> = new Set([
+  "upstream-test",
+  "reshape-split",
+  "fork-hook-seam",
+]);
 
 it("covers every adopted named guard's real source targets with scoped lesson guidance", () => {
   assert.deepStrictEqual(
@@ -723,7 +729,9 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
         );
         yield* write(
           source,
-          "export const upstreamMetadata = 1;\nexport const narrowForkJoin = 2;\n",
+          // The added line sits on an upstream-owned path, so the adopted `fork-hook-seam`
+          // charges it without a marker. This case is about lesson guidance, not seam shape.
+          "export const upstreamMetadata = 1;\nexport const narrowForkJoin = joinNarrowFork(2); // fork-hook: zmux-estate/terminal-attachment-retention\n",
         );
         git(consumer, ["add", "."]);
         git(consumer, ["commit", "-m", "fixture author\n\nFork-Domain: fork-meta\nFork-Tier: qol"]);
@@ -742,7 +750,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
             { cwd: consumer, encoding: "utf8" },
           );
         const initial = scan();
-        assert.strictEqual(initial.status, 0, initial.stderr);
+        assert.strictEqual(initial.status, 0, initial.stdout + initial.stderr);
         assert.include(initial.stdout, `at ${first}; freshness=current`);
         assert.notInclude(initial.stdout, "terminalAttachmentRetention.fork.ts");
         const observation = seamRecord(
