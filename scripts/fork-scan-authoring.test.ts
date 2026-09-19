@@ -42,6 +42,7 @@ const authoringCases = [
     inlineImplementation: 'const editor = lazy(() => import("./MarkdownRichEditor"));',
     forkPath: "apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx",
     integrationCall: 'import { RichMarkdownPreviewBoundary } from "./RichMarkdownPreviewBoundary";',
+    hookKey: "markdown-editing/rich-preview-import",
     rule: "rich-markdown-boundary",
     domain: "markdown-editing",
   },
@@ -50,7 +51,8 @@ const authoringCases = [
     sourcePath: "apps/web/src/components/files/FilePreviewPanel.tsx",
     inlineImplementation: "function RichMarkdownSurface(props) { return renderEditor(props); }",
     forkPath: "apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx",
-    integrationCall: "const preview = <RichMarkdownPreviewBoundary {...props} />;",
+    integrationCall: "const preview = renderRichMarkdownPreviewBoundary(props);",
+    hookKey: "markdown-editing/rich-preview-boundary",
     rule: "rich-markdown-boundary",
     domain: "markdown-editing",
   },
@@ -60,6 +62,7 @@ const authoringCases = [
     inlineImplementation: "function normalizeDotSegments(path) { return normalize(path); }",
     forkPath: "apps/web/src/components/files/richMarkdownEditorLinks.ts",
     integrationCall: "const path = resolveMarkdownFileLinkMeta(href, cwd);",
+    hookKey: "markdown-editing/markdown-file-link-meta",
     rule: "rich-markdown-boundary",
     domain: "markdown-editing",
   },
@@ -70,6 +73,7 @@ const authoringCases = [
       'import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";\nconst openTarget = resolveAgentSpawnOpenTarget(input);',
     forkPath: "apps/web/src/components/chat/AgentSpawnNavigation.ts",
     integrationCall: "const onOpenAgents = createAgentSpawnOpenHandler(input);",
+    hookKey: "custom-agents/spawn-navigation-import",
     rule: "agent-spawn-navigation",
     domain: "custom-agents",
   },
@@ -80,6 +84,7 @@ const authoringCases = [
       "const onClick = () => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId);",
     forkPath: "apps/web/src/components/chat/AgentSpawnNavigation.ts",
     integrationCall: "const onOpenAgents = createAgentSpawnOpenHandler(input);",
+    hookKey: "custom-agents/spawn-navigation-import",
     rule: "agent-spawn-navigation",
     domain: "custom-agents",
   },
@@ -89,6 +94,7 @@ const authoringCases = [
     inlineImplementation: "const [retained, setRetained] = useState(initial);",
     forkPath: "apps/web/src/state/terminalAttachmentRetention.fork.ts",
     integrationCall: "const retained = useRetainedTerminalAttachment(input, attach);",
+    hookKey: "zmux-estate/terminal-attachment-retention",
     rule: "terminal-attachment-boundary",
     domain: "zmux-estate",
   },
@@ -98,6 +104,7 @@ const authoringCases = [
     inlineImplementation: "export function withClaudeAgentOptions(models) { return models; }",
     forkPath: "apps/server/src/provider/Layers/ClaudeAgentOptions.fork.ts",
     integrationCall: "const models = withClaudeAgentOptions(baseModels, agents);",
+    hookKey: "custom-agents/claude-agent-info-type",
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
@@ -107,6 +114,7 @@ const authoringCases = [
     inlineImplementation: "export function withCodexAgentOptions(models) { return models; }",
     forkPath: "apps/server/src/provider/Layers/CodexAgentOptions.fork.ts",
     integrationCall: "const models = withCodexAgentOptions(baseModels, agents);",
+    hookKey: "custom-agents/codex-provider-agent-options",
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
@@ -118,6 +126,7 @@ const authoringCases = [
     forkPath: "apps/server/src/provider/Layers/CodexAgentOptions.fork.ts",
     integrationCall:
       "const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator(discoveryInput);",
+    hookKey: "custom-agents/codex-driver-instance-env",
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
@@ -127,6 +136,7 @@ const authoringCases = [
     inlineImplementation: "const withClaudeAgentLaunchArgs = (configured, agent) => configured;",
     forkPath: "apps/server/src/provider/Layers/ClaudeAgentOptions.fork.ts",
     integrationCall: "const extraArgs = withClaudeAgentLaunchArgs(configuredFlags, selectedAgent);",
+    hookKey: "custom-agents/claude-child-snapshot-import",
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
@@ -137,6 +147,7 @@ const authoringCases = [
       "function claudeChildItemRenderDetail(tool, workspaceRoot) { return tool.input; }",
     forkPath: "apps/server/src/provider/Layers/ClaudeChildItemDetail.fork.ts",
     integrationCall: "const renderDetail = claudeChildItemRenderDetail(tool, context.session.cwd);",
+    hookKey: "custom-agents/claude-child-snapshot-import",
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
@@ -146,6 +157,7 @@ const authoringCases = [
     inlineImplementation: "const forcedProjectGroup = projectGroups.find(matchesPhysicalProject);",
     forkPath: "apps/web/src/components/sidebar/SidebarPhysicalScope.ts",
     integrationCall: "const scope = resolveSidebarPhysicalScope(input);",
+    hookKey: "project-windows/sidebar-physical-scope",
     rule: "sidebar-physical-scope",
     domain: "project-windows",
   },
@@ -155,6 +167,7 @@ const authoringCases = [
     inlineImplementation: 'import { resolveThreadRouteFamily } from "../threadRoutes";',
     forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
     integrationCall: "const routeFamily = useThreadRouteFamily();",
+    hookKey: "project-windows/chat-route-family",
     rule: "thread-route-navigation",
     domain: "project-windows",
   },
@@ -165,6 +178,7 @@ const authoringCases = [
       "const routeFamily = useParams({ select: (params) => resolveThreadRouteFamily(params) });",
     forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
     integrationCall: "const routeFamily = useThreadRouteFamily();",
+    hookKey: "project-windows/command-palette-route-family",
     rule: "thread-route-navigation",
     domain: "project-windows",
   },
@@ -174,6 +188,7 @@ const authoringCases = [
     inlineImplementation: 'import { resolveThreadRouteFamily } from "../threadRoutes";',
     forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
     integrationCall: "navigate(resolveThreadRouteFamily(getCurrentRouteParams()).draft(draftId));",
+    hookKey: "project-windows/new-thread-route-family",
     rule: "thread-route-navigation",
     domain: "project-windows",
   },
@@ -183,6 +198,7 @@ const authoringCases = [
     inlineImplementation: "const forcedProjectScope = listScope.projectRef;",
     forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
     integrationCall: "const scope = usePullRequestProjectScope(input);",
+    hookKey: "project-windows/pull-request-page-scope-import",
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
@@ -191,7 +207,8 @@ const authoringCases = [
     sourcePath: "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
     inlineImplementation: "const options = projects === null ? [] : projects.map(toOption);",
     forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
-    integrationCall: "const showProjectFilter = input.showProjectFilter;",
+    integrationCall: "const showProjectFilter = pullRequestFilterVisibility(input);",
+    hookKey: "project-windows/pull-request-filter-visibility",
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
@@ -201,6 +218,7 @@ const authoringCases = [
     inlineImplementation: "const titleCounts = new Map();",
     forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
     integrationCall: "const choices = pullRequestFilterProjects(projects, labels);",
+    hookKey: "project-windows/pull-request-page-scope",
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
@@ -210,6 +228,7 @@ const authoringCases = [
     inlineImplementation: "baselineQuery.refresh();",
     forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
     integrationCall: "refreshList(true);",
+    hookKey: "project-windows/pull-request-scope-patch",
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
@@ -219,7 +238,8 @@ const authoringCases = [
     inlineImplementation:
       "export const environmentShellBootstrappedAtom = Atom.family(readScoped);",
     forkPath: "apps/web/src/state/windowProjectBootstrap.fork.ts",
-    integrationCall: "const allReady = allEnvironmentShellsBootstrappedAtom;",
+    integrationCall: "const allReady = allEnvironmentShellsBootstrapped(scope);",
+    hookKey: "project-windows/environment-shell-bootstrap",
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
@@ -229,6 +249,7 @@ const authoringCases = [
     inlineImplementation: 'const item = { id: "github-issue-handoff-prompt" };',
     forkPath: "apps/web/src/components/settings/githubIssueSettingsSearch.ts",
     integrationCall: "const items = filterAvailableSettingsSearchItems(availability);",
+    hookKey: "github-issues/settings-search-availability",
     rule: "github-issue-settings-search",
     domain: "github-issues",
   },
@@ -238,6 +259,7 @@ const authoringCases = [
     inlineImplementation: "const showIgnoredFiles = preferences.value.showIgnoredFiles === true;",
     forkPath: "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts",
     integrationCall: "const listing = useIgnoredWorkspaceFileListing(cwd);",
+    hookKey: "workspace-files/mobile-route-ignored-listing-import",
     rule: "mobile-ignored-file-listing",
     domain: "workspace-files",
   },
@@ -247,6 +269,7 @@ const authoringCases = [
     inlineImplementation: "const input = { cwd: props.cwd, includeIgnored: true };",
     forkPath: "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts",
     integrationCall: "const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd);",
+    hookKey: "workspace-files/mobile-inspector-ignored-listing-import",
     rule: "mobile-ignored-file-listing",
     domain: "workspace-files",
   },
@@ -408,8 +431,14 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
           );
         commit(`move attachment tests and preserve deferred harnesses\n\n${trailers}`);
         const repaired = scan(target, bad);
-        assert.strictEqual(repaired.status, 0, repaired.stderr);
+        // What this case owns is `upstream-test`: the sibling and the two exact deferrals
+        // satisfy it. The deferred harnesses keep their fork case in the upstream file by
+        // definition, so that line is an unmarked addition on an upstream path and
+        // `fork-hook-seam` charges it — a deferral from the sibling rule is not a deferral
+        // from marking (RSI-Software/t3code-hyprws#1099).
         assert.notInclude(repaired.stdout, "upstream-test");
+        assert.strictEqual(repaired.status, 1, repaired.stderr);
+        assert.include(repaired.stdout, "fork-hook-seam");
       }),
   );
 
@@ -619,7 +648,11 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
 
           yield* write(
             sourcePath,
-            `export function upstreamMetadata() {}\n${example.integrationCall}\n`,
+            // The repaired shape is the whole point of these cases: the implementation moved to a
+            // fork-owned file, and what stays behind is one marked narrow call. `fork-hook-seam`
+            // charges that call as an unmarked addition without the marker, so the repair the scar
+            // rules prescribe only scans clean when it carries one (RSI-Software/t3code-hyprws#1099).
+            `export function upstreamMetadata() {}\n${example.integrationCall} // fork-hook: ${example.hookKey}\n`,
           );
           yield* write(example.forkPath, `${example.inlineImplementation}\n`);
           // An unrelated existing rule stays advisory in the same selected range.
@@ -728,7 +761,13 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         yield* write(path, `${upstreamText}${construct}\n`);
         const constructCommit = commit(`add unmarked sidebar scope\n\n${trailers}`);
         const unmarked = scan("HEAD", bootstrap);
-        assert.strictEqual(unmarked.status, 0, unmarked.stderr);
+        // What this case owns is *which* rule fires on the construct commit. `fork-hook-seam`
+        // charges the unmarked line — that is cause (a) doing its job, and the reason the split is
+        // possible at all — but `reshape-split` must stay silent until the marker arrives in a
+        // later commit, which is the next assertion.
+        assert.strictEqual(unmarked.status, 1, unmarked.stderr);
+        assert.include(unmarked.stdout, "fork-hook-seam");
+        assert.notInclude(unmarked.stdout, "reshape-split");
         yield* write(
           path,
           `${upstreamText}${construct} // fork-hook: project-windows/sidebar-physical-scope\n`,

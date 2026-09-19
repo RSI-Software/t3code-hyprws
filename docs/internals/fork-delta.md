@@ -201,13 +201,19 @@ reason. The guard judges the same rule on the fork side it rebuilds from the ups
 the diff's own positions, and charges — never exempts — anything it cannot reconstruct; on top
 of the alignment it also requires that every addition in the removal gap be a line-kind marked
 hook, so it charges some seams the walk accepts and never the reverse. The
-`fork-hook-seam` guard warns when a fork commit adds outside a
+`fork-hook-seam` guard refuses a fork commit that adds outside a
 marked hook, deletes a line the upstream tree carries outside that rule, or marks a hook the manifest
 does not know; `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes` commits, and generated
 paths (`pnpm-lock.yaml`, `*.gen.ts`), are outside the rule: generated and dependency files are
 never scored as reshape debt — the sync walk restores HEAD and regenerates them instead of
-resolving them by hand. It ships warn-only, outside
-`ADOPTED_AUTHORING_GUARDS`, until the sweep reshapes the existing woven seams. There is no
+resolving them by hand. It is in `ADOPTED_AUTHORING_GUARDS`: the scar rules each refuse an
+inline implementation and direct the author to a fork-owned file, and the narrow integration
+call that stays behind is itself an added line this guard charges, so the two only compose
+once that call carries a marker. Adoption is what makes that the single authored shape.
+`scripts/lib/fork-hooks.ts` is fork-owned, so a marker and its manifest entry land in the same
+commit and the manifest edit is never charged; a declared key with no woven seam reads `absent`
+in `fork:delta --hook-debt` until one arrives. Historical range stays advisory, so the woven
+trunk is unaffected. There is no
 budget table and no ceiling arithmetic anywhere in the gates. `vp run fork:delta --inventory`
 still measures commit counts, lines, and shared files per domain; the numbers inform a
 decision, they enforce nothing. Walk repairs (`Fork-Repair` commits) stay visible in the

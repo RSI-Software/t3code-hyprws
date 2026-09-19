@@ -1,9 +1,10 @@
 // The `fork-hook-seam` rule, registered in `fork-scan-guards.ts` but kept here:
-// that file crossed the 700-line focus limit long ago. The rule is warn-only
-// (deliberately outside `ADOPTED_AUTHORING_GUARDS`) until the sweep clears the
-// woven-seam stack (RSI-Software/t3code-hyprws#948).
+// that file crossed the 700-line focus limit long ago. The rule is adopted, so
+// on an authoring scan it refuses rather than warns
+// (RSI-Software/t3code-hyprws#1099). Historical range stays advisory, which is
+// what keeps the already-woven trunk out of its way.
 //
-// For a fork commit touching an upstream-owned file it warns, one warning per
+// For a fork commit touching an upstream-owned file it fires, one finding per
 // file per cause with a line count, on:
 //
 // (a) added lines outside a marked hook;
@@ -22,7 +23,7 @@
 // Cause (a) additionally requires a path whose grammar has a marker comment
 // (`MARKER_CAPABLE_PATH`). On `package.json` or a Markdown file the remedy the
 // warning names cannot be written, so charging it would be an unsatisfiable
-// block once the rule is adopted. The other three causes still apply there:
+// block now that the rule refuses. The other three causes still apply there:
 // rewriting an upstream line is reshape debt whatever the file is.
 //
 // What the one-construct check does not catch: fork logic hidden in nested
@@ -30,8 +31,9 @@
 // initializer, attribute helpers on an in-scope element, and any shape where
 // the added lines are syntactically innocent but their context is not — the
 // rule sees only diff lines, not the whole file. A pre-existing hook region is
-// likewise invisible to a patch-only view: additions inside one warn as
-// unmarked, which over-warns until adoption makes the whole-file read cheap.
+// likewise invisible to a patch-only view: additions inside one read as
+// unmarked. Repeating the marker on the added line is the remedy, and the
+// standing cost of judging a seam from diff lines alone.
 
 import {
   FORK_HOOK_BLOCK_SUFFIX,
@@ -65,8 +67,11 @@ const HOOK_SINGLE_CALL =
 // A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
 // the fork, so the whole statement is still one fork construct.
 const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
+// `yield*` and `await` are how a single call is bound in the two idioms this repo is written in —
+// Effect generators on the server, async code everywhere — so the prefix is part of the binding,
+// not a second construct smuggled in behind it.
 const HOOK_CONST_FROM_CALL =
-  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*[A-Za-z_$][\w$.]*\s*\(/;
+  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*(?:yield\s*\*\s*|await\s+)?[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
 // The spread half covers both spellings of the same construct: an object spread and its JSX
 // attribute form, `{...forkProps}`, which is the shape that avoids rewriting upstream prop lines.

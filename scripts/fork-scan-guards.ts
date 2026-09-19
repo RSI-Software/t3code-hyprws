@@ -131,6 +131,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "rich-markdown-boundary",
   "desktop-preview-ownership",
   "reshape-split",
+  "fork-hook-seam",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
