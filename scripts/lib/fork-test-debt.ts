@@ -1,12 +1,12 @@
 // The baseline for the upstream-test append-only rule. The fork already edits 56 upstream test
 // files in place, and a rule that refuses every one of them on the first commit that touches an
-// unrelated line is a rule nobody can run. The sweep in `docs/internals/fork-test-divergence.md`
+// unrelated line is a rule nobody can run. The sweep in `docs/fork/internals/fork-test-divergence.md`
 // already names those files with their class and their owning commit, so it is the allow-list
 // itself rather than a second list beside it: a file leaves the baseline by leaving that table,
 // which is the same edit that records the migration (RSI-Software/t3code-hyprws#697).
 
 /** The tracked sweep the baseline is read from. */
-export const TEST_DIVERGENCE_REPORT = "docs/internals/fork-test-divergence.md";
+export const TEST_DIVERGENCE_REPORT = "docs/fork/internals/fork-test-divergence.md";
 
 /**
  * The heading of the one table that is the baseline. The report carries three other lists of

@@ -3,8 +3,8 @@
 ## Fork direction
 
 This checkout is the `RSI-Software/t3code-hyprws` fork.
-Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
-Read [Fork delta](docs/internals/fork-delta.md) before adding to the fork, and walk its rebase scan on every upstream rebase.
+Read [Fork development](docs/fork/internals/fork-development.md) before changing fork behavior or Git topology.
+Read [Fork delta](docs/fork/internals/fork-delta.md) before adding to the fork, and walk its rebase scan on every upstream rebase.
 
 Upstream guidance below remains the default unless this section or the fork guide overrides it.
 

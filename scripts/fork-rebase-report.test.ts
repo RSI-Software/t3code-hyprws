@@ -372,9 +372,9 @@ const makeGitFixture = (): GitFixture => {
   const sourceSha = git(root, ["rev-parse", "HEAD"]);
   git(root, ["update-ref", "refs/remotes/origin/hyprws", sourceSha]);
 
-  NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
+  NodeFS.mkdirSync(NodePath.join(root, "docs/fork/internals"), { recursive: true });
   NodeFS.writeFileSync(
-    NodePath.join(root, "docs/internals/fork-delta.md"),
+    NodePath.join(root, "docs/fork/internals/fork-delta.md"),
     "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
   );
 

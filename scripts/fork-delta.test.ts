@@ -959,7 +959,7 @@ it("ignores trailers that sit above the mention instead of ending the body", () 
 });
 
 it("parses per-commit numstat records, counting binary files but not their lines", () => {
-  const raw = `${RS}abc\n3\t1\tapps/web/src/app.ts\n-\t-\tassets/logo.png\n${RS}def\n0\t0\tdocs/internals/fork-delta.md\n`;
+  const raw = `${RS}abc\n3\t1\tapps/web/src/app.ts\n-\t-\tassets/logo.png\n${RS}def\n0\t0\tdocs/fork/internals/fork-delta.md\n`;
   const stats = parseCommitNumstat(raw);
   assert.deepStrictEqual(stats.get("abc"), {
     files: ["apps/web/src/app.ts", "assets/logo.png"],
@@ -967,7 +967,7 @@ it("parses per-commit numstat records, counting binary files but not their lines
     deleted: 1,
   });
   assert.deepStrictEqual(stats.get("def"), {
-    files: ["docs/internals/fork-delta.md"],
+    files: ["docs/fork/internals/fork-delta.md"],
     added: 0,
     deleted: 0,
   });
@@ -1134,10 +1134,13 @@ const RETIREMENT_SECTIONS = [
  */
 const createStackFixture = () => {
   const { root } = createGitFixture();
-  const docs = NodePath.join(root, "docs/internals");
+  const docs = NodePath.join(root, "docs/fork/internals");
   NodeFS.mkdirSync(docs, { recursive: true });
-  NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-delta.md"), RETIREMENT_SECTIONS);
-  NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-wire-baseline.md"), "");
+  NodeFS.writeFileSync(
+    NodePath.join(root, "docs/fork/internals/fork-delta.md"),
+    RETIREMENT_SECTIONS,
+  );
+  NodeFS.writeFileSync(NodePath.join(root, "docs/fork/internals/fork-wire-baseline.md"), "");
   git(root, ["add", "."]);
   const base = commitAll(root, "fixture: seed the fork stack");
   git(root, ["switch", "-c", "upstream"]);

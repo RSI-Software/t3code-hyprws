@@ -306,7 +306,7 @@ it("counts only decision cells carrying provenance in the walks table", () => {
       censusFiles: [],
     },
   ]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -527,8 +527,8 @@ it("pins the tooling-repair boundary to walk tooling alone", () => {
   // In: the harness itself and the fork's own internals pages.
   assert.isTrue(isToolingRepair(["scripts/fork-sync.ts"]));
   assert.isTrue(isToolingRepair(["scripts/lib/fork-additive.ts"]));
-  assert.isTrue(isToolingRepair(["docs/internals/fork-development.md"]));
-  assert.isTrue(isToolingRepair(["scripts/a.ts", "docs/internals/fork-delta.md"]));
+  assert.isTrue(isToolingRepair(["docs/fork/internals/fork-development.md"]));
+  assert.isTrue(isToolingRepair(["scripts/a.ts", "docs/fork/internals/fork-delta.md"]));
   // Out: anything a fork reader would call product, and lookalike paths.
   assert.isFalse(isToolingRepair([]));
   assert.isFalse(isToolingRepair(["apps/web/src/a.ts"]));
@@ -583,7 +583,7 @@ it("renders a walk's repairs, including tooling repairs, in the Walks table", ()
     },
     entry("v0", []),
   ]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -653,7 +653,7 @@ it("renders elapsed time and host effort on the Walks row, absent when unrecorde
     },
     entry("v0", []),
   ]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -673,7 +673,7 @@ it("renders elapsed time and host effort on the Walks row, absent when unrecorde
 
 it("keeps the delta commit count without reading a budget table", () => {
   const root = ledgerRepository([entry("v1", [])]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -791,7 +791,7 @@ it("writes the applied row when the host handoff is unavailable, effort rendered
     assert.strictEqual(appended.elapsedMs, undefined);
     assert.strictEqual(appended.recordUrl, "https://example.test/issues/1#issuecomment-1");
 
-    const internals = NodePath.join(root, "docs", "internals");
+    const internals = NodePath.join(root, "docs", "fork", "internals");
     NodeFS.writeFileSync(
       NodePath.join(internals, "fork-delta.md"),
       "## fork-meta\n\n### Retirement condition\n",
@@ -900,7 +900,7 @@ it("records the stopped walk's own elapsed and effort on the pending row and ren
     assert.strictEqual(appended.elapsedMs, 93_000);
     assert.deepStrictEqual(appended.effort, { model: "test-model", effort: "high" });
 
-    const internals = NodePath.join(root, "docs", "internals");
+    const internals = NodePath.join(root, "docs", "fork", "internals");
     NodeFS.writeFileSync(
       NodePath.join(internals, "fork-delta.md"),
       "## fork-meta\n\n### Retirement condition\n",
@@ -1127,7 +1127,7 @@ it("a stopped row never carries another walk's elapsed, and an unavailable hando
     assert.strictEqual(appended.elapsedMs, undefined);
     assert.strictEqual(appended.effort, undefined);
 
-    const internals = NodePath.join(root, "docs", "internals");
+    const internals = NodePath.join(root, "docs", "fork", "internals");
     NodeFS.writeFileSync(
       NodePath.join(internals, "fork-delta.md"),
       "## fork-meta\n\n### Retirement condition\n",
@@ -1490,7 +1490,7 @@ const repository = (): string => {
     ["user.name", "fork"],
   ])
     runCommandText("git", ["config", key ?? "", value ?? ""], { cwd: root });
-  NodeFS.mkdirSync(NodePath.join(root, "docs", "internals"), { recursive: true });
+  NodeFS.mkdirSync(NodePath.join(root, "docs", "fork", "internals"), { recursive: true });
   return root;
 };
 
@@ -1524,6 +1524,7 @@ it("keeps the ledger on the bot-owned ref and never on disk", () => {
 
 it("seeds the ledger ref once and refuses a second seed", () => {
   const root = repository();
+  NodeFS.mkdirSync(NodePath.join(root, "docs", "internals"), { recursive: true });
   NodeFS.writeFileSync(
     NodePath.join(root, "docs", "internals", "fork-churn.json"),
     `${JSON.stringify([entry("v1", [])])}\n`,
@@ -1568,7 +1569,7 @@ it("migrates every legacy census subject once and survives expired objects", () 
     "churn: legacy fixture",
   );
   NodeFS.writeFileSync(
-    NodePath.join(root, "docs", "internals", "fork-delta.md"),
+    NodePath.join(root, "docs", "fork", "internals", "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
   );
   const bin = NodePath.join(root, "bin");
@@ -1970,7 +1971,7 @@ it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
 
 it("refuses render --check instead of comparing the frozen mirror", () => {
   const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -1997,7 +1998,7 @@ it("refuses render --check instead of comparing the frozen mirror", () => {
 
 it("refuses bare render and leaves the frozen mirror byte-identical", () => {
   const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -2028,7 +2029,7 @@ it("refuses bare render and leaves the frozen mirror byte-identical", () => {
 
 it("refuses a mirror whose deprecation notice is rewrapped differently", () => {
   const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
@@ -2054,7 +2055,7 @@ it("refuses a mirror whose deprecation notice is rewrapped differently", () => {
 
 it("still reports staleness for a mirror that is not frozen", () => {
   const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "internals");
+  const internals = NodePath.join(root, "docs", "fork", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",

@@ -78,8 +78,8 @@ export {
  * RSI-Software/t3code-hyprws#476 retires them.
  */
 export const LEDGER_PATH = "docs/internals/fork-churn.json";
-export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
-export const DELTA_PATH = "docs/internals/fork-delta.md";
+export const DOCUMENT_PATH = "docs/fork/internals/fork-churn.md";
+export const DELTA_PATH = "docs/fork/internals/fork-delta.md";
 /** Wrap-independent markers that a committed mirror uses to declare itself frozen. */
 export const FROZEN_MIRROR_MARKER = ["Deprecated.", "frozen mirror"] as const;
 

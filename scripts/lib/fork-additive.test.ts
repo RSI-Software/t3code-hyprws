@@ -315,7 +315,7 @@ it("refuses an assertion deleted from a kept upstream case, and grants the recor
   replay(listed, [
     ["apps/web/src/localApi.test.ts", gutted],
     [
-      "docs/internals/fork-test-divergence.md",
+      "docs/fork/internals/fork-test-divergence.md",
       [
         "# Fork test divergence",
         "",

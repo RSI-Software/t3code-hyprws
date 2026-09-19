@@ -3,7 +3,7 @@
 Replay the fork onto one upstream tag and land it under an expected-old lease.
 [SKILL.md](../SKILL.md) owns the never-rules and the stop shape; this file owns the judgement.
 
-The [runbook](../../../../docs/operations/fork-sync.md#unblocking-a-rebase-blocked-issue) owns every mechanic below: worktree setup, verb contracts, repair scope, and refusal lists.
+The [runbook](../../../../docs/fork/operations/fork-sync.md#unblocking-a-rebase-blocked-issue) owns every mechanic below: worktree setup, verb contracts, repair scope, and refusal lists.
 Read it when the walk stops or you are driving a verb by hand.
 
 ## Tagged upstream replay
@@ -16,7 +16,7 @@ One invocation walks one eligible tag to the end and asks for nothing.
 It selects the target, resolves every conflict, repairs the lane, applies under the lease, and appends the churn row.
 
 There is no `--resume`: a report already on disk is a walk in flight.
-Conflicts are machine-owned and never yours to pre-empt, under the [conflict doctrine](../../../../docs/operations/fork-sync.md#conflict-doctrine).
+Conflicts are machine-owned and never yours to pre-empt, under the [conflict doctrine](../../../../docs/fork/operations/fork-sync.md#conflict-doctrine).
 
 ### The two legal stops
 
@@ -36,7 +36,7 @@ A `conflict` stop hands you the row; it does not hand it to the human.
 Resolve every `clear` row and walk on, and stop only for a `judgement` row.
 That stop alone is a human decision and is recorded as one.
 
-After resolving and staging the declined paths, flush them with `record-decisions` so the next tag's walk reads the seam from the record ([decision records](../../../../docs/operations/fork-sync.md#decision-records)).
+After resolving and staging the declined paths, flush them with `record-decisions` so the next tag's walk reads the seam from the record ([decision records](../../../../docs/fork/operations/fork-sync.md#decision-records)).
 No maintainer decides the same seam twice.
 
 ## Retirement
@@ -82,9 +82,9 @@ A name that merely appears in the tree is a sighting of the word, not of the beh
 
 `unblock-auto` runs every verb in one invocation, so these are not the normal path.
 Use them for diagnostics, for teaching, for a series rewrite, and for picking up a stopped walk by hand.
-Each verb's contract is the [verb ladder](../../../../docs/operations/fork-sync.md#verb-ladder); what follows is only where you stop and what you judge.
+Each verb's contract is the [verb ladder](../../../../docs/fork/operations/fork-sync.md#verb-ladder); what follows is only where you stop and what you judge.
 
-Pause the bot for the whole ladder first ([walk pause](../../../../docs/operations/fork-sync.md#walk-pause)).
+Pause the bot for the whole ladder first ([walk pause](../../../../docs/fork/operations/fork-sync.md#walk-pause)).
 
 - **Each command** consumes the prior report
 - **Never** alter its state
@@ -117,7 +117,7 @@ A clean replay still owes the report's count and byte-identical-message proof.
 
 ### 4. Check
 
-The check repairs what it can and hands back what it cannot ([lane repair](../../../../docs/operations/fork-sync.md#lane-repair), [additive proof](../../../../docs/operations/fork-sync.md#additive-proof)).
+The check repairs what it can and hands back what it cannot ([lane repair](../../../../docs/fork/operations/fork-sync.md#lane-repair), [additive proof](../../../../docs/fork/operations/fork-sync.md#additive-proof)).
 Never substitute repo-wide local checks.
 
 **Stop.** On an objective nightly lane the `checked` report already carries its proposer, so hand the Gate 4 surface, report, and record straight to a reviewer in another session, under the [review gate](#series-rewrite-review).
@@ -147,12 +147,12 @@ Rejection voids the report: retain its external files, restart at step 1, and ne
 ### 6. Ledger row
 
 Step 5 already published it on `refs/fork/churn`.
-Run the append by hand only for a row no apply wrote ([churn ledger](../../../../docs/operations/fork-sync.md#churn-ledger)).
+Run the append by hand only for a row no apply wrote ([churn ledger](../../../../docs/fork/operations/fork-sync.md#churn-ledger)).
 
 ## Same-base historical preparation
 
 Only for reconstructing the original fork patches, never an upstream replay.
-Finish the reviewed executable manifest and run the gate ladder from [historical rewrite construction](../../../../docs/operations/fork-sync.md#historical-rewrite-construction); the design-only report is not executable.
+Finish the reviewed executable manifest and run the gate ladder from [historical rewrite construction](../../../../docs/fork/operations/fork-sync.md#historical-rewrite-construction); the design-only report is not executable.
 Keep every unresolved proof gate explicit, because the constructor refuses it.
 
 Never invent eligibility to get through the gate, and expect no proof relaxation.
@@ -165,7 +165,7 @@ After it applies, start a fresh tagged report for the actual upstream replay.
 ## Series rewrite review
 
 The review belongs to the series rewrite, not to the walk.
-Hand the emitted report and record paths to a reviewer in another session, who records exactly one result ([series rewrite review](../../../../docs/operations/fork-sync.md#series-rewrite-review)).
+Hand the emitted report and record paths to a reviewer in another session, who records exactly one result ([series rewrite review](../../../../docs/fork/operations/fork-sync.md#series-rewrite-review)).
 
 ### Withhold for
 

@@ -216,7 +216,7 @@ It never means "send this upstream" and never authorizes publishing a branch or 
 The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
 
 Reading upstream is how the fork decides what to do about a bug it feels.
-Run the [`upstream-triage`](../../.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing one, so the fork knows whether upstream already fixed it, has a pull request open, or has never seen it.
+Run the [`upstream-triage`](../../../.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing one, so the fork knows whether upstream already fixed it, has a pull request open, or has never seen it.
 It reads upstream, writes only in this fork, and drafts any suggestion worth making for the human to decide on.
 
 **Trunk topology.**
@@ -543,7 +543,7 @@ Stable and nightly tags are both upstream states chosen for release; stable fork
 ### Unblock review
 
 When the newest upstream tag is unreachable, the bot creates or updates the fork's `rebase-blocked` issue.
-Resolve it through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock** entry point.
+Resolve it through the repo-local [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill's **unblock** entry point.
 Its gates orient on the newest selected upstream tag beyond the block, rehearse on `rehearse/<tag>`, scan every active domain, and take the CI verdict on the pushed lane head.
 
 For an objective nightly walk, the walking host proposes the generated decisions and another session records the review verdict.
@@ -582,7 +582,7 @@ A rejected lease means the published branch moved: fetch and inspect the drift, 
 Never replace the lease with an unguarded force push or silently refresh it.
 
 Rehearsal records are posted as comments on their `rebase-blocked` issues, and automatic rewrites are recorded in immutable workflow run summaries.
-Neither flow adds operational record commits to the replayed stack, and existing files under [`docs/operations/fork-sync-records/`](../operations/fork-sync-records/) are retained as historical evidence only.
+Neither flow adds operational record commits to the replayed stack, and existing files under [`docs/fork/operations/fork-sync-records/`](../operations/fork-sync-records/) are retained as historical evidence only.
 
 ### Upstream watch
 

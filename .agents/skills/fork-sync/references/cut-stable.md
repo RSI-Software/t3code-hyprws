@@ -3,7 +3,7 @@
 Tag a stable fork release from a bot-owned snapshot.
 [SKILL.md](../SKILL.md) owns the never-rules and the stop shape; this file owns the judgement.
 
-The [runbook](../../../../docs/operations/fork-sync.md#cut-a-stable-release) owns every mechanic: what each transition validates, derives, and refuses.
+The [runbook](../../../../docs/fork/operations/fork-sync.md#cut-a-stable-release) owns every mechanic: what each transition validates, derives, and refuses.
 
 Only the stable channel needs an entry point.
 The release workflow fires on every push to `hyprws`, so a leased apply cuts the nightly by itself; never cut one by hand.

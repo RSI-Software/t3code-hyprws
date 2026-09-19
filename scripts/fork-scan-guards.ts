@@ -262,7 +262,7 @@ export interface GuardInput {
   // because an unread tree is not evidence that the line was the fork's.
   readonly upstreamTestLines?: ReadonlyMap<string, ReadonlySet<string>>;
   // Upstream test files the fork already edits in place, read from the sweep in
-  // `docs/internals/fork-test-divergence.md`. The append-only rule tolerates a
+  // `docs/fork/internals/fork-test-divergence.md`. The append-only rule tolerates a
   // listed file so it is green on the day it lands; a file leaves the baseline
   // by leaving that table. An absent set is an empty baseline, never a licence.
   readonly upstreamTestDebt?: ReadonlySet<string>;
@@ -761,7 +761,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.threadRouteNavigationAdded) {
       warn(
         "thread-route-navigation",
-        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts/useThreadActions.ts gains direct route-family policy; use lib/threadRouteNavigation, retain execution-time parameter reads at navigation sites, and keep the call-site budget in docs/internals/thread-route-navigation.md current",
+        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts/useThreadActions.ts gains direct route-family policy; use lib/threadRouteNavigation, retain execution-time parameter reads at navigation sites, and keep the call-site budget in docs/fork/internals/thread-route-navigation.md current",
       );
     }
     if (patch.richMarkdownImplementationAdded) {

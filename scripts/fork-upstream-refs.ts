@@ -4,7 +4,7 @@
 // GitHub turns a live `pingdotgg/t3code#4379` or item URL into a backlink event
 // on the upstream thread, posted from the fork's bot account, so the citation is
 // wrapped instead of removed: the prose still reads, upstream stays quiet.
-// See the upstream citations section of docs/internals/fork-development.md.
+// See the upstream citations section of docs/fork/internals/fork-development.md.
 //
 // A bare `#4379` counts too. GitHub resolves a number this fork has never issued
 // against the repository it was forked from, so the plainest-looking reference in
@@ -12,7 +12,7 @@
 //
 // Run it before a body is published; a check that reacts to an existing issue,
 // comment, or pull request cannot un-post the backlink that creating it caused.
-// docs/internals/scripts.md records what this guard covers and what it does not.
+// docs/fork/internals/scripts.md records what this guard covers and what it does not.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -491,7 +491,7 @@ const command = Command.make(
       if (references.length > 0) {
         process.stderr.write(renderReferences(references));
         process.stderr.write(
-          `failed: ${references.length} live upstream reference(s) in ${source}; wrap each one in a code span or a fenced block so GitHub does not post a backlink on the ${UPSTREAM_REPO} thread, or write a bare number that names a fork item as ${FORK_REPO}#N, which renders the same (docs/internals/fork-development.md)\n`,
+          `failed: ${references.length} live upstream reference(s) in ${source}; wrap each one in a code span or a fenced block so GitHub does not post a backlink on the ${UPSTREAM_REPO} thread, or write a bare number that names a fork item as ${FORK_REPO}#N, which renders the same (docs/fork/internals/fork-development.md)\n`,
         );
         process.exitCode = 1;
         return;

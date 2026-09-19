@@ -13,7 +13,7 @@ import { resolveThreadRouteDeparture, resolveThreadRouteFamily } from "./lib/thr
  * the upstream file takes upstream edits cleanly. `lib/threadRouteNavigation.ts`
  * is the single fork-owned entry point the busy upstream files call into; each
  * spends one call per distinct upstream navigation event, and
- * `docs/internals/thread-route-navigation.md` holds that budget.
+ * `docs/fork/internals/thread-route-navigation.md` holds that budget.
  *
  * `threadRoutes` on `hyprws` also carries the same hub/project family tests
  * (from `d754f4111f`), but those import from `./threadRoutes` directly. This

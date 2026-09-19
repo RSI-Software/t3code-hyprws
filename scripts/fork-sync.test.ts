@@ -2265,14 +2265,15 @@ it("refuses a skip whose subject has no Retired row in the fork delta ledger", (
     ];
     // Keep the Kept table header-valid with one empty-ish row.
     ledger[ledger.length - 1] = "| fix: kept | thread-ordering | still wanted | v1.0.0 |";
+    NodeFS.mkdirSync(NodePath.join(root, "docs/fork/internals"), { recursive: true });
     NodeFS.writeFileSync(
-      NodePath.join(root, "docs/internals/fork-delta.md"),
+      NodePath.join(root, "docs/fork/internals/fork-delta.md"),
       `${ledger.join("\n")}\n`,
     );
     // A recorded verdict without the ledger row is refused, loud, with the subject.
     assert.throws(
       () => assertRetiredInLedgerForTest(new Set(["fix: retire me"]), root),
-      /refusing git rebase --skip: no Retired row in docs\/internals\/fork-delta\.md for fix: retire me/,
+      /refusing git rebase --skip: no Retired row in docs\/fork\/internals\/fork-delta\.md for fix: retire me/,
     );
     // The subject whose row a human wrote is allowed to skip.
     assertRetiredInLedgerForTest(new Set(["fix: retired properly"]), root);
@@ -3313,7 +3314,7 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
     baseToOriginCount: 204,
     baseToFromCount: 205,
     allowExtra: 1,
-    allowPaths: ["docs/internals/fork-development.md"],
+    allowPaths: ["docs/fork/internals/fork-development.md"],
     originDigest: "d".repeat(64),
     fromFirstNDigest: "d".repeat(64),
     diffEmpty: true,
@@ -7123,7 +7124,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
       assert.match(message, /report leased at c+/);
       assert.match(message, /origin\/hyprws is now a+/);
       assert.match(message, /the walk re-lists from the moved trunk/);
-      assert.match(message, /fold rule in docs\/operations\/fork-sync\.md/);
+      assert.match(message, /fold rule in docs\/fork\/operations\/fork-sync\.md/);
       assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
       assert.match(message, /orphaned/);
       // Do NOT emit an rm command.

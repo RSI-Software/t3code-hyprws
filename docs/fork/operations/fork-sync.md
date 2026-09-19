@@ -6,10 +6,10 @@ The `hyprws upstream sync` workflow is the normal upstream-sync operator.
 It mirrors upstream, finds the newest upstream release tag the fork reaches without a textual conflict, verifies a full-stack replay, and publishes per the configured mode.
 A maintainer intervenes only to resolve a block, enable trunk rewrites, or cut a stable release.
 
-| Topic            | Source                                                           |
-| ---------------- | ---------------------------------------------------------------- |
-| Discipline       | [Fork development](../internals/fork-development.md)             |
-| Gated procedures | the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill |
+| Topic            | Source                                                              |
+| ---------------- | ------------------------------------------------------------------- |
+| Discipline       | [Fork development](../internals/fork-development.md)                |
+| Gated procedures | the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill |
 
 ## Historical rewrite construction
 
@@ -211,7 +211,7 @@ The limitation stays visible in the published section, as a `::warning::` on Act
 
 #### Lesson reconciliation
 
-The scan reconciles legacy walks and v2/v3 frozen seam observations against the full original per-file inventory in `docs/internals/fork-churn.md`.
+The scan reconciles legacy walks and v2/v3 frozen seam observations against the full original per-file inventory in `docs/fork/internals/fork-churn.md`.
 New observations reach the next scan carrying preferred boundary guidance where a reviewed mapping exists; unmapped lessons stay visible and unresolved.
 A mapping names exact integration paths and the reviewed policy within each, not ownership of every change in the file.
 Provider agent metadata guidance does not cover startup, resume, child-work results, or launcher environment behavior.
@@ -370,7 +370,7 @@ The full report keeps unresolved seams visible even when absent.
 #### Seeding and migration
 
 The ledger moved off `docs/internals/fork-churn.json` onto `refs/fork/churn`.
-`docs/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both files, and the `docs(fork-churn): row ...` commits, at a later rebase.
+`docs/fork/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both files, and the `docs(fork-churn): row ...` commits, at a later rebase.
 Seed the ref once from the file, from a clean canonical checkout of `hyprws`:
 
 ```bash
@@ -705,7 +705,7 @@ Each conflicted path goes to the shared rerere cache first; whatever rerere did 
 
 There is no "upstream superseded this commit" rule.
 Gate 4 keeps every candidate, so taking the upstream side of a kept commit's files would keep the commit and drop the behaviour it carries.
-Retiring a fork commit stays a human decision in `docs/internals/fork-delta.md`.
+Retiring a fork commit stays a human decision in `docs/fork/internals/fork-delta.md`.
 
 The fork is additive, so a resolution that would drop a line upstream added at the seam is refused rather than staged.
 So is a seam both sides rewrote, because a union of two rewrites says two things at once.
@@ -841,7 +841,7 @@ Its two sessions stay separate: the host owns the proposal, another session owns
 
 Each verb consumes the JSON report the previous verb emitted and atomically advances it; no shell variable carries gate state.
 The script also renders and validates the Markdown record schema, and its focused tests are that schema, so no separate prose template can drift from it.
-Report and record stay outside the repository, and new rehearsals never add to `docs/operations/fork-sync-records/`.
+Report and record stay outside the repository, and new rehearsals never add to `docs/fork/operations/fork-sync-records/`.
 Every transition refuses stale refs, wrong lanes, incomplete rows, changed messages or counts, unowned or ambiguously owned importer drift, failed checks, and a missing, stale, same-session, or withheld review.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of an unblock.
 A successful leased push starts the bot run that reconciles the resolved blocking SHA and any later block.
@@ -856,7 +856,7 @@ Exactly one candidate issue is open at a time.
 Each reconcile closes a candidate whose `vX.Y.Z-hyprws.N` release tag is already on `origin` as completed, and closes a candidate an open newer one has overtaken as not planned, commenting with the newer issue.
 Only the newest un-cut candidate survives, so the issue `stable-list` offers is the live one.
 
-Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point.
+Invoke the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point.
 The stable lane is three external-report transitions; no shell variable or pasted multi-command block carries gate state.
 
 **1. `stable-list`** runs fork preflight, reads every open stable candidate, validates each title, body, and marker, and writes an external selection report.
@@ -880,7 +880,7 @@ It asks Worktrunk to trash the cut lane, finds and watches the exact `hyprws-rel
 
 ### UAT boundary
 
-The preparation stop is the [`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgement boundary.
+The preparation stop is the [`fork-uat`](../../../.agents/skills/fork-uat/SKILL.md) judgement boundary.
 The agent reviews the rendered sources and carried conditions, writes observable task drafts, and removes the reviewer-only sections.
 `fork:uat --prepare` compiles that review into a hashed parent tracker plus one child issue per acceptance condition and preflights every filing.
 The agent shows the exact bundle to the human; only an explicit human go permits `fork:uat --create`.

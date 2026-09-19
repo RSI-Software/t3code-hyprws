@@ -15,7 +15,7 @@ Rich mode supports CommonMark and GitHub Flavored Markdown: headings, emphasis, 
 
 ## Try the showcase
 
-Search for `docs/user/markdown-showcase.md` in T3 Code and switch it to Rich mode.
+Search for `docs/fork/user/markdown-showcase.md` in T3 Code and switch it to Rich mode.
 The [Rich Markdown showcase](./markdown-showcase.md) exercises the supported syntax in one document.
 
 ## Limits

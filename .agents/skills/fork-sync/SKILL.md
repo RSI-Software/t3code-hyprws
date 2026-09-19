@@ -23,7 +23,7 @@ A stop must be a judgement; a stop that was not one is friction to lodge.
 
 Every report path is external operator state.
 
-The [fork-sync runbook](../../../docs/operations/fork-sync.md) owns the bot model, the ledgers, and recovery.
+The [fork-sync runbook](../../../docs/fork/operations/fork-sync.md) owns the bot model, the ledgers, and recovery.
 Read it when something refuses, not before.
 
 ## Stop shape

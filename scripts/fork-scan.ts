@@ -5,7 +5,7 @@
 // commits touch. Shared means the fork changed the file above its upstream base
 // and upstream changed it too on the way to the target, which is where a rebase
 // silently merges two intents, so the file must be listed in that domain's
-// rebase-scan table in docs/internals/fork-delta.md. The target defaults to
+// rebase-scan table in docs/fork/internals/fork-delta.md. The target defaults to
 // live `upstream/main`; `--target <tag>` pins a release and reproduces the
 // automerged-overlap walk gate 3 of the fork-sync skill used to do by hand.
 
@@ -51,7 +51,7 @@ import {
   type ScanWarning,
 } from "./fork-scan-guards.ts";
 
-export const LEDGER_PATH = "docs/internals/fork-delta.md";
+export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
 const RECORD_SEPARATOR = "";
 

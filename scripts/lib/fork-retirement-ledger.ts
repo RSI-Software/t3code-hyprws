@@ -3,7 +3,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-export const FORK_RETIREMENT_LEDGER_PATH = "docs/internals/fork-delta.md";
+export const FORK_RETIREMENT_LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
 export type RetirementDecision = "retire" | "keep" | "partial" | "none";
 

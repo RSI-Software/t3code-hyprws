@@ -6,11 +6,11 @@ Do not add, migrate, or delete files here.
 New records live outside the repository, and no path commits an operational record to `hyprws`.
 See the [fork sync runbook](../fork-sync.md).
 
-| Sync                                                        | Record                                                                                                                                                                  |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Human rehearsal**                                         | Drafted outside the repository by the [`fork-sync` skill](../../../.agents/skills/fork-sync/SKILL.md), then posted on the current `rebase-blocked` issue after sign-off |
-| **Automatic rewrite**                                       | The immutable `hyprws upstream sync` workflow run summary                                                                                                               |
-| **Stable cut from an unchanged bot-owned release snapshot** | None: the candidate issue, tag, workflow run, and release are that cut's record                                                                                         |
+| Sync                                                        | Record                                                                                                                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Human rehearsal**                                         | Drafted outside the repository by the [`fork-sync` skill](../../../../.agents/skills/fork-sync/SKILL.md), then posted on the current `rebase-blocked` issue after sign-off |
+| **Automatic rewrite**                                       | The immutable `hyprws upstream sync` workflow run summary                                                                                                                  |
+| **Stable cut from an unchanged bot-owned release snapshot** | None: the candidate issue, tag, workflow run, and release are that cut's record                                                                                            |
 
 ## Historical human syncs
 

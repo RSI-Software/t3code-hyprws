@@ -825,7 +825,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
         const source = "apps/web/src/state/terminalSessions.ts";
         yield* write(source, "export const upstreamMetadata = 1;\n");
         yield* write(
-          "docs/internals/fork-delta.md",
+          "docs/fork/internals/fork-delta.md",
           "## fork-meta\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n",
         );
         const pairs = ["ci", "release"].map((name) => ({
@@ -1026,7 +1026,7 @@ else if (args[0] === "issue" && args[1] === "comment") {
         assert.include(offline.stdout, `at ${first}; freshness=offline`);
         assert.notInclude(offline.stdout, "terminalAttachmentRetention.fork.ts");
         const frozen = yield* fs.readFileString(
-          NodePath.join(import.meta.dirname, "../docs/internals/fork-churn.md"),
+          NodePath.join(import.meta.dirname, "../docs/fork/internals/fork-churn.md"),
         );
         const originalRows = frozen
           .split("## Per file\n")[1]!

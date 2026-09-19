@@ -175,7 +175,7 @@ describe("retirePass", () => {
 
   it("reads the human verdict back from the retirement ledger keyed by subject", () => {
     const root = makeRepository("fork-retire-pass-verdict-");
-    const ledger = NodePath.join(root, "docs/internals/fork-delta.md");
+    const ledger = NodePath.join(root, "docs/fork/internals/fork-delta.md");
     NodeFS.mkdirSync(NodePath.dirname(ledger), { recursive: true });
     const subject = "feat(seam): frobnicatorWidgetName reticulator carries the boundary";
     NodeFS.writeFileSync(

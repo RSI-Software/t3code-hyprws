@@ -72,7 +72,7 @@ An old thread upstream touched inside the window is news; one untouched since be
 A survey that deliberately wants more history may set `SINCE` by hand.
 The header then says the window was widened on purpose and names the derived date it was widened from.
 
-Take `DOMAIN_PATHS` from that domain's rebase scan in [Fork delta](../../../../docs/internals/fork-delta.md), so the sweep covers the seams the fork sits on.
+Take `DOMAIN_PATHS` from that domain's rebase scan in [Fork delta](../../../../docs/fork/internals/fork-delta.md), so the sweep covers the seams the fork sits on.
 The header may only claim the window every block below enforced, and only the surfaces that ran.
 
 ### Issues and pull requests
@@ -249,7 +249,7 @@ When nothing comes back, no stable release carries the fix yet, and upstream tag
 git tag --contains <merge-commit-sha> --sort=v:refname | grep nightly | head -1
 ```
 
-A nightly is the one prerelease the fork may rebase onto, and only as the deliberate exception [Fork development](../../../../docs/internals/fork-development.md) allows.
+A nightly is the one prerelease the fork may rebase onto, and only as the deliberate exception [Fork development](../../../../docs/fork/internals/fork-development.md) allows.
 Name it as the rebase target only when the symptom blocks work before the next stable release, and say on the fork issue that the target is a nightly rather than a release.
 When neither line answers, the fix merged after every existing tag.
 

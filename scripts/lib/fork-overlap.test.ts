@@ -5,7 +5,7 @@ import { overlapPaths } from "./fork-overlap.ts";
 it("keeps only files the fork and upstream both changed since the shared base", () => {
   const forkChanged = new Set([
     "apps/web/src/components/ChatMarkdown.tsx",
-    "docs/internals/fork-delta.md",
+    "docs/fork/internals/fork-delta.md",
   ]);
   const upstreamChanged = new Set([
     "apps/web/src/components/ChatMarkdown.tsx",
@@ -15,7 +15,7 @@ it("keeps only files the fork and upstream both changed since the shared base", 
     overlapPaths(
       [
         "apps/web/src/components/ChatMarkdown.tsx",
-        "docs/internals/fork-delta.md",
+        "docs/fork/internals/fork-delta.md",
         "packages/shared/src/schema.ts",
       ],
       forkChanged,

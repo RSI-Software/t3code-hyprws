@@ -29,7 +29,7 @@ Both end at [Hand upstream-facing text over as a suggestion](#hand-upstream-faci
 5. Pick two to four three-word phrases
 
 An upstream match has to cover the same surface, mode, and provider.
-The rebase scan is in [Fork delta](../../../docs/internals/fork-delta.md), and it says whether a fork patch owns the seam.
+The rebase scan is in [Fork delta](../../../docs/fork/internals/fork-delta.md), and it says whether a fork patch owns the seam.
 Say so when a fork-only file sits on the path, and keep triaging anyway.
 GitHub search does not match long prose, so three words beat a sentence.
 
@@ -93,7 +93,7 @@ Never name a tag that does not exist.
 - **Name the tag:** as soon as one contains it
 
 When the symptom blocks work before that tag ships, name the nightly tag that already contains the commit as the rebase target instead.
-[Fork development](../../../docs/internals/fork-development.md) allows a nightly target for exactly that case.
+[Fork development](../../../docs/fork/internals/fork-development.md) allows a nightly target for exactly that case.
 Fix in the fork under `upstream-fixes` only when no tag contains the commit at all, keeping the patch small enough to drop on the rebase that carries the real fix.
 
 ### PR pending
@@ -257,7 +257,7 @@ A report that claims a window it did not enforce is a report that quietly missed
 
 ### Sweep every surface
 
-Name the domain from the [Fork delta](../../../docs/internals/fork-delta.md) index, take its rebase-scan paths, and pick three to five short phrases from what it does.
+Name the domain from the [Fork delta](../../../docs/fork/internals/fork-delta.md) index, take its rebase-scan paths, and pick three to five short phrases from what it does.
 Then run [Sweep a whole domain](references/upstream-search.md#sweep-a-whole-domain) and [Fix the freshness boundary](references/upstream-search.md#fix-the-freshness-boundary).
 
 Triage stops at the first canonical item; a survey does not.
@@ -341,7 +341,7 @@ A closing pull request is usually there and turns the item into **shipped** or *
 ### Map every item onto the fork
 
 An item nobody can act on is trivia.
-Map each kept item onto the fork domain it touches, matched through the rebase scans in [Fork delta](../../../docs/internals/fork-delta.md), and give it exactly one follow-up.
+Map each kept item onto the fork domain it touches, matched through the rebase scans in [Fork delta](../../../docs/fork/internals/fork-delta.md), and give it exactly one follow-up.
 This table is a ladder too: take the first row that matches, and every item reaches one row.
 
 | Follow-up         | When                                                                                                                                                                                                                                                                                                                 |

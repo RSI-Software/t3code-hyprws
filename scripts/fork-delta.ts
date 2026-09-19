@@ -3,7 +3,7 @@
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
-// See docs/internals/fork-delta.md for the conventions it enforces.
+// See docs/fork/internals/fork-delta.md for the conventions it enforces.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -866,7 +866,7 @@ const command = Command.make(
         }
         if (ledger.findings.length > 0) {
           process.stderr.write(
-            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/fork/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
@@ -893,7 +893,7 @@ const command = Command.make(
       const fileSystem = yield* FileSystem.FileSystem;
       const retirementLedger = readForkRetirementLedger(process.cwd());
       const wireBaseline = parseForkWireBaseline(
-        yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
+        yield* fileSystem.readFileString("docs/fork/internals/fork-wire-baseline.md"),
       );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");

@@ -760,7 +760,7 @@ it("records evidence idempotently and preserves it through walk and legacy reade
     assert.strictEqual(run(["--help"], "/missing-repository"), 0);
     assert.strictEqual(run(["-h"], "/missing-repository"), 0);
     assert.strictEqual(run(["--unknown"], "/missing-repository"), 2);
-    const docs = NodePath.join(root, "docs", "internals");
+    const docs = NodePath.join(root, "docs", "fork", "internals");
     NodeFS.mkdirSync(docs, { recursive: true });
     NodeFS.writeFileSync(
       NodePath.join(docs, "fork-delta.md"),
