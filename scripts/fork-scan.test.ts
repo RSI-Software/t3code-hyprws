@@ -445,7 +445,12 @@ it("carries ledger guard warnings into the report without changing the scan verd
         hotSeams: new Map([
           [
             "apps/web/src/components/ChatView.tsx",
-            { walkCount: 3, worstClass: "seam-moved", countUnit: "conflict walk(s)" },
+            {
+              kind: "conflict" as const,
+              walkCount: 3,
+              worstClass: "seam-moved",
+              countUnit: "conflict walk(s)",
+            },
           ],
         ]),
       },

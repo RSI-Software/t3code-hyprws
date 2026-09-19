@@ -19,7 +19,8 @@ import {
   lessonObservations,
   lessonAssessmentUnavailable,
 } from "./fork-lesson-guidance.ts";
-import type { ChurnEntry, CensusSnapshot } from "./fork-churn-ledger.ts";
+import type { ChurnConflict, ChurnEntry, CensusSnapshot } from "./fork-churn-ledger.ts";
+import type { ConflictClass } from "./fork-sync-state.ts";
 import {
   ADOPTED_AUTHORING_GUARDS,
   AUTHORING_GUARD_TARGETS,
@@ -43,6 +44,16 @@ const encodeSync = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decode = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const empty = '{"version":2,"walks":[],"seamRecords":[]}';
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
+/** A ledger conflict row where only the path and the class matter to the case under test. */
+const conflict = (path: string, klass: ConflictClass): ChurnConflict => ({
+  path,
+  commit: C,
+  subject: "bootstrap physical window",
+  domain: "project-windows",
+  class: klass,
+  resolution: "reapplied by hand",
+  decidedBy: "human",
+});
 
 /**
  * `upstream-test`, `reshape-split` and `fork-hook-seam` judge the shape of a commit, not the
@@ -159,16 +170,99 @@ it("counts and lists the hot seams no reviewed boundary owns", () => {
   };
   assert.strictEqual(lessonHotSeams(evidence).size, 2);
   assert.deepStrictEqual(
-    unownedHotSeams(evidence).map((seam) => seam.path),
+    unownedHotSeams(evidence).census.map((seam) => seam.path),
     [unowned],
   );
+  assert.deepStrictEqual(unownedHotSeams(evidence).conflict, []);
   const output = renderLessonGuidance(
     { ref: CHURN_REF, sha: A, remoteSha: null, freshness: "offline", detail: "fixture", raw: "" },
     evidence,
   );
   assert.include(output, "Unowned hot seams: 1 of 2 hot seam(s)");
-  assert.include(output, `  ${unowned} [2 census observation(s)`);
-  assert.notInclude(output, `  ${owned} [2 census observation(s)`);
+  assert.include(output, `${unowned} [2 census observation(s)`);
+  assert.notInclude(output, `${owned} [2 census observation(s)`);
+});
+
+// A conflict walk is rebase cost already paid; a census observation is only presence. Ranking both
+// in one list puts a path nothing has ever stopped above one that stopped a rebase twice, so the two
+// units are counted apart and only the conflict list asks for an owner
+// (RSI-Software/t3code-hyprws#1020).
+it("keeps conflict-walk and census-observation seams in separate rankings", () => {
+  const censusPath = "apps/web/src/hooks/useNowMinute.ts";
+  const conflictPath = "apps/web/src/hooks/useScrollAnchor.ts";
+  const censusFile = {
+    path: censusPath,
+    subject: "bootstrap physical window",
+    commit: A,
+    domain: "project-windows",
+    hunks: null,
+  };
+  const snapshot: CensusSnapshot = { tag: "v1", fixedAt: B, files: [censusFile] };
+  // Nine observations against two walks: the census path outranks the conflict path on the raw
+  // number and still must not lead, because the number does not measure the same thing.
+  const evidence = {
+    walks: ["v1", "v2"].map((tag): ChurnEntry => ({
+      tag,
+      before: A,
+      after: B,
+      recordUrl: "https://example.test/walk",
+      conflicts: [conflict(conflictPath, "human")],
+      decisions: [],
+      censusFiles: [],
+    })),
+    seamRecords: ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"].map((tag) =>
+      seamRecord(freezeObservation({ ...snapshot, tag })),
+    ),
+  };
+  const unowned = unownedHotSeams(evidence);
+  assert.deepStrictEqual(
+    unowned.conflict.map((seam) => seam.path),
+    [conflictPath],
+  );
+  assert.deepStrictEqual(
+    unowned.census.map((seam) => seam.path),
+    [censusPath],
+  );
+  const output = renderLessonGuidance(
+    { ref: CHURN_REF, sha: A, remoteSha: null, freshness: "offline", detail: "fixture", raw: "" },
+    evidence,
+  );
+  assert.include(output, "1 by conflict walk and 1 by census observation");
+  assert.include(output, `${conflictPath} [2 conflict walk(s); worst human] -> no owning issue`);
+  assert.include(output, `${censusPath} [9 census observation(s)] -> deliberately unowned`);
+  // The paths also appear in the inventory above, so compare each row against its own heading
+  // rather than against the other path's first mention anywhere in the report.
+  const censusHeading = output.indexOf("  Unowned by census observation:");
+  assert.isBelow(output.indexOf("  Unowned by conflict walk:"), censusHeading);
+  assert.isBelow(output.indexOf(`    ${conflictPath} [2 conflict walk(s)`), censusHeading);
+  assert.isAbove(output.indexOf(`    ${censusPath} [9 census observation(s)`), censusHeading);
+});
+
+// `hotSeams` breaks a walk-count tie on the worst class it reached, and this report has to repeat
+// that tiebreak or the list it calls "worst first" is only "most walks first".
+it("breaks a conflict-walk tie on the worst class, as the churn ledger does", () => {
+  const mechanical = "apps/web/src/hooks/useNowMinute.ts";
+  const human = "apps/web/src/hooks/useScrollAnchor.ts";
+  const evidence = {
+    walks: ["v1", "v2"].map((tag): ChurnEntry => ({
+      tag,
+      before: A,
+      after: B,
+      recordUrl: "https://example.test/walk",
+      conflicts: [conflict(mechanical, "mechanical"), conflict(human, "human")],
+      decisions: [],
+      censusFiles: [],
+    })),
+    seamRecords: [],
+  };
+  const ranked = unownedHotSeams(evidence).conflict;
+  assert.deepStrictEqual(
+    ranked.map((seam) => [seam.path, seam.walkCount, seam.worstClass]),
+    [
+      [human, 2, "human"],
+      [mechanical, 2, "mechanical"],
+    ],
+  );
 });
 
 it("orders stable tags after the nightlies they release, by recorded sequence", () => {
