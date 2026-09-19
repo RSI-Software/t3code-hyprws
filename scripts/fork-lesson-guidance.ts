@@ -1,4 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Read-only Git evidence for standalone authoring scans.
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import {
   parseLedger,
   parseChurnState,
@@ -195,11 +198,19 @@ export const resolveLessonSource = (
 
 // These owners cover the stated policy, not every fork change in a shared file.
 // Keep integration paths exact; an unfamiliar basename does not inherit a reviewed boundary.
-const boundaries: ReadonlyArray<{
+interface LessonBoundary {
   readonly paths: ReadonlyArray<string>;
   readonly boundary: string;
   readonly owner: number;
-}> = [
+  /**
+   * The declared path is meant to be absent: the boundary says not to recreate it. Only a retired
+   * entry may name a path that does not resolve, and `staleBoundaryDeclarations` skips exactly
+   * those (RSI-Software/t3code-hyprws#1125).
+   */
+  readonly retired?: true;
+}
+
+const boundaries: ReadonlyArray<LessonBoundary> = [
   {
     paths: [
       "apps/web/src/components/ChatView.tsx",
@@ -274,7 +285,7 @@ const boundaries: ReadonlyArray<{
   {
     paths: ["apps/web/src/components/chat/MessagesTimeline.tsx"],
     boundary:
-      "apps/web/src/components/chat/AgentSpawnNavigation.ts; preserve agent child navigation",
+      "apps/web/src/components/chat/AgentSpawnNavigation.fork.ts; preserve agent child navigation",
     owner: 537,
   },
   {
@@ -308,6 +319,7 @@ const boundaries: ReadonlyArray<{
     boundary:
       "retired parser path: keep the upstream route validator and apply physical scope through apps/web/src/components/pullRequest/PullRequestProjectScope.ts; do not recreate this route parser",
     owner: 535,
+    retired: true,
   },
   {
     paths: [
@@ -327,6 +339,69 @@ const boundaries: ReadonlyArray<{
     owner: 312,
   },
 ];
+
+/**
+ * A file reference inside boundary prose. Fork boundaries are written for a reader, so a second
+ * file in the same sentence is usually given as a bare basename once the directory is established
+ * (`.../WindowPolicy.ts and WindowPolicy.preload.ts`).
+ */
+const CITED_FILE = /[\w.\-/]*[\w-]+\.(?:tsx?|jsx?|mjs|json|ya?ml)\b/g;
+
+/**
+ * Reads every file the boundary prose names, resolving a bare basename against the directory of
+ * the nearest slashed citation before it in the same string. A basename with no directory yet is
+ * unresolvable, so it is left out rather than guessed at.
+ */
+export const citedBoundaryFiles = (boundary: string): ReadonlyArray<string> => {
+  const cited: Array<string> = [];
+  let directory: string | undefined;
+  for (const [text] of boundary.matchAll(CITED_FILE)) {
+    if (text.includes("/")) {
+      directory = NodePath.posix.dirname(text);
+      cited.push(text);
+      continue;
+    }
+    if (directory !== undefined) cited.push(NodePath.posix.join(directory, text));
+  }
+  return cited;
+};
+
+/** This module, named as a path, so a root can be recognized as a fork checkout. */
+const GUIDANCE_MODULE_PATH = "scripts/fork-lesson-guidance.ts";
+
+export interface StaleBoundaryDeclaration {
+  readonly owner: number;
+  readonly kind: "declared" | "cited";
+  readonly path: string;
+}
+
+/**
+ * The census numerator counts hot seams that have a reviewed boundary, and the boundary array is
+ * hand-written strings. A rename or a delete silently keeps the ownership claim, which can only
+ * lose a match, so the count reads lower than the truth for a reason no row records
+ * (RSI-Software/t3code-hyprws#1125).
+ *
+ * Authoring the array by hand is correct: which file should own a seam is a design decision, not
+ * something to derive. What is checked is not who wrote an entry but whether it is still true.
+ * A `retired` entry is the one exemption; its whole point is that the declared path is gone.
+ */
+export const staleBoundaryDeclarations = (
+  root: string,
+): ReadonlyArray<StaleBoundaryDeclaration> => {
+  const missing = (path: string) => !NodeFS.existsSync(NodePath.join(root, path));
+  // The array names paths in this repository, so it says nothing about any other tree. `fork:scan`
+  // runs against a throwaway fixture repository in its own tests, where every entry would read
+  // stale and mean nothing. This module's own path is the cheapest proof the root is a fork checkout.
+  if (missing(GUIDANCE_MODULE_PATH)) return [];
+  return boundaries.flatMap((entry) => [
+    ...(entry.retired === true ? [] : entry.paths.filter(missing)).map(
+      (path): StaleBoundaryDeclaration => ({ owner: entry.owner, kind: "declared", path }),
+    ),
+    ...citedBoundaryFiles(entry.boundary)
+      .filter(missing)
+      .map((path): StaleBoundaryDeclaration => ({ owner: entry.owner, kind: "cited", path })),
+  ]);
+};
 
 export const preferredLessonBoundary = (path: string) => {
   const scoped = boundaries.find((entry) => entry.paths.includes(path));
@@ -635,7 +710,7 @@ export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvide
         `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.bridged === "legacy" ? " (bridged: legacy)" : ""}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
     ),
     `Unowned hot seams: ${unowned.conflict.length + unowned.census.length} of ${hot.size} hot seam(s) have no reviewed preferred boundary, ${unowned.conflict.length} by conflict walk and ${unowned.census.length} by census observation. The two counts are listed apart because they are not comparable.`,
-    `  Unowned by conflict walk: ${unowned.conflict.length}, worst first. Each one stopped a rebase, so each wants a reviewed boundary and the guard that would stop the next walk. Only a human review can add one; this list is the ask.`,
+    `  Unowned by conflict walk: ${unowned.conflict.length}, worst first. Each one stopped a rebase, so each wants a reviewed boundary and the guard that would stop the next walk. An agent or a human may add one; the review is what makes it reviewed, not who wrote it. This list is the ask.`,
     ...unowned.conflict.map(
       (seam) =>
         `    ${seam.path} [${seam.walkCount} ${seam.countUnit}; worst ${seam.worstClass}] -> no owning issue; needs a reviewed boundary`,
