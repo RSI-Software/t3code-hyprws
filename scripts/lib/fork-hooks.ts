@@ -1024,6 +1024,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/settings/settingsSearch.ts",
     anchor: { kind: "after-decl", symbol: "getThreadAutoSettlementSearchAvailability" },
   },
+  // Every remaining path a scar rule names. Each rule refuses an inline implementation and sends
+  // the author to a fork-owned module; the narrow call that stays behind needs a key the manifest
+  // knows, or the prescribed repair cannot scan clean under `fork-hook-seam`. The import block is
+  // the anchor because the seam these carry is the fork module's own import
+  // (RSI-Software/t3code-hyprws#1099).
+  "project-windows/legacy-sidebar-physical-scope": {
+    path: "apps/web/src/components/LegacySidebar.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/sidebar-layout-physical-scope": {
+    path: "apps/web/src/components/AppSidebarLayout.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/thread-actions-route-family": {
+    path: "apps/web/src/hooks/useThreadActions.ts",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/desktop-preload-window-bridge": {
+    path: "apps/desktop/src/preload.ts",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/desktop-preview-ipc-sender": {
+    path: "apps/desktop/src/ipc/methods/preview.ts",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/desktop-preview-manager-ownership": {
+    path: "apps/desktop/src/preview/Manager.ts",
+    anchor: { kind: "import-block" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
