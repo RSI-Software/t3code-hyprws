@@ -703,6 +703,8 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
           // construct, so the seam rule has nothing to charge, and it is still the implementation
           // the scar rule exists to keep off this path.
           const markedViolation = markedScarViolations[sourcePath];
+          // Cases sharing a rule share one pin, so a missing entry here is normal. The suite-level
+          // coverage test is what refuses a rule with no pin at all, including one lost to a typo.
           if (markedViolation !== undefined) {
             yield* write(
               sourcePath,
@@ -717,6 +719,30 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         }),
     );
   }
+
+  // The pin above is keyed by `sourcePath`, so a key that matches no case is not a failure, it is a
+  // silently skipped pin. Coverage is asserted per rule instead: every scar rule the table exercises
+  // must reach at least one marked violation, or its non-subsumption is unproven
+  // (RSI-Software/t3code-hyprws#1099).
+  it("pins a marked violation for every scar rule the table exercises", () => {
+    const pinned = new Set(
+      authoringCases
+        .filter((example) => markedScarViolations[example.sourcePath] !== undefined)
+        .map((example) => example.rule),
+    );
+    const unpinned = [...new Set(authoringCases.map((example) => example.rule))]
+      .filter((rule) => !pinned.has(rule))
+      .toSorted();
+    assert.deepStrictEqual(
+      unpinned,
+      [],
+      `scar rules with no marked-violation pin:\n${unpinned.join("\n")}`,
+    );
+    const stray = Object.keys(markedScarViolations)
+      .filter((path) => !authoringCases.some((example) => example.sourcePath === path))
+      .toSorted();
+    assert.deepStrictEqual(stray, [], `pin paths matching no authoring case:\n${stray.join("\n")}`);
+  });
 
   // RSI-Software/t3code-hyprws#1097: a fork-hook marker added to an
   // upstream-owned file must be co-authored with the construct it marks.
