@@ -1,0 +1,152 @@
+{
+  "editedInPlace": [
+    "apps/desktop/src/app/DesktopClerk.test.ts",
+    "apps/desktop/src/app/DesktopLifecycle.test.ts",
+    "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+    "apps/desktop/src/ipc/methods/preview.test.ts",
+    "apps/desktop/src/preview/Manager.test.ts",
+    "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+    "apps/desktop/src/ssh/DesktopSshPasswordPrompts.test.ts",
+    "apps/desktop/src/updates/DesktopUpdates.test.ts",
+    "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+    "apps/desktop/src/window/DesktopWindow.test.ts",
+    "apps/mobile/src/features/terminal/terminalMenu.test.ts",
+    "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+    "apps/server/src/environment/ServerEnvironment.test.ts",
+    "apps/server/src/git/GitManager.test.ts",
+    "apps/server/src/git/GitWorkflowService.test.ts",
+    "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+    "apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts",
+    "apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts",
+    "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+    "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts",
+    "apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts",
+    "apps/server/src/project/AgentSessionImporter.test.ts",
+    "apps/server/src/project/AgentSessionScanner.test.ts",
+    "apps/server/src/project/ProjectSetupScriptRunner.test.ts",
+    "apps/server/src/project/RepositoryIdentityResolver.test.ts",
+    "apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts",
+    "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    "apps/server/src/provider/Layers/CodexCollabWire.test.ts",
+    "apps/server/src/provider/Layers/ProviderService.test.ts",
+    "apps/server/src/provider/Layers/ProviderSessionReaper.test.ts",
+    "apps/server/src/provider/ProviderInstanceEnvironment.test.ts",
+    "apps/server/src/provider/acp/CursorAcpSupport.test.ts",
+    "apps/server/src/provider/acp/GrokAcpSupport.test.ts",
+    "apps/server/src/pullRequest/PullRequestService.test.ts",
+    "apps/server/src/server.test.ts",
+    "apps/server/src/serverRuntimeStartup.test.ts",
+    "apps/server/src/sourceControl/GitHubSourceControlProvider.test.ts",
+    "apps/server/src/workspace/WorkspaceEntries.test.ts",
+    "apps/server/src/workspace/WorkspaceFileSystem.test.ts",
+    "apps/web/src/components/ChatMarkdown.test.tsx",
+    "apps/web/src/components/RightPanelTabs.test.tsx",
+    "apps/web/src/components/Sidebar.logic.test.ts",
+    "apps/web/src/components/chat/composerProviderState.test.tsx",
+    "apps/web/src/components/preview/PreviewEmptyState.test.tsx",
+    "apps/web/src/components/preview/PreviewView.test.tsx",
+    "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
+    "apps/web/src/components/settings/settingsSearch.test.ts",
+    "apps/web/src/hooks/useHandleNewThread.test.ts",
+    "apps/web/src/keybindings.test.ts",
+    "apps/web/src/localApi.test.ts",
+    "apps/web/src/rightPanelStore.test.ts",
+    "apps/web/src/terminalUiStateStore.test.ts",
+    "apps/web/src/uiStateStore.test.ts",
+    "packages/client-runtime/src/state/threadReducer.test.ts",
+    "packages/contracts/src/settings.test.ts",
+    "scripts/build-desktop-artifact.test.ts"
+  ],
+  "rewrittenAssertions": [
+    {
+      "file": "apps/desktop/src/app/DesktopClerk.test.ts",
+      "upstreamAssertionChanged": "registered-events `deepEqual` weakened to `include`; `clerk.configure` takes an effect",
+      "commit": "cfd9465bd5f"
+    },
+    {
+      "file": "apps/desktop/src/preview/Manager.test.ts",
+      "upstreamAssertionChanged": "guest `zoom-changed` adopted, not ignored; `reapplyZoom` became `preserveGuestZooms`; close race throws `PreviewTabNotFoundError`",
+      "commit": "f5839c6d0ff"
+    },
+    {
+      "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+      "upstreamAssertionChanged": "every `installSteps` gained a leading `\"capture\"`",
+      "commit": "38dd3f2c626"
+    },
+    {
+      "file": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+      "upstreamAssertionChanged": "shared-worktree drift inverted to adopt for idle threads; branch stays `threadBranch`, no PR refresh",
+      "commit": "85a40bb55be"
+    },
+    {
+      "file": "apps/server/src/project/ProjectSetupScriptRunner.test.ts",
+      "upstreamAssertionChanged": "install payloads wrapped with the completed/FAILED echo",
+      "commit": "43c71f57602"
+    },
+    {
+      "file": "apps/server/src/project/RepositoryIdentityResolver.test.ts",
+      "upstreamAssertionChanged": "`locator.remoteName` moved to `origin`; refresh keeps `julius/t3code` on add",
+      "commit": "118436798ca"
+    },
+    {
+      "file": "apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts",
+      "upstreamAssertionChanged": "SDK fixture gained a `fable` agent; probe result gained `agents`",
+      "commit": "5ec7743785d"
+    },
+    {
+      "file": "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+      "upstreamAssertionChanged": "whole-object `deepStrictEqual` split into environment checks plus a partial compare",
+      "commit": "9b8512d68fb"
+    },
+    {
+      "file": "apps/server/src/provider/Layers/CodexCollabWire.test.ts",
+      "upstreamAssertionChanged": "three delta events moved from dropped to forwarded",
+      "commit": "9736354e8ce"
+    },
+    {
+      "file": "apps/server/src/provider/ProviderInstanceEnvironment.test.ts",
+      "upstreamAssertionChanged": "inherited homes expect the own driver only; override case strict and pins `TMUX`",
+      "commit": "6937937a6b0"
+    },
+    {
+      "file": "apps/server/src/pullRequest/PullRequestService.test.ts",
+      "upstreamAssertionChanged": "foreign-repository refusal inverted to a read; error became success",
+      "commit": "cfd9465bd5f"
+    },
+    {
+      "file": "apps/server/src/sourceControl/GitHubSourceControlProvider.test.ts",
+      "upstreamAssertionChanged": "`pr create` argv gained `--repo`; calls gained `context`",
+      "commit": "118436798ca"
+    },
+    {
+      "file": "apps/web/src/components/ChatMarkdown.test.tsx",
+      "upstreamAssertionChanged": "GitHub favicon input reduced to a bare host",
+      "commit": "b5868db8aec"
+    },
+    {
+      "file": "apps/web/src/components/chat/composerProviderState.test.tsx",
+      "upstreamAssertionChanged": "three plan-mode tests moved provider `codex` to `opencode`",
+      "commit": "5ec7743785d"
+    },
+    {
+      "file": "apps/web/src/components/settings/settingsSearch.test.ts",
+      "upstreamAssertionChanged": "first-hit assertion relaxed to find-anywhere; a symlink assertion inserted",
+      "commit": "97d07d3beda"
+    },
+    {
+      "file": "apps/web/src/keybindings.test.ts",
+      "upstreamAssertionChanged": "terminal-focus jump hints inverted to shown",
+      "commit": "5995bebfd61"
+    },
+    {
+      "file": "apps/web/src/rightPanelStore.test.ts",
+      "upstreamAssertionChanged": "explorer kept beside peer surfaces; agents surface extended",
+      "commit": "9dc747be4b9"
+    },
+    {
+      "file": "packages/client-runtime/src/state/threadReducer.test.ts",
+      "upstreamAssertionChanged": "live-append order changed; the snapshot prefix is repaired, not frozen",
+      "commit": "eb9298b51ee"
+    }
+  ]
+}

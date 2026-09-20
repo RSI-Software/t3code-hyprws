@@ -1,0 +1,414 @@
+{
+  "retired": [
+    {
+      "subject": "fix(web): scope markdown actions to thread environment",
+      "domain": "project-windows",
+      "upstreamReplacement": "`pingdotgg/t3code#7140` (`082e6ea52`) inlines the same binding in `ChatMarkdown.tsx`, leaving the fork resolver redundant.",
+      "retiredAt": "v0.0.35"
+    },
+    {
+      "subject": "fix(web): upload media in pull request descriptions",
+      "domain": "upstream-fixes",
+      "upstreamReplacement": "`pingdotgg/t3code#8235` ships typed `image | file` claims, streamed bodies, and a 50 MB limit. The `gh-image` path stays fork-owned.",
+      "retiredAt": "v0.0.36"
+    },
+    {
+      "subject": "fix(provider): resolve repo skills per workspace (#188)",
+      "domain": "upstream-fixes",
+      "upstreamReplacement": "`pingdotgg/t3code#9210` (`bc918e7`) adds per-workspace provider snapshots, superseding the fork's RPC, schemas, atom family, preference, and Codex pair.",
+      "retiredAt": "v0.0.39-nightly.20260902.1261"
+    },
+    {
+      "subject": "feat(web): add manual sidebar thread ordering",
+      "domain": "thread-ordering",
+      "upstreamReplacement": "Upstream persists `activeOrderKey` server side, superseding the fork's client-local order store. Verdict in the RSI-Software/t3code-hyprws#657 walk.",
+      "retiredAt": "v0.0.41-nightly.20260908.1414"
+    },
+    {
+      "subject": "fix(web): make sidebar thread ordering direct (#246)",
+      "domain": "thread-ordering",
+      "upstreamReplacement": "Same `activeOrderKey` path. The order-mode marker is rewritten on top of it under RSI-Software/t3code-hyprws#907, not restored.",
+      "retiredAt": "v0.0.41-nightly.20260908.1414"
+    },
+    {
+      "subject": "fix(web): keep sidebar groups in automatic order",
+      "domain": "thread-ordering",
+      "upstreamReplacement": "Grouping now layers over `activeOrderKey`, so the carve-out has no fork order left to protect.",
+      "retiredAt": "v0.0.41-nightly.20260908.1414"
+    }
+  ],
+  "kept": [
+    {
+      "subject": "refactor(web): add physical project sidebar scope",
+      "domain": "project-windows",
+      "reason": "`isProjectInSidebarScope` remains the only physical scope.",
+      "reviewedAt": "v0.0.37-nightly.20260830.1227"
+    },
+    {
+      "subject": "fix(web): upload media in pull request descriptions",
+      "domain": "upstream-fixes",
+      "reason": "Partial: the fork-only `gh-image` publication path remains.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(web): retain completed thread timing",
+      "domain": "upstream-fixes",
+      "reason": "No upstream completed-turn age, duration, or Done behavior.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "feat(web): add rich Markdown editing (#28)",
+      "domain": "markdown-editing",
+      "reason": "Lockfile churn only; editor and MDX boundary untouched.",
+      "reviewedAt": "v0.0.37-nightly.20260830.1226"
+    },
+    {
+      "subject": "refactor(web): centralize thread route navigation",
+      "domain": "project-windows",
+      "reason": "Upstream added no project-window route scoping.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat(web): render scoped project shell",
+      "domain": "project-windows",
+      "reason": "Upstream root-route work gives no scoped shell.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(desktop): isolate project preview and drafts",
+      "domain": "project-windows",
+      "reason": "A wider draft shape is not window namespacing.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat(web): open project windows from hub actions",
+      "domain": "project-windows",
+      "reason": "The keybinding rewrite added no bridge actions.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+      "domain": "zmux-estate",
+      "reason": "Settings overlap is not external-session attachment.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat(server): bind thread worktrees to a managed zmux session",
+      "domain": "zmux-estate",
+      "reason": "Upstream binds no thread worktree to zmux.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "One setting drives terminal attach and worktree binding for zmux",
+      "domain": "zmux-estate",
+      "reason": "No combined terminal and worktree zmux mode.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(server): follow external workspace symlinks globally (#66)",
+      "domain": "upstream-fixes",
+      "reason": "No `followExternalWorkspaceSymlinks`; upstream covers skills and themes.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+      "domain": "github-issues",
+      "reason": "No upstream Issues list, detail, or hand-off.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+      "domain": "worktrunk-hooks",
+      "reason": "Upstream composition provides no Worktrunk hooks.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+      "domain": "upstream-fixes",
+      "reason": "`ecf3716fd19` refocuses on window-tab-back only.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+      "domain": "worktrunk-hooks",
+      "reason": "The target adds no Worktrunk controls or lifecycle.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+      "domain": "worktrunk-hooks",
+      "reason": "No third env mode or wire-safe compatibility pair.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(server): preserve attributed child work (#177)",
+      "domain": "custom-agents",
+      "reason": "`CHILD_CHATTER_METHODS` still drops `item/*` deltas.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(provider): resolve repo skills per workspace (#188)",
+      "domain": "upstream-fixes",
+      "reason": "Partial: the fork keeps a cwd-keyed probe cache and merges `slashCommands`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "feat(web): group sidebar threads into named sections (#205)",
+      "domain": "thread-ordering",
+      "reason": "No named sections or group-drop behavior.",
+      "reviewedAt": "v0.0.37-nightly.20260830.1227"
+    },
+    {
+      "subject": "feat(web): add GitHub link destination controls (#178)",
+      "domain": "github-issues",
+      "reason": "No upstream link destination control; the `ChatMarkdown.test.tsx` brand assertion is retargeted.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+      "domain": "fork-meta",
+      "reason": "Carries the whole fork documentation set.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+      "domain": "worktrunk-hooks",
+      "reason": "Theme settings do not replace the wire mode pair.",
+      "reviewedAt": "v0.0.37-nightly.20260829.1224"
+    },
+    {
+      "subject": "fix(web): scale titlebar padding with interface zoom",
+      "domain": "upstream-fixes",
+      "reason": "The target lacks the `max()` interface-zoom floor.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(server): provider spawns drop another harness identity (#108)",
+      "domain": "upstream-fixes",
+      "reason": "No `packages/shared/src/env.ts` or `CLAUDECODE` scrub.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(web): thread jump keys switch threads while the terminal has focus",
+      "domain": "upstream-fixes",
+      "reason": "No `shouldForwardThreadTerminalShortcut`; jump keys stay trapped.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(web): stop new threads waiting on an unreachable project file",
+      "domain": "project-windows",
+      "reason": "`t3ProjectFileDefaults.ts` still awaits `executeAtomQuery` unbounded.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(server): keep pull requests on origin",
+      "domain": "upstream-fixes",
+      "reason": "The resolver still prefers `upstream` and passes no `--repo`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "Thread terminals and agents stop inheriting the launcher's tmux pane",
+      "domain": "upstream-fixes",
+      "reason": "No `TMUX` scrub in `packages/shared` or `apps/server`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix: setup script terminals print a completion or failure marker",
+      "domain": "upstream-fixes",
+      "reason": "The runner still writes the bare command line.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(web): keep the files explorer tab when a file opens (#84)",
+      "domain": "upstream-fixes",
+      "reason": "`openFile` still filters out the standalone `files` surface.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "feat(web): show which pane owns keyboard focus",
+      "domain": "upstream-fixes",
+      "reason": "No `:focus-within` cue on either host element.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(desktop): use themed app context menus",
+      "domain": "upstream-fixes",
+      "reason": "Renderer menus still go through native `showContextMenu`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(web): confirm batch worktree deletion once (#156)",
+      "domain": "upstream-fixes",
+      "reason": "Only the single-thread orphan helper exists.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(desktop): honor embedded browser wheel zoom (#169)",
+      "domain": "upstream-fixes",
+      "reason": "Guest `zoom-changed` is still unhandled in `preview/Manager.ts`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(desktop): prevent embedded browser zoom flash (#174)",
+      "domain": "upstream-fixes",
+      "reason": "Window zoom still changes before `reapplyZoom()`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(server): GitManager hook tests pin the fixture hook path",
+      "domain": "upstream-fixes",
+      "reason": "The upstream test pins no `core.hooksPath`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(desktop): keep AppImage launch paths stable",
+      "domain": "upstream-fixes",
+      "reason": "The versioned artifact name still ships; `pingdotgg/t3code#8983` is untagged.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(server): ignore dependency installs in dev watch",
+      "domain": "upstream-fixes",
+      "reason": "The server dev script is still a bare `node --watch`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(worktree): make setup independent of shell environment",
+      "domain": "upstream-fixes",
+      "reason": "`t3.json` still expands through the launching shell.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+      "domain": "upstream-fixes",
+      "reason": "Fork-only ordering; upstream has no `setup-worktree`.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(server): exclude dependency churn from watch roots",
+      "domain": "upstream-fixes",
+      "reason": "No per-package source watch roots upstream.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "fix(mobile): finish bounded diff tokenization",
+      "domain": "upstream-fixes",
+      "reason": "`tokenizeTimeLimit` is still never passed.",
+      "reviewedAt": "v0.0.39-nightly.20260907.1332"
+    },
+    {
+      "subject": "refactor(github-issues): the right-panel store surfaces move behind marked hooks",
+      "domain": "github-issues",
+      "reason": "Retire evidence is circular; no `fork-hooks.ts` upstream.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+      "domain": "github-issues",
+      "reason": "Upstream has no hook vocabulary or registration file.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(workspace-files): ignored workspace files sit behind fork-owned seams",
+      "domain": "workspace-files",
+      "reason": "No `*.fork.ts` counterpart to absorb the seam.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): centralize thread window route scoping behind one fork hook",
+      "domain": "project-windows",
+      "reason": "Upstream thread routing carries no window scope.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(agents): custom agents sit behind fork-owned boundaries",
+      "domain": "fork-meta",
+      "reason": "Upstream supplies neither the boundaries nor the surface.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(upstream-fixes): pull-request media upload behind marked hooks",
+      "domain": "upstream-fixes",
+      "reason": "Only moves the surviving fork half behind markers.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+      "domain": "worktrunk-hooks",
+      "reason": "The target lacks both the mode and the modules.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam",
+      "domain": "worktrunk-hooks",
+      "reason": "The target still ships the unextended enum.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(upstream-fixes): external symlink seams sit behind fork-owned files",
+      "domain": "upstream-fixes",
+      "reason": "Still no global follow; the seam is fork-owned.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): pull-request project scope supplied by one prop hook",
+      "domain": "project-windows",
+      "reason": "The prop hook carries scope the target has no concept of.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(server): child-work custom-agent seams sit behind fork-owned files",
+      "domain": "custom-agents",
+      "reason": "Files the target does not carry.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): composer custom-agent seams sit behind fork-owned files",
+      "domain": "custom-agents",
+      "reason": "The composer has no upstream attachment point.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(fork-meta): re-apply carries a multi-line line hook whole",
+      "domain": "fork-meta",
+      "reason": "Nothing upstream participates in fork hook re-apply.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+      "domain": "project-windows",
+      "reason": "`SidebarPhysicalScopeContext.tsx` is absent from the target.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(desktop): centralize preview window policy",
+      "domain": "project-windows",
+      "reason": "`WindowPolicy*.ts` is absent from the target.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+      "domain": "project-windows",
+      "reason": "Shares the centralization evidence above.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): isolate project-window pull request scope",
+      "domain": "fork-meta",
+      "reason": "The deleted files were fork-created, never upstream.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): read physical sidebar scope from an ambient provider",
+      "domain": "project-windows",
+      "reason": "The match was an import path segment, not a definition.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    },
+    {
+      "subject": "refactor(web): share project pathname parsing",
+      "domain": "project-windows",
+      "reason": "The matches are generic helpers it did not introduce.",
+      "reviewedAt": "v0.0.43-nightly.20260917.1880"
+    }
+  ]
+}

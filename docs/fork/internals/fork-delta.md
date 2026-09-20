@@ -83,7 +83,7 @@ Every signalled commit gets one retirement outcome during the rebase.
 It compares the merge-base tree with the exact head, and validates findings against the body's final trailer paragraph, which becomes the squash trailers.
 A trailer carried only by a branch commit cannot satisfy it, and a historical baseline entry exempts no new pull request.
 
-[`fork-wire-baseline.md`](./fork-wire-baseline.md) records wire findings that predate the check.
+`scripts/fork-wire-baseline.json` records wire findings that predate the check.
 A new commit uses `Fork-Wire: reviewed <reason>` and never adds itself to the baseline.
 A baseline key the stack no longer produces is stale; delete it.
 

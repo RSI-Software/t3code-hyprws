@@ -71,6 +71,7 @@ import { inspectRecord } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { run as carryRun } from "./fork-carry.ts";
 import { commitNumstatArguments } from "./lib/fork-numstat.ts";
+import { FORK_RETIREMENT_LEDGER_PATH } from "./lib/fork-retirement-ledger.ts";
 import { leasedPushWithFoldRetry, type FoldVerbContext } from "./fork-sync-fold-verb.ts";
 import { forkLogArguments } from "./lib/fork-trailers.ts";
 import { renderMarkdown } from "./fork-churn.ts";
@@ -2249,31 +2250,35 @@ it("filters a retired middle commit without changing git-log record framing", ()
 it("refuses a skip whose subject has no Retired row in the fork delta ledger", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-skip-ledger-"));
   try {
-    NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
-    const ledger = [
-      "## Retired",
-      "",
-      "| Fork commit | Domain | Upstream replacement | Retired at |",
-      "| --- | --- | --- | --- |",
-      "| fix: retired properly | thread-ordering | `upstream#1` | v1.0.0 |",
-      "",
-      "## Kept",
-      "",
-      "| Fork commit | Domain | Reason | Reviewed at |",
-      "| --- | --- | --- | --- |",
-      "|",
-    ];
-    // Keep the Kept table header-valid with one empty-ish row.
-    ledger[ledger.length - 1] = "| fix: kept | thread-ordering | still wanted | v1.0.0 |";
-    NodeFS.mkdirSync(NodePath.join(root, "docs/fork/internals"), { recursive: true });
+    const ledger = {
+      retired: [
+        {
+          subject: "fix: retired properly",
+          domain: "thread-ordering",
+          upstreamReplacement: "upstream#1",
+          retiredAt: "v1.0.0",
+        },
+      ],
+      kept: [
+        {
+          subject: "fix: kept",
+          domain: "thread-ordering",
+          reason: "still wanted",
+          reviewedAt: "v1.0.0",
+        },
+      ],
+    };
+    NodeFS.mkdirSync(NodePath.join(root, NodePath.dirname(FORK_RETIREMENT_LEDGER_PATH)), {
+      recursive: true,
+    });
     NodeFS.writeFileSync(
-      NodePath.join(root, "docs/fork/internals/fork-delta.md"),
-      `${ledger.join("\n")}\n`,
+      NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH),
+      `${JSON.stringify(ledger, null, 2)}\n`,
     );
     // A recorded verdict without the ledger row is refused, loud, with the subject.
     assert.throws(
       () => assertRetiredInLedgerForTest(new Set(["fix: retire me"]), root),
-      /refusing git rebase --skip: no Retired row in docs\/fork\/internals\/fork-delta\.md for fix: retire me/,
+      /refusing git rebase --skip: no Retired row in scripts\/fork-retirement-ledger\.json for fix: retire me/,
     );
     // The subject whose row a human wrote is allowed to skip.
     assertRetiredInLedgerForTest(new Set(["fix: retired properly"]), root);

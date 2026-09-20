@@ -9,7 +9,10 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { parseFeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
-import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
+import {
+  FORK_RETIREMENT_LEDGER_PATH,
+  parseForkRetirementLedger,
+} from "./lib/fork-retirement-ledger.ts";
 import {
   MergeTreeError,
   parseMergeTreeResult,
@@ -372,10 +375,12 @@ const makeGitFixture = (): GitFixture => {
   const sourceSha = git(root, ["rev-parse", "HEAD"]);
   git(root, ["update-ref", "refs/remotes/origin/hyprws", sourceSha]);
 
-  NodeFS.mkdirSync(NodePath.join(root, "docs/fork/internals"), { recursive: true });
+  NodeFS.mkdirSync(NodePath.join(root, NodePath.dirname(FORK_RETIREMENT_LEDGER_PATH)), {
+    recursive: true,
+  });
   NodeFS.writeFileSync(
-    NodePath.join(root, "docs/fork/internals/fork-delta.md"),
-    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
+    NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH),
+    `${JSON.stringify({ retired: [], kept: [] })}\n`,
   );
 
   return {
@@ -472,7 +477,17 @@ it("renders a recorded keep as kept instead of a fresh candidate", () => {
   const fixtureRepo = makeGitFixture();
   try {
     const ledger = parseForkRetirementLedger(
-      "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n| feat(test): introduce fork changes | fixture-domain | upstream changed another hunk | v1.0.0 |\n",
+      JSON.stringify({
+        retired: [],
+        kept: [
+          {
+            subject: "feat(test): introduce fork changes",
+            domain: "fixture-domain",
+            reason: "upstream changed another hunk",
+            reviewedAt: "v1.0.0",
+          },
+        ],
+      }),
     );
     const report = buildReport(
       new SystemGit(fixtureRepo.root),

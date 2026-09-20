@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 
 import { SystemCommandRunner } from "./fork-command.ts";
 import { applyAdditiveFixes, checkAdditive } from "./fork-additive.ts";
+import { TEST_DEBT_BASELINE } from "./fork-test-debt.ts";
 
 /**
  * A two-commit upstream history, standing in for a walk's lane: commit 0 is the previous upstream
@@ -310,22 +311,13 @@ it("refuses an assertion deleted from a kept upstream case, and grants the recor
     NodeFS.rmSync(fixture.root, { recursive: true, force: true });
   }
 
-  // The sweep is the allow-list: a listed file keeps its debt until the row leaves the table.
+  // The baseline is the allow-list: a listed file keeps its debt until the entry leaves it.
   const listed = upstreamFixture();
   replay(listed, [
     ["apps/web/src/localApi.test.ts", gutted],
     [
-      "docs/fork/internals/fork-test-divergence.md",
-      [
-        "# Fork test divergence",
-        "",
-        "## Upstream test files edited in place (1)",
-        "",
-        "| File | Diff | Class |",
-        "| --- | --- | --- |",
-        "| `apps/web/src/localApi.test.ts` | +0 / −2 | deletion |",
-        "",
-      ].join("\n"),
+      TEST_DEBT_BASELINE,
+      `${JSON.stringify({ editedInPlace: ["apps/web/src/localApi.test.ts"] }, null, 2)}\n`,
     ],
   ]);
   try {

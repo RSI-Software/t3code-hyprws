@@ -27,6 +27,7 @@ import { isForkDomain, isForkUpstreamable, parseForkTrailers } from "./lib/fork-
 import {
   compareWireShapes,
   extractWireShapes,
+  FORK_WIRE_BASELINE_PATH,
   parseForkWireBaseline,
   wireFindingKey,
   type ForkWireBaseline,
@@ -893,7 +894,7 @@ const command = Command.make(
       const fileSystem = yield* FileSystem.FileSystem;
       const retirementLedger = readForkRetirementLedger(process.cwd());
       const wireBaseline = parseForkWireBaseline(
-        yield* fileSystem.readFileString("docs/fork/internals/fork-wire-baseline.md"),
+        yield* fileSystem.readFileString(FORK_WIRE_BASELINE_PATH),
       );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");

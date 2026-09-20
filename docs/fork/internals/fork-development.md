@@ -195,14 +195,14 @@ A review in `.github/fork-workflow-reviews.json` binds upstream commit and blob,
 Fork-authored test blocks go in `<name>.fork.test.ts`, never appended upstream.
 Otherwise the replay conflicts at one seam on every upstream append.
 
-| Rule          | Detail                                                 |
-| ------------- | ------------------------------------------------------ |
-| Append only   | A fork commit may only append upstream                 |
-| `fork:scan`   | Refuses a changed or removed line                      |
-| Additive gate | A dropped line in the replay is a finding              |
-| Baseline      | [`fork-test-divergence.md`](./fork-test-divergence.md) |
-| Ownership     | The selected upstream target tree                      |
-| Recognized    | `it`, `test`, `describe`, `effectIt`, Effect variants  |
+| Rule          | Detail                                                |
+| ------------- | ----------------------------------------------------- |
+| Append only   | A fork commit may only append upstream                |
+| `fork:scan`   | Refuses a changed or removed line                     |
+| Additive gate | A dropped line in the replay is a finding             |
+| Baseline      | `editedInPlace` in `scripts/fork-test-debt.json`      |
+| Ownership     | The selected upstream target tree                     |
+| Recognized    | `it`, `test`, `describe`, `effectIt`, Effect variants |
 
 Two harness deferrals, exact paths, never widened:
 

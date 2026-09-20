@@ -17,6 +17,7 @@ import {
   type RetirePassStatus,
 } from "./fork-retire-pass.ts";
 import { SystemRunner, type CommandRunner } from "./fork-sync.ts";
+import { FORK_RETIREMENT_LEDGER_PATH } from "./lib/fork-retirement-ledger.ts";
 
 // Each case builds a throwaway Git repository: a base commit, a fork branch whose commits carry the
 // worklist subjects, and a target branch playing the upstream tree the evidence must come from.
@@ -175,25 +176,29 @@ describe("retirePass", () => {
 
   it("reads the human verdict back from the retirement ledger keyed by subject", () => {
     const root = makeRepository("fork-retire-pass-verdict-");
-    const ledger = NodePath.join(root, "docs/fork/internals/fork-delta.md");
+    const ledger = NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH);
     NodeFS.mkdirSync(NodePath.dirname(ledger), { recursive: true });
     const subject = "feat(seam): frobnicatorWidgetName reticulator carries the boundary";
     NodeFS.writeFileSync(
       ledger,
-      [
-        "## Retired",
-        "",
-        "| Fork commit | Domain | Upstream replacement | Retired at |",
-        "| --- | --- | --- | --- |",
-        `| ${subject} | fork-meta | upstream owns it | v0.0.42 |`,
-        "",
-        "## Kept",
-        "",
-        "| Fork commit | Domain | Reason | Reviewed at |",
-        "| --- | --- | --- | --- |",
-        "| other subject | fork-meta | still fork-owned | v0.0.42 |",
-        "",
-      ].join("\n"),
+      JSON.stringify({
+        retired: [
+          {
+            subject,
+            domain: "fork-meta",
+            upstreamReplacement: "upstream owns it",
+            retiredAt: "v0.0.42",
+          },
+        ],
+        kept: [
+          {
+            subject: "other subject",
+            domain: "fork-meta",
+            reason: "still fork-owned",
+            reviewedAt: "v0.0.42",
+          },
+        ],
+      }),
     );
     const rows = retirePass(runner, root, {
       worklist: [subject],

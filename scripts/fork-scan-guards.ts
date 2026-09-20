@@ -261,10 +261,10 @@ export interface GuardInput {
   // is an upstream case being changed. An absent entry refuses every removal,
   // because an unread tree is not evidence that the line was the fork's.
   readonly upstreamTestLines?: ReadonlyMap<string, ReadonlySet<string>>;
-  // Upstream test files the fork already edits in place, read from the sweep in
-  // `docs/fork/internals/fork-test-divergence.md`. The append-only rule tolerates a
-  // listed file so it is green on the day it lands; a file leaves the baseline
-  // by leaving that table. An absent set is an empty baseline, never a licence.
+  // Upstream test files the fork already edits in place, read from
+  // `scripts/fork-test-debt.json`. The append-only rule tolerates a listed file
+  // so it is green on the day it lands; a file leaves the baseline by leaving
+  // that list. An absent set is an empty baseline, never a licence.
   readonly upstreamTestDebt?: ReadonlySet<string>;
   readonly hotSeams: ReadonlyMap<string, HotSeam>;
   // Manifest keys from scripts/lib/fork-hooks.ts. A marker outside this set is

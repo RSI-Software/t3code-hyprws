@@ -16,7 +16,7 @@ import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts
 import { UsageError } from "./lib/fork-cli.ts";
 import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./lib/fork-test-debt.ts";
+import { parseTestDebtBaseline, TEST_DEBT_BASELINE } from "./lib/fork-test-debt.ts";
 import {
   readLessonEvidence,
   renderLessonGuidance,
@@ -612,7 +612,7 @@ export const resolveAuthoringSince = (git: GitReader, options: ScanOptions): str
  */
 const readTestDivergenceDebt = (git: GitReader, head: string): ReadonlySet<string> => {
   try {
-    return parseTestDivergenceDebt(git.run(["show", `${head}:${TEST_DIVERGENCE_REPORT}`]));
+    return parseTestDebtBaseline(git.run(["show", `${head}:${TEST_DEBT_BASELINE}`]));
   } catch {
     return new Set();
   }

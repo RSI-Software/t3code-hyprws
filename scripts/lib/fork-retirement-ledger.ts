@@ -3,7 +3,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-export const FORK_RETIREMENT_LEDGER_PATH = "docs/fork/internals/fork-delta.md";
+export const FORK_RETIREMENT_LEDGER_PATH = "scripts/fork-retirement-ledger.json";
 
 export type RetirementDecision = "retire" | "keep" | "partial" | "none";
 
@@ -36,97 +36,72 @@ export const EMPTY_RETIREMENT_LEDGER: ForkRetirementLedger = {
   kept: new Map(),
 };
 
-const splitTableRow = (line: string): ReadonlyArray<string> => {
-  const cells: Array<string> = [];
-  let cell = "";
-  let escaped = false;
-  for (const character of line.trim().replace(/^\|/, "").replace(/\|$/, "")) {
-    if (escaped) {
-      cell += character;
-      escaped = false;
-    } else if (character === "\\") {
-      escaped = true;
-    } else if (character === "|") {
-      cells.push(cell.trim());
-      cell = "";
-    } else {
-      cell += character;
-    }
+const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+const rowsOf = (ledger: Record<string, unknown>, field: string): ReadonlyArray<unknown> => {
+  const rows = ledger[field];
+  if (!Array.isArray(rows)) {
+    throw new Error(`${FORK_RETIREMENT_LEDGER_PATH} is missing the ${field} array`);
   }
-  if (escaped) cell += "\\";
-  cells.push(cell.trim());
-  return cells;
+  return rows;
 };
 
-const sectionLines = (markdown: string, heading: string): ReadonlyArray<string> => {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.indexOf(`## ${heading}`);
-  if (start === -1) throw new Error(`fork retirement ledger is missing ## ${heading}`);
-  const end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
-  return lines.slice(start + 1, end === -1 ? undefined : end);
-};
-
-const parseTable = (
-  markdown: string,
-  heading: string,
-  expectedHeader: ReadonlyArray<string>,
-): ReadonlyArray<ReadonlyArray<string>> => {
-  const lines = sectionLines(markdown, heading);
-  const headerIndex = lines.findIndex((line) => line.trim().startsWith("|"));
-  if (headerIndex === -1) throw new Error(`## ${heading} has no ledger table`);
-  const header = splitTableRow(lines[headerIndex] ?? "");
-  if (header.join("\0") !== expectedHeader.join("\0")) {
-    throw new Error(`## ${heading} has an unexpected ledger header`);
-  }
-  const divider = splitTableRow(lines[headerIndex + 1] ?? "");
-  if (divider.length !== header.length || divider.some((cell) => !/^:?-{3,}:?$/.test(cell))) {
-    throw new Error(`## ${heading} has an invalid ledger divider`);
-  }
-  return lines
-    .slice(headerIndex + 2)
-    .filter((line) => line.trim().startsWith("|"))
-    .map((line) => splitTableRow(line));
-};
-
+/**
+ * Rows are keyed by subject, so a duplicate would silently shadow a decision rather than record a
+ * second one. Both duplicate and empty subjects are refused rather than dropped.
+ */
 const keyedRows = <T extends { readonly subject: string }>(
-  heading: string,
+  field: string,
   rows: ReadonlyArray<T>,
 ): ReadonlyMap<string, T> => {
   const entries = new Map<string, T>();
   for (const row of rows) {
-    if (row.subject.length === 0) throw new Error(`## ${heading} contains an empty fork subject`);
+    if (row.subject.length === 0) {
+      throw new Error(`${FORK_RETIREMENT_LEDGER_PATH} ${field} contains an empty fork subject`);
+    }
     const key = normalizeSubjectKey(row.subject);
     if (entries.has(key)) {
-      throw new Error(`## ${heading} contains duplicate fork subject: ${row.subject}`);
+      throw new Error(
+        `${FORK_RETIREMENT_LEDGER_PATH} ${field} contains duplicate fork subject: ${row.subject}`,
+      );
     }
     entries.set(key, row);
   }
   return entries;
 };
 
-export const parseForkRetirementLedger = (markdown: string): ForkRetirementLedger => {
-  const retired = parseTable(markdown, "Retired", [
-    "Fork commit",
-    "Domain",
-    "Upstream replacement",
-    "Retired at",
-  ]).map(([subject = "", domain = "", upstreamReplacement = "", retiredAt = ""]) => ({
-    subject,
-    domain,
-    upstreamReplacement,
-    retiredAt,
-  }));
-  const kept = parseTable(markdown, "Kept", ["Fork commit", "Domain", "Reason", "Reviewed at"]).map(
-    ([subject = "", domain = "", reason = "", reviewedAt = ""]) => ({
-      subject,
-      domain,
-      reason,
-      reviewedAt,
-    }),
-  );
+export const parseForkRetirementLedger = (source: string): ForkRetirementLedger => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (cause) {
+    throw new Error(`${FORK_RETIREMENT_LEDGER_PATH} is not valid JSON`, { cause });
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${FORK_RETIREMENT_LEDGER_PATH} is not a ledger object`);
+  }
+  const ledger = parsed as Record<string, unknown>;
+  const retired = rowsOf(ledger, "retired").map((row): RetiredCommit => {
+    const cells = (row ?? {}) as Record<string, unknown>;
+    return {
+      subject: text(cells["subject"]),
+      domain: text(cells["domain"]),
+      upstreamReplacement: text(cells["upstreamReplacement"]),
+      retiredAt: text(cells["retiredAt"]),
+    };
+  });
+  const kept = rowsOf(ledger, "kept").map((row): KeptCommit => {
+    const cells = (row ?? {}) as Record<string, unknown>;
+    return {
+      subject: text(cells["subject"]),
+      domain: text(cells["domain"]),
+      reason: text(cells["reason"]),
+      reviewedAt: text(cells["reviewedAt"]),
+    };
+  });
   return {
-    retired: keyedRows("Retired", retired),
-    kept: keyedRows("Kept", kept),
+    retired: keyedRows("retired", retired),
+    kept: keyedRows("kept", kept),
   };
 };
 
