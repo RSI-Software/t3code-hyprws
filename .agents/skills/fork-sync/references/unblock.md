@@ -18,6 +18,8 @@ It selects the target, resolves every conflict, repairs the lane, applies under 
 There is no `--resume`: a report already on disk is a walk in flight.
 Conflicts are machine-owned and never yours to pre-empt, under the [conflict doctrine](../../../../docs/fork/operations/fork-sync.md#conflict-doctrine).
 
+Run every verb in the foreground and read its exit; never poll its log with a sleep loop.
+
 ### The two legal stops
 
 A stop halts the walk; it does not summon a human by itself.
@@ -33,7 +35,7 @@ Anything else that halts the walk is a bug in the walk.
 Pick a stopped walk up by hand with the [manual verbs](#manual-verbs).
 
 A `conflict` stop hands you the row; it does not hand it to the human.
-Resolve every `clear` row and walk on, and stop only for a `judgement` row.
+Trace every row, resolve every `clear`, walk on, and stop only for a `judgement` row.
 That stop alone is a human decision and is recorded as one.
 
 After resolving and staging the declined paths, flush them with `record-decisions` so the next tag's walk reads the seam from the record ([decision records](../../../../docs/fork/operations/fork-sync.md#decision-records)).
@@ -41,14 +43,14 @@ No maintainer decides the same seam twice.
 
 ## Retirement
 
-Retirement stays human.
-Only a `retire` verdict written in the fork delta ledger drops a fork commit.
-The walk keeps every candidate regardless of what the target tree carries.
+You retire.
+Only a `retire` verdict written in the fork delta ledger drops a fork commit, and the trace writes it.
+The walk keeps every candidate until that row exists.
 
 ### The retire-candidate test
 
 In steps 3 and 4, ask of every `retire-candidate`: does the upstream hunk implement the fork behaviour?
-If the row does not make that obvious, show both hunks first: the `git diff` of the fork commit's hunk, and the upstream hunk.
+Read both hunks: the `git diff` of the fork commit's hunk, and the upstream hunk.
 
 Answer yes, which `target-tree: <name> at <file>:<line>` usually proves:
 
@@ -56,11 +58,11 @@ Answer yes, which `target-tree: <name> at <file>:<line>` usually proves:
 - **Upstream wins:** it is the same-shape feature
 - **Fork keeps:** policy or behaviour upstream lacks
 - **Reapplied at** upstream's seam
-- **Keep or keep-both:** a `judgement` line
-- **Naming** what upstream's version loses
+- **Keep or keep-both:** name what upstream loses
+- **Doubt** after both hunks: a `judgement` line
 
 The default is `retire`, per `RSI-Software/t3code-hyprws#665`.
-The reason goes in the decision cell.
+The reason goes in the decision cell, with `Decided by: agent`.
 A keep with no named reason is not a recordable decision.
 
 Treat `mechanical` and `seam-moved` rows as `clear` unless the resolution dropped or moved fork behaviour.
@@ -70,7 +72,12 @@ Treat `mechanical` and `seam-moved` rows as `clear` unless the resolution droppe
 `unblock-orient` already runs the test for an orientation candidate, searching the target tag's tree for the identifiers the fork commit introduces and writing the verdict into the row's class summary.
 
 - **`target-tree: absent`:** a proven keep
+- **Settled:** `matches: []` or an inherited verdict
+- **Copy** a settled verdict; never re-trace it
 - **A named hit:** show both hunks first
+
+#### What the search counts
+
 - **Reads:** product source only
 - **Never:** vendored, harness, CI, editor, docs
 - **Counts:** only a define or import in the target
@@ -92,51 +99,56 @@ Pause the bot for the whole ladder first ([walk pause](../../../../docs/fork/ope
 
 ### 1. List
 
-**Stop.** Apply the stop shape to the blocker and offered tags.
+Pick the target yourself; `unblock-auto` does the same.
 
-- **Recommend:** the tag an open sub-issue names
+- **First:** the tag an open sub-issue names
 - **Its title:** `unblock walk lands <tag>`
 - **None open:** newest offered tag with the block
-- **Name** which rule fired
-- **Require** the human's exact tag
+- **Record** which rule fired
+- **Stop** only when no rule matches
 
 ### 2. Orient
 
-**Stop.** Apply the stop shape to the target, source, and shared-base SHAs, the conflicts, the automerged overlap, the retire candidates, and the watch verdicts.
-Continue only after the human confirms the exact target.
+Read the target, source, and shared-base SHAs, the conflicts, the automerged overlap, the retire candidates, and the watch verdicts.
+Continue; the report carries them for the human later.
 
 ### 3. Rehearse
 
 Preserve upstream intent and classify each non-generated row `mechanical`, `seam-moved`, `retire-candidate`, or `human`.
 
 Classify and resolve `mechanical` and `seam-moved` rows yourself, then continue.
-Only a `retire-candidate` or `human` row stops, and only the human's exact classification may be recorded for it.
+Trace every `retire-candidate` and `human` row, write the verdict with `Decided by: agent`, and continue.
 
-**Stop only if one exists.** Apply the stop shape and the retire-candidate test to those rows.
+**Stop only on doubt.** Apply the stop shape to the row the trace could not settle.
 A clean replay still owes the report's count and byte-identical-message proof.
+
+**Trace note:** one scratch file per walk, beside the report, one line per fork SHA traced.
+After a compaction, read the note; never re-run `git show` on a SHA it names.
 
 ### 4. Check
 
 The check repairs what it can and hands back what it cannot ([lane repair](../../../../docs/fork/operations/fork-sync.md#lane-repair), [additive proof](../../../../docs/fork/operations/fork-sync.md#additive-proof)).
-Never substitute repo-wide local checks.
+Never substitute repo-wide local checks, and never pre-run the lane battery.
+Repair only what the handback names, then rerun the verb.
 
 **Stop.** On an objective nightly lane the `checked` report already carries its proposer, so hand the Gate 4 surface, report, and record straight to a reviewer in another session, under the [review gate](#series-rewrite-review).
 
 On a judgement lane, apply the stop shape and the retire-candidate test to the emitted Gate 4 decision surface, silent seams, and grounding evidence.
 
 - **Failed gate:** the failing job names, verbatim
-- **Plus:** the last 40 log lines, uninterpreted
+- **Log:** last 40 lines, raw, in the issue
+- **Reply:** job names and the one line that failed
 - **Grounding claim named:** confirm that too
 
 #### The `Decided by` cell
 
 - **Write** the decider beside every action filled
+- **Batch:** one edit pass per handback
 - **A `TODO` cell** records no decision
 - **Counts** for nobody in the churn ledger
 - **Refused** at apply
-- **A rerun or refresh** keeps filled cells
-- **Filled wins** over a reclassifying rerun
 
+A rerun or refresh keeps filled cells, and a filled cell wins over a reclassifying rerun.
 A refresh names any cell it drops for a subject that left the replay.
 
 ### 5. Apply

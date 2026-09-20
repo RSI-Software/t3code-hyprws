@@ -57,7 +57,8 @@ If that cleanup fails, run only the exact forced recovery command the refusal pr
 
 ### Stop
 
-Present the selected issue, snapshot branch and SHA, derived tag, prior matching tags, every preparation result, clean and ref checks, and UAT evidence.
+Apply the [stop reply](stop-reply.md): the report carries every preparation result, clean and ref checks, and UAT evidence.
+The reply names the issue, snapshot SHA, derived tag, and any withhold reason.
 
 - **Continue when:** the human names the candidate
 - **And gives** an explicit release go
