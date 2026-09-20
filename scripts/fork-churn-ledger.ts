@@ -601,7 +601,7 @@ export const readChurnState = (root: string, ref = CHURN_REF): ChurnState => {
   const raw = readBotRefFile(root, ref, CHURN_LEDGER_FILE);
   if (raw === null)
     throw new Error(
-      `${ref} does not carry ${CHURN_LEDGER_FILE}; seed it once (docs/operations/fork-sync.md#churn-ledger)`,
+      `${ref} does not carry ${CHURN_LEDGER_FILE}; seed it once (docs/fork/operations/fork-sync.md#churn-ledger)`,
     );
   return parseChurnState(raw);
 };

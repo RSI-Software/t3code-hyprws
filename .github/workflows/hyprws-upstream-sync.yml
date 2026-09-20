@@ -47,7 +47,7 @@ jobs:
           MIRROR_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
           if [ -z "$MIRROR_TOKEN" ]; then
-            echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/operations/fork-sync.md"
+            echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/fork/operations/fork-sync.md"
             exit 1
           fi
 
@@ -62,7 +62,7 @@ jobs:
         run: git remote add upstream https://github.com/pingdotgg/t3code.git
 
       # Nothing else ever writes main, so a rejected push means someone did;
-      # the job fails instead of forcing (docs/operations/fork-sync.md).
+      # the job fails instead of forcing (docs/fork/operations/fork-sync.md).
       - name: Fast-forward main
         run: |
           git fetch --tags upstream main
@@ -342,7 +342,7 @@ jobs:
       # origin when the checkout has not seen it, so no explicit fetch is needed.
       # Advisory, not blocking: two legacy rows in the current window predate the
       # field, and the window only heals by landing more walks. The sync operator
-      # owns the gap: read it on the scheduled cadence (docs/operations/fork-sync.md).
+      # owns the gap: read it on the scheduled cadence (docs/fork/operations/fork-sync.md).
       - name: Verify walk cost window
         if: always()
         continue-on-error: true

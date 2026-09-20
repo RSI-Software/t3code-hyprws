@@ -1,0 +1,62 @@
+[
+  {
+    "key": "ipc.ts: desktop IPC shape changed: feat(desktop): open project windows from renderer IPC",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ipc.ts: desktop IPC shape changed: fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ServerSettings: field removed: zmuxSessions",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ServerSettings: field removed: terminalSessionMode",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ServerSettingsPatch: field removed: zmuxSessions",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ThreadEnvMode: literal added: worktrunk",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "OrchestrationProjectShell: field removed: worktrunkHooks",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ProjectMetaUpdatedPayload: field removed: worktrunkHooks",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "ServerSettingsPatch: field removed: worktrunkHooks",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "T3ProjectFile: field removed: worktrunkHooks",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "EnvironmentInternalErrorReason: literal added: orchestration_agent_activity_failed",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "EnvironmentResourceNotFoundReason: literal added: agent_not_found",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "EnvironmentRequestInvalidReason: literal added: invalid_agent_activity_cursor",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "EnvironmentInternalErrorReason: literal added: thread_group_title_generation_failed",
+    "reason": "shipped before the wire check"
+  },
+  {
+    "key": "EnvironmentResourceNotFoundReason: literal added: project_not_found",
+    "reason": "shipped before the wire check"
+  }
+]
