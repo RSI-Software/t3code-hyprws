@@ -187,7 +187,7 @@ Conflict resolution is machine-owned: each path goes to shared rerere first, the
 | 2   | Only the fork moved, so the fork keeps working  |
 | 3   | Both moved, keep both, if every hunk co-inserts |
 
-There is no "upstream superseded this" rule: retirement stays a human decision in [fork-delta](../internals/fork-delta.md).
+There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
 
 These refuse rather than stage, each a `conflict` stop:
 
