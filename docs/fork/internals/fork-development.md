@@ -5,7 +5,7 @@
 [Fork delta](./fork-delta.md) owns each domain's need, shape, and retirement.
 `AGENTS.md` owns the no-post rule, trailers, and rebase-only topology.
 
-Goal: a small, durable patch stack on upstream T3 Code.
+Goal: a small, durable patch stack on upstream.
 
 ## Before adding to the fork
 
@@ -14,7 +14,7 @@ Goal: a small, durable patch stack on upstream T3 Code.
 3. Read the latest sync report's `## Churn` section.
 4. Prefer one adapter boundary over scattered edits.
 
-Before changing a seam's path, subject, or split, run `fork:churn record`.
+Before changing a seam's path, subject, or split, run `node scripts/fork-churn.ts record`.
 The [churn ledger](../operations/fork-sync.md#churn-ledger) owns seam identity, evidence, and blocking rules.
 
 ## Non-goals
@@ -56,7 +56,18 @@ The [churn ledger](../operations/fork-sync.md#churn-ledger) owns seam identity, 
 Local `main` mirrors `upstream/main`, pushed fast-forward only.
 `hyprws` is the single trunk, every domain in one rebased stack.
 Domains are not branches: a commit declares one with `Fork-Domain`.
-Run [`upstream-triage`](../../../.agents/skills/upstream-triage/SKILL.md) before filing or fixing a bug felt in the fork.
+
+### Rejected alternatives
+
+| Alternative              | Why rejected                                   |
+| ------------------------ | ---------------------------------------------- |
+| **Patch directory**      | Loses 3-way merge, rerere, blame, bisect, CI   |
+| **Merge-based tracking** | `log base..hyprws` stops enumerating the delta |
+| **Per-domain branches**  | One rebase per domain per sync                 |
+| **jj / stacked diffs**   | Change-IDs fit; maturity does not              |
+| **Vendored upstream**    | Inverts authority, maximizes entanglement      |
+| **Plugin architecture**  | No upstream API; no-post forbids one           |
+| **Full divergence**      | Wrong while the fork wants upstream's future   |
 
 ### Extracting a domain
 
@@ -123,7 +134,7 @@ Run `vp run fork:upstream-refs <file>` before publishing; [Scripts](./scripts.md
 
 ## Commit discipline
 
-A seam commit carries one small intent; that intent re-derives the resolution.
+A seam commit carries one small intent; intent re-derives the resolution.
 
 | Rule                              | Detail                               |
 | --------------------------------- | ------------------------------------ |
@@ -147,7 +158,6 @@ Both exceptions are spent; each needed a lease and an archive ref.
 | Reshape fold (RSI-Software/t3code-hyprws#965)   | `fork:sync fold-reshape` folds a landed reshape home |
 
 A walk repair for one replayed commit is a trailer-free `fixup!`, autosquashed before the leased push.
-The asymmetry is [Fork strategy principle 4](./fork-strategy.md#principles).
 
 ### Ledger guards run in the scan
 
@@ -169,7 +179,6 @@ An action the churn ledger records ships its guard in the same change.
 | `--replay-of <ref>` | Advisory again, proved rehearsal      |
 
 Matchers live in `scripts/fork-scan-guards.ts`.
-A missing path in a later snapshot proves no repair.
 
 ### Workflow copies require an explicit review
 
@@ -229,7 +238,6 @@ forkSupersedes({
 
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
 RSI-Software/t3code-hyprws#716 owns the parser; write the declaration anyway.
-On adoption, the walk deletes both together.
 
 ### Extend an upstream export, do not replace it
 
@@ -237,15 +245,12 @@ An upstream export the fork needs more of stays where upstream declares it.
 Re-declaring it drops every later upstream edit; the rebase replays the fork's copy.
 Import it into a fork-owned sibling, compose beside it, export under a fork-owned name.
 
-The best fork code looks unsurprising inside upstream T3 Code.
-
 ## Verification standard
 
 - **Always:** targeted tests, lint, types
 - **Backend behavior:** focused tests for it
 - **Material change:** the production build
 
-A delegated worker runs `vp i` in its own worktree; every check it reports ran there.
 Visible or stateful behavior needs one permitted pass in a real client.
 
 ## Decision filter

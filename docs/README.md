@@ -39,7 +39,6 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Architecture overview](./internals/overview.md)
 - [Fork development](./fork/internals/fork-development.md)
 - [Fork delta](./fork/internals/fork-delta.md)
-- [Fork strategy](./fork/internals/fork-strategy.md) and its [scorecard](./fork/internals/fork-strategy-scorecard.md)
 - [Glossary](./internals/glossary.md)
 - [Connection runtime](./internals/connection-runtime.md)
 - [Providers](./internals/providers.md)
