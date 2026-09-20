@@ -235,12 +235,12 @@ One policy boundary is not one call or one hunk per upstream file.
 Upstream owns where navigation happens; the fork owns only which family it targets.
 Each upstream file spends one boundary call per distinct upstream navigation event, plus one hook call when it selects at render time.
 
-| Upstream file                                | Calls      | Events served                                                                           |
-| -------------------------------------------- | ---------- | --------------------------------------------------------------------------------------- |
-| `apps/web/src/components/ChatView.tsx`       | 1 hook + 4 | stored draft, new draft, background thread, next thread                                 |
-| `apps/web/src/components/CommandPalette.tsx` | 1 hook + 3 | latest thread, searched thread, latest thread from a project row                        |
-| `apps/web/src/hooks/useHandleNewThread.ts`   | 3          | the created draft, a raced draft, the settled draft id                                  |
-| `apps/web/src/hooks/useThreadActions.ts`     | 1          | leave a deleted thread for its fallback                                                 |
+| Upstream file                                | Calls      | Events served                                                    |
+| -------------------------------------------- | ---------- | ---------------------------------------------------------------- |
+| `apps/web/src/components/ChatView.tsx`       | 1 hook + 4 | stored draft, new draft, background thread, next thread          |
+| `apps/web/src/components/CommandPalette.tsx` | 1 hook + 3 | latest thread, searched thread, latest thread from a project row |
+| `apps/web/src/hooks/useHandleNewThread.ts`   | 3          | the created draft, a raced draft, the settled draft id           |
+| `apps/web/src/hooks/useThreadActions.ts`     | 1          | leave a deleted thread for its fallback                          |
 
 **Adding a call** means an upstream navigation event gained a route target: edit the table in the same change.
 **Collapsing two** is right only when upstream merged the events: `useThreadActions.ts` went from three calls to one because upstream `.1290` computes one `fallbackThread` and branches once.

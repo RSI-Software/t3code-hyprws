@@ -96,11 +96,11 @@ Authoring scans read `refs/fork/churn` and print its ref, SHA, and freshness.
 
 Record schemas, seam identity, seam states, and importer validation live in `scripts/lib/fork-churn-seams.ts`.
 
-| Command                                 | Use                                    |
-| --------------------------------------- | -------------------------------------- |
-| `scripts/fork-churn.ts compose --plan`  | Build a bundle from local artifacts    |
-| `scripts/fork-churn.ts record --input`  | The only import path. Attested bundles |
-| `scripts/fork-churn.ts outcome`         | Record one receipt per selected target |
+| Command                                | Use                                    |
+| -------------------------------------- | -------------------------------------- |
+| `scripts/fork-churn.ts compose --plan` | Build a bundle from local artifacts    |
+| `scripts/fork-churn.ts record --input` | The only import path. Attested bundles |
+| `scripts/fork-churn.ts outcome`        | Record one receipt per selected target |
 
 `--ledger-ref` reads another `refs/fork/<name>`, `--offline` queries nothing and says so, and `--push` leases the advertised ref.
 Stale, offline, or blocking evidence records `report-policy: failed` while the run stays green.
@@ -295,11 +295,11 @@ The verdict reads its identity from `ghb attest handoff` in the active runtime; 
 
 Tree-neutrality cannot catch a wrong attribution, so enumerate the `overrides` record before signing off:
 
-| Slot           | Meaning                     |
-| -------------- | --------------------------- |
-| `attributed`   | A change moved to a commit  |
-| `left`         | A change left where it was  |
-| `unused`       | A flag that changed nothing |
+| Slot         | Meaning                     |
+| ------------ | --------------------------- |
+| `attributed` | A change moved to a commit  |
+| `left`       | A change left where it was  |
+| `unused`     | A flag that changed nothing |
 
 Withhold sign-off for:
 
