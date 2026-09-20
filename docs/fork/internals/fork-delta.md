@@ -58,11 +58,17 @@ At parity, plain browser windows or a small Electron shell suffice, which retire
 A `bugfix` upstream reproduces is a retire candidate: wait for upstream's fix, then drop the commit at the next rebase.
 Every signalled commit gets one retirement outcome during the rebase.
 
-| Outcome     | Where it lands                                |
-| ----------- | --------------------------------------------- |
-| **Retire**  | Dropped subject under [Retired](#retired)     |
-| **Keep**    | Subject and reason under [Kept](#kept)        |
-| **Partial** | Both tables: replacement cell and keep reason |
+`scripts/fork-retirement-ledger.json` holds both arrays.
+
+| Outcome     | Where it lands                                 |
+| ----------- | ---------------------------------------------- |
+| **Retire**  | A `retired` row; the subject leaves the stack  |
+| **Keep**    | A `kept` row with the behaviour upstream lacks |
+| **Partial** | Both arrays: replacement cell and keep reason  |
+
+A subject in both arrays is a partial decision and stays in the active ledger.
+A retired-only subject still present reads as `retired but present` in `fork:delta --check` until the rebase drops it.
+Upstream references in either array are code-spanned records, never live links.
 
 ## Trailers
 
@@ -198,90 +204,6 @@ A per-file diff says nothing about seam growth until `git cat-file -e origin/mai
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
 
 A domain is a reason the fork exists, not a feature area.
-
-## Retired
-
-| Fork commit                                               | Domain          | Upstream replacement                                                                                                                                     | Retired at                    |
-| --------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| fix(web): scope markdown actions to thread environment    | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines the same binding in `ChatMarkdown.tsx`, leaving the fork resolver redundant.                               | v0.0.35                       |
-| fix(web): upload media in pull request descriptions       | upstream-fixes  | `pingdotgg/t3code#8235` ships typed `image \| file` claims, streamed bodies, and a 50 MB limit. The `gh-image` path stays fork-owned.                    | v0.0.36                       |
-| `fix(provider): resolve repo skills per workspace (#188)` | upstream-fixes  | `pingdotgg/t3code#9210` (`bc918e7`) adds per-workspace provider snapshots, superseding the fork's RPC, schemas, atom family, preference, and Codex pair. | v0.0.39-nightly.20260902.1261 |
-| feat(web): add manual sidebar thread ordering             | thread-ordering | Upstream persists `activeOrderKey` server side, superseding the fork's client-local order store. Verdict in the RSI-Software/t3code-hyprws#657 walk.     | v0.0.41-nightly.20260908.1414 |
-| `fix(web): make sidebar thread ordering direct (#246)`    | thread-ordering | Same `activeOrderKey` path. The order-mode marker is rewritten on top of it under RSI-Software/t3code-hyprws#907, not restored.                          | v0.0.41-nightly.20260908.1414 |
-| fix(web): keep sidebar groups in automatic order          | thread-ordering | Grouping now layers over `activeOrderKey`, so the carve-out has no fork order left to protect.                                                           | v0.0.41-nightly.20260908.1414 |
-
-Upstream references here are code-spanned records, never live links.
-A retired-only subject must no longer be present in the stack; `fork:delta --check` reports it as `retired but present` until the rebase drops it.
-
-## Kept
-
-| Fork commit                                                                             | Domain           | Reason                                                                                           | Reviewed at                   |
-| --------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ | ----------------------------- |
-| refactor(web): add physical project sidebar scope                                       | project-windows  | `isProjectInSidebarScope` remains the only physical scope.                                       | v0.0.37-nightly.20260830.1227 |
-| fix(web): upload media in pull request descriptions                                     | upstream-fixes   | Partial: the fork-only `gh-image` publication path remains.                                      | v0.0.39-nightly.20260907.1332 |
-| fix(web): retain completed thread timing                                                | upstream-fixes   | No upstream completed-turn age, duration, or Done behavior.                                      | v0.0.39-nightly.20260907.1332 |
-| `feat(web): add rich Markdown editing (#28)`                                            | markdown-editing | Lockfile churn only; editor and MDX boundary untouched.                                          | v0.0.37-nightly.20260830.1226 |
-| refactor(web): centralize thread route navigation                                       | project-windows  | Upstream added no project-window route scoping.                                                  | v0.0.37-nightly.20260829.1224 |
-| feat(web): render scoped project shell                                                  | project-windows  | Upstream root-route work gives no scoped shell.                                                  | v0.0.37-nightly.20260829.1224 |
-| fix(desktop): isolate project preview and drafts                                        | project-windows  | A wider draft shape is not window namespacing.                                                   | v0.0.37-nightly.20260829.1224 |
-| feat(web): open project windows from hub actions                                        | project-windows  | The keybinding rewrite added no bridge actions.                                                  | v0.0.37-nightly.20260829.1224 |
-| feat(terminal): attach thread terminals to the checkout's managed zmux session          | zmux-estate      | Settings overlap is not external-session attachment.                                             | v0.0.37-nightly.20260829.1224 |
-| feat(server): bind thread worktrees to a managed zmux session                           | zmux-estate      | Upstream binds no thread worktree to zmux.                                                       | v0.0.37-nightly.20260829.1224 |
-| One setting drives terminal attach and worktree binding for zmux                        | zmux-estate      | No combined terminal and worktree zmux mode.                                                     | v0.0.37-nightly.20260829.1224 |
-| `fix(server): follow external workspace symlinks globally (#66)`                        | upstream-fixes   | No `followExternalWorkspaceSymlinks`; upstream covers skills and themes.                         | v0.0.39-nightly.20260907.1332 |
-| feat(issues): add GitHub Issues surface scoped to project windows                       | github-issues    | No upstream Issues list, detail, or hand-off.                                                    | v0.0.37-nightly.20260829.1224 |
-| feat(server): run Worktrunk hooks around thread worktrees                               | worktrunk-hooks  | Upstream composition provides no Worktrunk hooks.                                                | v0.0.37-nightly.20260829.1224 |
-| fix(web): returning to a thread focuses the composer, not its terminal                  | upstream-fixes   | `ecf3716fd19` refocuses on window-tab-back only.                                                 | v0.0.39-nightly.20260907.1332 |
-| feat(web): move Worktrunk hook controls onto the worktree surfaces                      | worktrunk-hooks  | The target adds no Worktrunk controls or lifecycle.                                              | v0.0.37-nightly.20260829.1224 |
-| feat: New worktrunk thread mode replaces the Worktrunk hook switches                    | worktrunk-hooks  | No third env mode or wire-safe compatibility pair.                                               | v0.0.37-nightly.20260829.1224 |
-| `fix(server): preserve attributed child work (#177)`                                    | custom-agents    | `CHILD_CHATTER_METHODS` still drops `item/*` deltas.                                             | v0.0.39-nightly.20260907.1332 |
-| `fix(provider): resolve repo skills per workspace (#188)`                               | upstream-fixes   | Partial: the fork keeps a cwd-keyed probe cache and merges `slashCommands`.                      | v0.0.39-nightly.20260907.1332 |
-| `feat(web): group sidebar threads into named sections (#205)`                           | thread-ordering  | No named sections or group-drop behavior.                                                        | v0.0.37-nightly.20260830.1227 |
-| `feat(web): add GitHub link destination controls (#178)`                                | github-issues    | No upstream link destination control; the `ChatMarkdown.test.tsx` brand assertion is retargeted. | v0.0.37-nightly.20260829.1224 |
-| `docs(fork): consolidate fork documentation for the domain flatten (#671)`              | fork-meta        | Carries the whole fork documentation set.                                                        | v0.0.37-nightly.20260829.1224 |
-| `fix(contracts): released clients decode threads from a worktrunk server (#233)`        | worktrunk-hooks  | Theme settings do not replace the wire mode pair.                                                | v0.0.37-nightly.20260829.1224 |
-| fix(web): scale titlebar padding with interface zoom                                    | upstream-fixes   | The target lacks the `max()` interface-zoom floor.                                               | v0.0.39-nightly.20260907.1332 |
-| `fix(server): provider spawns drop another harness identity (#108)`                     | upstream-fixes   | No `packages/shared/src/env.ts` or `CLAUDECODE` scrub.                                           | v0.0.39-nightly.20260907.1332 |
-| fix(web): thread jump keys switch threads while the terminal has focus                  | upstream-fixes   | No `shouldForwardThreadTerminalShortcut`; jump keys stay trapped.                                | v0.0.39-nightly.20260907.1332 |
-| fix(web): stop new threads waiting on an unreachable project file                       | project-windows  | `t3ProjectFileDefaults.ts` still awaits `executeAtomQuery` unbounded.                            | v0.0.39-nightly.20260907.1332 |
-| fix(server): keep pull requests on origin                                               | upstream-fixes   | The resolver still prefers `upstream` and passes no `--repo`.                                    | v0.0.39-nightly.20260907.1332 |
-| Thread terminals and agents stop inheriting the launcher's tmux pane                    | upstream-fixes   | No `TMUX` scrub in `packages/shared` or `apps/server`.                                           | v0.0.39-nightly.20260907.1332 |
-| fix: setup script terminals print a completion or failure marker                        | upstream-fixes   | The runner still writes the bare command line.                                                   | v0.0.39-nightly.20260907.1332 |
-| `fix(web): keep the files explorer tab when a file opens (#84)`                         | upstream-fixes   | `openFile` still filters out the standalone `files` surface.                                     | v0.0.39-nightly.20260907.1332 |
-| feat(web): show which pane owns keyboard focus                                          | upstream-fixes   | No `:focus-within` cue on either host element.                                                   | v0.0.39-nightly.20260907.1332 |
-| fix(desktop): use themed app context menus                                              | upstream-fixes   | Renderer menus still go through native `showContextMenu`.                                        | v0.0.39-nightly.20260907.1332 |
-| `fix(web): confirm batch worktree deletion once (#156)`                                 | upstream-fixes   | Only the single-thread orphan helper exists.                                                     | v0.0.39-nightly.20260907.1332 |
-| `fix(desktop): honor embedded browser wheel zoom (#169)`                                | upstream-fixes   | Guest `zoom-changed` is still unhandled in `preview/Manager.ts`.                                 | v0.0.39-nightly.20260907.1332 |
-| `fix(desktop): prevent embedded browser zoom flash (#174)`                              | upstream-fixes   | Window zoom still changes before `reapplyZoom()`.                                                | v0.0.39-nightly.20260907.1332 |
-| fix(server): GitManager hook tests pin the fixture hook path                            | upstream-fixes   | The upstream test pins no `core.hooksPath`.                                                      | v0.0.39-nightly.20260907.1332 |
-| fix(desktop): keep AppImage launch paths stable                                         | upstream-fixes   | The versioned artifact name still ships; `pingdotgg/t3code#8983` is untagged.                    | v0.0.39-nightly.20260907.1332 |
-| fix(server): ignore dependency installs in dev watch                                    | upstream-fixes   | The server dev script is still a bare `node --watch`.                                            | v0.0.39-nightly.20260907.1332 |
-| fix(worktree): make setup independent of shell environment                              | upstream-fixes   | `t3.json` still expands through the launching shell.                                             | v0.0.39-nightly.20260907.1332 |
-| fix(worktree): bootstrap before Vite+ task discovery                                    | upstream-fixes   | Fork-only ordering; upstream has no `setup-worktree`.                                            | v0.0.39-nightly.20260907.1332 |
-| fix(server): exclude dependency churn from watch roots                                  | upstream-fixes   | No per-package source watch roots upstream.                                                      | v0.0.39-nightly.20260907.1332 |
-| fix(mobile): finish bounded diff tokenization                                           | upstream-fixes   | `tokenizeTimeLimit` is still never passed.                                                       | v0.0.39-nightly.20260907.1332 |
-| refactor(github-issues): the right-panel store surfaces move behind marked hooks        | github-issues    | Retire evidence is circular; no `fork-hooks.ts` upstream.                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(github-issues): Issues surface registrations sit behind marked hooks           | github-issues    | Upstream has no hook vocabulary or registration file.                                            | v0.0.43-nightly.20260917.1880 |
-| refactor(workspace-files): ignored workspace files sit behind fork-owned seams          | workspace-files  | No `*.fork.ts` counterpart to absorb the seam.                                                   | v0.0.43-nightly.20260917.1880 |
-| refactor(web): centralize thread window route scoping behind one fork hook              | project-windows  | Upstream thread routing carries no window scope.                                                 | v0.0.43-nightly.20260917.1880 |
-| refactor(agents): custom agents sit behind fork-owned boundaries                        | fork-meta        | Upstream supplies neither the boundaries nor the surface.                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(upstream-fixes): pull-request media upload behind marked hooks                 | upstream-fixes   | Only moves the surviving fork half behind markers.                                               | v0.0.43-nightly.20260917.1880 |
-| refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules | worktrunk-hooks  | The target lacks both the mode and the modules.                                                  | v0.0.43-nightly.20260917.1880 |
-| refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam               | worktrunk-hooks  | The target still ships the unextended enum.                                                      | v0.0.43-nightly.20260917.1880 |
-| refactor(upstream-fixes): external symlink seams sit behind fork-owned files            | upstream-fixes   | Still no global follow; the seam is fork-owned.                                                  | v0.0.43-nightly.20260917.1880 |
-| refactor(web): pull-request project scope supplied by one prop hook                     | project-windows  | The prop hook carries scope the target has no concept of.                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(server): child-work custom-agent seams sit behind fork-owned files             | custom-agents    | Files the target does not carry.                                                                 | v0.0.43-nightly.20260917.1880 |
-| refactor(web): composer custom-agent seams sit behind fork-owned files                  | custom-agents    | The composer has no upstream attachment point.                                                   | v0.0.43-nightly.20260917.1880 |
-| refactor(fork-meta): re-apply carries a multi-line line hook whole                      | fork-meta        | Nothing upstream participates in fork hook re-apply.                                             | v0.0.43-nightly.20260917.1880 |
-| refactor(sidebar): isolate physical scope from upstream derivation                      | project-windows  | `SidebarPhysicalScopeContext.tsx` is absent from the target.                                     | v0.0.43-nightly.20260917.1880 |
-| refactor(desktop): centralize preview window policy                                     | project-windows  | `WindowPolicy*.ts` is absent from the target.                                                    | v0.0.43-nightly.20260917.1880 |
-| fix(desktop): keep preview window policy behind one fork boundary                       | project-windows  | Shares the centralization evidence above.                                                        | v0.0.43-nightly.20260917.1880 |
-| refactor(web): isolate project-window pull request scope                                | fork-meta        | The deleted files were fork-created, never upstream.                                             | v0.0.43-nightly.20260917.1880 |
-| refactor(web): read physical sidebar scope from an ambient provider                     | project-windows  | The match was an import path segment, not a definition.                                          | v0.0.43-nightly.20260917.1880 |
-| refactor(web): share project pathname parsing                                           | project-windows  | The matches are generic helpers it did not introduce.                                            | v0.0.43-nightly.20260917.1880 |
-
-A kept reason documents the fork behaviour the overlap signal did not replace.
-A subject in both tables is a partial decision and stays in the active ledger.
 
 ## project-windows
 
@@ -474,15 +396,15 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 
 ### Shape
 
-| Item                                                                                              | Role                                                 |
-| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                    |
-| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                   |
-| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; [Scripts](./scripts.md) indexes them |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | Bot-first sync, unblock, and stable-cut procedure    |
-| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The bot lane and its fork-local issue upserts        |
-| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`             |
-| `scripts/lib/fork-progress.ts`, `scripts/lib/fork-test-quiet.ts`                                  | Shared gate progress reporter and its test silencer  |
+| Item                                                                                              | Role                                                |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                   |
+| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                  |
+| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; `package.json` names them           |
+| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | Bot-first sync, unblock, and stable-cut procedure   |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The bot lane and its fork-local issue upserts       |
+| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`            |
+| `scripts/lib/fork-progress.ts`, `scripts/lib/fork-test-quiet.ts`                                  | Shared gate progress reporter and its test silencer |
 
 Every fork workflow checkout stays off `persist-credentials: false`, pinned by `scripts/fork-workflow-checkout.test.ts`.
 
