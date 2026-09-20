@@ -74,7 +74,6 @@ import { commitNumstatArguments } from "./lib/fork-numstat.ts";
 import { FORK_RETIREMENT_LEDGER_PATH } from "./lib/fork-retirement-ledger.ts";
 import { leasedPushWithFoldRetry, type FoldVerbContext } from "./fork-sync-fold-verb.ts";
 import { forkLogArguments } from "./lib/fork-trailers.ts";
-import { renderMarkdown } from "./fork-churn.ts";
 import { censusChurn, hotSeams } from "./fork-churn-ledger.ts";
 import { seamKey } from "./lib/fork-conflict-outcomes.ts";
 import {
@@ -8114,7 +8113,7 @@ it("keeps a pending stopped walk out of the census snapshot set", () => {
   assert.deepStrictEqual(censusChurn([ledger[0]!]).hotPaths, []);
 });
 
-it("lists a pending stopped walk in hot seams and the rendered walks table", () => {
+it("lists a pending stopped walk in hot seams", () => {
   const conflict = {
     path: "scripts/seam.txt",
     commit: A,
@@ -8144,13 +8143,9 @@ it("lists a pending stopped walk in hot seams and the rendered walks table", () 
   assert.deepStrictEqual(ledger[1]?.walkDecisions?.map(walkDecisionIdentity), [
     walkDecisionIdentity(decision()),
   ]);
-  // A seam that stops a walk repeatedly is hot by definition, so the stopped walk's conflict
-  // counts, and the walks table renders the stop in the Range cell.
-  assert.strictEqual(hotSeams([ledger[0]!]).length, 1);
+  // A seam that stops a walk repeatedly is hot by definition, so the stopped walk's conflict counts.
+  assert.strictEqual(hotSeams([ledger[0]!])[0]?.path, "scripts/seam.txt");
   assert.strictEqual(hotSeams([ledger[1]!]).length, 1);
-  const document = renderMarkdown([ledger[0]!], "");
-  assert.include(document, "scripts/seam.txt");
-  assert.include(document, "\u2192 **stopped**");
 });
 
 const RECORD_SHIM = `#!${process.execPath}

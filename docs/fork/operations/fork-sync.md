@@ -96,11 +96,11 @@ Authoring scans read `refs/fork/churn` and print its ref, SHA, and freshness.
 
 Record schemas, seam identity, seam states, and importer validation live in `scripts/lib/fork-churn-seams.ts`.
 
-| Command                     | Use                                    |
-| --------------------------- | -------------------------------------- |
-| `fork:churn compose --plan` | Build a bundle from local artifacts    |
-| `fork:churn record --input` | The only import path. Attested bundles |
-| `fork:churn outcome`        | Record one receipt per selected target |
+| Command                                 | Use                                    |
+| --------------------------------------- | -------------------------------------- |
+| `scripts/fork-churn.ts compose --plan`  | Build a bundle from local artifacts    |
+| `scripts/fork-churn.ts record --input`  | The only import path. Attested bundles |
+| `scripts/fork-churn.ts outcome`         | Record one receipt per selected target |
 
 `--ledger-ref` reads another `refs/fork/<name>`, `--offline` queries nothing and says so, and `--push` leases the advertised ref.
 Stale, offline, or blocking evidence records `report-policy: failed` while the run stays green.

@@ -8,14 +8,12 @@ import { assert, it } from "@effect/vitest";
 
 import {
   censusChurn,
+  churnDelta,
   commentRestId,
-  DOCUMENT_PATH,
   hotSeams,
   parseCensusFiles,
-  FROZEN_MIRROR_MARKER,
   parseCensusTag,
   parseLedger,
-  renderMarkdown,
   run,
   trunkRepairCommits,
   walkCostGaps,
@@ -288,41 +286,6 @@ it("reads a record or ledger row written before provenance as deciding nothing",
   assert.strictEqual(entry?.decisions[0]?.decidedBy, "TODO");
 });
 
-it("counts only decision cells carrying provenance in the walks table", () => {
-  const root = ledgerRepository([
-    {
-      tag: "v1",
-      before: A,
-      after: B,
-      recordUrl: "https://example.test/v1",
-      conflicts: [
-        conflict("apps/web/src/signed.ts", "human"),
-        { ...conflict("apps/web/src/unsigned.ts", "human"), decidedBy: "TODO" },
-      ],
-      decisions: [
-        { subject: "feat: agent call", domain: "fork-meta", verdict: "keep", decidedBy: "agent" },
-        { subject: "feat: nobody's call", domain: "fork-meta", verdict: "keep", decidedBy: "TODO" },
-      ],
-      censusFiles: [],
-    },
-  ]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  try {
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .find((line) => line.startsWith("| `v1` |"));
-    // One agent decision and one human conflict; the two unprovenanced rows count on neither side.
-    assert.include(walks ?? "", "| 1/1 |");
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("parses the sequential rebase census table by its rendered columns", () => {
   assert.deepStrictEqual(
     parseCensusFiles(
@@ -572,35 +535,6 @@ it("marks a repair that only touches walk tooling as tooling on the row", () => 
   }
 });
 
-it("renders a walk's repairs, including tooling repairs, in the Walks table", () => {
-  const root = ledgerRepository([
-    {
-      ...entry("v1", []),
-      repairCommits: [
-        { sha: "1f8c22dc68a", subject: "lane repair" },
-        { sha: "d36809f6327", subject: "refresh rebinds the stack size", tooling: true },
-      ],
-    },
-    entry("v0", []),
-  ]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  try {
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .filter((line) => line.startsWith("| `v"));
-    assert.include(walks[0] ?? "", "| 2 (1 tooling) | ");
-    // A legacy row without repairs renders the column as absent, not as a guess.
-    assert.include(walks[1] ?? "", "| — | ");
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("parses the caller attestation once, schema and both identities pinned", () => {
   const worker = {
     role: "worker",
@@ -644,40 +578,8 @@ it("parses the caller attestation once, schema and both identities pinned", () =
   );
 });
 
-it("renders elapsed time and host effort on the Walks row, absent when unrecorded", () => {
-  const root = ledgerRepository([
-    {
-      ...entry("v1", []),
-      elapsedMs: 93_000,
-      effort: { model: "claude-opus-5", effort: "high" },
-    },
-    entry("v0", []),
-  ]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  try {
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .filter((line) => line.startsWith("| `v"));
-    assert.include(walks[0] ?? "", "| 93s | claude-opus-5 (high) | ");
-    // The pre-#703 rows keep parsing and keep rendering; absence stays absent.
-    assert.include(walks[1] ?? "", "| — | — | ");
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("keeps the delta commit count without reading a budget table", () => {
   const root = ledgerRepository([entry("v1", [])]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
   // churnDelta spawns `node scripts/fork-delta.ts` relative to the repository root;
   // link the real scripts directory so the fixture can run the inventory probe.
   NodeFS.symlinkSync(
@@ -704,11 +606,7 @@ it("keeps the delta commit count without reading a budget table", () => {
   }
   runCommandText("git", ["update-ref", "refs/heads/hyprws", head], { cwd: root });
   try {
-    assert.strictEqual(run(["render"], root), 0);
-    const kpis = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .filter((line) => line.startsWith("| delta commits"));
-    assert.deepStrictEqual(kpis, ["| delta commits | 2 |"]);
+    assert.deepStrictEqual(churnDelta(root), { commits: 2 });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -729,7 +627,7 @@ it("rejects a malformed elapsed or effort field on a ledger row", () => {
   assert.throws(() => parseLedger(JSON.stringify([{ ...base, effort: { model: "m" } }])), /effort/);
 });
 
-it("writes the applied row when the host handoff is unavailable, effort rendered absent", () => {
+it("writes the applied row when the host handoff is unavailable, effort left absent", () => {
   const root = ledgerRepository([]);
   const record = renderRecord(reportFixture());
   NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
@@ -790,17 +688,6 @@ it("writes the applied row when the host handoff is unavailable, effort rendered
     assert.strictEqual(appended.effort, undefined);
     assert.strictEqual(appended.elapsedMs, undefined);
     assert.strictEqual(appended.recordUrl, "https://example.test/issues/1#issuecomment-1");
-
-    const internals = NodePath.join(root, "docs", "fork", "internals");
-    NodeFS.writeFileSync(
-      NodePath.join(internals, "fork-delta.md"),
-      "## fork-meta\n\n### Retirement condition\n",
-    );
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .find((line) => line.startsWith("| `v1` |"));
-    assert.include(walks ?? "", "| — | — | ");
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
@@ -863,7 +750,7 @@ const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void }
   };
 };
 
-it("records the stopped walk's own elapsed and effort on the pending row and renders them (#1023)", () => {
+it("records the stopped walk's own elapsed and effort on the pending row (#1023)", () => {
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
@@ -899,19 +786,6 @@ it("records the stopped walk's own elapsed and effort on the pending row and ren
     assert.strictEqual(appended.pending, true);
     assert.strictEqual(appended.elapsedMs, 93_000);
     assert.deepStrictEqual(appended.effort, { model: "test-model", effort: "high" });
-
-    const internals = NodePath.join(root, "docs", "fork", "internals");
-    NodeFS.writeFileSync(
-      NodePath.join(internals, "fork-delta.md"),
-      "## fork-meta\n\n### Retirement condition\n",
-    );
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .find((line) => line.startsWith("| `v1` |"));
-    assert.include(walks ?? "", "93s");
-    assert.include(walks ?? "", "test-model (high)");
-    assert.notInclude(walks ?? "", "| — | — | ");
   } finally {
     stub.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -1037,55 +911,7 @@ it("an applied append without a posted record still refuses the write (#1057)", 
   }
 });
 
-it("an append leaves a committed frozen mirror untouched (#1074)", () => {
-  const root = ledgerRepository([]);
-  const recordPath = NodePath.join(root, "record.md");
-  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
-  const documentPath = NodePath.join(root, DOCUMENT_PATH);
-  NodeFS.mkdirSync(NodePath.dirname(documentPath), { recursive: true });
-  const frozen = [
-    "# Fork conflict churn",
-    "",
-    "> Deprecated. `refs/fork/churn` is the ledger; this document is a frozen mirror.",
-    "",
-    "- Entries: 0",
-    "",
-  ].join("\n");
-  NodeFS.writeFileSync(documentPath, frozen);
-  const stub = stubGhAndGhb(root, recordPath);
-  try {
-    assert.strictEqual(
-      run(
-        [
-          "append",
-          "--record",
-          "record.md",
-          "--issue",
-          "1",
-          "--tag",
-          "v1",
-          "--before",
-          A,
-          "--after",
-          B,
-        ],
-        root,
-      ),
-      0,
-    );
-    // The ref moved; the mirror the render verb refuses to regenerate did not.
-    assert.strictEqual(
-      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!.tag,
-      "v1",
-    );
-    assert.strictEqual(NodeFS.readFileSync(documentPath, "utf8"), frozen);
-  } finally {
-    stub.restore();
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("a stopped row never carries another walk's elapsed, and an unavailable handoff renders absent (#1023)", () => {
+it("a stopped row never carries another walk's elapsed, and an unavailable handoff stays absent (#1023)", () => {
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
@@ -1126,17 +952,6 @@ it("a stopped row never carries another walk's elapsed, and an unavailable hando
     assert.strictEqual(appended.pending, true);
     assert.strictEqual(appended.elapsedMs, undefined);
     assert.strictEqual(appended.effort, undefined);
-
-    const internals = NodePath.join(root, "docs", "fork", "internals");
-    NodeFS.writeFileSync(
-      NodePath.join(internals, "fork-delta.md"),
-      "## fork-meta\n\n### Retirement condition\n",
-    );
-    assert.strictEqual(run(["render"], root), 0);
-    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
-      .split("\n")
-      .find((line) => line.startsWith("| `v1` |"));
-    assert.include(walks ?? "", "| — | — | ");
   } finally {
     stub.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -1396,50 +1211,6 @@ it("renders KPI fallbacks for a first walk", () => {
   assert.include(section, "| conflict files, this walk vs last | 0 vs first walk |");
   assert.include(section, "| delta commits | unrecorded |");
   assert.include(section, "| elapsed and effort | unrecorded; unrecorded |");
-  assert.include(renderMarkdown([entry("v1", [])], ""), "## KPIs");
-});
-
-it("lists a stopped walk in the rendered document with its conflicts and repair commits", () => {
-  const document = renderMarkdown(
-    [
-      entry("v1", []),
-      {
-        ...entry("v2", [conflict("apps/web/src/ChatView.tsx", "seam-moved")]),
-        pending: true as const,
-        repairCommits: [{ sha: "1f8c22dc68a", subject: "lane repair" }],
-      },
-    ],
-    "",
-  );
-  const walkRow = document
-    .split("\n")
-    .filter((line) => line.startsWith("| `v"))
-    .find((line) => line.includes("| `v2` |"));
-  // The stopped row is present, marked, and carries its conflicts and repairs like an applied one.
-  assert.exists(walkRow);
-  assert.include(walkRow!, "→ **stopped**");
-  assert.include(walkRow!, "seam-moved: 1");
-  assert.include(walkRow!, "| 1 | ");
-});
-
-it("reports the applied and stopped split in Entries, and the plain count when nothing stopped", () => {
-  const split = renderMarkdown(
-    [entry("v1", []), entry("v2", []), { ...entry("v3", []), pending: true as const }],
-    "",
-  );
-  assert.include(split, "- Entries: 3 (2 applied, 1 stopped)");
-  assert.include(split, "- Tag range (applied walks only): `v1` → `v2`");
-  const plain = renderMarkdown([entry("v1", []), entry("v2", [])], "");
-  assert.include(plain, "- Entries: 2\n");
-  assert.equal(plain.includes("(2 applied, 0 stopped)"), false);
-});
-
-it("keeps the tag range over applied walks when a stopped walk attempted a later tag", () => {
-  const document = renderMarkdown(
-    [entry("v1", []), { ...entry("v9-nightly", []), pending: true as const }],
-    "",
-  );
-  assert.include(document, "- Tag range (applied walks only): `v1` → `v1`");
 });
 
 it("counts a path only ever seen on stopped walks as a hot seam", () => {
@@ -1617,7 +1388,6 @@ it("migrates every legacy census subject once and survives expired objects", () 
       assert.throws(() =>
         runCommandText("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root }),
       );
-    assert.strictEqual(run(["render"], root), 0);
     assert.strictEqual(run(["report", "--issue", "1"], root), 0);
     assert.strictEqual(
       runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
@@ -1772,65 +1542,6 @@ it("migrates against the advertised head and refuses a diverged local ledger", (
   }
 });
 
-it("renders the frozen mirror before mutating the churn ref", () => {
-  const root = ledgerRepository([censusEntry("v1", [])]);
-  const before = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
-  const record = renderRecord(reportFixture());
-  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
-  NodeFS.writeFileSync(NodePath.join(root, DOCUMENT_PATH), "stale\n");
-  const bin = NodePath.join(root, "bin");
-  NodeFS.mkdirSync(bin);
-  NodeFS.writeFileSync(
-    NodePath.join(bin, "gh"),
-    "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
-    { mode: 0o755 },
-  );
-  const previousPath = process.env.PATH;
-  const previousResponse = process.env.FAKE_GH_RESPONSE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  process.env.FAKE_GH_RESPONSE = JSON.stringify({
-    body: [
-      "## Sequential rebase census",
-      "",
-      "A throwaway rebase rehearsal to `v2` found 1 conflicting fork commit and 1 conflict-file resolution.",
-      "",
-      "| File | Hunks | Fork commit | Domain |",
-      "| --- | ---: | --- | --- |",
-      "| `scripts/current.ts` | 1 | `3333333 fix(fork): current` | fork-meta |",
-    ].join("\n"),
-    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
-    url: "https://example.test/issues/1",
-  });
-  try {
-    assert.strictEqual(
-      run(
-        [
-          "append",
-          "--record",
-          "record.md",
-          "--issue",
-          "1",
-          "--tag",
-          "v2",
-          "--before",
-          A,
-          "--after",
-          B,
-        ],
-        root,
-      ),
-      1,
-    );
-    assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), before);
-  } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
-    else process.env.FAKE_GH_RESPONSE = previousResponse;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("refuses a mismatched census tag before mutation and accepts the matching identity", () => {
   const root = ledgerRepository([]);
   const record = renderRecord(reportFixture());
@@ -1961,109 +1672,10 @@ it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(run(["render", "--check"], root), 1);
+    assert.strictEqual(run(["verify-cost"], root), 1);
     assert.match(stderr, /refs\/fork\/churn does not carry fork-churn\.json/);
   } finally {
     process.stderr.write = originalWrite;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("refuses render --check instead of comparing the frozen mirror", () => {
-  const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-churn.md"),
-    `stale\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
-  );
-  let stderr = "";
-  const originalWrite = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    assert.strictEqual(run(["render", "--check"], root), 1);
-    assert.match(stderr, /frozen, deprecated mirror/);
-    assert.match(stderr, /RSI-Software\/t3code-hyprws#476/);
-  } finally {
-    process.stderr.write = originalWrite;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("refuses bare render and leaves the frozen mirror byte-identical", () => {
-  const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  const documentPath = NodePath.join(internals, "fork-churn.md");
-  NodeFS.writeFileSync(
-    documentPath,
-    `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
-  );
-  let stderr = "";
-  const originalWrite = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    assert.strictEqual(run(["render"], root), 1);
-    assert.match(stderr, /frozen, deprecated mirror/);
-    assert.strictEqual(
-      NodeFS.readFileSync(documentPath, "utf8"),
-      `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
-    );
-  } finally {
-    process.stderr.write = originalWrite;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("refuses a mirror whose deprecation notice is rewrapped differently", () => {
-  const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-churn.md"),
-    "# Reflown\n\n> This document is\na\nfrozen mirror.\nDeprecated.\n\n- Entries: 0\n",
-  );
-  let stderr = "";
-  const originalWrite = process.stderr.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString();
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    assert.strictEqual(run(["render"], root), 1);
-    assert.match(stderr, /frozen, deprecated mirror/);
-  } finally {
-    process.stderr.write = originalWrite;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("still reports staleness for a mirror that is not frozen", () => {
-  const root = ledgerRepository([]);
-  const internals = NodePath.join(root, "docs", "fork", "internals");
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-delta.md"),
-    "## fork-meta\n\n### Retirement condition\n",
-  );
-  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.md"), "stale, but not frozen\n");
-  try {
-    assert.strictEqual(run(["render", "--check"], root), 1);
-  } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });

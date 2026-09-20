@@ -1025,15 +1025,6 @@ else if (args[0] === "issue" && args[1] === "comment") {
         assert.strictEqual(offline.status, 0, offline.stderr);
         assert.include(offline.stdout, `at ${first}; freshness=offline`);
         assert.notInclude(offline.stdout, "terminalAttachmentRetention.fork.ts");
-        const frozen = yield* fs.readFileString(
-          NodePath.join(import.meta.dirname, "../docs/fork/internals/fork-churn.md"),
-        );
-        const originalRows = frozen
-          .split("## Per file\n")[1]!
-          .split("## Per fork commit")[0]!
-          .split("\n")
-          .flatMap((line) => /^\| `([^`]+)`/.exec(line)?.[1] ?? []);
-        assert.deepStrictEqual([...ORIGINAL_LESSON_PATHS].toSorted(), originalRows.toSorted());
       }),
   );
 });
