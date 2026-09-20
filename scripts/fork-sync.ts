@@ -3483,7 +3483,9 @@ const unblockRefresh = (
 /**
  * The trunk has moved and the ledger has not. Everything the walk knows is in the report it
  * already wrote, so the stop names the applied trunk and the row that is missing rather than the
- * command that refused (RSI-Software/t3code-hyprws#664).
+ * command that refused (RSI-Software/t3code-hyprws#664). A walk that stopped before applying has
+ * no applied head to name, so the message names the stop it stopped on instead
+ * (RSI-Software/t3code-hyprws#1135).
  */
 class LedgerUnpublished extends Error {
   readonly report: SyncReport;
@@ -3519,10 +3521,18 @@ const ledgerWrite = (report: SyncReport, label: string, write: () => void): Sync
     walk: { ...(report.walk ?? {}), ledger: { state: "unpublished", tag, reason: failure } },
   };
   writeReport(stopped);
-  throw new LedgerUnpublished(
-    `hyprws is applied at ${report.installedHead ?? "unknown"} and ${CHURN_REF} carries no row for ${tag}: ${failure}`,
-    stopped,
-  );
+  // A walk that applied owns the head it left behind (#664). A walk that stopped first owns no
+  // head — "applied at unknown" would invent one — so the message names the stop the walk
+  // stopped on and leaves the ref state to the lease failure's own three SHAs
+  // (RSI-Software/t3code-hyprws#1135).
+  const stop = report.walk?.stop;
+  const owes =
+    report.installedHead !== undefined
+      ? `hyprws is applied at ${report.installedHead} and ${CHURN_REF} carries no row for ${tag}`
+      : stop !== undefined
+        ? `the walk stopped on ${stop.reason} (${firstLine(stop.detail)}) before it applied anything and ${CHURN_REF} carries no row for ${tag}`
+        : `the walk never applied and ${CHURN_REF} carries no row for ${tag}`;
+  throw new LedgerUnpublished(`${owes}: ${failure}`, stopped);
 };
 
 /**
@@ -3564,14 +3574,29 @@ const publishWalkOutcomes = (report: SyncReport): SyncReport =>
 
 /**
  * The stopped walk's ledger row: pending until the walk completes, so census and hot seams skip
- * it, and the upgrade on the applied append carries the recorded decisions forward (#662). The
- * caller decides whether the row is published: only the carried runner lane and the explicit
- * `record-decisions` verb push, so a mirror-and-report walk stops without moving the shared ref
- * (RSI-Software/t3code-hyprws#1088). A local-only row still feeds the resume readers, which all
- * degrade to no prior record when the ledger is unreachable.
+ * it, and the upgrade on the applied append carries the recorded decisions forward (#662). Only
+ * the carried runner lane and the explicit `record-decisions` verb publish. A walk that must not
+ * move the shared ref writes nothing at all (RSI-Software/t3code-hyprws#1135): a local-only
+ * append on `refs/fork/churn` stays behind while origin advances, and the next carried lease then
+ * finds a divergence it can never fast-forward. The row's inputs — the record file, the report's
+ * decision rows, the tag and the leased range — already live beside the retained report, and the
+ * reply names the `record-decisions` command that republishes them from there under its own
+ * lease.
  */
-const publishPendingDecisionRow = (report: SyncReport, tag: string, publish: boolean): SyncReport =>
-  ledgerWrite(report, "pending decision row", () =>
+const publishPendingDecisionRow = (
+  report: SyncReport,
+  tag: string,
+  publish: boolean,
+): SyncReport => {
+  if (!publish) {
+    process.stdout.write(
+      `pending decision row for ${tag} kept with the report (${report.reportPath}); ` +
+        `${CHURN_REF} is untouched\n` +
+        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}\n`,
+    );
+    return report;
+  }
+  return ledgerWrite(report, "pending decision row", () =>
     appendChurnRow(
       [
         "--record",
@@ -3585,11 +3610,12 @@ const publishPendingDecisionRow = (report: SyncReport, tag: string, publish: boo
         "--after",
         report.source?.sha ?? "",
         "--pending",
-        ...(publish ? ["--push"] : []),
+        "--push",
       ],
       report.repositoryRoot,
     ),
   );
+};
 
 /**
  * Export a stopped walk's human resolutions so the next tag resolves without a stop
@@ -4262,26 +4288,26 @@ const stopAuto = (surface: string, reportPath: string): never => {
 
 /**
  * A stopped walk is a walk: it owes the ledger the same pending row `record-decisions` writes
- * (RSI-Software/t3code-hyprws#1023), written here so the row exists even when no maintainer ever
- * follows up. Only the carried runner lane publishes it: an operator walk writes it locally, so
- * rehearsing past a conflict stop mutates no shared state, and the applied append upgrades the
- * local row on the mutating path (RSI-Software/t3code-hyprws#1088). The write is best-effort — a
+ * (RSI-Software/t3code-hyprws#1023). Only the carried runner lane publishes it to the shared ref;
+ * an operator walk keeps the row with the retained report and names the republish command, so
+ * rehearsing past a conflict stop mutates no ref at all — local or remote
+ * (RSI-Software/t3code-hyprws#1088, RSI-Software/t3code-hyprws#1135). The write is best-effort — a
  * churn bookkeeping failure must never mask why the walk stopped, and must never turn the stop
- * into a different error — but it is never silent: a missing record and a failed write are named
- * as the different outcomes they are, with the path the write looked for.
+ * into a different error — but it is never silent: a row that cannot be kept, a kept row, and a
+ * failed publish are named as the different outcomes they are, with the path each one looked for.
  */
 export const stopChurnRow = (stopped: SyncReport): void => {
   const before = stopped.source?.expectedOld;
   const target = stopped.target;
   if (target === undefined || before === undefined) {
     process.stderr.write(
-      `churn row not written: the stopped walk bound no target and source (${stopped.reportPath})\n`,
+      `pending decision row not kept: the stopped walk bound no target and source, so record-decisions could not republish it (${stopped.reportPath})\n`,
     );
     return;
   }
   if (!NodeFS.existsSync(stopped.recordPath)) {
     process.stderr.write(
-      `churn row not written: no record to write from at ${stopped.recordPath}\n`,
+      `pending decision row not kept: no record to republish from at ${stopped.recordPath}\n`,
     );
     return;
   }
