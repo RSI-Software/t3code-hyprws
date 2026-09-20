@@ -384,11 +384,9 @@ export function useThreadActions() {
           threads.flatMap((shell) =>
             threadIds.has(shell.id) &&
             readProject({ environmentId, projectId: shell.projectId }) !== null &&
-            !(
-              environmentSettings
-                ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete
-                : false
-            )
+            !(environmentSettings
+              ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete
+              : false)
               ? [shell.id]
               : [],
           ),
