@@ -51,14 +51,23 @@ it("keeps the formatter scoped to the resolved paths so a rebase stays continuab
     command: "vp",
     args: ["fmt", "--no-error-on-unmatched-pattern", "a.ts", "b.ts"],
   });
-  // Nothing in the read-only half writes, so it cannot dirty the lane it verifies.
+  // Nothing in the read-only half writes, so it cannot dirty the lane it verifies. The format
+  // check leads the plan: it is the cheapest verdict and the one a hand resolution most often
+  // breaks (RSI-Software/t3code-hyprws#1140). It reuses formatCommand's shaping, so the paths are
+  // sorted and unmatched patterns stay silent.
   assert.deepStrictEqual(
     verifyPlan("/root", ["apps/web/src/window.ts"], present(["apps/web/src/window.test.ts"])),
     [
+      {
+        command: "vp",
+        args: ["fmt", "--check", "--no-error-on-unmatched-pattern", "apps/web/src/window.ts"],
+      },
       { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
       { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
     ],
   );
+  // No touched paths, no checks at all: the empty replay carries an empty plan.
+  assert.deepStrictEqual(verifyPlan("/root", []), []);
 });
 
 it("runs every fork-owned test even when the replay never touched its workspace", () => {
@@ -70,6 +79,10 @@ it("runs every fork-owned test even when the replay never touched its workspace"
       "apps/server/README.md",
     ]),
     [
+      {
+        command: "vp",
+        args: ["fmt", "--check", "--no-error-on-unmatched-pattern", "apps/web/src/window.ts"],
+      },
       { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
       { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
       {
@@ -93,6 +106,17 @@ it("runs each suite from its own workspace so it gets that workspace's test conf
       ]),
     ),
     [
+      {
+        command: "vp",
+        args: [
+          "fmt",
+          "--check",
+          "--no-error-on-unmatched-pattern",
+          "apps/web/src/window.test.ts",
+          "packages/contracts/src/rpc.ts",
+          "scripts/build.test.ts",
+        ],
+      },
       { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
       { command: "vp", args: ["run", "--filter", "./packages/contracts", "typecheck"] },
       { command: "vp", args: ["run", "--filter", "./scripts", "typecheck"] },

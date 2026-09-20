@@ -4509,7 +4509,11 @@ it("formats what the repair rewrote before it commits", () => {
         (command === "vp" && args[0] === "fmt") ||
         (command === "git" && (args.includes("add") || args.includes("commit"))),
     );
-    const formatted = order.findIndex(({ command }) => command === "vp");
+    // The battery's own read-only `fmt --check` over the touched paths runs first now, so the
+    // repair formatter is the vp fmt call without the check flag — the one that writes.
+    const formatted = order.findIndex(
+      ({ command, args }) => command === "vp" && !args.includes("--check"),
+    );
     assert.notStrictEqual(formatted, -1, "the repair commit ran no formatter");
     // The formatter reads exactly the paths the repair staged — the conflict-time format ran long
     // before these files were rewritten.
