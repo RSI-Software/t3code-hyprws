@@ -94,10 +94,10 @@ export const formatCommand = (paths: ReadonlyArray<string>): RepairCommand | nul
     : { command: "vp", args: ["fmt", "--no-error-on-unmatched-pattern", ...[...paths].sort()] };
 
 /**
- * The read-only half, run once on the finished replay: typecheck scoped to the workspaces the
- * replay touched, and the suites that sit beside the touched files, each run from its own
- * workspace so it gets the test config its authors wrote it against. Nothing here writes, so it
- * cannot dirty the lane it is verifying.
+ * The read-only half, run once on the finished replay: a format check over the touched paths, a
+ * typecheck scoped to the workspaces the replay touched, and the suites that sit beside the
+ * touched files, each run from its own workspace so it gets the test config its authors wrote it
+ * against. Nothing here writes, so it cannot dirty the lane it is verifying.
  */
 export const verifyPlan = (
   root: string,
@@ -107,6 +107,12 @@ export const verifyPlan = (
   forkTests: ReadonlyArray<string> = [],
 ): ReadonlyArray<RepairCommand> => {
   const plan: Array<RepairCommand> = [];
+  // The cheapest check first. It reuses formatCommand's path shaping, and a red result is an
+  // ordinary battery handback: the repair pass formats those paths and this plan reruns
+  // (RSI-Software/t3code-hyprws#1140).
+  const format = formatCommand(paths);
+  if (format !== null)
+    plan.push({ command: format.command, args: ["fmt", "--check", ...format.args.slice(1)] });
   for (const workspace of touchedWorkspaces(paths))
     plan.push({ command: "vp", args: ["run", "--filter", `./${workspace}`, "typecheck"] });
   const byWorkspace = new Map<string, Array<string>>();
