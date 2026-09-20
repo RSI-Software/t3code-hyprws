@@ -71,9 +71,9 @@ import { inspectRecord } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { run as carryRun } from "./fork-carry.ts";
 import { commitNumstatArguments } from "./lib/fork-numstat.ts";
+import { FORK_RETIREMENT_LEDGER_PATH } from "./lib/fork-retirement-ledger.ts";
 import { leasedPushWithFoldRetry, type FoldVerbContext } from "./fork-sync-fold-verb.ts";
 import { forkLogArguments } from "./lib/fork-trailers.ts";
-import { renderMarkdown } from "./fork-churn.ts";
 import { censusChurn, hotSeams } from "./fork-churn-ledger.ts";
 import { seamKey } from "./lib/fork-conflict-outcomes.ts";
 import {
@@ -2249,30 +2249,35 @@ it("filters a retired middle commit without changing git-log record framing", ()
 it("refuses a skip whose subject has no Retired row in the fork delta ledger", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-skip-ledger-"));
   try {
-    NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
-    const ledger = [
-      "## Retired",
-      "",
-      "| Fork commit | Domain | Upstream replacement | Retired at |",
-      "| --- | --- | --- | --- |",
-      "| fix: retired properly | thread-ordering | `upstream#1` | v1.0.0 |",
-      "",
-      "## Kept",
-      "",
-      "| Fork commit | Domain | Reason | Reviewed at |",
-      "| --- | --- | --- | --- |",
-      "|",
-    ];
-    // Keep the Kept table header-valid with one empty-ish row.
-    ledger[ledger.length - 1] = "| fix: kept | thread-ordering | still wanted | v1.0.0 |";
+    const ledger = {
+      retired: [
+        {
+          subject: "fix: retired properly",
+          domain: "thread-ordering",
+          upstreamReplacement: "upstream#1",
+          retiredAt: "v1.0.0",
+        },
+      ],
+      kept: [
+        {
+          subject: "fix: kept",
+          domain: "thread-ordering",
+          reason: "still wanted",
+          reviewedAt: "v1.0.0",
+        },
+      ],
+    };
+    NodeFS.mkdirSync(NodePath.join(root, NodePath.dirname(FORK_RETIREMENT_LEDGER_PATH)), {
+      recursive: true,
+    });
     NodeFS.writeFileSync(
-      NodePath.join(root, "docs/internals/fork-delta.md"),
-      `${ledger.join("\n")}\n`,
+      NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH),
+      `${JSON.stringify(ledger, null, 2)}\n`,
     );
     // A recorded verdict without the ledger row is refused, loud, with the subject.
     assert.throws(
       () => assertRetiredInLedgerForTest(new Set(["fix: retire me"]), root),
-      /refusing git rebase --skip: no Retired row in docs\/internals\/fork-delta\.md for fix: retire me/,
+      /refusing git rebase --skip: no Retired row in scripts\/fork-retirement-ledger\.json for fix: retire me/,
     );
     // The subject whose row a human wrote is allowed to skip.
     assertRetiredInLedgerForTest(new Set(["fix: retired properly"]), root);
@@ -3313,7 +3318,7 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
     baseToOriginCount: 204,
     baseToFromCount: 205,
     allowExtra: 1,
-    allowPaths: ["docs/internals/fork-development.md"],
+    allowPaths: ["docs/fork/internals/fork-development.md"],
     originDigest: "d".repeat(64),
     fromFirstNDigest: "d".repeat(64),
     diffEmpty: true,
@@ -7123,7 +7128,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
       assert.match(message, /report leased at c+/);
       assert.match(message, /origin\/hyprws is now a+/);
       assert.match(message, /the walk re-lists from the moved trunk/);
-      assert.match(message, /fold rule in docs\/operations\/fork-sync\.md/);
+      assert.match(message, /fold rule in docs\/fork\/operations\/fork-sync\.md/);
       assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
       assert.match(message, /orphaned/);
       // Do NOT emit an rm command.
@@ -8108,7 +8113,7 @@ it("keeps a pending stopped walk out of the census snapshot set", () => {
   assert.deepStrictEqual(censusChurn([ledger[0]!]).hotPaths, []);
 });
 
-it("lists a pending stopped walk in hot seams and the rendered walks table", () => {
+it("lists a pending stopped walk in hot seams", () => {
   const conflict = {
     path: "scripts/seam.txt",
     commit: A,
@@ -8138,13 +8143,9 @@ it("lists a pending stopped walk in hot seams and the rendered walks table", () 
   assert.deepStrictEqual(ledger[1]?.walkDecisions?.map(walkDecisionIdentity), [
     walkDecisionIdentity(decision()),
   ]);
-  // A seam that stops a walk repeatedly is hot by definition, so the stopped walk's conflict
-  // counts, and the walks table renders the stop in the Range cell.
-  assert.strictEqual(hotSeams([ledger[0]!]).length, 1);
+  // A seam that stops a walk repeatedly is hot by definition, so the stopped walk's conflict counts.
+  assert.strictEqual(hotSeams([ledger[0]!])[0]?.path, "scripts/seam.txt");
   assert.strictEqual(hotSeams([ledger[1]!]).length, 1);
-  const document = renderMarkdown([ledger[0]!], "");
-  assert.include(document, "scripts/seam.txt");
-  assert.include(document, "\u2192 **stopped**");
 });
 
 const RECORD_SHIM = `#!${process.execPath}

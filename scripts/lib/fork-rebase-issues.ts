@@ -426,7 +426,7 @@ vp run fork:sync stable-prepare --report <report> --issue <this issue>
 vp run fork:sync stable-publish --report <report> --go <exact-candidate>
 \`\`\`
 
-Every step stops for a human decision, and \`stable-prepare\` renders the UAT draft. [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#cut-a-stable-release) owns the verification and the release record.
+Every step stops for a human decision, and \`stable-prepare\` renders the UAT draft. [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#cut-a-stable-release) owns the verification and the release record.
 
 <!-- hyprws-stable-candidate: ${tag}-hyprws -->`;
 
@@ -568,7 +568,7 @@ export const buildBlockedIssue = (
     `Pairwise merge-tree analysis: ${new Set(conflicts.map((conflict) => conflict.forkCommit)).size} introducing fork commits and ${conflicts.length} file rows. Complete overlap table, independent of sequential stop counts.`,
     `Source: ${inlineCode(plan.oldSha ?? "unknown (legacy report)")}; base: ${inlineCode(plan.baseSha ?? "unknown (legacy report)")}; upstream: ${inlineCode(plan.horizon?.sha ?? "unknown (legacy report)")}. Attribution names the introducing fork commit, not a sequential replay stop.`,
     "",
-    "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
+    "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
     "",
     "| File | Hunks | Fork commit | Domain |",
     "| --- | ---: | --- | --- |",

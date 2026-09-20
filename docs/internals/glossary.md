@@ -19,7 +19,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 ## Fork synchronization
 
-Fork-only terms. The [fork sync runbook](../operations/fork-sync.md) owns the procedure behind them.
+Fork-only terms. The [fork sync runbook](../fork/operations/fork-sync.md) owns the procedure behind them.
 
 | Term                    | Meaning                                                                                                                                                                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

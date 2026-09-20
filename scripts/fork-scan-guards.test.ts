@@ -1419,7 +1419,11 @@ const seamOn = (path: string, changed: { added: Array<string>; removed: Array<st
 };
 
 it("does not charge unmarked additions on a path with no marker comment", () => {
-  for (const path of ["package.json", "docs/internals/fork-delta.md", ".github/workflows/ci.yml"]) {
+  for (const path of [
+    "package.json",
+    "docs/fork/internals/fork-delta.md",
+    ".github/workflows/ci.yml",
+  ]) {
     assert.isFalse(MARKER_CAPABLE_PATH.test(path), path);
     assert.deepStrictEqual(
       seamOn(path, { added: ['+  "fork:delta": "vp"'], removed: [] }),

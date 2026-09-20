@@ -18,7 +18,7 @@ import {
 
 const RS = "";
 
-// Shaped like docs/internals/fork-delta.md: domain sections with a rebase scan,
+// Shaped like docs/fork/internals/fork-delta.md: domain sections with a rebase scan,
 // plus the prose sections that must not be read as domains.
 const ledger = `# Fork delta
 
@@ -168,7 +168,7 @@ it("fails a domain that has commits but no rebase scan, and skips untagged commi
     }),
   );
   assert.deepStrictEqual(scanFailures(result), [
-    "zmux-estate: no domain section with a rebase scan in docs/internals/fork-delta.md",
+    "zmux-estate: no domain section with a rebase scan in docs/fork/internals/fork-delta.md",
   ]);
   assert.deepStrictEqual(result.untaggedCommits, ["bbbbbbb"]);
 });
@@ -252,7 +252,7 @@ it("summarises each gap class with its own repair", () => {
 
   const ledgerOnly = buildScanResult(scanInput());
   assert.deepStrictEqual(scanFailureSummary(ledgerOnly), [
-    "failed: 1 rebase-scan gap(s); add each path to its domain's Rebase scan table in docs/internals/fork-delta.md",
+    "failed: 1 rebase-scan gap(s); add each path to its domain's Rebase scan table in docs/fork/internals/fork-delta.md",
   ]);
 
   const seam = [{ workspace: "apps/web", path: "apps/web/src/fork-only.ts" }];
