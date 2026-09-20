@@ -92,6 +92,7 @@ import {
   CHURN_LEDGER_FILE,
   CHURN_REF,
   RERERE_REF,
+  pushBotRef,
   readBotRefFile,
   saveRerereCache,
   writeBotRefFile,
@@ -4285,23 +4286,28 @@ const stoppedReplay = (
   return { stderr, output, state, recordPath, restoreLedger };
 };
 
-it("a stopped walk writes its own pending churn row for the stopped tag (#1023)", () => {
+it("a stopped walk keeps its pending row with the report for the stopped tag (#1023, #1135)", () => {
   const stopped = stoppedReplay(true, true);
   try {
     // The stop reaches the caller exactly as before the row write existed.
     assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
-    // The pending row reached the seeded ledger ref, bound to the stopped tag, with the elapsed
-    // time the stop wrote into its own report.
+    // The pending row is kept with the retained report — the reply names it and the
+    // republish command — and the seeded ledger ref takes no local-only commit a later
+    // carried lease would refuse (RSI-Software/t3code-hyprws#1135).
+    assert.include(
+      stopped.output,
+      `pending decision row for v1.2.3 kept with the report (${stopped.state.reportPath}); ${CHURN_REF} is untouched`,
+    );
+    assert.include(
+      stopped.output,
+      `publish it with: vp run fork:sync record-decisions --report ${stopped.state.reportPath} --tag v1.2.3`,
+    );
     const ledger = parseLedger(
       readBotRefFile(stopped.state.root, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
     );
-    assert.deepStrictEqual(
-      ledger.map((entry) => entry.tag),
-      ["v1.2.3"],
-    );
-    assert.strictEqual(ledger[0]?.pending, true);
-    assert.strictEqual(typeof ledger[0]?.elapsedMs, "number");
-    assert.isTrue((ledger[0]?.elapsedMs ?? -1) >= 0);
+    assert.deepStrictEqual(ledger, []);
+    // The row's inputs survive beside the report, which is what the named command reads.
+    assert.isTrue(NodeFS.existsSync(stopped.recordPath));
   } finally {
     stopped.restoreLedger?.();
     NodeFS.rmSync(stopped.state.root, { recursive: true, force: true });
@@ -4314,9 +4320,12 @@ it("a stop with no record names what the churn write looked for (#1023)", () => 
   const stopped = stoppedReplay(false, false);
   try {
     assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
-    // Not a swallowed failure: the note distinguishes "no record to write from" — naming the
-    // path — from a write that ran and failed.
-    assert.include(stopped.stderr, "churn row not written: no record to write from at ");
+    // Not a swallowed failure: the note distinguishes "no record to republish from" — naming
+    // the path — from a row that was kept and a publish that ran and failed.
+    assert.include(
+      stopped.stderr,
+      "pending decision row not kept: no record to republish from at ",
+    );
     assert.include(stopped.stderr, stopped.recordPath);
     assert.notInclude(stopped.stderr, "churn row write failed");
     const report = validateReport(
@@ -4331,19 +4340,25 @@ it("a stop with no record names what the churn write looked for (#1023)", () => 
   }
 });
 
-it("a failed churn write never changes the stop reason the caller sees (#1023)", () => {
-  // The record exists, so the write runs — and the fixture root has no origin, so the leased
-  // publish fails. The stop still surfaces with its own reason and its own exit path.
+it("an operator stop's kept row can never fail the stop the caller sees (#1023, #1135)", () => {
+  // The record exists, so the old local write would have run — and the fixture root has no
+  // origin, so it would have failed. An operator walk now keeps the row with the report
+  // without running a lease, so no churn failure can even arise to mask the stop.
   const stopped = stoppedReplay(true, false);
   try {
     assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
-    assert.include(stopped.stderr, "churn row write failed; the stop reason is unchanged");
-    assert.notInclude(stopped.stderr, "no record to write from");
+    assert.include(
+      stopped.output,
+      `pending decision row for v1.2.3 kept with the report (${stopped.state.reportPath})`,
+    );
+    assert.notInclude(stopped.stderr, "churn row write failed");
+    assert.notInclude(stopped.stderr, "retrying the");
     const report = validateReport(
       JSON.parse(NodeFS.readFileSync(stopped.state.reportPath, "utf8")),
     );
     assert.strictEqual(report.walk?.stop?.reason, "conflict");
     assert.include(report.walk?.stop?.detail ?? "", "The replayed resolutions do not hold");
+    assert.isUndefined(report.walk?.ledger);
   } finally {
     NodeFS.rmSync(stopped.state.root, { recursive: true, force: true });
     NodeFS.rmSync(stopped.state.worktree, { recursive: true, force: true });
@@ -8431,12 +8446,13 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
 });
 
 /**
- * A mirror-and-report walk through a conflict stop publishes nothing
- * (RSI-Software/t3code-hyprws#1088): the pending row is written locally and the remote ref keeps
- * its prior SHA. A carried runner walk still pushes. Both halves assert the append argv itself,
- * not merely the absence of a network call.
+ * A mirror-and-report walk through a conflict stop publishes nothing and touches no ref at all
+ * (RSI-Software/t3code-hyprws#1088, RSI-Software/t3code-hyprws#1135): the pending row is kept with
+ * the retained report, the local ref keeps the remote's exact SHA — a later lease can never find
+ * a local-only commit to refuse — and the reply names the `record-decisions` command that
+ * republishes the row. A carried runner walk still pushes.
  */
-it("a mirror-and-report conflict stop writes its pending row locally, never pushed (#1088)", () => {
+it("a mirror-and-report conflict stop keeps its pending row with the report, every churn ref untouched (#1088, #1135)", () => {
   const root = fixtureRoot();
   NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
   NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
@@ -8476,6 +8492,13 @@ it("a mirror-and-report conflict stop writes its pending row locally, never push
   })
     .toString()
     .trim();
+  const refHead = (repo: string): string =>
+    NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+      cwd: repo,
+      encoding: "utf8",
+    })
+      .toString()
+      .trim();
   const issueBody = [
     NodeFS.readFileSync(stopped.recordPath, "utf8"),
     "",
@@ -8500,31 +8523,32 @@ it("a mirror-and-report conflict stop writes its pending row locally, never push
   const previousPath = process.env.PATH;
   process.env.PATH = `${bin}:${previousPath ?? ""}`;
   try {
-    // Mirror-and-report: no botCarried flag, so the append argv carries no --push — the
-    // receipt line the flag controls prints without "(pushed)" — and the remote ref never
-    // moves, while the local ledger keeps the pending row.
+    // Mirror-and-report: no botCarried flag, so the stop writes nothing and moves nothing —
+    // the receipt line names the retained report and the republish command, and both refs
+    // keep the seeded SHA, so no later lease can find a local-only commit to refuse.
     let localStop = { output: "" };
     const mirrorStderr = withCapturedStderr(() => {
       localStop = captureStdout(() => stopChurnRow(stopped));
     });
     assert.strictEqual(mirrorStderr, "");
-    assert.match(localStop.output, /appended v0\.0\.42: \d+ conflict\(s\) on refs\/fork\/churn\n/);
-    assert.notInclude(localStop.output, "(pushed)");
-    assert.strictEqual(
-      NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
-        cwd: remote,
-        encoding: "utf8",
-      })
-        .toString()
-        .trim(),
-      prior,
+    assert.include(
+      localStop.output,
+      `pending decision row for v0.0.42 kept with the report (${stopped.reportPath}); ${CHURN_REF} is untouched`,
     );
-    const local = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.include(
+      localStop.output,
+      `publish it with: vp run fork:sync record-decisions --report ${stopped.reportPath} --tag v0.0.42`,
+    );
+    assert.notInclude(localStop.output, "appended v0.0.42");
+    assert.strictEqual(refHead(remote), prior);
+    assert.strictEqual(refHead(root), prior);
     assert.deepStrictEqual(
-      local.map((entry) => entry.tag),
-      ["v0.0.42"],
+      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? ""),
+      [],
     );
-    assert.strictEqual(local[0]?.pending, true);
+    // The row's inputs survive beside the report, which is what the named command reads.
+    assert.strictEqual(NodeFS.existsSync(stopped.reportPath), true);
+    assert.strictEqual(NodeFS.existsSync(stopped.recordPath), true);
     // The carried runner lane keeps the mutating path: same stop shape, now with --push, and
     // the remote ref advances to the pushed row.
     const carriedStop = captureStdout(() => stopChurnRow({ ...stopped, botCarried: true }));
@@ -8542,6 +8566,296 @@ it("a mirror-and-report conflict stop writes its pending row locally, never push
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
     NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
+  }
+});
+
+/**
+ * The incident shape of RSI-Software/t3code-hyprws#1135: an operator stop that used to leave a
+ * local-only pending row on `refs/fork/churn`, then the bot appends to origin, and the next
+ * carried lease finds neither side an ancestor of the other. The stop now leaves no local
+ * commit, so a carried publish that follows — even against an origin that advanced past this
+ * checkout's stale ref — fast-forwards, appends, and pushes.
+ */
+it("an operator stop leaves no local commit a later carried lease refuses (#1135)", () => {
+  const root = fixtureRoot();
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  NodeChildProcess.execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", "base"], {
+    cwd: root,
+  });
+  const declinedPath = "apps/web/seam.ts";
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  const remote = NodePath.join(root, "ledger-remote.git");
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "--bare", remote]);
+  NodeChildProcess.execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
+  writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+  NodeChildProcess.execFileSync("git", ["push", "--quiet", remote, `${CHURN_REF}:${CHURN_REF}`], {
+    cwd: root,
+  });
+  const prior = NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+    cwd: remote,
+    encoding: "utf8",
+  })
+    .toString()
+    .trim();
+  const refHead = (repo: string): string =>
+    NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+      cwd: repo,
+      encoding: "utf8",
+    })
+      .toString()
+      .trim();
+  const issueBody = [
+    NodeFS.readFileSync(stopped.recordPath, "utf8"),
+    "",
+    "## Sequential rebase census",
+    "",
+    "<!-- prettier-ignore -->",
+    "| File | Hunks | Fork commit | Domain |",
+    "| --- | ---: | --- | --- |",
+    "| `apps/web/seam.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+  ].join("\n");
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    [
+      "#!/usr/bin/env node",
+      `process.stdout.write(JSON.stringify({ body: ${JSON.stringify(issueBody)}, url: "https://example.test/issues/352", comments: [] }));`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    let mirrorStop = { output: "" };
+    const mirrorStderr = withCapturedStderr(() => {
+      mirrorStop = captureStdout(() => stopChurnRow(stopped));
+    });
+    assert.strictEqual(mirrorStderr, "");
+    assert.include(mirrorStop.output, `kept with the report (${stopped.reportPath})`);
+    // The bot keeps appending to origin while this checkout never fetches.
+    const bot = NodePath.join(root, "bot");
+    NodeChildProcess.execFileSync("git", ["init", "--quiet", "-b", "main", bot]);
+    NodeChildProcess.execFileSync("git", ["-C", bot, "remote", "add", "origin", remote]);
+    NodeChildProcess.execFileSync("git", [
+      "-C",
+      bot,
+      "fetch",
+      "--quiet",
+      "origin",
+      `${CHURN_REF}:${CHURN_REF}`,
+    ]);
+    NodeChildProcess.execFileSync("git", ["-C", bot, "config", "user.name", "bot"]);
+    NodeChildProcess.execFileSync("git", [
+      "-C",
+      bot,
+      "config",
+      "user.email",
+      "bot@example.invalid",
+    ]);
+    writeBotRefFile(
+      bot,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      `${JSON.stringify(
+        [
+          {
+            tag: "v0.0.41",
+            before: A,
+            after: B,
+            recordUrl: "https://example.test/issue",
+            conflicts: [],
+            decisions: [],
+            censusFiles: [],
+          },
+        ],
+        null,
+        2,
+      )}\n`,
+      "churn: v0.0.41 outcome rows",
+    );
+    pushBotRef(bot, CHURN_REF);
+    // This checkout's ref is now stale, never diverged: the stop left nothing local-only on it.
+    assert.strictEqual(refHead(root), prior);
+    // The carried lane's publish fast-forwards the stale ref, appends the pending row, pushes.
+    let carriedStop = { output: "" };
+    const carriedStderr = withCapturedStderr(() => {
+      carriedStop = captureStdout(() => stopChurnRow({ ...stopped, botCarried: true }));
+    });
+    assert.strictEqual(carriedStderr, "");
+    assert.match(carriedStop.output, /\(pushed\)/);
+    const remoteLedger = parseLedger(
+      NodeChildProcess.execFileSync(
+        "git",
+        ["-C", remote, "show", `${CHURN_REF}:${CHURN_LEDGER_FILE}`],
+        { encoding: "utf8" },
+      ).toString(),
+    );
+    assert.deepStrictEqual(
+      remoteLedger.map((entry) => entry.tag),
+      ["v0.0.41", "v0.0.42"],
+    );
+    assert.strictEqual(remoteLedger[1]?.pending, true);
+    assert.notStrictEqual(refHead(remote), prior);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
+  }
+});
+
+/**
+ * A carried stop whose pending publish is refused names the conflict stop the walk ended on —
+ * never an applied head the walk never had (RSI-Software/t3code-hyprws#1135). The lease failure's
+ * own ref state rides along as the reason, and the report keeps the unpublished marker.
+ */
+it("a refused carried publish names the stop, not an applied head the walk never had (#1135)", () => {
+  const root = fixtureRoot();
+  const declinedPath = "apps/web/seam.ts";
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  // An origin no lease can read, so the carried publish refuses after its one retry.
+  NodeChildProcess.execFileSync(
+    "git",
+    ["remote", "add", "origin", NodePath.join(root, "absent.git")],
+    { cwd: root },
+  );
+  const stderr = withCapturedStderr(() => stopChurnRow({ ...stopped, botCarried: true }));
+  assert.include(stderr, "churn row write failed; the stop reason is unchanged:");
+  assert.include(
+    stderr,
+    `the walk stopped on conflict (The outcome executor cannot produce a result.) before it applied anything and ${CHURN_REF} carries no row for v0.0.42`,
+  );
+  assert.include(stderr, `pending decision row: ${CHURN_REF} could not be read from origin`);
+  assert.notInclude(stderr, "applied at");
+  // The report carries the unpublished marker with the same named reason.
+  const saved = JSON.parse(NodeFS.readFileSync(stopped.reportPath, "utf8")) as SyncReport;
+  assert.strictEqual(saved.walk?.ledger?.state, "unpublished");
+  assert.match(saved.walk?.ledger?.reason ?? "", /^pending decision row: refs\/fork\/churn /);
+  NodeFS.rmSync(root, { recursive: true, force: true });
+  NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
+});
+
+/**
+ * The command an operator stop names republishes the row it kept: `record-decisions` reads the
+ * retained report and record, posts the record, and pushes the pending row onto the shared ref
+ * under its own lease (RSI-Software/t3code-hyprws#1135).
+ */
+it("record-decisions republishes the row an operator stop kept with the report (#1135)", () => {
+  const root = fixtureRoot();
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "-b", "rehearse/v0.0.42"], {
+    cwd: lane,
+  });
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: lane });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: lane,
+  });
+  const declinedPath = "apps/web/seam.ts";
+  NodeFS.mkdirSync(NodePath.join(lane, "apps/web"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(lane, declinedPath), "resolved by hand\n");
+  NodeChildProcess.execFileSync("git", ["add", declinedPath], { cwd: lane });
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v0.0.42", worktree: lane },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  const fixture = ledgerFixture(root, stopped.recordPath);
+  const prior = NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+    cwd: fixture.remote,
+    encoding: "utf8",
+  })
+    .toString()
+    .trim();
+  try {
+    // The operator stop keeps the row with the report; neither ref moves.
+    let mirrorStop = { output: "" };
+    const mirrorStderr = withCapturedStderr(() => {
+      mirrorStop = captureStdout(() => stopChurnRow(stopped));
+    });
+    assert.strictEqual(mirrorStderr, "");
+    assert.include(
+      mirrorStop.output,
+      `publish it with: vp run fork:sync record-decisions --report ${stopped.reportPath} --tag v0.0.42`,
+    );
+    const headOf = (repo: string): string =>
+      NodeChildProcess.execFileSync("git", ["rev-parse", CHURN_REF], {
+        cwd: repo,
+        encoding: "utf8",
+      })
+        .toString()
+        .trim();
+    assert.strictEqual(headOf(fixture.remote), prior);
+    assert.strictEqual(headOf(root), prior);
+    // The named command republishes the row from the retained report under its own lease.
+    const runner = new FakeRunner();
+    runner.set(
+      "gh",
+      ["issue", "comment", "352", "-R", REPOSITORY, "--body-file", stopped.recordPath],
+      { stdout: "https://example.test/record#issuecomment-1\n" },
+    );
+    execute(["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"], root, runner);
+    const ledger = parseLedger(readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(
+      ledger.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+    assert.strictEqual(ledger[0]?.pending, true);
+    assert.notStrictEqual(headOf(fixture.remote), prior);
+  } finally {
+    fixture.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(lane, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
   }
 });
