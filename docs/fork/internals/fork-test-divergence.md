@@ -8,20 +8,19 @@ Regenerate the sweep against the current base tag:
 git diff --numstat <tag> origin/hyprws -- '*.test.ts' '*.test.tsx' | grep -v '\.fork\.test\.'
 ```
 
-Two populations match: upstream files the fork edits in place, and fork-authored files still missing the `*.fork.test.*` suffix.
+Two populations match: upstream files the fork edits in place, and fork-authored files missing the `*.fork.test.*` suffix.
 [Fork development](./fork-development.md#fork-tests-live-in-fork-owned-files) owns the suffix rule.
 
-Line counts move with every commit, so quote no diff number from here.
+Quote no diff number from here; line counts move with every commit.
 
 ## Upstream test files edited in place (56)
 
-Machine-read.
-`fork:scan` and the additive gate refuse a commit that changes or removes a line in an upstream test file, and exempt exactly this table's first column, parsed at the scanned head.
-A file leaves the baseline by leaving this table, in the same commit that migrates it to a `*.fork.test.*` sibling.
-Every other path list below is prose and grants nothing; an absent or unparseable table grants nothing either.
-Keep the heading count equal to the row count: `scripts/lib/fork-test-debt.test.ts` asserts it.
+Machine-read: this table's first column is the additive gate's only exemption.
 
-A row absent from the two sections below only appended assertions.
+- **Leaving:** drop the row in the migrating commit
+- **Every other list below:** prose, grants nothing
+- **Heading count:** equals the row count, asserted
+- **A row absent below:** only appended assertions
 
 | File                                                                   |
 | ---------------------------------------------------------------------- |

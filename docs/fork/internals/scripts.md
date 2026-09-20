@@ -5,7 +5,7 @@
 ## First checkout
 
 T3 Code uses [Vite+](https://viteplus.dev/guide/).
-Node 24 is required; Bun is optional, and the server picks Bun adapters only when it detects Bun.
+Node 24 required; Bun optional, auto-detected.
 
 ```bash
 curl -fsSL https://vite.plus | bash   # Windows: irm https://vite.plus/ps1 | iex
@@ -13,7 +13,7 @@ vp i
 vp run dev
 ```
 
-`vp run dev` prints a one-time pairing URL; open it so the first navigation is authenticated.
+`vp run dev` prints a one-time pairing URL; open it to authenticate.
 
 ## Dev
 
@@ -31,17 +31,21 @@ vp run dev
 | `vp run hypr:workspace`        | Report the active app's Hyprland workspace before and after a switch |
 
 Runner flags follow the root task name: `vp run dev --home-dir /tmp/t3code-dev`.
-`--browser` auto-opens a browser and is off by default; the runner owns `T3CODE_NO_BROWSER`, so setting it yourself does nothing.
+`--browser` is off by default; the runner owns `T3CODE_NO_BROWSER`.
 
 ### Worktree setup
 
-Setup installs the frozen lockfile, links `.env` and `infra/relay/.env` from the canonical checkout, and warms the dependency cache.
-Reruns replace only stale symlinks and never overwrite a regular file.
-A missing canonical file becomes an intentional dangling link that works once the file exists.
+| Step       | Behavior                                  |
+| ---------- | ----------------------------------------- |
+| **Deps**   | frozen lockfile, cache warmed             |
+| **Links**  | `.env`, `infra/relay/.env` from canonical |
+| **Rerun**  | replaces stale symlinks only              |
+| **Never**  | overwrites a regular file                 |
+| **Absent** | dangling link, live once the file exists  |
 
 ### Dev app surfaces
 
-`vp run dev:app [--external|--preview|--desktop]` runs against this checkout's isolated `.t3` home.
+`vp run dev:app [--external|--preview|--desktop]` uses this checkout's isolated `.t3` home.
 
 | Flag        | Use                                                                       |
 | ----------- | ------------------------------------------------------------------------- |
@@ -49,22 +53,35 @@ A missing canonical file becomes an intentional dangling link that works once th
 | `--preview` | Native agents: wait for the ready URL, pass it to `preview_open`          |
 | `--desktop` | DevTools off, profile in `.t3/electron`, records CDP, takes `--workspace` |
 
-Stop the owned run before switching surfaces; later launches keep fixtures, threads, and authentication.
-Dev Web refuses remote, relay, and SSH environments before starting a terminal.
-A cold build holds its preview listener for ten minutes after attachment.
-For a spent pairing link, run `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` from that checkout.
+| Topic          | Behavior                                                 |
+| -------------- | -------------------------------------------------------- |
+| **Switching**  | stop the owned run first                                 |
+| **State**      | fixtures, threads, auth persist                          |
+| **Dev Web**    | refuses remote, relay, SSH terminals                     |
+| **Cold build** | preview listener held 10 minutes                         |
+| **Spent link** | `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` |
 
 ### Sharing over the tailnet
 
-`vp run dev --share` publishes the web port over HTTPS on this machine's tailnet, builds the pairing URL against that origin, and removes the mapping on exit.
-Shared runs default to bundled dev (`T3CODE_BUNDLED_DEV=1`) because unbundled dev costs a remote browser one round trip per import level.
-The web entry loads the app through a dynamic import, so keep app imports out of it: a static import can survive the first load and fail after Vite splits lazy routes.
+`vp run dev --share` publishes the web port over tailnet HTTPS and pairs against it.
+
+| Topic             | Behavior                                  |
+| ----------------- | ----------------------------------------- |
+| **Exit**          | mapping removed                           |
+| **Default**       | `T3CODE_BUNDLED_DEV=1`, saves round trips |
+| **Web entry**     | dynamic import only                       |
+| **Static import** | breaks once routes split                  |
 
 ### Desktop agent instance
 
-`dev:desktop:agent` disables detached DevTools, allocates a stable free CDP port from base 9223, and records the endpoint under `XDG_STATE_HOME`.
-Placement is the compositor's unless `T3CODE_DESKTOP_AGENT_WORKSPACE` in the gitignored `.env` sets `-1`, `+1`, or a fixed ID.
-`--workspace <selector>` overrides it for one run; `none` restores default placement.
+| Aspect        | Behavior                                   |
+| ------------- | ------------------------------------------ |
+| **DevTools**  | detached DevTools off                      |
+| **CDP**       | stable free port from 9223                 |
+| **Endpoint**  | recorded under `XDG_STATE_HOME`            |
+| **Placement** | compositor's by default                    |
+| **Override**  | `T3CODE_DESKTOP_AGENT_WORKSPACE` in `.env` |
+| **Per run**   | `--workspace <selector>`; `none` resets    |
 
 ### Dev state directories
 
@@ -74,80 +91,81 @@ Placement is the compositor's unless `T3CODE_DESKTOP_AGENT_WORKSPACE` in the git
 | Main checkout       | `~/.t3/dev`                                         |
 | `--home-dir <path>` | `<path>/userdata`                                   |
 
-Submodules are not worktrees and keep the normal precedence.
+Submodules keep the normal precedence.
 
 ## Build, check, test
 
-| Command                | What it does                                                 |
-| ---------------------- | ------------------------------------------------------------ |
-| `vp run build`         | Fans out over apps, packages, the oxlint plugin, and scripts |
-| `vp run build:desktop` | Desktop pipeline (desktop plus server)                       |
-| `vp run start`         | Production server, serving the built web app statically      |
-| `vp check`             | Format, lint, type checks; this repo type-checks separately  |
-| `vp run typecheck`     | Strict TypeScript for all packages                           |
-| `vp run test`          | Workspace tests                                              |
-| `vp run lint:mobile`   | Mobile native static analysis                                |
+| Command                | What it does                                   |
+| ---------------------- | ---------------------------------------------- |
+| `vp run build`         | Apps, packages, oxlint plugin, scripts         |
+| `vp run build:desktop` | Desktop pipeline (desktop plus server)         |
+| `vp run start`         | Production server, static built web app        |
+| `vp check`             | Format, lint, types; types run separately here |
+| `vp run typecheck`     | Strict TypeScript for all packages             |
+| `vp run test`          | Workspace tests                                |
+| `vp run lint:mobile`   | Mobile native static analysis                  |
 
-`node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path>` inspects or seeds an isolated T3 SQLite database, backing up first on a write.
+`node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path>` inspects or seeds an isolated database, backing up on write.
 
 ## Fork scripts
 
-The [fork-sync runbook](../operations/fork-sync.md) owns the walk verbs, gate order, and release shape.
-This table is the entry-point index.
+The [fork-sync runbook](../operations/fork-sync.md) owns walk verbs, gate order, and release shape.
+This is the entry-point index.
 
-| Command                       | What it does                                                                                          |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `fork:delta`                  | Lists active fork commits by trailer; `--check` fails an invalid trailer or a present retired subject |
-| `fork:preflight`              | Proves rerere, both remotes, a fresh `origin/hyprws`, a level `main`, installed deps                  |
-| `fork:lockfile`               | Proves the committed lockfile records its manifests' specifiers                                       |
-| `fork:orient`                 | Gate 1: proves the target tag and prints feasibility, retire candidates, and watch verdicts           |
-| `fork:scan`                   | Checks every domain's rebase-scan table and collects the ledger guards                                |
-| `fork:retire-pass`            | Probes the fold worklist for retire candidates before the first fold                                  |
-| `fork:sync <verb>`            | The human unblock state machine, in one external record                                               |
-| `fork:sync-gate`              | Guards the signed-off apply against a tag and an external record                                      |
-| `fork:auto-rebase`            | Replays the stack onto the newest feasible tag in a detached worktree                                 |
-| `fork:rebase-report`          | Generates the gitignored orientation snapshot under `docs/internals/generated/`                       |
-| `fork:rebase-report:artifact` | Downloads and validates the latest workflow artifact                                                  |
-| `fork:upstream-watch`         | Resolves the upstream items open `upstream-watch` issues cite                                         |
-| `fork:upstream-refs`          | Refuses a live upstream reference in a body about to be published                                     |
-| `fork-release-version.ts`     | Resolves fork release metadata for the release workflow                                               |
+| Command                       | What it does                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `fork:delta`                  | Active fork commits by trailer; `--check` gates trailers and retired subjects |
+| `fork:preflight`              | Proves rerere, remotes, fresh `origin/hyprws`, level `main`, deps             |
+| `fork:lockfile`               | Lockfile records its manifests' specifiers                                    |
+| `fork:orient`                 | Gate 1: target tag, feasibility, retire candidates, watch verdicts            |
+| `fork:scan`                   | Every domain's rebase-scan table, plus ledger guards                          |
+| `fork:retire-pass`            | Probes the fold worklist before the first fold                                |
+| `fork:sync <verb>`            | Human unblock state machine, one external record                              |
+| `fork:sync-gate`              | Guards the signed-off apply: tag plus record                                  |
+| `fork:auto-rebase`            | Replays the stack onto the newest feasible tag                                |
+| `fork:rebase-report`          | Gitignored snapshot under `docs/internals/generated/`                         |
+| `fork:rebase-report:artifact` | Downloads and validates the latest artifact                                   |
+| `fork:upstream-watch`         | Resolves items cited by open `upstream-watch` issues                          |
+| `fork:upstream-refs`          | Refuses a live upstream reference before publishing                           |
+| `fork-release-version.ts`     | Fork release metadata for the release workflow                                |
 
 Notable refusals:
 
-| Command                            | Refusal                                                                       |
-| ---------------------------------- | ----------------------------------------------------------------------------- |
-| `fork:delta --check --squash-body` | Needs explicit `--base` and `--head`                                          |
-| `fork:lockfile`                    | Fails on `importers` drift only, and restores committed bytes even on a throw |
-| `fork:orient`                      | Needs no installed dependencies, so it runs in a bare worktree                |
-| `fork:scan --since`                | Makes adopted authoring guards fatal without `--strict`                       |
-| `fork:sync-gate`                   | Needs a record resolving outside the repository                               |
-| `fork:upstream-watch`              | Fails rather than report a truncated sweep                                    |
+| Command                            | Refusal                                           |
+| ---------------------------------- | ------------------------------------------------- |
+| `fork:delta --check --squash-body` | Needs explicit `--base` and `--head`              |
+| `fork:lockfile`                    | `importers` drift only; restores bytes on throw   |
+| `fork:orient`                      | No deps needed; runs in a bare worktree           |
+| `fork:scan --since`                | Adopted authoring guards fatal without `--strict` |
+| `fork:sync-gate`                   | Needs a record resolving outside the repository   |
+| `fork:upstream-watch`              | Fails rather than report a truncated sweep        |
 
 ### Upstream reference guard
 
-`vp run fork:upstream-refs <file>` scans a body for a live upstream reference, reading stdin when no path is given.
-Fenced blocks, code spans, and HTML comments are ignored; anything left live exits 1.
-A bare `#4379` is a finding too, because GitHub resolves it against `pingdotgg/t3code` and the guard cannot tell offline which numbers the fork holds.
-An upstream URL naming no item is not a finding.
+Run `vp run fork:upstream-refs <file>` before publishing any body; stdin also works.
+That run is the gate: a backlink fires on creation and never withdraws.
 [Upstream citations](./fork-development.md#upstream-citations) own the wrapping forms.
 
-Run it before publishing.
-That run is the gate: the backlink posts the moment the item is created, and nothing withdraws it.
-Fork CI re-runs it on pull-request bodies as a backstop, which reports a fired backlink rather than prevents one.
+| Rule              | Result                                         |
+| ----------------- | ---------------------------------------------- |
+| **Ignored**       | fences, code spans, HTML comments              |
+| **Live ref**      | exits 1                                        |
+| **Bare `#N`**     | finding; offline, fork and upstream look alike |
+| **Item-less URL** | not a finding                                  |
+| **Fork CI**       | backstop on PR bodies, reports only            |
 
-What the guard deliberately does not cover:
+Deliberate gaps:
 
-| Gap                              | Detail                                                                                                            |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Issue bodies and comments        | No CI backstop. Only the pre-publication run covers them                                                          |
-| Titles                           | Never scanned. Confirming whether a title backlinks would mean posting upstream                                   |
-| A pull request off `hyprws`      | Never reaches the fork CI workflow                                                                                |
-| Every bare number                | Reported even when it names a fork item. The guard has no network, so it reads the ambiguity as upstream          |
-| `<pre>`, `<style>`, `<textarea>` | Read as ending at the next blank line, not the closing tag. Errs toward reporting                                 |
-| Link and image text              | Not excluded, so a linked reference is reported although GitHub links only the destination. Errs toward reporting |
+| Gap                              | Detail                                      |
+| -------------------------------- | ------------------------------------------- |
+| Issue bodies and comments        | No CI backstop; pre-publication run only    |
+| Titles                           | Never scanned; checking would post upstream |
+| A pull request off `hyprws`      | Never reaches the fork CI workflow          |
+| Every bare number                | Reported even when it names a fork item     |
+| `<pre>`, `<style>`, `<textarea>` | End at the next blank line, not the tag     |
+| Link and image text              | Not excluded; link text is reported too     |
 
-The reader is an approximation, not a CommonMark parser.
-Every rule was checked both ways against GitHub's renderer, but an untried shape can still pair across a boundary it does not know.
+The reader approximates; it is not a CommonMark parser.
 
 ## Desktop artifacts
 
@@ -158,14 +176,16 @@ Every rule was checked both ways against GitHub's renderer, but an untried shape
 | `vp run dist:desktop:linux`                               | Linux AppImage into `./release`                      |
 | `vp run dist:desktop:win`                                 | Windows NSIS installer; `:arm64` and `:x64` variants |
 
-Unsigned local builds need no credentials.
-`--signed` needs the platform's signing configuration below.
+Unsigned local builds need no credentials; `--signed` needs the configuration below.
 
 ### Toolchain prerequisites
 
-Packaging compiles the Rust resource monitor, and on Linux the libsecret browser import helper.
-The artifact script probes every capability by compiling tiny programs, so it also catches libraries installed without headers.
-`T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true` skips the Rust checks, because the build compiles no monitor.
+| Topic        | Behavior                                     |
+| ------------ | -------------------------------------------- |
+| **Compiles** | Rust resource monitor                        |
+| **Linux**    | plus libsecret import helper                 |
+| **Probe**    | tiny programs, catches missing headers       |
+| **Skip**     | `T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR=true` |
 
 | Host           | Install                                                                                                        |
 | -------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -175,8 +195,15 @@ The artifact script probes every capability by compiling tiny programs, so it al
 | macOS          | `xcode-select --install`, then Rust from [rustup.rs](https://rustup.rs)                                        |
 | Windows        | Rust, Python 3, VS Build Tools: **Desktop development with C++**, Windows SDK 10 or 11, MSVC Spectre libraries |
 
-Add the Rust target matching the artifact: `rustup target add aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`.
-The Linux helper exits 2 for a missing key, 3 for denied or locked access, 4 for other keyring failures, and the importer preserves the distinction.
+Add the matching Rust target: `rustup target add aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`.
+
+Linux helper exit codes, preserved by the importer:
+
+| Code | Meaning                 |
+| ---- | ----------------------- |
+| 2    | missing key             |
+| 3    | denied or locked access |
+| 4    | other keyring failure   |
 
 ### Signing
 
@@ -185,7 +212,7 @@ The Linux helper exits 2 for a missing key, 3 for denied or locked access, 4 for
 | macOS    | `T3CODE_APPLE_TEAM_ID`, `T3CODE_MACOS_PROVISIONING_PROFILE`                                        |
 | Windows  | Azure Trusted Signing `AZURE_*` endpoint, account, profile, publisher, plus service-principal auth |
 
-The passkey RP domain derives from `T3CODE_CLERK_PUBLISHABLE_KEY` unless `T3CODE_CLERK_PASSKEY_RP_DOMAINS` overrides it.
+Passkey RP domain derives from `T3CODE_CLERK_PUBLISHABLE_KEY`, overridden by `T3CODE_CLERK_PASSKEY_RP_DOMAINS`.
 
 ### Packaging notes
 
@@ -201,12 +228,12 @@ The passkey RP domain derives from `T3CODE_CLERK_PUBLISHABLE_KEY` unless `T3CODE
 
 ## Browser development
 
-`dev` and `dev:web` leave `VITE_HTTP_URL` and `VITE_WS_URL` unset, so the browser resolves the backend from `window.location.origin`.
-Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`, so one bundle works from localhost or a tailnet hostname.
+`dev` and `dev:web` leave `VITE_HTTP_URL` and `VITE_WS_URL` unset, so the browser uses `window.location.origin`.
+Vite proxies `/api`, `/ws`, `/oauth`, `/.well-known`, so one bundle serves localhost and tailnet alike.
 
 ## Running multiple dev instances
 
-Default ports are server `13773` and web `5733`; a shifted port is `base + offset`.
+Default ports: server `13773`, web `5733`. Shifted port is `base + offset`.
 
 ```bash
 T3CODE_DEV_INSTANCE=branch-a vp run dev:desktop
@@ -224,5 +251,5 @@ T3CODE_DEV_INSTANCE=branch-a vp run dev:desktop
 | `dev:server`         | Server port | Server offset only         |
 | `dev`, `dev:desktop` | Both        | Both, as one shared offset |
 
-An explicit server or dev-URL override removes that port from the check.
-Treat the `[dev-runner]` output as authoritative.
+An explicit server or dev-URL override drops that port from the check.
+`[dev-runner]` output is authoritative.
