@@ -150,6 +150,7 @@ It refuses an addition outside a marked hook, a deletion outside the removal rul
 | Fork side         | rebuilt from the upstream blob and the diff's positions    |
 | Unreconstructable | charged, never exempted                                    |
 | Removal gap       | every addition in it must be a line-kind marked hook       |
+| Formatter reflow  | same tokens either side: no addition charge                |
 | Outside the rule  | upstreamable `bugfix` commits, and generated paths         |
 | Generated files   | never reshape debt; the walk restores HEAD and regenerates |
 | Historical range  | advisory, so the woven trunk is unaffected                 |

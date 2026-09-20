@@ -1464,6 +1464,78 @@ it("scores a multi-line import hook whole: its leading lines are not woven debt"
   assert.deepStrictEqual(warnings, [], JSON.stringify(warnings));
 });
 
+// A `vp fmt` reflow of a landed fork line rewraps it without moving a token across the seam, so
+// cause (a) has nothing to charge. The two shapes below are the ones commit 8623a0c1d4 produced.
+it("does not charge a formatter reflow as an unmarked addition", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        '-import type { ContextMenuItem, EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";',
+        "+import type {",
+        "+  ContextMenuItem,",
+        "+  EnvironmentId,",
+        "+  ScopedProjectRef,",
+        "+  ThreadId,",
+        '+} from "@t3tools/contracts";',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+
+  const reflowed = hookWarnings(
+    hookPatch(
+      [
+        "-            !(",
+        "-              environmentSettings",
+        "-                ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete",
+        "-                : false",
+        "-            )",
+        "+            !(environmentSettings",
+        "+              ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete",
+        "+              : false)",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(reflowed, [], JSON.stringify(reflowed, null, 2));
+});
+
+it("still charges a reflow that carries one new token", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        '-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";',
+        "+import type {",
+        "+  ContextMenuItem,",
+        "+  EnvironmentId,",
+        "+  ScopedProjectRef,",
+        "+  ThreadId,",
+        '+} from "@t3tools/contracts";',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /adds 6 line\(s\) outside a marked fork-hook/);
+});
+
+it("still charges reordered lines whose token sets are equal", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "-const first = computeFirst(input);",
+        "-const second = computeSecond(input);",
+        "+const second = computeSecond(input);",
+        "+const first = computeFirst(input);",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /adds 2 line\(s\) outside a marked fork-hook/);
+});
+
 it("scores a multi-line fork branch dispatch behind its closing brace as one construct", () => {
   const warnings = hookWarnings(
     hookPatch(
