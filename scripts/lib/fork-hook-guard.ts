@@ -20,6 +20,10 @@
 // (`pnpm-lock.yaml`, `*.gen.ts`) and fork-owned files are outside the rule; both
 // reuse the scanner's existing ownership classification, not a second one.
 //
+// Cause (a) also skips a file whose additions and removals carry the same tokens in the same
+// order, whitespace and trailing commas aside: that is a formatter reflow, and rewrapping a
+// landed fork line adds no seam. Causes (b), (c) and (d) run on it unchanged.
+//
 // Cause (a) additionally requires a path whose grammar has a marker comment
 // (`MARKER_CAPABLE_PATH`). On `package.json` or a Markdown file the remedy the
 // warning names cannot be written, so charging it would be an unsatisfiable
@@ -214,6 +218,22 @@ const isFragmentScaffold = (added: ReadonlyArray<string>, index: number): boolea
   return false;
 };
 
+/**
+ * A formatter reflow: same tokens, same order, whitespace and trailing commas aside. `vp fmt`
+ * re-wrapping a landed fork line moves no token across the seam, so the rewrapped lines are not
+ * new fork logic and cause (a) skips the file. Whitespace goes first so a `,` a newline away from
+ * its closer still collapses. An empty removal side is a pure addition and never qualifies.
+ */
+const isFormatterReflow = (change: ForkHookSeamChange): boolean => {
+  if (change.removed.length === 0) return false;
+  const normalize = (lines: ReadonlyArray<string>) =>
+    lines
+      .join("\n")
+      .replace(/\s+/g, "")
+      .replace(/,(?=[)\]}])/g, "");
+  return normalize(change.added) === normalize(change.removed);
+};
+
 export interface ForkHookSeamCommit {
   readonly short: string;
   readonly domain: string;
@@ -301,7 +321,7 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
       constructViolations.push(markerLine);
     }
 
-    if (unmarked.length > 0 && MARKER_CAPABLE_PATH.test(path))
+    if (unmarked.length > 0 && MARKER_CAPABLE_PATH.test(path) && !isFormatterReflow(change))
       details.push(
         `${path}: adds ${unmarked.length} line(s) outside a marked fork-hook; mark each hook line with ` +
           "`// fork-hook: <domain>/<name>`" +
