@@ -5,7 +5,7 @@
 // commits touch. Shared means the fork changed the file above its upstream base
 // and upstream changed it too on the way to the target, which is where a rebase
 // silently merges two intents, so the file must be listed in that domain's
-// rebase-scan table in docs/internals/fork-delta.md. The target defaults to
+// rebase-scan table in docs/fork/internals/fork-delta.md. The target defaults to
 // live `upstream/main`; `--target <tag>` pins a release and reproduces the
 // automerged-overlap walk gate 3 of the fork-sync skill used to do by hand.
 
@@ -16,7 +16,7 @@ import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts
 import { UsageError } from "./lib/fork-cli.ts";
 import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./lib/fork-test-debt.ts";
+import { parseTestDebtBaseline, TEST_DEBT_BASELINE } from "./lib/fork-test-debt.ts";
 import {
   readLessonEvidence,
   renderLessonGuidance,
@@ -51,7 +51,7 @@ import {
   type ScanWarning,
 } from "./fork-scan-guards.ts";
 
-export const LEDGER_PATH = "docs/internals/fork-delta.md";
+export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
 const RECORD_SEPARATOR = "";
 
@@ -612,7 +612,7 @@ export const resolveAuthoringSince = (git: GitReader, options: ScanOptions): str
  */
 const readTestDivergenceDebt = (git: GitReader, head: string): ReadonlySet<string> => {
   try {
-    return parseTestDivergenceDebt(git.run(["show", `${head}:${TEST_DIVERGENCE_REPORT}`]));
+    return parseTestDebtBaseline(git.run(["show", `${head}:${TEST_DEBT_BASELINE}`]));
   } catch {
     return new Set();
   }

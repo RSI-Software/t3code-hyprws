@@ -18,17 +18,27 @@ export interface WireShapeFinding {
 
 export type ForkWireBaseline = ReadonlyMap<string, string>;
 
+/** The wire findings that shipped before `fork:delta --check` enforced compatibility. */
+export const FORK_WIRE_BASELINE_PATH = "scripts/fork-wire-baseline.json";
+
+/**
+ * The baseline keeps old stack commits from blocking new work; it never approves a new change.
+ * An unparseable or absent baseline exempts nothing.
+ */
 export const parseForkWireBaseline = (source: string): ForkWireBaseline => {
   const entries = new Map<string, string>();
-  const lines = source.replace(/\r\n/g, "\n").split("\n");
-  const header = lines.findIndex((line) => /^\|\s*Key\s*\|\s*Reason\s*\|\s*$/.test(line));
-  if (header === -1) return entries;
-  for (const line of lines.slice(header + 2)) {
-    const match = /^\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*$/.exec(line);
-    if (match === null) break;
-    const key = match[1]?.replaceAll("\\|", "|").trim() ?? "";
-    const reason = match[2]?.replaceAll("\\|", "|").trim() ?? "";
-    if (key.length > 0) entries.set(key, reason);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return entries;
+  }
+  if (!Array.isArray(parsed)) return entries;
+  for (const row of parsed) {
+    if (row === null || typeof row !== "object") continue;
+    const { key, reason } = row as { readonly key?: unknown; readonly reason?: unknown };
+    if (typeof key !== "string" || key.length === 0) continue;
+    entries.set(key, typeof reason === "string" ? reason : "");
   }
   return entries;
 };

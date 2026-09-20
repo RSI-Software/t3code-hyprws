@@ -382,7 +382,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
           }),
         );
         yield* write(
-          "docs/internals/fork-delta.md",
+          "docs/fork/internals/fork-delta.md",
           [
             "# Fork delta",
             "",
@@ -539,7 +539,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         }),
       );
       yield* write(
-        "docs/internals/fork-delta.md",
+        "docs/fork/internals/fork-delta.md",
         `# Fork delta\n\n## ${example.domain}\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n| \`${example.sourcePath}\` | Fork integration call |\n`,
       );
       const shared = commit("upstream fixture");
@@ -652,7 +652,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
             }),
           );
           yield* write(
-            "docs/internals/fork-delta.md",
+            "docs/fork/internals/fork-delta.md",
             `# Fork delta\n\n## ${domain}\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n| \`${sourcePath}\` | Fork integration call |\n`,
           );
           const tagged = `Fork-Domain: ${domain}\nFork-Tier: core`;
@@ -814,7 +814,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
       }
       for (const path of woven) yield* write(path, upstreamText);
       yield* write(
-        "docs/internals/fork-delta.md",
+        "docs/fork/internals/fork-delta.md",
         [
           "# Fork delta",
           "",
@@ -962,7 +962,7 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         }
         yield* write(path, upstreamText);
         yield* write(
-          "docs/internals/fork-delta.md",
+          "docs/fork/internals/fork-delta.md",
           "# Fork delta\n\n## project-windows\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n| `apps/web/src/components/Sidebar.tsx` | Fixture |\n",
         );
         const base = commit("upstream base");
