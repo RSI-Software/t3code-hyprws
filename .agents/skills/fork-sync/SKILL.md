@@ -5,23 +5,31 @@ description: Unblock an RSI-Software/t3code-hyprws upstream rebase with a report
 
 # Fork sync
 
-Pick exactly one entry point.
+Pick exactly one entry point, and never ask which.
 
-| Entry point    | Does                                  | Reference                              |
-| -------------- | ------------------------------------- | -------------------------------------- |
-| **Unblock**    | Replays the fork onto an upstream tag | [Unblock](references/unblock.md)       |
-| **Cut stable** | Tags a stable release from a snapshot | [Cut stable](references/cut-stable.md) |
+| Entry point    | When                                 | Reference                              |
+| -------------- | ------------------------------------ | -------------------------------------- |
+| **Unblock**    | Default: bare invocation, or "sync"  | [Unblock](references/unblock.md)       |
+| **Cut stable** | Only when the ask names a stable cut | [Cut stable](references/cut-stable.md) |
 
-Unattended is the default.
-A stop must be a judgement; a stop that was not one is friction to lodge.
+**Goal:** the fork stays in sync with upstream unattended.
+One invocation walks to the end; you judge, the human does not.
+A stop is a doubt you could not trace away, and nothing else.
 
-- **Never** post to `pingdotgg/t3code`
-- **Never** merge upstream into `hyprws`
-- **Never** move a bot-owned ref by hand
-- **Never** edit an emitted report or record
-- **Never** bypass a refusal or `fork:sync-gate`
+### Never
 
-Every report path is external operator state.
+- **Post** to `pingdotgg/t3code`
+- **Merge** upstream into `hyprws`
+- **Move** a bot-owned ref by hand
+- **Bypass** a refusal or `fork:sync-gate`
+- **Hand** the human a fault as a decision
+- **Redo** by hand what a verb does
+
+### Reports
+
+- **Never** edit an emitted report
+- **Record:** only its decision cells are yours
+- **Every** report path is external operator state
 
 The [fork-sync runbook](../../../docs/fork/operations/fork-sync.md) owns the bot model, the ledgers, and recovery.
 Read it when something refuses, not before.
@@ -31,18 +39,33 @@ Read it when something refuses, not before.
 Both entry points triage the same way.
 Triage is not a stop: only a `judgement` row stops the walk.
 
-At a handback, first reproduce the emitted decision surface verbatim and unchanged.
-Then write one triage line per decision, in exactly one of these forms:
+At a handback, triage every row in the report, one line each:
 
-| Row class                               | Triage      | Then                    |
-| --------------------------------------- | ----------- | ----------------------- |
-| `generated`, `mechanical`, `seam-moved` | `clear`     | Resolve it and continue |
-| `human`, `retire-candidate`             | `judgement` | Stop for the human      |
+| Row class                               | Triage      | Then                     |
+| --------------------------------------- | ----------- | ------------------------ |
+| `generated`, `mechanical`, `seam-moved` | `clear`     | Resolve it and continue  |
+| `retire-candidate`                      | `clear`     | Trace, verdict, continue |
+| `human`                                 | `clear`     | Trace intent, resolve    |
+| any, after tracing left doubt           | `judgement` | Stop for the human       |
 
 ```text
 clear:     <resolution>. <one-line reason>
-judgement: <recommendation>. <reading A> vs <reading B>; <why>
+judgement: <recommended word>. <reading A> vs <reading B>; <why>
 ```
+
+The decision surface stays in the report; the reply never reproduces it.
+
+### Fault
+
+A halt that is not a row is a fault: a ref diverged, a verb crashed, a lane cannot test.
+Repair it under the runbook, then rerun the verb; never hand-replay its work.
+Note the friction as one line in the landing reply.
+
+- **Ref diverged:** origin wins, refetch
+- **Then:** re-append rows from retained reports
+- **Verb crashed:** file the bug, walk on by hand
+- **Lane cannot test:** repair, rerun
+- **Never** turn a fault into a `judgement`
 
 ### Clear
 
@@ -54,20 +77,38 @@ Triage it like any other row; `clear` there is yours to resolve.
 
 - **Test:** one resolution compiles, others do not
 - **Or:** both sides are additive and both used
-- **Doubt** about intent makes it `judgement`
+- **Or:** the trace names intent, one side serves it
+- **Doubt** after tracing makes it `judgement`
 - **Never** widen `clear` to dodge a stop
+
+#### Trace
+
+Before any `judgement`, trace the row, and record what you found.
+
+1. Fork commit: message, trailers, domain, behaviour
+2. Upstream hunk: what it adds, removes, or moves
+3. Same shape upstream, or only a name sighting?
+4. Verdict: `retire`, `keep`, `keep-both`, `reapply`
+5. Doubt left? Say which step, and stop there
 
 ### Judgement
 
-Stop only once a `judgement` row exists, and carry every `clear` resolution into that report.
-A `judgement` line carries enough context for a reader who has not seen the diff.
-Then ask the human's exact word for the `judgement` rows alone.
+Stop only once a `judgement` row exists.
+Reply by the [reply shape](references/stop-reply.md): one row, one visual, ranked options, one prompt.
+A landing uses the same file's landing template.
+The human has not seen the diff, the report, or the lane.
 
-- **Answer** every judgement row, not the first
+#### Ask
+
+- **Recommend** a word the human can echo
+- **Answer** every judgement row, one reply each
 - **Continue when:** each names its subject
 - **And:** the human gives an explicit go
-- **Record only** the decisions supplied
-- **Never** record a recommendation as a decision
+
+#### Record
+
+- **Only** the decisions supplied
+- **Never** a recommendation as a decision
 - **Recency** is no permission to choose
 
 ## Unblock
