@@ -96,6 +96,6 @@ export const readHostIdentity = (cwd: string): AgentIdentity => {
 /**
  * This session's own identity, never a host's. A review sign-off wants this one: substituting the
  * host would record the proposing session as the reviewer, which
- * `docs/operations/fork-sync.md` forbids.
+ * `docs/fork/operations/fork-sync.md` forbids.
  */
 export const readCallerIdentity = (cwd: string): AgentIdentity => readCallerAttestation(cwd).caller;
