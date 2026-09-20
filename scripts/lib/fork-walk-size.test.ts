@@ -13,9 +13,9 @@ it("records total commits, the per-domain table, and the shared-file count", () 
     ],
     statsBySha: new Map([
       [SHA_A, { files: ["apps/web/src/app.ts", "shared.ts"], added: 5, deleted: 1 }],
-      [SHA_B, { files: ["docs/internals/fork-delta.md"], added: 2, deleted: 0 }],
+      [SHA_B, { files: ["docs/fork/internals/fork-delta.md"], added: 2, deleted: 0 }],
     ]),
-    forkChanged: new Set(["apps/web/src/app.ts", "shared.ts", "docs/internals/fork-delta.md"]),
+    forkChanged: new Set(["apps/web/src/app.ts", "shared.ts", "docs/fork/internals/fork-delta.md"]),
     upstreamChanged: new Set(["shared.ts"]),
   });
   assert.deepStrictEqual(size, {

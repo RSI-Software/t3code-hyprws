@@ -5,7 +5,7 @@ name: hyprws Release
 # pushed commit. Scheduled fallbacks and nightly manual dispatches publish
 # v<next>-hyprws-nightly.<date>.<run> from hyprws.
 # Upstream release.yml stays disabled on the fork; mirror its job shape, setup,
-# and action versions here on every rebase (docs/internals/fork-delta.md).
+# and action versions here on every rebase (docs/fork/internals/fork-delta.md).
 
 on:
   push:

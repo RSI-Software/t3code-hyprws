@@ -2,9 +2,9 @@ name: hyprws CI
 
 # Fork-only CI for RSI-Software/t3code-hyprws. Upstream's ci.yml targets
 # Blacksmith runners the fork does not have, so it stays disabled on the fork
-# (docs/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
+# (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. Mirror upstream ci.yml step changes here on
-# every rebase (docs/internals/fork-delta.md, distribution).
+# every rebase (docs/fork/internals/fork-delta.md, distribution).
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
@@ -100,7 +100,7 @@ jobs:
 
       # A rebase scan is what the next sync reads before trusting an automerge,
       # so a domain that changes a file upstream is changing too has to name it
-      # (docs/internals/fork-delta.md). Reuses the upstream remote the ledger
+      # (docs/fork/internals/fork-delta.md). Reuses the upstream remote the ledger
       # step added. Advisory, not blocking: the only window with signal here is
       # live upstream/main, and upstream landing a commit on a shared file is
       # not the fault of the pull request under test. The blocking run is gates 3

@@ -66,7 +66,7 @@ Custom agents, rich Markdown editing, `zmux` integration, distribution, and futu
 ## What this fork adds
 
 The fork is organized into domains so future changes do not become one untraceable patch pile.
-Every fork commit is recorded by domain and tier in the [fork delta](docs/internals/fork-delta.md).
+Every fork commit is recorded by domain and tier in the [fork delta](docs/fork/internals/fork-delta.md).
 
 ### Project windows
 
@@ -116,15 +116,15 @@ Each stays isolated so it can be offered upstream and dropped from the fork inde
 
 The ledger separates `core`, `qol`, and `bugfix` commits.
 It also records whether each bug fix should go upstream.
-The [fork delta](docs/internals/fork-delta.md) owns the exact domain boundaries and current change list.
+The [fork delta](docs/fork/internals/fork-delta.md) owns the exact domain boundaries and current change list.
 
 ## Fork development
 
-Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
+Read [Fork development](docs/fork/internals/fork-development.md) before changing fork behavior or Git topology.
 It owns the project-window architecture, Worktrunk lanes, and upstream rebase flow.
 
-Read [Fork delta](docs/internals/fork-delta.md) for the authoritative list of fork changes and their rationale.
-[Fork sync](docs/operations/fork-sync.md) is the runbook for rebasing, verifying, publishing, and releasing the fork.
+Read [Fork delta](docs/fork/internals/fork-delta.md) for the authoritative list of fork changes and their rationale.
+[Fork sync](docs/fork/operations/fork-sync.md) is the runbook for rebasing, verifying, publishing, and releasing the fork.
 
 # T3 Code
 
@@ -214,9 +214,9 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [Install and first run](./docs/user/install.md)
 - [Permission modes](./docs/user/permission-modes.md)
-- [Inspect subagents](./docs/user/agents.md)
+- [Inspect subagents](./docs/fork/user/agents.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
-- [Browser bookmarks](./docs/user/browser.md)
+- [Browser bookmarks](./docs/fork/user/browser.md)
 - [Project settings](./docs/user/project-settings.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Keeping app and server in sync](./docs/user/updating.md)

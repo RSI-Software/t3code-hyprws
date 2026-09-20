@@ -503,7 +503,7 @@ const voidedLeaseMessage = (
 ): string => {
   const trash =
     worktree !== undefined ? `\nStale rehearsal worktree is pending trash: trash ${worktree}` : "";
-  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Movement that cannot fold — a merge, a rewritten trunk, a moved shared base, or a moved target — voids the rehearsal.\nReport stage is void; the walk re-lists from the moved trunk, and a single verb restarts at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the fold rule in docs/operations/fork-sync.md.`;
+  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Movement that cannot fold — a merge, a rewritten trunk, a moved shared base, or a moved target — voids the rehearsal.\nReport stage is void; the walk re-lists from the moved trunk, and a single verb restarts at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the fold rule in docs/fork/operations/fork-sync.md.`;
 };
 
 /** The linear-movement notice that replaces the void at `replayed`/`checked` (RSI-Software/t3code-hyprws#922). */
@@ -656,7 +656,7 @@ const unblockList = (
   writeRecord(report);
   const leaseHead = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   process.stdout.write(
-    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\nFreeze: walk lease taken at \`${leaseHead}\` (origin/hyprws) — while this report holds the lease, linear landings on hyprws fold at vp run fork:sync unblock-fold; see the fold rule in docs/operations/fork-sync.md.\n`,
+    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\nFreeze: walk lease taken at \`${leaseHead}\` (origin/hyprws) — while this report holds the lease, linear landings on hyprws fold at vp run fork:sync unblock-fold; see the fold rule in docs/fork/operations/fork-sync.md.\n`,
   );
   return report;
 };
@@ -2878,7 +2878,7 @@ const unblockCheck = (
   const leaseLine =
     leaseSha === undefined
       ? "Freeze: report holds no lease — rerun unblock-list."
-      : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/operations/fork-sync.md.`;
+      : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/fork/operations/fork-sync.md.`;
   process.stdout.write(
     `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}${leaseLine}\n`,
   );
@@ -4999,7 +4999,7 @@ export const autoGateFour = (report: SyncReport): SyncReport => {
           }
         : {}),
       // A keep/retire/partial verdict was read from the human-owned retirement ledger in
-      // `docs/internals/fork-delta.md`, so it stays the human's decision, and an inherited verdict
+      // `docs/fork/internals/fork-delta.md`, so it stays the human's decision, and an inherited verdict
       // keeps saying which walk it came from. Only a candidate the machine kept is the machine's.
       decidedBy:
         row.decidedBy !== "TODO" ? row.decidedBy : row.verdict === "candidate" ? "agent" : "human",

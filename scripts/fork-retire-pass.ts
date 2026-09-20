@@ -36,7 +36,7 @@ import { forkCommitSourceExtensions } from "./lib/fork-retire-probe.ts";
  * The output is human-adjudicated, never auto-applied. An unscoped probe once read roughly 35 of 40
  * rows as retire (RSI-Software/t3code-hyprws#688), so when the candidate share of the probed list is
  * high this driver says so out loud instead of letting the noise pass for signal. Verdicts live in
- * the fork retirement ledger (`docs/internals/fork-delta.md`), keyed by subject as human decisions;
+ * the fork retirement ledger (`scripts/fork-retirement-ledger.json`), keyed by subject as human decisions;
  * this script reads them back and never writes.
  */
 

@@ -236,5 +236,5 @@ export const isToolingRepair = (paths: ReadonlyArray<string>): boolean =>
     (path) =>
       path === "scripts" ||
       path.startsWith("scripts/") ||
-      /^docs\/internals\/fork-[^/]*\.md$/.test(path),
+      /^docs\/fork\/internals\/fork-[^/]*\.md$/.test(path),
   );

@@ -17,7 +17,7 @@ it("refuses every vendored, harness, CI, and documentation path the walk mistook
     ".cursor/rules/cursor-cloud.mdc",
     ".repos/effect-smol/LLMS.md",
     ".devcontainer/devcontainer.json",
-    "docs/internals/fork-delta.md",
+    "docs/fork/internals/fork-delta.md",
     "apps/web/.storybook/preview.ts",
   ])
     assert.isFalse(isProductSourcePath(path), path);
@@ -35,7 +35,7 @@ it("reads the source file types a fork commit changed, ignoring prose and opaque
     "+export const ScopedProjectWindow = 1;",
     "+++ b/apps/web/src/window.tsx",
     "+const a = 1;",
-    "+++ b/docs/internals/fork-delta.md",
+    "+++ b/docs/fork/internals/fork-delta.md",
     "+prose about scoped project windows",
     "+++ b/pnpm-lock.yaml",
     "+  /some-package@1.0.0:",
