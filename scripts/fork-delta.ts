@@ -3,7 +3,7 @@
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
-// See docs/internals/fork-delta.md for the conventions it enforces.
+// See docs/fork/internals/fork-delta.md for the conventions it enforces.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -27,6 +27,7 @@ import { isForkDomain, isForkUpstreamable, parseForkTrailers } from "./lib/fork-
 import {
   compareWireShapes,
   extractWireShapes,
+  FORK_WIRE_BASELINE_PATH,
   parseForkWireBaseline,
   wireFindingKey,
   type ForkWireBaseline,
@@ -790,51 +791,51 @@ export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(fu
 const command = Command.make(
   "fork-delta",
   {
-    base: Flag.string("base").pipe(
+    base: Flag.String("base").pipe(
       Flag.withDescription(
         "Base ref; defaults to upstream/main except --squash-body requires it explicitly.",
       ),
       Flag.optional,
     ),
-    head: Flag.string("head").pipe(
+    head: Flag.String("head").pipe(
       Flag.withDescription(
         "Head ref; defaults to HEAD except --squash-body requires it explicitly.",
       ),
       Flag.optional,
     ),
-    check: Flag.boolean("check").pipe(
+    check: Flag.Boolean("check").pipe(
       Flag.withDescription(
         "Exit 1 when a fork commit has invalid trailers, changes a shipped wire shape, or is still present after retirement.",
       ),
       Flag.withDefault(false),
     ),
-    json: Flag.boolean("json").pipe(
+    json: Flag.Boolean("json").pipe(
       Flag.withDescription("Print the ledger as JSON instead of Markdown."),
       Flag.withDefault(false),
     ),
-    domain: Flag.string("domain").pipe(
+    domain: Flag.String("domain").pipe(
       Flag.withDescription("Limit the ledger to one Fork-Domain."),
       Flag.optional,
     ),
-    shas: Flag.boolean("shas").pipe(
+    shas: Flag.Boolean("shas").pipe(
       Flag.withDescription(
         "Print one full SHA per line in stack order, for `git cherry-pick` onto upstream.",
       ),
       Flag.withDefault(false),
     ),
-    inventory: Flag.boolean("inventory").pipe(
+    inventory: Flag.Boolean("inventory").pipe(
       Flag.withDescription(
         "Print the per-domain and per-commit delta inventory instead of the ledger.",
       ),
       Flag.withDefault(false),
     ),
-    upstream: Flag.string("upstream").pipe(
+    upstream: Flag.String("upstream").pipe(
       Flag.withDescription(
         "With --inventory, the upstream target to compare against (default: upstream/main).",
       ),
       Flag.optional,
     ),
-    squashBody: Flag.string("squash-body").pipe(
+    squashBody: Flag.String("squash-body").pipe(
       Flag.withDescription(
         "With --check, verify the base-to-head squash and the pull-request body's final trailer block.",
       ),
@@ -866,7 +867,7 @@ const command = Command.make(
         }
         if (ledger.findings.length > 0) {
           process.stderr.write(
-            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/fork/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
@@ -893,7 +894,7 @@ const command = Command.make(
       const fileSystem = yield* FileSystem.FileSystem;
       const retirementLedger = readForkRetirementLedger(process.cwd());
       const wireBaseline = parseForkWireBaseline(
-        yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
+        yield* fileSystem.readFileString(FORK_WIRE_BASELINE_PATH),
       );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");

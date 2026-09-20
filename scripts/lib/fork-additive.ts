@@ -4,7 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./fork-test-debt.ts";
+import { parseTestDebtBaseline, TEST_DEBT_BASELINE } from "./fork-test-debt.ts";
 
 /**
  * The whole-tree half of the fork's additive doctrine. The per-seam check in
@@ -296,10 +296,8 @@ const testFindings = (
   head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
-  // The sweep the fork already keeps is the baseline; a file leaves it by leaving that table.
-  const debt = parseTestDivergenceDebt(
-    showTree(runner, worktree, head, TEST_DIVERGENCE_REPORT) ?? "",
-  );
+  // The baseline the fork already keeps; a file leaves it by leaving that list.
+  const debt = parseTestDebtBaseline(showTree(runner, worktree, head, TEST_DEBT_BASELINE) ?? "");
   for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
     const upstreamText = showTree(runner, worktree, target, path);
     if (upstreamText === null) continue;

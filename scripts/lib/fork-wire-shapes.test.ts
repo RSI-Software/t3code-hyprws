@@ -168,7 +168,7 @@ it("allows ipc.ts changes whose only extracted differences are optional fields",
 
 it("parses baseline entries and derives stable finding keys", () => {
   const baseline = parseForkWireBaseline(
-    "# Baseline\n\n| Key | Reason |\n| --- | --- |\n| Mode: literal added: fork | shipped before the wire check |\n",
+    JSON.stringify([{ key: "Mode: literal added: fork", reason: "shipped before the wire check" }]),
   );
   assert.strictEqual(baseline.get("Mode: literal added: fork"), "shipped before the wire check");
   assert.strictEqual(

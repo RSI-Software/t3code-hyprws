@@ -1,7 +1,7 @@
 // Per-commit numstat reading shared by `fork:delta --inventory` and the sync
 // walk's size record. Kept Effect-free so the operator state machine in
 // fork-sync.ts can import it before Effect exists.
-// See docs/internals/fork-delta.md for the conventions these numbers feed.
+// See docs/fork/internals/fork-delta.md for the conventions these numbers feed.
 
 import { FORK_LOG_RECORD_SEPARATOR } from "./fork-trailers.ts";
 

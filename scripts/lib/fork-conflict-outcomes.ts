@@ -33,7 +33,7 @@ import * as NodeCrypto from "node:crypto";
  * There is deliberately no "upstream superseded this commit" rule. Gate 4 keeps every candidate,
  * so a commit upstream appears to carry is still replayed; taking the upstream side of its files
  * would keep the commit and gut its content, which is the one outcome the fork forbids. Retiring a
- * fork commit stays a human decision in `docs/internals/fork-delta.md`.
+ * fork commit stays a human decision in `docs/fork/internals/fork-delta.md`.
  */
 export type OutcomeSource = "upstream-only" | "fork-only" | "keep-both" | "hook-reapply";
 

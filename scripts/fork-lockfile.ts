@@ -3,7 +3,7 @@
 
 // Proves the checked-in `pnpm-lock.yaml` is exactly what its generator produces.
 //
-// docs/operations/fork-sync.md registers `pnpm-lock.yaml` as the fork's only
+// docs/fork/operations/fork-sync.md registers `pnpm-lock.yaml` as the fork's only
 // regenerable path, with `vp install --lockfile-only` as its generator. A rebase
 // stop on it is only cheap while that holds: the documented resolution restores
 // the lockfile from `HEAD`, resolves the source conflicts, and reruns the
@@ -39,7 +39,7 @@ import { runCommand } from "./lib/fork-command.ts";
 
 export const LOCKFILE_PATH = "pnpm-lock.yaml";
 
-/** The generator docs/operations/fork-sync.md registers for the lockfile. */
+/** The generator docs/fork/operations/fork-sync.md registers for the lockfile. */
 export const LOCKFILE_GENERATOR = { command: "vp", args: ["install", "--lockfile-only"] } as const;
 
 export interface CommandResult {
