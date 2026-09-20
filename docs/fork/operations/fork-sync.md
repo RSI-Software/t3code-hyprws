@@ -123,6 +123,7 @@ It never 3-way merges generated entries, nor treats a rerere result as one.
 
 Re-run the generator when either side changed a manifest or the lockfile; add a row only with its deterministic generator.
 `vp run fork:lockfile` proves the same on a feature branch; only `importers` drift fails.
+Run it on every branch that changes a package manifest, so a hand-merged or replayed lockfile fails there instead of costing a lane.
 
 ## Reading a bot run
 
@@ -174,7 +175,7 @@ gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-h
 
 No second run is needed after an apply: the leased push triggers it.
 Confirm the blocked issue closes with `Resolved by hyprws <sha>` and the next opens, or that none remains.
-Restore `on` at the end of the series; deleting the variable restores it.
+Set it back to `on` at the end of the series; deleting the variable leaves `candidate`.
 
 ### Conflict doctrine
 
@@ -272,6 +273,7 @@ A tooling fix the walk needs goes into its lane, never onto `hyprws` mid-walk.
 The walk decides every row rather than asking; a human-filled cell beats a rerun.
 `pnpm-lock.yaml` takes the [regeneration rule](#regenerable-files); a repaired seam needs `--silent-seam '<path>=<summary>:type'`.
 Snapshots go before the apply; a failed announcement never voids it.
+It prints the snapshot branches; open a candidate issue for each by hand, because the bot never sees those tags again.
 
 `unblock-check` restores the replayed lockfile for snapshot-only drift; any other drift needs exactly one owning commit, so a series rewrite always throws here.
 Rerunning it on a `checked` lane rebinds the head and voids prior CI and review evidence.
@@ -290,6 +292,14 @@ vp run fork:sync unblock-review --report <report> --sign-off | --withhold '<reas
 ```
 
 The verdict reads its identity from `ghb attest handoff` in the active runtime; never copy a handoff between sessions.
+
+Tree-neutrality cannot catch a wrong attribution, so enumerate the `overrides` record before signing off:
+
+| Slot           | Meaning                     |
+| -------------- | --------------------------- |
+| `attributed`   | A change moved to a commit  |
+| `left`         | A change left where it was  |
+| `unused`       | A flag that changed nothing |
 
 Withhold sign-off for:
 
@@ -387,7 +397,7 @@ git rebase --onto origin/hyprws origin/hyprws-previous <feature-branch>
 `hyprws-previous` does not exist until the first on-mode run; take that boundary from the **Auto-rebase** summary's old head.
 Inspect the range first if the lane was not based on it; never guess an `--onto`.
 
-Reset the canonical `hyprws` worktree with `git reset --hard origin/hyprws`, never a feature worktree.
+Reset the canonical `hyprws` worktree with `git reset --hard origin/hyprws`, never a feature worktree or a checkout holding uncommitted work.
 
 ## One-time repository setup
 

@@ -60,93 +60,100 @@
   "rewrittenAssertions": [
     {
       "file": "apps/desktop/src/app/DesktopClerk.test.ts",
-      "upstreamAssertionChanged": "registered-events `deepEqual` weakened to `include`; `clerk.configure` takes an effect",
+      "upstreamAssertionChanged": "`assert.deepEqual(registeredEvents, [\"second-instance\"])` weakened to `assert.include`; `clerk.configure` became `clerk.configure(() => Effect.void)`.",
       "commit": "cfd9465bd5f"
     },
     {
       "file": "apps/desktop/src/preview/Manager.test.ts",
-      "upstreamAssertionChanged": "guest `zoom-changed` adopted, not ignored; `reapplyZoom` became `preserveGuestZooms`; close race throws `PreviewTabNotFoundError`",
+      "upstreamAssertionChanged": "three upstream expectations rewritten. Guest `zoom-changed` events are now adopted instead of ignored; `reapplyZoom` became `preserveGuestZooms` with embedder-before-guest ordering; the window-close race error `PreviewMainWindowClosedError` became `PreviewTabNotFoundError`.",
       "commit": "f5839c6d0ff"
     },
     {
       "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
-      "upstreamAssertionChanged": "every `installSteps` gained a leading `\"capture\"`",
+      "upstreamAssertionChanged": "all `installSteps` assertions gained a leading `\"capture\"` step.",
       "commit": "38dd3f2c626"
     },
     {
       "file": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
-      "upstreamAssertionChanged": "shared-worktree drift inverted to adopt for idle threads; branch stays `threadBranch`, no PR refresh",
+      "upstreamAssertionChanged": "\"does not adopt a drifted checkout from %s when the worktree is shared by another thread\" inverted to \"adopts a drifted checkout ... for idle threads sharing the worktree\". The expected branch stays `threadBranch` with no PR refresh, so both threads follow the renamed ref.",
       "commit": "85a40bb55be"
     },
     {
       "file": "apps/server/src/project/ProjectSetupScriptRunner.test.ts",
-      "upstreamAssertionChanged": "install payloads wrapped with the completed/FAILED echo",
+      "upstreamAssertionChanged": "expected terminal write payloads `\"npm install\\r\"` and `\"bun install\\r\"` are now wrapped with `&& echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\\r`.",
       "commit": "43c71f57602"
     },
     {
       "file": "apps/server/src/project/RepositoryIdentityResolver.test.ts",
-      "upstreamAssertionChanged": "`locator.remoteName` moved to `origin`; refresh keeps `julius/t3code` on add",
+      "upstreamAssertionChanged": "expected `locator.remoteName` moved from `upstream` to `origin`; refresh now keeps `julius/t3code` on `add` instead of adopting `t3tools/t3code`, rewriting the `canonicalKey` and `displayName` expectations.",
       "commit": "118436798ca"
     },
     {
       "file": "apps/server/src/provider/Layers/ClaudeCapabilitiesProbe.test.ts",
-      "upstreamAssertionChanged": "SDK fixture gained a `fable` agent; probe result gained `agents`",
+      "upstreamAssertionChanged": "SDK fixture `agents: []` became a `fable` agent, and the expected probe result gained an `agents` field.",
       "commit": "5ec7743785d"
     },
     {
       "file": "apps/server/src/provider/Layers/CodexAdapter.test.ts",
-      "upstreamAssertionChanged": "whole-object `deepStrictEqual` split into environment checks plus a partial compare",
+      "upstreamAssertionChanged": "the upstream `deepStrictEqual` of the whole runtime-factory start-options object split into `environment` checks (`T3CODE_THREAD_ID` set, `T3CODE_PROJECT_ID` unset) plus a partial `deepStrictEqual` of the remainder.",
       "commit": "9b8512d68fb"
     },
     {
       "file": "apps/server/src/provider/Layers/CodexCollabWire.test.ts",
-      "upstreamAssertionChanged": "three delta events moved from dropped to forwarded",
+      "upstreamAssertionChanged": "\"drops only enumerated child chatter\" asserted that `item/agentMessage/delta`, `item/reasoning/textDelta`, and `item/commandExecution/outputDelta` are dropped; the fork moved them into the forwarded passthrough list.",
       "commit": "9736354e8ce"
     },
     {
       "file": "apps/server/src/provider/ProviderInstanceEnvironment.test.ts",
-      "upstreamAssertionChanged": "inherited homes expect the own driver only; override case strict and pins `TMUX`",
+      "upstreamAssertionChanged": "\"leaves inherited provider homes unchanged\" now expects only the own driver's home (`CODEX_HOME` or `CLAUDE_CONFIG_DIR`), not both; the override case went from `toMatchObject` to a strict `toEqual` with `TMUX` and `TMUX_PANE` pinning.",
       "commit": "6937937a6b0"
     },
     {
       "file": "apps/server/src/pullRequest/PullRequestService.test.ts",
-      "upstreamAssertionChanged": "foreign-repository refusal inverted to a read; error became success",
+      "upstreamAssertionChanged": "the upstream case \"refuses a repository that does not belong to the requested project\" was inverted in place to \"reads a repository ...\", so the expected `PullRequestOperationError` became success.",
       "commit": "cfd9465bd5f"
     },
     {
       "file": "apps/server/src/sourceControl/GitHubSourceControlProvider.test.ts",
-      "upstreamAssertionChanged": "`pr create` argv gained `--repo`; calls gained `context`",
+      "upstreamAssertionChanged": "the expected gh `pr create` argv gained `--repo github.com/rsi-software/t3code-hyprws`; the `createInput` expectation gained `repository`; `getChangeRequest` and `createPullRequest` calls now pass a `context` argument.",
       "commit": "118436798ca"
     },
     {
       "file": "apps/web/src/components/ChatMarkdown.test.tsx",
-      "upstreamAssertionChanged": "GitHub favicon input reduced to a bare host",
+      "upstreamAssertionChanged": "the GitHub-icon favicon input changed from `https://github.com/pingdotgg/t3code/pull/1` to bare `https://github.com`.",
       "commit": "b5868db8aec"
     },
     {
       "file": "apps/web/src/components/chat/composerProviderState.test.tsx",
-      "upstreamAssertionChanged": "three plan-mode tests moved provider `codex` to `opencode`",
+      "upstreamAssertionChanged": "three plan-mode tests switched provider `codex` to `opencode` in both input and expected state.",
       "commit": "5ec7743785d"
     },
     {
       "file": "apps/web/src/components/settings/settingsSearch.test.ts",
-      "upstreamAssertionChanged": "first-hit assertion relaxed to find-anywhere; a symlink assertion inserted",
+      "upstreamAssertionChanged": "`searchSettings(\"external links\")[0]` equals `browser-link-target` was relaxed to a `.find(id === \"browser-link-target\")` anywhere in the results, and a new external-workspace-symlinks assertion was inserted into an upstream case.",
       "commit": "97d07d3beda"
     },
     {
       "file": "apps/web/src/keybindings.test.ts",
-      "upstreamAssertionChanged": "terminal-focus jump hints inverted to shown",
+      "upstreamAssertionChanged": "\"never shows jump hints while the terminal is focused\" inverted to \"shows jump hints ... because the drawer forwards them\", turning `assert.isFalse` into `assert.isTrue`.",
       "commit": "5995bebfd61"
     },
     {
       "file": "apps/web/src/rightPanelStore.test.ts",
-      "upstreamAssertionChanged": "explorer kept beside peer surfaces; agents surface extended",
+      "upstreamAssertionChanged": "\"replaces the standalone explorer with peer file surfaces\" inverted to \"keeps the standalone explorer beside peer file surfaces\", so the expected `surfaces` no longer drop `files`; agents-surface expectations were reshaped to the extended `agentsSurface` object.",
       "commit": "9dc747be4b9"
     },
     {
       "file": "packages/client-runtime/src/state/threadReducer.test.ts",
-      "upstreamAssertionChanged": "live-append order changed; the snapshot prefix is repaired, not frozen",
+      "upstreamAssertionChanged": "the live-append ordering expectation changed from `[activity-a, activity-b, activity-null]` to `[activity-null, activity-a, activity-b, activity-c]`, and the \"snapshot loads freeze the null-sequence prefix\" premise was replaced, because the snapshot prefix is repaired, not frozen.",
       "commit": "eb9298b51ee"
+    }
+  ],
+  "deletions": [
+    {
+      "file": "apps/web/src/localApi.test.ts",
+      "commit": "3f9e734d640",
+      "upstreamAssertionsRemoved": "removed the upstream `showContextMenu` delegation assertions, namely the `showContextMenu` bridge mock, the `items` fixture, `api.contextMenu.show(items)` resolving `\"delete\"`, and `expect(showContextMenu).toHaveBeenCalledWith(items, undefined)`. The follow-up additive-gate repair walk `cfd9465bd5f` reported `findings: 0` and did not restore them, tracked by RSI-Software/t3code-hyprws#697."
     }
   ]
 }

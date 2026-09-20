@@ -13,8 +13,9 @@ export const TEST_DEBT_BASELINE = "scripts/fork-test-debt.json";
  * which refuses more than it should rather than less: a missing allow-list must never read as a
  * licence.
  *
- * `rewrittenAssertions` beside it records which upstream expectations the fork inverted; it is a
- * record for the migration, never a licence, so nothing here reads it.
+ * `rewrittenAssertions` and `deletions` beside it record which upstream expectations the fork
+ * inverted or removed; both are records for the migration, never a licence, so nothing here reads
+ * them.
  */
 export const parseTestDebtBaseline = (source: string): ReadonlySet<string> => {
   try {

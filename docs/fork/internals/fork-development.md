@@ -239,6 +239,9 @@ forkSupersedes({
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
 RSI-Software/t3code-hyprws#716 owns the parser; write the declaration anyway.
 
+**Retiring one.** When upstream adopts the behavior, delete the declaration and its contradicting sibling case in the same change.
+The upstream file needs no repair, because it never changed, and a sibling whose declaration is gone is a contradiction waiting for the next suite run.
+
 ### Extend an upstream export, do not replace it
 
 An upstream export the fork needs more of stays where upstream declares it.
