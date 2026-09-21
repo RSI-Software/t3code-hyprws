@@ -99,7 +99,8 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         const recorded = git(["rev-parse", CHURN_REF]);
         assert.strictEqual(run(["outcome", "--input", "input.json"]).status, 0);
         assert.strictEqual(git(["rev-parse", CHURN_REF]), recorded);
-        assert.strictEqual(readChurnState(root).version, 3);
+        // Every read normalizes to the current envelope (RSI-Software/t3code-hyprws#1144).
+        assert.strictEqual(readChurnState(root).version, 4);
         yield* write("input.json", {
           version: 1,
           receipts: [target, attempt, { ...apply, status: "failed" }],
@@ -167,7 +168,7 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         assert.strictEqual(distribution.verifiedSha, releasedSha);
         assert.isTrue(yield* fs.exists(NodePath.join(root, "retained.json")));
         const report = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           stage: "conflicts",
           repositoryRoot: root,
           reportPath: NodePath.join(root, "sync-report.json"),
@@ -319,7 +320,7 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         root,
         CHURN_REF,
         CHURN_LEDGER_FILE,
-        `${yield* encode({ version: 3, walks: [], seamRecords: [], outcomes: wrongOrder })}\n`,
+        `${yield* encode({ version: 4, walks: [], seamRecords: [], outcomes: wrongOrder })}\n`,
         "out-of-order seed",
       );
       yield* fs.writeFileString(
@@ -591,7 +592,7 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-yield-" });
       const report = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         stage: "listed",
         repositoryRoot: root,
         reportPath: NodePath.join(root, "sync-report.json"),

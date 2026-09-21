@@ -15,17 +15,13 @@ import {
   type PreflightReport,
 } from "./fork-preflight.ts";
 import { parseUpstreamReleaseTag } from "./lib/fork-policy.ts";
-
-const TARGET = /^- Target: `(?<tag>[^`\s@]+)@(?<sha>[0-9a-f]{40})`\s*$/m;
-const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
-const REBASED_HEAD = /^- Rebased head: `(?<sha>[0-9a-f]{40})`\s*$/m;
-const STACK_SIZE = /^- Stack size: `(?<count>0|[1-9]\d*)` fork commits\s*$/m;
+import { readReport, type SyncReport } from "./fork-sync-state.ts";
 
 export { UsageError } from "./lib/fork-cli.ts";
 
 export interface GateOptions {
   readonly tag: string;
-  readonly recordPath: string;
+  readonly reportPath: string;
   readonly allowNightly: boolean;
 }
 
@@ -41,14 +37,14 @@ const systemDependencies: GateDependencies = {
 
 export const parseGateArgs = (argv: ReadonlyArray<string>): GateOptions => {
   const parsed = parseCliArgs(argv, {
-    values: ["--tag", "--record"],
+    values: ["--tag", "--report"],
     flags: ["--allow-nightly"],
   });
   const tag = parsed.values.get("--tag") ?? null;
-  const recordPath = parsed.values.get("--record") ?? null;
+  const reportPath = parsed.values.get("--report") ?? null;
   const allowNightly = parsed.flags.has("--allow-nightly");
-  if (tag === null || recordPath === null) {
-    throw new UsageError("expected --tag <tag> --record <path> [--allow-nightly]");
+  if (tag === null || reportPath === null) {
+    throw new UsageError("expected --tag <tag> --report <path> [--allow-nightly]");
   }
   const parsedTag = parseUpstreamReleaseTag(tag);
   if (parsedTag === null || (parsedTag.channel === "nightly" && !allowNightly)) {
@@ -58,18 +54,10 @@ export const parseGateArgs = (argv: ReadonlyArray<string>): GateOptions => {
         : `tag must be stable vX.Y.Z: ${tag}`,
     );
   }
-  return { tag, recordPath, allowNightly };
+  return { tag, reportPath, allowNightly };
 };
 
 export { parseGateArgs as parseArgs };
-
-const headerBody = (record: string): string => {
-  const heading = /^## Header\s*$/m.exec(record);
-  if (heading === null) return "";
-  const rest = record.slice(heading.index + heading[0].length).replace(/^\s*\n/, "");
-  const nextHeading = /^## /m.exec(rest);
-  return nextHeading === null ? rest : rest.slice(0, nextHeading.index);
-};
 
 export interface CheckoutBinding {
   readonly targetTag: string;
@@ -79,42 +67,39 @@ export interface CheckoutBinding {
   readonly stackSize: string;
 }
 
-export const inspectRecord = (record: string, observed: CheckoutBinding): ReadonlyArray<string> => {
+/** Compare the walk's own typed report against what this checkout actually holds. */
+export const inspectReport = (
+  report: SyncReport,
+  observed: CheckoutBinding,
+): ReadonlyArray<string> => {
   const findings: Array<string> = [];
-  const header = headerBody(record);
-  const expectedOld = EXPECTED_OLD.exec(header)?.groups?.sha;
-  if (expectedOld === undefined) {
-    findings.push("record header missing `expected_old` full SHA");
-  } else if (expectedOld !== observed.expectedOld) {
-    findings.push(
-      `expected_old mismatch: record ${expectedOld}, origin/hyprws ${observed.expectedOld}`,
-    );
-  }
-
-  const target = TARGET.exec(header)?.groups;
-  if (!target?.tag || !target.sha) {
-    findings.push("record header missing Target tag and full SHA");
-  } else {
-    const recordedTarget = `${target.tag}@${target.sha}`;
-    const observedTarget = `${observed.targetTag}@${observed.targetSha}`;
-    if (recordedTarget !== observedTarget) {
-      findings.push(`Target mismatch: record ${recordedTarget}, checkout ${observedTarget}`);
-    }
-  }
-
-  const rebasedHead = REBASED_HEAD.exec(header)?.groups?.sha;
-  if (rebasedHead === undefined) {
-    findings.push("record header missing Rebased head full SHA");
-  } else if (rebasedHead !== observed.rebasedHead) {
-    findings.push(`Rebased head mismatch: record ${rebasedHead}, checkout ${observed.rebasedHead}`);
-  }
-
-  const stackSize = STACK_SIZE.exec(header)?.groups?.count;
-  if (stackSize === undefined) {
-    findings.push("record header missing Stack size");
-  } else if (stackSize !== observed.stackSize) {
-    findings.push(`Stack size mismatch: record ${stackSize}, checkout ${observed.stackSize}`);
-  }
+  const compare = (field: string, recorded: string | undefined, seen: string, at: string): void => {
+    if (recorded === undefined || recorded === "") findings.push(`report is missing ${field}`);
+    else if (recorded !== seen)
+      findings.push(`${field} mismatch: report ${recorded}, ${at} ${seen}`);
+  };
+  compare("expected_old", report.source?.expectedOld, observed.expectedOld, "origin/hyprws");
+  // A rewrite never advances the fork onto a new tag: it rebuilds the series on the base it
+  // already sits on, so its target is that base, which is where the record used to render it
+  // from (RSI-Software/t3code-hyprws#1144).
+  const target =
+    report.target ??
+    (report.rewrite?.baseTag === undefined
+      ? undefined
+      : { tag: report.rewrite.baseTag, sha: report.rewrite.base });
+  compare(
+    "Target",
+    target === undefined ? undefined : `${target.tag}@${target.sha}`,
+    `${observed.targetTag}@${observed.targetSha}`,
+    "checkout",
+  );
+  compare("Rebased head", report.rebasedHead, observed.rebasedHead, "checkout");
+  compare(
+    "Stack size",
+    report.stackSize === undefined ? undefined : String(report.stackSize),
+    observed.stackSize,
+    "checkout",
+  );
   return findings;
 };
 
@@ -140,7 +125,7 @@ export const run = (
   dependencies: GateDependencies = systemDependencies,
 ): number => {
   try {
-    const { tag, recordPath } = parseGateArgs(argv);
+    const { tag, reportPath } = parseGateArgs(argv);
     const root = repositoryRoot(cwd);
 
     // Preconditions first, and the published head only from the preflight that
@@ -163,21 +148,17 @@ export const run = (
       return 1;
     }
 
-    const resolvedRecordPath = NodePath.resolve(cwd, recordPath);
-    if (!NodeFS.existsSync(resolvedRecordPath)) {
-      output.stderr(`blocked: missing rehearsal record ${resolvedRecordPath}\n`);
-      return 1;
-    }
-    if (!NodeFS.statSync(resolvedRecordPath).isFile()) {
-      output.stderr(`blocked: rehearsal record is not a file: ${resolvedRecordPath}\n`);
+    const resolvedReportPath = NodePath.resolve(cwd, reportPath);
+    if (!NodeFS.existsSync(resolvedReportPath) || !NodeFS.statSync(resolvedReportPath).isFile()) {
+      output.stderr(`blocked: missing walk report ${resolvedReportPath}\n`);
       return 1;
     }
     const realRoot = NodeFS.realpathSync(root);
-    const realRecordPath = NodeFS.realpathSync(resolvedRecordPath);
-    if (isInside(root, resolvedRecordPath) || isInside(realRoot, realRecordPath)) {
-      output.stderr(
-        `blocked: rehearsal record must be outside the repository: ${resolvedRecordPath}\n`,
-      );
+    if (
+      isInside(root, resolvedReportPath) ||
+      isInside(realRoot, NodeFS.realpathSync(resolvedReportPath))
+    ) {
+      output.stderr(`blocked: walk report must be outside the repository: ${resolvedReportPath}\n`);
       return 1;
     }
 
@@ -192,7 +173,7 @@ export const run = (
       "--count",
       `${targetSha}..${rebasedHead}`,
     ]);
-    const findings = inspectRecord(NodeFS.readFileSync(realRecordPath, "utf8"), {
+    const findings = inspectReport(readReport(resolvedReportPath), {
       targetTag: tag,
       targetSha,
       expectedOld: liveExpectedOld,

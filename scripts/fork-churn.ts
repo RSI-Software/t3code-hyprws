@@ -21,8 +21,6 @@ import {
   parseCensusTag,
   parseLedger,
   parseChurnState,
-  parseRepairCommits,
-  parseSilentSeams,
   readChurnLedger,
   readChurnState,
   writeChurnState,
@@ -41,8 +39,13 @@ import {
 } from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
-import { parseRecord, type ConflictClass } from "./fork-sync-state.ts";
-import { appendDecision, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
+import {
+  readReport,
+  recordDecisionRows,
+  walkDecisionsOf,
+  type ConflictClass,
+} from "./fork-sync-state.ts";
+import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
 import {
   parseSequentialCensusEvidence,
@@ -197,7 +200,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
   const [push, rest] = takeFlag(args, "--push");
   const [pending, restAfterPending] = takeFlag(rest, "--pending");
   const options = parseOptions(restAfterPending);
-  const allowed = new Set(["--record", "--issue", "--tag", "--before", "--after"]);
+  const allowed = new Set(["--report", "--issue", "--tag", "--before", "--after"]);
   for (const option of options.keys())
     if (!allowed.has(option)) throw new UsageError(`unknown option: ${option}`);
   const required = (flag: string): string => {
@@ -205,7 +208,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     if (value === undefined) throw new UsageError(`${flag} is required`);
     return value;
   };
-  const recordPath = NodePath.resolve(root, required("--record"));
+  const reportPath = NodePath.resolve(root, required("--report"));
   const issue = Number(required("--issue"));
   const tag = required("--tag");
   const before = required("--before");
@@ -222,32 +225,23 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     throw new Error(`duplicate tag: ${tag}`);
   const pendingEntry = entries.find((entry) => entry.tag === tag && entry.pending === true);
 
-  const record = NodeFS.readFileSync(recordPath, "utf8");
-  const parsed = parseRecord(record, { allowIncomplete: pending });
-  interface IssueView {
-    readonly body: string;
-    readonly url: string;
-    readonly comments: ReadonlyArray<{ readonly body: string; readonly url: string }>;
-  }
+  // The walk's own typed report is the authority for every value this row carries; the rendered
+  // record is a projection of it and is never read back (RSI-Software/t3code-hyprws#1144).
+  const walkReport = readReport(reportPath);
   const issueView = JSON.parse(
     runCommandText(
       "gh",
-      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "body,comments,url"],
+      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "body,url"],
       { cwd: root },
     ),
-  ) as IssueView;
+  ) as { readonly body: string; readonly url: string };
   // A stopped walk is a walk, but its record is not on the issue yet: the stop writes the row
-  // before any record is posted, so a pending append without a verbatim match binds the block
-  // issue itself and names the record `record-decisions` posts later; the `record-decisions`
-  // rewrite then upgrades the URL to the posted comment because the record matches by then
-  // (RSI-Software/t3code-hyprws#1057). The applied row keeps the strict pointer: the apply
-  // posted the record (or republishes it in place) before the row.
-  const recordUrl =
-    issueView.comments.find((comment) => comment.body.trim() === record.trim())?.url ??
-    (issueView.body.trim() === record.trim() ? issueView.url : undefined) ??
-    (pending ? issueView.url : undefined);
-  if (recordUrl === undefined)
-    throw new Error(`record does not match issue ${issue} body or comments`);
+  // before any record is posted, so a pending append binds the block issue itself and names the
+  // record `record-decisions` posts later; that rewrite then upgrades the pointer to the comment
+  // URL the report persisted (RSI-Software/t3code-hyprws#1057). The applied row keeps the strict
+  // pointer: the apply posted the record before the row.
+  const recordUrl = walkReport.recordCommentUrl ?? (pending ? issueView.url : undefined);
+  if (recordUrl === undefined) throw new Error(`report for ${tag} names no posted record comment`);
   // The census is provenance for the row, not permission to write it. The block issue's census is
   // live: the sync bot refreshes it whenever a newer upstream tag lands, which can happen while a
   // walk is still replaying the tag it selected. A census about a different tag is not evidence for
@@ -259,7 +253,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       `warning: census on issue ${issue} is for ${liveCensus.targetTag}, not ${tag}; ` +
         `the row is written without census evidence\n`,
     );
-  const conflicts = parsed.conflicts.map(
+  const conflicts = walkReport.conflicts.map(
     ({ path, commit, subject, domain, class: klass, resolution, decidedBy }) => ({
       path,
       commit,
@@ -272,17 +266,25 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       decidedBy: decidedBy === "TODO" ? "human" : decidedBy,
     }),
   );
-  const silentSeams = parseSilentSeams(record);
+  const silentSeams = walkReport.silentSeams ?? [];
   // Applied rows cite the applied trunk range, never the lane (#700). A pending row is written
-  // from a stopped lane that has not moved trunk, so it keeps the record's lane listing.
-  const repairCommits = pending
-    ? parseRepairCommits(record)
+  // from a stopped lane that has not moved trunk, so it keeps the report's own repair listing.
+  const repairCommits: ReadonlyArray<RepairCommit> = pending
+    ? (walkReport.walk?.repairCommits ?? [])
     : trunkRepairCommits(root, before, after);
-  // Every decision the walk recorded, carried from the record's own decision lines. A rewrite
-  // keeps both sides: the existing pending row's decisions merged with the new record's — and
-  // the sharper pointer wins, so a `record-decisions` rewrite upgrades the stop's issue-URL
-  // binding to the posted comment URL once the record matches (#662, RSI-Software/t3code-hyprws#1057).
-  let walkDecisions: ReadonlyArray<WalkDecision> = parseDecisionRecords(record);
+  const additive =
+    walkReport.walk?.additive === undefined
+      ? undefined
+      : {
+          pass: walkReport.walk.additive.pass,
+          attempts: walkReport.walk.additive.attempts,
+          findings: walkReport.walk.additive.findings.length,
+        };
+  // Every decision the walk recorded, derived from the report's own decision records. A rewrite
+  // keeps both sides: the existing pending row's decisions merged with the report's — and the
+  // sharper pointer wins, so a `record-decisions` rewrite upgrades the stop's issue-URL binding
+  // to the posted comment URL (#662, RSI-Software/t3code-hyprws#1057).
+  let walkDecisions: ReadonlyArray<WalkDecision> = walkDecisionsOf(walkReport);
   if (pendingEntry !== undefined)
     for (const decision of pendingEntry.walkDecisions ?? [])
       walkDecisions = appendDecision(walkDecisions, decision);
@@ -292,20 +294,20 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     after,
     recordUrl,
     conflicts,
-    // A pending record legitimately carries fork-commit rows whose Action cell is still TODO
+    // A pending walk legitimately carries fork-commit rows whose Action cell is still TODO
     // (#876). Such a row is not a decision: the applied row's real verdicts and the walkDecisions
     // carry the substance, so the TODO rows are dropped instead of widening the ledger schema.
-    decisions: pending
-      ? parsed.decisions.filter((row) => (row.verdict as string) !== "TODO")
-      : parsed.decisions,
+    decisions: recordDecisionRows(walkReport).filter(
+      (row) => !pending || (row.verdict as string) !== "TODO",
+    ),
     censusFiles: parseCensusFiles(issueView.body),
     ...(censusEvidence === null ? {} : { censusEvidence }),
     ...(silentSeams.length === 0 ? {} : { silentSeams }),
     ...(repairCommits.length === 0 ? {} : { repairCommits }),
-    ...(parsed.additive === undefined ? {} : { additive: parsed.additive }),
+    ...(additive === undefined ? {} : { additive }),
     ...(walkDecisions.length === 0 ? {} : { walkDecisions }),
     ...(pending ? { pending: true as const } : {}),
-    ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
+    ...(walkReport.nightlyReview === undefined ? {} : { nightlyReview: walkReport.nightlyReview }),
   };
   const next =
     pendingEntry === undefined
