@@ -16,6 +16,9 @@ Goal: a small, durable patch stack on upstream.
 Before changing a seam's path, subject, or split, run `node scripts/fork-churn.ts record`.
 The [churn ledger](../operations/fork-sync.md#churn-ledger) owns seam identity, evidence, and blocking rules.
 
+The ledger on `refs/fork/churn` and the walk's typed report are the only authority for sync state.
+Published issue comments and rendered records are projections of them: never parse one, and never treat an edit to one as a decision.
+
 ## Non-goals
 
 | Never               | Detail                                |

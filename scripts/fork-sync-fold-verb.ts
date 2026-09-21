@@ -30,7 +30,6 @@ import { parseForkTrailers } from "./lib/fork-trailers.ts";
  */
 export interface FoldVerbContext {
   readonly rehearsalRebaseArgs: (args: ReadonlyArray<string>) => ReadonlyArray<string>;
-  readonly preserveRecordDecisions: (report: SyncReport) => SyncReport;
   readonly unblockCheck: (
     values: ReadonlyMap<string, string>,
     cwd: string,
@@ -153,7 +152,7 @@ const proveAndUpdate = (
   // walk module, so it drops the field inline the same way `clearWalkStop` does there.
   const { stop: _superseded, ...walk } = rest.walk ?? {};
   const cleared = { ...rest, ...(rest.walk === undefined ? {} : { walk }) };
-  const updated = context.preserveRecordDecisions({
+  const updated = {
     ...cleared,
     stage: "replayed",
     folds,
@@ -163,7 +162,7 @@ const proveAndUpdate = (
       git(runner, lane.worktree, ["rev-list", "--count", `${report.target!.sha}..${head}`], true),
     ),
     touchedPaths: [...new Set([...(report.touchedPaths ?? []), ...touched])],
-  });
+  } satisfies SyncReport;
   writeReport(updated);
   writeRecord(updated);
   return updated;
@@ -260,15 +259,13 @@ export const stopAtFoldConflict = (
   );
   // The fold conflict is an ordinary walk stop: `walk.stop` names it, so record-decisions accepts
   // the record and the dirty-lane allowance covers the stopped paths (RSI-Software/t3code-hyprws#922).
-  const stopped = context.preserveRecordDecisions(
-    context.recordWalkStop(
-      {
-        ...report,
-        stage: "conflicts",
-        conflicts: [...report.conflicts, ...rows],
-      },
-      `fold conflict at ${conflict.commit.subject} (${conflict.commit.sha.slice(0, 12)}): ${conflicts.join(", ")}`,
-    ),
+  const stopped = context.recordWalkStop(
+    {
+      ...report,
+      stage: "conflicts",
+      conflicts: [...report.conflicts, ...rows],
+    },
+    `fold conflict at ${conflict.commit.subject} (${conflict.commit.sha.slice(0, 12)}): ${conflicts.join(", ")}`,
   );
   writeReport(stopped);
   writeRecord(stopped);
