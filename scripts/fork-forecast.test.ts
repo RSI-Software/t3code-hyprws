@@ -17,7 +17,7 @@ import {
   PULL_REQUEST_FORECAST_MARKER,
   renderPullRequestForecast,
 } from "./fork-forecast.ts";
-import { botForecastComment, publication } from "./fork-pr-forecast.ts";
+import { botForecastComment, publication, run } from "./fork-pr-forecast.ts";
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -334,4 +334,54 @@ it("owns only the comment the bot authored, never a human copy of its marker", (
     ]),
     5,
   );
+});
+
+it("removes the stale bot comment exactly once when the forecast throws, and rethrows", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-pr-forecast-test-"));
+  try {
+    git(root, ["init", "-b", "main"]);
+    git(root, ["config", "user.name", "test"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "base\n");
+    commit(root, "base");
+    git(root, ["remote", "add", "origin", root]);
+
+    // A fake gh that records every invocation and answers the comment lookup.
+    const log = NodePath.join(root, "invocations.log");
+    const bin = NodePath.join(root, "bin");
+    NodeFS.mkdirSync(bin);
+    NodeFS.writeFileSync(
+      NodePath.join(bin, "gh"),
+      `#!/usr/bin/env node
+const NodeFS = require("node:fs");
+NodeFS.appendFileSync(process.env.FORK_FAKE_GH_LOG ?? "/dev/null", process.argv.slice(2).join(" ") + "\\n");
+if (process.argv.includes("--paginate")) {
+  process.stdout.write(JSON.stringify([
+    { id: 41, body: "x <!-- hyprws-pull-request-forecast -->", user: { type: "Bot" } },
+  ]));
+}
+`,
+      { mode: 0o755 },
+    );
+    const previousPath = process.env.PATH;
+    const previousLog = process.env.FORK_FAKE_GH_LOG;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    process.env.FORK_FAKE_GH_LOG = log;
+    try {
+      // An unresolvable head makes forecastPullRequest throw after the lookup.
+      assert.throws(() => run(root, "7", "0".repeat(40)));
+      const calls = NodeFS.readFileSync(log, "utf8").trim().split("\n");
+      assert.deepStrictEqual(
+        calls.filter((line) => line.includes("DELETE")),
+        ["api --method DELETE repos/RSI-Software/t3code-hyprws/issues/comments/41"],
+      );
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousLog === undefined) delete process.env.FORK_FAKE_GH_LOG;
+      else process.env.FORK_FAKE_GH_LOG = previousLog;
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });

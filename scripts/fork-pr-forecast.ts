@@ -47,7 +47,6 @@ export const publication = (row: MainForecast): ForecastPublication => {
 };
 
 export const run = (root: string, pullRequest: string, head: string): void => {
-  const row = forecastPullRequest(root, head);
   const existing = botForecastComment(
     JSON.parse(
       runCommandText(
@@ -57,6 +56,22 @@ export const run = (root: string, pullRequest: string, head: string): void => {
       ),
     ) as ReadonlyArray<PullRequestComment>,
   );
+  let row: MainForecast;
+  try {
+    row = forecastPullRequest(root, head);
+  } catch (error) {
+    if (existing !== null) {
+      runCommandText(
+        "gh",
+        ["api", "--method", "DELETE", `repos/${FORK_REPOSITORY}/issues/comments/${existing}`],
+        { cwd: root },
+      );
+    }
+    process.stdout.write(
+      `::warning::Pull request ${pullRequest}: forecast unavailable; any stale comment removed\n`,
+    );
+    throw error;
+  }
   const decided = publication(row);
   if (decided.kind === "delete") {
     if (existing !== null) {
