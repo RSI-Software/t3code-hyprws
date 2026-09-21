@@ -23,7 +23,7 @@ import {
   type CensusSnapshot,
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
-import { blockingSeamLines } from "./fork-churn-section.ts";
+import { blockingSeamLines } from "./fork-churn.ts";
 import { run } from "./fork-churn.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
@@ -852,27 +852,12 @@ it("publishes record bundles with a lease taken against the advertised ledger he
   }
 });
 
-it("exercises report comments and failure exits for absence, return and verified regression", () => {
+it("exercises receipt verdicts for absence, return and verified regression without publishing", () => {
   const root = repository();
   // Origin is an isolated fixture repository, so report freshness is verifiable.
   runCommandText("git", ["remote", "add", "origin", root], { cwd: root });
   const oldPath = process.env.PATH;
-  const oldBody = process.env.SEAM_FIXTURE_BODY;
-  const oldOutput = process.env.SEAM_FIXTURE_OUTPUT;
   try {
-    const bin = NodePath.join(root, "bin");
-    NodeFS.mkdirSync(bin);
-    NodeFS.writeFileSync(
-      NodePath.join(bin, "gh"),
-      `#!/usr/bin/env node
-const fs = require('node:fs');
-if (process.argv.includes('view')) process.stdout.write(JSON.stringify({body: process.env.SEAM_FIXTURE_BODY, comments: []}));
-else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv[i+1],process.env.SEAM_FIXTURE_OUTPUT); process.stdout.write('https://example.test/comment'); }
-`,
-      { mode: 0o755 },
-    );
-    process.env.PATH = `${bin}:${oldPath ?? ""}`;
-    process.env.SEAM_FIXTURE_OUTPUT = NodePath.join(root, "posted.md");
     const changedTarget = snapshot(B, [], D);
     const changed = seamRecord(freezeObservation(changedTarget));
     const { id: _id, ...proof } = verification;
@@ -883,110 +868,89 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
     });
     const legacy: CensusSnapshot = { tag: "legacy", fixedAt: null, files: [file()] };
     const cases: ReadonlyArray<{
-      snapshots: ReadonlyArray<CensusSnapshot>;
-      current: CensusSnapshot;
+      // Every census the assessment sees is a landed walk on the ledger; the
+      // report verb reads nothing from GitHub.
+      walks: ReadonlyArray<CensusSnapshot>;
       records: ReadonlyArray<SeamRecord>;
       status: string;
-      exit: number;
       policy: "succeeded" | "failed";
     }> = [
       {
-        snapshots: [snapshot(A)],
-        current: snapshot(B, []),
+        walks: [snapshot(A), snapshot(B, [])],
         records: [],
         status: "not-observed",
-        exit: 0,
         policy: "succeeded",
       },
       {
-        snapshots: [snapshot(A), snapshot(B, [])],
-        current: snapshot(C),
+        walks: [snapshot(A), snapshot(B, []), snapshot(C)],
         records: [],
         status: "returned-unresolved",
         // A blocking-seam verdict stays recorded as a policy failure but no
         // longer fails the job; the carried walk owns seam resolution
         // (RSI-Software/t3code-hyprws#869).
-        exit: 0,
         policy: "failed",
       },
       {
-        snapshots: [snapshot(A)],
-        current: snapshot(B, []),
+        walks: [snapshot(A), snapshot(B, [])],
         records,
         status: "verified-repaired",
-        exit: 0,
         policy: "succeeded",
       },
       {
-        snapshots: [snapshot(A), snapshot(B, [])],
-        current: snapshot(C),
+        walks: [snapshot(A), snapshot(B, []), snapshot(C)],
         records,
         status: "regressed",
-        exit: 0,
         policy: "failed",
       },
       {
-        snapshots: [snapshot(A)],
-        current: changedTarget,
+        walks: [snapshot(A), changedTarget],
         records: [before, changed, repair, failed],
         status: "repair-unverified",
-        exit: 0,
         policy: "failed",
       },
       {
-        snapshots: [legacy],
-        current: snapshot(B, []),
+        walks: [legacy, snapshot(B, [])],
         records: [],
         status: "unknown",
-        exit: 0,
         policy: "succeeded",
       },
       {
-        snapshots: [legacy, snapshot(B, [])],
-        current: snapshot(C),
-        records: [],
-        status: "| observed |",
-        exit: 0,
-        policy: "succeeded",
-      },
-      {
-        snapshots: [snapshot(A)],
-        current: snapshot(A),
+        walks: [snapshot(A)],
         records,
         status: "pre-repair",
-        exit: 0,
         policy: "succeeded",
       },
     ];
-    for (const item of cases) {
+    for (const [index, item] of cases.entries()) {
       writeChurnState(
         root,
         {
           version: 3,
-          walks: (item.records.length > 0 ? [] : item.snapshots).map((snapshot, i) =>
-            walk(i === item.snapshots.length - 1 ? item.current.tag : `old-${i}`, snapshot),
-          ),
+          walks: item.walks.map((observed, at) => {
+            // Cases with frozen seam records carry a second chronology chain, so
+            // their walks take ordered low tags the shared ordering anchor can place
+            // before the frozen observations' `v1.0.0`.
+            const tag =
+              item.records.length === 0
+                ? at === item.walks.length - 1
+                  ? `case-${index}`
+                  : `old-${index}-${at}`
+                : `v0.0.${at + 1}`;
+            return walk(tag, observed);
+          }),
           seamRecords: item.records,
           outcomes: [],
           forecasts: [],
         },
         "case",
       );
-      process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(item.current.censusEvidence)} -->`;
-      const receiptPath = NodePath.join(root, "report-receipt.json");
-      assert.strictEqual(
-        run(["report", "--issue", "1", "--receipt", receiptPath], root),
-        item.exit,
-      );
+      const receiptPath = NodePath.join(root, `report-receipt-${index}.json`);
+      assert.strictEqual(run(["report", "--receipt", receiptPath], root), 0);
       assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
-        publication: "succeeded",
+        publication: "not-attempted",
         policy: item.policy,
-        url: "https://example.test/comment",
         ...(item.policy === "failed" ? { reason: "blocking-seams" } : {}),
       });
-      const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
-      assert.include(posted, item.status);
-      if (item.records.length === 0) assert.notInclude(posted, "was fixed at");
     }
     // A completed walk with the same tag and provenance as its frozen snapshot
     // anchors the histories and preserves the verified report policy pass.
@@ -1001,17 +965,11 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       },
       "anchored mixed chronology",
     );
-    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
     const anchoredReceipt = NodePath.join(root, "anchored-receipt.json");
-    assert.strictEqual(run(["report", "--issue", "1", "--receipt", anchoredReceipt], root), 0);
-    assert.include(
-      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
-      "verified-repaired",
-    );
+    assert.strictEqual(run(["report", "--receipt", anchoredReceipt], root), 0);
     assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(anchoredReceipt, "utf8")), {
-      publication: "succeeded",
+      publication: "not-attempted",
       policy: "succeeded",
-      url: "https://example.test/comment",
     });
     // The verified frozen repair cannot order an unanchored completed walk:
     // identical tags carry no recorded time to compare, so the lesson stays
@@ -1028,46 +986,18 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       },
       "ambiguous mixed chronology",
     );
-    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
     const ambiguousReceipt = NodePath.join(root, "ambiguous-receipt.json");
-    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 0);
-    assert.include(
-      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
-      "chronology is ambiguous",
-    );
+    assert.strictEqual(run(["report", "--receipt", ambiguousReceipt], root), 0);
     assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(ambiguousReceipt, "utf8")), {
-      publication: "succeeded",
+      publication: "not-attempted",
       policy: "failed",
       reason: "lesson-unavailable",
-      url: "https://example.test/comment",
     });
-    // A publication failure still exits nonzero so the notification itself is
-    // not silently lost; the receipt records the failed publication.
-    const failBin = NodePath.join(root, "fail-bin");
-    NodeFS.mkdirSync(failBin);
-    NodeFS.writeFileSync(
-      NodePath.join(failBin, "gh"),
-      `#!/usr/bin/env node
-if (process.argv.includes('view')) { process.stdout.write(JSON.stringify({body: process.env.SEAM_FIXTURE_BODY, comments: []})); process.exit(0); }
-process.stderr.write('gh: publication refused\\n');
-process.exit(1);
-`,
-      { mode: 0o755 },
-    );
-    process.env.PATH = `${failBin}:${oldPath ?? ""}`;
-    const failedReceipt = NodePath.join(root, "failed-receipt.json");
-    assert.notStrictEqual(run(["report", "--issue", "1", "--receipt", failedReceipt], root), 0);
-    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(failedReceipt, "utf8")), {
-      publication: "failed",
-      policy: "not-attempted",
-    });
+    // Publication is gone: the report verb invokes no gh at all, so there is no
+    // transport to fail and the receipt's publication stays not-attempted.
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
-    if (oldBody === undefined) delete process.env.SEAM_FIXTURE_BODY;
-    else process.env.SEAM_FIXTURE_BODY = oldBody;
-    if (oldOutput === undefined) delete process.env.SEAM_FIXTURE_OUTPUT;
-    else process.env.SEAM_FIXTURE_OUTPUT = oldOutput;
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });

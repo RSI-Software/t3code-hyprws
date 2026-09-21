@@ -11,8 +11,7 @@ Goal: a small, durable patch stack on upstream.
 
 1. Run `vp run fork:scan --no-typecheck`.
 2. Read its lesson ref, SHA, and freshness.
-3. Read the latest sync report's `## Churn` section.
-4. Prefer one adapter boundary over scattered edits.
+3. Prefer one adapter boundary over scattered edits.
 
 Before changing a seam's path, subject, or split, run `node scripts/fork-churn.ts record`.
 The [churn ledger](../operations/fork-sync.md#churn-ledger) owns seam identity, evidence, and blocking rules.

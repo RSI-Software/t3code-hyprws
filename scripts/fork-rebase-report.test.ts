@@ -25,8 +25,6 @@ import {
   encodeReportJson,
   parseArgs,
   parseCommitLog,
-  renderMarkdown,
-  renderStateGraph,
   run,
   SystemGit,
   UsageError,
@@ -160,92 +158,6 @@ it("parses the deterministic full-SHA git log format", () => {
   ]);
 });
 
-it("renders the accepted vertical split with two lanes and no node circles", () => {
-  const lines = renderStateGraph(fixture).split("\n");
-  assert.strictEqual(lines[0], `${" ".repeat(34)}aaaaaaa`);
-  assert.strictEqual(lines[3], `${" ".repeat(8)}┌${"─".repeat(27)}┴${"─".repeat(27)}┐`);
-  assert.strictEqual(lines[6], "UPSTREAM".padEnd(60) + "HYPRWS");
-  assert.strictEqual(
-    lines[8],
-    "v0.0.34-nightly.20260823.1164 @ aaaaaaa".padEnd(60) + "fork base @ aaaaaaa",
-  );
-  assert.ok(lines.some((line) => line.endsWith("origin/hyprws @ eeeeeee")));
-  assert.notInclude(renderStateGraph(fixture), "○");
-});
-
-// A release run names the target tag, and upstream also tags that commit as a
-// nightly, so the same SHA reaches the ladder under three names.
-const targetTagFixture: ForkRebaseReport = {
-  ...fixture,
-  upstream: {
-    ...fixture.upstream,
-    ref: "v0.0.35",
-    sha: upstreamTagged.sha,
-    shortSha: upstreamTagged.shortSha,
-    releases: [
-      ...fixture.upstream.releases.slice(0, 2),
-      {
-        tag: "v0.0.35",
-        sha: upstreamTagged.sha,
-        shortSha: upstreamTagged.shortSha,
-        commitsSincePrevious: [upstreamTagged],
-      },
-      {
-        tag: "v0.0.35-nightly.20260827.1202",
-        sha: upstreamTagged.sha,
-        shortSha: upstreamTagged.shortSha,
-        commitsSincePrevious: [],
-      },
-    ],
-    unreleasedCommits: [],
-  },
-};
-
-it("ends the ladder once on the target tag and drops rungs carrying no commits", () => {
-  const graph = renderStateGraph(targetTagFixture);
-  const upstreamLane = graph
-    .split("\n")
-    .slice(8)
-    .map((row) => row.slice(0, 60).trimEnd());
-  assert.deepStrictEqual(upstreamLane, [
-    "v0.0.34-nightly.20260823.1164 @ aaaaaaa",
-    "        │",
-    "        │ 1 commit",
-    "        v",
-    "v0.0.35 @ bbbbbbb",
-    "",
-    "",
-    "",
-    "",
-  ]);
-  assert.notInclude(graph, "0 commits");
-  assert.notInclude(graph, "nightly.20260827.1202");
-});
-
-it("renders compact release dividers and changelogs on both sides", () => {
-  const markdown = renderMarkdown(fixture);
-  assert.ok(markdown.indexOf("## Change types") < markdown.indexOf("## Upstream commits/merges"));
-  assert.match(markdown, /\| `fix`\s+\|\s+1 \|\s+0 \|/);
-  assert.match(markdown, /\| Other\s+\|\s+0 \|\s+1 \|/);
-  assert.match(markdown, /-+\[ nightly 1166 \]-+/);
-  assert.match(markdown, /-+\[ release v0\.0\.34-hyprws\.1 \]-+/);
-  assert.include(markdown, "[`bbbbbbb`](https://github.com/");
-  assert.include(markdown, "fix(web): tagged upstream change");
-  assert.include(markdown, "feat(desktop): released fork change");
-  assert.notInclude(markdown, "###");
-  assert.strictEqual(markdown.endsWith("\n"), true);
-});
-
-it("reads the feasibility section before the state ladder", () => {
-  const markdown = renderMarkdown(fixture);
-  assert.ok(markdown.indexOf("## Feasibility") < markdown.indexOf("## State"));
-  assert.ok(markdown.indexOf("## State") < markdown.indexOf("```text"));
-  assert.ok(
-    markdown.indexOf("Feasibility: clean through") < markdown.indexOf("**Fast-forward boundary.**"),
-  );
-  assert.strictEqual(markdown.split("Feasibility: clean through").length - 1, 1);
-});
-
 it("encodes versioned, stable, ANSI-free JSON", () => {
   const first = encodeReportJson(fixture);
   const second = encodeReportJson(fixture);
@@ -265,14 +177,11 @@ it("parses cron and manual output options and rejects ambiguous argv", () => {
       "canonical/main",
       "--json-out",
       "state.json",
-      "--markdown-out",
-      "state.md",
     ]),
     {
       source: "fork/live",
       target: "canonical/main",
       jsonOut: "state.json",
-      markdownOut: "state.md",
       fetch: true,
       check: true,
       feasibilityOut: null,
@@ -467,7 +376,8 @@ it("finds conflict commit N, attributes files and counts conflict hunks and over
     assert.include(overlap?.signals[0]?.evidence ?? "", "hard: shared.txt (2 hunks)");
     assert.include(overlap?.signals[0]?.evidence ?? "", "weak hunk overlap: adjacent.txt@10~12");
     assert.notInclude(overlap?.signals[0]?.evidence ?? "", "auto.txt");
-    assert.include(renderMarkdown(report), "Feasibility: clean through 1/2 upstream commits");
+    assert.strictEqual(report.feasibility.ffBoundary.cleanCommitCount, 1);
+    assert.strictEqual(report.feasibility.ffBoundary.upstreamCommitCount, 2);
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
@@ -500,7 +410,6 @@ it("renders a recorded keep as kept instead of a fresh candidate", () => {
     );
     assert.strictEqual(kept?.decision, "keep");
     assert.strictEqual(kept?.reason, "upstream changed another hunk");
-    assert.include(renderMarkdown(report), "| kept — upstream changed another hunk |");
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
@@ -536,26 +445,20 @@ it("treats merge-tree exit codes above one as command errors", () => {
 it("writes the report once and reports unchanged outputs on a rerun", () => {
   const fixtureRepo = makeGitFixture();
   try {
-    const args = ["--json-out", "report.json", "--markdown-out", "report.md"];
+    const args = ["--json-out", "report.json"];
     const first = captureStdout(() => {
       assert.strictEqual(run(args, fixtureRepo.root), 0);
     });
-    assert.deepStrictEqual(first.trimEnd().split("\n"), [
-      "updated: report.json",
-      "updated: report.md",
-    ]);
+    assert.deepStrictEqual(first.trimEnd().split("\n"), ["updated: report.json"]);
 
-    const markdownPath = NodePath.join(fixtureRepo.root, "report.md");
-    const writtenAt = NodeFS.statSync(markdownPath).mtimeMs;
+    const jsonPath = NodePath.join(fixtureRepo.root, "report.json");
+    const writtenAt = NodeFS.statSync(jsonPath).mtimeMs;
     const second = captureStdout(() => {
       assert.strictEqual(run(args, fixtureRepo.root), 0);
     });
     assert.notInclude(second, "updated:");
-    assert.deepStrictEqual(second.trimEnd().split("\n"), [
-      "unchanged: report.json",
-      "unchanged: report.md",
-    ]);
-    assert.strictEqual(NodeFS.statSync(markdownPath).mtimeMs, writtenAt);
+    assert.deepStrictEqual(second.trimEnd().split("\n"), ["unchanged: report.json"]);
+    assert.strictEqual(NodeFS.statSync(jsonPath).mtimeMs, writtenAt);
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
@@ -564,14 +467,7 @@ it("writes the report once and reports unchanged outputs on a rerun", () => {
 it("writes a carryable feasibility walk beside the report", () => {
   const fixtureRepo = makeGitFixture();
   try {
-    const args = [
-      "--json-out",
-      "report.json",
-      "--markdown-out",
-      "report.md",
-      "--feasibility-out",
-      "walk.json",
-    ];
+    const args = ["--json-out", "report.json", "--feasibility-out", "walk.json"];
     const output = captureStdout(() => {
       assert.strictEqual(run(args, fixtureRepo.root), 0);
     });
@@ -600,7 +496,7 @@ it("writes a carryable feasibility walk beside the report", () => {
 it("checks schema v3 output for default and explicit targets and detects a moved ref", () => {
   const fixtureRepo = makeGitFixture();
   try {
-    const args = ["--json-out", "report.json", "--markdown-out", "report.md"];
+    const args = ["--json-out", "report.json"];
     const targetArgs = [...args, "--target", fixtureRepo.cleanTargetSha];
     assert.strictEqual(run(targetArgs, fixtureRepo.root), 0);
     assert.strictEqual(run([...targetArgs, "--check"], fixtureRepo.root), 0);
