@@ -12013,9 +12013,9 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
           // Upstream's tracked-bootstrap flow only prepares a worktree in a real
           // repository whose base resolves; stand both gates in so the fork's
           // zmux bind at the created worktree stays under test.
-          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: zmux-estate/zmux-bootstrap-bind
           gitVcsDriver: {
-            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: zmux-estate/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {
@@ -12123,9 +12123,9 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
           // Upstream's tracked-bootstrap flow only prepares a worktree in a real
           // repository whose base resolves; stand both gates in so the fork's
           // zmux bind at the created worktree stays under test.
-          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: zmux-estate/zmux-bootstrap-bind
           gitVcsDriver: {
-            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: zmux-estate/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {

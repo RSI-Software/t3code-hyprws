@@ -1,38 +1,35 @@
+// @effect-diagnostics nodeBuiltinImport:off - the tip proof reads real blobs through git.
+
 // Pure fixtures: the re-apply stage decides from text alone, so every anchor rule is exercised
-// without a lane.
+// without a lane. The last test is the standing proof of the derived model
+// (RSI-Software/t3code-hyprws#1155): every hook the fork tip declares, re-applied onto the tip's
+// own upstream base, reproduces the tip byte for byte.
 
 import { assert, it } from "@effect/vitest";
+import * as NodeChildProcess from "node:child_process";
 
-import { matchingDelimiter } from "./fork-conflict-outcomes.ts";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
+import { deriveForkHooks, readForkHookTree, type ForkHooksManifest } from "./fork-hooks.ts";
 
-const reapply = (merged: string, fork: string, entries: Parameters<typeof reapplyForkHooks>[2]) =>
-  reapplyForkHooks(merged, fork, entries, matchingDelimiter);
+const after = (...context: ReadonlyArray<string>) => ({ context });
 
 it("treats a marker that survived the upstream rewrite as intact", () => {
   const merged =
     'import { a } from "a";\nimport { forkThing } from "fork"; // fork-hook: dom/name\nconst x = a();\n';
   const fork = 'import { forkThing } from "fork"; // fork-hook: dom/name\n';
-  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/name", anchor: after('import { a } from "a";') },
+  ]);
   assert.strictEqual(result.results[0]?.outcome.status, "intact");
   assert.strictEqual(result.reinserted.length, 0);
   assert.strictEqual(result.text, merged);
 });
 
-it("reads the import block past a comment header or directive preamble", () => {
-  const merged = '// licence header\n"use client";\nimport { a } from "a";\nconst x = a();\n';
-  const fork = 'import { forkThing } from "fork"; // fork-hook: dom/name\n';
-  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
-  assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
-  const lines = result.text.split("\n");
-  assert.strictEqual(lines.indexOf('import { forkThing } from "fork"; // fork-hook: dom/name'), 3);
-});
-
-it("re-inserts a line hook after its single call site, marker exactly once", () => {
+it("re-inserts a line hook directly after its context, marker exactly once", () => {
   const merged = "const session = startSession(opts);\nconst done = finish(session);\n";
   const fork = "const env = makeForkEnv(); // fork-hook: dom/env\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/env", anchor: { kind: "after-call", symbol: "startSession" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/env", anchor: after("const session = startSession(opts);") },
   ]);
   assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
   assert.deepStrictEqual(result.reinserted, ["dom/env"]);
@@ -52,17 +49,17 @@ it("re-inserts a line hook after its single call site, marker exactly once", () 
   );
 });
 
-it("re-inserts a hook inside a collection, before the closing brace", () => {
+it("places a collection member from the context inside the collection", () => {
   const merged = "export interface Options {\n  name: string;\n}\n";
   const fork = "  forkThing: string; // fork-hook: dom/opt\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/opt", anchor: { kind: "collection", symbol: "Options" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/opt", anchor: after("  name: string;") },
   ]);
   assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
   assert.include(result.text, "  forkThing: string; // fork-hook: dom/opt\n}\n");
 });
 
-it("re-inserts a JSX pair inside its parent, end marker placed with it", () => {
+it("re-inserts a JSX pair whole, end marker placed with it", () => {
   const merged = [
     "export function Panel() {",
     "  return (",
@@ -78,13 +75,12 @@ it("re-inserts a JSX pair inside its parent, end marker placed with it", () => {
     "      <Badge />",
     "      {/* fork-hook-end */}",
   ].join("\n");
-  const result = reapply(merged, fork, [
-    { key: "dom/badge", anchor: { kind: "jsx-parent", symbol: "MenuPopup" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/badge", anchor: after("      <Item />") },
   ]);
   assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
   assert.strictEqual(result.text.split("fork-hook: dom/badge").length - 1, 1);
   assert.strictEqual(result.text.split("fork-hook-end").length - 1, 1);
-  // The pair sits inside the parent: after the last child, before the closing tag's own line.
   const inserted = result.text.split("\n");
   assert.strictEqual(inserted.indexOf("      <Badge />"), inserted.indexOf("    </MenuPopup>") - 2);
   assert.strictEqual(
@@ -93,40 +89,47 @@ it("re-inserts a JSX pair inside its parent, end marker placed with it", () => {
   );
 });
 
-it("refuses an ambiguous anchor by hook key", () => {
-  const merged = "startSession(a);\nstartSession(b);\n";
+it("refuses an ambiguous context by hook key", () => {
+  const merged = "startSession(a);\nrun();\nstartSession(a);\nrun();\n";
   const fork = "const env = makeForkEnv(); // fork-hook: dom/env\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/env", anchor: { kind: "after-call", symbol: "startSession" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/env", anchor: after("startSession(a);") },
   ]);
   assert.deepInclude(result.results[0], {
     key: "dom/env",
     outcome: {
       status: "refuse",
-      reason: "`startSession` is called 2 times; the anchor is ambiguous",
+      reason: "the hook's anchor context matches 2 sites; the anchor is ambiguous",
     },
   });
   assert.strictEqual(result.reinserted.length, 0);
   assert.strictEqual(result.text, merged);
 });
 
-it("refuses a zero-site anchor instead of falling back to the file end", () => {
+it("refuses a context the merged text lost instead of falling back to the file end", () => {
   const merged = "const x = other();\n";
   const fork = "const env = makeForkEnv(); // fork-hook: dom/env\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/env", anchor: { kind: "after-call", symbol: "startSession" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/env", anchor: after("const session = startSession(opts);") },
   ]);
-  assert.deepInclude(result.results[0]?.outcome, { status: "refuse" });
-  assert.include(
-    result.results[0]?.outcome.status === "refuse" ? result.results[0]?.outcome.reason : "",
-    "no call site",
-  );
+  assert.deepInclude(result.results[0]?.outcome, {
+    status: "refuse",
+    reason: "the hook's anchor context is not in the merged text",
+  });
+});
+
+it("matches a re-indented context and keeps the hook's own bytes", () => {
+  const merged = "function go() {\n    run();\n}\n";
+  const fork = "  forkRun(); // fork-hook: dom/run\n";
+  const result = reapplyForkHooks(merged, fork, [{ key: "dom/run", anchor: after("  run();") }]);
+  assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
+  assert.include(result.text, "    run();\n  forkRun(); // fork-hook: dom/run\n");
 });
 
 it("refuses a hook whose marker is unreadable in the fork text", () => {
   const merged = 'import { a } from "a";\n';
-  const result = reapply(merged, 'import { forkThing } from "fork";\n', [
-    { key: "dom/name", anchor: { kind: "import-block" } },
+  const result = reapplyForkHooks(merged, 'import { forkThing } from "fork";\n', [
+    { key: "dom/name", anchor: after('import { a } from "a";') },
   ]);
   assert.deepInclude(result.results[0]?.outcome, {
     status: "refuse",
@@ -134,40 +137,13 @@ it("refuses a hook whose marker is unreadable in the fork text", () => {
   });
 });
 
-it("refuses a JSX pair whose closing tag shares its line", () => {
-  const merged =
-    "export function Panel() {\n  return (\n    <MenuPopup>\n      <Item />\n    </MenuPopup>);\n}\n";
-  const fork = "  {/* fork-hook: dom/badge */}\n  <Badge />\n  {/* fork-hook-end */}\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/badge", anchor: { kind: "jsx-parent", symbol: "MenuPopup" } },
-  ]);
-  assert.deepInclude(result.results[0]?.outcome, { status: "refuse" });
-  assert.include(
-    result.results[0]?.outcome.status === "refuse" ? result.results[0]?.outcome.reason : "",
-    "end marker cannot be placed",
-  );
-});
-
-it("refuses a declaration anchor that matches several sites", () => {
-  const merged = "const stamp = 1;\nconst stamp = 2;\n";
-  const fork = "export { stamp }; // fork-hook: dom/stamp\n";
-  const result = reapply(merged, fork, [
-    { key: "dom/stamp", anchor: { kind: "after-decl", symbol: "stamp" } },
-  ]);
-  assert.deepInclude(result.results[0]?.outcome, { status: "refuse" });
-  assert.include(
-    result.results[0]?.outcome.status === "refuse" ? result.results[0]?.outcome.reason : "",
-    "ambiguous",
-  );
-});
-
 it("applies several reinsertions at one anchor in the order given", () => {
   const merged = 'import { a } from "a";\nconst x = a();\n';
   const forkA = 'import { forkOne } from "one"; // fork-hook: dom/one\n';
   const forkB = 'import { forkTwo } from "two"; // fork-hook: dom/two\n';
-  const result = reapply(merged, `${forkA}${forkB}`, [
-    { key: "dom/one", anchor: { kind: "import-block" } },
-    { key: "dom/two", anchor: { kind: "import-block" } },
+  const result = reapplyForkHooks(merged, `${forkA}${forkB}`, [
+    { key: "dom/one", anchor: after('import { a } from "a";') },
+    { key: "dom/two", anchor: after('import { a } from "a";') },
   ]);
   assert.deepStrictEqual(result.reinserted, ["dom/one", "dom/two"]);
   const lines = result.text.split("\n");
@@ -183,29 +159,15 @@ it("re-inserts a multi-line import whole, marker on its last line", () => {
     '} from "./fork.fork.ts"; // fork-hook: dom/name',
     "",
   ].join("\n");
-  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
-  assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
-  const lines = result.text.split("\n");
-  const at = lines.indexOf("import {");
-  assert.notStrictEqual(at, -1);
-  assert.strictEqual(lines[at + 1], "  forkThing,");
-  assert.strictEqual(lines[at + 2], '} from "./fork.fork.ts"; // fork-hook: dom/name');
-});
-
-it("re-inserts a multi-line branch statement whole, marker on its closing brace", () => {
-  const merged = "export function go() {\n  run();\n}\n";
-  const fork = ["if (maybeFork()) {", "  forkDispatch();", "} // fork-hook: dom/branch", ""].join(
-    "\n",
-  );
-  const result = reapply(merged, fork, [
-    { key: "dom/branch", anchor: { kind: "after-call", symbol: "run" } },
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/name", anchor: after('import { a } from "a";') },
   ]);
   assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
   const lines = result.text.split("\n");
-  const at = lines.findIndex((line) => line.trim() === "if (maybeFork()) {");
-  assert.notStrictEqual(at, -1);
-  assert.strictEqual(lines[at + 1]?.trim(), "forkDispatch();");
-  assert.strictEqual(lines[at + 2]?.trim(), "} // fork-hook: dom/branch");
+  const at = lines.indexOf("import {");
+  assert.strictEqual(at, 1);
+  assert.strictEqual(lines[at + 1], "  forkThing,");
+  assert.strictEqual(lines[at + 2], '} from "./fork.fork.ts"; // fork-hook: dom/name');
 });
 
 it("refuses a marker whose statement start cannot be proven", () => {
@@ -216,7 +178,9 @@ it("refuses a marker whose statement start cannot be proven", () => {
     '} from "./fork.fork.ts"; // fork-hook: dom/name',
     "",
   ].join("\n");
-  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/name", anchor: after('import { a } from "a";') },
+  ]);
   assert.deepInclude(result.results[0]?.outcome, {
     status: "refuse",
     reason: "the fork side of this conflict carries no readable marker for the hook",
@@ -242,8 +206,7 @@ it("re-inserts an overlaid tip span as the raw unmarked fork lines", () => {
   const result = reapplyForkHooks(
     merged,
     fork,
-    [{ key: "dom/name", anchor: { kind: "import-block" } }],
-    matchingDelimiter,
+    [{ key: "dom/name", anchor: after('import { a } from "a";') }],
     { spans: new Map([["dom/name", span]]) },
   );
   assert.deepStrictEqual(result.reinserted, ["dom/name"]);
@@ -266,12 +229,90 @@ it("an in-file marker wins over an overlaid tip span for the same key", () => {
   const result = reapplyForkHooks(
     merged,
     fork,
-    [{ key: "dom/name", anchor: { kind: "import-block" } }],
-    matchingDelimiter,
+    [{ key: "dom/name", anchor: after('import { a } from "a";') }],
     { spans: new Map([["dom/name", span]]) },
   );
   assert.deepStrictEqual(result.reinserted, ["dom/name"]);
   // The marked line was read, not the overlay span's line 2.
   assert.include(result.text, 'import { forkThing } from "fork"; // fork-hook: dom/name');
   assert.isFalse(result.text.includes("const other"));
+});
+
+/**
+ * The fork tip's own hooks, re-applied onto the base they were written against. Every hooked file
+ * is proven against the text the hooks were woven into — the tip with every marked span removed,
+ * which is what an upstream file looks like before the fork touches it — and, for the files whose
+ * upstream blob is exactly that text, against the real upstream blob as well.
+ */
+const git = (...argv: ReadonlyArray<string>): string =>
+  NodeChildProcess.execFileSync("git", [...argv], { encoding: "utf8", maxBuffer: 1 << 28 });
+
+it("re-applies every hook the fork tip declares onto its base, byte for byte", () => {
+  const tree = readForkHookTree();
+  const manifest = deriveForkHooks(tree);
+  assert.isAbove(manifest.length, 100, "the tip must declare the fork's hooks");
+  // CI checks this package out shallow and without an `upstream` remote, so the upstream-blob
+  // subset is opportunistic; the woven base needs no history and always runs.
+  const base = ((): string | null => {
+    try {
+      git("rev-parse", "--verify", "--quiet", "upstream/main");
+      return git("merge-base", "HEAD", "upstream/main").trim();
+    } catch {
+      return null;
+    }
+  })();
+  const byPath = new Map<string, Array<ForkHooksManifest[number]>>();
+  for (const entry of manifest) byPath.set(entry.path, [...(byPath.get(entry.path) ?? []), entry]);
+  const reapply = (into: string, tip: string, entries: ReadonlyArray<ForkHooksManifest[number]>) =>
+    reapplyForkHooks(
+      into,
+      tip,
+      entries.map((entry) => ({ key: entry.key, anchor: entry.anchor, span: entry.span })),
+    );
+  /** The first line the re-applied text and the tip disagree on, with its neighbourhood. */
+  const firstDrift = (got: string, want: string): string => {
+    const left = got.split("\n");
+    const right = want.split("\n");
+    const at = left.findIndex((line, index) => line !== right[index]);
+    if (at === -1) return "";
+    return ` first drift at line ${at + 1}: got ${JSON.stringify(left.slice(at, at + 3))} want ${JSON.stringify(right.slice(at, at + 3))}`;
+  };
+  const refusals = (result: ReturnType<typeof reapply>) =>
+    result.results
+      .filter(({ outcome }) => outcome.status === "refuse")
+      .map(({ key, outcome }) => `${key}: ${outcome.status === "refuse" ? outcome.reason : ""}`)
+      .join("; ");
+  let againstUpstream = 0;
+  for (const [path, entries] of byPath) {
+    const tip = tree.get(path) ?? "";
+    const marked = new Set<number>();
+    for (const entry of entries)
+      for (let line = entry.span.startLine; line <= entry.span.endLine; line += 1) marked.add(line);
+    const woven = tip
+      .split("\n")
+      .filter((_, index) => !marked.has(index + 1))
+      .join("\n");
+    const onWoven = reapply(woven, tip, entries);
+    assert.strictEqual(
+      onWoven.text,
+      tip,
+      `${path} (woven base): ${refusals(onWoven)}${firstDrift(onWoven.text, tip)}`,
+    );
+    if (base === null) continue;
+    let upstream: string;
+    try {
+      upstream = git("show", `${base}:${path}`);
+    } catch {
+      continue; // fork-added file: no upstream blob to re-apply onto
+    }
+    if (upstream !== woven) continue; // the fork also changed non-hook lines in this file
+    const onUpstream = reapply(upstream, tip, entries);
+    assert.strictEqual(
+      onUpstream.text,
+      tip,
+      `${path} (upstream base): ${refusals(onUpstream)}${firstDrift(onUpstream.text, tip)}`,
+    );
+    againstUpstream += 1;
+  }
+  if (base !== null) assert.isAbove(againstUpstream, 0, "no hooked file matched its upstream base");
 });
