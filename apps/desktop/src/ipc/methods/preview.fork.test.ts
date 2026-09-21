@@ -268,6 +268,7 @@ describe("fork preview IPC ownership", () => {
             stateListener = listener;
           }),
         subscribeOwnedRecordingFrames: () => Effect.void,
+        subscribeOwnedRecordingInputs: () => Effect.void,
         subscribeOwnedPointerEvents: () => Effect.void,
       } as never),
     );
