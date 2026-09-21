@@ -469,19 +469,3 @@ export const summarizeOutcomes = (receipts: ReadonlyArray<OutcomeReceipt>) => {
     };
   });
 };
-
-/** Canonical eligible order includes blocked and rewritten targets; exclusion never changes rows. */
-export const outcomeStreak = (receipts: ReadonlyArray<OutcomeReceipt>) => {
-  const eligible = summarizeOutcomes(receipts).filter((row) => row.eligible);
-  let noAgentCarry = 0;
-  let distributed = 0;
-  for (const row of eligible.toReversed()) {
-    if (!row.noAgentCarry) break;
-    noAgentCarry += 1;
-  }
-  for (const row of eligible.toReversed()) {
-    if (!row.distributed) break;
-    distributed += 1;
-  }
-  return { eligibleTargets: eligible.length, noAgentCarry, distributed, outcomes: eligible };
-};

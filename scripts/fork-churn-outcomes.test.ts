@@ -6,15 +6,17 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { readChurnState } from "./fork-churn-ledger.ts";
 import { CHURN_REF, CHURN_LEDGER_FILE, RERERE_REF, writeBotRefFile } from "./lib/fork-bot-refs.ts";
-import type { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
+import { readChurnState } from "./fork-churn-ledger.ts";
+import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
 
 const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const cli = NodePath.join(import.meta.dirname, "fork-churn.ts");
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
-const decode = (value: string) =>
-  (decodeJson(value) as { outcomes: ReturnType<typeof summarizeOutcomes> }).outcomes[0]!;
+// The outcome CLI stdout is a compact receipt (`added`, `commit`); the verdict lives in the
+// ledger, so tests read the same first eligible row the retained outcomes publish.
+const decode = (root: string) =>
+  summarizeOutcomes(readChurnState(root).outcomes).find((row) => row.eligible)!;
 
 it.layer(NodeServices.layer)("outcome CLI", (it) => {
   it.effect(
@@ -143,14 +145,14 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         };
         const failed = run(["outcome", "--release"], releaseEnv);
         assert.strictEqual(failed.status, 0, failed.stderr);
-        assert.strictEqual(decode(failed.stdout).resume, "release-only");
+        assert.strictEqual(decode(root).resume, "release-only");
         const retry = run(["outcome", "--release"], {
           ...releaseEnv,
           GITHUB_RUN_ATTEMPT: "2",
           RELEASE_FIXTURE_ASSETS: yield* encode({ assets }),
         });
         assert.strictEqual(retry.status, 0, retry.stderr);
-        const result = decode(retry.stdout);
+        const result = decode(root);
         assert.strictEqual(result.resume, "complete");
         assert.strictEqual(result.appliedSha, appliedSha);
         assert.strictEqual(result.releasedSha, releasedSha);
@@ -182,9 +184,9 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         yield* write("sync-report.json", report);
         const stopped = run(["outcome", "--sync-report", "sync-report.json"]);
         assert.strictEqual(stopped.status, 0, stopped.stderr);
-        const stoppedAttempt = decode(stopped.stdout).attempts.at(-1)!;
+        const stoppedAttempt = decode(root).attempts.at(-1)!;
         assert.strictEqual(
-          decode(stopped.stdout).stages.find(
+          decode(root).stages.find(
             (row) => row.attemptId === stoppedAttempt.attemptId && row.stage === "verification",
           )?.status,
           "blocked",
@@ -199,7 +201,7 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
           FORK_OUTCOME_CACHE_EXPORT: "success",
         });
         assert.strictEqual(resumed.status, 0, resumed.stderr);
-        const resumedOutcome = decode(resumed.stdout);
+        const resumedOutcome = decode(root);
         assert.strictEqual(resumedOutcome.appliedSha, releasedSha);
         // The lane published the cache itself and the workflow job reports the same export, so
         // the attempt keeps one cache-export receipt rather than two conflicting readings of it.
@@ -332,10 +334,10 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
       assert.strictEqual(migrated.status, 0, migrated.stderr);
       const result = decodeJson(migrated.stdout) as {
         readonly added: number;
-        readonly noAgentCarry: number;
+        readonly commit: string;
       };
       assert.strictEqual(result.added, 0);
-      assert.strictEqual(result.noAgentCarry, 1);
+      assert.strictEqual(result.commit, git(["rev-parse", CHURN_REF]));
       assert.notStrictEqual(git(["rev-parse", CHURN_REF]), original);
       assert.strictEqual(
         git(["log", "-1", "--format=%s", CHURN_REF]),
@@ -559,7 +561,7 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         },
       );
       assert.strictEqual(failed.status, 0, failed.stderr);
-      const outcome = decode(failed.stdout);
+      const outcome = decode(root);
       assert.strictEqual(
         outcome.stages.find((row: { stage: string }) => row.stage === "selection")?.status,
         "failed",
