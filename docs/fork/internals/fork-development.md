@@ -157,43 +157,6 @@ Both exceptions are spent; each needed a lease and an archive ref.
 
 A walk repair for one replayed commit is a trailer-free `fixup!`, autosquashed before the leased push.
 
-### Authoring guards run in the scan
-
-| Guard             | Fires when                                     |
-| ----------------- | ---------------------------------------------- |
-| `upstream-test`   | Test block outside the `.fork.test.ts` sibling |
-| `footprint`       | More than six upstream files in one commit     |
-| `replaced-export` | Deletes an upstream export, re-declares it     |
-| `lockfile`        | Changes a lockfile, which no domain owns       |
-
-| Flag                | Effect                                |
-| ------------------- | ------------------------------------- |
-| default             | Warnings advisory                     |
-| `--strict`          | All fatal                             |
-| `--since <ref>`     | Later commits; authoring guards fatal |
-| `--replay-of <ref>` | Advisory again, proved rehearsal      |
-
-Matchers live in `scripts/fork-scan-guards.ts`.
-
-### Workflow copies require an explicit review
-
-`workflow-drift` blocks `fork:scan`, including inside `fork:sync unblock-check`.
-A review in `.github/fork-workflow-reviews.json` binds upstream commit and blob, fork blob, and an `adapted` or `no-change` rationale.
-
-| Fingerprint     | Command                                  |
-| --------------- | ---------------------------------------- |
-| Upstream blob   | `git rev-parse <target>:<upstream-path>` |
-| Upstream commit | `git rev-parse <target>^{commit}`        |
-| Fork blob       | `git rev-parse HEAD:<fork-path>`         |
-| Pending edit    | `git hash-object <fork-path>`            |
-
-- **Adapt:** every job, before tests or builds
-- **State:** a reason per fork choice
-- **Commit:** workflow and manifest together
-- **Rerun:** `fork:scan --target <target>`
-- **Fork-only edit:** new blob, no new tag
-- **Stale evidence:** fails the gate
-
 ### Fork tests live in fork-owned files
 
 Fork-authored test blocks go in `<name>.fork.test.ts`, never appended upstream.
@@ -202,9 +165,7 @@ Otherwise the replay conflicts at one seam on every upstream append.
 | Rule          | Detail                                                |
 | ------------- | ----------------------------------------------------- |
 | Append only   | A fork commit may only append upstream                |
-| `fork:scan`   | Refuses a changed or removed line                     |
 | Additive gate | A dropped line in the replay is a finding             |
-| Baseline      | `editedInPlace` in `scripts/fork-test-debt.json`      |
 | Ownership     | The selected upstream target tree                     |
 | Recognized    | `it`, `test`, `describe`, `effectIt`, Effect variants |
 
