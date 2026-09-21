@@ -11,8 +11,8 @@
 // historical patch, silently stops matching its manifests, and the next rebase
 // discovers that at a stop instead of here.
 //
-// fork-sync already runs this comparison during replay verification, where a
-// failure costs a whole lane. This is the same proof at authoring time, on the
+// The sync driver's check step reruns the same proof on the rebased trunk, where a
+// failure costs a whole run. This is the same proof at authoring time, on the
 // branch that introduced the dependency change, which is where it is cheap.
 //
 // The check is non-destructive: the generator writes in place, so the original
@@ -33,11 +33,27 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import { lockDriftClass } from "./fork-sync.ts";
 import { parseArgs as parseCliArgs, UsageError } from "./lib/fork-cli.ts";
 import { runCommand } from "./lib/fork-command.ts";
 
 export const LOCKFILE_PATH = "pnpm-lock.yaml";
+
+/** One lockfile comparison's verdict, by the section the drift landed in. */
+export const lockDriftClass = (
+  before: string,
+  after: string,
+): "none" | "importers" | "snapshots" => {
+  if (before === after) return "none";
+  return section(before, "importers:") === section(after, "importers:") ? "snapshots" : "importers";
+};
+
+const section = (text: string, heading: string): string => {
+  const start = text.indexOf(`${heading}\n`);
+  if (start === -1) return "";
+  const rest = text.slice(start + heading.length + 1);
+  const next = /^\S[^:\n]*:\s*$/m.exec(rest);
+  return next === null ? rest : rest.slice(0, next.index);
+};
 
 /** The generator docs/fork/operations/fork-sync.md registers for the lockfile. */
 export const LOCKFILE_GENERATOR = { command: "vp", args: ["install", "--lockfile-only"] } as const;
@@ -75,7 +91,7 @@ export interface LockfileReport {
   readonly remedy: string | null;
   /** Advisory prose for a pass that is not a clean match. */
   readonly note: string | null;
-  /** The drift class fork-sync reports for the same comparison. */
+  /** The drift class this check reports for the same comparison. */
   readonly drift: ReturnType<typeof lockDriftClass>;
 }
 

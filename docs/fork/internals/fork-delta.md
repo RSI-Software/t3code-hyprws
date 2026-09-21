@@ -27,11 +27,10 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a tag
 `fork:scan` fails when a domain's own commits change a file its table omits and upstream also changed.
 Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` spans them.
 
-| Where                                                                   | Mode                     | Against               |
-| ----------------------------------------------------------------------- | ------------------------ | --------------------- |
-| Fork CI                                                                 | Advisory, every push     | live `upstream/main`  |
-| `scan-live-upstream` in `hyprws-upstream-sync.yml`                      | Advisory, always exits 0 | trunk base            |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) gates 3 and 4 | Blocking                 | human-selected target |
+| Where                                                     | Mode                 | Against              |
+| --------------------------------------------------------- | -------------------- | -------------------- |
+| Fork CI                                                   | Advisory, every push | live `upstream/main` |
+| The sync driver's check step (`hyprws-upstream-sync.yml`) | Blocking             | the rebased tip      |
 
 **Stale fork mocks.** On every rebase, diff each `*.fork.test.*` mock key set against the sibling `*.test.*` mock of the same service.
 A key present upstream and absent in the fork sibling is stale even when both suites pass.
@@ -130,7 +129,7 @@ Decided per commit by the levers retire, reshape, automate, or accept; no gate c
 
 ### The removal rule
 
-`unexplainedRemoval` in `scripts/lib/fork-hook-alignment.ts` aligns base against fork over significant lines, accepting a removed base line only when its position falls inside a marked span.
+`unexplainedRemoval` aligns base against fork over significant lines, accepting a removed base line only when its position falls inside a marked span.
 
 | Case                                         | Result                                           |
 | -------------------------------------------- | ------------------------------------------------ |
@@ -145,15 +144,15 @@ Zero sites, several, or an unplaceable end marker leaves an ordinary `conflict` 
 
 It refuses an addition outside a marked hook, a deletion outside the removal rule, or an unknown marker, and lives in `ADOPTED_AUTHORING_GUARDS`.
 
-| Aspect            | Rule                                                       |
-| ----------------- | ---------------------------------------------------------- |
-| Fork side         | rebuilt from the upstream blob and the diff's positions    |
-| Unreconstructable | charged, never exempted                                    |
-| Removal gap       | every addition in it must be a line-kind marked hook       |
-| Formatter reflow  | same tokens either side: no addition charge                |
-| Outside the rule  | upstreamable `bugfix` commits, and generated paths         |
-| Generated files   | never reshape debt; the walk restores HEAD and regenerates |
-| Historical range  | advisory, so the woven trunk is unaffected                 |
+| Aspect            | Rule                                                     |
+| ----------------- | -------------------------------------------------------- |
+| Fork side         | rebuilt from the upstream blob and the diff's positions  |
+| Unreconstructable | charged, never exempted                                  |
+| Removal gap       | every addition in it must be a line-kind marked hook     |
+| Formatter reflow  | same tokens either side: no addition charge              |
+| Outside the rule  | upstreamable `bugfix` commits, and generated paths       |
+| Generated files   | never reshape debt; a sync restores HEAD and regenerates |
+| Historical range  | advisory, so the woven trunk is unaffected               |
 
 It charges some seams the walk accepts, never the reverse.
 A scar rule directs the author to a fork-owned file, and the narrow call left behind still needs its own marker.
@@ -173,14 +172,10 @@ A scar rule directs the author to a fork-owned file, and the narrow call left be
 
 **Measurement informs, it never enforces.** `vp run fork:delta --inventory` measures commits, lines, and shared files per domain.
 
-| Subject                | Rule                                                 |
-| ---------------------- | ---------------------------------------------------- |
-| `Fork-Repair` commits  | visible per commit, excluded from domain sums        |
-| A reshape's census     | read after its fold, never per pull request          |
-| Every `fork:sync` walk | records commits, per-domain table, shared-file count |
-| That size              | measured at replay completion, before any repair     |
-
-`vp run fork:sync fold-reshape` derives the manifest that lands a reshape into its originating commit.
+| Subject                         | Rule                                                    |
+| ------------------------------- | ------------------------------------------------------- |
+| `Fork-Repair` commits           | visible per commit, excluded from domain sums           |
+| `vp run fork:delta --inventory` | measures the checkout; the sync report measures nothing |
 
 **A `.fork.` in a filename is a reader signal only.**
 No guard decides on it, and its one placement rule is [Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
@@ -413,17 +408,16 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 
 ### Shape
 
-| Item                                                                                              | Role                                                |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                   |
-| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                  |
-| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; `package.json` names them           |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | Bot-first sync, unblock, and stable-cut procedure   |
-| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The bot lane and its fork-local issue upserts       |
-| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`            |
-| `scripts/lib/fork-progress.ts`, `scripts/lib/fork-test-quiet.ts`                                  | Shared gate progress reporter and its test silencer |
+| Item                                                                                              | Role                                               |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                  |
+| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                 |
+| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; `package.json` names them          |
+| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure        |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts |
+| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`           |
 
-Every fork workflow checkout stays off `persist-credentials: false`, pinned by `scripts/fork-workflow-checkout.test.ts`.
+Every fork workflow checkout that runs rebased code scrubs its persisted credential first; `hyprws-upstream-sync.yml`'s scrub step is the pattern.
 
 ### Retirement condition
 
@@ -438,7 +432,7 @@ Retired with the fork.
 | `apps/web/src/components/RightPanelTabs.test.tsx`, `apps/web/src/keybindings.test.ts`, `apps/web/src/rightPanelStore.test.ts`, `apps/web/src/uiStateStore.test.ts`, `apps/web/src/components/CommandPalette.tsx`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/routes/_chat.pull-requests.tsx`, `apps/web/src/routes/__root.tsx`, `apps/web/src/components/LegacySidebar.tsx`, `apps/web/src/components/Sidebar.logic.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Shared web surfaces                   |
 | `apps/desktop/src/preview/Manager.test.ts`, `apps/desktop/src/updates/DesktopUpdates.test.ts`, `apps/desktop/src/preview/Manager.ts`, `apps/desktop/src/app/DesktopEnvironment.test.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Shared desktop and Electron seams     |
 | `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Shared packages                       |
-| `README.md`, `AGENTS.md`, `docs/README.md`, `package.json`, `docs/fork/internals/scripts.md`, `docs/internals/ci.md`, `docs/internals/glossary.md`, `scripts/*.ts`, `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts`, `.github/workflows/hyprws-upstream-sync.yml`, `.github/pull_request_template.md`, `docs/operations/release.md`, `docs/user/source-control.md`, `docs/user/thread-sidebar.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Shared tooling, workflows, and docs   |
+| `README.md`, `AGENTS.md`, `docs/README.md`, `package.json`, `docs/fork/internals/scripts.md`, `docs/internals/ci.md`, `docs/internals/glossary.md`, `scripts/*.ts`, `.github/workflows/hyprws-upstream-sync.yml`, `.github/pull_request_template.md`, `docs/operations/release.md`, `docs/user/source-control.md`, `docs/user/thread-sidebar.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Shared tooling, workflows, and docs   |
 | `pnpm-lock.yaml`, `third-party-licenses.config.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Other shared paths                    |
 
 ## distribution
