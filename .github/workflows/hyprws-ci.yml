@@ -23,8 +23,6 @@ on:
   push:
     branches:
       - hyprws
-      - hyprws-next
-      - "rehearse/**"
       - "release/**"
 
 concurrency:

@@ -7,20 +7,13 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
-  acquireBotRefLease,
-  CHURN_LEDGER_FILE,
-  CHURN_REF,
-  publishBotRefLease,
-  pushBotRef,
-  RERERE_REF,
   publishRerereSnapshot,
-  readBotRefFile,
   resolveBotRef,
   restoreRerereCache,
+  RERERE_REF,
   saveRerereCache,
-  writeBotRefFile,
 } from "./fork-bot-refs.ts";
-import { runCommandText } from "./fork-command.ts";
+import { runCommand, runCommandText } from "./fork-command.ts";
 
 const repository = (): string => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-bot-refs-test-"));
@@ -39,27 +32,11 @@ const withRepository = (effect: (root: string) => void): void => {
   }
 };
 
-it("appends to a bot-owned ref without touching the working tree", () => {
-  withRepository((root) => {
-    assert.strictEqual(resolveBotRef(root, CHURN_REF), null);
-    const first = writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: seed");
-    assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), "[]\n");
-
-    // An unchanged tree is not a new commit, so a rerun of the report is a no-op.
-    assert.strictEqual(
-      writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: seed"),
-      first,
-    );
-
-    const second = writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, '["v1"]\n', "churn: v1");
-    assert.notStrictEqual(second, first);
-    assert.strictEqual(
-      runCommandText("git", ["rev-parse", `${CHURN_REF}~1`], { cwd: root }).trim(),
-      first,
-    );
-    assert.deepStrictEqual(NodeFS.readdirSync(root), [".git"]);
-  });
-});
+/** Read one path out of the local `refs/fork/rerere` tree; `null` when either is absent. */
+const readRerereFile = (root: string, path: string): string | null => {
+  const result = runCommand("git", ["show", `${RERERE_REF}:${path}`], { cwd: root });
+  return result.status === 0 ? result.stdout : null;
+};
 
 const cacheEntry = (root: string, key: string, resolution: string): string => {
   const directory = NodePath.join(root, ".git", "rr-cache", key);
@@ -117,8 +94,8 @@ it("retries a lost lease while retaining both publishers' independent resolution
     assert.strictEqual(pushes, 2);
     assert.strictEqual(leases[0], "");
     assert.match(leases[1]!, /^[a-f0-9]{40}$/);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "left/postimage"), "left resolution\n");
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "right/postimage"), "right resolution\n");
+    assert.strictEqual(readRerereFile(remote, "left/postimage"), "left resolution\n");
+    assert.strictEqual(readRerereFile(remote, "right/postimage"), "right resolution\n");
     assert.strictEqual(publishRerereSnapshot(left, snapshot), published);
   });
 });
@@ -132,7 +109,7 @@ it("refuses same-key disagreement without overwriting either resolution", () => 
       /resolution disagreement at same\/postimage/,
     );
     assert.strictEqual(resolveBotRef(remote, RERERE_REF), existing);
-    assert.strictEqual(readBotRefFile(left, RERERE_REF, "same/postimage"), "left resolution\n");
+    assert.strictEqual(readRerereFile(left, "same/postimage"), "left resolution\n");
   });
 });
 
@@ -148,7 +125,7 @@ it("opens a new variant when the same key already holds a different preimage", (
   withPublishers((left, right, remote) => {
     // The rr-cache id hashes only the conflict hunks, so the same seam under a moved
     // context reaches the shared ref as the same key with a different preimage. Git
-    // numbers such variants per clone; the walk that resolved it is not overwritten
+    // numbers such variants per clone; the run that resolved it is not overwritten
     // and not refused.
     publishRerereSnapshot(right, variantFiles(right, "seam", { preimage: "older context\n" }));
     const snapshot = variantFiles(left, "seam", {
@@ -156,18 +133,18 @@ it("opens a new variant when the same key already holds a different preimage", (
       postimage: "resolved\n",
     });
     assert.match(publishRerereSnapshot(left, snapshot), /^[a-f0-9]{40}$/);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage"), "older context\n");
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage"), null);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage.1"), "newer context\n");
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage.1"), "resolved\n");
+    assert.strictEqual(readRerereFile(remote, "seam/preimage"), "older context\n");
+    assert.strictEqual(readRerereFile(remote, "seam/postimage"), null);
+    assert.strictEqual(readRerereFile(remote, "seam/preimage.1"), "newer context\n");
+    assert.strictEqual(readRerereFile(remote, "seam/postimage.1"), "resolved\n");
   });
 });
 
 it("fills the shared variant whose preimage the resolution matches", () => {
   withPublishers((left, right, remote) => {
-    // Earlier stopped walks published the seam as unresolved variants; a local
+    // Earlier stopped runs published the seam as unresolved variants; a local
     // clone numbers its own sighting 0. The resolution lands beside the matching
-    // preimage instead of contending with variant 0, and a second walk that
+    // preimage instead of contending with variant 0, and a second run that
     // resolves it the same way is a no-op rather than a disagreement.
     publishRerereSnapshot(
       right,
@@ -182,9 +159,9 @@ it("fills the shared variant whose preimage the resolution matches", () => {
       postimage: "resolved\n",
     });
     const published = publishRerereSnapshot(left, snapshot);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage.2"), "resolved\n");
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/postimage"), null);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "seam/preimage.3"), null);
+    assert.strictEqual(readRerereFile(remote, "seam/postimage.2"), "resolved\n");
+    assert.strictEqual(readRerereFile(remote, "seam/postimage"), null);
+    assert.strictEqual(readRerereFile(remote, "seam/preimage.3"), null);
     assert.strictEqual(publishRerereSnapshot(left, snapshot), published);
     const contested = variantFiles(right, "seam", {
       preimage: "newer context\n",
@@ -204,7 +181,7 @@ it("never publishes a regenerated lockfile entry and never calls it a disagreeme
     const logged = console.log;
     console.log = (line: string) => notes.push(line);
     try {
-      // Two walks regenerate the lockfile with different resolved versions, so the same
+      // Two runs regenerate the lockfile with different resolved versions, so the same
       // rr-cache id carries disagreeing postimages that publication must skip, not fail on.
       publishRerereSnapshot(right, lockfileCacheEntry(right, "a".repeat(40), "resolved v1\n"));
       notes.length = 0;
@@ -212,7 +189,7 @@ it("never publishes a regenerated lockfile entry and never calls it a disagreeme
         left,
         lockfileCacheEntry(left, "a".repeat(40), "resolved v2\n"),
       );
-      // A real resolution from the same walk still lands alongside the skipped entry.
+      // A real resolution from the same run still lands alongside the skipped entry.
       // Drop the local lockfile entry so the follow-up snapshot carries only the real one.
       NodeFS.rmSync(NodePath.join(left, ".git", "rr-cache", "a".repeat(40)), {
         recursive: true,
@@ -227,14 +204,11 @@ it("never publishes a regenerated lockfile entry and never calls it a disagreeme
       `note: skipping regenerated lockfile rerere entry ${"a".repeat(40)}/postimage`,
     ]);
     assert.strictEqual(
-      readBotRefFile(remote, RERERE_REF, `${"a".repeat(40)}/postimage`),
+      readRerereFile(remote, `${"a".repeat(40)}/postimage`),
       null,
       "the regenerated lockfile must never enter the shared rerere ref",
     );
-    assert.strictEqual(
-      readBotRefFile(remote, RERERE_REF, `${"b".repeat(40)}/postimage`),
-      "human resolution\n",
-    );
+    assert.strictEqual(readRerereFile(remote, `${"b".repeat(40)}/postimage`), "human resolution\n");
   });
 });
 
@@ -248,7 +222,7 @@ it("restore never replays a shared lockfile entry into the local rr-cache", () =
     }).trim();
     const postimageBlob = runCommandText("git", ["hash-object", "-w", "--stdin"], {
       cwd: root,
-      input: "resolved on an older walk\n",
+      input: "resolved on an older run\n",
     }).trim();
     const subtree = runCommandText("git", ["mktree"], {
       cwd: root,
@@ -293,10 +267,10 @@ it("bounds competing publication to three leases and keeps its snapshot resumabl
       /exhausted 3 leased attempts/,
     );
     assert.strictEqual(pushes, 3);
-    assert.strictEqual(readBotRefFile(remote, RERERE_REF, "pending/postimage"), null);
+    assert.strictEqual(readRerereFile(remote, "pending/postimage"), null);
     publishRerereSnapshot(left, snapshot);
     for (const key of ["pending", "racer1", "racer2", "racer3"])
-      assert.isNotNull(readBotRefFile(remote, RERERE_REF, `${key}/postimage`));
+      assert.isNotNull(readRerereFile(remote, `${key}/postimage`));
   });
 });
 
@@ -360,162 +334,5 @@ it("round-trips the rerere cache through its bot-owned ref", () => {
       "resolved\n",
     );
     assert.notStrictEqual(resolveBotRef(root, RERERE_REF), null);
-  });
-});
-
-// Every mutating ledger write leases the ref origin advertises, so an existing checkout
-// appends to an advanced ledger instead of failing the same lease forever (#631).
-
-const headOf = (root: string, ref = CHURN_REF): string =>
-  runCommandText("git", ["rev-parse", ref], { cwd: root }).trim();
-
-const seedPublishedLedger = (publisher: string, contents = "[]\n"): string => {
-  const commit = writeBotRefFile(publisher, CHURN_REF, CHURN_LEDGER_FILE, contents, "churn: seed");
-  pushBotRef(publisher, CHURN_REF);
-  return commit;
-};
-
-it("leases the published ledger from a checkout holding a stale local ref", () => {
-  withPublishers((publisher, consumer, remote) => {
-    const seeded = seedPublishedLedger(publisher);
-    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
-    const advanced = writeBotRefFile(
-      publisher,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["v1"]\n',
-      "churn: v1",
-    );
-    pushBotRef(publisher, CHURN_REF);
-
-    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
-    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: advanced, base: advanced });
-    // The write now reads the concurrent walk rather than the head the checkout cached.
-    assert.strictEqual(readBotRefFile(consumer, CHURN_REF, CHURN_LEDGER_FILE), '["v1"]\n');
-    const appended = writeBotRefFile(
-      consumer,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["v1","v2"]\n',
-      "churn: v2",
-    );
-    publishBotRefLease(consumer, lease!, appended);
-    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["v1","v2"]\n');
-  });
-});
-
-it("creates the local ref from origin when the checkout has never seen the ledger", () => {
-  withPublishers((publisher, consumer) => {
-    const seeded = seedPublishedLedger(publisher, '["v1"]\n');
-    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
-    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: seeded, base: seeded });
-    assert.strictEqual(headOf(consumer), seeded);
-  });
-});
-
-it("retains an unpushed local append and leases it against the published head", () => {
-  withPublishers((publisher, consumer, remote) => {
-    const seeded = seedPublishedLedger(publisher);
-    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
-    const pending = writeBotRefFile(
-      consumer,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["pending"]\n',
-      "churn: pending",
-    );
-
-    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
-    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: seeded, base: pending });
-    publishBotRefLease(consumer, lease!, pending);
-    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["pending"]\n');
-  });
-});
-
-it("fails closed when origin moves between the lease and the push, then succeeds on a rerun", () => {
-  withPublishers((publisher, consumer, remote) => {
-    const seeded = seedPublishedLedger(publisher);
-    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
-    const lease = acquireBotRefLease(consumer, CHURN_REF, true)!;
-    const local = writeBotRefFile(
-      consumer,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["consumer"]\n',
-      "churn: consumer",
-    );
-    const rival = writeBotRefFile(
-      publisher,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["rival"]\n',
-      "churn: rival",
-    );
-    pushBotRef(publisher, CHURN_REF);
-
-    assert.throws(
-      () => publishBotRefLease(consumer, lease, local),
-      new RegExp(`local=${local}, remote=${rival}, expected=${seeded}`),
-    );
-    assert.strictEqual(headOf(consumer), seeded);
-    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["rival"]\n');
-
-    const retry = acquireBotRefLease(consumer, CHURN_REF, true)!;
-    assert.strictEqual(retry.expectedOld, rival);
-    const merged = writeBotRefFile(
-      consumer,
-      CHURN_REF,
-      CHURN_LEDGER_FILE,
-      '["rival","consumer"]\n',
-      "churn: consumer",
-    );
-    publishBotRefLease(consumer, retry, merged);
-    assert.strictEqual(
-      readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE),
-      '["rival","consumer"]\n',
-    );
-  });
-});
-
-it("fails closed on an absent, unreachable or diverged published ledger", () => {
-  withPublishers((publisher, consumer, remote) => {
-    // Never seeded anywhere: the caller reports its own seeding instruction.
-    assert.strictEqual(acquireBotRefLease(consumer, CHURN_REF, true), null);
-
-    const local = writeBotRefFile(consumer, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: local");
-    assert.throws(
-      () => acquireBotRefLease(consumer, CHURN_REF, true),
-      new RegExp(`absent on origin.*local=${local}, remote=unknown, expected=none`),
-    );
-    assert.strictEqual(headOf(consumer), local);
-
-    const published = seedPublishedLedger(publisher, '["published"]\n');
-    assert.throws(
-      () => acquireBotRefLease(consumer, CHURN_REF, true),
-      new RegExp(`diverged.*local=${local}, remote=${published}, expected=${published}`),
-    );
-    assert.strictEqual(headOf(consumer), local);
-    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["published"]\n');
-
-    runCommandText("git", ["remote", "set-url", "origin", NodePath.join(consumer, "gone.git")], {
-      cwd: consumer,
-    });
-    assert.throws(
-      () => acquireBotRefLease(consumer, CHURN_REF, true),
-      /could not be read from origin/,
-    );
-    assert.strictEqual(headOf(consumer), local);
-  });
-});
-
-it("keeps the local-writer contract when the write is not published", () => {
-  withRepository((root) => {
-    assert.strictEqual(acquireBotRefLease(root, CHURN_REF, false), null);
-    const local = writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: local");
-    assert.deepStrictEqual(acquireBotRefLease(root, CHURN_REF, false), {
-      ref: CHURN_REF,
-      expectedOld: local,
-      base: local,
-    });
   });
 });
