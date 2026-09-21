@@ -1,6 +1,5 @@
 import type { ResolutionStage } from "./fork-conflict-resolution.ts";
 import type { ForkRebaseFeasibility } from "./fork-rebase-feasibility.ts";
-import { parseUpstreamReleaseTag } from "./fork-policy.ts";
 
 // Rebase conflict handling: blocked-rebase issues and RSI bot resolution.
 
@@ -368,31 +367,6 @@ export const inlineCode = (value: string): string => {
 
 export const blockedIssueTitle = (tag: string, blockingShortSha: string): string =>
   `🔔 hyprws auto-rebase blocked at ${tag} (upstream ${blockingShortSha})`;
-
-export interface RefreshRowInput {
-  readonly index: number;
-  readonly at: Date;
-  readonly blockingShortSha: string;
-  readonly tag: string;
-  readonly upstreamCommitCount: number;
-  readonly conflictingForkCommitCount: number | null;
-}
-
-const refreshTimestamp = (at: Date): string =>
-  `${String(at.getUTCMonth() + 1).padStart(2, "0")}-${String(at.getUTCDate()).padStart(2, "0")} ${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
-
-const refreshLane = (tag: string, upstreamCommitCount: number): string => {
-  const commitsAfterBlock = Math.max(0, upstreamCommitCount - 1);
-  const commits =
-    commitsAfterBlock <= 8
-      ? Array.from({ length: commitsAfterBlock }, () => "o")
-      : [`o x${commitsAfterBlock}`];
-  const tagNode = parseUpstreamReleaseTag(tag)?.channel === "nightly" ? "N" : "S";
-  return ["o", "X", ...commits, tagNode].join("--");
-};
-
-export const refreshRow = (input: RefreshRowInput): string =>
-  `#${input.index} ${refreshTimestamp(input.at)}  hyprws  ${refreshLane(input.tag, input.upstreamCommitCount)}  ${input.tag}  ${input.conflictingForkCommitCount ?? "?"}c`;
 
 export const closeComment = (trunkSha: string | null): string =>
   trunkSha === null ? "Resolved: no longer conflicts." : `Resolved by hyprws ${trunkSha}.`;

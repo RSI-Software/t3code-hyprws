@@ -1,17 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// The one reader for agent identity in fork tooling (RSI-Software/t3code-hyprws#703). Two
-// different questions are asked of it and they must not share an answer
-// (RSI-Software/t3code-hyprws#1112):
-//
-// - A walk attestation and a churn row's effort want the *host* identity behind the session.
-// - A review sign-off wants the *live caller's own* identity, so a peer-spawned reviewer records
-//   itself and never the session that proposed the walk.
-//
-// Both come from `ghb attest caller`, which a worker may emit: it always carries `caller`, and
-// carries `host` as well once the caller is holding a handed-off envelope. `ghb attest handoff`
-// is deliberately not used here — it refuses a worker caller, which is exactly the caller that
-// needs the host identity most.
+// The one reader for agent identity in fork tooling (RSI-Software/t3code-hyprws#703, updated by
+// RSI-Software/t3code-hyprws#1112). A review sign-off wants the *live caller's own* identity, so a
+// peer-spawned reviewer records itself and never the session that proposed the walk. It comes
+// from `ghb attest caller`, which a worker may emit: it always carries `caller`, and carries
+// `host` as well once the caller is holding a handed-off envelope.
 
 import { requireCommandSuccess, runCommand } from "./fork-command.ts";
 
@@ -83,15 +76,6 @@ const readCallerAttestation = (cwd: string): CallerAttestation =>
       "caller",
     ]),
   );
-
-/**
- * The host identity behind this session, whether it is the host itself or a worker carrying the
- * host's envelope. Walk attestations and churn effort want this one.
- */
-export const readHostIdentity = (cwd: string): AgentIdentity => {
-  const attestation = readCallerAttestation(cwd);
-  return attestation.host ?? attestation.caller;
-};
 
 /**
  * This session's own identity, never a host's. A review sign-off wants this one: substituting the

@@ -8,17 +8,12 @@ import { assert, it } from "@effect/vitest";
 
 import {
   censusChurn,
-  churnDelta,
-  commentRestId,
   hotSeams,
   parseCensusFiles,
   parseCensusTag,
   parseLedger,
   run,
   trunkRepairCommits,
-  walkCostGaps,
-  WALK_COST_WINDOW,
-  walkElapsedMs,
   type ChurnEntry,
 } from "./fork-churn.ts";
 import {
@@ -29,10 +24,12 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
+import { autoOutcomeReceipts } from "./fork-churn-outcomes.ts";
+import { requireOutcomeReceipts, summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
+import type { AutoRebaseResult } from "./fork-auto-rebase.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
 import { freezeObservation, seamRecord } from "./lib/fork-churn-seams.ts";
 import { parseCallerAttestation } from "./lib/fork-agent-identity.ts";
-import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
   NIGHTLY_REVIEW_EVIDENCE,
   parseRecord,
@@ -183,10 +180,6 @@ it("keeps nightly proposer and reviewer separate in the record and ledger", () =
     ]),
   );
   assert.deepStrictEqual(parsed?.nightlyReview, nightlyReview);
-  const section = renderChurnSection(parsed === undefined ? [] : [parsed]);
-  assert.include(section, "agent `pi/meta/muse-spark` session `walk-1`");
-  assert.include(section, "agent `pi/meta/muse-spark` session `review-2`");
-  assert.notInclude(section, "| human | 1 |");
 });
 
 it("rejects incomplete or malformed nightly review ledger provenance", () => {
@@ -578,40 +571,6 @@ it("parses the caller attestation once, schema and both identities pinned", () =
   );
 });
 
-it("keeps the delta commit count without reading a budget table", () => {
-  const root = ledgerRepository([entry("v1", [])]);
-  // churnDelta spawns `node scripts/fork-delta.ts` relative to the repository root;
-  // link the real scripts directory so the fixture can run the inventory probe.
-  NodeFS.symlinkSync(
-    new URL("./", import.meta.url).pathname,
-    NodePath.join(root, "scripts"),
-    "dir",
-  );
-  const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
-  let head = runCommandText("git", ["commit-tree", tree, "-m", "base"], { cwd: root }).trim();
-  runCommandText("git", ["update-ref", "refs/remotes/upstream/main", head], { cwd: root });
-  for (const subject of ["feat(fork): first identity", "feat(fork): second identity"]) {
-    head = runCommandText(
-      "git",
-      [
-        "commit-tree",
-        tree,
-        "-p",
-        head,
-        "-m",
-        `${subject}\n\nFork-Domain: fork-meta\nFork-Tier: qol`,
-      ],
-      { cwd: root },
-    ).trim();
-  }
-  runCommandText("git", ["update-ref", "refs/heads/hyprws", head], { cwd: root });
-  try {
-    assert.deepStrictEqual(churnDelta(root), { commits: 2 });
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("rejects a malformed elapsed or effort field on a ledger row", () => {
   const base = {
     tag: "v1",
@@ -627,7 +586,7 @@ it("rejects a malformed elapsed or effort field on a ledger row", () => {
   assert.throws(() => parseLedger(JSON.stringify([{ ...base, effort: { model: "m" } }])), /effort/);
 });
 
-it("writes the applied row when the host handoff is unavailable, effort left absent", () => {
+it("writes the applied row bound to the verbatim record comment", () => {
   const root = ledgerRepository([]);
   const record = renderRecord(reportFixture());
   NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
@@ -638,10 +597,6 @@ it("writes the applied row when the host handoff is unavailable, effort left abs
     "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
     { mode: 0o755 },
   );
-  // The attestation path is down: no ghb, an expired credential, a rate-limited daemon, CI.
-  NodeFS.writeFileSync(NodePath.join(bin, "ghb"), "#!/bin/sh\necho refused >&2\nexit 1\n", {
-    mode: 0o755,
-  });
   const previousPath = process.env.PATH;
   const previousResponse = process.env.FAKE_GH_RESPONSE;
   process.env.PATH = `${bin}:${previousPath ?? ""}`;
@@ -683,10 +638,6 @@ it("writes the applied row when the host handoff is unavailable, effort left abs
     );
     const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
     assert.strictEqual(appended.tag, "v1");
-    // The row is complete except for the decoration: no effort, and no elapsed time either,
-    // because the fixture wrote no walk report beside the record.
-    assert.strictEqual(appended.effort, undefined);
-    assert.strictEqual(appended.elapsedMs, undefined);
     assert.strictEqual(appended.recordUrl, "https://example.test/issues/1#issuecomment-1");
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
@@ -697,25 +648,13 @@ it("writes the applied row when the host handoff is unavailable, effort left abs
   }
 });
 
-/** The fake gh and ghb a pending append needs: the record lookup answered, the caller attested. */
-const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void } => {
+/** The fake gh a pending append needs: the record lookup answered. */
+const stubGh = (root: string, recordPath: string): { restore: () => void } => {
   const bin = NodePath.join(root, "bin");
   NodeFS.mkdirSync(bin, { recursive: true });
   NodeFS.writeFileSync(
     NodePath.join(bin, "gh"),
     '#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? "");\n',
-    { mode: 0o755 },
-  );
-  NodeFS.writeFileSync(
-    NodePath.join(bin, "ghb"),
-    [
-      "#!/usr/bin/env node",
-      "process.stdout.write(JSON.stringify({",
-      '  schema: "ghb.caller.v1",',
-      '  caller: { role: "host", iface: "claude", provider: "anthropic", model: "test-model", effort: "high", session: "s1" },',
-      "}));",
-      "",
-    ].join("\n"),
     { mode: 0o755 },
   );
   const previousPath = process.env.PATH;
@@ -750,53 +689,11 @@ const stubGhAndGhb = (root: string, recordPath: string): { restore: () => void }
   };
 };
 
-it("records the stopped walk's own elapsed and effort on the pending row (#1023)", () => {
-  const root = ledgerRepository([]);
-  const recordPath = NodePath.join(root, "record.md");
-  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
-  // The walk report the stop wrote beside the record: bound to this record and this walk's tag,
-  // so the pending append reads the same clock the applied append does.
-  NodeFS.writeFileSync(
-    NodePath.join(root, "report.json"),
-    JSON.stringify({ recordPath, target: { tag: "v1" }, walk: { elapsedMs: 93_000 } }),
-  );
-  const stub = stubGhAndGhb(root, recordPath);
-  try {
-    assert.strictEqual(
-      run(
-        [
-          "append",
-          "--record",
-          "record.md",
-          "--issue",
-          "1",
-          "--tag",
-          "v1",
-          "--before",
-          A,
-          "--after",
-          B,
-          "--pending",
-        ],
-        root,
-      ),
-      0,
-    );
-    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
-    assert.strictEqual(appended.pending, true);
-    assert.strictEqual(appended.elapsedMs, 93_000);
-    assert.deepStrictEqual(appended.effort, { model: "test-model", effort: "high" });
-  } finally {
-    stub.restore();
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 it("a pending append without a posted record binds the issue and the rewrite upgrades it (#1057)", () => {
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
-  const stub = stubGhAndGhb(root, recordPath);
+  const stub = stubGh(root, recordPath);
   // The stop path: nothing verbatim on the issue, so the verbatim match fails — the
   // pending row still lands, bound to the block issue itself.
   const censusBody = [
@@ -867,7 +764,7 @@ it("an applied append without a posted record still refuses the write (#1057)", 
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
-  const stub = stubGhAndGhb(root, recordPath);
+  const stub = stubGh(root, recordPath);
   process.env.FAKE_GH_RESPONSE = JSON.stringify({
     body: [
       "## Sequential rebase census",
@@ -907,83 +804,6 @@ it("an applied append without a posted record still refuses the write (#1057)", 
     assert.deepStrictEqual(parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!), []);
   } finally {
     stub.restore();
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("a stopped row never carries another walk's elapsed, and an unavailable handoff stays absent (#1023)", () => {
-  const root = ledgerRepository([]);
-  const recordPath = NodePath.join(root, "record.md");
-  NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
-  // A prior walk's report: bound to this record but a different tag, so its number is another
-  // walk's cost and must not land on this row. The handoff path is down, so effort stays absent
-  // too — and neither absence fails the write.
-  NodeFS.writeFileSync(
-    NodePath.join(root, "report.json"),
-    JSON.stringify({ recordPath, target: { tag: "v0" }, walk: { elapsedMs: 5_000 } }),
-  );
-  const stub = stubGhAndGhb(root, recordPath);
-  // The attestation path is down: no ghb, an expired credential, CI.
-  NodeFS.writeFileSync(NodePath.join(root, "bin", "ghb"), "#!/bin/sh\necho refused >&2\nexit 1\n", {
-    mode: 0o755,
-  });
-  try {
-    assert.strictEqual(
-      run(
-        [
-          "append",
-          "--record",
-          "record.md",
-          "--issue",
-          "1",
-          "--tag",
-          "v1",
-          "--before",
-          A,
-          "--after",
-          B,
-          "--pending",
-        ],
-        root,
-      ),
-      0,
-    );
-    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
-    assert.strictEqual(appended.pending, true);
-    assert.strictEqual(appended.elapsedMs, undefined);
-    assert.strictEqual(appended.effort, undefined);
-  } finally {
-    stub.restore();
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("finds the walk's elapsed time in the report bound to the record and this walk's tag", () => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-elapsed-"));
-  try {
-    const recordPath = NodePath.join(root, "record.md");
-    const writeReport = (name: string, body: object): void =>
-      NodeFS.writeFileSync(NodePath.join(root, name), JSON.stringify(body));
-    writeReport("unbound.json", {
-      recordPath: `${root}\\elsewhere.md`,
-      target: { tag: "v1" },
-      walk: { elapsedMs: 1 },
-    });
-    // A record path is reused across walks: a stale report from an earlier walk against the
-    // same record is another walk's number, never this row's.
-    writeReport("older.json", { recordPath, target: { tag: "v0" }, walk: { elapsedMs: 5_000 } });
-    assert.strictEqual(walkElapsedMs(recordPath, "v1"), undefined);
-    // A tag-matching report without a numeric elapsed time never contributes a guess.
-    writeReport("bad.json", { recordPath, target: { tag: "v1" }, walk: { elapsedMs: "soon" } });
-    assert.strictEqual(walkElapsedMs(recordPath, "v1"), undefined);
-    writeReport("matched.json", {
-      recordPath,
-      target: { tag: "v1" },
-      walk: { elapsedMs: 93_000 },
-    });
-    assert.strictEqual(walkElapsedMs(recordPath, "v1"), 93_000);
-    assert.strictEqual(walkElapsedMs(NodePath.join(root, "absent.md"), "v1"), undefined);
-  } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -1057,18 +877,9 @@ it("fails a path and logical commit seam that returns after a census gap", () =>
   });
 
   assert.deepStrictEqual(churn.regressions, []);
-  assert.deepStrictEqual(regressedSeamLines(churn), []);
   assert.strictEqual(churn.seams.find((seam) => seam.path === path)?.status, "returned-unresolved");
   assert.isTrue(churn.seams.find((seam) => seam.path === path)?.blocking);
   assert.isNull(churn.seams.find((seam) => seam.path === path)?.repairSha);
-  assert.include(
-    renderChurnSection(entries, null, {
-      tag: "v3",
-      fixedAt: null,
-      files: [censusFile(path, "3333333", subject)],
-    }),
-    "returned-unresolved",
-  );
 });
 
 it("keeps a returned seam failed until comparable repair verification exists", () => {
@@ -1157,62 +968,6 @@ it("parses the silent seams renderRecord writes", () => {
   );
 });
 
-it("measures hot-seam deltas against the previous churn section", () => {
-  const first = renderChurnSection([entry("v1", [conflict("seam", "human")])]);
-  assert.include(first, CHURN_MARKER);
-  assert.include(first, "| `seam` | 1 | human | — |");
-
-  const second = renderChurnSection(
-    [
-      entry("v1", [conflict("seam", "human")]),
-      entry("v2", [conflict("seam", "human"), conflict("fresh", "retire-candidate")]),
-    ],
-    first,
-  );
-  assert.include(second, "| `seam` | 2 | human | +1 walk |");
-  assert.include(second, "| `fresh` | 1 | retire-candidate | new |");
-
-  const third = renderChurnSection([entry("v3", [conflict("fresh", "human")])], second);
-  assert.include(third, "Dropped since the last report: `seam`.");
-});
-
-it("renders the notification KPIs from walk, seam, outcome, and delta inputs", () => {
-  const repeat = conflict("repeat.ts", "human");
-  const entries = [
-    { ...entry("v1", [repeat]), elapsedMs: 10_000, effort: { model: "model-a", effort: "low" } },
-    {
-      ...entry("v2", [repeat, { ...conflict("agent.ts", "generated"), decidedBy: "agent" }]),
-      elapsedMs: 20_000,
-    },
-  ];
-  const records = ["v0", "v1", "v2"].map((tag) =>
-    seamRecord(
-      freezeObservation({
-        tag,
-        fixedAt: null,
-        files: [censusFile("repeat.ts", "abcdef1", "feat: repeat")],
-      }),
-    ),
-  );
-  const section = renderChurnSection(entries, null, null, records, [], { commits: 12 });
-  assert.include(section, "| decisions human : agent | 1 : 1 |");
-  assert.include(section, "| conflict files, this walk vs last | 2 vs 1 |");
-  assert.include(section, "| delta commits | 12 |");
-  assert.include(
-    section,
-    "| repeat offenders (commits conflicting in 3+ notifications) | `abcdef1` |",
-  );
-  assert.include(section, "| noAgentCarry streak / 5 | 0 / 5 |");
-  assert.include(section, "| elapsed and effort | 20s; unrecorded |");
-});
-
-it("renders KPI fallbacks for a first walk", () => {
-  const section = renderChurnSection([entry("v1", [])]);
-  assert.include(section, "| conflict files, this walk vs last | 0 vs first walk |");
-  assert.include(section, "| delta commits | unrecorded |");
-  assert.include(section, "| elapsed and effort | unrecorded; unrecorded |");
-});
-
 it("counts a path only ever seen on stopped walks as a hot seam", () => {
   const seams = hotSeams([
     { ...entry("v1", [conflict("stopped-seam.ts", "human")]), pending: true as const },
@@ -1221,32 +976,6 @@ it("counts a path only ever seen on stopped walks as a hot seam", () => {
   assert.strictEqual(seams.length, 1);
   assert.strictEqual(seams[0]?.path, "stopped-seam.ts");
   assert.strictEqual(seams[0]?.walkCount, 2);
-});
-
-it("counts the conflict class mix and decided-by split across walks", () => {
-  const section = renderChurnSection([
-    entry("v1", [conflict("a", "generated"), conflict("b", "human")]),
-  ]);
-  assert.include(section, "| generated | 1 | 50.0% |");
-  assert.include(section, "| human | 1 | 50.0% |");
-  assert.include(section, "| human | 2 | 0 |");
-});
-
-it("credits an unsigned row to neither side and counts it as its own", () => {
-  const section = renderChurnSection([
-    {
-      ...entry("v1", [
-        { ...conflict("signed", "generated"), decidedBy: "agent" },
-        { ...conflict("unsigned", "human"), decidedBy: "TODO" },
-      ]),
-      decisions: [
-        { subject: "feat: unsigned", domain: "fork-meta", verdict: "keep", decidedBy: "TODO" },
-      ],
-    },
-  ]);
-  assert.include(section, "| agent | 1 | 0 |");
-  assert.include(section, "| human | 0 | 0 |");
-  assert.include(section, "| TODO (no provenance) | 1 | 1 |");
 });
 
 /**
@@ -1388,7 +1117,7 @@ it("migrates every legacy census subject once and survives expired objects", () 
       assert.throws(() =>
         runCommandText("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root }),
       );
-    assert.strictEqual(run(["report", "--issue", "1"], root), 0);
+    assert.strictEqual(run(["report"], root), 0);
     assert.strictEqual(
       runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
       migrated,
@@ -1672,25 +1401,14 @@ it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(run(["verify-cost"], root), 1);
-    assert.match(stderr, /refs\/fork\/churn does not carry fork-churn\.json/);
+    assert.strictEqual(run(["report"], root), 1);
+    assert.match(stderr, /refs\/fork\/churn lesson evidence is unavailable/);
   } finally {
     process.stderr.write = originalWrite;
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
-it("takes the REST comment id from the permalink, not the node id the query reports", () => {
-  assert.strictEqual(
-    commentRestId(
-      "https://github.com/RSI-Software/t3code-hyprws/issues/481#issuecomment-5516722153",
-    ),
-    "5516722153",
-  );
-  assert.throws(() => commentRestId("IC_kwDOUADyEs8AAAABSNJ_6Q"), /carries no REST id/);
-});
-
-/** The artifact `fork:auto-rebase` retains, trimmed to what the producer reads. */
 const stopCensusFixture = (sourceSha: string, paths: ReadonlyArray<string>, complete = true) => ({
   targetTag: "v1.0.0",
   evidence: {
@@ -1786,46 +1504,524 @@ it("composes evidence-bearing seam records that the single import path accepts",
   }
 });
 
-const costedEntry = (tag: string): ChurnEntry => ({
-  ...entry(tag, []),
-  elapsedMs: 60_000,
-  effort: { model: "test-model", effort: "high" },
-});
-
-it("fails the trailing walk-cost window when any entry lacks elapsedMs (#1019)", () => {
-  assert.strictEqual(WALK_COST_WINDOW, 5);
-  // A costed window passes; legacy rows outside the window stay valid.
-  assert.deepStrictEqual(
-    walkCostGaps([
-      entry("v0", []),
-      ...["v1", "v2", "v3", "v4", "v5"].map((tag) => costedEntry(tag)),
-    ]),
-    [],
-  );
-  // Each missing row is named by tag; a recorded effort never decides the gate (#1090).
-  assert.deepStrictEqual(walkCostGaps([costedEntry("v1"), entry("v2", [])]), [
-    "v2: missing elapsedMs",
+it("report keeps a failing policy verdict with zero GitHub transport and no publication", () => {
+  const path = "apps/web/src/regressed.ts";
+  const subject = "feat(web): keep the seam";
+  // The landed censuses carry a seam that returned without comparable repair
+  // verification, so the lesson policy FAILS.
+  const root = ledgerRepository([
+    censusEntry("v1", [censusFile(path, "1111111", subject)]),
+    censusEntry("v2", [censusFile("other.ts", "2222222", "feat: other")]),
+    censusEntry("v3", [censusFile(path, "3333333", subject)]),
   ]);
-  assert.deepStrictEqual(walkCostGaps([{ ...entry("v2", []), elapsedMs: 1 }]), []);
-  // A short ledger checks what it has: every row counts, pending rows included.
-  assert.deepStrictEqual(
-    walkCostGaps([{ ...costedEntry("v1"), pending: true as const }, entry("v2", [])]),
-    ["v2: missing elapsedMs"],
-  );
-});
+  // Freshness must be current, so an isolated origin advertises the same ref sha.
+  const origin = NodePath.join(root, "origin.git");
+  runCommandText("git", ["init", "--quiet", "--bare", origin], { cwd: root });
+  runCommandText("git", ["push", "--quiet", origin, `${CHURN_REF}:${CHURN_REF}`], { cwd: root });
+  runCommandText("git", ["remote", "add", "origin", origin], { cwd: root });
 
-it("verify-cost reads the live ledger and exits 1 on a gap (#1019)", () => {
-  const root = ledgerRepository([costedEntry("v1"), entry("v2", [])]);
+  // A transport that records every gh invocation the verb attempts; the report,
+  // which publishes nothing, must attempt none - no POST, no read, no gh at all.
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  const calls = NodePath.join(root, "gh-calls.log");
+  NodeFS.writeFileSync(calls, "");
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    '#!/usr/bin/env node\nrequire("node:fs").appendFileSync(process.env.SEAM_GH_CALLS, process.argv.slice(2).join(" ") + "\\n");\n',
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousCalls = process.env.SEAM_GH_CALLS;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.SEAM_GH_CALLS = calls;
+  const receiptPath = NodePath.join(root, "report-receipt.json");
   try {
-    assert.strictEqual(run(["verify-cost"], root), 1);
-    assert.strictEqual(run(["verify-cost", "--push"], root), 2);
+    // The recorder must prove it works before its silence means anything: a
+    // deliberate invocation appends one line, and the log is reset afterwards.
+    runCommandText("gh", ["control invocation"], { cwd: root });
+    assert.strictEqual(NodeFS.readFileSync(calls, "utf8"), "control invocation\n");
+    NodeFS.writeFileSync(calls, "");
+
+    assert.strictEqual(run(["report", "--receipt", receiptPath], root), 0);
+    assert.strictEqual(NodeFS.readFileSync(calls, "utf8"), "");
+    // The verdict is failing - not skipped, not passed, not absent - and the
+    // receipt carries publication not-attempted.
+    const receipt = JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")) as {
+      publication: "not-attempted";
+      policy: "failed" | "succeeded";
+      reason?: "blocking-seams" | "lesson-unavailable";
+    };
+    assert.deepStrictEqual(receipt, {
+      publication: "not-attempted",
+      policy: "failed",
+      reason: "blocking-seams",
+    });
+
+    // The outcome gate reads the same receipt: the retained stages keep the failed
+    // policy verdict and record the never-attempted publication.
+    const blockedSha = "9".repeat(40);
+    const blockedTarget = {
+      kind: "target",
+      target: { tag: "v1.2.0", sha: blockedSha },
+      eligible: true,
+      reason: "selected tagged target under the fork tag policy",
+    } as const;
+    const blockedAttempt = {
+      kind: "attempt",
+      targetSha: blockedSha,
+      attemptId: "42/1/rebase",
+      sourceSha: "8".repeat(40),
+      trigger: "push",
+      executor: "bot",
+      mode: "on",
+      runUrl: "https://example.test/run/42",
+    } as const;
+    const result: AutoRebaseResult = {
+      schemaVersion: 1,
+      mode: "on",
+      dryRun: false,
+      status: "no-op",
+      oldSha: "8".repeat(40),
+      baseSha: "7".repeat(40),
+      target: null,
+      newSha: null,
+      stableCandidates: [],
+      verificationDependencySetup: [],
+      decision: { pairwiseFirstConflict: null, census: null, censusUnavailableReason: null },
+      blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" } as AutoRebaseResult["blocked"],
+    };
+    const rows = autoOutcomeReceipts(
+      requireOutcomeReceipts([blockedTarget, blockedAttempt]),
+      result,
+      receipt,
+    );
+    const stages = summarizeOutcomes(rows)[0]!.stages;
+    assert.strictEqual(stages.find((row) => row.stage === "report-policy")?.status, "failed");
+    assert.strictEqual(
+      stages.find((row) => row.stage === "report-publication")?.status,
+      "not-attempted",
+    );
   } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousCalls === undefined) delete process.env.SEAM_GH_CALLS;
+    else process.env.SEAM_GH_CALLS = previousCalls;
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
-  const complete = ledgerRepository(["v1", "v2"].map((tag) => costedEntry(tag)));
+});
+
+it("report assesses a live census from the auto-result artifact without carry or GitHub", () => {
+  const path = "apps/web/src/regressed.ts";
+  const subject = "feat(web): keep the seam";
+  // Evidence rows carry full SHAs; identity is (path, subject, domain), so the
+  // live row still matches the ledger's short-commit census file.
+  const row = (pathName: string, commit: string) => ({
+    stop: 1,
+    commit,
+    subject,
+    domain: "fork-meta",
+    path: pathName,
+    kind: "content" as const,
+    shape: "woven" as const,
+  });
+  // Real landed walks carry the census they measured, and the identity basis is
+  // method+version, so the ledger's evidence must share the live census's method
+  // for its recorded absence to count against the live recurrence.
+  const evidence = (rows: ReadonlyArray<ReturnType<typeof row>>) => ({
+    version: 2 as const,
+    method: "sequential-rebase-walk-resolution" as const,
+    sourceSha: "a".repeat(40),
+    baseSha: "b".repeat(40),
+    targetSha: "c".repeat(40),
+    targetTag: "v1.2.0",
+    complete: true,
+    rows,
+  });
+  // The landed history is previously clear: the seam appeared, then went absent.
+  const root = ledgerRepository([
+    {
+      ...censusEntry("v1", [censusFile(path, "1111111", subject)]),
+      censusEvidence: evidence([row(path, "1".repeat(40))]),
+    },
+    {
+      ...censusEntry("v2", [censusFile("other.ts", "2222222", "feat: other")]),
+      censusEvidence: evidence([row("other.ts", "2".repeat(40))]),
+    },
+  ]);
+  const origin = NodePath.join(root, "origin.git");
+  runCommandText("git", ["init", "--quiet", "--bare", origin], { cwd: root });
+  runCommandText("git", ["push", "--quiet", origin, `${CHURN_REF}:${CHURN_REF}`], { cwd: root });
+  runCommandText("git", ["remote", "add", "origin", origin], { cwd: root });
+
+  // The blocked attempt's typed auto-result, exactly what the rebase job writes
+  // with --issue-json: its census shows the seam recurring in the live walk.
+  const liveEvidence = evidence([row(path, "1".repeat(40))]);
+  const artifact = NodePath.join(root, "fork-auto-rebase-issues.json");
+  NodeFS.writeFileSync(
+    artifact,
+    JSON.stringify({
+      schemaVersion: 1,
+      decision: {
+        pairwiseFirstConflict: null,
+        census: {
+          targetTag: "v1.2.0",
+          evidence: liveEvidence,
+          conflictingForkCommitCount: 1,
+          conflictingFileCount: 1,
+          truncated: false,
+          truncatedBy: null,
+          stopLimit: 200,
+          timeLimitSeconds: 600,
+        },
+        censusUnavailableReason: null,
+      },
+      blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" },
+    }),
+  );
+
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  const calls = NodePath.join(root, "gh-calls.log");
+  NodeFS.writeFileSync(calls, "");
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    '#!/usr/bin/env node\nrequire("node:fs").appendFileSync(process.env.SEAM_GH_CALLS, process.argv.slice(2).join(" ") + "\\n");\n',
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousCalls = process.env.SEAM_GH_CALLS;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.SEAM_GH_CALLS = calls;
+  const receiptPath = NodePath.join(root, "report-receipt.json");
   try {
-    assert.strictEqual(run(["verify-cost"], complete), 0);
+    // Landed history alone reads clear, and the run says its assessment is
+    // history-only instead of passing silently.
+    assert.strictEqual(run(["report", "--receipt", receiptPath], root), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "succeeded",
+    });
+
+    // The same ledger plus the blocked attempt's recurring census is a live
+    // returned-unresolved seam: the verdict fails even though carry never runs.
+    assert.strictEqual(run(["report", "--receipt", receiptPath, "--census", artifact], root), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "failed",
+      reason: "blocking-seams",
+    });
+    // Neither assessment touched GitHub: no read, no POST, no gh at all.
+    assert.strictEqual(NodeFS.readFileSync(calls, "utf8"), "");
+
+    // The outcome gate keeps the failing verdict from the live-census receipt.
+    const blockedSha = "9".repeat(40);
+    const blockedTarget = {
+      kind: "target",
+      target: { tag: "v1.2.0", sha: blockedSha },
+      eligible: true,
+      reason: "selected tagged target under the fork tag policy",
+    } as const;
+    const blockedAttempt = {
+      kind: "attempt",
+      targetSha: blockedSha,
+      attemptId: "42/1/rebase",
+      sourceSha: "8".repeat(40),
+      trigger: "push",
+      executor: "bot",
+      mode: "on",
+      runUrl: "https://example.test/run/42",
+    } as const;
+    const rows = autoOutcomeReceipts(
+      requireOutcomeReceipts([blockedTarget, blockedAttempt]),
+      {
+        decision: { census: null, censusUnavailableReason: null },
+        blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" },
+      } as AutoRebaseResult,
+      JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")),
+    );
+    const stages = summarizeOutcomes(rows)[0]!.stages;
+    assert.strictEqual(stages.find((row) => row.stage === "report-policy")?.status, "failed");
   } finally {
-    NodeFS.rmSync(complete, { recursive: true, force: true });
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousCalls === undefined) delete process.env.SEAM_GH_CALLS;
+    else process.env.SEAM_GH_CALLS = previousCalls;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("report never passes on live census evidence it could not assess", () => {
+  const path = "apps/web/src/regressed.ts";
+  const subject = "feat(web): keep the seam";
+  // One legacy ledger: the seam appeared (v1), then went absent (v2). The
+  // absence is recorded under the legacy identity basis, so the feasibility
+  // overlap fallback's recurrence is live blocking evidence, exactly what the
+  // base block-issue path assessed (RSI-Software/t3code-hyprws#1142).
+  const root = ledgerRepository([
+    censusEntry("v1", [censusFile(path, "1111111", subject)]),
+    censusEntry("v2", [censusFile("other.ts", "2222222", "feat: other")]),
+  ]);
+  const origin = NodePath.join(root, "origin.git");
+  runCommandText("git", ["init", "--quiet", "--bare", origin], { cwd: root });
+  runCommandText("git", ["push", "--quiet", origin, `${CHURN_REF}:${CHURN_REF}`], { cwd: root });
+  runCommandText("git", ["remote", "add", "origin", origin], { cwd: root });
+
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  const calls = NodePath.join(root, "gh-calls.log");
+  NodeFS.writeFileSync(calls, "");
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    '#!/usr/bin/env node\nrequire("node:fs").appendFileSync(process.env.SEAM_GH_CALLS, process.argv.slice(2).join(" ") + "\\n");\n',
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousCalls = process.env.SEAM_GH_CALLS;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.SEAM_GH_CALLS = calls;
+  const artifact = NodePath.join(root, "fork-auto-rebase-issues.json");
+  const receiptPath = NodePath.join(root, "report-receipt.json");
+  const runCensus = (): number =>
+    run(["report", "--receipt", receiptPath, "--census", artifact], root);
+  try {
+    // Malformed envelope: not a recognizable auto result, so an error - the
+    // pre-written receipt stays not-attempted, never a verdict.
+    NodeFS.writeFileSync(artifact, JSON.stringify({}));
+    assert.strictEqual(runCensus(), 1);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "not-attempted",
+    });
+
+    // Provenance is validated by the shared census validator and the envelope
+    // version is explicit: every refusal below is an error whose receipt stays
+    // not-attempted, never a warning that history may upgrade to a pass.
+    const validEvidence = {
+      version: 2,
+      method: "sequential-rebase-walk-resolution",
+      sourceSha: "a".repeat(40),
+      baseSha: "b".repeat(40),
+      targetSha: "c".repeat(40),
+      targetTag: "v1.2.0",
+      complete: true,
+      rows: [],
+    };
+    const envelopeWith = (mutate: (envelope: Record<string, unknown>) => void): string => {
+      const envelope: Record<string, unknown> = {
+        schemaVersion: 1,
+        decision: {
+          pairwiseFirstConflict: null,
+          census: {
+            targetTag: "v1.2.0",
+            evidence: JSON.parse(JSON.stringify(validEvidence)),
+            conflictingForkCommitCount: 0,
+            conflictingFileCount: 0,
+            truncated: false,
+            truncatedBy: null,
+            stopLimit: 200,
+            timeLimitSeconds: 600,
+          },
+          censusUnavailableReason: null,
+        },
+        blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" },
+      };
+      mutate(envelope);
+      NodeFS.writeFileSync(artifact, JSON.stringify(envelope));
+      return NodeFS.readFileSync(receiptPath, "utf8");
+    };
+    const censusOf = (envelope: Record<string, unknown>): Record<string, unknown> =>
+      (envelope.decision as Record<string, unknown>).census as Record<string, unknown>;
+    const evidenceOf = (envelope: Record<string, unknown>): Record<string, unknown> =>
+      censusOf(envelope).evidence as Record<string, unknown>;
+    const refusals: ReadonlyArray<[string, (envelope: Record<string, unknown>) => void]> = [
+      [
+        "unsupported envelope version",
+        (envelope) => {
+          envelope.schemaVersion = 2;
+        },
+      ],
+      [
+        "evidence missing method",
+        (envelope) => {
+          delete evidenceOf(envelope).method;
+        },
+      ],
+      [
+        "evidence missing sourceSha",
+        (envelope) => {
+          delete evidenceOf(envelope).sourceSha;
+        },
+      ],
+      [
+        "evidence with malformed baseSha",
+        (envelope) => {
+          evidenceOf(envelope).baseSha = "z".repeat(40);
+        },
+      ],
+      [
+        "evidence missing targetSha",
+        (envelope) => {
+          delete evidenceOf(envelope).targetSha;
+        },
+      ],
+      [
+        "evidence targetTag disagrees with the stop",
+        (envelope) => {
+          evidenceOf(envelope).targetTag = "v1.3.0";
+        },
+      ],
+    ];
+    for (const [name, mutate] of refusals) {
+      envelopeWith(mutate);
+      assert.strictEqual(runCensus(), 1, name);
+      assert.deepStrictEqual(
+        JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")),
+        { publication: "not-attempted", policy: "not-attempted" },
+        name,
+      );
+    }
+
+    // Census unavailable with no blocked conflicts: live evidence was requested
+    // but cannot be assessed, so the verdict is a distinct non-passing reason
+    // (RSI-Software/t3code-hyprws#860), never a history-only success.
+    NodeFS.writeFileSync(
+      artifact,
+      JSON.stringify({
+        schemaVersion: 1,
+        decision: {
+          pairwiseFirstConflict: null,
+          census: null,
+          censusUnavailableReason: "the walk died before the census ran",
+        },
+        blocked: null,
+      }),
+    );
+    assert.strictEqual(runCensus(), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "failed",
+      reason: "census-unavailable",
+    });
+
+    // Count-only census: the feasibility overlap conflicts are the structured
+    // fallback the block issue always carried, so the live recurrence keeps its
+    // blocking returned-unresolved verdict instead of dropping to history.
+    NodeFS.writeFileSync(
+      artifact,
+      JSON.stringify({
+        schemaVersion: 1,
+        decision: {
+          pairwiseFirstConflict: null,
+          census: {
+            targetTag: "v1.2.0",
+            conflictingForkCommitCount: 1,
+            conflictingFileCount: 1,
+            truncated: false,
+            truncatedBy: null,
+            stopLimit: 200,
+            timeLimitSeconds: 600,
+          },
+          censusUnavailableReason: null,
+        },
+        blocked: {
+          newestUpstreamTagBeyondWindow: "v1.2.0",
+          conflicts: [
+            {
+              path,
+              hunks: 1,
+              forkCommit: "1".repeat(40),
+              forkCommitShort: "1111111",
+              forkSubject: subject,
+              domain: "fork-meta",
+            },
+          ],
+        },
+      }),
+    );
+    assert.strictEqual(runCensus(), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "failed",
+      reason: "blocking-seams",
+    });
+
+    // Empty but complete: live evidence that the seam is gone - a real
+    // observation, not an unavailable census.
+    const evidence = (complete: boolean) => ({
+      version: 2,
+      method: "sequential-rebase-walk-resolution",
+      sourceSha: "a".repeat(40),
+      baseSha: "b".repeat(40),
+      targetSha: "c".repeat(40),
+      targetTag: "v1.2.0",
+      complete,
+      rows: [],
+    });
+    NodeFS.writeFileSync(
+      artifact,
+      JSON.stringify({
+        schemaVersion: 1,
+        decision: {
+          pairwiseFirstConflict: null,
+          census: {
+            targetTag: "v1.2.0",
+            evidence: evidence(true),
+            conflictingForkCommitCount: 0,
+            conflictingFileCount: 0,
+            truncated: false,
+            truncatedBy: null,
+            stopLimit: 200,
+            timeLimitSeconds: 600,
+          },
+          censusUnavailableReason: null,
+        },
+        blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" },
+      }),
+    );
+    assert.strictEqual(runCensus(), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "succeeded",
+    });
+
+    // Empty and partial: truncation to zero rows says nothing about presence,
+    // so discarding it is a non-passing verdict, not a pass.
+    NodeFS.writeFileSync(
+      artifact,
+      JSON.stringify({
+        schemaVersion: 1,
+        decision: {
+          pairwiseFirstConflict: null,
+          census: {
+            targetTag: "v1.2.0",
+            evidence: evidence(false),
+            conflictingForkCommitCount: 0,
+            conflictingFileCount: 0,
+            truncated: true,
+            truncatedBy: "stop-limit",
+            stopLimit: 200,
+            timeLimitSeconds: 600,
+          },
+          censusUnavailableReason: null,
+        },
+        blocked: { newestUpstreamTagBeyondWindow: "v1.2.0" },
+      }),
+    );
+    assert.strictEqual(runCensus(), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+      publication: "not-attempted",
+      policy: "failed",
+      reason: "census-unavailable",
+    });
+
+    // None of the paths above touched GitHub: no read, no POST, no gh at all.
+    assert.strictEqual(NodeFS.readFileSync(calls, "utf8"), "");
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousCalls === undefined) delete process.env.SEAM_GH_CALLS;
+    else process.env.SEAM_GH_CALLS = previousCalls;
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });

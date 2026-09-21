@@ -10,7 +10,8 @@ name: hyprws upstream sync
 # code; the mirror PAT reaches only the push helper.
 #
 # The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
-# each blocked report renders it as a Churn section on the notification issue.
+# the blocked report assesses it locally and hands the lesson receipt to the
+# retained outcome evidence.
 #
 # With HYPRWS_AUTO_REBASE=on a blocked candidate also gets a carried unblock walk:
 # the bot restores its shared rerere cache, runs unblock-auto non-interactively, and
@@ -177,16 +178,11 @@ jobs:
           node scripts/fork-rebase-report.ts --fetch \
             --feasibility-out .dump/runs/fork-feasibility.json
 
-      - name: Summarize
-        run: cat docs/internals/generated/fork-rebase-report.md >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload report
         uses: actions/upload-artifact@v7
         with:
           name: fork-rebase-report
-          path: |
-            docs/internals/generated/fork-rebase-report.json
-            docs/internals/generated/fork-rebase-report.md
+          path: docs/internals/generated/fork-rebase-report.json
           if-no-files-found: error
           retention-days: 7
 
@@ -329,37 +325,14 @@ jobs:
 
       # The ledger is read from refs/fork/churn, which this repository serves
       # unauthenticated, so the stripped checkout credential is not needed. The
-      # section replaces itself on the notification issue instead of stacking.
-      - name: Post churn section
+      # assessment stays local: no section is posted, and the receipt it writes
+      # is read by the outcome gate below. The live census comes from the typed
+      # auto-result the rebase step already wrote, never from a GitHub read.
+      - name: Assess walk lessons
         if: ${{ always() && steps.rebase.outputs.status == 'blocked' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json"
-
-      # The walk-cost gate (RSI-Software/t3code-hyprws#1090): fails when any row in
-      # the trailing five-walk window lacks elapsedMs. It reads the same published
-      # refs/fork/churn the section above renders — resolveBotRef fetches it from
-      # origin when the checkout has not seen it, so no explicit fetch is needed.
-      # Advisory, not blocking: two legacy rows in the current window predate the
-      # field, and the window only heals by landing more walks. The sync operator
-      # owns the gap: read it on the scheduled cadence (docs/fork/operations/fork-sync.md).
-      - name: Verify walk cost window
-        if: always()
-        continue-on-error: true
         run: |
-          set +e
-          node scripts/fork-churn.ts verify-cost 2>&1 | tee "$RUNNER_TEMP/fork-walk-cost.log"
-          code=${PIPESTATUS[0]}
-          set -e
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::walk cost window is incomplete (exit $code): see the step summary"
-            {
-              printf '## Walk cost window (advisory) failed\n\n```\n'
-              cat "$RUNNER_TEMP/fork-walk-cost.log"
-              printf '```\n'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$code"
+          node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json" \
+            --census "$RUNNER_TEMP/fork-auto-rebase-issues.json"
 
       # `outcome` skips when the rebase never wrote its outcome declarations, so a
       # rebase that died before selecting a target leaves its own error as the last
@@ -499,7 +472,6 @@ jobs:
             --target "$BLOCKED_TAG" > "$RUNNER_TEMP/carry.log" 2>&1
           code=$?
           set -e
-          cat "$RUNNER_TEMP/carry.log"
           case "$code" in
             0) echo "outcome=applied" >> "$GITHUB_OUTPUT" ;;
             2) echo "outcome=stop" >> "$GITHUB_OUTPUT" ;;
@@ -569,16 +541,3 @@ jobs:
           node scripts/fork-carry.ts stop-surface \
             --report "$RUNNER_TEMP/fork-sync-report.json" \
             --log "$RUNNER_TEMP/carry.log"
-
-      - name: Summarize the carried walk
-        if: always()
-        env:
-          OUTCOME: ${{ steps.carry.outputs.outcome }}
-          BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
-        run: |
-          {
-            printf '## Carried unblock walk\n\n- outcome: `%s`\n- target: `%s`\n\n```\n' \
-              "${OUTCOME:-none}" "$BLOCKED_TAG"
-            tail -n 80 "$RUNNER_TEMP/carry.log" 2>/dev/null || true
-            printf '```\n'
-          } >> "$GITHUB_STEP_SUMMARY"

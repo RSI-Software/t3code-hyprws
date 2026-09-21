@@ -20,7 +20,6 @@ import {
   canonicalizeOutcomeReceipts,
   requireOutcomeReceipts,
   summarizeOutcomes,
-  outcomeStreak,
   type OutcomeAttempt,
   type OutcomeReceipt,
   type OutcomeStageReceipt,
@@ -136,7 +135,7 @@ export const autoOutcomeReceipts = (
     readonly policy: OutcomeStatus;
     readonly url?: string;
     /** Distinguishes "no lesson assessed" from "blocking seams" without a new ledger status. */
-    readonly reason?: "lesson-unavailable" | "blocking-seams";
+    readonly reason?: "lesson-unavailable" | "blocking-seams" | "census-unavailable";
   },
   /** A bounded execution failure the rebase left beside its declarations. */
   failure?: AutoFailureReceipt,
@@ -256,7 +255,9 @@ export const autoOutcomeReceipts = (
             ? "no lesson assessed on this walk (lesson-unavailable); policy verdict is independent of publication"
             : reporting.reason === "blocking-seams"
               ? "unresolved blocking seams refused the policy pass; verdict is independent of publication"
-              : "churn policy verdict is independent of publication",
+              : reporting.reason === "census-unavailable"
+                ? "live census could not be assessed (census-unavailable); a pass is never inferred from history alone"
+                : "churn policy verdict is independent of publication",
         ),
       );
     }
@@ -489,9 +490,7 @@ export const recordOutcomes = (
         added === 0 ? "churn: order target outcomes" : "churn: record target outcomes",
       );
   if (push) publishBotRefLease(root, lease, commit);
-  process.stdout.write(
-    `${JSON.stringify({ added, commit, ...outcomeStreak(outcomes) }, null, 2)}\n`,
-  );
+  process.stdout.write(`${JSON.stringify({ added, commit }, null, 2)}\n`);
   return 0;
 };
 
