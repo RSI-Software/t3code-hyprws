@@ -242,6 +242,69 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
   );
 });
 
+it("refuses the push when the check battery is red and records the failing command", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const shas = forkShas(f);
+      const recording = exec({
+        vp: (args) =>
+          args[1] === "fork:ci"
+            ? refused("fork:ci: scripts suite failed; fix above before pushing\n")
+            : ok(),
+      });
+      const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+      assert.strictEqual(printed.value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "failed");
+      assert.strictEqual(report.error, "the check battery is red");
+      assert.strictEqual(report.trunk.after, null);
+      assert.strictEqual(report.push.pushed, false);
+      const red = report.checks.find((check) => check.status === "failed");
+      assert.notStrictEqual(red, undefined);
+      assert.strictEqual(red!.command, "vp run fork:ci");
+      assert.match(red!.detail, /scripts suite failed/);
+      assert.match(red!.detail, /exit 1/);
+      // the rendered report shows the red row
+      assert.match(printed.output, /❌ `vp run fork:ci`/);
+      // a red battery never reaches the push
+      assert.strictEqual(
+        recording.calls.some(({ command, args }) => command === "git" && args[0] === "push"),
+        false,
+      );
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+    },
+  );
+});
+
+it("pushes the rebased tip after a green battery", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const recording = exec();
+      const code = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "applied");
+      assert.strictEqual(report.push.pushed, true);
+      assert.strictEqual(report.checks.length, 3);
+      for (const check of report.checks) assert.strictEqual(check.status, "passed");
+      const push = recording.calls.find(
+        ({ command, args }) => command === "git" && args[0] === "push",
+      );
+      assert.notStrictEqual(push, undefined);
+      assert.match(push!.args.join(" "), /--force-with-lease=hyprws:/);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), report.trunk.after);
+    },
+  );
+});
+
 it("resolves a marked hook seam by re-applying the hook", () => {
   withFixture(
     {
