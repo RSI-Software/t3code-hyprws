@@ -18,10 +18,34 @@ const projectIdentity = projectWindowIdentity(
   EnvironmentId.make("environment-1"),
   ProjectId.make("project-1"),
 );
+const projectSeed = {
+  environmentId: EnvironmentId.make("environment-1"),
+  projectId: ProjectId.make("project-1"),
+};
 const hubWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
 const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
-const hubWindow = { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY };
-const projectWindow = { windowId: projectWindowId, identity: projectIdentity };
+const secondHubWindowId = "00000000-0000-4000-8000-000000000003" as WindowId;
+const hubBounds = { x: 0, y: 0, width: 1200, height: 800 };
+const hubWindow = {
+  windowId: hubWindowId,
+  identity: HUB_WINDOW_IDENTITY,
+  route: "/settings/general",
+  bounds: hubBounds,
+};
+const projectWindow = {
+  windowId: projectWindowId,
+  identity: projectIdentity,
+  route: "/project/environment-1/project-1",
+  bounds: null,
+};
+const secondHubWindow = { ...hubWindow, windowId: secondHubWindowId, route: "/" };
+
+const v2 = (windows: readonly unknown[], reason = "update") => ({
+  version: 2,
+  reason,
+  capturedAtMs: 1_000,
+  windows,
+});
 
 function makeLayer(baseDir: string, workspaces: Record<string, HyprlandWorkspaceRef>) {
   const environmentLayer = DesktopEnvironment.layer({
@@ -43,6 +67,7 @@ function makeLayer(baseDir: string, workspaces: Record<string, HyprlandWorkspace
   const placementLayer = Layer.succeed(HyprlandPlacement, {
     isAvailable: true,
     claim: () => Effect.void,
+    snapshotAddresses: Effect.succeed(new Set<string>()),
     forget: () => Effect.void,
     workspaceOf: (key) => Effect.succeed(Option.fromNullishOr(workspaces[key])),
     stageWorkspaceRule: () => Effect.succeed(false),
@@ -68,19 +93,35 @@ const withSession = <A, E, R>(
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
 describe("DesktopWindowSession", () => {
-  it.effect("round-trips the open windows with the workspace each one occupied", () =>
+  it.effect("round-trips every open window with its route, bounds, and workspace", () =>
     withSession(
       Effect.gen(function* () {
         const session = yield* DesktopWindowSession.DesktopWindowSession;
-        yield* session.capture([hubWindow, projectWindow], "update");
+        yield* session.capture([hubWindow, projectWindow, secondHubWindow], "update");
 
-        // Each window comes back under the id it had, so the relaunch keeps it.
+        // Each window comes back under the id it had, so the relaunch keeps it,
+        // and a second all-projects window is its own entry, not a duplicate.
         assert.deepEqual(yield* session.consume, [
-          { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } },
+          {
+            windowId: hubWindowId,
+            route: "/settings/general",
+            seed: "all-projects",
+            bounds: hubBounds,
+            workspace: { id: 1, name: "1" },
+          },
           {
             windowId: projectWindowId,
-            identity: projectIdentity,
+            route: "/project/environment-1/project-1",
+            seed: projectSeed,
+            bounds: null,
             workspace: { id: 4, name: "code" },
+          },
+          {
+            windowId: secondHubWindowId,
+            route: "/",
+            seed: "all-projects",
+            bounds: hubBounds,
+            workspace: null,
           },
         ]);
       }),
@@ -101,6 +142,17 @@ describe("DesktopWindowSession", () => {
 
         assert.lengthOf(yield* session.consume, 1);
         assert.isFalse(yield* fileSystem.exists(environment.windowSessionPath));
+        assert.deepEqual(yield* session.consume, []);
+      }),
+    ),
+  );
+
+  it.effect("restores only a manifest an update relaunch wrote", () =>
+    withSession(
+      Effect.gen(function* () {
+        const session = yield* DesktopWindowSession.DesktopWindowSession;
+        yield* session.capture([projectWindow], "quit");
+
         assert.deepEqual(yield* session.consume, []);
       }),
     ),
@@ -135,12 +187,7 @@ describe("DesktopWindowSession", () => {
   );
 
   it("drops a manifest an abandoned install left behind", () => {
-    const document = {
-      version: 1,
-      reason: "update",
-      capturedAtMs: 1_000,
-      windows: [{ kind: "hub" as const, workspace: null }],
-    };
+    const document = v2([{ windowId: hubWindowId, route: "/", workspace: null }]);
     assert.lengthOf(DesktopWindowSession.readRestoreEntries(document, 2_000), 1);
     assert.lengthOf(
       DesktopWindowSession.readRestoreEntries(
@@ -151,7 +198,52 @@ describe("DesktopWindowSession", () => {
     );
   });
 
-  it("skips window rows that no longer name a project", () => {
+  it("opens a window whose route is not restorable at its home", () => {
+    const routes = ["https://evil.example/", "//evil.example", "project/x", "/a b", "/a\u0007"];
+    assert.deepEqual(
+      DesktopWindowSession.readRestoreEntries(
+        v2(
+          routes.map((route, index) => ({
+            windowId: `00000000-0000-4000-8000-00000000001${index}`,
+            route,
+          })),
+        ),
+        1_500,
+      ).map((entry) => entry.route),
+      ["/", "/", "/", "/", "/"],
+    );
+  });
+
+  it("keeps only bounds that describe a window", () => {
+    assert.deepEqual(
+      DesktopWindowSession.readRestoreEntries(
+        v2([
+          { windowId: hubWindowId, route: "/", bounds: hubBounds },
+          { windowId: secondHubWindowId, route: "/", bounds: { x: 0, y: 0, width: -5 } },
+        ]),
+        1_500,
+      ).map((entry) => entry.bounds),
+      [hubBounds, null],
+    );
+  });
+
+  it("drops a row without a window id or project and keeps the rest", () => {
+    assert.deepEqual(
+      DesktopWindowSession.readRestoreEntries(
+        v2([
+          { windowId: "project:environment-1:project-1", route: "/" },
+          { windowId: projectWindowId, route: "/", project: { environmentId: "", projectId: "p" } },
+          { windowId: hubWindowId, route: "/", workspace: null },
+          { windowId: hubWindowId, route: "/settings", workspace: null },
+          "not a row",
+        ]),
+        1_500,
+      ),
+      [{ windowId: hubWindowId, route: "/", seed: "all-projects", bounds: null, workspace: null }],
+    );
+  });
+
+  it("reads a v1 manifest: a project row seeds its window, a hub row opens all projects", () => {
     assert.deepEqual(
       DesktopWindowSession.readRestoreEntries(
         {
@@ -159,33 +251,17 @@ describe("DesktopWindowSession", () => {
           reason: "update",
           capturedAtMs: 1_000,
           windows: [
-            { kind: "project", environmentId: "", projectId: "project-1", workspace: null },
-            { kind: "project", environmentId: "environment-1", workspace: null },
+            { windowId: hubWindowId, kind: "hub", workspace: { id: 1, name: "1" } },
+            { kind: "hub", workspace: null },
             {
+              windowId: "project:environment-1:project-1",
               kind: "project",
               environmentId: "environment-1",
               projectId: "project-1",
               workspace: null,
             },
-          ],
-        },
-        1_500,
-      ),
-      [{ identity: projectIdentity, workspace: null }],
-    );
-  });
-
-  it("restores a row's window id and drops one that is not a window id", () => {
-    assert.deepEqual(
-      DesktopWindowSession.readRestoreEntries(
-        {
-          version: 1,
-          reason: "update",
-          capturedAtMs: 1_000,
-          windows: [
-            { windowId: hubWindowId, kind: "hub", workspace: null },
+            { kind: "project", environmentId: "", projectId: "project-1", workspace: null },
             {
-              windowId: "project:environment-1:project-1",
               kind: "project",
               environmentId: "environment-1",
               projectId: "project-1",
@@ -196,8 +272,15 @@ describe("DesktopWindowSession", () => {
         1_500,
       ),
       [
-        { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY, workspace: null },
-        { identity: projectIdentity, workspace: null },
+        {
+          windowId: hubWindowId,
+          route: "/",
+          seed: "all-projects",
+          bounds: null,
+          workspace: { id: 1, name: "1" },
+        },
+        { route: "/", seed: "all-projects", bounds: null, workspace: null },
+        { route: "/", seed: projectSeed, bounds: null, workspace: null },
       ],
     );
   });
