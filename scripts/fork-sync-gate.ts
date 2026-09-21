@@ -73,21 +73,24 @@ export const inspectReport = (
   observed: CheckoutBinding,
 ): ReadonlyArray<string> => {
   const findings: Array<string> = [];
-  const compare = (field: string, recorded: string | undefined, seen: string): void => {
+  const compare = (field: string, recorded: string | undefined, seen: string, at: string): void => {
     if (recorded === undefined || recorded === "") findings.push(`report is missing ${field}`);
-    else if (recorded !== seen) findings.push(`${field} mismatch: report ${recorded}, ${seen}`);
+    else if (recorded !== seen)
+      findings.push(`${field} mismatch: report ${recorded}, ${at} ${seen}`);
   };
-  compare("expected_old", report.source?.expectedOld, observed.expectedOld);
+  compare("expected_old", report.source?.expectedOld, observed.expectedOld, "origin/hyprws");
   compare(
     "Target",
     report.target === undefined ? undefined : `${report.target.tag}@${report.target.sha}`,
     `${observed.targetTag}@${observed.targetSha}`,
+    "checkout",
   );
-  compare("Rebased head", report.rebasedHead, observed.rebasedHead);
+  compare("Rebased head", report.rebasedHead, observed.rebasedHead, "checkout");
   compare(
     "Stack size",
     report.stackSize === undefined ? undefined : String(report.stackSize),
     observed.stackSize,
+    "checkout",
   );
   return findings;
 };

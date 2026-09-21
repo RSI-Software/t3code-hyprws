@@ -262,7 +262,7 @@ const ledgerFixture = (
 const report = (root: string, overrides: Partial<SyncReport> = {}): SyncReport => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-report-"));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "listed",
     repositoryRoot: root,
     reportPath: NodePath.join(directory, "report.json"),
@@ -5650,7 +5650,7 @@ const additiveWalkFixture = (
   const reportPath = NodePath.join(reportDirectory, "report.json");
   const recordPath = NodePath.join(reportDirectory, "record.md");
   const replayed: SyncReport = validateReport({
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "replayed",
     kind: "unblock",
     repositoryRoot: root,
@@ -7020,7 +7020,7 @@ it("carries a human verdict from the churn ledger into the rendered record as in
   // Direct render test without reading the live ledger: verify the rendering contract.
   try {
     const fakeReport = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       stage: "oriented" as const,
       repositoryRoot: root,
       reportPath,
@@ -7103,7 +7103,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
   const report = (stage: "replayed" | "checked") =>
     ({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       stage,
       repositoryRoot: root,
       reportPath:
@@ -8066,7 +8066,7 @@ it("round-trips decision records through the rendered record", () => {
     const reportPath = NodePath.join(root, "report.json");
     const recordPath = NodePath.join(root, "record.md");
     const report = validateReport({
-      schemaVersion: 1,
+      schemaVersion: 2,
       stage: "conflicts",
       kind: "unblock",
       repositoryRoot: root,

@@ -120,11 +120,13 @@ import {
   BOT_COMMIT_CONFIG,
   commandText,
   COMMENT_CONFIG,
+  decisionTableRows,
   DECISION_ACTIONS,
   externalPath,
   extractBlockingSha,
   git,
   gitRaw,
+  isInheritedDecidedBy,
   lines,
   NIGHTLY_REVIEW_EVIDENCE,
   NO_GROUNDING_CLAIM,
@@ -138,9 +140,7 @@ import {
   requireAgentProvenance,
   requireNightlyReview,
   requireSuccess,
-  reviewBoundRows,
   rootFor,
-  splitTableCells,
   SYNC_HELP,
   uniqueSilentSeams,
   walkDecisionsOf,
@@ -2825,76 +2825,105 @@ const unblockCheck = (
       ? "Freeze: report holds no lease — rerun unblock-list."
       : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/fork/operations/fork-sync.md.`;
   process.stdout.write(
-    `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}${leaseLine}\n`,
+    `${report.reportPath}\n${decisionSurface(report)}${leaseLine}\n`,
   );
   return report;
 };
 
-export const decisionSurface = (record: string): string => {
-  const rows = record.split("\n").filter((line) => {
-    if (!/^\| `.+` \|/.test(line)) return false;
-    const classSummary = splitTableCells(line)?.[2] ?? "";
-    return /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
-      classSummary,
-    );
-  });
-  const silentSeams =
-    record
-      .split("## Silent seams\n", 2)[1]
-      ?.split("\n## ", 1)[0]
-      ?.split("\n")
-      .filter((line) => /^- `.+` \[(?:behaviour|type)\]:/.test(line)) ?? [];
-  const grounding = record.split("\n").filter((line) => /^Grounding (?:claim|pending):/.test(line));
-  // A row carrying the default claim asks the human for nothing, so a surface
-  // made only of those asks for the decisions and the go, and nothing else.
-  const claimed =
-    grounding.length > 0 ||
-    rows.some((row) => (splitTableCells(row)?.[4] ?? "") !== NO_GROUNDING_CLAIM);
+/**
+ * What Gate 4 asks a human to answer, rendered from the typed report. The record comment shows the
+ * same rows, but it is a projection: nothing here reads it (RSI-Software/t3code-hyprws#1144).
+ */
+export const decisionSurface = (report: SyncReport): string => {
+  const rows = [...decisionTableRows(report).values()].filter((row) =>
+    /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
+      row.classSummary,
+    ),
+  );
+  const claims = (report.grounding ?? []).flatMap((row) =>
+    row.claim === undefined ? [] : [`Grounding claim: ${row.subject}: ${row.claim}`],
+  );
+  const pending = (report.grounding ?? []).flatMap((row) =>
+    row.pending === undefined ? [] : [`Grounding pending: ${row.subject}: ${row.pending}`],
+  );
   return [
     "## Gate 4 decision surface",
-    ...rows,
-    ...silentSeams,
-    ...grounding,
-    claimed
+    ...rows.map(
+      (row) =>
+        `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${row.decidedBy} |`,
+    ),
+    ...(report.silentSeams ?? []).map(
+      (seam) =>
+        `- \`${seam.path}\` [${seam.touchesBehaviour ? "behaviour" : "type"}]: ${seam.summary}`,
+    ),
+    ...claims,
+    ...pending,
+    claims.length + pending.length > 0
       ? "Stop. Obtain every decision, every grounding confirmation, and an explicit go."
       : "Stop. Obtain every decision and an explicit go.",
     "",
   ].join("\n");
 };
 
-export const validateSignedRecord = (record: string, report: SyncReport): void => {
-  if (/^Grounding pending:/m.test(record)) throw new Error("record still has pending grounding");
-  const rows = decisionSurface(record)
-    .split("\n")
-    .filter((row) => row.startsWith("|"));
-  const offending = rows.filter((line) => {
-    const cells = splitTableCells(line) ?? [];
-    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[3] ?? "")) return true;
+export const validateSignedDecisions = (report: SyncReport): void => {
+  if ((report.grounding ?? []).some((row) => row.pending !== undefined))
+    throw new Error("report still has pending grounding");
+  const rows = [...decisionTableRows(report).values()].filter((row) =>
+    /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
+      row.classSummary,
+    ),
+  );
+  const offending = rows.filter((row) => {
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(row.action)) return true;
     // An inherited verdict carries a human's prior answer forward but stays visibly distinct:
     // `inherited (<tag>)` never silently becomes `human`, yet still counts as signed so only
     // genuinely new or changed candidates block landing.
-    const decider = cells[5] ?? "";
-    const isInherited = decider.startsWith("inherited (") && decider.endsWith(")");
-    return !["human", "agent"].includes(decider) && !isInherited;
+    return !["human", "agent"].includes(row.decidedBy) && !isInheritedDecidedBy(row.decidedBy);
   });
   // Gate 4 names the whole surface (RSI-Software/t3code-hyprws#1069), not only the first row,
   // so the operator sees every decision still owed in one refusal.
   if (offending.length > 0)
     throw new Error(
-      [`record has ${offending.length} unsigned decision row(s):`, ...offending].join("\n"),
+      [
+        `report has ${offending.length} unsigned decision row(s):`,
+        ...offending.map((row) => `${row.subject} (${row.action}, ${row.decidedBy})`),
+      ].join("\n"),
     );
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
 };
 
 const nightlyReviewSection = /\n?## Nightly review\n[\s\S]*?(?=\n## Grounding\n)/;
 
-/** Hash the proposal surface the reviewer signed: header bindings (heads,
- * lease, target), verdict rows, silent seams, and verification lines.
- * Free prose — grounding claims, orientation text, citations — never
- * enters the digest, so wrapping a bare reference in backticks keeps the
- * sign-off while any binding or verdict change still voids it. */
-export const nightlyProposalDigest = (record: string): string =>
-  NodeCrypto.createHash("sha256").update(reviewBoundRows(record)).digest("hex");
+/**
+ * Hash the objective proposal a reviewer signs, taken from the typed report: bindings, verdict
+ * rows, silent seams and verification results. Free prose — grounding claims, orientation text,
+ * citations — never enters the projection, so a prose edit keeps the sign-off while any binding
+ * or verdict change still voids it. The projection is versioned so a later field addition
+ * invalidates deliberately rather than silently (RSI-Software/t3code-hyprws#1144).
+ */
+export const nightlyProposalDigest = (report: SyncReport): string =>
+  NodeCrypto.createHash("sha256")
+    .update(
+      JSON.stringify({
+        projection: 1,
+        source: report.source,
+        target: report.target,
+        lane: report.lane?.branch,
+        rebasedHead: report.rebasedHead,
+        stackSize: report.stackSize,
+        installedHead: report.installedHead,
+        ciHead: report.ciHead,
+        rewrite: report.rewrite?.proofs,
+        conflicts: report.conflicts,
+        decisions: [...decisionTableRows(report).values()],
+        silentSeams: (report.silentSeams ?? []).map(({ path, touchesBehaviour }) => [
+          path,
+          touchesBehaviour,
+        ]),
+        verification: report.verification,
+      }),
+    )
+    .digest("hex");
 
 const writeNightlyReviewRecord = (report: SyncReport, record: string): void => {
   const section = renderNightlyReview(report).join("\n");
@@ -2931,7 +2960,7 @@ export const callerProvenance = (
 ): AgentProvenance =>
   requireAgentProvenance(callerAttestation(runner, cwd).caller, "reviewer provenance");
 
-const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyReviewEvidence => {
+const nightlyReviewEvidence = (report: SyncReport): NightlyReviewEvidence => {
   if (
     report.target === undefined ||
     report.source === undefined ||
@@ -2947,8 +2976,6 @@ const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyRevie
     report.verification.some(({ result }) => result !== "passed")
   )
     throw new Error("nightly review evidence contains a missing or failed verification");
-  if (nightlyProposalDigest(record) !== nightlyProposalDigest(renderRecord(report)))
-    throw new Error("nightly review evidence is stale against the report");
   return {
     target: report.target.tag,
     targetSha: report.target.sha,
@@ -2957,32 +2984,14 @@ const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyRevie
     installedHead: report.installedHead,
     ciHead: report.ciHead,
     laneBranch: report.lane.branch,
-    recordDigest: nightlyProposalDigest(record),
+    recordDigest: nightlyProposalDigest(report),
     inspected: NIGHTLY_REVIEW_EVIDENCE,
   };
 };
 
-const recordTarget = (
-  record: string,
-): { readonly tag: string; readonly sha: string } | undefined => {
-  const match = /^- Target: `([^@`]+)@([^`]+)`$/m.exec(record);
-  return match === null ? undefined : { tag: match[1] ?? "", sha: match[2] ?? "" };
-};
-
 /** #531 apply guard: no nightly apply without a fresh review sign-off. */
-export const validateNightlyReview = (record: string, report: SyncReport): void => {
-  const recordBinding = recordTarget(record);
-  const reportIsNightly = report.target !== undefined && isNightlyUpstreamTag(report.target.tag);
-  const recordIsNightly = recordBinding !== undefined && isNightlyUpstreamTag(recordBinding.tag);
-  if (reportIsNightly || recordIsNightly) {
-    if (
-      report.target === undefined ||
-      recordBinding === undefined ||
-      report.target.tag !== recordBinding.tag ||
-      report.target.sha !== recordBinding.sha
-    )
-      throw new Error("nightly apply refused: record target binding is stale");
-  } else return;
+export const validateNightlyReview = (report: SyncReport): void => {
+  if (report.target === undefined || !isNightlyUpstreamTag(report.target.tag)) return;
   // A bot-carried walk has no agent judgement verdict to review. Any conflict or judgement
   // stops that workflow before apply and must be restarted as a host-owned proposal.
   if (report.botCarried === true) return;
@@ -2998,13 +3007,8 @@ export const validateNightlyReview = (record: string, report: SyncReport): void 
     throw new Error("nightly apply refused: proposer provenance is stale");
   if (review.proposer.session === review.reviewer.session)
     throw new Error("nightly apply refused: reviewer shares the proposer's session");
-  const evidence = nightlyReviewEvidence(report, record);
-  if (JSON.stringify(review.evidence) !== JSON.stringify(evidence))
+  if (JSON.stringify(review.evidence) !== JSON.stringify(nightlyReviewEvidence(report)))
     throw new Error("nightly apply refused: review is stale");
-  const rendered = renderNightlyReview(report).join("\n").trim();
-  const carried = nightlyReviewSection.exec(record)?.[0].trim();
-  if (carried !== rendered)
-    throw new Error("nightly apply refused: record does not carry the reviewed provenance");
 };
 
 const unblockReview = (
@@ -3054,7 +3058,7 @@ const unblockReview = (
       },
     };
   } else {
-    validateSignedRecord(record, report);
+    validateSignedDecisions(report);
     ensureLeaseCurrent(report, runner);
     const liveIssue = readIssue(runner, report.repositoryRoot);
     if (
@@ -3075,7 +3079,7 @@ const unblockReview = (
         proposer,
         reviewer,
         reviewedAt: new Date().toISOString(),
-        evidence: nightlyReviewEvidence(report, record),
+        evidence: nightlyReviewEvidence(report),
       },
     };
   }
@@ -3585,6 +3589,13 @@ interface DecisionInput {
     readonly agentSafe: "yes" | "no";
     readonly decidedBy: "human" | "agent";
   }>;
+  /** Orientation and retire-candidate verdicts, keyed on the exact commit subject. */
+  readonly actions?: ReadonlyArray<{
+    readonly subject: string;
+    readonly action: string;
+    readonly decidedBy: "human" | "agent";
+    readonly grounding?: string;
+  }>;
 }
 
 /** Bind a typed decision file to the stopped walk and to the exact rows it left on TODO. */
@@ -3592,7 +3603,10 @@ const readDecisionInput = (
   path: string,
   report: SyncReport,
   declined: ReadonlyArray<ConflictRow>,
-): ReadonlyMap<string, DecisionInput["decisions"][number]> => {
+): {
+  readonly seams: ReadonlyMap<string, DecisionInput["decisions"][number]>;
+  readonly actions: ReadonlyArray<NonNullable<DecisionInput["actions"]>[number]>;
+} => {
   const raw: unknown = JSON.parse(NodeFS.readFileSync(path, "utf8"));
   if (typeof raw !== "object" || raw === null) throw new UsageError("decision input is not an object");
   const input = raw as Partial<DecisionInput>;
@@ -3622,7 +3636,21 @@ const readDecisionInput = (
   }
   for (const identity of identities)
     if (!rows.has(identity)) throw new UsageError(`decision input leaves ${identity} undecided`);
-  return rows;
+  const subjects = new Set(decisionTableRows(report).keys());
+  const actions = input.actions ?? [];
+  const decided = new Set<string>();
+  for (const row of actions) {
+    if (!subjects.has(row.subject))
+      throw new UsageError(`decision input names ${row.subject}, which this walk has no row for`);
+    if (decided.has(row.subject))
+      throw new UsageError(`decision input decides ${row.subject} twice`);
+    if (row.decidedBy !== "human" && row.decidedBy !== "agent")
+      throw new UsageError(`decision for ${row.subject} is unsigned`);
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(row.action))
+      throw new UsageError(`decision for ${row.subject} names no known action: ${row.action}`);
+    decided.add(row.subject);
+  }
+  return { seams: rows, actions };
 };
 
 export const recordDecisions = (
@@ -3657,7 +3685,8 @@ export const recordDecisions = (
       throw new UsageError(
         `${row.path} still has an unresolved conflict; resolve it, stage it, and rerun record-decisions`,
       );
-  const supplied = inputPath === null ? null : readDecisionInput(inputPath, report, declined);
+  const input = inputPath === null ? null : readDecisionInput(inputPath, report, declined);
+  const supplied = input?.seams ?? null;
   const snapshot = saveRerereCache(worktree, `rerere: recorded ${tag}`);
   if (snapshot !== null) {
     try {
@@ -3688,6 +3717,29 @@ export const recordDecisions = (
   const recorded: SyncReport = {
     ...report,
     decisions,
+    // The operator's typed verdicts are the report's own state; the record only renders them.
+    ...(input === undefined || input === null || input.actions.length === 0
+      ? {}
+      : {
+          recordDecisions: [
+            ...(report.recordDecisions ?? []).filter(
+              (existing) => !input.actions.some((row) => row.subject === existing.subject),
+            ),
+            ...input.actions.map(({ subject, action, decidedBy }) => ({
+              subject,
+              action,
+              decidedBy,
+            })),
+          ],
+          grounding: [
+            ...(report.grounding ?? []).filter(
+              (existing) => !input.actions.some((row) => row.subject === existing.subject),
+            ),
+            ...input.actions.flatMap((row) =>
+              row.grounding === undefined ? [] : [{ subject: row.subject, claim: row.grounding }],
+            ),
+          ],
+        }),
     // The human resolution replaces the stop's TODO cells on each declined row (#876): the record
     // shows the seam as resolved, and the pending ledger row reads the same resolved values.
     conflicts: report.conflicts.map((row) =>
@@ -3802,7 +3854,7 @@ const unblockApply = (
   if (recordPath !== NodePath.resolve(report.recordPath))
     throw new Error("record path does not match the report binding");
   const record = NodeFS.readFileSync(recordPath, "utf8");
-  validateSignedRecord(record, report);
+  validateSignedDecisions(report);
   if (report.lane === undefined || report.source === undefined)
     throw new Error("apply binding is incomplete");
   // Prose hygiene first: the digest in the review gate below binds objective
@@ -3821,7 +3873,7 @@ const unblockApply = (
   // The unblock walk resolves, repairs and applies in one shot, so a second agent's sign-off would
   // be a human stop in the middle of an unattended run.
   if (isRewrite) {
-    validateNightlyReview(record, report);
+    validateNightlyReview(report);
     if (report.target !== undefined && isNightlyUpstreamTag(report.target.tag)) {
       const liveIssue = readIssue(runner, report.repositoryRoot);
       if (

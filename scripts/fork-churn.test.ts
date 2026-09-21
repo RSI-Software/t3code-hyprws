@@ -32,7 +32,7 @@ import { freezeObservation, seamRecord } from "./lib/fork-churn-seams.ts";
 import { parseCallerAttestation } from "./lib/fork-agent-identity.ts";
 import {
   NIGHTLY_REVIEW_EVIDENCE,
-  parseRecord,
+  recordDecisionRows,
   renderRecord,
   type SyncReport,
 } from "./fork-sync-state.ts";
@@ -41,7 +41,7 @@ const A = "a".repeat(40);
 const B = "b".repeat(40);
 
 const reportFixture = (): SyncReport => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   stage: "checked",
   repositoryRoot: "/tmp/repository",
   reportPath: "/tmp/report.json",
@@ -82,53 +82,22 @@ const reportFixture = (): SyncReport => ({
   stackSize: 1,
 });
 
-it("round-trips the Conflicts and Fork commits tables rendered by renderRecord", () => {
-  const parsed = parseRecord(renderRecord(reportFixture()));
-  assert.deepStrictEqual(parsed.conflicts, reportFixture().conflicts);
-  assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
-});
-
-/**
- * A stopped walk's record keeps TODO cells even after `record-decisions` upgrades the declined
- * conflict rows: the fork-commit Action cells stay TODO (RSI-Software/t3code-hyprws#876). Only the
- * pending ledger row's parse may read such a record.
- */
-it("accepts TODO fork-commit Action cells only when allowIncomplete", () => {
-  // A declined seam whose subject has no orientation row: record-decisions upgrades the conflict
-  // row to human, but its fork-commit Action cell stays TODO.
-  const declinedSubject = "fix(web): a seam the executor declined";
-  const humanResolved = renderRecord({
-    ...reportFixture(),
-    stage: "conflicts",
-    conflicts: [{ ...reportFixture().conflicts[0]!, subject: declinedSubject }],
-  });
-  assert.throws(() => parseRecord(humanResolved), /Action/);
-  const parsed = parseRecord(humanResolved, { allowIncomplete: true });
-  assert.strictEqual(
-    parsed.decisions.find((row) => row.subject === declinedSubject)?.verdict,
-    "TODO",
-  );
-  const stillStopped = renderRecord({
-    ...reportFixture(),
-    stage: "conflicts",
-    conflicts: [
-      {
-        ...reportFixture().conflicts[0]!,
-        class: "TODO",
-        resolution: "TODO",
-        agentSafe: "TODO",
-        decidedBy: "TODO",
-      },
-    ],
-  });
-  assert.throws(() => parseRecord(stillStopped), /remains incomplete/);
-  assert.strictEqual(
-    parseRecord(stillStopped, { allowIncomplete: true }).conflicts[0]?.class,
-    "TODO",
+it("projects the report's own decisions into the ledger without reading the record", () => {
+  assert.deepStrictEqual(
+    recordDecisionRows(reportFixture()),
+    reportFixture().orientationDecisions,
   );
 });
 
-it("keeps nightly proposer and reviewer separate in the record and ledger", () => {
+/** The record is a projection: rewriting the comment cannot change what the ledger stores. */
+it("ignores an edited record when it projects the decisions", () => {
+  const report = reportFixture();
+  const edited = renderRecord(report).replace(/partial/g, "retire").replace(/human/g, "agent");
+  assert.notStrictEqual(edited, renderRecord(report));
+  assert.deepStrictEqual(recordDecisionRows(report), report.orientationDecisions);
+});
+
+it("keeps nightly proposer and reviewer separate in the ledger", () => {
   const proposer = {
     iface: "pi",
     provider: "meta",
@@ -158,13 +127,6 @@ it("keeps nightly proposer and reviewer separate in the record and ledger", () =
       inspected: NIGHTLY_REVIEW_EVIDENCE,
     },
   };
-  const record = renderRecord({
-    ...reportFixture(),
-    target: { tag: "v1.0.0-nightly.20260904.1", sha: B },
-    nightlyReview,
-  });
-  assert.deepStrictEqual(parseRecord(record).nightlyReview, nightlyReview);
-
   const [parsed] = parseLedger(
     JSON.stringify([
       {
@@ -244,15 +206,7 @@ it("rejects incomplete or malformed nightly review ledger provenance", () => {
   );
 });
 
-it("reads a record or ledger row written before provenance as deciding nothing", () => {
-  const oldRecord = renderRecord(reportFixture())
-    .split("\n")
-    .map((line) => line.replace(/ \| (?:human|agent) \|$/, " |"))
-    .join("\n");
-  const parsed = parseRecord(oldRecord);
-  assert.isTrue(parsed.conflicts.every(({ decidedBy }) => decidedBy === "TODO"));
-  assert.isTrue(parsed.decisions.every(({ decidedBy }) => decidedBy === "TODO"));
-
+it("reads a ledger row written before provenance as deciding nothing", () => {
   const [entry] = parseLedger(
     JSON.stringify([
       {
@@ -1661,7 +1615,7 @@ it("report assesses a live census from the auto-result artifact without carry or
   NodeFS.writeFileSync(
     artifact,
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       decision: {
         pairwiseFirstConflict: null,
         census: {
@@ -1809,7 +1763,7 @@ it("report never passes on live census evidence it could not assess", () => {
     };
     const envelopeWith = (mutate: (envelope: Record<string, unknown>) => void): string => {
       const envelope: Record<string, unknown> = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1888,7 +1842,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         decision: {
           pairwiseFirstConflict: null,
           census: null,
@@ -1910,7 +1864,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1961,7 +1915,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1990,7 +1944,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         decision: {
           pairwiseFirstConflict: null,
           census: {

@@ -392,7 +392,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   ] as const) {
     const evidence = readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         seamRecords: records,
         outcomes: [],
         walks: completed.map((walk) => ({
@@ -432,7 +432,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   for (const walks of [[returned], [returned, before]]) {
     const evidence = readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         seamRecords: [before, clear, repair, verified],
         outcomes: [],
         walks: walks.map((walk) => ({
@@ -463,7 +463,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   // both histories — still refuse to invent an order.
   const unanchored = readLessonEvidence(
     encodeSync({
-      version: 3,
+      version: 4,
       seamRecords: [before, clear, repair, verified],
       outcomes: [],
       walks: [
@@ -538,14 +538,14 @@ it("validates the complete known envelope before projecting lesson fields", () =
   assert.throws(() =>
     readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         walks: [],
         seamRecords: [],
         outcomes: [{ preserved: "invalid outcome" }],
       }),
     ),
   );
-  assert.throws(() => readLessonEvidence(encodeSync({ version: 3, walks: [], seamRecords: [] })));
+  assert.throws(() => readLessonEvidence(encodeSync({ version: 4, walks: [], seamRecords: [] })));
 });
 
 it("projects future compatible fields explicitly without claiming complete schema or repair support", () => {
@@ -898,7 +898,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
           publisher,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          yield* encode({ version: 3, walks: [], seamRecords: [observation], outcomes: [] }),
+          yield* encode({ version: 4, walks: [], seamRecords: [observation], outcomes: [] }),
           "new lesson",
         );
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);

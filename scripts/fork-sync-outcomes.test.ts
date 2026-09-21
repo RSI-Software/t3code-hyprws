@@ -318,7 +318,7 @@ it("records a not-attempted publication with a failed policy without inventing a
 });
 
 const syncReport = (state: SyncReport["stage"]): SyncReport => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   stage: state,
   repositoryRoot: "/fixture",
   reportPath: "/fixture/report.json",

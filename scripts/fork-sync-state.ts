@@ -413,6 +413,15 @@ export interface SyncReport {
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
   readonly recordDecisions?: ReadonlyArray<RecordDecision>;
+  /**
+   * What a human or agent claimed about product grounding for a decision subject, or the claim
+   * still owed. Gate 4 reads this, never the rendered record (RSI-Software/t3code-hyprws#1144).
+   */
+  readonly grounding?: ReadonlyArray<{
+    readonly subject: string;
+    readonly claim?: string;
+    readonly pending?: string;
+  }>;
   readonly inheritedVerdicts?: ReadonlyArray<InheritedVerdict>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
@@ -1168,105 +1177,12 @@ export const renderRecord = (report: SyncReport): string => {
 export const writeRecord = (report: SyncReport): void =>
   NodeFS.writeFileSync(report.recordPath, renderRecord(report), { mode: 0o600 });
 
-/**
- * Split a rendered table row on its unescaped pipes. `renderRecord` escapes a pipe inside a cell,
- * so a naive `split("|")` shifts every later cell whenever evidence quotes one; readers of a
- * rendered row use this instead. Returns null for a line that is not a table row.
- */
-export const splitTableCells = (line: string): ReadonlyArray<string> | null => {
-  if (!line.startsWith("|") || !line.endsWith("|")) return null;
-  const cells: Array<string> = [];
-  let cell = "";
-  let backslashes = 0;
-  for (const character of line.slice(1, -1)) {
-    if (character === "|" && backslashes % 2 === 0) {
-      cells.push(cell.trim());
-      cell = "";
-    } else {
-      cell += character;
-    }
-    backslashes = character === "\\" ? backslashes + 1 : 0;
-  }
-  cells.push(cell.trim());
-  return cells;
-};
-
-const invalidConflictCell = (column: string, detail: string): Error =>
-  new Error(`invalid conflict ${column} cell: ${detail}`);
-
 export const isInheritedDecidedBy = (cell: string): boolean =>
   cell.startsWith("inherited (") && cell.endsWith(")");
 
 export const inheritedTarget = (decidedBy: string): string | null => {
   if (!isInheritedDecidedBy(decidedBy)) return null;
   return decidedBy.slice("inherited (".length, -1);
-};
-
-/** An absent column is a record written before provenance existed, so it carries none. */
-const readDecidedBy = (cell: string | undefined, invalid: (detail: string) => Error): DecidedBy => {
-  if (cell === undefined || cell === "TODO") return "TODO";
-  if (cell === "human" || cell === "agent") return cell;
-  if (cell !== undefined && isInheritedDecidedBy(cell)) return cell as DecidedBy;
-  throw invalid(cell);
-};
-
-const unescapeCell = (value: string, column: string): string => {
-  let result = "";
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index] ?? "";
-    if (character !== "\\") {
-      result += character;
-      continue;
-    }
-    const escaped = value[index + 1];
-    if (escaped !== "\\" && escaped !== "|") {
-      throw invalidConflictCell(
-        column,
-        escaped === undefined ? "trailing backslash" : `unsupported escape \\${escaped}`,
-      );
-    }
-    result += escaped;
-    index += 1;
-  }
-  return result;
-};
-
-const recordSection = (record: string, heading: string): string =>
-  record.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
-
-/** Objective rows the review verdict binds: header bindings (source, target,
- * lease, rehearsal, stack), the conflict and decision tables, silent seams,
- * and verification lines. Free prose — grounding claims, orientation text,
- * citations — is excluded, so a prose-only edit keeps the sign-off. */
-export const reviewBoundRows = (record: string): string => {
-  const section = (heading: string): string => recordSection(record, heading);
-  const header = section("## Header")
-    .split("\n")
-    .filter((line) =>
-      /^- (Source|Target|`expected_old`|Lease|Rehearsal branch|Rebased head|Stack size|`from`)[:-]/.test(
-        line,
-      ),
-    )
-    .join("\n");
-  // Table rows and verification lines carry the verdicts; the summary
-  // after the colon is free prose, so it is cut. A citation wrapped in
-  // backticks afterwards lands in the cut half and keeps the sign-off.
-  // Rewrite records carry their binding rows (from/origin/base, constructed
-  // head, archive SHA, proof verdicts) under the same four headings, so
-  // the table-and-verification filter covers them without a rewrite
-  // special case.
-  const bound = (line: string): string => {
-    if (line.startsWith("|")) return line;
-    const seam = /^(- `[^`]+` \[(?:behaviour|type)\]: )(.*)$/.exec(line);
-    if (seam !== null) return seam[1] ?? line;
-    const verified = /^(- `[^`]+`: )(\w+)$/.exec(line);
-    if (verified !== null) return line;
-    return "";
-  };
-  const tables = ["## Conflicts", "## Fork commits", "## Silent seams", "## Verification"]
-    .map((heading) => section(heading).split("\n").map(bound).filter(Boolean).join("\n"))
-    .join("\n");
-  return `${header}\n${tables}`;
 };
 
 /** Keep actions an agent may record on its own, each naming the proof that earned it. */

@@ -375,7 +375,7 @@ const walkResolution = (
     const message = git(lane, ["show", "-s", "--format=%B", commit]);
     const outcome = autoResolveConflicts(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         stage: "conflicts",
         repositoryRoot: lane,
         reportPath: NodePath.join(reports, "report.json"),

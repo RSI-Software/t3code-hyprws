@@ -736,14 +736,14 @@ it("records evidence idempotently and preserves it through walk and legacy reade
     const walks = [walk("v1", snapshot(A))];
     writeChurnLedger(root, walks, "walk");
     assert.deepStrictEqual(readChurnState(root), {
-      version: 3,
+      version: 4,
       walks,
       seamRecords: records,
       outcomes,
       forecasts: [],
     });
     assert.deepStrictEqual(parseChurnState(JSON.stringify(walks)), {
-      version: 3,
+      version: 4,
       walks,
       seamRecords: [],
       outcomes: [],
@@ -790,7 +790,7 @@ it("preserves records while seeding v2 and migrating legacy subjects", () => {
     // Force a genuinely subjectless legacy row to exercise the later migration writer.
     writeChurnState(
       root,
-      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes, forecasts: [] },
+      { version: 4, walks: [legacyWalk], seamRecords: records, outcomes, forecasts: [] },
       "legacy subjects",
     );
     assert.strictEqual(run(["migrate-subjects"], root), 0);
@@ -925,7 +925,7 @@ it("exercises receipt verdicts for absence, return and verified regression witho
       writeChurnState(
         root,
         {
-          version: 3,
+          version: 4,
           walks: item.walks.map((observed, at) => {
             // Cases with frozen seam records carry a second chronology chain, so
             // their walks take ordered low tags the shared ordering anchor can place
@@ -957,7 +957,7 @@ it("exercises receipt verdicts for absence, return and verified regression witho
     writeChurnState(
       root,
       {
-        version: 3,
+        version: 4,
         walks: [walk(clear.tag, snapshot(B, []))],
         seamRecords: records,
         outcomes: [],
@@ -978,7 +978,7 @@ it("exercises receipt verdicts for absence, return and verified regression witho
     writeChurnState(
       root,
       {
-        version: 3,
+        version: 4,
         walks: [walk("v1.0.0", snapshot(C))],
         seamRecords: records,
         outcomes: [],

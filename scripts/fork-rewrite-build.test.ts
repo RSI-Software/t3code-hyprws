@@ -245,7 +245,7 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           root,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          encodeJson({ version: 3, walks: [], seamRecords: [], outcomes: [declaration] }),
+          encodeJson({ version: 4, walks: [], seamRecords: [], outcomes: [declaration] }),
           "fixture ledger",
         );
         git(root, ["checkout", "--quiet", "--detach", receipt.result]);
