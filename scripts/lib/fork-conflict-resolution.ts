@@ -11,7 +11,7 @@ import {
   type OutcomeSource,
   type UnresolvedOutcome,
 } from "./fork-conflict-outcomes.ts";
-import { FORK_HOOKS } from "./fork-hooks.ts";
+import { forkHookManifest, type ForkHooksManifest } from "./fork-hooks.ts";
 
 /**
  * The one sequence that decides a conflicted path in the fork's walk, so the walk and the stop
@@ -24,8 +24,6 @@ import { FORK_HOOKS } from "./fork-hooks.ts";
  * the walk restores HEAD and regenerates it, and a caller that cannot run the generator has not
  * seen that path resolve.
  */
-
-type ForkHooksManifest = typeof FORK_HOOKS;
 
 /** The stage that owned a conflicted path; `unresolved` is the only one a human owns. */
 export type ResolutionStage = "rerere" | OutcomeSource | "unresolved";
@@ -118,7 +116,7 @@ export const resolveConflictPath = (
     runner,
     worktree,
     path,
-    options.manifest ?? FORK_HOOKS,
+    options.manifest ?? forkHookManifest(),
     options.verifyHookReapply ?? true,
     {
       ...(options.forkTipRef === undefined ? {} : { forkTipRef: options.forkTipRef }),
