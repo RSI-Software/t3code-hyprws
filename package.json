@@ -53,6 +53,7 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "fork:delta": "node scripts/fork-delta.ts",
     "fork:scan": "node scripts/fork-scan.ts",
+    "fork:ci": "node scripts/fork-ci.ts",
     "fork:lockfile": "node scripts/fork-lockfile.ts",
     "fork:sync": "node scripts/fork-sync.ts",
     "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
