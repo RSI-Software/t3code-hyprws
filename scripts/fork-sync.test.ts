@@ -2759,13 +2759,11 @@ const stubGitHub = (candidate: StableCandidate, onRead: () => void = () => {}) =
         },
       ];
     },
-    listIssueComments: unreachable,
     lookupIssueTypeId: unreachable,
     applyIssueType: unreachable,
     createIssue: unreachable,
     updateIssueBody: unreachable,
     createIssueComment: unreachable,
-    updateIssueComment: unreachable,
     stableReleaseTagExists: () => false,
     closeIssue: unreachable,
   };

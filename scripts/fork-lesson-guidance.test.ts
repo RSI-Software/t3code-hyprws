@@ -922,61 +922,30 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
         );
         // The published review section must use the same current immutable source,
         // without refreshing the retained writer ref as a side effect.
-        const reportBin = NodePath.join(root, "report-bin");
-        const reportBodyPath = NodePath.join(root, "published-report.md");
+        // The retained review must use the same current immutable source,
+        // without refreshing the retained writer ref as a side effect. The
+        // report publishes nothing: the receipt's publication is always
+        // not-attempted and no transport runs.
         const reportReceiptPath = NodePath.join(root, "report-receipt.json");
-        yield* fs.makeDirectory(reportBin);
-        const fakeGh = NodePath.join(reportBin, "gh");
-        yield* fs.writeFileString(
-          fakeGh,
-          `#!/usr/bin/env node
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-if (args[0] === "issue" && args[1] === "view") process.stdout.write(process.env.LESSON_ISSUE_FIXTURE);
-else if (args[0] === "issue" && args[1] === "comment") {
-  fs.writeFileSync(process.env.LESSON_PUBLISHED_FIXTURE, fs.readFileSync(args[args.indexOf("--body-file") + 1]));
-  process.stdout.write("https://example.test/issues/1#issuecomment-1");
-} else process.exitCode = 2;
-`,
-        );
-        yield* fs.chmod(fakeGh, 0o755);
-        const issueFixture = yield* encode({
-          body: `## Sequential rebase census\n\nA throwaway rebase rehearsal to \`v2\` found one conflict.\n\n| File | Hunks | Fork commit | Domain |\n| --- | ---: | --- | --- |\n| \`${source}\` | 1 | \`${base.slice(0, 7)} new terminal seam\` | fork-meta |`,
-          comments: [],
-        });
         const publishReport = () =>
           NodeChildProcess.spawnSync(
             process.execPath,
             [
               NodePath.join(import.meta.dirname, "fork-churn.ts"),
               "report",
-              "--issue",
-              "1",
               "--receipt",
               reportReceiptPath,
             ],
-            {
-              cwd: consumer,
-              encoding: "utf8",
-              env: {
-                ...process.env,
-                PATH: `${reportBin}:${process.env.PATH ?? ""}`,
-                LESSON_ISSUE_FIXTURE: issueFixture,
-                LESSON_PUBLISHED_FIXTURE: reportBodyPath,
-              },
-            },
+            { cwd: consumer, encoding: "utf8" },
           );
         const report = publishReport();
         assert.strictEqual(report.status, 0, report.stderr);
-        const published = yield* fs.readFileString(reportBodyPath);
-        assert.include(published, `at ${next}; freshness=current`);
         assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
-          publication: "succeeded",
+          publication: "not-attempted",
           policy: "succeeded",
-          url: "https://example.test/issues/1#issuecomment-1",
         });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
-        // Retained local evidence is useful to publish, but cannot certify that
+        // Retained local evidence is useful to assess, but cannot certify that
         // the current policy passes when origin cannot supply the declared ref.
         const emptyRemote = NodePath.join(consumer, "empty-origin.git");
         git(consumer, ["init", "--bare", emptyRemote]);
@@ -986,16 +955,13 @@ else if (args[0] === "issue" && args[1] === "comment") {
         ]) {
           git(consumer, ["remote", "set-url", "origin", url!]);
           const retainedReport = publishReport();
-          // A missing lesson is a warning on the notification, not a job failure (#860).
+          // A missing lesson is a warning, not a job failure (#860).
           assert.strictEqual(retainedReport.status, 0, retainedReport.stderr);
-          const retainedBody = yield* fs.readFileString(reportBodyPath);
-          assert.include(retainedBody, `at ${first}; freshness=${freshness}`);
-          assert.include(retainedBody, `lesson source freshness is ${freshness}`);
+          assert.include(retainedReport.stdout, `lesson source freshness is ${freshness}`);
           assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
-            publication: "succeeded",
+            publication: "not-attempted",
             policy: "failed",
             reason: "lesson-unavailable",
-            url: "https://example.test/issues/1#issuecomment-1",
           });
           assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         }
@@ -1010,15 +976,11 @@ else if (args[0] === "issue" && args[1] === "comment") {
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);
         const futureReport = publishReport();
         assert.strictEqual(futureReport.status, 0);
-        const unavailable = yield* fs.readFileString(reportBodyPath);
-        assert.include(unavailable, `at ${future}; freshness=current`);
-        assert.include(unavailable, "Lesson assessment unavailable");
-        assert.include(futureReport.stdout, "does not establish a policy pass");
+        assert.include(futureReport.stdout, "no policy pass is inferred");
         assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
-          publication: "succeeded",
+          publication: "not-attempted",
           policy: "failed",
           reason: "lesson-unavailable",
-          url: "https://example.test/issues/1#issuecomment-1",
         });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         const offline = scan("--offline");

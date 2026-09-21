@@ -226,10 +226,10 @@ class FakeGitHub implements RebaseGitHubClient {
 const openIssues = (client: FakeGitHub): ReadonlyArray<RebaseIssue> =>
   client.issues.filter((issue) => issue.state === "open");
 
-it("creates one assigned block issue and one Refresh log comment", () => {
+it("creates one assigned block issue and no comments", () => {
   const client = new FakeGitHub();
   const report = blocked(SHA_A);
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
 
   assert.strictEqual(client.created.length, 1);
   assert.deepStrictEqual(client.created[0], {
@@ -242,20 +242,7 @@ it("creates one assigned block issue and one Refresh log comment", () => {
   assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
   assert.deepStrictEqual(client.issueTypeEdits, [1]);
   assert.strictEqual(openIssues(client).length, 1);
-  const comment = client.comments.get(1)?.[0]?.body ?? "";
-  assert.strictEqual(
-    comment,
-    `<!-- hyprws-rebase-refresh-log -->
-Refresh log  (1 update)
-
-\`\`\`text
-#0 08-30 00:13  hyprws  o--X--o--o--N  v1.2.0-nightly.20260830.1000  2c
-
-block aaaaaaa unchanged since #0
-o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag
-\`\`\`
-<!-- hyprws-rebase-refresh-tag:v1.2.0-nightly.20260830.1000 -->`,
-  );
+  assert.deepStrictEqual(client.comments.get(1), undefined);
 });
 
 it("reconciles block and stable-candidate notifications from one workflow payload", () => {
@@ -488,7 +475,7 @@ it("updates the native issue type when refreshing an open block issue", () => {
     },
   ]);
 
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
 
   assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
   assert.deepStrictEqual(client.issueTypeEdits, [7]);
@@ -509,23 +496,19 @@ it("does not look up or apply the native Notification type when refresh already 
     },
   ]);
 
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
 
   assert.deepStrictEqual(client.issueTypeLookups, []);
   assert.deepStrictEqual(client.issueTypeEdits, []);
 });
 
-it("rewrites the body but leaves the Refresh log unchanged for the same tag", () => {
+it("rewrites the body and posts nothing when the same block stays open", () => {
   const client = new FakeGitHub();
   const report = blocked(SHA_A);
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
   const before = client.comments.get(1)?.[0]?.body;
 
-  reconcileRebaseBlock(
-    client,
-    input({ ...report, body: `${report.body}\nrefreshed` }),
-    new Date("2026-08-30T06:17:00Z"),
-  );
+  reconcileRebaseBlock(client, input({ ...report, body: `${report.body}\nrefreshed` }));
 
   assert.deepStrictEqual(client.bodyEdits, [1]);
   assert.strictEqual(client.comments.get(1)?.[0]?.body, before);
@@ -533,31 +516,26 @@ it("rewrites the body but leaves the Refresh log unchanged for the same tag", ()
   assert.strictEqual(client.created.length, 1);
 });
 
-it("appends one row when the newest tag moves without retitling", () => {
+it("rewrites the body in place when the newest tag moves, without retitling or commenting", () => {
   const client = new FakeGitHub();
-  reconcileRebaseBlock(client, input(blocked(SHA_A)), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(blocked(SHA_A)));
   const originalTitle = client.issues[0]?.title;
   const moved = blocked(SHA_A, "v1.2.0");
 
-  reconcileRebaseBlock(client, input(moved), new Date("2026-08-30T06:17:00Z"));
+  reconcileRebaseBlock(client, input(moved));
 
-  const comment = client.comments.get(1)?.[0]?.body ?? "";
-  assert.include(comment, "Refresh log  (2 updates)");
-  assert.include(comment, "#0 08-30 00:13");
-  assert.include(comment, "#1 08-30 06:17  hyprws  o--X--o--o--S  v1.2.0  2c");
-  assert.strictEqual(comment.match(/^#\d+ /gm)?.length, 2);
-  assert.strictEqual(comment.match(/^```text$/gm)?.length, 1);
-  assert.strictEqual(comment.match(/^```$/gm)?.length, 1);
-  assert.deepStrictEqual(client.commentEdits, [100]);
+  assert.deepStrictEqual(client.bodyEdits, [1]);
+  assert.deepStrictEqual(client.commentEdits, []);
+  assert.strictEqual(client.created.length, 1);
   assert.strictEqual(client.issues[0]?.title, originalTitle);
 });
 
 it("closes the resolved sha with one comment and creates nothing", () => {
   const client = new FakeGitHub();
-  reconcileRebaseBlock(client, input(blocked(SHA_A)), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(blocked(SHA_A)));
   client.created.length = 0;
 
-  reconcileRebaseBlock(client, input(null), new Date("2026-08-30T06:17:00Z"));
+  reconcileRebaseBlock(client, input(null));
 
   assert.deepStrictEqual(client.closed, [1]);
   assert.strictEqual(client.created.length, 0);
@@ -578,7 +556,7 @@ it("refiles a still-live sha when its previous issue was closed", () => {
     },
   ]);
 
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
 
   assert.strictEqual(client.created.length, 1);
   assert.strictEqual(openIssues(client).length, 1);
@@ -600,12 +578,12 @@ it("refreshes a matching issue found by the pre-create re-read instead of creati
     });
   };
 
-  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(report));
 
   assert.strictEqual(client.listCalls, 2);
   assert.deepStrictEqual(client.created, []);
   assert.deepStrictEqual(client.bodyEdits, [9]);
-  assert.strictEqual(client.comments.get(9)?.length, 1);
+  assert.deepStrictEqual(client.comments.get(9), undefined);
 });
 
 it("closes the old identity before creating a new one and leaves at most one open", () => {
@@ -621,7 +599,7 @@ it("closes the old identity before creating a new one and leaves at most one ope
     },
   ]);
 
-  reconcileRebaseBlock(client, input(blocked(SHA_B)), new Date("2026-08-30T00:13:00Z"));
+  reconcileRebaseBlock(client, input(blocked(SHA_B)));
 
   assert.deepStrictEqual(client.closed, [4]);
   assert.strictEqual(client.created.length, 1);
