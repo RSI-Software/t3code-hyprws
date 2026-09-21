@@ -16,6 +16,7 @@ import type { ScopedProjectRef } from "./environment.ts"; // fork-hook: multi-wi
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import { KeybindingShortcut, type PreviewForwardedShortcut } from "./keybindings.ts";
+import type { DesktopWindowRequest } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/request-window-import
 
 import type {
   DesktopAppActivationRequest,
@@ -1150,7 +1151,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   /** Reads http(s) media in the main process, outside renderer CORS and CSP; null on network failure. */
   readMedia: (url: string) => Promise<DesktopMediaRead | null>;
-  openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
+  requestWindow?: (request: DesktopWindowRequest) => Promise<void>; // fork-hook: multi-window/request-window-bridge
   projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
   windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge

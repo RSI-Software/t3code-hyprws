@@ -19,8 +19,15 @@ describe("DesktopUpdates", () => {
       {
         windowId: "00000000-0000-4000-8000-000000000001" as WindowId,
         identity: HUB_WINDOW_IDENTITY,
+        route: "/",
+        bounds: { x: 0, y: 0, width: 1200, height: 800 },
       },
-      { windowId: "00000000-0000-4000-8000-000000000002" as WindowId, identity: projectIdentity },
+      {
+        windowId: "00000000-0000-4000-8000-000000000002" as WindowId,
+        identity: projectIdentity,
+        route: "/project/environment-1/project-1",
+        bounds: null,
+      },
     ];
     const harness = makeHarness({ openWindows });
     return Effect.scoped(
