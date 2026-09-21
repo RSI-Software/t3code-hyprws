@@ -585,7 +585,8 @@ export const parseChurnState = (raw: string): ChurnState => {
     walks: parseWalks(state.walks),
     seamRecords: requireSeamRecords(state.seamRecords),
     outcomes: version === 2 ? [] : requireOutcomeReceipts(state.outcomes),
-    forecasts: version === 2 || state.forecasts === undefined ? [] : requireForecasts(state.forecasts),
+    forecasts:
+      version === 2 || state.forecasts === undefined ? [] : requireForecasts(state.forecasts),
     ...(notifications === undefined ? {} : { notifications: requireNotifications(notifications) }),
   };
 };
