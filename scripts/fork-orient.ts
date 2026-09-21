@@ -98,7 +98,7 @@ export interface Orientation {
   readonly watch: WatchSummary;
 }
 
-const HELP = `Usage: vp run fork:orient --target vX.Y.Z
+const HELP = `Usage: node scripts/fork-orient.ts --target vX.Y.Z
 
 Gate 1 of the fork-sync flow. Proves the picked tag, then prints the target,
 source, shared base, feasibility, automerged overlap, retire candidates,

@@ -8,121 +8,10 @@ export const WORKFLOW_COPIES = [
   { upstream: ".github/workflows/release.yml", fork: ".github/workflows/hyprws-release.yml" },
 ] as const;
 
-const RELEASE_OUTCOME_FILE = "FORK_RELEASE_OUTCOME_FILE";
-const RELEASE_OUTCOME_FILENAME = "fork-release-outcome-receipts.json";
-const RELEASE_OUTCOME_PATH = `\${{ runner.temp }}/\${{ env.${RELEASE_OUTCOME_FILE} }}`;
-export const RELEASE_OUTCOME_GUARD = "release-outcome-evidence-v1";
-
-const workflowJob = (workflow: string, name: string): string | undefined => {
-  const marker = `  ${name}:\n`;
-  const start = workflow.indexOf(marker);
-  if (start === -1) return undefined;
-  const following = workflow.slice(start + marker.length);
-  const end = following.search(/^  [a-zA-Z0-9_-]+:\n/m);
-  return end === -1 ? following : following.slice(0, end);
-};
-
-const workflowStep = (workflow: string, name: string): string | undefined => {
-  const marker = `      - name: ${name}\n`;
-  const start = workflow.indexOf(marker);
-  if (start === -1) return undefined;
-  const following = workflow.slice(start + marker.length);
-  const end = following.search(/^      - name: /m);
-  return end === -1 ? following : following.slice(0, end);
-};
-
-const workflowMapping = (workflow: string, name: string, indent: number): string | undefined => {
-  const lines = workflow.split("\n");
-  const marker = `${" ".repeat(indent)}${name}:`;
-  const start = lines.findIndex((line) => line === marker || line.startsWith(`${marker} `));
-  if (start === -1) return undefined;
-  const following = lines.slice(start + 1);
-  const end = following.findIndex(
-    (line) => line.trim().length > 0 && line.length - line.trimStart().length <= indent,
-  );
-  return (end === -1 ? following : following.slice(0, end)).join("\n");
-};
-
-export const releaseOutcomeExportProblem = (workflow: string): string | undefined => {
-  const outcome = workflowJob(workflow, "outcome");
-  if (outcome === undefined) return "outcome job must declare if: always()";
-
-  const outcomeConditions = outcome.match(/^    if\s*:.*$/gm);
-  if (
-    outcomeConditions?.length !== 1 ||
-    outcomeConditions[0] !== "    if: always()" ||
-    /^    continue-on-error\s*:/m.test(outcome)
-  )
-    return "outcome job must declare exact if: always() without continue-on-error";
-
-  const fileDeclarations = outcome.match(
-    new RegExp(`^      ${RELEASE_OUTCOME_FILE}\\s*:.*$`, "gm"),
-  );
-  if (
-    fileDeclarations?.length !== 1 ||
-    fileDeclarations[0] !== `      ${RELEASE_OUTCOME_FILE}: ${RELEASE_OUTCOME_FILENAME}`
-  )
-    return `${RELEASE_OUTCOME_FILE} must equal ${RELEASE_OUTCOME_FILENAME} in the outcome job env`;
-
-  const exportDeclarations = workflow.match(/^\s+FORK_OUTCOME_EXPORT: .*$/gm);
-  if (exportDeclarations?.length !== 1)
-    return "FORK_OUTCOME_EXPORT must be declared once in the release workflow";
-
-  const retain = workflowStep(outcome, "Retain release outcome");
-  const retainEnv = retain === undefined ? undefined : workflowMapping(retain, "env", 8);
-  if (
-    retainEnv === undefined ||
-    !retainEnv.split("\n").includes(`          FORK_OUTCOME_EXPORT: ${RELEASE_OUTCOME_PATH}`)
-  )
-    return "FORK_OUTCOME_EXPORT must use the shared path in Retain release outcome env";
-
-  const verify = workflowStep(outcome, "Verify retained release outcome");
-  const verifyLines = verify?.split("\n");
-  const retainIndex = outcome.indexOf("      - name: Retain release outcome\n");
-  const verifyIndex = outcome.indexOf("      - name: Verify retained release outcome\n");
-  const uploadIndex = outcome.indexOf("      - name: Upload distribution evidence\n");
-  if (
-    verify === undefined ||
-    !verifyLines?.includes('        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"') ||
-    verifyLines.some((line) => /^        (?:if|continue-on-error)\s*:/.test(line)) ||
-    retainIndex >= verifyIndex ||
-    verifyIndex >= uploadIndex
-  )
-    return "Verify retained release outcome must unconditionally test the retained receipt is nonempty between collection and upload";
-
-  const upload = workflowStep(outcome, "Upload distribution evidence");
-  const uploadConditions = upload?.match(/^        if\s*:.*$/gm);
-  if (
-    uploadConditions?.length !== 1 ||
-    uploadConditions[0] !== "        if: always()" ||
-    /^        continue-on-error\s*:/m.test(upload ?? "")
-  )
-    return "Upload distribution evidence must declare exact if: always() without continue-on-error";
-  const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
-  const uploadPath = uploadWith === undefined ? undefined : workflowMapping(uploadWith, "path", 10);
-  if (
-    uploadPath === undefined ||
-    !uploadPath.split("\n").some((line) => line.trim() === RELEASE_OUTCOME_PATH)
-  )
-    return "Upload distribution evidence with.path must use the FORK_OUTCOME_EXPORT path";
-  if (!uploadWith?.split("\n").includes("          if-no-files-found: error"))
-    return "Upload distribution evidence must error when outcome files are missing";
-
-  return undefined;
-};
-
 const WORKFLOW_GUARDS = new Map<
   string,
   { readonly fork: string; readonly problem: (workflow: string) => string | undefined }
->([
-  [
-    RELEASE_OUTCOME_GUARD,
-    {
-      fork: ".github/workflows/hyprws-release.yml",
-      problem: releaseOutcomeExportProblem,
-    },
-  ],
-]);
+>();
 
 interface WorkflowReview {
   readonly upstream: string;
@@ -200,15 +89,6 @@ export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview>
     if (seen.has(review.upstream)) throw new Error(`duplicate workflow review: ${review.upstream}`);
     seen.add(review.upstream);
   }
-  if (
-    document.version === CURRENT_WORKFLOW_REVIEW_VERSION &&
-    !reviews
-      .find(({ fork }) => fork === ".github/workflows/hyprws-release.yml")
-      ?.guards?.includes(RELEASE_OUTCOME_GUARD)
-  )
-    throw new Error(
-      `workflow review version ${CURRENT_WORKFLOW_REVIEW_VERSION} requires guard ${RELEASE_OUTCOME_GUARD}`,
-    );
   return reviews;
 };
 

@@ -531,5 +531,3 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
 };
 
 export { parseUpstreamWatchArgs as parseArgs };
-
-if (import.meta.main) process.exitCode = run(process.argv.slice(2));
