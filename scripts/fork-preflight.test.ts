@@ -180,7 +180,7 @@ it("exits 2 on an unknown option and 0 on help", () => {
 
   const help = collector();
   assert.strictEqual(run(["--help"], process.cwd(), help.output), 0);
-  assert.include(help.stdout.join(""), "Usage: vp run fork:preflight");
+  assert.include(help.stdout.join(""), "Usage: node scripts/fork-preflight.ts");
 });
 
 it("reports a drifted mirror without requiring it for a tag-pinned caller", () => {

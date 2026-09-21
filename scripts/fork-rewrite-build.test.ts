@@ -17,7 +17,6 @@ import {
   type CommandRunner,
 } from "./fork-sync.ts";
 import { readReport, renderRecord } from "./fork-sync-state.ts";
-import { syncOutcomeReceipts } from "./fork-churn-outcomes.ts";
 import { writeBotRefFile, CHURN_REF, CHURN_LEDGER_FILE } from "./lib/fork-bot-refs.ts";
 import {
   buildRewrite,
@@ -599,38 +598,6 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
             (call) => call.command === "git" && call.args.includes(`HEAD:refs/heads/hyprws`),
           ),
           2,
-        );
-        const receipts = syncOutcomeReceipts(applied, "rewrite/1");
-        assert.deepStrictEqual(receipts[0], declaration);
-        assert.include(
-          receipts.find((row) => row.kind === "attempt")!.rewriteProvenance!,
-          receipt.manifestSha256,
-        );
-        const checkedReceipts = syncOutcomeReceipts(checked, "rewrite/check", {
-          phase: "unblock-check",
-          detail: "failed CI fixture",
-        });
-        assert.isTrue(
-          checkedReceipts.some(
-            (row) =>
-              row.kind === "stage" && row.stage === "verification" && row.status === "failed",
-          ),
-        );
-        assert.isFalse(
-          checkedReceipts.some(
-            (row) => row.kind === "stage" && row.stage === "apply" && row.status === "succeeded",
-          ),
-        );
-        assert.throws(
-          () =>
-            syncOutcomeReceipts({
-              ...checked,
-              rewrite: {
-                ...checked.rewrite!,
-                outcomeTarget: { ...declaration, target: { ...declaration.target, sha: blocker } },
-              },
-            }),
-          /target differs/,
         );
         assert.strictEqual(readReport(applied.reportPath).stage, "applied");
         assert.include(renderRecord(reviewed), receipt.manifestSha256);

@@ -149,7 +149,7 @@ export const censusTotals = (rows: SequentialCensusEvidence["rows"]) => ({
 
 /**
  * What the conflict totals never said: how much of the walk an operator actually sees. The totals
- * above stay the conflict count, because forecast and churn measure seam pressure with them; this
+ * above stay the conflict count, the measure of seam pressure; this
  * splits the same rows by the stage that owned them (RSI-Software/t3code-hyprws#1007).
  *
  * The three counts are separate on purpose. `unverifiedFileCount` is a hook re-apply the census
@@ -400,7 +400,7 @@ vp run fork:sync stable-prepare --report <report> --issue <this issue>
 vp run fork:sync stable-publish --report <report> --go <exact-candidate>
 \`\`\`
 
-Every step stops for a human decision, and \`stable-prepare\` renders the UAT draft. [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#cut-a-stable-release) owns the verification and the release record.
+Every step stops for a human decision. [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#cut-a-stable-release) owns the verification and the release record.
 
 <!-- hyprws-stable-candidate: ${tag}-hyprws -->`;
 
@@ -413,29 +413,10 @@ interface BlockedPlan {
   readonly feasibility: ForkRebaseFeasibility;
 }
 
-/**
- * The forecast side of the blocked table (RSI-Software/t3code-hyprws#1143): one row's
- * `upstream/main state`, plus the conflict rows only `origin/main` saw. `fork-forecast.ts`
- * owns both joins and this module never imports it, so a forecast failure never stops
- * the block from being published.
- */
-export interface ForecastJoin {
-  readonly stateOf: (row: { readonly commit: string; readonly path: string }) => string;
-  readonly mainOnly: ReadonlyArray<{
-    readonly commit: string;
-    readonly subject: string;
-    readonly domain: string;
-    readonly path: string;
-  }>;
-}
-
-const NO_FORECAST: ForecastJoin = { stateOf: () => "unknown (unavailable)", mainOnly: [] };
-
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
   stopCensusUnavailableReason: string | null = null,
-  forecastJoin: ForecastJoin = NO_FORECAST,
 ): BlockedIssue | null => {
   if (stopCensus?.evidence !== undefined) {
     stopCensus = { ...stopCensus, ...censusTotals(stopCensus.evidence.rows) };
@@ -477,20 +458,11 @@ export const buildBlockedIssue = (
       : [
           `Source: ${inlineCode(evidence.sourceSha)}; base: ${inlineCode(evidence.baseSha)}; target: ${inlineCode(evidence.targetSha)}. ${evidence.complete ? "Complete" : "Partial"} observation set.`,
           "",
-          `The ${inlineCode("upstream/main state")} column replays the same fork commit against live ${inlineCode("origin/main")}: ${inlineCode("conflict")}, ${inlineCode("not observed")}, or ${inlineCode("unknown (<reason>)")} when the forecast cannot answer. It selects nothing and applies nothing.`,
-          "",
-          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain | tagged replay state | upstream/main state |`,
-          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- | --- | --- |`,
+          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain | tagged replay state |`,
+          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- | --- |`,
           ...evidence.rows.map(
             (row) =>
-              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} | conflict | ${forecastJoin.stateOf(row)} |`,
-          ),
-          // A path that conflicts on `origin/main` but not at the tag has no census row,
-          // so the union adds it here. The tagged cell may only read `not observed` from
-          // a complete census; a partial one cannot say it never conflicts.
-          ...forecastJoin.mainOnly.map(
-            (row) =>
-              `| — | ${cell(row.path)} | — | — |${evidence.version === 1 ? "" : " — |"} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain)} | ${evidence.complete ? "not observed" : "unknown (partial)"} | conflict |`,
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} | conflict |`,
           ),
           `<!-- sequential-census-v${evidence.version}:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
         ]),

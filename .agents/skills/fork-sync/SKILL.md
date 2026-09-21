@@ -21,7 +21,7 @@ A stop is a doubt you could not trace away, and nothing else.
 - **Post** to `pingdotgg/t3code`
 - **Merge** upstream into `hyprws`
 - **Move** a bot-owned ref by hand
-- **Bypass** a refusal or `fork:sync-gate`
+- **Bypass** a refusal
 - **Hand** the human a fault as a decision
 - **Redo** by hand what a verb does
 
@@ -125,7 +125,7 @@ One invocation runs the whole ladder and asks for nothing.
 
 ## Cut stable
 
-Tag a stable release from a bot-owned snapshot, after a UAT cycle and a human go.
+Tag a stable release from a bot-owned snapshot, after a human go.
 
 ```bash
 vp run fork:sync stable-list
@@ -134,4 +134,4 @@ vp run fork:sync stable-publish --report <report> --go <exact-candidate>
 ```
 
 The nightly channel needs no entry point: a leased apply cuts it by itself.
-[Cut stable](references/cut-stable.md) owns candidate selection, the UAT boundary, and the publication refusals.
+[Cut stable](references/cut-stable.md) owns candidate selection and the publication refusals.

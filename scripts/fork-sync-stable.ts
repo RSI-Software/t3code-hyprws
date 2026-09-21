@@ -47,7 +47,6 @@ export interface StableReport {
   readonly snapshot?: { readonly branch: string; readonly sha: string };
   readonly lane?: { readonly branch: string; readonly worktree: string };
   readonly release?: { readonly tag: string; readonly priorTags: ReadonlyArray<string> };
-  readonly uatDraftPath?: string;
   readonly verification: ReadonlyArray<{ readonly command: string; readonly result: string }>;
   readonly workflow?: {
     readonly runId: string;
@@ -235,7 +234,6 @@ const stableList = (
 ): StableReport => {
   const { values } = parseArgs(argv, { values: ["--output"] });
   const root = rootFor(runner, cwd);
-  requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], root);
   const candidates = readOpenCandidates(runner, root);
   if (candidates.length === 0) throw new Error("no open stable candidate issues found");
   const reportPath = externalPath(root, values.get("--output") ?? defaultReportPath());
@@ -292,7 +290,6 @@ const stablePrepare = (
     throw new Error(`issue ${selectedNumber} was not offered by stable-list`);
   }
   const root = report.repositoryRoot;
-  requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], root);
   const selected = readSelectedIssue(runner, root, offered, true);
   requireSuccess(
     runner,
@@ -399,28 +396,6 @@ const stablePrepare = (
       `remote tag ${releaseTag}`,
     );
 
-    const uatDraftPath = NodePath.join(
-      NodePath.dirname(report.reportPath),
-      `uat-${selected.name}.md`,
-    );
-    const uatArgs = [
-      "run",
-      "fork:uat",
-      "--ref",
-      `origin/${selected.branch}`,
-      "--relates-to",
-      String(selected.issue),
-      "--output",
-      uatDraftPath,
-    ];
-    // Tooling comes from trunk, product comes from the snapshot. The draft describes the snapshot
-    // through `--ref`, so the gate runs the canonical checkout's `fork:uat` and stays current with
-    // the doctrine `ghb` enforces today. A frozen lane copy would refuse a filing trunk allows, and
-    // the lane cannot be patched without failing its own cleanliness check. Every lane-content
-    // check above still runs through the lane.
-    requireSuccess(runner, "vp", uatArgs, root);
-    verification.push({ command: commandText("vp", uatArgs), result: "draft rendered" });
-
     requireSuccess(
       runner,
       "git",
@@ -452,12 +427,11 @@ const stablePrepare = (
       snapshot: { branch: selected.branch, sha: snapshotSha },
       lane,
       release: { tag: releaseTag, priorTags },
-      uatDraftPath,
       verification,
     };
     writeStableReport(next);
     process.stdout.write(
-      `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\n${uatDraftPath}\nStop. Review and create the UAT under the fork-uat judgement boundary, then obtain an explicit go for ${selected.name}.\n`,
+      `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\nStop. Verify the candidate build, then obtain an explicit go for ${selected.name}.\n`,
     );
     return next;
   } catch (error) {
