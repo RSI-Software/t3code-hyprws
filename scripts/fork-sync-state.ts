@@ -10,7 +10,7 @@ import {
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY, isNightlyUpstreamTag } from "./lib/fork-policy.ts";
-import { decisionLine, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
+import { decisionLine, type WalkDecision } from "./lib/fork-decisions.ts";
 import type { StableCandidate } from "./lib/fork-rebase-issues.ts";
 import {
   rewriteArchiveRef,
@@ -355,7 +355,8 @@ export const uniqueSilentSeams = (
 };
 
 export interface SyncReport {
-  readonly schemaVersion: 1;
+  /** Bumped to 2 when the report became the walk's only authority and the record went inert. */
+  readonly schemaVersion: 2;
   readonly stage: SyncStage;
   readonly kind?: SyncKind;
   readonly repositoryRoot: string;
@@ -693,7 +694,12 @@ export { externalPath } from "./lib/fork-external-path.ts";
 export const validateReport = (value: unknown): SyncReport => {
   if (typeof value !== "object" || value === null) throw new Error("report is not an object");
   const report = value as Partial<SyncReport>;
-  if (report.schemaVersion !== 1 || typeof report.stage !== "string")
+  if ((report.schemaVersion as number) === 1)
+    throw new Error(
+      "report is schema 1, written before the typed report became the only authority; " +
+        "finish or abandon that walk on the older build and start a fresh walk here",
+    );
+  if (report.schemaVersion !== 2 || typeof report.stage !== "string")
     throw new Error("unsupported report schema");
   if (report.kind !== undefined && report.kind !== "unblock" && report.kind !== "rewrite")
     throw new Error("unsupported report kind");

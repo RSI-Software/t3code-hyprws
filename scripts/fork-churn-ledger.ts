@@ -106,12 +106,30 @@ export interface ForecastEntry {
   }>;
 }
 
+/**
+ * The durable receipt for one notification identity: what the bot means to publish and how far
+ * it got. Defined and preserved here so the publisher can adopt it without another ledger
+ * version (RSI-Software/t3code-hyprws#1144).
+ */
+export interface NotificationReceipt {
+  readonly identity: string;
+  readonly eventId: string;
+  readonly state: string;
+  readonly desiredBodyDigest: string;
+  readonly phase: "pending" | "published";
+  readonly issueNumber?: number;
+  readonly issueUrl?: string;
+  readonly evidenceRef?: string;
+}
+
 export interface ChurnState {
-  readonly version: 3;
+  readonly version: 4;
   readonly walks: ReadonlyArray<ChurnEntry>;
   readonly seamRecords: ReadonlyArray<SeamRecord>;
   readonly outcomes: ReadonlyArray<OutcomeReceipt>;
   readonly forecasts: ReadonlyArray<ForecastEntry>;
+  /** One current receipt per identity. No walk writes this yet; every v4 writer preserves it. */
+  readonly notifications?: ReadonlyArray<NotificationReceipt>;
 }
 
 export interface ChurnEntry {
@@ -510,32 +528,65 @@ const requireForecasts = (value: unknown): ReadonlyArray<ForecastEntry> => {
   });
 };
 
+const requireNotifications = (value: unknown): ReadonlyArray<NotificationReceipt> => {
+  if (!Array.isArray(value)) throw new Error("invalid notifications");
+  const identities = new Set<string>();
+  return value.map((item, index) => {
+    const row = (item ?? {}) as Record<string, unknown>;
+    const identity = requireString(row.identity, `notification identity ${index}`);
+    if (identities.has(identity)) throw new Error(`duplicate notification identity: ${identity}`);
+    identities.add(identity);
+    const phase = row.phase;
+    if (phase !== "pending" && phase !== "published")
+      throw new Error(`invalid notification phase ${index}`);
+    if (row.issueNumber !== undefined && !Number.isInteger(row.issueNumber))
+      throw new Error(`invalid notification issueNumber ${index}`);
+    return {
+      identity,
+      eventId: requireString(row.eventId, `notification eventId ${index}`),
+      state: requireString(row.state, `notification state ${index}`),
+      desiredBodyDigest: requireString(row.desiredBodyDigest, `notification digest ${index}`),
+      phase,
+      ...(row.issueNumber === undefined ? {} : { issueNumber: row.issueNumber as number }),
+      ...(row.issueUrl === undefined
+        ? {}
+        : { issueUrl: requireString(row.issueUrl, `notification issueUrl ${index}`) }),
+      ...(row.evidenceRef === undefined
+        ? {}
+        : { evidenceRef: requireString(row.evidenceRef, `notification evidenceRef ${index}`) }),
+    } satisfies NotificationReceipt;
+  });
+};
+
 export const parseChurnState = (raw: string): ChurnState => {
   const value: unknown = JSON.parse(raw);
   if (Array.isArray(value))
-    return { version: 3, walks: parseWalks(value), seamRecords: [], outcomes: [], forecasts: [] };
+    return { version: 4, walks: parseWalks(value), seamRecords: [], outcomes: [], forecasts: [] };
   if (typeof value !== "object" || value === null) throw new Error("invalid churn ledger envelope");
   const state = value as Record<string, unknown>;
+  const version = state.version;
   if (
-    (state.version !== 2 && state.version !== 3) ||
+    (version !== 2 && version !== 3 && version !== 4) ||
     Object.keys(state).some(
       (key) =>
         ![
           "version",
           "walks",
           "seamRecords",
-          ...(state.version === 3 ? ["outcomes", "forecasts"] : []),
+          ...(version === 2 ? [] : ["outcomes", "forecasts"]),
+          ...(version === 4 ? ["notifications"] : []),
         ].includes(key),
     )
   )
     throw new Error("unsupported churn ledger envelope");
+  const notifications = version === 4 ? state.notifications : undefined;
   return {
-    version: 3,
+    version: 4,
     walks: parseWalks(state.walks),
     seamRecords: requireSeamRecords(state.seamRecords),
-    outcomes: state.version === 2 ? [] : requireOutcomeReceipts(state.outcomes),
-    forecasts:
-      state.version === 2 || state.forecasts === undefined ? [] : requireForecasts(state.forecasts),
+    outcomes: version === 2 ? [] : requireOutcomeReceipts(state.outcomes),
+    forecasts: version === 2 || state.forecasts === undefined ? [] : requireForecasts(state.forecasts),
+    ...(notifications === undefined ? {} : { notifications: requireNotifications(notifications) }),
   };
 };
 
@@ -629,7 +680,7 @@ export const writeChurnLedger = (
   const existing = readBotRefFile(root, ref, CHURN_LEDGER_FILE);
   const state =
     existing === null
-      ? { version: 3 as const, walks: [], seamRecords: [], outcomes: [], forecasts: [] }
+      ? { version: 4 as const, walks: [], seamRecords: [], outcomes: [], forecasts: [] }
       : parseChurnState(existing);
   return writeChurnState(root, { ...state, walks: entries }, message, ref);
 };

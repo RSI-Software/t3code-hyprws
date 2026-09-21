@@ -634,7 +634,7 @@ const unblockList = (
   const bot = readBotSnapshot(runner, root);
   const reportPath = externalPath(root, values.get("--output") ?? defaultReportPath());
   const report: SyncReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "listed",
     repositoryRoot: root,
     reportPath,
@@ -3571,14 +3571,69 @@ const publishPendingDecisionRow = (
  * path: it flushes rerere's recorded resolutions to the shared ref and writes the decisions to
  * the record and a pending ledger row, each published under its own lease.
  */
+/**
+ * One human resolution as `--input` carries it. The envelope repeats the walk's own bindings so a
+ * file written against another walk, or against a rewritten source, is refused rather than applied
+ * (RSI-Software/t3code-hyprws#1144).
+ */
+interface DecisionInput {
+  readonly target: { readonly tag: string; readonly sha: string };
+  readonly source: { readonly sha: string; readonly expectedOld: string };
+  readonly decisions: ReadonlyArray<{
+    readonly identity: string;
+    readonly resolution: string;
+    readonly agentSafe: "yes" | "no";
+    readonly decidedBy: "human" | "agent";
+  }>;
+}
+
+/** Bind a typed decision file to the stopped walk and to the exact rows it left on TODO. */
+const readDecisionInput = (
+  path: string,
+  report: SyncReport,
+  declined: ReadonlyArray<ConflictRow>,
+): ReadonlyMap<string, DecisionInput["decisions"][number]> => {
+  const raw: unknown = JSON.parse(NodeFS.readFileSync(path, "utf8"));
+  if (typeof raw !== "object" || raw === null) throw new UsageError("decision input is not an object");
+  const input = raw as Partial<DecisionInput>;
+  const bound = (field: string, expected: string | undefined, seen: unknown): void => {
+    if (seen !== expected)
+      throw new UsageError(`decision input ${field} ${String(seen)} does not match the walk's ${String(expected)}`);
+  };
+  bound("target tag", report.target?.tag, input.target?.tag);
+  bound("target sha", report.target?.sha, input.target?.sha);
+  bound("source sha", report.source?.sha, input.source?.sha);
+  bound("expected_old", report.source?.expectedOld, input.source?.expectedOld);
+  if (!Array.isArray(input.decisions)) throw new UsageError("decision input names no decisions");
+  const identities = new Set(declined.map((row) => row.seamKey ?? row.path));
+  const rows = new Map<string, DecisionInput["decisions"][number]>();
+  for (const row of input.decisions) {
+    if (!identities.has(row.identity))
+      throw new UsageError(`decision input names ${row.identity}, which this walk left no row for`);
+    if (rows.has(row.identity))
+      throw new UsageError(`decision input decides ${row.identity} twice`);
+    if (row.decidedBy !== "human" && row.decidedBy !== "agent")
+      throw new UsageError(`decision for ${row.identity} is unsigned`);
+    if (typeof row.resolution !== "string" || row.resolution.length === 0)
+      throw new UsageError(`decision for ${row.identity} carries no resolution`);
+    if (row.agentSafe !== "yes" && row.agentSafe !== "no")
+      throw new UsageError(`decision for ${row.identity} does not say whether an agent may replay it`);
+    rows.set(row.identity, row);
+  }
+  for (const identity of identities)
+    if (!rows.has(identity)) throw new UsageError(`decision input leaves ${identity} undecided`);
+  return rows;
+};
+
 export const recordDecisions = (
   values: ReadonlyMap<string, string>,
   cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--report", "--tag"]);
+  assertOnly(values, ["--report", "--tag", "--input"]);
   const reportPath = oneValue(values, "--report", true);
   const tag = oneValue(values, "--tag", true);
+  const inputPath = oneValue(values, "--input", true);
   if (reportPath === null || tag === null) throw new UsageError("--report and --tag are required");
   const report = readReport(reportPath);
   if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict")
@@ -3602,6 +3657,7 @@ export const recordDecisions = (
       throw new UsageError(
         `${row.path} still has an unresolved conflict; resolve it, stage it, and rerun record-decisions`,
       );
+  const supplied = inputPath === null ? null : readDecisionInput(inputPath, report, declined);
   const snapshot = saveRerereCache(worktree, `rerere: recorded ${tag}`);
   if (snapshot !== null) {
     try {
@@ -3639,9 +3695,10 @@ export const recordDecisions = (
         ? {
             ...row,
             class: "human",
-            resolution: "resolved by hand in the lane",
-            agentSafe: "no",
-            decidedBy: "human",
+            resolution:
+              supplied?.get(row.seamKey ?? row.path)?.resolution ?? "resolved by hand in the lane",
+            agentSafe: supplied?.get(row.seamKey ?? row.path)?.agentSafe ?? "no",
+            decidedBy: supplied?.get(row.seamKey ?? row.path)?.decidedBy ?? "human",
           }
         : row,
     ),
@@ -5769,7 +5826,7 @@ const rewriteRehearse = (
     worktree = NodePath.join(root, ".tmp-rewrite-dry-run");
   }
   const report: SyncReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "replayed",
     kind: "rewrite",
     repositoryRoot: root,
