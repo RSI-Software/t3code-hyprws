@@ -227,10 +227,13 @@ export const readReport = (root: string, tag: string): ForkSyncReport =>
 
 /**
  * The release tags upstream published onto `upstream/main`'s first-parent lane,
- * newest first. Both channels are eligible; `selectNewestReleaseTag` owns order.
+ * oldest first (`--reverse`), since `positionUpstreamReleaseTags` and
+ * `selectNewestReleaseTag` treat a higher first-parent position as newer.
  */
 export const releaseTags = (runner: CommandRunner, root: string): ReleaseTag[] => {
-  const firstParentShas = lines(git(runner, root, ["rev-list", "--first-parent", "upstream/main"]));
+  const firstParentShas = lines(
+    git(runner, root, ["rev-list", "--first-parent", "--reverse", "upstream/main"]),
+  );
   const positioned = positionUpstreamReleaseTags(
     { run: (args) => git(runner, root, args) },
     firstParentShas,
