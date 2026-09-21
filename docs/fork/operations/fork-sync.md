@@ -11,15 +11,15 @@ Discipline lives in [Fork development](../internals/fork-development.md); the pr
 The sync driver runs one upstream release tag end to end; it never merges upstream in, nor drops, squashes, reorders, or rewords a commit.
 There is no state machine, no gates, no lanes, no modes: one run, one exit code, one report.
 
-| Step    | Does                                                          | Fails when                                         |
-| ------- | ------------------------------------------------------------- | -------------------------------------------------- |
-| target  | the named tag, or the newest release tag on `upstream`        | the target is not a release tag                    |
-| fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`        | fetch error                                        |
-| rebase  | detached worktree, `git rebase --rerere-autoupdate <tag>`     | a conflict rerere and hook re-apply cannot resolve |
-| check   | `fork:delta --check`, `fork:scan`, typecheck, in the worktree | any red                                            |
-| push    | `--force-with-lease=hyprws:<fetched sha>`                     | lease refused                                      |
-| blocked | one block issue per blocking sha, through `ghb`               | `ghb` refuses and `gh` cannot post                 |
-| report  | `.t3/fork-sync/<tag>.json`, typed, written before any post    |                                                    |
+| Step    | Does                                                              | Fails when                                         |
+| ------- | ----------------------------------------------------------------- | -------------------------------------------------- |
+| target  | the named tag, or the newest release tag on `upstream`            | the target is not a release tag                    |
+| fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`            | fetch error                                        |
+| rebase  | detached worktree, `git rebase --rerere-autoupdate <tag>`         | a conflict rerere and hook re-apply cannot resolve |
+| check   | `fork:delta --check`, `fork:ci`, `vpr typecheck`, in the worktree | any red                                            |
+| push    | `--force-with-lease=hyprws:<fetched sha>`                         | lease refused                                      |
+| blocked | one block issue per blocking sha, through `ghb`                   | `ghb` refuses and `gh` cannot post                 |
+| report  | `.t3/fork-sync/<tag>.json`, typed, written before any post        |                                                    |
 
 A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
