@@ -326,7 +326,7 @@ const processOutput: PreflightOutput = {
   stderr: (message) => process.stderr.write(message),
 };
 
-const HELP = `Usage: vp run fork:preflight [--tag-pinned]
+const HELP = `Usage: node scripts/fork-preflight.ts [--tag-pinned]
 
 Check every precondition the fork-sync gates depend on and name each unmet one.
 Fetches origin/hyprws and upstream so ref freshness is proved, never assumed.
@@ -383,5 +383,3 @@ export const run = (
     return 1;
   }
 };
-
-if (import.meta.main) process.exitCode = run(process.argv.slice(2));

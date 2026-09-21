@@ -2,7 +2,6 @@
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
-import * as NodeCrypto from "node:crypto";
 
 import { UsageError } from "./lib/fork-cli.ts";
 import {
@@ -87,7 +86,6 @@ export interface RewriteBinding {
     readonly manifestSha256: string;
     readonly result: string;
   };
-  readonly outcomeTarget?: import("./lib/fork-sync-outcomes.ts").OutcomeTarget;
   /** Immutable old-trunk retention bound into the reviewed rewrite record. */
   readonly archive?: RewriteArchiveBinding;
   readonly from: string;
@@ -513,16 +511,6 @@ export interface WalkRecord {
      */
     readonly paths?: ReadonlyArray<string>;
   };
-  /**
-   * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
-   * an unpublished ledger is a stop the walk reports, never a later step's silent omission
-   * (RSI-Software/t3code-hyprws#664).
-   */
-  readonly ledger?: {
-    readonly state: "published" | "unpublished";
-    readonly tag: string;
-    readonly reason?: string;
-  };
 }
 
 /**
@@ -861,9 +849,6 @@ const renderRewriteRecord = (report: SyncReport): string => {
       : [
           `- Build manifest SHA-256: \`${rw.build.manifestSha256}\``,
           `- Constructed head: \`${rw.build.result}\``,
-          `- Retained outcome SHA-256: \`${NodeCrypto.createHash("sha256")
-            .update(JSON.stringify(rw.outcomeTarget ?? null))
-            .digest("hex")}\``,
         ]),
     "",
     "## Silent seams",

@@ -273,8 +273,6 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     sameTreeRewriteOf: null,
     replayOf: null,
     strict: false,
-    ledgerRef: "refs/fork/churn",
-    offline: false,
   });
   assert.deepStrictEqual(
     parseArgs([
@@ -300,8 +298,6 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       sameTreeRewriteOf: "archive/hyprws-pre-rewrite",
       replayOf: "origin/hyprws",
       strict: true,
-      ledgerRef: "refs/fork/churn",
-      offline: false,
     },
   );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
@@ -311,12 +307,6 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
   assert.throws(() => parseArgs(["--since"]), UsageError);
   assert.throws(() => parseArgs(["--same-tree-rewrite-of"]), UsageError);
-  assert.throws(() => parseArgs(["--ledger-ref", "a".repeat(40)]), UsageError);
-  assert.throws(() => parseArgs(["--ledger-ref", "hyprws"]), UsageError);
-  assert.strictEqual(
-    parseArgs(["--offline", "--ledger-ref", "refs/fork/review-lessons"]).offline,
-    true,
-  );
 });
 
 it("scopes an exact same-tree rewrite to no newly authored commits", () => {
@@ -428,38 +418,4 @@ it("keeps the authoring range when a head fails any rebase rehearsal proof", () 
   assert.strictEqual(resolveAuthoringSince(reader({ ahead: "0\n" }), options), "shared-base");
   // Only an upstream release tag is a legitimate replay base.
   assert.strictEqual(resolveAuthoringSince(reader({ tag: "\n" }), options), "shared-base");
-});
-
-it("carries ledger guard warnings into the report without changing the scan verdict", () => {
-  const result = buildScanResult(
-    scanInput({
-      upstreamChanged: new Set(),
-      guard: {
-        commits: [{ sha: "aaaaaaa".padEnd(40, "0"), short: "aaaaaaa", domain: "project-windows" }],
-        forkHooks: new Set<string>() as ReadonlySet<string>,
-        filesBySha: new Map([
-          ["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/ChatView.tsx"]],
-        ]),
-        patchesBySha: new Map(),
-        upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx"]),
-        hotSeams: new Map([
-          [
-            "apps/web/src/components/ChatView.tsx",
-            {
-              kind: "conflict" as const,
-              walkCount: 3,
-              worstClass: "seam-moved",
-              countUnit: "conflict walk(s)",
-            },
-          ],
-        ]),
-      },
-    }),
-  );
-  assert.deepStrictEqual(scanFailures(result), []);
-  assert.deepStrictEqual(
-    result.warnings.map(({ rule }) => rule),
-    ["hot-seam"],
-  );
-  assert.include(renderScanReport(result), "WARN  hot-seam  aaaaaaa  project-windows");
 });

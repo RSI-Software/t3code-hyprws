@@ -307,5 +307,5 @@ it("prints the orientation and exits 1 when the watch sweep fails", () => {
 it("prints help without touching a repository", () => {
   const { stdout, output } = collector();
   assert.strictEqual(run(["--help"], process.cwd(), output), 0);
-  assert.include(stdout.join(""), "Usage: vp run fork:orient --target vX.Y.Z");
+  assert.include(stdout.join(""), "Usage: node scripts/fork-orient.ts --target vX.Y.Z");
 });
