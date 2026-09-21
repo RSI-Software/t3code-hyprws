@@ -13,6 +13,7 @@ import {
   execute,
   rewriteBindingMatches,
   run as runForkSyncCli,
+  validateNightlyReview,
   type CommandRunner,
 } from "./fork-sync.ts";
 import { readReport, renderRecord } from "./fork-sync-state.ts";
@@ -245,7 +246,7 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           root,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          encodeJson({ version: 3, walks: [], seamRecords: [], outcomes: [declaration] }),
+          encodeJson({ version: 4, walks: [], seamRecords: [], outcomes: [declaration] }),
           "fixture ledger",
         );
         git(root, ["checkout", "--quiet", "--detach", receipt.result]);
@@ -483,12 +484,20 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         appliedRecordPath = reviewed.recordPath;
         yield* fs.writeFileString(
           reviewed.recordPath,
-          // Move the bound lease: free prose never enters the review
-          // digest, but binding rows do.
+          // The record is a projection: moving a bound row in the published Markdown authorizes
+          // nothing and invalidates nothing (RSI-Software/t3code-hyprws#1144).
           originalRecord.replace(
             `- \`expected_old\`: \`${reviewed.rewrite!.originSha}\``,
             `- \`expected_old\`: \`${"a".repeat(40)}\``,
           ),
+        );
+        assert.doesNotThrow(() => validateNightlyReview(readReport(reviewed.reportPath)));
+        yield* fs.writeFileString(reviewed.recordPath, originalRecord);
+        // Moving the same binding in the typed report is what voids the review, because the
+        // review digest is taken over the report and never over the rendered record.
+        yield* fs.writeFileString(
+          reviewed.reportPath,
+          encodeJson({ ...reviewed, stackSize: reviewed.stackSize! + 1 }),
         );
         assert.throws(
           () =>
@@ -497,9 +506,9 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
               root,
               runner,
             ),
-          /stale/,
+          /review is stale/,
         );
-        yield* fs.writeFileString(reviewed.recordPath, originalRecord);
+        yield* fs.writeFileString(reviewed.reportPath, encodeJson(reviewed));
         const applyCallStart = calls.length;
         rejectTrunkPush = true;
         assert.throws(
