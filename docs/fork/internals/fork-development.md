@@ -12,8 +12,8 @@ Goal: a small, durable patch stack on upstream.
 1. Run `vp run fork:scan --no-typecheck`.
 2. Prefer one adapter boundary over scattered edits.
 
-The walk's typed report is the only authority for sync state.
-Published issue comments and rendered records are projections of it: never parse one, and never treat an edit to one as a decision.
+The sync driver's typed report is the only authority for sync state.
+Published issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
 
 ## Non-goals
 
@@ -79,7 +79,7 @@ Resolve it there, then record the seam in that domain's rebase scan.
 
 | Rule                      | Detail                          |
 | ------------------------- | ------------------------------- |
-| One domain per commit     | Two domains means two lanes     |
+| One domain per commit     | Two domains means two rebases   |     |
 | New code in its own files | Shared edits appear in the scan |
 | Contiguous commits        | The replay never interleaves    |
 
@@ -95,7 +95,7 @@ A generic fix in no product domain is `upstream-fixes`.
 New commits land on top and move down at the next rebase.
 Reorder only on a clean stack; publish with a lease.
 
-### Lanes
+### Branch bases
 
 ```bash
 wt switch --create <branch> --base hyprws          # fork-specific work
@@ -115,7 +115,7 @@ Land onto `hyprws` by squash; a merge commit breaks the stack.
 
 `ghb pr merge` squashes with the PR title and body, so end it with trailers.
 `.github/workflows/hyprws-ci.yml` is the required check.
-Non-linear movement voids a walk ([fold rule](../operations/fork-sync.md#the-fold-rule)).
+Non-linear movement onto `hyprws` voids a sync run's lease; the next run rebases over a merge commit the same way over any other base, which is exactly what the fork stack forbids.
 
 ## Upstream citations
 
@@ -148,14 +148,9 @@ Fork-only paths need no granularity curation.
 
 ### Never squash a landed stack
 
-Both exceptions are spent; each needed a lease and an archive ref.
-
-| Exception                                       | Shape                                                |
-| ----------------------------------------------- | ---------------------------------------------------- |
-| Domain flatten (RSI-Software/t3code-hyprws#671) | One-time squash under an archive ref                 |
-| Reshape fold (RSI-Software/t3code-hyprws#965)   | `fork:sync fold-reshape` folds a landed reshape home |
-
-A walk repair for one replayed commit is a trailer-free `fixup!`, autosquashed before the leased push.
+Squashing flattens a domain's commits into one, and the delta table can no longer tell a fork commit from an upstream one.
+The one-time flatten (RSI-Software/t3code-hyprws#671) predates the delta table and stays archived under a ref.
+Do not repeat it.
 
 ### Fork tests live in fork-owned files
 
