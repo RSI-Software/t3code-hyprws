@@ -38,10 +38,10 @@ export interface ParsedForkCommit extends ForkTrailers {
   readonly sha: string;
   readonly short: string;
   /**
-   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A rewrite
-   * (`scripts/lib/fork-rewrite-build.ts` `rebuildCommit`) only ever replaces the `tree` and
-   * `parent` headers and copies `author`/`committer`/message verbatim, so this survives a fold
-   * unchanged even though `sha` does not. See `GRANDFATHERED_WALK_REPAIR_KEYS` in fork-delta.ts.
+   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A history
+   * rewrite only ever replaces the `tree` and `parent` headers and copies
+   * `author`/`committer`/message verbatim, so this survives a rewrite unchanged even though `sha`
+   * does not. See `GRANDFATHERED_WALK_REPAIR_KEYS` in fork-delta.ts.
    */
   readonly authorDate: string;
   readonly subject: string;

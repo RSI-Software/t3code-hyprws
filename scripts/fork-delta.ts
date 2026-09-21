@@ -345,11 +345,11 @@ export type ForkInventory = typeof ForkInventory.Type;
 const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
 
 // Pre-#861 backlog, 10 commits, never grown since. Keyed by (author date, subject) rather than
-// sha: a fold (scripts/lib/fork-rewrite-build.ts rebuildCommit) rewrites every commit's tree and
-// parent, so its sha changes, but copies the author header and message verbatim, so this pair
-// survives unchanged. Subject alone is not unique here — three of the ten share
+// sha: a history rewrite rewrites every commit's tree and parent, so its sha changes, but copies
+// the author header and message verbatim, so this pair survives unchanged. Subject alone is not
+// unique here — three of the ten share
 // "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414" — so drop the author
-// date half and this exemption stops working, silently, on the next fold. Remove this list when
+// date half and this exemption stops working, silently, on the next rewrite. Remove this list when
 // the host's leased flatten lands; no new entry is ever added.
 export const grandfatheredWalkRepairKey = (
   commit: Pick<ForkCommit, "authorDate" | "subject">,
