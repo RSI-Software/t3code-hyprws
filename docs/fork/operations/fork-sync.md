@@ -197,7 +197,7 @@ Trunk CI runs the full battery after the apply.
 - **Tools cannot run:** the `environment` stop
 - **A repair fails on merit:** the `conflict` stop
 
-Workflow drift needing adaptation stops the walk, as does an actionable `fork:scan` failure; a byte-identical fork side only needs a refreshed reviews row.
+An actionable `fork:scan` failure stops the walk.
 A repair becomes a `fixup!` to its owning commit; an ownerless path needs `--seam-owner '<path>=<owner sha>'`.
 A conflicted autosquash aborts and restores the lane head.
 

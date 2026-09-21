@@ -97,7 +97,7 @@ The passkey RP domain derives from `T3CODE_CLERK_PUBLISHABLE_KEY` unless `T3CODE
 
 ## Upstream reference guard
 
-`vp run fork:upstream-refs <file>` scans a body for a live upstream reference, reading stdin when no path is given.
+`vp run fork:upstream-refs <file>` scans a body file for a live upstream reference; a missing path fails.
 Fenced blocks, code spans, and HTML comments are ignored; anything left live exits 1.
 A bare `#4379` is a finding too, because GitHub resolves it against `pingdotgg/t3code` and the guard cannot tell offline which numbers the fork holds.
 An upstream URL naming no item is not a finding.
@@ -109,14 +109,14 @@ Fork CI re-runs it on pull-request bodies as a backstop, which reports a fired b
 
 What the guard deliberately does not cover:
 
-| Gap                              | Detail                                                                                                            |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Issue bodies and comments        | No CI backstop. Only the pre-publication run covers them                                                          |
-| Titles                           | Never scanned. Confirming whether a title backlinks would mean posting upstream                                   |
-| A pull request off `hyprws`      | Never reaches the fork CI workflow                                                                                |
-| Every bare number                | Reported even when it names a fork item. The guard has no network, so it reads the ambiguity as upstream          |
-| `<pre>`, `<style>`, `<textarea>` | Read as ending at the next blank line, not the closing tag. Errs toward reporting                                 |
-| Link and image text              | Not excluded, so a linked reference is reported although GitHub links only the destination. Errs toward reporting |
+| Gap                          | Detail                                                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Issue bodies and comments    | No CI backstop. Only the pre-publication run covers them                                                          |
+| Titles                       | Never scanned. Confirming whether a title backlinks would mean posting upstream                                   |
+| A pull request off `hyprws`  | Never reaches the fork CI workflow                                                                                |
+| Every bare number            | Reported even when it names a fork item. The guard has no network, so it reads the ambiguity as upstream          |
+| Link and image text          | Not excluded, so a linked reference is reported although GitHub links only the destination. Errs toward reporting |
+| Indented code, quoted fences | Not masked, so a citation there is reported although GitHub renders it as code. Errs toward reporting             |
 
-The reader is an approximation, not a CommonMark parser.
-Every rule was checked both ways against GitHub's renderer, but an untried shape can still pair across a boundary it does not know.
+The reader masks three shapes: HTML comments, fences, and code spans.
+A citation in any other shape GitHub renders as code is reported anyway.

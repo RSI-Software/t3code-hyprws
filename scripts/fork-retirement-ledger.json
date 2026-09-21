@@ -51,7 +51,7 @@
     {
       "subject": "fix(desktop): keep preview window policy behind one fork boundary",
       "domain": "project-windows",
-      "upstreamReplacement": "Nothing upstream: the commit is tree-empty at `fcd352fba4d`, so the replay's `--no-keep-empty` drops the husk. `feat(desktop): enable previews in project windows` carries `apps/desktop/src/preview/WindowPolicy.preload.ts` with all four bridge members, `scripts/fork-scan-guards.ts` carries the `desktop-preview-ownership` rule, and `WindowPolicy.fork.test.ts` carries the demand-state cases. No fork behaviour leaves with it.",
+      "upstreamReplacement": "Nothing upstream: the commit is tree-empty at `fcd352fba4d`, so the replay's `--no-keep-empty` drops the husk. `feat(desktop): enable previews in project windows` carries `apps/desktop/src/preview/WindowPolicy.preload.ts` with all four bridge members, the `desktop-preview-ownership` scan rule, and `WindowPolicy.fork.test.ts` carries the demand-state cases. No fork behaviour leaves with it.",
       "retiredAt": "v0.0.43-nightly.20260919.1978"
     }
   ],
