@@ -225,8 +225,8 @@ export const startRecording = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewTabInputSchema,
   // Void encodes any value as undefined, so the tagged failure must be tried first.
   result: Schema.Union([PreviewCaptureFailure, Schema.Void]),
-  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     const store = yield* DesktopClientSettings.DesktopClientSettings;
     const settings = yield* store.get;
     const options = Option.map(settings, (value) => ({
