@@ -318,7 +318,7 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
   }
   if (result.typecheckGaps.length > 0) {
     summary.push(
-      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file`,
+      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each in the fork commit that owns the file and rerun; never amend a replayed fork commit`,
     );
   }
   return summary;
