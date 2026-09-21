@@ -392,7 +392,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   ] as const) {
     const evidence = readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         seamRecords: records,
         outcomes: [],
         walks: completed.map((walk) => ({
@@ -432,7 +432,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   for (const walks of [[returned], [returned, before]]) {
     const evidence = readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         seamRecords: [before, clear, repair, verified],
         outcomes: [],
         walks: walks.map((walk) => ({
@@ -463,7 +463,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   // both histories — still refuse to invent an order.
   const unanchored = readLessonEvidence(
     encodeSync({
-      version: 3,
+      version: 4,
       seamRecords: [before, clear, repair, verified],
       outcomes: [],
       walks: [
@@ -518,12 +518,12 @@ it("requires current source evidence for a report policy pass", () => {
 });
 
 it("validates the complete known envelope before projecting lesson fields", () => {
-  for (const version of [2, 3]) {
+  for (const version of [2, 3, 4]) {
     const envelope = {
       version,
       walks: [],
       seamRecords: [],
-      ...(version === 3 ? { outcomes: [] } : {}),
+      ...(version === 2 ? {} : { outcomes: [] }),
     };
     assert.deepStrictEqual(readLessonEvidence(encodeSync(envelope)), {
       walks: [],
@@ -538,14 +538,14 @@ it("validates the complete known envelope before projecting lesson fields", () =
   assert.throws(() =>
     readLessonEvidence(
       encodeSync({
-        version: 3,
+        version: 4,
         walks: [],
         seamRecords: [],
         outcomes: [{ preserved: "invalid outcome" }],
       }),
     ),
   );
-  assert.throws(() => readLessonEvidence(encodeSync({ version: 3, walks: [], seamRecords: [] })));
+  assert.throws(() => readLessonEvidence(encodeSync({ version: 4, walks: [], seamRecords: [] })));
 });
 
 it("projects future compatible fields explicitly without claiming complete schema or repair support", () => {
@@ -559,7 +559,7 @@ it("projects future compatible fields explicitly without claiming complete schem
     }),
   );
   const projected = readLessonEvidence(
-    encodeSync({ version: 4, walks: [], seamRecords: [known], futureField: true }),
+    encodeSync({ version: 5, walks: [], seamRecords: [known], futureField: true }),
   );
   assert.strictEqual(
     lessonInventory(projected).find((row) => row.path === "new-seam.ts")?.observations,
@@ -571,7 +571,7 @@ it("projects future compatible fields explicitly without claiming complete schem
     "newer schema is only partially understood",
   );
   const incompatible = readLessonEvidence(
-    encodeSync({ version: 4, walks: { changed: true }, seamRecords: [{ kind: "new-evidence" }] }),
+    encodeSync({ version: 5, walks: { changed: true }, seamRecords: [{ kind: "new-evidence" }] }),
   );
   assert.strictEqual(lessonInventory(incompatible).length, ORIGINAL_LESSON_PATHS.length);
   assert.lengthOf(incompatible.notices ?? [], 3);
@@ -898,7 +898,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
           publisher,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          yield* encode({ version: 3, walks: [], seamRecords: [observation], outcomes: [] }),
+          yield* encode({ version: 4, walks: [], seamRecords: [observation], outcomes: [] }),
           "new lesson",
         );
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);
@@ -970,7 +970,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
           publisher,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          yield* encode({ version: 4, walks: [], seamRecords: [observation], futureField: true }),
+          yield* encode({ version: 5, walks: [], seamRecords: [observation], futureField: true }),
           "future lesson schema",
         );
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);

@@ -227,15 +227,19 @@ A conflicted autosquash aborts and restores the lane head.
 
 ### Decision records
 
-Every walk keeps one durable record per decision, on the report's `## Decisions`.
+Every walk keeps one durable decision per row in its typed report; the published record is a projection of that report and authorizes nothing.
 
 ```bash
-vp run fork:sync record-decisions --report <json> --tag <tag>
+vp run fork:sync record-decisions --report <json> --tag <tag> [--input <decisions.json>]
 ```
 
 Run it from the stopped session after resolving and staging the seam.
 It flushes the resolution into shared rerere, posts the record, and writes the tag's ledger row as `pending`.
 The next walk resolves the same content from that record; the applied row upgrades the pending one.
+
+`--input` is required whenever the walk declined a row, and each entry is bound to the report's source, target, and lease.
+An unknown or duplicate row identity, an unsigned decision, and an edited record body are all refused.
+A report written before typed authority is refused with its own message; nothing converts it, so the walk restarts at `unblock-list`.
 
 Retirement remains human; only a `retire` verdict drops a commit.
 
@@ -266,7 +270,8 @@ A tooling fix the walk needs goes into its lane, never onto `hyprws` mid-walk.
 | 5   | `unblock-review`   | Series rewrite only. Signs or withholds a `checked` report |
 | 6   | `unblock-apply`    | Gate, record, snapshots, leased apply, announce            |
 
-The walk decides every row rather than asking; a human-filled cell beats a rerun.
+The gate and apply read the typed report only; `--record` names where the projection is published, never what authorizes the apply.
+The walk decides every row rather than asking; a recorded decision beats a rerun.
 `pnpm-lock.yaml` takes the [regeneration rule](#regenerable-files); a repaired seam needs `--silent-seam '<path>=<summary>:type'`.
 Snapshots go before the apply; a failed announcement never voids it.
 It prints the snapshot branches; open a candidate issue for each by hand, because the bot never sees those tags again.
@@ -308,6 +313,7 @@ Withhold sign-off for:
 Apply names this the **nightly review gate**: one recorded verdict on a `checked` report.
 It runs `fork:upstream-refs` on the record first, so a refs-only fix keeps the verdict.
 It refuses a withheld or missing review, a proposing-session verdict, changed bindings, and a moved lease.
+The verdict is taken over the report's bindings, verdicts, and proofs, so editing the published record invalidates nothing and authorizes nothing.
 
 ## Historical rewrite construction
 

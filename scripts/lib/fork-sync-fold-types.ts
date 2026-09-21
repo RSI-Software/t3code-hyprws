@@ -120,72 +120,6 @@ export const requireFoldSegment = (value: unknown, field = "fold segment"): Fold
   };
 };
 
-/**
- * One fold row as the record renders it: everything a human needs, with `originalMessages`
- * reduced to a digest. Parsing never reconstructs the messages; `restoreFoldSegments` merges
- * these rows against report-side segments to keep `originalMessages` and `originalCount` intact.
- */
-export interface FoldChainRow {
-  readonly from: string;
-  readonly to: string;
-  readonly onto: string;
-  readonly replayedHead?: string;
-  readonly checkedHead?: string;
-  readonly originalCount: number;
-  readonly messagesDigest: string;
-  readonly repairCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }>;
-}
-
-/** The header state a folded record carries: immutable source T, incorporated frontier B, final head. */
-export interface FoldRecordHeader {
-  readonly originalSource: string;
-  readonly incorporatedSource: string;
-  readonly baseCheckedHead?: string;
-  readonly finalHead?: string;
-}
-
-const BACKTICKED_SHA = /^`(?:origin\/hyprws@)?([0-9a-f]{40,64})`$/;
-
-const headerSha = (line: string | undefined, field: string): string => {
-  const match = BACKTICKED_SHA.exec(line ?? "");
-  if (match === null) throw new Error(`invalid fold header ${field}`);
-  return match[1] ?? "";
-};
-
-const optionalHeaderSha = (line: string | undefined, field: string): string | undefined => {
-  if (line === undefined || !line.startsWith(`- ${field}: `)) return undefined;
-  return headerSha(line.slice(`- ${field}: `.length), field);
-};
-
-/** Parse the folded header state (original source, incorporated source, base checked head, final head). */
-export const parseFoldRecordHeader = (record: string): FoldRecordHeader | undefined => {
-  const header = record.split("## Header\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
-  const original = /^- Source: `origin\/hyprws@([0-9a-f]{40,64})`$/m.exec(header)?.[1];
-  if (original === undefined) return undefined;
-  const incorporatedLine = header
-    .split("\n")
-    .find((value) => value.startsWith("- Source incorporated: "));
-  if (incorporatedLine === undefined) return undefined;
-  const headerLines = header.split("\n");
-  const baseCheckedHead = optionalHeaderSha(
-    headerLines.find((value) => value.startsWith("- Base checked head: ")),
-    "Base checked head",
-  );
-  const finalHead = optionalHeaderSha(
-    headerLines.find((value) => value.startsWith("- Final head: ")),
-    "Final head",
-  );
-  return {
-    originalSource: original,
-    incorporatedSource: headerSha(
-      incorporatedLine.slice("- Source incorporated: ".length),
-      "incorporated source",
-    ),
-    ...(baseCheckedHead === undefined ? {} : { baseCheckedHead }),
-    ...(finalHead === undefined ? {} : { finalHead }),
-  };
-};
-
 /** Render the fold header rows: original source T, incorporated frontier B, base and final heads. */
 export const renderFoldHeader = (report: {
   readonly source?: { readonly sha: string; readonly expectedOld: string };
@@ -207,27 +141,6 @@ export const renderFoldHeader = (report: {
 const escapeCell = (value: string): string =>
   value.replaceAll("\\", "\\\\").replaceAll("|", "\\|").replaceAll("\n", " ");
 
-/** Same escaping contract as the record's shared table-cell splitter, kept local to avoid a cycle. */
-const splitCells = (line: string): ReadonlyArray<string> | null => {
-  if (!line.startsWith("|") || !line.endsWith("|")) return null;
-  const cells: Array<string> = [];
-  let cell = "";
-  let backslashes = 0;
-  for (const character of line.slice(1, -1)) {
-    if (character === "|" && backslashes % 2 === 0) {
-      cells.push(cell.trim());
-      cell = "";
-    } else {
-      cell += character;
-    }
-    backslashes = character === "\\" ? backslashes + 1 : 0;
-  }
-  cells.push(cell.trim());
-  return cells;
-};
-
-const unescapeCell = (value: string): string => value.replaceAll(/\\([\\|])/g, "$1");
-
 /** Render the `## Folds` provenance section from report-side segments. */
 export const renderFoldSection = (folds: ReadonlyArray<FoldSegment>): string => {
   if (folds.length === 0) return "";
@@ -247,70 +160,4 @@ export const renderFoldSection = (folds: ReadonlyArray<FoldSegment>): string => 
     ...rows,
     "",
   ].join("\n");
-};
-
-/** Parse the `## Folds` section into chain rows, or undefined when the record carries none. */
-export const parseFoldSection = (record: string): ReadonlyArray<FoldChainRow> | undefined => {
-  const section = record.split("## Folds\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
-  if (section === "") return undefined;
-  const rows: Array<FoldChainRow> = [];
-  for (const line of section.split("\n")) {
-    const cells = splitCells(line);
-    if (cells === null) continue;
-    if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells[0] === "#") continue;
-    if (cells.length !== 9)
-      throw new Error(`invalid fold row: expected 9 columns, found ${cells.length}`);
-    const sha = (value: string | undefined, field: string): string => {
-      const match = /^`([0-9a-f]{40,64})`$/.exec(value ?? "");
-      if (match === null) throw new Error(`invalid fold ${field} cell`);
-      return match[1] ?? "";
-    };
-    const digest = /^`([0-9a-f]{16})`$/.exec(cells[7] ?? "");
-    if (digest === null) throw new Error("invalid fold messages digest cell");
-    const repairs =
-      cells[8] === "None."
-        ? []
-        : (cells[8] ?? "").split("; ").map((part) => {
-            const match = /^`([0-9a-f]{12})` (.*)$/.exec(part);
-            if (match === null) throw new Error("invalid fold repair commit cell");
-            return { short: match[1] ?? "", subject: unescapeCell(match[2] ?? "") };
-          });
-    rows.push({
-      from: sha(cells[1], "from"),
-      to: sha(cells[2], "to"),
-      onto: sha(cells[3], "onto"),
-      ...(cells[4] === "—" ? {} : { replayedHead: sha(cells[4], "replayed head") }),
-      ...(cells[5] === "—" ? {} : { checkedHead: sha(cells[5], "checked head") }),
-      originalCount: Number(cells[6]),
-      messagesDigest: digest[1] ?? "",
-      repairCommits: repairs.map((repair) => ({ sha: repair.short, subject: repair.subject })),
-    });
-  }
-  return rows;
-};
-
-/**
- * Merge parsed fold rows back onto report-side segments, the preserveRecordDecisions pattern: the
- * report keeps `originalMessages` and full repair-commit SHAs; the record only has to agree. Throws
- * when the chain the record shows no longer matches the report.
- */
-export const restoreFoldSegments = (
-  segments: ReadonlyArray<FoldSegment>,
-  rows: ReadonlyArray<FoldChainRow>,
-): ReadonlyArray<FoldSegment> => {
-  if (segments.length !== rows.length) throw new Error("fold chain does not match the report");
-  return segments.map((segment, index) => {
-    const row = rows[index]!;
-    const digest = foldMessagesDigest(segment.originalMessages);
-    if (
-      row.from !== segment.from ||
-      row.to !== segment.to ||
-      row.onto !== segment.onto ||
-      row.originalCount !== segment.originalCount ||
-      row.messagesDigest !== digest
-    )
-      throw new Error(`fold chain row ${index + 1} does not match the report`);
-    return segment;
-  });
 };
