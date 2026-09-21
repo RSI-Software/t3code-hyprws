@@ -14,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { beforeEach, describe, expect, vi } from "vite-plus/test";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
@@ -21,6 +22,7 @@ import {
   projectWindowIdentity,
   windowIdentityKey,
   HUB_WINDOW_IDENTITY,
+  type WindowIdentity,
 } from "../../window/WindowIdentity.ts";
 import { projectWindowPreloadArgument } from "../../window/projectWindowArgument.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -268,8 +270,54 @@ describe("fork preview IPC ownership", () => {
             stateListener = listener;
           }),
         subscribeOwnedRecordingFrames: () => Effect.void,
+        subscribeOwnedRecordingInputs: () => Effect.void,
         subscribeOwnedPointerEvents: () => Effect.void,
       } as never),
+    );
+  });
+
+  effectIt.effect("starts recording on the sender's window manager, not the hub", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const sender = { id: 1 } as Electron.WebContents;
+    const senderWindow = {} as Electron.BrowserWindow;
+    const projectStartRecording = vi.fn(() => Effect.void);
+    const hubStartRecording = vi.fn(() => Effect.void);
+    fromId.mockReturnValue(sender);
+    fromWebContents.mockReturnValue(senderWindow);
+
+    return PreviewIpc.startRecording.handler({ tabId: "owned-tab" }, { sender }).pipe(
+      Effect.provideService(ElectronWindow.ElectronWindow, {
+        identityFor: () => Effect.succeed(Option.some(identity)),
+      } as never),
+      Effect.provideService(DesktopClientSettings.DesktopClientSettings, {
+        get: Effect.succeed(
+          Option.some({
+            browserRecordingShowKeyPresses: true,
+            browserRecordingShowMousePresses: false,
+          }),
+        ),
+      } as never),
+      Effect.provideService(PreviewManager.PreviewManager, {
+        forWindow: (requested: WindowIdentity) =>
+          Effect.succeed({
+            startRecording:
+              windowIdentityKey(requested) === windowIdentityKey(HUB_WINDOW_IDENTITY)
+                ? hubStartRecording
+                : projectStartRecording,
+          } as never),
+      } as never),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          expect(projectStartRecording).toHaveBeenCalledWith("owned-tab", {
+            showKeyPresses: true,
+            showMousePresses: false,
+          });
+          expect(hubStartRecording).not.toHaveBeenCalled();
+        }),
+      ),
     );
   });
 

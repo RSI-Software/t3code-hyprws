@@ -25,6 +25,9 @@ vi.mock("~/lib/openPullRequestLink", () => ({
   findProjectForChangeRequest: () => undefined,
   matchesLinkedPullRequestUrl: () => false,
   parseChangeRequestUrl: () => null,
+  // Upstream resolves a preview target before the fork's GitHub destination
+  // controls render; stub it so the fork controls stay the only path under test.
+  resolvePullRequestPreviewTarget: () => null,
   useOpenChangeRequestLink: () => vi.fn(),
 }));
 
