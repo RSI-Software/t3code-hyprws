@@ -13,8 +13,6 @@ import {
   CURRENT_WORKFLOW_REVIEW_VERSION,
   parseWorkflowReviews,
   readWorkflowDrift,
-  releaseOutcomeExportProblem,
-  RELEASE_OUTCOME_GUARD,
   WORKFLOW_COPIES,
   WORKFLOW_REVIEWS_PATH,
 } from "./lib/fork-workflow-drift.ts";
@@ -61,7 +59,6 @@ const fixture = (
     disposition?: "adapted" | "no-change";
     reason?: string;
     releaseWorkflow?: string;
-    releaseGuard?: boolean;
     reviewVersion?: 1 | 2;
   } = {},
 ) => {
@@ -72,9 +69,6 @@ const fixture = (
     forkBlob: blob(options.reviewedFork ?? forkBefore),
     disposition: options.disposition ?? "adapted",
     reason: options.reason ?? "Use GitHub runners; preserve equivalent test steps.",
-    ...(pair.fork === ".github/workflows/hyprws-release.yml" && options.releaseGuard !== false
-      ? { guards: [RELEASE_OUTCOME_GUARD] }
-      : {}),
   }));
   const git = {
     run: (args: ReadonlyArray<string>): string => {
@@ -199,30 +193,19 @@ it("refuses absent, malformed, duplicate and unreasoned reviews", () => {
       ),
     /full Git/,
   );
-  const withReleaseGuards = (guards: ReadonlyArray<string>) =>
-    reviews.map((review) =>
-      review.fork === ".github/workflows/hyprws-release.yml" ? { ...review, guards } : review,
-    );
-  assert.throws(
-    () => parseWorkflowReviews(JSON.stringify({ version: 2, reviews: withReleaseGuards([]) })),
-    /version 2 requires guard/,
-  );
-  assert.throws(
-    () =>
-      parseWorkflowReviews(
-        JSON.stringify({ version: 2, reviews: withReleaseGuards(["unknown-guard"]) }),
-      ),
-    /unknown guard/,
-  );
   assert.throws(
     () =>
       parseWorkflowReviews(
         JSON.stringify({
           version: 2,
-          reviews: withReleaseGuards([RELEASE_OUTCOME_GUARD, RELEASE_OUTCOME_GUARD]),
+          reviews: reviews.map((review) =>
+            review.fork === ".github/workflows/hyprws-release.yml"
+              ? { ...review, guards: ["unknown-guard"] }
+              : review,
+          ),
         }),
       ),
-    /duplicate IDs/,
+    /unknown guard/,
   );
 });
 
@@ -262,209 +245,4 @@ it("refuses provenance that names a different upstream blob", () => {
         : git.run(args),
   };
   assert.include(scanFailures(scan(wrong))[0]!, "provenance does not match");
-});
-
-it("keeps the release outcome export scoped to its collector and upload path", () => {
-  assert.isUndefined(releaseOutcomeExportProblem(releaseWorkflow));
-  assert.isUndefined(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "        env:\n          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n          GH_TOKEN: ${{ github.token }}",
-        "        env:\n          GH_TOKEN: ${{ github.token }}\n          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
-      ),
-    ),
-  );
-
-  assert.match(
-    releaseOutcomeExportProblem(releaseWorkflow.replace("    if: always()", "    if: success()"))!,
-    /outcome job must declare exact if: always\(\) without continue-on-error/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(releaseWorkflow.replace("    if: always()", "    if : false"))!,
-    /outcome job must declare exact if: always\(\) without continue-on-error/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace("    if: always()", "    if: always()\n    continue-on-error: true"),
-    )!,
-    /outcome job must declare exact if: always\(\) without continue-on-error/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "      FORK_RELEASE_OUTCOME_FILE: fork-release-outcome-receipts.json",
-        '      FORK_RELEASE_OUTCOME_FILE: ""',
-      ),
-    )!,
-    /FORK_RELEASE_OUTCOME_FILE must equal fork-release-outcome-receipts\.json/,
-  );
-
-  assert.strictEqual(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:"),
-    ),
-    "FORK_OUTCOME_EXPORT must be declared once in the release workflow",
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
-        "      FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
-      ),
-    )!,
-    /Retain release outcome env/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
-        "            ${{ runner.temp }}/other-release-outcome.json\n",
-      ),
-    )!,
-    /with\.path must use the FORK_OUTCOME_EXPORT path/,
-  );
-  const uploadIf = "        if: always()\n        uses: actions/upload-artifact@v7";
-  for (const replacement of [
-    "        uses: actions/upload-artifact@v7",
-    "        if: success()\n        uses: actions/upload-artifact@v7",
-    "        if : always()\n        uses: actions/upload-artifact@v7",
-    "        if: always()\n        continue-on-error: true\n        uses: actions/upload-artifact@v7",
-  ])
-    assert.match(
-      releaseOutcomeExportProblem(releaseWorkflow.replace(uploadIf, replacement))!,
-      /Upload distribution evidence must declare exact if: always\(\)/,
-    );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
-        "          evidence: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
-      ),
-    )!,
-    /with\.path must use the FORK_OUTCOME_EXPORT path/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "          name: release-outcomes-${{ github.run_attempt }}\n          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n            ${{ runner.temp }}/fork-release-needs.json\n          if-no-files-found: error",
-        "          name: release-outcomes-${{ github.run_attempt }}\n          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n            ${{ runner.temp }}/fork-release-needs.json\n          if-no-files-found: warn",
-      ),
-    )!,
-    /must error when outcome files are missing/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        '        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"',
-        '        run: test -e "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"',
-      ),
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "      - name: Verify retained release outcome",
-        "      - name: Skip retained release outcome verification",
-      ),
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        '      - name: Verify retained release outcome\n        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"\n\n',
-        "",
-      ) +
-        '      - name: Verify retained release outcome\n        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"\n',
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "      - name: Verify retained release outcome\n",
-        "      - name: Verify retained release outcome\n        if: ${{ false }}\n",
-      ),
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "      - name: Verify retained release outcome\n",
-        "      - name: Verify retained release outcome\n        if : false\n",
-      ),
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow.replace(
-        "      - name: Verify retained release outcome\n",
-        "      - name: Verify retained release outcome\n        continue-on-error: true\n",
-      ),
-    )!,
-    /must unconditionally test the retained receipt is nonempty between collection and upload/,
-  );
-
-  const decoyJob = `  outcome-decoy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Retain release outcome
-        env:
-          FORK_OUTCOME_EXPORT: \${{ runner.temp }}/\${{ env.FORK_RELEASE_OUTCOME_FILE }}
-      - name: Verify retained release outcome
-        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"
-      - name: Upload distribution evidence
-        uses: actions/upload-artifact@v7
-        with:
-          path: |
-            \${{ runner.temp }}/\${{ env.FORK_RELEASE_OUTCOME_FILE }}
-          if-no-files-found: error
-
-`;
-  assert.match(
-    releaseOutcomeExportProblem(
-      releaseWorkflow
-        .replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:")
-        .replace("  outcome:\n", `${decoyJob}  outcome:\n`),
-    )!,
-    /Retain release outcome env/,
-  );
-});
-
-it("reports release outcome export drift through the workflow scan", () => {
-  const reviewed = {
-    upstream: after,
-    reviewedUpstream: after,
-    fork: forkAfter,
-    reviewedFork: forkAfter,
-  };
-  const result = scan(
-    fixture({
-      ...reviewed,
-      releaseWorkflow: releaseWorkflow.replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:"),
-    }).git,
-  );
-  assert.deepStrictEqual(scanFailures(result), [
-    "workflow-drift: .github/workflows/release.yml -> .github/workflows/hyprws-release.yml: FORK_OUTCOME_EXPORT must be declared once in the release workflow",
-  ]);
-});
-
-it("keeps historical workflow reviews valid before the release outcome guard marker", () => {
-  const reviewed = {
-    upstream: after,
-    reviewedUpstream: after,
-    fork: forkAfter,
-    reviewedFork: forkAfter,
-    releaseGuard: false,
-    reviewVersion: 1 as const,
-    releaseWorkflow: "jobs:\n  release:\n    runs-on: ubuntu-latest\n",
-  };
-  assert.isEmpty(scanFailures(scan(fixture(reviewed).git)));
-});
-
-it("requires the release outcome guard marker in current workflow reviews", () => {
-  assert.throws(() => scan(fixture({ releaseGuard: false }).git), /version 2 requires guard/);
 });

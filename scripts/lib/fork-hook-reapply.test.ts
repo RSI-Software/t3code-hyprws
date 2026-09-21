@@ -1,6 +1,5 @@
 // Pure fixtures: the re-apply stage decides from text alone, so every anchor rule is exercised
-// without a lane. The temp-repo fixture with a real conflicted index lives in
-// `scripts/fork-sync-outcomes.test.ts`.
+// without a lane.
 
 import { assert, it } from "@effect/vitest";
 

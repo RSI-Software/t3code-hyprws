@@ -6,7 +6,6 @@ import * as NodeURL from "node:url";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { captureSyncOutcome, declareSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
 import { deriveFoldManifest, type FoldGit } from "./lib/fork-fold-reshape.ts";
 import {
   runRewriteBuild,
@@ -14,14 +13,7 @@ import {
   type RewriteBuildReceipt,
 } from "./lib/fork-rewrite-build.ts";
 
-import {
-  CHURN_REF,
-  fetchBotRef,
-  publishRerereSnapshot,
-  RERERE_REF,
-  saveRerereCache,
-} from "./lib/fork-bot-refs.ts";
-import { appendChurnRow } from "./fork-churn.ts";
+import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { renderOrientation, type Orientation } from "./fork-orient.ts";
 import {
@@ -112,7 +104,6 @@ import {
 import { snapshotCrossedStableTags } from "./fork-stable-crossing.ts";
 import { remoteLaneHead, waitForCiVerdict } from "./fork-sync-ci.ts";
 import { executeStable } from "./fork-sync-stable.ts";
-import { humanVerdictsBySubject, readChurnLedger, readChurnState } from "./fork-churn-ledger.ts";
 import {
   assertOnly,
   baseDecisionRows,
@@ -603,31 +594,17 @@ const mintLane = (
   return worktree;
 };
 
-/**
- * `tagPinned` follows the caller's target, not its lane. A target the caller
- * pinned cannot move, so mirror currency says nothing about the walk in flight,
- * and upstream can advance between this run's own mirror push and its carry.
- * A walk that lists targets to choose from still requires a current mirror.
- */
 const unblockList = (
   values: ReadonlyMap<string, string>,
   cwd: string,
   runner: CommandRunner,
-  tagPinned = false,
 ): SyncReport => {
   assertOnly(values, ["--output", "--all"]);
   const root = rootFor(runner, cwd);
-  requireSuccess(
-    runner,
-    "node",
-    tagPinned ? ["scripts/fork-preflight.ts", "--tag-pinned"] : ["scripts/fork-preflight.ts"],
-    root,
-  );
   const issue = readIssue(runner, root);
   const blockingSha = extractBlockingSha(issue.body);
   if (blockingSha === null)
     throw new Error(`blocked issue ${issue.number} has no full blocking-sha marker`);
-  requireSuccess(runner, "node", ["scripts/fork-upstream-watch.ts"], root);
   const candidates = releaseTags(runner, root, blockingSha);
   if (candidates.length === 0)
     throw new Error(`no upstream release tag contains blocking commit ${blockingSha}`);
@@ -723,7 +700,6 @@ const unblockOrient = (
   const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
   const targetTag = offered.tag;
   const root = report.repositoryRoot;
-  requireSuccess(runner, "node", ["scripts/fork-preflight.ts", "--tag-pinned"], root);
   const issue = readIssue(runner, root);
   if (
     issue.number !== report.issue.number ||
@@ -734,11 +710,6 @@ const unblockOrient = (
   if (liveTarget !== offered.sha) throw new Error(`target ${targetTag} moved since unblock-list`);
   const expectedOld = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   const sharedBase = git(runner, root, ["merge-base", expectedOld, liveTarget]);
-  // Declare the attempt before the walk can fail (RSI-Software/t3code-hyprws#1023): orient,
-  // retire evidence, and verdict resolution all run after this line, and a throw in any of them
-  // used to leave no outcome bundle — the receipt guards see a report with no bound target yet
-  // and return nothing.
-  declareSyncOutcome(report, { tag: targetTag, sha: liveTarget }, expectedOld);
   // Orientation is read as the typed `Orientation` it always was; the prose is rendered from it
   // for the record and never scraped back (RSI-Software/t3code-hyprws#1144).
   const oriented = JSON.parse(
@@ -1300,12 +1271,6 @@ const unblockRehearse = (
       throw new Error("orientation binding is incomplete");
     const target = report.target;
     const source = report.source;
-    requireSuccess(
-      runner,
-      "node",
-      ["scripts/fork-preflight.ts", "--tag-pinned"],
-      report.repositoryRoot,
-    );
     const live = git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]);
     if (live !== source.expectedOld)
       throw new Error(
@@ -3326,14 +3291,6 @@ const resumeAppliedPublication = (report: SyncReport, runner: CommandRunner): Sy
         });
       })(),
   );
-  // The trunk has moved, so the row is owed now. A row the ledger already carries as applied is
-  // never appended twice (RSI-Software/t3code-hyprws#664).
-  if (report.walk?.ledger?.state !== "published") {
-    fetchBotRef(report.repositoryRoot, CHURN_REF);
-    const existing = readChurnLedger(report.repositoryRoot).find((entry) => entry.tag === gateTag);
-    if (existing === undefined || existing.pending === true)
-      report = publishChurnRow(report, gateTag);
-  }
   // The applied-walk announcement posts exactly once, on the durable `announcementUrl` marker.
   if (!report.announcementUrl) {
     const announcementUrl = requireSuccess(
@@ -3354,15 +3311,6 @@ const resumeAppliedPublication = (report: SyncReport, runner: CommandRunner): Sy
     writeReport(report);
   }
   report = resumeRererePublication(report);
-  if (report.walk?.ledger?.state !== "published") {
-    report = publishWalkOutcomes(report);
-    report = {
-      ...report,
-      walk: { ...(report.walk ?? {}), ledger: { state: "published", tag: gateTag } },
-    };
-    writeReport(report);
-    process.stdout.write(`ledger: ${gateTag} row and outcomes on ${CHURN_REF}\n`);
-  }
   return report;
 };
 
@@ -3451,149 +3399,6 @@ const unblockRefresh = (
             .join("\n")}\n`),
   );
   return refreshed;
-};
-
-/**
- * The trunk has moved and the ledger has not. Everything the walk knows is in the report it
- * already wrote, so the stop names the applied trunk and the row that is missing rather than the
- * command that refused (RSI-Software/t3code-hyprws#664). A walk that stopped before applying has
- * no applied head to name, so the message names the stop it stopped on instead
- * (RSI-Software/t3code-hyprws#1135).
- */
-class LedgerUnpublished extends Error {
-  readonly report: SyncReport;
-  constructor(message: string, report: SyncReport) {
-    super(message);
-    this.report = report;
-  }
-}
-
-const firstLine = (error: unknown): string =>
-  (error instanceof Error ? error.message : String(error)).split("\n", 1)[0] ?? "unknown failure";
-
-/**
- * One ledger write, retried once. A refused expected-old lease restores the local ref before it
- * reports, so the retry re-reads what origin publishes now and appends to that. A second refusal
- * is the environment, not a race: the walk stops and says which row `refs/fork/churn` is missing.
- */
-const ledgerWrite = (report: SyncReport, label: string, write: () => void): SyncReport => {
-  let failure = "";
-  for (const attempt of [0, 1]) {
-    try {
-      write();
-      return report;
-    } catch (error) {
-      failure = `${label}: ${firstLine(error)}`;
-      if (attempt === 0)
-        process.stderr.write(`warning: ${failure}; retrying the ${CHURN_REF} lease once\n`);
-    }
-  }
-  const tag = report.target?.tag ?? "unknown";
-  const stopped: SyncReport = {
-    ...report,
-    walk: { ...(report.walk ?? {}), ledger: { state: "unpublished", tag, reason: failure } },
-  };
-  writeReport(stopped);
-  // A walk that applied owns the head it left behind (#664). A walk that stopped first owns no
-  // head — "applied at unknown" would invent one — so the message names the stop the walk
-  // stopped on and leaves the ref state to the lease failure's own three SHAs
-  // (RSI-Software/t3code-hyprws#1135).
-  const stop = report.walk?.stop;
-  const owes =
-    report.installedHead !== undefined
-      ? `hyprws is applied at ${report.installedHead} and ${CHURN_REF} carries no row for ${tag}`
-      : stop !== undefined
-        ? `the walk stopped on ${stop.reason} (${firstLine(stop.detail)}) before it applied anything and ${CHURN_REF} carries no row for ${tag}`
-        : `the walk never applied and ${CHURN_REF} carries no row for ${tag}`;
-  throw new LedgerUnpublished(`${owes}: ${failure}`, stopped);
-};
-
-/**
- * The row the applied walk owes the ledger. It binds the record comment the apply just posted,
- * so it can only be written after the trunk push, and it is written before the invocation
- * reports `applied` so no outcome survives only in a runner file.
- */
-const publishChurnRow = (report: SyncReport, tag: string): SyncReport => {
-  // The leased push moved the trunk from the lane, so the fork root may not yet have the applied
-  // head's objects; the row's repair scan cites the applied range (`before..after`), so fetch the
-  // trunk into the root first (#700). A failed fetch is absorbed: the scan degrades to an empty
-  // listing rather than failing the append, and the row shows the absence instead of dying.
-  runCommand("git", ["fetch", "--quiet", "origin", HYPRWS_REF], { cwd: report.repositoryRoot });
-  // The row is read from the report on disk, so the in-memory state must be persisted first.
-  writeReport(report);
-  return ledgerWrite(report, "churn row", () =>
-    appendChurnRow(
-      [
-        "--report",
-        report.reportPath,
-        "--issue",
-        String(report.issue.number),
-        "--tag",
-        tag,
-        "--before",
-        report.source?.expectedOld ?? "",
-        "--after",
-        report.installedHead ?? "",
-        "--push",
-      ],
-      report.repositoryRoot,
-    ),
-  );
-};
-
-/** The retained outcome receipts for the same walk, from the report this invocation just wrote. */
-const publishWalkOutcomes = (report: SyncReport): SyncReport =>
-  ledgerWrite(report, "outcome record", () => {
-    runOutcome(["--sync-report", report.reportPath, "--push"], report.repositoryRoot);
-  });
-
-/**
- * The stopped walk's ledger row: pending until the walk completes, so census and hot seams skip
- * it, and the upgrade on the applied append carries the recorded decisions forward (#662). Only
- * the carried runner lane and the explicit `record-decisions` verb publish. A walk that must not
- * move the shared ref writes nothing at all (RSI-Software/t3code-hyprws#1135): a local-only
- * append on `refs/fork/churn` stays behind while origin advances, and the next carried lease then
- * finds a divergence it can never fast-forward. The row's inputs — the record file, the report's
- * decision rows, the tag and the leased range — already live beside the retained report, and the
- * reply names the `record-decisions` command that republishes them from there under its own
- * lease.
- */
-const publishPendingDecisionRow = (
-  report: SyncReport,
-  tag: string,
-  publish: boolean,
-): SyncReport => {
-  if (!publish) {
-    process.stdout.write(
-      `pending decision row for ${tag} kept with the report (${report.reportPath}); ` +
-        `${CHURN_REF} is untouched\n` +
-        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}` +
-        // The declined rows are decided by typed, signed input now, never by editing the record
-        // (RSI-Software/t3code-hyprws#1144).
-        `${pendingAutoConflictRows(report).length > 0 ? " --input <decisions.json>" : ""}\n`,
-    );
-    return report;
-  }
-  writeReport(report);
-  return ledgerWrite(report, "pending decision row", () =>
-    appendChurnRow(
-      [
-        "--report",
-        report.reportPath,
-        "--issue",
-        String(report.issue.number),
-        "--tag",
-        tag,
-        "--before",
-        report.source?.expectedOld ?? "",
-        "--after",
-        report.source?.sha ?? "",
-        "--pending",
-        "--push",
-      ],
-      report.repositoryRoot,
-    ),
-  );
 };
 
 /**
@@ -3809,7 +3614,6 @@ export const recordDecisions = (
       ? `record: ${recordUrl}\n`
       : `record: ${recordUrl} (already posted)\n`,
   );
-  publishPendingDecisionRow(published, tag, true);
   for (const row of declined)
     process.stdout.write(`recorded: ${row.path} (${row.seamKey ?? "no seam key"}) by hand\n`);
   return published;
@@ -3965,24 +3769,12 @@ const unblockApply = (
           .value,
     );
   }
-  const applyEnv = laneEnv(worktree);
-  // The gate is tag-pinned. A rewrite keeps the fork's current base, so its
-  // release tag is the one the gate must see.
+  // A rewrite keeps the fork's current base, so its release tag is the applied tag.
   const rewrite = report.rewrite;
   const gateTag = isRewrite
     ? ((rewrite as NonNullable<typeof rewrite>).baseTag ??
       baseReleaseTag(runner, worktree, (rewrite as NonNullable<typeof rewrite>).base))
     : (report.target as NonNullable<typeof report.target>).tag;
-  const gateArgs = [
-    "run",
-    "fork:sync-gate",
-    "--tag",
-    gateTag,
-    "--report",
-    report.reportPath,
-    ...(isNightlyUpstreamTag(gateTag) ? ["--allow-nightly"] : []),
-  ];
-  requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
   // Freeze the reusable resolutions before publication. Recovery must not depend
   // on a mutable rr-cache which a later walk may have already changed.
   const rerereSnapshot = saveRerereCache(worktree, `rerere: applied ${report.installedHead}`);
@@ -4179,7 +3971,6 @@ const unblockApply = (
     // so a failure anywhere in it resumes with `unblock-apply` alone and never repushes
     // (RSI-Software/t3code-hyprws#922).
     report = resumeAppliedPublication(report, runner);
-    process.stdout.write(`ledger: ${report.walk?.ledger?.state ?? "unknown"} on ${CHURN_REF}\n`);
   }
   process.stdout.write(`applied: ${gateTag} with lease ${report.source!.expectedOld}\n`);
   return report;
@@ -4355,51 +4146,6 @@ const stopAuto = (surface: string, reportPath: string): never => {
 };
 
 /**
- * A stopped walk is a walk: it owes the ledger the same pending row `record-decisions` writes
- * (RSI-Software/t3code-hyprws#1023). Only the carried runner lane publishes it to the shared ref;
- * an operator walk keeps the row with the retained report and names the republish command, so
- * rehearsing past a conflict stop mutates no ref at all — local or remote
- * (RSI-Software/t3code-hyprws#1088, RSI-Software/t3code-hyprws#1135). The write is best-effort — a
- * churn bookkeeping failure must never mask why the walk stopped, and must never turn the stop
- * into a different error — but it is never silent: a row that cannot be kept, a kept row, and a
- * failed publish are named as the different outcomes they are, with the path each one looked for.
- */
-export const stopChurnRow = (stopped: SyncReport): void => {
-  const before = stopped.source?.expectedOld;
-  const target = stopped.target;
-  if (target === undefined || before === undefined) {
-    process.stderr.write(
-      `pending decision row not kept: the stopped walk bound no target and source, so record-decisions could not republish it (${stopped.reportPath})\n`,
-    );
-    return;
-  }
-  if (!NodeFS.existsSync(stopped.recordPath)) {
-    process.stderr.write(
-      `pending decision row not kept: no record to republish from at ${stopped.recordPath}\n`,
-    );
-    return;
-  }
-  if (stopped.walk?.ledger?.state === "unpublished") {
-    // The stop is the ledger write's own failure: it already ran with its lease retry this
-    // invocation, named its reason in the report and on stderr, and re-attempting a refused
-    // write here would only duplicate the noise. The unpublished marker keeps the debt visible.
-    return;
-  }
-  try {
-    // `botModeRefusal` keeps every operator walk out of mode `on`, so `botCarried` — which
-    // already requires mode `on` — is exactly the runner lane that keeps publishing. Absent or
-    // ambiguous, write local.
-    publishPendingDecisionRow(stopped, target.tag, stopped.botCarried === true);
-  } catch (error) {
-    process.stderr.write(
-      `churn row write failed; the stop reason is unchanged: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
-    );
-  }
-};
-
-/**
  * A stage that passes supersedes any stop an earlier battery wrote: drop `walk.stop` on the
  * report the walk carries forward, so the summary of an applied walk never prints a stale stop
  * as its current state (RSI-Software/t3code-hyprws#1073). A fresh `stopWalk` re-adds the field
@@ -4432,7 +4178,6 @@ const stopWalk = (
     },
   };
   writeReport(stopped);
-  stopChurnRow(stopped);
   return stopAuto(
     `${stopped.reportPath}\nStop (${reason}). ${detail}\n${walkSummary(stopped)}`,
     stopped.reportPath,
@@ -4547,9 +4292,7 @@ export const rewriteBindingMatches = (
     report.target.tag === receipt.baseTag &&
     report.rebasedHead === receipt.result &&
     (report.installedHead === undefined || report.installedHead === receipt.result) &&
-    (report.ciHead === undefined || report.ciHead === receipt.result) &&
-    rewrite.outcomeTarget?.target.sha === receipt.base &&
-    rewrite.outcomeTarget.target.tag === receipt.baseTag
+    (report.ciHead === undefined || report.ciHead === receipt.result)
   );
 };
 
@@ -4684,30 +4427,11 @@ const seamKeyFor = (runner: CommandRunner, worktree: string, path: string): stri
   return stages === null ? null : seamKey(runner, worktree, { path, ...stages });
 };
 
-/**
- * What earlier walks recorded per seam key, so a rerere replay names the walk and the outcome it
- * resolved from instead of silently re-deciding (RSI-Software/t3code-hyprws#662). A missing or
- * unreadable ledger means no prior record, never a stop.
- */
-const priorDecisionLookup = (root: string): ((key: string) => WalkDecision | null) => {
-  let prior = new Map<string, WalkDecision>();
-  try {
-    prior = new Map(
-      readChurnLedger(root)
-        .flatMap((row) => row.walkDecisions ?? [])
-        .filter(
-          (row) =>
-            row.kind === "conflict" &&
-            row.decidedBy !== "machine" &&
-            /^[0-9a-f]{64}$/.test(row.subject),
-        )
-        .map((row) => [row.subject, row]),
-    );
-  } catch {
-    return () => null;
-  }
-  return (key: string) => prior.get(key) ?? null;
-};
+/** No retained record of earlier walks, so a rerere replay never inherits a prior decision. */
+const priorDecisionLookup =
+  (_root: string): ((key: string) => WalkDecision | null) =>
+  () =>
+    null;
 
 /**
  * Machine conflict ownership, in two passes. rerere replays what a previous walk already decided;
@@ -5028,10 +4752,9 @@ const retireEvidenceFor = (report: SyncReport): ReadonlyMap<string, RetireEviden
   );
 
 /**
- * Verdicts that survived a previous walk on `refs/fork/churn`.
- * Durable store is `refs/fork/churn` (bot-owned, outside the rebased lane), following
- * the `refs/fork/churn` precedent over a new ref. A carried verdict renders with an
- * `inherited (<tag>)` decider and is therefore distinguishable from a fresh one.
+ * Verdicts a previous walk decided and this one may carry. Nothing writes the store any more, so
+ * the set is always empty; a carried verdict would render with an `inherited (<tag>)` decider and
+ * stay distinguishable from a fresh one.
  */
 export const resolveInheritedVerdicts = (
   report: SyncReport,
@@ -5047,12 +4770,7 @@ export const resolveInheritedVerdicts = (
       readonly sourceTag: string;
     }
   >;
-  try {
-    const entries = readChurnLedger(report.repositoryRoot);
-    verdicts = humanVerdictsBySubject(entries);
-  } catch {
-    verdicts = new Map();
-  }
+  verdicts = new Map();
   const decidedSubjects = new Set((report.recordDecisions ?? []).map((r) => r.subject));
   const carried: Array<InheritedVerdict> = [];
   for (const row of decisions) {
@@ -5132,9 +4850,7 @@ const walkOnce = (
   } else {
     const listValues = new Map<string, string>();
     if (reportPath !== null) listValues.set("--output", reportPath);
-    report = captureStdout(() =>
-      unblockList(listValues, cwd, runner, values.has("--target")),
-    ).value;
+    report = captureStdout(() => unblockList(listValues, cwd, runner)).value;
   }
   report = {
     ...report,
@@ -5314,10 +5030,8 @@ const walkOnce = (
         ),
       ).value;
       executingPhase = "unblock-auto";
-      // The apply's own output is captured, so the walk restates the ledger state it reached.
-      process.stdout.write(
-        `ledger: ${report.walk?.ledger?.state ?? "unknown"} on ${CHURN_REF}\napplied: ${report.target?.tag ?? "unknown"}\n`,
-      );
+      // The apply's own output is captured, so the walk restates the target it reached.
+      process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
     }
 
     // An applied report with something still owed — a pending rerere cache, or a publication
@@ -5352,10 +5066,6 @@ const walkOnce = (
     process.stdout.write(walkSummary(report));
     return report;
   } catch (error) {
-    // The trunk moved and the ledger did not, so the walk owns the stop: it is the only lane
-    // that still knows which row is missing (RSI-Software/t3code-hyprws#664).
-    if (error instanceof LedgerUnpublished)
-      return stopWalk(error.report, "environment", error.message, started);
     if (error instanceof RepairStop)
       return stopWalk(
         report,
@@ -5406,54 +5116,6 @@ const walkOnce = (
   }
 };
 
-/**
- * A walk that applied before this one and lost its ledger write left the trunk it moved with no
- * row. The retained report is the only place that binding still exists, so the next walk pays the
- * debt before it moves the trunk again. Only the tag the trunk currently carries: an older gap is
- * a backfill against objects and issue threads this lane cannot re-derive
- * (RSI-Software/t3code-hyprws#666).
- */
-const healCurrentTrunkRow = (values: ReadonlyMap<string, string>, runner: CommandRunner): void => {
-  const reportPath = oneValue(values, "--report", false);
-  if (reportPath === null || !NodeFS.existsSync(reportPath)) return;
-  let report: SyncReport;
-  try {
-    report = readReport(reportPath);
-  } catch {
-    return;
-  }
-  // An applied-push recovery owns this report: its churn row is one step inside
-  // `resumeAppliedPublication`, which `unblock-auto` runs on the carried report. Healing here
-  // would append the row before the record republish and the other post-push steps, and a
-  // `LedgerUnpublished` here would stop the walk before the wrapper runs
-  // (RSI-Software/t3code-hyprws#922).
-  if (report.stage === "applied" && report.publication !== undefined) return;
-  const tag = report.target?.tag;
-  if (
-    report.stage !== "applied" ||
-    report.kind === "rewrite" ||
-    tag === undefined ||
-    report.installedHead === undefined ||
-    report.source === undefined
-  )
-    return;
-  const root = report.repositoryRoot;
-  const live = runner.run("git", ["rev-parse", "origin/hyprws^{commit}"], root);
-  if (live.status !== 0 || live.stdout.trim() !== report.installedHead) return;
-  fetchBotRef(root, CHURN_REF);
-  const existing = readChurnLedger(root).find((entry) => entry.tag === tag);
-  // A pending row is a stopped walk's decision record; the applied trunk's append upgrades it.
-  if (existing !== undefined && existing.pending !== true) return;
-  if (!NodeFS.existsSync(report.recordPath)) {
-    process.stderr.write(
-      `warning: ${CHURN_REF} has no row for the applied trunk tag ${tag} and ${report.recordPath} is gone; the row needs a backfill\n`,
-    );
-    return;
-  }
-  publishWalkOutcomes(publishChurnRow(report, tag));
-  process.stdout.write(`ledger: appended the missing ${tag} row to ${CHURN_REF}\n`);
-};
-
 const unblockAuto = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -5461,12 +5123,6 @@ const unblockAuto = (
 ): SyncReport => {
   assertOnly(values, ["--target", "--report", "--bot-carried", "--silent-seam"]);
   const started = Date.now();
-  try {
-    healCurrentTrunkRow(values, runner);
-  } catch (error) {
-    if (!(error instanceof LedgerUnpublished)) throw error;
-    stopWalk(error.report, "environment", error.message, started);
-  }
   // One restart, because a trunk that moves twice inside a single walk is a second walk running,
   // not a race worth retrying against.
   for (const attempt of [0, 1]) {
@@ -5547,13 +5203,6 @@ export const walkSummary = (report: SyncReport): string => {
               )),
         ].join("\n"),
     ...(walk.additive === undefined ? [] : additiveSummaryRows(walk.additive)),
-    ...(walk.ledger === undefined
-      ? []
-      : [
-          walk.ledger.state === "published"
-            ? `- ledger: published (\`${walk.ledger.tag}\`)`
-            : `- ledger: unpublished (${walk.ledger.reason ?? "unknown"})`,
-        ]),
     walk.stop === undefined ? "- stop: none" : `- stop (${walk.stop.reason}): ${walk.stop.detail}`,
     "",
   ].join("\n");
@@ -5800,7 +5449,6 @@ const rewriteRehearse = (
   let issueNumber = 0;
   let blockingSha = "0".repeat(40);
   let issueTitle = "rewrite rehearsal";
-  let outcomeTarget: import("./lib/fork-sync-outcomes.ts").OutcomeTarget | undefined;
   if (build !== undefined) {
     const live = readIssue(runner, root);
     if (issueArg !== undefined && Number(issueArg) !== live.number)
@@ -5810,14 +5458,6 @@ const rewriteRehearse = (
     const marker = extractBlockingSha(live.body);
     if (marker === null) throw new Error("rewrite issue has no blocking marker");
     blockingSha = marker;
-    outcomeTarget = readChurnState(root).outcomes.find(
-      (row): row is import("./lib/fork-sync-outcomes.ts").OutcomeTarget =>
-        row.kind === "target" && row.target.sha === build.base && row.target.tag === build.baseTag,
-    );
-    if (outcomeTarget === undefined)
-      throw new Error(
-        "rewrite base has no retained outcome declaration; reconcile reviewed evidence before publication",
-      );
   } else if (issueArg !== undefined) {
     issueNumber = Number(issueArg);
     blockingSha = expectedOld; // not used for rewrite; keep a valid SHA
@@ -5918,7 +5558,6 @@ const rewriteRehearse = (
               manifestSha256: build.manifestSha256,
               result: build.result,
             },
-            ...(outcomeTarget === undefined ? {} : { outcomeTarget }),
           }),
       archive: rewriteArchiveBinding(expectedOld),
       from: fromArg,
@@ -6126,23 +5765,10 @@ export const run = (
   if (argv[0] === "rewrite-build")
     return runRewriteBuild(argv.slice(1), () => rootFor(runner, cwd));
   if (argv[0] === "fold-reshape") return foldReshape(argv.slice(1), cwd, runner);
-  let completedReport: SyncReport | null = null;
-  let outcomeFailure: string | undefined;
-  let outcomePhase = argv[0];
-  let outcomeReportPath = argv[argv.indexOf("--report") + 1];
-  if (!argv.includes("--report")) outcomeReportPath = undefined;
   try {
-    completedReport = execute(argv, cwd, runner);
+    execute(argv, cwd, runner);
     return 0;
   } catch (error) {
-    outcomeFailure = error instanceof Error ? error.message : String(error);
-    if (error instanceof AutoFailure) outcomePhase = error.phase;
-    if (
-      error instanceof AutoFailure ||
-      error instanceof AutoBotRefusal ||
-      error instanceof AutoStop
-    )
-      outcomeReportPath = error.reportPath;
     if (error instanceof AutoStop) return 2;
     if (error instanceof AutoBotRefusal) {
       process.stderr.write(`${error.message}\nreport: ${error.reportPath}\n`);
@@ -6166,27 +5792,6 @@ export const run = (
     }
     process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
-  } finally {
-    if (
-      [
-        "unblock-auto",
-        "unblock-rehearse",
-        "unblock-check",
-        "unblock-apply",
-        "unblock-fold",
-      ].includes(argv[0] ?? "")
-    ) {
-      const path = completedReport?.reportPath ?? outcomeReportPath;
-      if (path && NodeFS.existsSync(path)) {
-        try {
-          captureSyncOutcome(readReport(path), outcomePhase, outcomeFailure);
-        } catch (error) {
-          process.stderr.write(
-            `outcome capture failed: ${error instanceof Error ? error.message : String(error)}\n`,
-          );
-        }
-      }
-    }
   }
 };
 

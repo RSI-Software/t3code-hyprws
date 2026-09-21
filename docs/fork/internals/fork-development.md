@@ -10,14 +10,10 @@ Goal: a small, durable patch stack on upstream.
 ## Before adding to the fork
 
 1. Run `vp run fork:scan --no-typecheck`.
-2. Read its lesson ref, SHA, and freshness.
-3. Prefer one adapter boundary over scattered edits.
+2. Prefer one adapter boundary over scattered edits.
 
-Before changing a seam's path, subject, or split, run `node scripts/fork-churn.ts record`.
-The [churn ledger](../operations/fork-sync.md#churn-ledger) owns seam identity, evidence, and blocking rules.
-
-The ledger on `refs/fork/churn` and the walk's typed report are the only authority for sync state.
-Published issue comments and rendered records are projections of them: never parse one, and never treat an edit to one as a decision.
+The walk's typed report is the only authority for sync state.
+Published issue comments and rendered records are projections of it: never parse one, and never treat an edit to one as a decision.
 
 ## Non-goals
 
@@ -44,7 +40,7 @@ Published issue comments and rendered records are projections of them: never par
 
 - **Explore:** base checkout
 - **Implement:** a worktree
-- **UAT:** checkout pinned to the SHA
+- **Verify a release:** checkout pinned to the SHA
 - **One home per checkout:** stop before switching
 - **Fixture:** never reset `.t3/test-project`
 
@@ -156,18 +152,15 @@ Both exceptions are spent; each needed a lease and an archive ref.
 
 | Exception                                       | Shape                                                |
 | ----------------------------------------------- | ---------------------------------------------------- |
-| Domain flatten (RSI-Software/t3code-hyprws#671) | One-time squash, churn aliases recorded first        |
+| Domain flatten (RSI-Software/t3code-hyprws#671) | One-time squash under an archive ref                 |
 | Reshape fold (RSI-Software/t3code-hyprws#965)   | `fork:sync fold-reshape` folds a landed reshape home |
 
 A walk repair for one replayed commit is a trailer-free `fixup!`, autosquashed before the leased push.
 
-### Ledger guards run in the scan
-
-An action the churn ledger records ships its guard in the same change.
+### Authoring guards run in the scan
 
 | Guard             | Fires when                                     |
 | ----------------- | ---------------------------------------------- |
-| `hot-seam`        | Edits a retained hot seam or repeated path     |
 | `upstream-test`   | Test block outside the `.fork.test.ts` sibling |
 | `footprint`       | More than six upstream files in one commit     |
 | `replaced-export` | Deletes an upstream export, re-declares it     |
