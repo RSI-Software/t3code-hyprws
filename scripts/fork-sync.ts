@@ -11,7 +11,7 @@
 // | target  | the named target is not a release tag on upstream  |
 // | fetch   | the fetch errors                                   |
 // | rebase  | a conflict neither rerere nor hook re-apply fixes  |
-// | check   | `fork:delta --check`, `fork:scan`, or types is red |
+// | check   | `fork:delta --check`, `fork:ci`, or the typecheck is red |
 // | push    | the expected-old lease is refused                  |
 // | blocked | `ghb` is unavailable                               |
 //
@@ -512,45 +512,35 @@ export const linkInstalledModules = (root: string, worktree: string): void => {
   visit(root, 0);
 };
 
-/** The check battery, in the CI shape. */
-export const checkCommands = (
-  base: string,
-  since: string,
-): ReadonlyArray<ReadonlyArray<string>> => [
+/**
+ * The check battery, in the CI shape: the ledger gate, then everything the
+ * fork's pull-request CI runs — `vp run fork:ci` derives the pinned scan flags
+ * from HEAD (scripts/lib/fork-ci-flags.ts) and runs the rebase scan plus the
+ * whole scripts suite — then the repo-wide typecheck the Check job runs as
+ * `vpr typecheck`. A direct push to the trunk has no pull request to gate it,
+ * so the driver runs the battery itself before the push.
+ */
+export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "fork:delta", "--check"],
-  [
-    "run",
-    "fork:scan",
-    "--head",
-    "HEAD",
-    "--target",
-    base,
-    "--since",
-    since,
-    "--no-typecheck",
-    "--replay-of",
-    `origin/${HYPRWS_BRANCH}`,
-  ],
-  ["run", "--filter", "@t3tools/scripts", "typecheck"],
+  ["run", "fork:ci"],
+  ["run", "typecheck"],
 ];
 
 export const runChecks = (
   runner: CommandRunner,
   root: string,
   worktree: string,
-  base: string,
-  since: string,
 ): ReadonlyArray<CheckRow> => {
   linkInstalledModules(root, worktree);
   const env = verificationEnv(worktree);
-  return checkCommands(base, since).map((args) => {
+  return checkCommands().map((args) => {
     const result = runner.run("vp", args, { cwd: worktree, env, stream: true });
     return result.status === 0 && result.error === undefined
       ? { command: commandText("vp", args), status: "passed", detail: "" }
       : {
           command: commandText("vp", args),
           status: "failed",
-          detail: result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`,
+          detail: `${result.stderr.trim() || result.stdout.trim() || "no output"} (exit ${result.status})`,
         };
   });
 };
@@ -1105,7 +1095,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const newSha = rebase.newSha;
 
     // check
-    const checks = runChecks(runner, root, worktreePath(root), mergeBase(newSha), expectedOld);
+    const checks = runChecks(runner, root, worktreePath(root));
     if (checks.some((check) => check.status === "failed")) {
       teachRerere();
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
