@@ -1001,3 +1001,84 @@ it("exercises receipt verdicts for absence, return and verified regression witho
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * PR 4 publishes notification receipts; PR 3 only has to define, validate and never lose them, so
+ * a v4 field no writer populates still survives a walk that rewrites the ledger around it
+ * (RSI-Software/t3code-hyprws#1144).
+ */
+it("validates a v4 notification receipt and preserves it across a walk write", () => {
+  const notifications = [
+    {
+      identity: `blocking-sha:${A}`,
+      eventId: "event-1",
+      state: "blocked",
+      desiredBodyDigest: "d".repeat(64),
+      phase: "pending" as const,
+    },
+    {
+      identity: "hyprws-rebase-hard-failure",
+      eventId: "event-2",
+      state: "infra-failed",
+      desiredBodyDigest: "e".repeat(64),
+      phase: "published" as const,
+      issueNumber: 7,
+      issueUrl: "https://example.test/issues/7",
+      evidenceRef: "refs/fork/evidence",
+    },
+  ];
+  const root = repository();
+  try {
+    writeChurnState(
+      root,
+      { version: 4, walks: [], seamRecords: [], outcomes: [], forecasts: [], notifications },
+      "seed notifications",
+    );
+    // The walk only replaces walks; it never populates or drops the field.
+    writeChurnLedger(root, [walk("v1", snapshot(A))], "walk");
+    assert.deepStrictEqual(readChurnState(root).notifications, notifications);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+
+  const envelope = (overrides: Record<string, unknown>): string =>
+    JSON.stringify({
+      version: 4,
+      walks: [],
+      seamRecords: [],
+      outcomes: [],
+      forecasts: [],
+      ...overrides,
+    });
+  // A ledger that carries no receipts carries no empty array either: absent stays absent.
+  assert.isUndefined(parseChurnState(envelope({})).notifications);
+  assert.throws(() => parseChurnState(envelope({ notifications: {} })), /invalid notifications/);
+  assert.throws(
+    () => parseChurnState(envelope({ notifications: [{ ...notifications[0], phase: "sent" }] })),
+    /invalid notification phase 0/,
+  );
+  assert.throws(
+    () => parseChurnState(envelope({ notifications: [notifications[0], notifications[0]] })),
+    /duplicate notification identity/,
+  );
+  assert.throws(
+    () => parseChurnState(envelope({ notifications: [{ ...notifications[1], issueNumber: "7" }] })),
+    /invalid notification issueNumber 0/,
+  );
+  // An older envelope has no such field, so one appearing there is an unsupported envelope and
+  // never a silently tolerated extra key.
+  assert.throws(
+    () =>
+      parseChurnState(
+        JSON.stringify({
+          version: 3,
+          walks: [],
+          seamRecords: [],
+          outcomes: [],
+          forecasts: [],
+          notifications,
+        }),
+      ),
+    /unsupported churn ledger envelope/,
+  );
+});

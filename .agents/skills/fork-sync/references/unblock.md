@@ -94,8 +94,11 @@ Each verb's contract is the [verb ladder](../../../../docs/fork/operations/fork-
 Pause the bot for the whole ladder first ([walk pause](../../../../docs/fork/operations/fork-sync.md#walk-pause)).
 
 - **Each command** consumes the prior report
+- **Report:** the only authority the gate and apply read
 - **Never** alter its state
 - **Never** continue a rebase directly
+
+A report written before typed authority is refused, never converted: rerun the walk from step 1.
 
 ### 1. List
 
@@ -140,16 +143,22 @@ On a judgement lane, apply the stop shape and the retire-candidate test to the e
 - **Reply:** job names and the one line that failed
 - **Grounding claim named:** confirm that too
 
-#### The `Decided by` cell
+#### Deciding a declined row
 
-- **Write** the decider beside every action filled
-- **Batch:** one edit pass per handback
-- **A `TODO` cell** records no decision
-- **Counts** for nobody in the churn ledger
-- **Refused** at apply
+A declined row is decided by typed, signed input or not at all.
 
-A rerun or refresh keeps filled cells, and a filled cell wins over a reclassifying rerun.
-A refresh names any cell it drops for a subject that left the replay.
+```bash
+vp run fork:sync record-decisions --report <report.json> --input <decisions.json>
+```
+
+- **Bound** to the report's source, target, and lease
+- **Each entry** names the row identity, resolution, and decider
+- **Unknown** or duplicate identity: refused
+- **Unsigned** decision: refused
+- **Editing** the published record decides nothing
+
+A rerun keeps recorded decisions, and a recorded decision wins over a reclassifying rerun.
+A refresh names any decision it drops for a subject that left the replay.
 
 ### 5. Apply
 
