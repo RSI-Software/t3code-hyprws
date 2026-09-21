@@ -518,12 +518,12 @@ it("requires current source evidence for a report policy pass", () => {
 });
 
 it("validates the complete known envelope before projecting lesson fields", () => {
-  for (const version of [2, 3]) {
+  for (const version of [2, 3, 4]) {
     const envelope = {
       version,
       walks: [],
       seamRecords: [],
-      ...(version === 3 ? { outcomes: [] } : {}),
+      ...(version === 2 ? {} : { outcomes: [] }),
     };
     assert.deepStrictEqual(readLessonEvidence(encodeSync(envelope)), {
       walks: [],
@@ -559,7 +559,7 @@ it("projects future compatible fields explicitly without claiming complete schem
     }),
   );
   const projected = readLessonEvidence(
-    encodeSync({ version: 4, walks: [], seamRecords: [known], futureField: true }),
+    encodeSync({ version: 5, walks: [], seamRecords: [known], futureField: true }),
   );
   assert.strictEqual(
     lessonInventory(projected).find((row) => row.path === "new-seam.ts")?.observations,
@@ -571,7 +571,7 @@ it("projects future compatible fields explicitly without claiming complete schem
     "newer schema is only partially understood",
   );
   const incompatible = readLessonEvidence(
-    encodeSync({ version: 4, walks: { changed: true }, seamRecords: [{ kind: "new-evidence" }] }),
+    encodeSync({ version: 5, walks: { changed: true }, seamRecords: [{ kind: "new-evidence" }] }),
   );
   assert.strictEqual(lessonInventory(incompatible).length, ORIGINAL_LESSON_PATHS.length);
   assert.lengthOf(incompatible.notices ?? [], 3);
@@ -970,7 +970,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
           publisher,
           CHURN_REF,
           CHURN_LEDGER_FILE,
-          yield* encode({ version: 4, walks: [], seamRecords: [observation], futureField: true }),
+          yield* encode({ version: 5, walks: [], seamRecords: [observation], futureField: true }),
           "future lesson schema",
         );
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);

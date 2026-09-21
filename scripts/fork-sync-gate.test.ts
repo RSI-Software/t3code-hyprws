@@ -48,8 +48,12 @@ const report = (options: Partial<CheckoutBinding> = {}): SyncReport => {
   } satisfies SyncReport;
 };
 
+/**
+ * A report names where it lives, and the gate refuses one whose binding does not match the file
+ * it was handed, so the fixture binds it as it writes it (RSI-Software/t3code-hyprws#1144).
+ */
 const written = (path: string, value: SyncReport): void => {
-  NodeFS.writeFileSync(path, `${JSON.stringify(value)}\n`);
+  NodeFS.writeFileSync(path, `${JSON.stringify({ ...value, reportPath: path })}\n`);
 };
 
 const binding = (overrides: Partial<CheckoutBinding> = {}): CheckoutBinding => ({
@@ -82,10 +86,14 @@ it("keeps stable-only as the default and opts into nightly tags", () => {
     UsageError,
   );
   assert.throws(
-    () => parseArgs(["--tag", "v1.2.3-nightly.4", "--report", "/tmp/report.json", "--allow-nightly"]),
+    () =>
+      parseArgs(["--tag", "v1.2.3-nightly.4", "--report", "/tmp/report.json", "--allow-nightly"]),
     UsageError,
   );
-  assert.throws(() => parseArgs(["--tag", "../../tmp", "--report", "/tmp/report.json"]), UsageError);
+  assert.throws(
+    () => parseArgs(["--tag", "../../tmp", "--report", "/tmp/report.json"]),
+    UsageError,
+  );
   assert.throws(() => parseArgs(["--tag", "v1.2.3"]), UsageError);
   assert.throws(() => parseArgs([]), UsageError);
 });
@@ -179,10 +187,14 @@ it("runs against an external report and the preflight's freshly fetched head", (
     assert.strictEqual(
       run(["--tag", "v1.2.3", "--report", reportPath], root, output, dependencies),
       0,
+      stderr.join(""),
     );
     assert.match(stdout.join(""), /^ready: v1\.2\.3 apply gate passed/);
 
-    written(reportPath, report({ targetSha, expectedOld: "d".repeat(40), rebasedHead: head, stackSize }));
+    written(
+      reportPath,
+      report({ targetSha, expectedOld: "d".repeat(40), rebasedHead: head, stackSize }),
+    );
     assert.strictEqual(
       run(["--tag", "v1.2.3", "--report", reportPath], root, output, dependencies),
       1,

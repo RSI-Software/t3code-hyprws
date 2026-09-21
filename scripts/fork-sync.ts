@@ -2824,9 +2824,7 @@ const unblockCheck = (
     leaseSha === undefined
       ? "Freeze: report holds no lease — rerun unblock-list."
       : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/fork/operations/fork-sync.md.`;
-  process.stdout.write(
-    `${report.reportPath}\n${decisionSurface(report)}${leaseLine}\n`,
-  );
+  process.stdout.write(`${report.reportPath}\n${decisionSurface(report)}${leaseLine}\n`);
   return report;
 };
 
@@ -3228,6 +3226,32 @@ export const resumeRererePublication = (
 };
 
 /**
+ * Posts the rendered record on the block issue and returns the comment URL the report will carry.
+ *
+ * The URL is the ledger's only pointer to the human's own words, and the report is the authority
+ * the row is built from, so an unusable answer fails here rather than reaching `refs/fork/churn`
+ * as an invalid `recordUrl` (RSI-Software/t3code-hyprws#1144).
+ */
+const postRecordComment = (
+  runner: CommandRunner,
+  report: SyncReport,
+  bodyPath: string,
+  worktree: string,
+): string => {
+  const url = requireSuccess(
+    runner,
+    "gh",
+    ["issue", "comment", String(report.issue.number), "-R", REPOSITORY, "--body-file", bodyPath],
+    worktree,
+  ).trim();
+  if (!/^https?:\/\/\S+$/.test(url))
+    throw new Error(
+      `posting the record on issue ${report.issue.number} returned no comment URL: ${JSON.stringify(url)}`,
+    );
+  return url;
+};
+
+/**
  * Every post-push publication step of an unblock apply, resumable from the applied stage
  * (RSI-Software/t3code-hyprws#922). Each step is idempotent on its own durable marker — the
  * record comment only republishes when the comment body drifted from the local record, the
@@ -3543,7 +3567,10 @@ const publishPendingDecisionRow = (
     process.stdout.write(
       `pending decision row for ${tag} kept with the report (${report.reportPath}); ` +
         `${CHURN_REF} is untouched\n` +
-        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}\n`,
+        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}` +
+        // The declined rows are decided by typed, signed input now, never by editing the record
+        // (RSI-Software/t3code-hyprws#1144).
+        `${pendingAutoConflictRows(report).length > 0 ? " --input <decisions.json>" : ""}\n`,
     );
     return report;
   }
@@ -3608,11 +3635,14 @@ const readDecisionInput = (
   readonly actions: ReadonlyArray<NonNullable<DecisionInput["actions"]>[number]>;
 } => {
   const raw: unknown = JSON.parse(NodeFS.readFileSync(path, "utf8"));
-  if (typeof raw !== "object" || raw === null) throw new UsageError("decision input is not an object");
+  if (typeof raw !== "object" || raw === null)
+    throw new UsageError("decision input is not an object");
   const input = raw as Partial<DecisionInput>;
   const bound = (field: string, expected: string | undefined, seen: unknown): void => {
     if (seen !== expected)
-      throw new UsageError(`decision input ${field} ${String(seen)} does not match the walk's ${String(expected)}`);
+      throw new UsageError(
+        `decision input ${field} ${String(seen)} does not match the walk's ${String(expected)}`,
+      );
   };
   bound("target tag", report.target?.tag, input.target?.tag);
   bound("target sha", report.target?.sha, input.target?.sha);
@@ -3631,7 +3661,9 @@ const readDecisionInput = (
     if (typeof row.resolution !== "string" || row.resolution.length === 0)
       throw new UsageError(`decision for ${row.identity} carries no resolution`);
     if (row.agentSafe !== "yes" && row.agentSafe !== "no")
-      throw new UsageError(`decision for ${row.identity} does not say whether an agent may replay it`);
+      throw new UsageError(
+        `decision for ${row.identity} does not say whether an agent may replay it`,
+      );
     rows.set(row.identity, row);
   }
   for (const identity of identities)
@@ -3661,7 +3693,7 @@ export const recordDecisions = (
   assertOnly(values, ["--report", "--tag", "--input"]);
   const reportPath = oneValue(values, "--report", true);
   const tag = oneValue(values, "--tag", true);
-  const inputPath = oneValue(values, "--input", true);
+  const inputPath = oneValue(values, "--input", false);
   if (reportPath === null || tag === null) throw new UsageError("--report and --tag are required");
   const report = readReport(reportPath);
   if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict")
@@ -3685,6 +3717,14 @@ export const recordDecisions = (
       throw new UsageError(
         `${row.path} still has an unresolved conflict; resolve it, stage it, and rerun record-decisions`,
       );
+  // A row the walk declined is decided by typed input or not at all: the rendered record is a
+  // projection now, so an edited table can no longer carry a verdict
+  // (RSI-Software/t3code-hyprws#1144). A rerun that has nothing left to decide only republishes,
+  // so it needs no input.
+  if (inputPath === null && declined.length > 0)
+    throw new UsageError(
+      `--input is required: ${String(declined.length)} declined row(s) need typed, signed decisions`,
+    );
   const input = inputPath === null ? null : readDecisionInput(inputPath, report, declined);
   const supplied = input?.seams ?? null;
   const snapshot = saveRerereCache(worktree, `rerere: recorded ${tag}`);
@@ -3761,21 +3801,7 @@ export const recordDecisions = (
   // persisted on the report instead of posting a second comment (#876).
   writeRecord(recorded);
   const recordUrl =
-    report.recordCommentUrl ??
-    requireSuccess(
-      runner,
-      "gh",
-      [
-        "issue",
-        "comment",
-        String(report.issue.number),
-        "-R",
-        REPOSITORY,
-        "--body-file",
-        report.recordPath,
-      ],
-      worktree,
-    ).trim();
+    report.recordCommentUrl ?? postRecordComment(runner, report, report.recordPath, worktree);
   const published: SyncReport = { ...recorded, recordCommentUrl: recordUrl };
   writeReport(published);
   process.stdout.write(
@@ -4000,21 +4026,7 @@ const unblockApply = (
     }
   }
   const recordCommentUrl =
-    report.recordCommentUrl ??
-    requireSuccess(
-      runner,
-      "gh",
-      [
-        "issue",
-        "comment",
-        String(report.issue.number),
-        "-R",
-        REPOSITORY,
-        "--body-file",
-        recordPath,
-      ],
-      worktree,
-    ).trim();
+    report.recordCommentUrl ?? postRecordComment(runner, report, recordPath, worktree);
   // Persist the record comment URL before the push for both kinds: an interrupted applied push
   // resumes from the report alone, and the resume needs the comment it must keep current. The
   // candidate bindings, persisted above, are never overwritten here.

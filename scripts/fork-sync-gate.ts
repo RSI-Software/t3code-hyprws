@@ -79,9 +79,17 @@ export const inspectReport = (
       findings.push(`${field} mismatch: report ${recorded}, ${at} ${seen}`);
   };
   compare("expected_old", report.source?.expectedOld, observed.expectedOld, "origin/hyprws");
+  // A rewrite never advances the fork onto a new tag: it rebuilds the series on the base it
+  // already sits on, so its target is that base, which is where the record used to render it
+  // from (RSI-Software/t3code-hyprws#1144).
+  const target =
+    report.target ??
+    (report.rewrite?.baseTag === undefined
+      ? undefined
+      : { tag: report.rewrite.baseTag, sha: report.rewrite.base });
   compare(
     "Target",
-    report.target === undefined ? undefined : `${report.target.tag}@${report.target.sha}`,
+    target === undefined ? undefined : `${target.tag}@${target.sha}`,
     `${observed.targetTag}@${observed.targetSha}`,
     "checkout",
   );

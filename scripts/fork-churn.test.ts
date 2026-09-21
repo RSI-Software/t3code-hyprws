@@ -82,17 +82,34 @@ const reportFixture = (): SyncReport => ({
   stackSize: 1,
 });
 
-it("projects the report's own decisions into the ledger without reading the record", () => {
-  assert.deepStrictEqual(
-    recordDecisionRows(reportFixture()),
-    reportFixture().orientationDecisions,
+/**
+ * The typed report `append` reads. The record is a projection now, so the row's every value comes
+ * from this file (RSI-Software/t3code-hyprws#1144).
+ */
+const writeReportFixture = (root: string, overrides: Partial<SyncReport> = {}): void => {
+  const reportPath = NodePath.join(root, "report.json");
+  NodeFS.writeFileSync(
+    reportPath,
+    JSON.stringify({
+      ...reportFixture(),
+      repositoryRoot: root,
+      reportPath,
+      recordPath: NodePath.join(root, "record.md"),
+      ...overrides,
+    }),
   );
+};
+
+it("projects the report's own decisions into the ledger without reading the record", () => {
+  assert.deepStrictEqual(recordDecisionRows(reportFixture()), reportFixture().orientationDecisions);
 });
 
 /** The record is a projection: rewriting the comment cannot change what the ledger stores. */
 it("ignores an edited record when it projects the decisions", () => {
   const report = reportFixture();
-  const edited = renderRecord(report).replace(/partial/g, "retire").replace(/human/g, "agent");
+  const edited = renderRecord(report)
+    .replace(/partial/g, "retire")
+    .replace(/human/g, "agent");
   assert.notStrictEqual(edited, renderRecord(report));
   assert.deepStrictEqual(recordDecisionRows(report), report.orientationDecisions);
 });
@@ -540,10 +557,13 @@ it("rejects a malformed elapsed or effort field on a ledger row", () => {
   assert.throws(() => parseLedger(JSON.stringify([{ ...base, effort: { model: "m" } }])), /effort/);
 });
 
-it("writes the applied row bound to the verbatim record comment", () => {
+it("writes the applied row bound to the record comment the report names", () => {
   const root = ledgerRepository([]);
   const record = renderRecord(reportFixture());
   NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  writeReportFixture(root, {
+    recordCommentUrl: "https://example.test/issues/1#issuecomment-1",
+  });
   const bin = NodePath.join(root, "bin");
   NodeFS.mkdirSync(bin);
   NodeFS.writeFileSync(
@@ -575,8 +595,8 @@ it("writes the applied row bound to the verbatim record comment", () => {
       run(
         [
           "append",
-          "--record",
-          "record.md",
+          "--report",
+          "report.json",
           "--issue",
           "1",
           "--tag",
@@ -647,6 +667,7 @@ it("a pending append without a posted record binds the issue and the rewrite upg
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  writeReportFixture(root);
   const stub = stubGh(root, recordPath);
   // The stop path: nothing verbatim on the issue, so the verbatim match fails — the
   // pending row still lands, bound to the block issue itself.
@@ -667,8 +688,8 @@ it("a pending append without a posted record binds the issue and the rewrite upg
   });
   const args = [
     "append",
-    "--record",
-    "record.md",
+    "--report",
+    "report.json",
     "--issue",
     "1",
     "--tag",
@@ -691,8 +712,11 @@ it("a pending append without a posted record binds the issue and the rewrite upg
       parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]?.recordUrl,
       "https://example.test/issues/1",
     );
-    // `record-decisions` posts the record, so the same rewrite now matches verbatim and
-    // upgrades the binding to the posted comment.
+    // `record-decisions` posts the record and persists the comment URL on the report, so the
+    // same rewrite upgrades the binding to the posted comment.
+    writeReportFixture(root, {
+      recordCommentUrl: "https://example.test/issues/1#issuecomment-2",
+    });
     process.env.FAKE_GH_RESPONSE = JSON.stringify({
       body: censusBody,
       comments: [
@@ -718,6 +742,7 @@ it("an applied append without a posted record still refuses the write (#1057)", 
   const root = ledgerRepository([]);
   const recordPath = NodePath.join(root, "record.md");
   NodeFS.writeFileSync(recordPath, renderRecord(reportFixture()));
+  writeReportFixture(root);
   const stub = stubGh(root, recordPath);
   process.env.FAKE_GH_RESPONSE = JSON.stringify({
     body: [
@@ -740,8 +765,8 @@ it("an applied append without a posted record still refuses the write (#1057)", 
       run(
         [
           "append",
-          "--record",
-          "record.md",
+          "--report",
+          "report.json",
           "--issue",
           "1",
           "--tag",
@@ -1229,6 +1254,9 @@ it("refuses a mismatched census tag before mutation and accepts the matching ide
   const root = ledgerRepository([]);
   const record = renderRecord(reportFixture());
   NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  writeReportFixture(root, {
+    recordCommentUrl: "https://example.test/issues/1#issuecomment-1",
+  });
   const bin = NodePath.join(root, "bin");
   NodeFS.mkdirSync(bin);
   NodeFS.writeFileSync(
@@ -1269,8 +1297,8 @@ it("refuses a mismatched census tag before mutation and accepts the matching ide
       run(
         [
           "append",
-          "--record",
-          "record.md",
+          "--report",
+          "report.json",
           "--issue",
           "1",
           "--tag",
@@ -1323,8 +1351,8 @@ it("refuses append when the tag already exists", () => {
       run(
         [
           "append",
-          "--record",
-          "missing.md",
+          "--report",
+          "missing.json",
           "--issue",
           "1",
           "--tag",
@@ -1615,7 +1643,7 @@ it("report assesses a live census from the auto-result artifact without carry or
   NodeFS.writeFileSync(
     artifact,
     JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 1,
       decision: {
         pairwiseFirstConflict: null,
         census: {
@@ -1763,7 +1791,7 @@ it("report never passes on live census evidence it could not assess", () => {
     };
     const envelopeWith = (mutate: (envelope: Record<string, unknown>) => void): string => {
       const envelope: Record<string, unknown> = {
-        schemaVersion: 2,
+        schemaVersion: 1,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1842,7 +1870,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 1,
         decision: {
           pairwiseFirstConflict: null,
           census: null,
@@ -1864,7 +1892,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 1,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1915,7 +1943,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 1,
         decision: {
           pairwiseFirstConflict: null,
           census: {
@@ -1944,7 +1972,7 @@ it("report never passes on live census evidence it could not assess", () => {
     NodeFS.writeFileSync(
       artifact,
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 1,
         decision: {
           pairwiseFirstConflict: null,
           census: {

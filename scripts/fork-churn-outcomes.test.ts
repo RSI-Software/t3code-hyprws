@@ -99,7 +99,8 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         const recorded = git(["rev-parse", CHURN_REF]);
         assert.strictEqual(run(["outcome", "--input", "input.json"]).status, 0);
         assert.strictEqual(git(["rev-parse", CHURN_REF]), recorded);
-        assert.strictEqual(readChurnState(root).version, 3);
+        // Every read normalizes to the current envelope (RSI-Software/t3code-hyprws#1144).
+        assert.strictEqual(readChurnState(root).version, 4);
         yield* write("input.json", {
           version: 1,
           receipts: [target, attempt, { ...apply, status: "failed" }],
