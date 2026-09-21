@@ -1,9 +1,7 @@
-// The positional removal alignment shared by the two ends of the hook rule:
-// `fork-conflict-outcomes.ts` (the sync walk's hook-only gate) and
-// `fork-hook-guard.ts` (the authoring guard's deletion charge). Both must
-// decide a removed base line the same way, so the alignment lives here — a leaf
-// module importing only `fork-hooks.ts` — rather than in either caller, both of
-// which pull in machinery (the merge runner, the scan rules) the other must not.
+// The positional removal alignment behind the hook rule: the sync walk's
+// hook-only gate (`fork-conflict-outcomes.ts`) decides a removed base line by
+// it, so the alignment lives here — a leaf module importing only
+// `fork-hooks.ts` — rather than in a caller that pulls in the merge runner.
 //
 // The rule is positional, not a budget: a removed base line is explained only
 // when the fork-side gap it was removed from falls inside a maximal run of
