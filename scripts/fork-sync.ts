@@ -21,7 +21,6 @@ import {
   readForkRetirementLedger,
 } from "./lib/fork-retirement-ledger.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
-import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import { parseCallerAttestation, type CallerAttestation } from "./lib/fork-agent-identity.ts";
 import {
   readConflictStages,
@@ -89,13 +88,6 @@ import {
 } from "./fork-sync-fold-verb.ts";
 import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
 import { buildWalkSize, type WalkSize } from "./lib/fork-walk-size.ts";
-import {
-  parseWorkflowReviews,
-  readWorkflowDrift,
-  WORKFLOW_REVIEWS_PATH,
-  type WorkflowDrift,
-} from "./lib/fork-workflow-drift.ts";
-
 import {
   reconcileStableCandidates,
   SystemGitHub,
@@ -869,7 +861,8 @@ const rerereResolvedPaths = (
   );
 
 /** unblock-rehearse owns these paths end to end: it restores HEAD and regenerates them itself.
- * Classification is the scanner's `GENERATED_HOOK_PATH`, not a second generated list. */
+ * The same generated-path classification the scanner uses, not a second generated list. */
+const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 const isGeneratedPath = (path: string): boolean => GENERATED_HOOK_PATH.test(path);
 
 /** One generator command per regenerated path (the lockfile keeps its inline install path). */
@@ -2016,104 +2009,6 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * Workflow drift the walk repairs mechanically (RSI-Software/t3code-hyprws#1071): the drift
- * reader binds the reviews file at the lane head, so only a commit clears it. When the fork side
- * of a drifted copy is byte-identical to the last review, the upstream side moved alone and the
- * check refreshes the entry itself as its own fork-meta repair commit. Anything else — a missing
- * or provenance-broken review, a fork side that moved, or a guard the unchanged fork copy now
- * trips — is a human's adaptation decision and stops the walk with the drift as its surface.
- */
-const refreshWorkflowReviews = (
-  report: SyncReport,
-  runner: CommandRunner,
-  worktree: string,
-  tag: string,
-  target: string,
-): { readonly sha: string; readonly subject: string } | undefined => {
-  const laneGit = {
-    run: (args: ReadonlyArray<string>): string => gitRaw(runner, worktree, [...args], true),
-  };
-  // The scan below is the proof; when the reviews cannot even be read, it names the state.
-  let drifts: ReadonlyArray<WorkflowDrift>;
-  try {
-    drifts = readWorkflowDrift(laneGit, "HEAD", target);
-  } catch {
-    return undefined;
-  }
-  const drifted = drifts.filter(({ problem }) => problem !== undefined);
-  if (drifted.length === 0) return undefined;
-  const mechanical = drifted.filter(
-    (drift) =>
-      drift.problem === "upstream workflow changed since review" &&
-      drift.review !== undefined &&
-      drift.review.forkBlob === drift.forkBlob,
-  );
-  if (mechanical.length !== drifted.length) {
-    const surfaces = drifted.map(
-      ({ upstream, fork, problem }) => `  - workflow-drift: ${upstream} -> ${fork}: ${problem}`,
-    );
-    throw new RepairStop(
-      {
-        kind: "repair",
-        command: `fork:sync workflow review ${tag}`,
-        // The reviews path stays in the stop's allowance: the resumed walk admits the operator's
-        // refreshed reviews file beside the conflict rows.
-        paths: [WORKFLOW_REVIEWS_PATH],
-        detail: `the replayed stack drifts from its reviewed workflows; adapt the fork copy or justify no-change in ${WORKFLOW_REVIEWS_PATH}, commit it as a fork-meta repair commit carrying Fork-Domain: fork-meta, Fork-Tier: bugfix, Fork-Upstreamable: no and Fork-Repair: ${tag}, then rerun unblock-check:\n${surfaces.join("\n")}`,
-      },
-      report.reportPath,
-    );
-  }
-  const raw = NodeFS.readFileSync(NodePath.join(worktree, WORKFLOW_REVIEWS_PATH), "utf8");
-  const reviews = parseWorkflowReviews(raw);
-  const refreshed = reviews.map((review) => {
-    const drift = mechanical.find(({ upstream }) => upstream === review.upstream);
-    if (drift === undefined) return review;
-    const touched = lines(
-      gitRaw(runner, worktree, ["log", "--format=%H", target, "--", drift.upstream], true),
-    );
-    let upstreamCommit: string | undefined;
-    for (const candidate of touched) {
-      if (
-        gitRaw(runner, worktree, ["rev-parse", `${candidate}:${drift.upstream}`], true).trim() ===
-        drift.upstreamBlob
-      ) {
-        upstreamCommit = candidate;
-        break;
-      }
-    }
-    upstreamCommit ??= gitRaw(runner, worktree, ["rev-parse", `${target}^{commit}`], true).trim();
-    return {
-      ...review,
-      upstreamCommit,
-      upstreamBlob: drift.upstreamBlob,
-      reason: `${review.reason} Reviewed again at ${tag} with no fork change (mechanical walk refresh: the fork copy is byte-identical to the last review).`,
-    };
-  });
-  const document = JSON.parse(raw) as { readonly version: number };
-  NodeFS.writeFileSync(
-    NodePath.join(worktree, WORKFLOW_REVIEWS_PATH),
-    `${JSON.stringify({ version: document.version, reviews: refreshed }, null, 2)}\n`,
-  );
-  const subject = `chore(fork): refresh workflow reviews for ${tag}`;
-  botGit(runner, worktree, ["add", "--", WORKFLOW_REVIEWS_PATH]);
-  botGit(runner, worktree, [
-    "commit",
-    "--no-verify",
-    "-m",
-    subject,
-    "-m",
-    `The fork copies stay byte-identical; only the upstream fingerprints move, so the reviews are refreshed mechanically at ${tag}.`,
-    "-m",
-    `Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: ${tag}`,
-  ]);
-  const [sha = ""] = git(runner, worktree, ["show", "-s", "--format=%H", "HEAD"], true).split(
-    "\x1f",
-  );
-  return { sha: sha.trim(), subject };
-};
-
-/**
  * The lockfile specifiers a `pnpm-lock.yaml` carries: trimmed `name: version` lines under the
  * `specifiers:` blocks of the `importers:` section. A moved specifier is a line the regenerated
  * lockfile adds — a version bump reads as a removed old line plus an added new one — and the
@@ -2312,28 +2207,6 @@ const unblockCheck = (
           (report.rewrite as NonNullable<typeof report.rewrite>).base,
         ))
       : (report.target as NonNullable<typeof report.target>).tag;
-  // Workflow drift binds the reviews file at the lane head, so a refreshed reviews file in the
-  // working tree never clears the scan — only a commit does. The check refreshes a mechanically
-  // reviewable entry itself before the scan, or stops on drift a human must adapt
-  // (RSI-Software/t3code-hyprws#1071). The series rewrite is excluded: its head is a constructed
-  // manifest result, so an extra commit there would contradict the proposal its reviewer signed.
-  if (report.kind !== "rewrite" && report.target !== undefined) {
-    const refreshed = refreshWorkflowReviews(report, runner, worktree, scanTag, scanTag);
-    if (refreshed !== undefined) {
-      // Prove the repair in the lane before the scan builds on it.
-      const delta = toolingDeltaCheck();
-      requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
-      report = {
-        ...report,
-        walk: {
-          ...(report.walk ?? {}),
-          repairCommits: mergeRepairCommits(report.walk?.repairCommits, [refreshed]),
-        },
-      };
-      writeReport(report);
-      installedHead = refreshed.sha;
-    }
-  }
   const scan = { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] };
   const verification: Array<{ command: string; result: string }> = [];
   try {
