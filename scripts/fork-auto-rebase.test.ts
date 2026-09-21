@@ -138,6 +138,7 @@ import {
   autoFailureReason,
   buildAutoRebasePlan,
   executeAutoRebase,
+  forecastMain,
   parseArgs,
   rehearseStopCensus,
   renderSummary,
@@ -1134,12 +1135,22 @@ it("keeps sequential totals and overlap totals bound to their own rows", () => {
       };
       const body = buildBlockedIssue(plan, census)!.body;
       assert.include(body, "29 conflicting fork commits and 41 conflict-file observations");
-      assert.include(body, "26 introducing fork commits and 37 file rows");
+      assert.notInclude(body, "| Hunks |");
       assert.notInclude(body, "999 conflicting fork");
       assert.notInclude(body, "999 conflict-file");
       assert.include(body, `${complete ? "Complete" : "Partial"} observation set`);
       if (!complete) assert.include(body, "lower-bound counts");
       assert.deepStrictEqual(parseSequentialCensusEvidence(body), census.evidence);
+      // The census marker is read by the churn ledger, so its bytes never move.
+      assert.include(
+        body,
+        `<!-- sequential-census-v${census.evidence.version}:${JSON.stringify(census.evidence).replaceAll("<", "\\u003c")} -->`,
+      );
+      // Every row carries the forecast column; with no forecast it says so.
+      assert.strictEqual(
+        body.split("| unknown (unavailable) |").length - 1,
+        census.evidence.rows.length,
+      );
       const files = parseCensusFiles(body);
       assert.strictEqual(files.length, 41);
       assert.strictEqual(files.filter((file) => file.path === "repeated.ts").length, 29);
@@ -1228,6 +1239,35 @@ it("retains add/add and modify/delete observations before provisional continuati
     assert.deepStrictEqual(partialDecision.blocked?.stopCensus, partial);
     assert.include(partialDecision.blocked!.body, "Partial observation set");
     assert.include(renderSummary(partialDecision), "pairwise (census unavailable:");
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("publishes the block unchanged when the upstream/main forecast throws", () => {
+  const fixture = fixtureRepository();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const options = { ...dryRunOptions, mode: "off" as const };
+    const withoutForecast = executeAutoRebase(fixture.root, options, plan, () => "shared-install");
+    let calls = 0;
+    const withFailedForecast = executeAutoRebase(
+      fixture.root,
+      options,
+      plan,
+      () => "shared-install",
+      {
+        forecastMain: () =>
+          forecastMain(fixture.root, () => {
+            calls += 1;
+            throw new Error("synthetic forecast failure");
+          }),
+      },
+    );
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(withFailedForecast.status, withoutForecast.status);
+    assert.strictEqual(withFailedForecast.blocked?.body, withoutForecast.blocked?.body);
+    assert.include(withFailedForecast.blocked?.body ?? "", "unknown (unavailable)");
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

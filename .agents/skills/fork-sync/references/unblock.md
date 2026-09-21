@@ -85,6 +85,21 @@ Treat `mechanical` and `seam-moved` rows as `clear` unless the resolution droppe
 
 A name that merely appears in the tree is a sighting of the word, not of the behaviour, so it never reaches the row.
 
+## The `upstream/main state` column
+
+The blocked issue's census table carries one extra column per row: the same fork commit and path replayed against live `origin/main`.
+
+| Value                | Meaning                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| `conflict`           | That path conflicts on `main` too                                |
+| `not observed`       | Complete matching-source evidence saw no conflict                |
+| `unknown (<reason>)` | No verdict: `partial`, `unavailable`, `stale`, `source-mismatch` |
+
+It is advisory. It selects no tag, applies nothing, and retires nothing.
+
+A conflicting pull request gets one sticky comment; a clean one gets none.
+`main` conflicts surface only when a tag rebase runs, so no eligible tag means no forecast.
+
 ## Manual verbs
 
 `unblock-auto` runs every verb in one invocation, so these are not the normal path.
