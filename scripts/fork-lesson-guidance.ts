@@ -69,7 +69,9 @@ export const readLessonEvidence = (raw: string): LessonEvidence => {
     value.version < 2
   )
     throw new Error("unsupported lesson ledger version");
-  if (value.version > 3) {
+  // v4 is this reader's current schema: it is validated in full, never tolerated as "newer"
+  // (RSI-Software/t3code-hyprws#1144).
+  if (value.version > 4) {
     const notices = [
       `Lesson schema v${value.version} is newer than this reader; only compatible known fields are projected, never complete schema support.`,
     ];

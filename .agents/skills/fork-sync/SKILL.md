@@ -27,8 +27,9 @@ A stop is a doubt you could not trace away, and nothing else.
 
 ### Reports
 
-- **Never** edit an emitted report
-- **Record:** only its decision cells are yours
+- **Never** edit an emitted report or its published record
+- **Decide** a declined row with `record-decisions --input <json>`
+- **Record:** a projection only; editing it authorizes nothing
 - **Every** report path is external operator state
 
 The [fork-sync runbook](../../../docs/fork/operations/fork-sync.md) owns the bot model, the ledgers, and recovery.

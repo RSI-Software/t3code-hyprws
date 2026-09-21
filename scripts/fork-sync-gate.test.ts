@@ -10,11 +10,12 @@ import { assert, it } from "@effect/vitest";
 import { CHECK_MIRROR, CHECK_ORIGIN_FETCH, type PreflightReport } from "./fork-preflight.ts";
 import {
   type CheckoutBinding,
-  inspectRecord,
+  inspectReport,
   parseArgs,
   run,
   UsageError,
 } from "./fork-sync-gate.ts";
+import type { SyncReport } from "./fork-sync-state.ts";
 
 const SHA = "a".repeat(40);
 const TARGET_SHA = "b".repeat(40);
@@ -27,14 +28,32 @@ const DEFAULT_BINDING: CheckoutBinding = {
   stackSize: "7",
 };
 
-const record = (options: Partial<CheckoutBinding> = {}) => {
+/** The typed walk report the gate reads; the rendered record is never an input. */
+const report = (options: Partial<CheckoutBinding> = {}): SyncReport => {
   const values = { ...DEFAULT_BINDING, ...options };
-  return `# Rehearsal\n
-## Header\n
-- Target: \`${values.targetTag}@${values.targetSha}\`\n
-- \`expected_old\`: \`${values.expectedOld}\`\n
-- Rebased head: \`${values.rebasedHead}\`\n
-- Stack size: \`${values.stackSize}\` fork commits\n`;
+  return {
+    schemaVersion: 2,
+    stage: "checked",
+    repositoryRoot: "/fixture",
+    reportPath: "/fixture/report.json",
+    recordPath: "/fixture/record.md",
+    issue: { number: 1, blockingSha: SHA, title: "fixture" },
+    candidates: [],
+    conflicts: [],
+    verification: [],
+    source: { sha: SHA, sharedBase: SHA, expectedOld: values.expectedOld },
+    target: { tag: values.targetTag, sha: values.targetSha },
+    rebasedHead: values.rebasedHead,
+    stackSize: Number(values.stackSize),
+  } satisfies SyncReport;
+};
+
+/**
+ * A report names where it lives, and the gate refuses one whose binding does not match the file
+ * it was handed, so the fixture binds it as it writes it (RSI-Software/t3code-hyprws#1144).
+ */
+const written = (path: string, value: SyncReport): void => {
+  NodeFS.writeFileSync(path, `${JSON.stringify({ ...value, reportPath: path })}\n`);
 };
 
 const binding = (overrides: Partial<CheckoutBinding> = {}): CheckoutBinding => ({
@@ -43,85 +62,70 @@ const binding = (overrides: Partial<CheckoutBinding> = {}): CheckoutBinding => (
 });
 
 it("keeps stable-only as the default and opts into nightly tags", () => {
-  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3", "--record", "/tmp/record.md"]), {
+  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3", "--report", "/tmp/report.json"]), {
     tag: "v1.2.3",
-    recordPath: "/tmp/record.md",
+    reportPath: "/tmp/report.json",
     allowNightly: false,
   });
   assert.deepStrictEqual(
     parseArgs([
       "--allow-nightly",
-      "--record",
-      "/tmp/record.md",
+      "--report",
+      "/tmp/report.json",
       "--tag",
       "v1.2.3-nightly.20260828.4",
     ]),
     {
       tag: "v1.2.3-nightly.20260828.4",
-      recordPath: "/tmp/record.md",
+      reportPath: "/tmp/report.json",
       allowNightly: true,
     },
   );
   assert.throws(
-    () => parseArgs(["--tag", "v1.2.3-nightly.20260828.4", "--record", "/tmp/record.md"]),
+    () => parseArgs(["--tag", "v1.2.3-nightly.20260828.4", "--report", "/tmp/report.json"]),
     UsageError,
   );
   assert.throws(
-    () => parseArgs(["--tag", "v1.2.3-nightly.4", "--record", "/tmp/record.md", "--allow-nightly"]),
+    () =>
+      parseArgs(["--tag", "v1.2.3-nightly.4", "--report", "/tmp/report.json", "--allow-nightly"]),
     UsageError,
   );
-  assert.throws(() => parseArgs(["--tag", "../../tmp", "--record", "/tmp/record.md"]), UsageError);
+  assert.throws(
+    () => parseArgs(["--tag", "../../tmp", "--report", "/tmp/report.json"]),
+    UsageError,
+  );
   assert.throws(() => parseArgs(["--tag", "v1.2.3"]), UsageError);
   assert.throws(() => parseArgs([]), UsageError);
 });
 
-it("requires a matching expected_old and reads only the header", () => {
-  assert.deepStrictEqual(inspectRecord(record(), binding()), []);
-  assert.deepStrictEqual(inspectRecord(record({ expectedOld: "d".repeat(40) }), binding()), [
-    `expected_old mismatch: record ${"d".repeat(40)}, origin/hyprws ${SHA}`,
+it("compares the typed report's own bindings against the checkout", () => {
+  assert.deepStrictEqual(inspectReport(report(), binding()), []);
+  assert.deepStrictEqual(inspectReport(report({ expectedOld: "d".repeat(40) }), binding()), [
+    `expected_old mismatch: report ${"d".repeat(40)}, origin/hyprws ${SHA}`,
   ]);
-  assert.deepStrictEqual(
-    inspectRecord(`# Rehearsal\n\n## Notes\n\n- \`expected_old\`: \`${SHA}\`\n`, binding()),
-    [
-      "record header missing `expected_old` full SHA",
-      "record header missing Target tag and full SHA",
-      "record header missing Rebased head full SHA",
-      "record header missing Stack size",
-    ],
-  );
-});
-
-it("asks a record for no login and no date", () => {
-  const marked = record().replace(
-    "## Header\n",
-    "## Header\n\n- Human sanity: donjor 2026-02-30\n",
-  );
-  assert.deepStrictEqual(inspectRecord(marked, binding()), []);
-});
-
-it("refuses when the record Target differs from the checkout target", () => {
-  const recorded = `v1.2.3@${"d".repeat(40)}`;
-  const observed = `v1.2.3@${TARGET_SHA}`;
-  assert.deepStrictEqual(inspectRecord(record({ targetSha: "d".repeat(40) }), binding()), [
-    `Target mismatch: record ${recorded}, checkout ${observed}`,
+  assert.deepStrictEqual(inspectReport(report({ targetSha: "d".repeat(40) }), binding()), [
+    `Target mismatch: report v1.2.3@${"d".repeat(40)}, checkout v1.2.3@${TARGET_SHA}`,
+  ]);
+  assert.deepStrictEqual(inspectReport(report({ rebasedHead: "d".repeat(40) }), binding()), [
+    `Rebased head mismatch: report ${"d".repeat(40)}, checkout ${REBASED_HEAD}`,
+  ]);
+  assert.deepStrictEqual(inspectReport(report({ stackSize: "8" }), binding()), [
+    "Stack size mismatch: report 8, checkout 7",
   ]);
 });
 
-it("refuses when the record Rebased head differs from checkout HEAD", () => {
-  const recorded = "d".repeat(40);
-  assert.deepStrictEqual(inspectRecord(record({ rebasedHead: recorded }), binding()), [
-    `Rebased head mismatch: record ${recorded}, checkout ${REBASED_HEAD}`,
+it("names every binding a report never recorded", () => {
+  const { source, target, rebasedHead, stackSize, ...partial } = report();
+  void source;
+  void target;
+  void rebasedHead;
+  void stackSize;
+  assert.deepStrictEqual(inspectReport(partial satisfies SyncReport, binding()), [
+    "report is missing expected_old",
+    "report is missing Target",
+    "report is missing Rebased head",
+    "report is missing Stack size",
   ]);
-});
-
-it("refuses when the record Stack size differs from the checkout count", () => {
-  assert.deepStrictEqual(inspectRecord(record({ stackSize: "8" }), binding()), [
-    "Stack size mismatch: record 8, checkout 7",
-  ]);
-});
-
-it("accepts a record whose target, head, and stack size match the checkout", () => {
-  assert.deepStrictEqual(inspectRecord(record(), binding()), []);
 });
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
@@ -153,10 +157,10 @@ const fixtureRepository = (): {
   targetSha: string;
   head: string;
   stackSize: string;
-  recordPath: string;
+  reportPath: string;
 } => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-gate-"));
-  const recordRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-record-"));
+  const recordRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-report-"));
   git(root, ["init", "-b", "fixture"]);
   git(root, ["config", "user.name", "Test User"]);
   git(root, ["config", "user.email", "test@example.com"]);
@@ -170,31 +174,29 @@ const fixtureRepository = (): {
   git(root, ["commit", "-m", "rebased"]);
   const head = git(root, ["rev-parse", "HEAD"]);
   const stackSize = git(root, ["rev-list", "--count", `${targetSha}..${head}`]);
-  const recordPath = NodePath.join(recordRoot, "v1.2.3.md");
-  NodeFS.writeFileSync(
-    recordPath,
-    record({ targetSha, expectedOld: head, rebasedHead: head, stackSize }),
-  );
-  return { root, recordRoot, targetSha, head, stackSize, recordPath };
+  const reportPath = NodePath.join(recordRoot, "v1.2.3.json");
+  written(reportPath, report({ targetSha, expectedOld: head, rebasedHead: head, stackSize }));
+  return { root, recordRoot, targetSha, head, stackSize, reportPath };
 };
 
-it("runs against an external record and the preflight's freshly fetched head", () => {
-  const { root, recordRoot, targetSha, head, stackSize, recordPath } = fixtureRepository();
+it("runs against an external report and the preflight's freshly fetched head", () => {
+  const { root, recordRoot, targetSha, head, stackSize, reportPath } = fixtureRepository();
   try {
     const { stdout, stderr, output } = collector();
     const dependencies = { preflight: () => passingPreflight(head), git: gitDependency };
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, dependencies),
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, dependencies),
       0,
+      stderr.join(""),
     );
     assert.match(stdout.join(""), /^ready: v1\.2\.3 apply gate passed/);
 
-    NodeFS.writeFileSync(
-      recordPath,
-      record({ targetSha, expectedOld: "d".repeat(40), rebasedHead: head, stackSize }),
+    written(
+      reportPath,
+      report({ targetSha, expectedOld: "d".repeat(40), rebasedHead: head, stackSize }),
     );
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, dependencies),
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, dependencies),
       1,
     );
     assert.include(stderr.join(""), "expected_old mismatch");
@@ -204,31 +206,28 @@ it("runs against an external record and the preflight's freshly fetched head", (
   }
 });
 
-it("refuses a record inside the replayed repository", () => {
+it("refuses a report inside the replayed repository", () => {
   const { root, recordRoot, targetSha, head, stackSize } = fixtureRepository();
-  const recordPath = NodePath.join(root, "rehearsal.md");
-  NodeFS.writeFileSync(
-    recordPath,
-    record({ targetSha, expectedOld: head, rebasedHead: head, stackSize }),
-  );
+  const reportPath = NodePath.join(root, "report.json");
+  written(reportPath, report({ targetSha, expectedOld: head, rebasedHead: head, stackSize }));
   try {
     const { stderr, output } = collector();
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, {
         preflight: () => passingPreflight(head),
         git: gitDependency,
       }),
       1,
     );
-    assert.include(stderr.join(""), "rehearsal record must be outside the repository");
+    assert.include(stderr.join(""), "walk report must be outside the repository");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(recordRoot, { recursive: true, force: true });
   }
 });
 
-it("refuses on an unmet precondition and names it before reading the record", () => {
-  const { root, recordRoot, recordPath } = fixtureRepository();
+it("refuses on an unmet precondition and names it before reading the report", () => {
+  const { root, recordRoot, reportPath } = fixtureRepository();
   try {
     const { stderr, output } = collector();
     const preflight = {
@@ -252,7 +251,7 @@ it("refuses on an unmet precondition and names it before reading the record", ()
       git: gitDependency,
     };
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, preflight),
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, preflight),
       1,
     );
     const written = stderr.join("");
@@ -266,11 +265,11 @@ it("refuses on an unmet precondition and names it before reading the record", ()
 });
 
 it("passes a tag-pinned slice whose mirror fell behind mid-walk", () => {
-  const { root, recordRoot, head, recordPath } = fixtureRepository();
+  const { root, recordRoot, head, reportPath } = fixtureRepository();
   try {
     const { stdout, output } = collector();
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, {
         preflight: () => ({
           checks: [
             { name: CHECK_ORIGIN_FETCH, met: true, detail: "fetched", remedy: null },
@@ -295,11 +294,11 @@ it("passes a tag-pinned slice whose mirror fell behind mid-walk", () => {
 });
 
 it("never falls back to resolving origin/hyprws itself", () => {
-  const { root, recordRoot, recordPath } = fixtureRepository();
+  const { root, recordRoot, reportPath } = fixtureRepository();
   try {
     const { stderr, output } = collector();
     assert.strictEqual(
-      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+      run(["--tag", "v1.2.3", "--report", reportPath], root, output, {
         preflight: () => passingPreflight(null),
         git: gitDependency,
       }),

@@ -40,10 +40,12 @@ it("requires a target and rejects anything else", () => {
   assert.deepStrictEqual(parseArgs(["--target", "v0.0.35"]), {
     target: "v0.0.35",
     source: "origin/hyprws",
+    json: false,
   });
   assert.deepStrictEqual(parseArgs(["--target", "v0.0.35", "--source", "HEAD"]), {
     target: "v0.0.35",
     source: "HEAD",
+    json: false,
   });
   assert.throws(() => parseArgs([]), UsageError);
   assert.throws(() => parseArgs(["--target"]), UsageError);

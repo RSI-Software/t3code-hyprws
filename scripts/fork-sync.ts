@@ -23,6 +23,7 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import { renderOrientation, type Orientation } from "./fork-orient.ts";
 import {
   FORK_RETIREMENT_LEDGER_PATH,
   readForkRetirementLedger,
@@ -119,21 +120,19 @@ import {
   BOT_COMMIT_CONFIG,
   commandText,
   COMMENT_CONFIG,
+  decisionTableRows,
   DECISION_ACTIONS,
   externalPath,
   extractBlockingSha,
-  filledDecisionCells,
   git,
   gitRaw,
+  isInheritedDecidedBy,
   lines,
   NIGHTLY_REVIEW_EVIDENCE,
   NO_GROUNDING_CLAIM,
   oneValue,
-  orientationDecisionRows,
-  orientationTouchedPaths,
-  parseConflictRows,
-  parseDecisionRows,
   parseVerbArgs,
+  recordDecisionRows,
   renderNightlyReview,
   renderRecord,
   readReport,
@@ -141,9 +140,7 @@ import {
   requireAgentProvenance,
   requireNightlyReview,
   requireSuccess,
-  reviewBoundRows,
   rootFor,
-  splitTableCells,
   SYNC_HELP,
   uniqueSilentSeams,
   walkDecisionsOf,
@@ -169,13 +166,9 @@ import {
 } from "./fork-sync-state.ts";
 
 export {
-  filledDecisionCells,
   NIGHTLY_REVIEW_EVIDENCE,
   NIGHTLY_WITHHOLD_RULES,
   NO_GROUNDING_CLAIM,
-  orientationDecisionRows,
-  orientationTouchedPaths,
-  parseConflictRows,
   renderNightlyReview,
   renderRecord,
   validateReport,
@@ -641,7 +634,7 @@ const unblockList = (
   const bot = readBotSnapshot(runner, root);
   const reportPath = externalPath(root, values.get("--output") ?? defaultReportPath());
   const report: SyncReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "listed",
     repositoryRoot: root,
     reportPath,
@@ -746,13 +739,25 @@ const unblockOrient = (
   // used to leave no outcome bundle — the receipt guards see a report with no bound target yet
   // and return nothing.
   declareSyncOutcome(report, { tag: targetTag, sha: liveTarget }, expectedOld);
-  const orientation = requireSuccess(
-    runner,
-    "node",
-    ["scripts/fork-orient.ts", "--target", targetTag],
-    root,
+  // Orientation is read as the typed `Orientation` it always was; the prose is rendered from it
+  // for the record and never scraped back (RSI-Software/t3code-hyprws#1144).
+  const oriented = JSON.parse(
+    requireSuccess(
+      runner,
+      "node",
+      ["scripts/fork-orient.ts", "--target", targetTag, "--json"],
+      root,
+    ),
+  ) as Orientation;
+  const orientation = renderOrientation(oriented);
+  const orientationDecisions: ReadonlyArray<OrientationDecisionRow> = oriented.retireCandidates.map(
+    (candidate) => ({
+      verdict: candidate.decision as OrientationDecisionRow["verdict"],
+      subject: candidate.subject,
+      domain: candidate.domain,
+      decidedBy: "TODO",
+    }),
   );
-  const orientationDecisions = orientationDecisionRows(orientation);
   const retireEvidence = collectRetireEvidence(
     runner,
     root,
@@ -770,7 +775,7 @@ const unblockOrient = (
     orientationDecisions,
     retireEvidence,
     inheritedVerdicts,
-    touchedPaths: orientationTouchedPaths(orientation),
+    touchedPaths: [...oriented.overlap.automerged].toSorted(),
   };
   writeReport(next);
   writeRecord(next);
@@ -994,33 +999,14 @@ const assertRetiredInLedger = (subjects: ReadonlySet<string>, cwd: string): void
   }
 };
 
+/**
+ * Every subject this walk retires, read from the report's own decision table. The rendered record
+ * is a projection of that table, so it is never re-read (RSI-Software/t3code-hyprws#1144).
+ */
 const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
   const subjects = new Set<string>();
-  for (const row of report.recordDecisions ?? []) {
-    if (row.action === "retire") subjects.add(row.subject);
-  }
-  for (const row of report.orientationDecisions ?? []) {
+  for (const row of recordDecisionRows(report)) {
     if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
-  }
-  if (report.recordPath !== undefined && NodeFS.existsSync(report.recordPath)) {
-    let text: string;
-    try {
-      text = NodeFS.readFileSync(report.recordPath, "utf8");
-    } catch (error) {
-      throw new Error(
-        `failed to read retire decisions from ${report.recordPath}: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-    for (const row of filledDecisionCells(text)) {
-      if (row.action === "retire") subjects.add(row.subject);
-    }
-    // A record a stop left partly undecided carries fork-commit rows whose Action cell is still
-    // TODO (#876). This reader only looks for retire rows, so it tolerates the undecided cells
-    // instead of rejecting a record the pending ledger row legally carries.
-    for (const row of parseDecisionRows(text, { allowIncomplete: true })) {
-      if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
-    }
   }
   return subjects;
 };
@@ -1369,7 +1355,6 @@ const unblockRehearse = (
     if (report.lane === undefined) throw new Error("rehearsal lane is missing");
     const lane = report.lane;
     const rebasing = rebaseInProgress(runner, lane.worktree);
-    const recordRows = parseConflictRows(NodeFS.readFileSync(report.recordPath, "utf8"));
     const pending = report.conflicts.filter(
       (row) =>
         row.resolution === "TODO" ||
@@ -1380,25 +1365,18 @@ const unblockRehearse = (
     // stop that names one row at a time costs the operator a rerun for each of them.
     const handoffGaps: Array<string> = [];
     for (const row of pending.filter(({ class: klass }) => klass !== "generated")) {
-      const edited = recordRows.find(
-        (candidate) => candidate.path === row.path && candidate.subject === row.subject,
-      );
-      if (edited === undefined) {
-        handoffGaps.push(`${row.path}: the record carries no row for ${row.subject}`);
-        continue;
-      }
       const blank = (
         [
-          ["class", edited.class],
-          ["resolution", edited.resolution],
-          ["agent-safe", edited.agentSafe],
-          ["decided by", edited.decidedBy],
+          ["class", row.class],
+          ["resolution", row.resolution],
+          ["agent-safe", row.agentSafe],
+          ["decided by", row.decidedBy],
         ] as const
       )
         .filter(([, cell]) => cell === "TODO")
         .map(([name]) => name);
       if (blank.length > 0)
-        handoffGaps.push(`${row.path}: record row still on TODO for ${blank.join(", ")}`);
+        handoffGaps.push(`${row.path}: report row still on TODO for ${blank.join(", ")}`);
     }
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
@@ -1442,14 +1420,11 @@ const unblockRehearse = (
     }
     report = {
       ...report,
-      conflicts: report.conflicts.map((row) => {
-        if (pending.includes(row) && row.class === "generated")
-          return completeGeneratedConflictRegeneration(row);
-        return (
-          recordRows.find((edited) => edited.path === row.path && edited.subject === row.subject) ??
-          row
-        );
-      }),
+      conflicts: report.conflicts.map((row) =>
+        pending.includes(row) && row.class === "generated"
+          ? completeGeneratedConflictRegeneration(row)
+          : row,
+      ),
     };
     const retiredForRehearse = retiredSubjectsForReport(report);
     const pendingRetiredSubjects = new Set(
@@ -1509,17 +1484,13 @@ const unblockRehearse = (
     // dirty-lane allowance covers the automerge material the stop staged and record-decisions
     // accepts the report (RSI-Software/t3code-hyprws#922, #1089). The same shape the fold conflict
     // stop writes.
-    report = preserveRecordDecisions(
-      recordWalkStop(
-        {
-          ...report,
-          stage: "conflicts",
-          conflicts: [...report.conflicts, ...additions],
-        },
-        `rehearsal conflict at ${commit.subject} (${commit.sha.slice(0, 12)}): ${conflicts.join(
-          ", ",
-        )}`,
-      ),
+    report = recordWalkStop(
+      {
+        ...report,
+        stage: "conflicts",
+        conflicts: [...report.conflicts, ...additions],
+      },
+      `rehearsal conflict at ${commit.subject} (${commit.sha.slice(0, 12)}): ${conflicts.join(", ")}`,
     );
     writeReport(report);
     writeRecord(report);
@@ -1549,15 +1520,13 @@ const unblockRehearse = (
   const size = walkSizeRecord(report, runner);
   // The replay passing supersedes any earlier battery stop the walk carries: the resumed walk
   // proved the series it once stopped on (RSI-Software/t3code-hyprws#1073).
-  report = preserveRecordDecisions(
-    clearWalkStop({
-      ...report,
-      stage: "replayed",
-      rebasedHead,
-      stackSize,
-      walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-    }),
-  );
+  report = clearWalkStop({
+    ...report,
+    stage: "replayed",
+    rebasedHead,
+    stackSize,
+    walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -2082,27 +2051,6 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * The record is the decision surface, so a cell filled there is the decision — a rerun that
- * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
- * was a human gate on a lane that has no human in it. Every verb that rewrites the record runs
- * this first, rehearse included: a rehearsal resumed after the operator filled a cell must not
- * re-mint it as `TODO`.
- */
-export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
-  if (!NodeFS.existsSync(report.recordPath)) return report;
-  const filled = filledDecisionCells(NodeFS.readFileSync(report.recordPath, "utf8"));
-  if (filled.length === 0) return report;
-  const filledSubjects = new Set(filled.map(({ subject }) => subject));
-  return {
-    ...report,
-    recordDecisions: [
-      ...(report.recordDecisions ?? []).filter(({ subject }) => !filledSubjects.has(subject)),
-      ...filled,
-    ],
-  };
-};
-
-/**
  * Workflow drift the walk repairs mechanically (RSI-Software/t3code-hyprws#1071): the drift
  * reader binds the reviews file at the lane head, so only a commit clears it. When the fork side
  * of a drifted copy is byte-identical to the last review, the upstream side moved alone and the
@@ -2343,7 +2291,6 @@ const unblockCheck = (
   } else {
     if (report.lane === undefined || report.target === undefined)
       throw new Error("replay binding is incomplete");
-    report = preserveRecordDecisions(report);
     verifyReplay(report, runner);
   }
   const lane = report.lane!;
@@ -2829,49 +2776,47 @@ const unblockCheck = (
   const headDrifted =
     report.rebasedHead !== undefined &&
     (checkedHead !== report.rebasedHead || laneStackSize !== report.stackSize);
-  report = preserveRecordDecisions(
-    clearWalkStop({
-      ...report,
-      stage: "checked",
-      installedHead: checkedHead,
-      ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
-        ? {
-            rebasedHead: checkedHead,
-            stackSize: laneStackSize,
-          }
-        : {}),
-      ...(foldsWithRepairs.length > 0 &&
-      (foldsWithRepairs !== report.folds ||
-        foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
-        ? {
-            folds: foldsWithRepairs.map((fold, position) =>
-              position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
-            ),
-          }
-        : {}),
-      ...(ciHead === undefined ? {} : { ciHead }),
-      ...(proposedBy === undefined ? {} : { proposedBy }),
-      verification,
-      walk: (() => {
-        // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
-        // are now folded into their owners, and an empty list must not leave the stale array behind.
-        const walk = { ...(report.walk ?? {}), repairs: verification };
-        if (repairCommits.length === 0) delete walk.repairCommits;
-        else walk.repairCommits = repairCommits;
-        return walk;
-      })(),
-      // Declared seams replace the recorded rows by path, so the operator repeats only the flags
-      // that changed; a path not re-declared keeps its recorded summary and type.
-      silentSeams: uniqueSilentSeams([
-        ...(report.silentSeams ?? []).filter(
-          (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
-        ),
-        ...silentSeams,
-      ]),
-      // A checked lane passed the repair battery the walk once stopped on, so the resumed walk no
-      // longer carries that stop (RSI-Software/t3code-hyprws#1073).
-    }),
-  );
+  report = clearWalkStop({
+    ...report,
+    stage: "checked",
+    installedHead: checkedHead,
+    ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+      ? {
+          rebasedHead: checkedHead,
+          stackSize: laneStackSize,
+        }
+      : {}),
+    ...(foldsWithRepairs.length > 0 &&
+    (foldsWithRepairs !== report.folds ||
+      foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
+      ? {
+          folds: foldsWithRepairs.map((fold, position) =>
+            position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
+          ),
+        }
+      : {}),
+    ...(ciHead === undefined ? {} : { ciHead }),
+    ...(proposedBy === undefined ? {} : { proposedBy }),
+    verification,
+    walk: (() => {
+      // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
+      // are now folded into their owners, and an empty list must not leave the stale array behind.
+      const walk = { ...(report.walk ?? {}), repairs: verification };
+      if (repairCommits.length === 0) delete walk.repairCommits;
+      else walk.repairCommits = repairCommits;
+      return walk;
+    })(),
+    // Declared seams replace the recorded rows by path, so the operator repeats only the flags
+    // that changed; a path not re-declared keeps its recorded summary and type.
+    silentSeams: uniqueSilentSeams([
+      ...(report.silentSeams ?? []).filter(
+        (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
+      ),
+      ...silentSeams,
+    ]),
+    // A checked lane passed the repair battery the walk once stopped on, so the resumed walk no
+    // longer carries that stop (RSI-Software/t3code-hyprws#1073).
+  });
   writeReport(report);
   writeRecord(report);
   const leaseSha = report.source?.expectedOld ?? report.rewrite?.originSha;
@@ -2879,77 +2824,104 @@ const unblockCheck = (
     leaseSha === undefined
       ? "Freeze: report holds no lease — rerun unblock-list."
       : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/fork/operations/fork-sync.md.`;
-  process.stdout.write(
-    `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}${leaseLine}\n`,
-  );
+  process.stdout.write(`${report.reportPath}\n${decisionSurface(report)}${leaseLine}\n`);
   return report;
 };
 
-export const decisionSurface = (record: string): string => {
-  const rows = record.split("\n").filter((line) => {
-    if (!/^\| `.+` \|/.test(line)) return false;
-    const classSummary = splitTableCells(line)?.[2] ?? "";
-    return /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
-      classSummary,
-    );
-  });
-  const silentSeams =
-    record
-      .split("## Silent seams\n", 2)[1]
-      ?.split("\n## ", 1)[0]
-      ?.split("\n")
-      .filter((line) => /^- `.+` \[(?:behaviour|type)\]:/.test(line)) ?? [];
-  const grounding = record.split("\n").filter((line) => /^Grounding (?:claim|pending):/.test(line));
-  // A row carrying the default claim asks the human for nothing, so a surface
-  // made only of those asks for the decisions and the go, and nothing else.
-  const claimed =
-    grounding.length > 0 ||
-    rows.some((row) => (splitTableCells(row)?.[4] ?? "") !== NO_GROUNDING_CLAIM);
+/**
+ * What Gate 4 asks a human to answer, rendered from the typed report. The record comment shows the
+ * same rows, but it is a projection: nothing here reads it (RSI-Software/t3code-hyprws#1144).
+ */
+export const decisionSurface = (report: SyncReport): string => {
+  const rows = [...decisionTableRows(report).values()].filter((row) =>
+    /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
+      row.classSummary,
+    ),
+  );
+  const claims = (report.grounding ?? []).flatMap((row) =>
+    row.claim === undefined ? [] : [`Grounding claim: ${row.subject}: ${row.claim}`],
+  );
+  const pending = (report.grounding ?? []).flatMap((row) =>
+    row.pending === undefined ? [] : [`Grounding pending: ${row.subject}: ${row.pending}`],
+  );
   return [
     "## Gate 4 decision surface",
-    ...rows,
-    ...silentSeams,
-    ...grounding,
-    claimed
+    ...rows.map(
+      (row) =>
+        `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${row.decidedBy} |`,
+    ),
+    ...(report.silentSeams ?? []).map(
+      (seam) =>
+        `- \`${seam.path}\` [${seam.touchesBehaviour ? "behaviour" : "type"}]: ${seam.summary}`,
+    ),
+    ...claims,
+    ...pending,
+    claims.length + pending.length > 0
       ? "Stop. Obtain every decision, every grounding confirmation, and an explicit go."
       : "Stop. Obtain every decision and an explicit go.",
     "",
   ].join("\n");
 };
 
-export const validateSignedRecord = (record: string, report: SyncReport): void => {
-  if (/^Grounding pending:/m.test(record)) throw new Error("record still has pending grounding");
-  const rows = decisionSurface(record)
-    .split("\n")
-    .filter((row) => row.startsWith("|"));
-  const offending = rows.filter((line) => {
-    const cells = splitTableCells(line) ?? [];
-    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[3] ?? "")) return true;
+export const validateSignedDecisions = (report: SyncReport): void => {
+  if ((report.grounding ?? []).some((row) => row.pending !== undefined))
+    throw new Error("report still has pending grounding");
+  const rows = [...decisionTableRows(report).values()].filter((row) =>
+    /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
+      row.classSummary,
+    ),
+  );
+  const offending = rows.filter((row) => {
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(row.action)) return true;
     // An inherited verdict carries a human's prior answer forward but stays visibly distinct:
     // `inherited (<tag>)` never silently becomes `human`, yet still counts as signed so only
     // genuinely new or changed candidates block landing.
-    const decider = cells[5] ?? "";
-    const isInherited = decider.startsWith("inherited (") && decider.endsWith(")");
-    return !["human", "agent"].includes(decider) && !isInherited;
+    return !["human", "agent"].includes(row.decidedBy) && !isInheritedDecidedBy(row.decidedBy);
   });
   // Gate 4 names the whole surface (RSI-Software/t3code-hyprws#1069), not only the first row,
   // so the operator sees every decision still owed in one refusal.
   if (offending.length > 0)
     throw new Error(
-      [`record has ${offending.length} unsigned decision row(s):`, ...offending].join("\n"),
+      [
+        `report has ${offending.length} unsigned decision row(s):`,
+        ...offending.map((row) => `${row.subject} (${row.action}, ${row.decidedBy})`),
+      ].join("\n"),
     );
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
 };
 
 const nightlyReviewSection = /\n?## Nightly review\n[\s\S]*?(?=\n## Grounding\n)/;
 
-/** Hash the proposal surface the reviewer signed: header bindings (heads,
- * lease, target), verdict rows, silent seams, and verification lines.
- * Free prose — grounding claims, orientation text, citations — never
- * enters the digest, so wrapping a bare reference in backticks keeps the
- * sign-off while any binding or verdict change still voids it. */
-export const nightlyProposalDigest = (record: string): string =>
-  NodeCrypto.createHash("sha256").update(reviewBoundRows(record)).digest("hex");
+/**
+ * Hash the objective proposal a reviewer signs, taken from the typed report: bindings, verdict
+ * rows, silent seams and verification results. Free prose — grounding claims, orientation text,
+ * citations — never enters the projection, so a prose edit keeps the sign-off while any binding
+ * or verdict change still voids it. The projection is versioned so a later field addition
+ * invalidates deliberately rather than silently (RSI-Software/t3code-hyprws#1144).
+ */
+export const nightlyProposalDigest = (report: SyncReport): string =>
+  NodeCrypto.createHash("sha256")
+    .update(
+      JSON.stringify({
+        projection: 1,
+        source: report.source,
+        target: report.target,
+        lane: report.lane?.branch,
+        rebasedHead: report.rebasedHead,
+        stackSize: report.stackSize,
+        installedHead: report.installedHead,
+        ciHead: report.ciHead,
+        rewrite: report.rewrite?.proofs,
+        conflicts: report.conflicts,
+        decisions: [...decisionTableRows(report).values()],
+        silentSeams: (report.silentSeams ?? []).map(({ path, touchesBehaviour }) => [
+          path,
+          touchesBehaviour,
+        ]),
+        verification: report.verification,
+      }),
+    )
+    .digest("hex");
 
 const writeNightlyReviewRecord = (report: SyncReport, record: string): void => {
   const section = renderNightlyReview(report).join("\n");
@@ -2986,7 +2958,7 @@ export const callerProvenance = (
 ): AgentProvenance =>
   requireAgentProvenance(callerAttestation(runner, cwd).caller, "reviewer provenance");
 
-const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyReviewEvidence => {
+const nightlyReviewEvidence = (report: SyncReport): NightlyReviewEvidence => {
   if (
     report.target === undefined ||
     report.source === undefined ||
@@ -3002,8 +2974,6 @@ const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyRevie
     report.verification.some(({ result }) => result !== "passed")
   )
     throw new Error("nightly review evidence contains a missing or failed verification");
-  if (nightlyProposalDigest(record) !== nightlyProposalDigest(renderRecord(report)))
-    throw new Error("nightly review evidence is stale against the report");
   return {
     target: report.target.tag,
     targetSha: report.target.sha,
@@ -3012,32 +2982,14 @@ const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyRevie
     installedHead: report.installedHead,
     ciHead: report.ciHead,
     laneBranch: report.lane.branch,
-    recordDigest: nightlyProposalDigest(record),
+    recordDigest: nightlyProposalDigest(report),
     inspected: NIGHTLY_REVIEW_EVIDENCE,
   };
 };
 
-const recordTarget = (
-  record: string,
-): { readonly tag: string; readonly sha: string } | undefined => {
-  const match = /^- Target: `([^@`]+)@([^`]+)`$/m.exec(record);
-  return match === null ? undefined : { tag: match[1] ?? "", sha: match[2] ?? "" };
-};
-
 /** #531 apply guard: no nightly apply without a fresh review sign-off. */
-export const validateNightlyReview = (record: string, report: SyncReport): void => {
-  const recordBinding = recordTarget(record);
-  const reportIsNightly = report.target !== undefined && isNightlyUpstreamTag(report.target.tag);
-  const recordIsNightly = recordBinding !== undefined && isNightlyUpstreamTag(recordBinding.tag);
-  if (reportIsNightly || recordIsNightly) {
-    if (
-      report.target === undefined ||
-      recordBinding === undefined ||
-      report.target.tag !== recordBinding.tag ||
-      report.target.sha !== recordBinding.sha
-    )
-      throw new Error("nightly apply refused: record target binding is stale");
-  } else return;
+export const validateNightlyReview = (report: SyncReport): void => {
+  if (report.target === undefined || !isNightlyUpstreamTag(report.target.tag)) return;
   // A bot-carried walk has no agent judgement verdict to review. Any conflict or judgement
   // stops that workflow before apply and must be restarted as a host-owned proposal.
   if (report.botCarried === true) return;
@@ -3053,13 +3005,8 @@ export const validateNightlyReview = (record: string, report: SyncReport): void 
     throw new Error("nightly apply refused: proposer provenance is stale");
   if (review.proposer.session === review.reviewer.session)
     throw new Error("nightly apply refused: reviewer shares the proposer's session");
-  const evidence = nightlyReviewEvidence(report, record);
-  if (JSON.stringify(review.evidence) !== JSON.stringify(evidence))
+  if (JSON.stringify(review.evidence) !== JSON.stringify(nightlyReviewEvidence(report)))
     throw new Error("nightly apply refused: review is stale");
-  const rendered = renderNightlyReview(report).join("\n").trim();
-  const carried = nightlyReviewSection.exec(record)?.[0].trim();
-  if (carried !== rendered)
-    throw new Error("nightly apply refused: record does not carry the reviewed provenance");
 };
 
 const unblockReview = (
@@ -3109,7 +3056,7 @@ const unblockReview = (
       },
     };
   } else {
-    validateSignedRecord(record, report);
+    validateSignedDecisions(report);
     ensureLeaseCurrent(report, runner);
     const liveIssue = readIssue(runner, report.repositoryRoot);
     if (
@@ -3130,7 +3077,7 @@ const unblockReview = (
         proposer,
         reviewer,
         reviewedAt: new Date().toISOString(),
-        evidence: nightlyReviewEvidence(report, record),
+        evidence: nightlyReviewEvidence(report),
       },
     };
   }
@@ -3276,6 +3223,32 @@ export const resumeRererePublication = (
       { cause: error },
     );
   }
+};
+
+/**
+ * Posts the rendered record on the block issue and returns the comment URL the report will carry.
+ *
+ * The URL is the ledger's only pointer to the human's own words, and the report is the authority
+ * the row is built from, so an unusable answer fails here rather than reaching `refs/fork/churn`
+ * as an invalid `recordUrl` (RSI-Software/t3code-hyprws#1144).
+ */
+const postRecordComment = (
+  runner: CommandRunner,
+  report: SyncReport,
+  bodyPath: string,
+  worktree: string,
+): string => {
+  const url = requireSuccess(
+    runner,
+    "gh",
+    ["issue", "comment", String(report.issue.number), "-R", REPOSITORY, "--body-file", bodyPath],
+    worktree,
+  ).trim();
+  if (!/^https?:\/\/\S+$/.test(url))
+    throw new Error(
+      `posting the record on issue ${report.issue.number} returned no comment URL: ${JSON.stringify(url)}`,
+    );
+  return url;
 };
 
 /**
@@ -3546,11 +3519,13 @@ const publishChurnRow = (report: SyncReport, tag: string): SyncReport => {
   // trunk into the root first (#700). A failed fetch is absorbed: the scan degrades to an empty
   // listing rather than failing the append, and the row shows the absence instead of dying.
   runCommand("git", ["fetch", "--quiet", "origin", HYPRWS_REF], { cwd: report.repositoryRoot });
+  // The row is read from the report on disk, so the in-memory state must be persisted first.
+  writeReport(report);
   return ledgerWrite(report, "churn row", () =>
     appendChurnRow(
       [
-        "--record",
-        report.recordPath,
+        "--report",
+        report.reportPath,
         "--issue",
         String(report.issue.number),
         "--tag",
@@ -3592,15 +3567,19 @@ const publishPendingDecisionRow = (
     process.stdout.write(
       `pending decision row for ${tag} kept with the report (${report.reportPath}); ` +
         `${CHURN_REF} is untouched\n` +
-        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}\n`,
+        `publish it with: vp run fork:sync record-decisions --report ${report.reportPath} --tag ${tag}` +
+        // The declined rows are decided by typed, signed input now, never by editing the record
+        // (RSI-Software/t3code-hyprws#1144).
+        `${pendingAutoConflictRows(report).length > 0 ? " --input <decisions.json>" : ""}\n`,
     );
     return report;
   }
+  writeReport(report);
   return ledgerWrite(report, "pending decision row", () =>
     appendChurnRow(
       [
-        "--record",
-        report.recordPath,
+        "--report",
+        report.reportPath,
         "--issue",
         String(report.issue.number),
         "--tag",
@@ -3623,14 +3602,98 @@ const publishPendingDecisionRow = (
  * path: it flushes rerere's recorded resolutions to the shared ref and writes the decisions to
  * the record and a pending ledger row, each published under its own lease.
  */
+/**
+ * One human resolution as `--input` carries it. The envelope repeats the walk's own bindings so a
+ * file written against another walk, or against a rewritten source, is refused rather than applied
+ * (RSI-Software/t3code-hyprws#1144).
+ */
+interface DecisionInput {
+  readonly target: { readonly tag: string; readonly sha: string };
+  readonly source: { readonly sha: string; readonly expectedOld: string };
+  readonly decisions: ReadonlyArray<{
+    readonly identity: string;
+    readonly resolution: string;
+    readonly agentSafe: "yes" | "no";
+    readonly decidedBy: "human" | "agent";
+  }>;
+  /** Orientation and retire-candidate verdicts, keyed on the exact commit subject. */
+  readonly actions?: ReadonlyArray<{
+    readonly subject: string;
+    readonly action: string;
+    readonly decidedBy: "human" | "agent";
+    readonly grounding?: string;
+  }>;
+}
+
+/** Bind a typed decision file to the stopped walk and to the exact rows it left on TODO. */
+const readDecisionInput = (
+  path: string,
+  report: SyncReport,
+  declined: ReadonlyArray<ConflictRow>,
+): {
+  readonly seams: ReadonlyMap<string, DecisionInput["decisions"][number]>;
+  readonly actions: ReadonlyArray<NonNullable<DecisionInput["actions"]>[number]>;
+} => {
+  const raw: unknown = JSON.parse(NodeFS.readFileSync(path, "utf8"));
+  if (typeof raw !== "object" || raw === null)
+    throw new UsageError("decision input is not an object");
+  const input = raw as Partial<DecisionInput>;
+  const bound = (field: string, expected: string | undefined, seen: unknown): void => {
+    if (seen !== expected)
+      throw new UsageError(
+        `decision input ${field} ${String(seen)} does not match the walk's ${String(expected)}`,
+      );
+  };
+  bound("target tag", report.target?.tag, input.target?.tag);
+  bound("target sha", report.target?.sha, input.target?.sha);
+  bound("source sha", report.source?.sha, input.source?.sha);
+  bound("expected_old", report.source?.expectedOld, input.source?.expectedOld);
+  if (!Array.isArray(input.decisions)) throw new UsageError("decision input names no decisions");
+  const identities = new Set(declined.map((row) => row.seamKey ?? row.path));
+  const rows = new Map<string, DecisionInput["decisions"][number]>();
+  for (const row of input.decisions) {
+    if (!identities.has(row.identity))
+      throw new UsageError(`decision input names ${row.identity}, which this walk left no row for`);
+    if (rows.has(row.identity))
+      throw new UsageError(`decision input decides ${row.identity} twice`);
+    if (row.decidedBy !== "human" && row.decidedBy !== "agent")
+      throw new UsageError(`decision for ${row.identity} is unsigned`);
+    if (typeof row.resolution !== "string" || row.resolution.length === 0)
+      throw new UsageError(`decision for ${row.identity} carries no resolution`);
+    if (row.agentSafe !== "yes" && row.agentSafe !== "no")
+      throw new UsageError(
+        `decision for ${row.identity} does not say whether an agent may replay it`,
+      );
+    rows.set(row.identity, row);
+  }
+  for (const identity of identities)
+    if (!rows.has(identity)) throw new UsageError(`decision input leaves ${identity} undecided`);
+  const subjects = new Set(decisionTableRows(report).keys());
+  const actions = input.actions ?? [];
+  const decided = new Set<string>();
+  for (const row of actions) {
+    if (!subjects.has(row.subject))
+      throw new UsageError(`decision input names ${row.subject}, which this walk has no row for`);
+    if (decided.has(row.subject))
+      throw new UsageError(`decision input decides ${row.subject} twice`);
+    if (row.decidedBy !== "human" && row.decidedBy !== "agent")
+      throw new UsageError(`decision for ${row.subject} is unsigned`);
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(row.action))
+      throw new UsageError(`decision for ${row.subject} names no known action: ${row.action}`);
+    decided.add(row.subject);
+  }
+  return { seams: rows, actions };
+};
+
 export const recordDecisions = (
   values: ReadonlyMap<string, string>,
   cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--report", "--tag"]);
+  assertOnly(values, ["--report", "--tag", "--input"]);
   const reportPath = oneValue(values, "--report", true);
   const tag = oneValue(values, "--tag", true);
+  const inputPath = oneValue(values, "--input", false);
   if (reportPath === null || tag === null) throw new UsageError("--report and --tag are required");
   const report = readReport(reportPath);
   if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict")
@@ -3654,6 +3717,16 @@ export const recordDecisions = (
       throw new UsageError(
         `${row.path} still has an unresolved conflict; resolve it, stage it, and rerun record-decisions`,
       );
+  // A row the walk declined is decided by typed input or not at all: the rendered record is a
+  // projection now, so an edited table can no longer carry a verdict
+  // (RSI-Software/t3code-hyprws#1144). A rerun that has nothing left to decide only republishes,
+  // so it needs no input.
+  if (inputPath === null && declined.length > 0)
+    throw new UsageError(
+      `--input is required: ${String(declined.length)} declined row(s) need typed, signed decisions`,
+    );
+  const input = inputPath === null ? null : readDecisionInput(inputPath, report, declined);
+  const supplied = input?.seams ?? null;
   const snapshot = saveRerereCache(worktree, `rerere: recorded ${tag}`);
   if (snapshot !== null) {
     try {
@@ -3684,6 +3757,29 @@ export const recordDecisions = (
   const recorded: SyncReport = {
     ...report,
     decisions,
+    // The operator's typed verdicts are the report's own state; the record only renders them.
+    ...(input === undefined || input === null || input.actions.length === 0
+      ? {}
+      : {
+          recordDecisions: [
+            ...(report.recordDecisions ?? []).filter(
+              (existing) => !input.actions.some((row) => row.subject === existing.subject),
+            ),
+            ...input.actions.map(({ subject, action, decidedBy }) => ({
+              subject,
+              action,
+              decidedBy,
+            })),
+          ],
+          grounding: [
+            ...(report.grounding ?? []).filter(
+              (existing) => !input.actions.some((row) => row.subject === existing.subject),
+            ),
+            ...input.actions.flatMap((row) =>
+              row.grounding === undefined ? [] : [{ subject: row.subject, claim: row.grounding }],
+            ),
+          ],
+        }),
     // The human resolution replaces the stop's TODO cells on each declined row (#876): the record
     // shows the seam as resolved, and the pending ledger row reads the same resolved values.
     conflicts: report.conflicts.map((row) =>
@@ -3691,9 +3787,10 @@ export const recordDecisions = (
         ? {
             ...row,
             class: "human",
-            resolution: "resolved by hand in the lane",
-            agentSafe: "no",
-            decidedBy: "human",
+            resolution:
+              supplied?.get(row.seamKey ?? row.path)?.resolution ?? "resolved by hand in the lane",
+            agentSafe: supplied?.get(row.seamKey ?? row.path)?.agentSafe ?? "no",
+            decidedBy: supplied?.get(row.seamKey ?? row.path)?.decidedBy ?? "human",
           }
         : row,
     ),
@@ -3704,21 +3801,7 @@ export const recordDecisions = (
   // persisted on the report instead of posting a second comment (#876).
   writeRecord(recorded);
   const recordUrl =
-    report.recordCommentUrl ??
-    requireSuccess(
-      runner,
-      "gh",
-      [
-        "issue",
-        "comment",
-        String(report.issue.number),
-        "-R",
-        REPOSITORY,
-        "--body-file",
-        report.recordPath,
-      ],
-      worktree,
-    ).trim();
+    report.recordCommentUrl ?? postRecordComment(runner, report, report.recordPath, worktree);
   const published: SyncReport = { ...recorded, recordCommentUrl: recordUrl };
   writeReport(published);
   process.stdout.write(
@@ -3743,7 +3826,6 @@ const recordWalkStop = (report: SyncReport, detail: string): SyncReport => ({
 
 const foldVerbContext: FoldVerbContext = {
   rehearsalRebaseArgs,
-  preserveRecordDecisions,
   unblockCheck,
   rehearsalConflictStop,
   recordWalkStop,
@@ -3798,7 +3880,7 @@ const unblockApply = (
   if (recordPath !== NodePath.resolve(report.recordPath))
     throw new Error("record path does not match the report binding");
   const record = NodeFS.readFileSync(recordPath, "utf8");
-  validateSignedRecord(record, report);
+  validateSignedDecisions(report);
   if (report.lane === undefined || report.source === undefined)
     throw new Error("apply binding is incomplete");
   // Prose hygiene first: the digest in the review gate below binds objective
@@ -3817,7 +3899,7 @@ const unblockApply = (
   // The unblock walk resolves, repairs and applies in one shot, so a second agent's sign-off would
   // be a human stop in the middle of an unattended run.
   if (isRewrite) {
-    validateNightlyReview(record, report);
+    validateNightlyReview(report);
     if (report.target !== undefined && isNightlyUpstreamTag(report.target.tag)) {
       const liveIssue = readIssue(runner, report.repositoryRoot);
       if (
@@ -3896,8 +3978,8 @@ const unblockApply = (
     "fork:sync-gate",
     "--tag",
     gateTag,
-    "--record",
-    recordPath,
+    "--report",
+    report.reportPath,
     ...(isNightlyUpstreamTag(gateTag) ? ["--allow-nightly"] : []),
   ];
   requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
@@ -3944,21 +4026,7 @@ const unblockApply = (
     }
   }
   const recordCommentUrl =
-    report.recordCommentUrl ??
-    requireSuccess(
-      runner,
-      "gh",
-      [
-        "issue",
-        "comment",
-        String(report.issue.number),
-        "-R",
-        REPOSITORY,
-        "--body-file",
-        recordPath,
-      ],
-      worktree,
-    ).trim();
+    report.recordCommentUrl ?? postRecordComment(runner, report, recordPath, worktree);
   // Persist the record comment URL before the push for both kinds: an interrupted applied push
   // resumes from the report alone, and the resume needs the comment it must keep current. The
   // candidate bindings, persisted above, are never overwritten here.
@@ -4423,7 +4491,7 @@ const refreshRehearsalHead = (report: SyncReport, runner: CommandRunner): SyncRe
   // then refuses one verb later on answers nobody withdrew (RSI-Software/t3code-hyprws#695).
   // The rebind is also a passing stage: an earlier battery stop the report carries is superseded
   // (RSI-Software/t3code-hyprws#1073).
-  const preserved = preserveRecordDecisions(clearWalkStop(next));
+  const preserved = clearWalkStop(next);
   writeReport(preserved);
   writeRecord(preserved);
   return preserved;
@@ -5223,10 +5291,6 @@ const walkOnce = (
     }
 
     if (report.stage === "checked") {
-      // A cell the operator filled after the check is the decision (RSI-Software/
-      // t3code-hyprws#1068): preserve it before the regeneration, the same way the check and
-      // rehearse verbs do, or the rewrite renders every filled cell back to TODO.
-      report = preserveRecordDecisions(report);
       report = autoGateFour(report);
       writeReport(report);
       writeRecord(report);
@@ -5826,7 +5890,7 @@ const rewriteRehearse = (
     worktree = NodePath.join(root, ".tmp-rewrite-dry-run");
   }
   const report: SyncReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "replayed",
     kind: "rewrite",
     repositoryRoot: root,
