@@ -9,6 +9,8 @@ import type { useNavigate } from "@tanstack/react-router";
 
 import type { ScopedProjectRef } from "@t3tools/contracts";
 
+import { listRouteTarget } from "../../projectRoutes";
+
 type Environments = ReadonlyArray<{
   readonly serverConfig?: {
     readonly environment: { readonly capabilities: { readonly githubIssues?: boolean } };
@@ -38,15 +40,10 @@ export const useGitHubIssuesSidebarNavigateFork = (deps: {
 }): (() => void) =>
   useCallback(() => {
     deps.closeMobileSidebar();
-    if (deps.projectRef !== null) {
-      void deps.navigate({
-        to: "/project/$environmentId/$projectId/issues",
-        params: deps.projectRef,
-        search: { state: "open" },
-      });
-      return;
-    }
-    void deps.navigate({ to: "/issues", search: { state: "open" } });
+    void deps.navigate({
+      ...listRouteTarget("issues", deps.projectRef),
+      search: { state: "open" },
+    });
   }, [deps.closeMobileSidebar, deps.navigate, deps.projectRef]);
 
 /** The navigation callback handler wired through the marked JSX hook pair. */
