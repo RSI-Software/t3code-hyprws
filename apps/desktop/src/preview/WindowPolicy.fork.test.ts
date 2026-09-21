@@ -107,6 +107,7 @@ const makeOperationsFactory = (
           ).pipe(Effect.asVoid),
         subscribePointerEvents: () => Effect.void,
         subscribeRecordingFrames: () => Effect.void,
+        subscribeRecordingInputs: () => Effect.void,
       } as unknown as WindowPolicy.OwnedPreviewOperations;
     });
 
@@ -266,11 +267,13 @@ describe("desktop preview window policy", () => {
               stateListener = listener;
             }),
           subscribeOwnedRecordingFrames: () => Effect.void,
+          subscribeOwnedRecordingInputs: () => Effect.void,
           subscribeOwnedPointerEvents: () => Effect.void,
         } as never,
         {
           stateChange: "preview-state",
           recordingFrame: "preview-recording",
+          recordingInput: "preview-recording-input",
           pointerEvent: "preview-pointer",
         },
       );

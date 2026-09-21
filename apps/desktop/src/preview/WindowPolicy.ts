@@ -1,4 +1,8 @@
-import type { DesktopPreviewPointerEvent, DesktopPreviewRecordingFrame } from "@t3tools/contracts";
+import type {
+  DesktopPreviewPointerEvent,
+  DesktopPreviewRecordingFrame,
+  DesktopPreviewRecordingInputEvent,
+} from "@t3tools/contracts";
 import { BrowserWindow, webContents } from "electron";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -36,6 +40,7 @@ export type { WindowIdentity };
 type StateListener = (tabId: string, state: PreviewTabState) => Effect.Effect<void>;
 type PointerEventListener = (event: DesktopPreviewPointerEvent) => Effect.Effect<void>;
 type RecordingFrameListener = (frame: DesktopPreviewRecordingFrame) => Effect.Effect<void>;
+type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
 type OwnedStateListener = (
   identity: WindowIdentity,
   tabId: string,
@@ -49,6 +54,10 @@ type OwnedRecordingFrameListener = (
   identity: WindowIdentity,
   frame: DesktopPreviewRecordingFrame,
 ) => Effect.Effect<void>;
+type OwnedRecordingInputListener = (
+  identity: WindowIdentity,
+  input: DesktopPreviewRecordingInputEvent,
+) => Effect.Effect<void>;
 
 export interface OwnedPreviewOperations extends PreviewWindowManager {
   readonly hasTab: (tabId: string) => Effect.Effect<boolean>;
@@ -61,6 +70,9 @@ export interface OwnedPreviewOperations extends PreviewWindowManager {
   ) => Effect.Effect<void, never, Scope.Scope>;
   readonly subscribeRecordingFrames: (
     listener: RecordingFrameListener,
+  ) => Effect.Effect<void, never, Scope.Scope>;
+  readonly subscribeRecordingInputs: (
+    listener: RecordingInputListener,
   ) => Effect.Effect<void, never, Scope.Scope>;
 }
 
@@ -83,7 +95,7 @@ const subscribe = <A>(ref: Ref.Ref<ReadonlySet<A>>, listener: A) =>
   ).pipe(Effect.asVoid);
 
 const deliverOwned = <A>(
-  kind: "state-change" | "recording-frame" | "pointer-event",
+  kind: "state-change" | "recording-frame" | "recording-input" | "pointer-event",
   listeners: ReadonlySet<A>,
   deliver: (listener: A) => Effect.Effect<void>,
 ) =>
@@ -119,6 +131,9 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   const ownedRecordingListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingFrameListener>>(
     new Set(),
   );
+  const ownedRecordingInputListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingInputListener>>(
+    new Set(),
+  );
 
   const createEntry = Effect.fn("PreviewWindowPolicy.createWindowOperations")(function* (
     identity: WindowIdentity,
@@ -152,6 +167,15 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
             Ref.get(ownedRecordingListenersRef).pipe(
               Effect.flatMap((listeners) =>
                 deliverOwned("recording-frame", listeners, (listener) => listener(identity, frame)),
+              ),
+            ),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
+        operations
+          .subscribeRecordingInputs((input) =>
+            Ref.get(ownedRecordingInputListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("recording-input", listeners, (listener) => listener(identity, input)),
               ),
             ),
           )
@@ -220,7 +244,8 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       copyArtifactToClipboard: operations.copyArtifactToClipboard,
       openPictureInPicture: (tabId) => authorized(tabId, operations.openPictureInPicture(tabId)),
       closePictureInPicture: (tabId) => authorized(tabId, operations.closePictureInPicture(tabId)),
-      startRecording: (tabId) => authorized(tabId, operations.startRecording(tabId)),
+      startRecording: (tabId, options) =>
+        authorized(tabId, operations.startRecording(tabId, options)),
       stopRecording: (tabId) => authorized(tabId, operations.stopRecording(tabId)),
       saveRecording: (tabId, mimeType, data) =>
         authorized(tabId, operations.saveRecording(tabId, mimeType, data)),
@@ -302,6 +327,8 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       subscribe(ownedPointerListenersRef, listener),
     subscribeOwnedRecordingFrames: (listener: OwnedRecordingFrameListener) =>
       subscribe(ownedRecordingListenersRef, listener),
+    subscribeOwnedRecordingInputs: (listener: OwnedRecordingInputListener) =>
+      subscribe(ownedRecordingInputListenersRef, listener),
     subscribeStateChanges: (listener: StateListener) =>
       subscribe(ownedStateListenersRef, (identity, tabId, state) =>
         identity.kind === "hub" ? listener(tabId, state) : Effect.void,
@@ -313,6 +340,10 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     subscribeRecordingFrames: (listener: RecordingFrameListener) =>
       subscribe(ownedRecordingListenersRef, (identity, frame) =>
         identity.kind === "hub" ? listener(frame) : Effect.void,
+      ),
+    subscribeRecordingInputs: (listener: RecordingInputListener) =>
+      subscribe(ownedRecordingInputListenersRef, (identity, input) =>
+        identity.kind === "hub" ? listener(input) : Effect.void,
       ),
   };
 });
@@ -347,6 +378,7 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
     channels: {
       readonly stateChange: string;
       readonly recordingFrame: string;
+      readonly recordingInput: string;
       readonly pointerEvent: string;
     },
   ) {
@@ -364,6 +396,9 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
     );
     yield* manager.subscribeOwnedRecordingFrames((identity, frame) =>
       send(identity, channels.recordingFrame, frame),
+    );
+    yield* manager.subscribeOwnedRecordingInputs((identity, input) =>
+      send(identity, channels.recordingInput, input),
     );
     yield* manager.subscribeOwnedPointerEvents((identity, event) =>
       send(identity, channels.pointerEvent, event),
