@@ -56,7 +56,10 @@ jobs:
 
       # The ledger compares against upstream, which the fork checkout does not
       # carry. On a pull request, inspect the branch head rather than the
-      # synthetic merge commit, which has no trailers.
+      # synthetic merge commit, which has no trailers. The flag derivation is
+      # not restated here: scripts/lib/fork-ci-flags.ts owns it, and
+      # `vp run fork:ci` calls the same helper locally; this step only
+      # provisions the remotes the derivation reads.
       - name: Fork ledger
         id: fork_ledger
         env:
@@ -65,29 +68,21 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
-          BASE=$(git merge-base upstream/main "$HEAD_SHA")
-          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
-          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
-            SINCE="$HEAD_SHA^"
-          fi
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
-          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          node scripts/lib/fork-ci-flags.ts ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Pin to the fork's own base: the rebase-scan table check judges this
       # head against the upstream base it sits on, not live upstream/main.
+      # The argv comes from the shared helper; this step only replays it.
       - name: Fork rebase scan
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          BASE: ${{ steps.fork_ledger.outputs.base }}
-          SINCE: ${{ steps.fork_ledger.outputs.since }}
         run: |
-          args=(--head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck)
-          if git rev-parse --verify --quiet origin/hyprws >/dev/null; then
-            # A rebase rehearsal branch replays the trunk onto a newer upstream
-            # release; the flag names the trunk the head is rehearsed against.
-            args+=(--replay-of origin/hyprws)
+          mapfile -t SCAN_ARGS < <(node scripts/lib/fork-ci-flags.ts scan --head "$HEAD_SHA")
+          if [ "${#SCAN_ARGS[@]}" -eq 0 ]; then
+            echo "flag derivation produced no argv" >&2
+            exit 1
           fi
-          vp run fork:scan "${args[@]}"
+          vp run fork:scan "${SCAN_ARGS[@]}"
 
       # A rebase scan is what the next sync reads before trusting an automerge,
       # so a domain that changes a file upstream is changing too has to name it
