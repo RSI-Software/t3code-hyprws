@@ -36,7 +36,7 @@ const isTestPath = (path: string): boolean => TEST_SUFFIXES.some((suffix) => pat
 
 /**
  * A touched test file is its own focus. A touched source file focuses the sibling suites that
- * exist beside it, including the fork-owned sibling the authoring guard requires.
+ * exist beside it, including the fork-owned sibling the test rule requires.
  */
 export const focusedTests = (
   root: string,

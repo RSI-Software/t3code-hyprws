@@ -9,7 +9,6 @@ import {
   parseCommitFiles,
   parseRebaseScans,
   renderScanReport,
-  resolveAuthoringSince,
   scanFailures,
   scanFailureSummary,
   UsageError,
@@ -270,9 +269,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     target: "upstream/main",
     typecheck: true,
     since: null,
-    sameTreeRewriteOf: null,
     replayOf: null,
-    strict: false,
   });
   assert.deepStrictEqual(
     parseArgs([
@@ -282,11 +279,8 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       "v0.0.35",
       "--since",
       "origin/hyprws",
-      "--same-tree-rewrite-of",
-      "archive/hyprws-pre-rewrite",
       "--replay-of",
       "origin/hyprws",
-      "--strict",
       "--no-typecheck",
     ]),
     {
@@ -295,127 +289,12 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       target: "v0.0.35",
       typecheck: false,
       since: "origin/hyprws",
-      sameTreeRewriteOf: "archive/hyprws-pre-rewrite",
       replayOf: "origin/hyprws",
-      strict: true,
     },
   );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
   assert.throws(() => parseArgs(["--target", "a", "--target", "b"]), UsageError);
   assert.throws(() => parseArgs(["--target"]), UsageError);
   assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
-  assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
   assert.throws(() => parseArgs(["--since"]), UsageError);
-  assert.throws(() => parseArgs(["--same-tree-rewrite-of"]), UsageError);
-});
-
-it("scopes an exact same-tree rewrite to no newly authored commits", () => {
-  const calls: Array<ReadonlyArray<string>> = [];
-  const git = {
-    run: (args: ReadonlyArray<string>) => {
-      calls.push(args);
-      return "same-tree\n";
-    },
-  };
-  const options = parseArgs([
-    "--head",
-    "rewrite-head",
-    "--since",
-    "shared-base",
-    "--same-tree-rewrite-of",
-    "origin/hyprws",
-  ]);
-
-  assert.strictEqual(resolveAuthoringSince(git, options), "rewrite-head");
-  assert.deepStrictEqual(calls, [
-    ["rev-parse", "--verify", "rewrite-head^{tree}"],
-    ["rev-parse", "--verify", "origin/hyprws^{tree}"],
-  ]);
-});
-
-it("refuses to suppress authoring guards when rewrite content changed", () => {
-  const git = {
-    run: (args: ReadonlyArray<string>) =>
-      args.at(-1) === "rewrite-head^{tree}" ? "changed-tree\n" : "source-tree\n",
-  };
-  const options = parseArgs([
-    "--head",
-    "rewrite-head",
-    "--since",
-    "shared-base",
-    "--same-tree-rewrite-of",
-    "origin/hyprws",
-  ]);
-
-  assert.throws(
-    () => resolveAuthoringSince(git, options),
-    /historical rewrite head rewrite-head has tree changed-tree, expected origin\/hyprws tree source-tree/,
-  );
-});
-
-it("keeps the ordinary authoring range without a rewrite assertion", () => {
-  const options = parseArgs(["--head", "pr-head", "--since", "pr-base"]);
-  assert.strictEqual(
-    resolveAuthoringSince(
-      { run: () => assert.fail("ordinary ranges do not need a tree lookup") },
-      options,
-    ),
-    "pr-base",
-  );
-});
-
-// A rebase rehearsal replays every fork commit onto a newer upstream release, so
-// each one is newly authored against any `--since` ref and the adopted guards
-// would block shapes the trunk already carries.
-it("returns a proven rebase rehearsal to the historical authoring range", () => {
-  const calls: Array<ReadonlyArray<string>> = [];
-  const git = {
-    run: (args: ReadonlyArray<string>) => {
-      calls.push(args);
-      if (args[0] === "merge-base") return "tagged-base\n";
-      if (args[0] === "tag") return "v0.0.40\n";
-      return "304\n";
-    },
-  };
-  const options = parseArgs([
-    "--head",
-    "replay-head",
-    "--since",
-    "shared-base",
-    "--replay-of",
-    "origin/hyprws",
-  ]);
-
-  assert.strictEqual(resolveAuthoringSince(git, options), null);
-  assert.deepStrictEqual(calls, [
-    ["rev-list", "--count", "origin/hyprws", "--not", "replay-head"],
-    ["merge-base", "upstream/main", "replay-head"],
-    ["rev-list", "--count", "tagged-base", "--not", "origin/hyprws"],
-    ["tag", "--points-at", "tagged-base", "--list", "v*"],
-  ]);
-});
-
-it("keeps the authoring range when a head fails any rebase rehearsal proof", () => {
-  const options = parseArgs([
-    "--head",
-    "replay-head",
-    "--since",
-    "shared-base",
-    "--replay-of",
-    "origin/hyprws",
-  ]);
-  const reader = (overrides: Record<string, string>) => ({
-    run: (args: ReadonlyArray<string>) => {
-      if (args[0] === "merge-base") return "tagged-base\n";
-      if (args[0] === "tag") return overrides.tag ?? "v0.0.40\n";
-      return (args[2] === "origin/hyprws" ? overrides.contains : overrides.ahead) ?? "304\n";
-    },
-  });
-
-  // The head still contains the trunk, so it is a branch off it, not a replay.
-  assert.strictEqual(resolveAuthoringSince(reader({ contains: "0\n" }), options), "shared-base");
-  // The trunk already reached this base, so the head is stale, not replayed.
-  assert.strictEqual(resolveAuthoringSince(reader({ ahead: "0\n" }), options), "shared-base");
-  // Only an upstream release tag is a legitimate replay base.
-  assert.strictEqual(resolveAuthoringSince(reader({ tag: "\n" }), options), "shared-base");
 });
