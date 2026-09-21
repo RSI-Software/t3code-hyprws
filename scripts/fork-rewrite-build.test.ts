@@ -17,7 +17,6 @@ import {
 } from "./fork-sync.ts";
 import { readReport, renderRecord } from "./fork-sync-state.ts";
 import { syncOutcomeReceipts } from "./fork-churn-outcomes.ts";
-import { outcomeStreak, requireOutcomeReceipts } from "./lib/fork-sync-outcomes.ts";
 import { writeBotRefFile, CHURN_REF, CHURN_LEDGER_FILE } from "./lib/fork-bot-refs.ts";
 import {
   buildRewrite,
@@ -598,7 +597,6 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           receipts.find((row) => row.kind === "attempt")!.rewriteProvenance!,
           receipt.manifestSha256,
         );
-        assert.strictEqual(outcomeStreak(requireOutcomeReceipts(receipts)).noAgentCarry, 0);
         const checkedReceipts = syncOutcomeReceipts(checked, "rewrite/check", {
           phase: "unblock-check",
           detail: "failed CI fixture",

@@ -3,7 +3,7 @@
 
 // Generates the repository orientation used before a hyprws upstream rebase.
 // The report is derived only from Git refs and commit metadata: unchanged refs
-// produce byte-identical Markdown and JSON.
+// produce byte-identical JSON.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -11,19 +11,9 @@ import * as NodePath from "node:path";
 import { UsageError } from "./lib/fork-cli.ts";
 import { SystemGit } from "./lib/fork-command.ts";
 
-import {
-  CONVENTIONAL_TYPE_ORDER,
-  encodeReportJson,
-  renderMarkdown,
-} from "./fork-rebase-report-render.ts";
+import { encodeReportJson } from "./fork-rebase-report-render.ts";
 
-export {
-  collapseAliasNodes,
-  encodeReportJson,
-  renderMarkdown,
-  renderRetireCandidates,
-  renderStateGraph,
-} from "./fork-rebase-report-render.ts";
+export { encodeReportJson } from "./fork-rebase-report-render.ts";
 export { SystemGit } from "./lib/fork-command.ts";
 import { encodeFeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
 import {
@@ -44,7 +34,6 @@ import {
 } from "./lib/fork-retirement-ledger.ts";
 
 export const DEFAULT_JSON_PATH = "docs/internals/generated/fork-rebase-report.json";
-export const DEFAULT_MARKDOWN_PATH = "docs/internals/generated/fork-rebase-report.md";
 
 const RECORD_SEPARATOR = "\u001e";
 const FIELD_SEPARATOR = "\u001f";
@@ -112,7 +101,6 @@ export interface ReportOptions {
   readonly source: string;
   readonly target: string;
   readonly jsonOut: string;
-  readonly markdownOut: string;
   readonly fetch: boolean;
   readonly check: boolean;
   readonly feasibilityOut: string | null;
@@ -128,7 +116,6 @@ Options:
   --source <ref>         Fork ref (default: origin/hyprws)
   --target <ref>         Upstream ref (default: upstream/main)
   --json-out <path>      JSON path relative to repo root
-  --markdown-out <path>  Markdown path relative to repo root
   --fetch                Fetch both remote refs and tags first
   --check                Exit 1 instead of writing when outputs are stale
   --feasibility-out <path>
@@ -145,7 +132,6 @@ const defaultOptions = (): ReportOptions => ({
   source: "origin/hyprws",
   target: "upstream/main",
   jsonOut: DEFAULT_JSON_PATH,
-  markdownOut: DEFAULT_MARKDOWN_PATH,
   fetch: false,
   check: false,
   feasibilityOut: null,
@@ -157,9 +143,6 @@ const updateCommand = (options: ReportOptions): string => {
   if (options.source !== defaults.source) args.push("--source", options.source);
   if (options.target !== defaults.target) args.push("--target", options.target);
   if (options.jsonOut !== defaults.jsonOut) args.push("--json-out", options.jsonOut);
-  if (options.markdownOut !== defaults.markdownOut) {
-    args.push("--markdown-out", options.markdownOut);
-  }
   if (remoteFromRef(options.source) !== null && remoteFromRef(options.target) !== null) {
     args.push("--fetch");
   }
@@ -171,13 +154,7 @@ export { UsageError } from "./lib/fork-cli.ts";
 export const parseReportArgs = (argv: ReadonlyArray<string>): ReportOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set([
-    "--source",
-    "--target",
-    "--json-out",
-    "--markdown-out",
-    "--feasibility-out",
-  ]);
+  const valueFlags = new Set(["--source", "--target", "--json-out", "--feasibility-out"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
@@ -208,14 +185,10 @@ export const parseReportArgs = (argv: ReadonlyArray<string>): ReportOptions => {
     else if (argument === "--target") options.target = value;
     else if (argument === "--json-out") options.jsonOut = value;
     else if (argument === "--feasibility-out") options.feasibilityOut = value;
-    else options.markdownOut = value;
   }
 
   if (options.source.length === 0) throw new UsageError("--source cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
-  if (options.jsonOut === options.markdownOut) {
-    throw new UsageError("--json-out and --markdown-out must be different paths");
-  }
   if (options.feasibilityOut !== null && options.feasibilityOut.length === 0) {
     throw new UsageError("--feasibility-out cannot be empty");
   }
@@ -352,6 +325,20 @@ const buildReleases = (
     return { tag, sha, shortSha: sha.slice(0, 7), commitsSincePrevious };
   });
 };
+
+const CONVENTIONAL_TYPE_ORDER = [
+  "build",
+  "chore",
+  "ci",
+  "docs",
+  "feat",
+  "fix",
+  "perf",
+  "refactor",
+  "revert",
+  "style",
+  "test",
+] as const;
 
 const countChangeTypes = (
   commits: ReadonlyArray<ReportCommit>,
@@ -645,11 +632,6 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
         relative: options.jsonOut,
         path: resolveOutput(root, options.jsonOut),
         contents: encodeReportJson(report),
-      },
-      {
-        relative: options.markdownOut,
-        path: resolveOutput(root, options.markdownOut),
-        contents: renderMarkdown(report),
       },
     ];
 

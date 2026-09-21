@@ -7,7 +7,6 @@ import * as NodePath from "node:path";
 import {
   canonicalizeOutcomeReceipts,
   requireOutcomeReceipts,
-  outcomeStreak,
   summarizeOutcomes,
   type OutcomeAttempt,
   type OutcomeReceipt,
@@ -89,11 +88,11 @@ const release = (overrides: Partial<Parameters<typeof releaseOutcomeReceipts>[0]
   });
 
 it("counts a verified automatic carry independently of its later distribution", () => {
-  assert.strictEqual(outcomeStreak(clean).noAgentCarry, 1);
-  assert.strictEqual(outcomeStreak(clean).distributed, 0);
+  assert.strictEqual(summarizeOutcomes(clean)[0]?.noAgentCarry, true);
+  assert.strictEqual(summarizeOutcomes(clean)[0]?.distributed, false);
   const distributed = requireOutcomeReceipts([...clean, ...release()]);
-  assert.strictEqual(outcomeStreak(distributed).noAgentCarry, 1);
-  assert.strictEqual(outcomeStreak(distributed).distributed, 1);
+  assert.strictEqual(summarizeOutcomes(distributed)[0]?.noAgentCarry, true);
+  assert.strictEqual(summarizeOutcomes(distributed)[0]?.distributed, true);
 });
 
 it("never counts missing required carry stages or unexplained cache non-attempts", () => {
@@ -101,7 +100,7 @@ it("never counts missing required carry stages or unexplained cache non-attempts
     const partial = requireOutcomeReceipts(
       clean.filter((row) => row.kind !== "stage" || row.stage !== name),
     );
-    assert.strictEqual(outcomeStreak(partial).noAgentCarry, 0, `missing ${name}`);
+    assert.strictEqual(summarizeOutcomes(partial)[0]?.noAgentCarry, false, `missing ${name}`);
   }
   const unexplained = requireOutcomeReceipts(
     clean.map((row) => {
@@ -110,13 +109,13 @@ it("never counts missing required carry stages or unexplained cache non-attempts
       return unproven;
     }),
   );
-  assert.strictEqual(outcomeStreak(unexplained).noAgentCarry, 0);
+  assert.strictEqual(summarizeOutcomes(unexplained)[0]?.noAgentCarry, false);
   const carried = requireOutcomeReceipts(
     clean.map((row) =>
       row.kind === "stage" && row.notApplicableReason ? stage(row.stage, "succeeded") : row,
     ),
   );
-  assert.strictEqual(outcomeStreak(carried).noAgentCarry, 1);
+  assert.strictEqual(summarizeOutcomes(carried)[0]?.noAgentCarry, true);
   const incomplete: ReadonlyArray<OutcomeReceipt> = [
     attempt("partial"),
     stage("selection", "succeeded", { attemptId: "partial" }),
@@ -124,8 +123,9 @@ it("never counts missing required carry stages or unexplained cache non-attempts
   ];
   for (let count = 1; count <= incomplete.length; count += 1) {
     assert.strictEqual(
-      outcomeStreak(requireOutcomeReceipts([...clean, ...incomplete.slice(0, count)])).noAgentCarry,
-      0,
+      summarizeOutcomes(requireOutcomeReceipts([...clean, ...incomplete.slice(0, count)]))[0]
+        ?.noAgentCarry,
+      false,
       `partial attempt with ${count - 1} stages`,
     );
   }
@@ -136,16 +136,17 @@ it("never counts missing required carry stages or unexplained cache non-attempts
     row.kind === "attempt" || row.kind === "stage" ? { ...row, attemptId: "later" } : row,
   );
   assert.strictEqual(
-    outcomeStreak(requireOutcomeReceipts([...earlier, ...later])).noAgentCarry,
-    0,
+    summarizeOutcomes(requireOutcomeReceipts([...earlier, ...later]))[0]?.noAgentCarry,
+    false,
     "later completion cannot erase missing earlier cache evidence",
   );
   const earlierWrongVerification = clean.map((row) =>
     row.kind === "stage" && row.stage === "verification" ? { ...row, sha: D } : row,
   );
   assert.strictEqual(
-    outcomeStreak(requireOutcomeReceipts([...earlierWrongVerification, ...later])).noAgentCarry,
-    0,
+    summarizeOutcomes(requireOutcomeReceipts([...earlierWrongVerification, ...later]))[0]
+      ?.noAgentCarry,
+    false,
     "every apply needs matching verification",
   );
 });
@@ -166,7 +167,7 @@ it("records direct clean replay cache non-applicability explicitly", () => {
     blocked: null,
   };
   const rows = autoOutcomeReceipts([target, attempt()], result);
-  assert.strictEqual(outcomeStreak(rows).noAgentCarry, 1);
+  assert.strictEqual(summarizeOutcomes(rows)[0]?.noAgentCarry, true);
   for (const name of ["rerere", "cache-export"]) {
     assert.strictEqual(
       rows.find((row) => row.kind === "stage" && row.stage === name)?.kind,
@@ -182,8 +183,8 @@ it("retains blocked eligible targets and mode changes without rewriting eligibil
     stage("selection", "blocked", { attemptId: "candidate" }),
   ];
   const recovered = requireOutcomeReceipts([...blocked, ...clean]);
-  assert.strictEqual(outcomeStreak(recovered).eligibleTargets, 1);
-  assert.strictEqual(outcomeStreak(recovered).noAgentCarry, 0);
+  assert.strictEqual(summarizeOutcomes(recovered).filter((row) => row.eligible).length, 1);
+  assert.strictEqual(summarizeOutcomes(recovered)[0]?.noAgentCarry, false);
   assert.strictEqual(summarizeOutcomes(recovered)[0]?.attempts.length, 2);
   assert.throws(
     () => requireOutcomeReceipts([...blocked, { ...target, eligible: false }]),
@@ -199,7 +200,7 @@ it("distinguishes manual kickoff from autonomous agent execution", () => {
   );
   assert.strictEqual(summarizeOutcomes(receipts)[0]?.agentRecovered, true);
   assert.strictEqual(summarizeOutcomes(receipts)[0]?.attempts[0]?.trigger, "manual");
-  assert.strictEqual(outcomeStreak(receipts).noAgentCarry, 0);
+  assert.strictEqual(summarizeOutcomes(receipts)[0]?.noAgentCarry, false);
 });
 
 it("deduplicates exact delivery and refuses changed terminal evidence", () => {
@@ -233,8 +234,9 @@ it("canonicalizes target groups without changing their internal receipt order", 
     [older.target.tag, target.target.tag],
   );
   assert.deepStrictEqual(canonical.slice(0, 3), [older, olderAttempt, olderStage]);
-  assert.strictEqual(outcomeStreak(canonical).noAgentCarry, 1);
-  assert.strictEqual(outcomeStreak(canonical).distributed, 1);
+  // The trailing eligible row is the carry whose completion the streak counted.
+  assert.strictEqual(summarizeOutcomes(canonical).at(-1)?.noAgentCarry, true);
+  assert.strictEqual(summarizeOutcomes(canonical).at(-1)?.distributed, true);
 });
 
 it("validates every target pair before sorting", () => {
@@ -263,12 +265,12 @@ it("retains the first tag and explicitly reconciles aliases without creating ano
     reason: "stable tag points at the already selected nightly commit",
   } as const;
   const reconciled = requireOutcomeReceipts([...clean, alias, renamed, attempt("later")]);
-  assert.strictEqual(outcomeStreak(reconciled).eligibleTargets, 1);
+  assert.strictEqual(summarizeOutcomes(reconciled).filter((row) => row.eligible).length, 1);
   assert.deepStrictEqual(summarizeOutcomes(reconciled)[0]?.target, target.target);
   assert.deepStrictEqual(summarizeOutcomes(reconciled)[0]?.aliases, [alias]);
 });
 
-it("records published report plus failed policy without inventing apply or release", () => {
+it("records a not-attempted publication with a failed policy without inventing apply or release", () => {
   const blockedTarget = {
     ...target,
     target: {
@@ -299,13 +301,15 @@ it("records published report plus failed policy without inventing apply or relea
     } as AutoRebaseResult["blocked"],
   };
   const rows = autoOutcomeReceipts([blockedTarget, blockedAttempt], result, {
-    publication: "succeeded",
+    publication: "not-attempted",
     policy: "failed",
-    url: "https://github.com/RSI-Software/t3code-hyprws/issues/568#issuecomment-5549329372",
   });
   const stages = summarizeOutcomes(rows)[0]!.stages;
   assert.strictEqual(stages.find((row) => row.stage === "selection")?.status, "blocked");
-  assert.strictEqual(stages.find((row) => row.stage === "report-publication")?.status, "succeeded");
+  assert.strictEqual(
+    stages.find((row) => row.stage === "report-publication")?.status,
+    "not-attempted",
+  );
   assert.strictEqual(stages.find((row) => row.stage === "report-policy")?.status, "failed");
   assert.strictEqual(stages.find((row) => row.stage === "apply")?.status, "not-attempted");
   assert.isFalse(
@@ -461,15 +465,15 @@ it("requires exact release SHA, intervening verified commits and complete publis
 });
 
 it("never counts unknown historical evidence as automatic success", () => {
-  assert.strictEqual(outcomeStreak(parseChurnState("[]").outcomes).noAgentCarry, 0);
+  assert.deepStrictEqual(summarizeOutcomes(parseChurnState("[]").outcomes), []);
   const unknown = requireOutcomeReceipts([
     target,
     attempt("history", { trigger: "unknown", executor: "unknown", mode: "unknown" }),
     stage("apply", "unknown", { attemptId: "history" }),
   ]);
-  assert.strictEqual(outcomeStreak(unknown).eligibleTargets, 1);
-  assert.strictEqual(outcomeStreak(unknown).noAgentCarry, 0);
-  assert.strictEqual(outcomeStreak(unknown).distributed, 0);
+  assert.strictEqual(summarizeOutcomes(unknown).filter((row) => row.eligible).length, 1);
+  assert.strictEqual(summarizeOutcomes(unknown)[0]?.noAgentCarry, false);
+  assert.strictEqual(summarizeOutcomes(unknown)[0]?.distributed, false);
 });
 
 it("retains explicit exclusions without removing blocked or rewritten eligible targets", () => {
@@ -489,8 +493,12 @@ it("retains explicit exclusions without removing blocked or rewritten eligible t
     }),
     stage("selection", "blocked", { targetSha: "e".repeat(40), attemptId: "rewrite" }),
   ]);
-  assert.strictEqual(outcomeStreak(rows).eligibleTargets, 2);
-  assert.strictEqual(outcomeStreak(rows).noAgentCarry, 0);
+  assert.strictEqual(summarizeOutcomes(rows).filter((row) => row.eligible).length, 2);
+  // The rewritten target is the newest eligible row; its blocked selection breaks the streak.
+  assert.strictEqual(
+    summarizeOutcomes(rows).find((row) => row.target.sha === "e".repeat(40))?.noAgentCarry,
+    false,
+  );
 });
 
 // The outcome executor's fork-hook reapply stage, against a real conflicted index in a temp repo
