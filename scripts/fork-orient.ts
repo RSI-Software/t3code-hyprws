@@ -42,6 +42,9 @@ export { UsageError } from "./lib/fork-cli.ts";
 export interface OrientOptions {
   readonly target: string;
   readonly source: string;
+  /** Emit the `Orientation` itself, the form every machine reader consumes
+   * (RSI-Software/t3code-hyprws#1144). */
+  readonly json: boolean;
 }
 
 export interface TargetProof {
@@ -105,6 +108,7 @@ Read-only: it never writes a file, a ref, or a GitHub thread.
 Options:
   --target <tag>   Upstream tag to orient against (required)
   --source <ref>   Fork ref (default: origin/hyprws)
+  --json           Print the orientation as JSON instead of prose
   -h, --help       Show help
 
 Exit codes:
@@ -116,11 +120,16 @@ Exit codes:
 export const parseOrientArgs = (argv: ReadonlyArray<string>): OrientOptions => {
   let target: string | null = null;
   let source = "origin/hyprws";
+  let json = false;
   const seen = new Set<string>();
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
     if (argument !== "--target" && argument !== "--source") {
       throw new UsageError(`unknown option: ${argument}`);
     }
@@ -137,7 +146,7 @@ export const parseOrientArgs = (argv: ReadonlyArray<string>): OrientOptions => {
 
   if (target === null) throw new UsageError("expected --target <tag>");
   if (source.length === 0) throw new UsageError("--source cannot be empty");
-  return { target, source };
+  return { target, source, json };
 };
 
 /**
@@ -403,7 +412,9 @@ export const run = (
     }
 
     const orientation = dependencies.orient(root, options, preflight);
-    output.stdout(renderOrientation(orientation));
+    output.stdout(
+      options.json ? `${JSON.stringify(orientation)}\n` : renderOrientation(orientation),
+    );
     return orientation.watch.error === null ? 0 : 1;
   } catch (error) {
     if (error instanceof UsageError) {

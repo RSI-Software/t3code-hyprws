@@ -21,7 +21,6 @@ import {
   discardUnstagedLockfileDrift,
   decisionSurface,
   execute,
-  filledDecisionCells,
   filterRetiredMessagesForTest,
   forkCommitIdentifiers,
   gateVerificationEnv,
@@ -35,11 +34,7 @@ import {
   NIGHTLY_WITHHOLD_RULES,
   NO_GROUNDING_CLAIM,
   offeredTagLines,
-  orientationDecisionRows,
-  orientationTouchedPaths,
-  parseConflictRows,
   parseSilentSeam,
-  preserveRecordDecisions,
   repairDomain,
   resumeRererePublication,
   regenerateGeneratedConflicts,
@@ -59,15 +54,16 @@ import {
   validateAutoLane,
   validateNightlyReview,
   validateReport,
-  validateSignedRecord,
+  validateSignedDecisions,
   walkSummary,
   walkRebaseArgs,
   type CommandResult,
   type CommandRunner,
+  type OrientationDecisionRow,
   type RetireEvidence,
   type SyncReport,
 } from "./fork-sync.ts";
-import { inspectRecord } from "./fork-sync-gate.ts";
+import { inspectReport } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { run as carryRun } from "./fork-carry.ts";
 import { commitNumstatArguments } from "./lib/fork-numstat.ts";
@@ -79,7 +75,6 @@ import { seamKey } from "./lib/fork-conflict-outcomes.ts";
 import {
   appendDecision,
   decisionLine,
-  parseDecisionRecords,
   requireWalkDecisions,
   walkDecisionIdentity,
   type WalkDecision,
@@ -105,11 +100,8 @@ import {
 } from "./fork-churn-ledger.ts";
 import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
 import {
+  decisionTableRows,
   foldMessagesDigest,
-  parseFoldRecordHeader,
-  parseFoldSection,
-  parseRecord,
-  restoreFoldSegments,
   SYNC_HELP,
   REPOSITORY,
   uniqueSilentSeams,
@@ -118,6 +110,36 @@ import {
 const A = "a".repeat(40);
 const B = "b".repeat(40);
 const C = "c".repeat(40);
+
+/**
+ * The decision rows an orientation's retire candidates owe, keyed on the exact subject, as
+ * `fork:sync` derives them from `fork:orient --json`.
+ */
+/** The typed signature `record-decisions --input` persists, applied directly in a fixture. */
+const signed = (state: SyncReport, action: string, decidedBy: "human" | "agent"): SyncReport => ({
+  ...state,
+  recordDecisions: (state.orientationDecisions ?? []).map(({ subject }) => ({
+    subject,
+    action,
+    decidedBy,
+  })),
+});
+
+const candidateRows = (
+  ...orientation: ReadonlyArray<string>
+): ReadonlyArray<OrientationDecisionRow> =>
+  orientation
+    .flatMap((prose) => prose.split("\n"))
+    .filter((line) => line.includes("[candidate]"))
+    .map((line) => {
+      const match = /`([^`]+)` \(([^)]+)\)/.exec(line);
+      return {
+        verdict: "candidate" as const,
+        subject: match?.[1] ?? line,
+        domain: match?.[2] ?? "fork-meta",
+        decidedBy: "TODO" as const,
+      };
+    });
 
 it("resumes failed cache publication from an applied report without reapplying trunk", () => {
   const root = fixtureRoot();
@@ -262,7 +284,7 @@ const ledgerFixture = (
 const report = (root: string, overrides: Partial<SyncReport> = {}): SyncReport => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-report-"));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "listed",
     repositoryRoot: root,
     reportPath: NodePath.join(directory, "report.json"),
@@ -317,6 +339,62 @@ class FakeRunner implements CommandRunner {
     return this.responses.get(key) ?? this.fallback;
   }
 }
+
+/**
+ * `gh issue comment` answers with the posted comment's URL. The walk persists that URL on the
+ * report and the ledger row points at it, so a fixture that reaches publication must return one
+ * (RSI-Software/t3code-hyprws#1144).
+ */
+const setRecordCommentResponse = (
+  runner: FakeRunner,
+  state: SyncReport,
+  url = "https://example.test/record#issuecomment-1",
+): void => {
+  runner.set(
+    "gh",
+    [
+      "issue",
+      "comment",
+      String(state.issue.number),
+      "-R",
+      REPOSITORY,
+      "--body-file",
+      state.recordPath,
+    ],
+    { stdout: `${url}\n` },
+  );
+};
+
+/**
+ * The typed, signed verdicts `record-decisions --input` requires for every row the walk declined.
+ * The rendered record is a projection now, so this file is the only place a verdict can come from
+ * (RSI-Software/t3code-hyprws#1144).
+ */
+const decisionInputFile = (
+  state: SyncReport,
+  resolution = "resolved by hand in the lane",
+): string => {
+  const path = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-decisions-")),
+    "decisions.json",
+  );
+  NodeFS.writeFileSync(
+    path,
+    JSON.stringify({
+      target: state.target,
+      source: { sha: state.source?.sha, expectedOld: state.source?.expectedOld },
+      decisions: state.conflicts
+        .filter(({ agentSafe }) => agentSafe === "TODO" || agentSafe === "pending regeneration")
+        .map((row) => ({
+          identity: row.seamKey ?? row.path,
+          resolution,
+          decidedBy: "human",
+          agentSafe: "no",
+        })),
+    }),
+  );
+  return path;
+};
 
 const issueJson = JSON.stringify([
   { number: 352, title: "blocked", body: `body\n<!-- blocking-sha:${A} -->` },
@@ -442,6 +520,40 @@ const setOrientationResponses = (
   runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${source}\n` });
   runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${target}\n` });
   runner.set("git", ["merge-base", source, target], { stdout: `${sharedBase}\n` });
+};
+
+/**
+ * `fork:orient --json` is the walk's only orientation source now: the prose it renders is a
+ * projection and is never scraped back (RSI-Software/t3code-hyprws#1144).
+ */
+const setOrientJsonResponse = (
+  runner: FakeRunner,
+  tag: string,
+  retireCandidates: ReadonlyArray<{
+    readonly subject: string;
+    readonly domain: string;
+    readonly decision: string;
+  }> = [],
+  automerged: ReadonlyArray<string> = [],
+): void => {
+  runner.set("node", ["scripts/fork-orient.ts", "--target", tag, "--json"], {
+    stdout: `${JSON.stringify({
+      target: { ref: tag, sha: B, stable: false, reachableFrom: "upstream/main" },
+      source: { ref: "origin/hyprws", sha: C },
+      sharedBase: A,
+      mirror: "origin/main matches upstream/main at a1b2c3d",
+      dependencies: "node_modules is absent",
+      feasibility: {
+        upstreamCommitCount: 2,
+        cleanCommitCount: 2,
+        firstConflict: null,
+        conflictFiles: [],
+      },
+      overlap: { upstreamChanged: 1, forkChanged: 1, overlap: 0, hardConflict: 0, automerged },
+      retireCandidates: retireCandidates.map((candidate) => ({ ...candidate, signals: [] })),
+      watch: { target: tag, issues: [], error: null },
+    })}\n`,
+  });
 };
 
 const setListResponses = (runner: FakeRunner, root: string): void => {
@@ -755,10 +867,9 @@ it("waits out a running bot and then orients", () => {
     runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
     runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
     runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-    runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
-      stdout:
-        "## Retire candidates\n  [keep] `feat(web): preserve fork behavior` (workspace-files)\n",
-    });
+    setOrientJsonResponse(runner, "v1.2.3", [
+      { subject: "feat(web): preserve fork behavior", domain: "workspace-files", decision: "keep" },
+    ]);
     const { output, result } = captureStdout(() =>
       execute(
         ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
@@ -813,7 +924,7 @@ it("declares the outcome attempt before orient can fail (#1023)", () => {
   runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
   runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
   // Everything up to and including target/source binding succeeds; orient explodes.
-  runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
+  runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3", "--json"], {
     status: 1,
     stderr: "orient exploded",
   });
@@ -911,10 +1022,9 @@ it("orients only to a tag carried by the previous report", () => {
     runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
     runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
     runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-    runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
-      stdout:
-        "## Retire candidates\n  [keep] `feat(web): preserve fork behavior` (workspace-files)\n",
-    });
+    setOrientJsonResponse(runner, "v1.2.3", [
+      { subject: "feat(web): preserve fork behavior", domain: "workspace-files", decision: "keep" },
+    ]);
     const oriented = execute(
       ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
       root,
@@ -941,52 +1051,6 @@ it("orients only to a tag carried by the previous report", () => {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
   }
-});
-
-it("carries orientation overlap and every retirement verdict into structured state", () => {
-  const orientation = [
-    "## Automerged overlap",
-    "Automerged files:",
-    "  - apps/web/src/a.ts",
-    "  - package.json",
-    "",
-    "## Retire candidates",
-    "  [candidate] `fix(web): review upstream overlap` (project-windows)",
-    "  [keep] `feat(web): keep fork behavior` (workspace-files)",
-    "  [retire] `fix(server): use upstream behavior` (fork-meta)",
-    "  [partial] `feat(desktop): retain one seam` (custom-agents)",
-    "",
-  ].join("\n");
-  assert.deepStrictEqual(orientationTouchedPaths(orientation), [
-    "apps/web/src/a.ts",
-    "package.json",
-  ]);
-  assert.deepStrictEqual(orientationDecisionRows(orientation), [
-    {
-      verdict: "candidate",
-      subject: "fix(web): review upstream overlap",
-      domain: "project-windows",
-      decidedBy: "TODO",
-    },
-    {
-      verdict: "keep",
-      subject: "feat(web): keep fork behavior",
-      domain: "workspace-files",
-      decidedBy: "TODO",
-    },
-    {
-      verdict: "retire",
-      subject: "fix(server): use upstream behavior",
-      domain: "fork-meta",
-      decidedBy: "TODO",
-    },
-    {
-      verdict: "partial",
-      subject: "feat(desktop): retain one seam",
-      domain: "custom-agents",
-      decidedBy: "TODO",
-    },
-  ]);
 });
 
 it("refuses a rehearsal lane collision for the exact target and source", () => {
@@ -1595,20 +1659,13 @@ it("renders and parses the record schema including conflict judgement", () => {
   assert.include(rendered, "## Silent seams");
   assert.include(rendered, "## Verification");
   assert.include(rendered, "## Grounding");
+  // The record is inert: editing a rendered cell changes nothing the walk reads.
   const edited = rendered.replace(
     "| TODO | TODO | TODO |",
     "| seam-moved | preserve upstream hook | yes — tested |",
   );
-  assert.deepInclude(parseConflictRows(edited), {
-    commit: C.slice(0, 12),
-    subject: "fix(web): keep behavior (#352)",
-    domain: "fork-meta",
-    path: "apps/web/src/a.ts",
-    class: "seam-moved",
-    resolution: "preserve upstream hook",
-    agentSafe: "yes — tested",
-    decidedBy: "human",
-  });
+  assert.notStrictEqual(edited, rendered);
+  assert.strictEqual(renderRecord(state), rendered);
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
@@ -1634,11 +1691,8 @@ it("round-trips escaped pipes and backslashes in conflict cells", () => {
     rendered,
     "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`)",
   );
-  assert.deepStrictEqual(parseConflictRows(rendered), [{ ...conflict, commit: C.slice(0, 12) }]);
-  assert.throws(
-    () => parseConflictRows(rendered.replace("keep left \\| right", "keep left \\q right")),
-    /invalid conflict Resolution cell: unsupported escape \\q/,
-  );
+  assert.include(rendered, "keep left \\| right and \\\\q");
+  assert.include(rendered, "`apps/web/src/a\\|b\\\\q.ts`");
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
@@ -1733,15 +1787,34 @@ it("distinguishes importer ownership drift from registry snapshot drift", () => 
 
 it("round-trips orientation verdicts outside conflicts and selects them for Gate 4", () => {
   const root = fixtureRoot();
-  const orientationDecisions = orientationDecisionRows(
-    [
-      "  [candidate] `fix(web): review upstream overlap` (project-windows)",
-      "  [keep] `feat(web): keep fork behavior` (workspace-files)",
-      "  [retire] `fix(server): use upstream behavior` (fork-meta)",
-      "  [partial] `feat(desktop): retain one seam` (custom-agents)",
-    ].join("\n"),
-  );
-  const record = renderRecord(report(root, { orientationDecisions }));
+  const orientationDecisions: ReadonlyArray<OrientationDecisionRow> = [
+    {
+      verdict: "candidate",
+      subject: "fix(web): review upstream overlap",
+      domain: "project-windows",
+      decidedBy: "TODO",
+    },
+    {
+      verdict: "keep",
+      subject: "feat(web): keep fork behavior",
+      domain: "workspace-files",
+      decidedBy: "TODO",
+    },
+    {
+      verdict: "retire",
+      subject: "fix(server): use upstream behavior",
+      domain: "fork-meta",
+      decidedBy: "TODO",
+    },
+    {
+      verdict: "partial",
+      subject: "feat(desktop): retain one seam",
+      domain: "custom-agents",
+      decidedBy: "TODO",
+    },
+  ];
+  const state = report(root, { orientationDecisions });
+  const record = renderRecord(state);
 
   const conflicts = record.split("## Conflicts\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
   assert.include(conflicts, "None.");
@@ -1763,8 +1836,8 @@ it("round-trips orientation verdicts outside conflicts and selects them for Gate
     "| `feat(desktop): retain one seam` | custom-agents | orientation: partial | partial |",
   );
 
-  const surface = decisionSurface(record);
-  for (const subject of orientationDecisions.map(({ subject }) => subject)) {
+  const surface = decisionSurface(state);
+  for (const { subject } of orientationDecisions) {
     assert.include(surface, subject);
   }
   NodeFS.rmSync(root, { recursive: true, force: true });
@@ -1789,7 +1862,7 @@ it("writes every item number into the record inside a code span", () => {
       "  `#150` [ready] `zoom flash [\u{1F4E1}#110]`",
       "",
     ].join("\n"),
-    orientationDecisions: orientationDecisionRows(
+    orientationDecisions: candidateRows(
       "  [candidate] `fix(web): supersede #4379 in the fork` (project-windows)",
     ),
     verification: [{ command: "vp run --no-cache test", result: "passed" }],
@@ -1803,12 +1876,22 @@ it("writes every item number into the record inside a code span", () => {
 });
 
 it("produces Gate 4 decisions structurally rather than with a typed rg command", () => {
-  const record =
-    "| Exact subject | Domain | Class summary | Action | Grounding claim |\n| --- | --- | --- | --- | --- |\n| `fix: one` | fork-meta | conflict; retire-candidate because upstream moved | retire | n/a |\n| `fix: two` | web | human | keep | claim |\nGrounding pending: desktop label";
-  const surface = decisionSurface(record);
-  assert.include(surface, "fix: one");
-  assert.include(surface, "fix: two");
-  assert.include(surface, "Grounding pending: desktop label");
+  const root = fixtureRoot();
+  const state = report(root, {
+    orientationDecisions: candidateRows(
+      "  [candidate] `fix: one` (fork-meta)\n  [candidate] `fix: two` (web)",
+    ),
+    grounding: [{ subject: "fix: one", pending: "desktop label" }],
+  });
+  try {
+    const surface = decisionSurface(state);
+    assert.include(surface, "fix: one");
+    assert.include(surface, "fix: two");
+    assert.include(surface, "Grounding pending: fix: one: desktop label");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
 });
 
 it("requires a fresh review verdict for a nightly apply", () => {
@@ -1836,8 +1919,7 @@ it("requires a fresh review verdict for a nightly apply", () => {
     verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
   });
   try {
-    const proposal = renderRecord(base);
-    assert.throws(() => validateNightlyReview(proposal, base), /review is missing/);
+    assert.throws(() => validateNightlyReview(base), /review is missing/);
     const evidence = {
       target: base.target!.tag,
       targetSha: B,
@@ -1846,7 +1928,7 @@ it("requires a fresh review verdict for a nightly apply", () => {
       installedHead: B,
       ciHead: B,
       laneBranch: base.lane!.branch,
-      recordDigest: nightlyProposalDigest(proposal),
+      recordDigest: nightlyProposalDigest(base),
       inspected: NIGHTLY_REVIEW_EVIDENCE,
     };
     const reviewed: SyncReport = {
@@ -1859,8 +1941,8 @@ it("requires a fresh review verdict for a nightly apply", () => {
         evidence,
       },
     };
+    validateNightlyReview(reviewed);
     const record = renderRecord(reviewed);
-    validateNightlyReview(record, reviewed);
     assert.include(record, "Proposer: agent `pi/meta/muse-spark`, session `walk-1`");
     assert.include(record, "Reviewer: agent `pi/meta/muse-spark`, session `review-2`");
     for (const item of NIGHTLY_REVIEW_EVIDENCE) assert.include(record, `  - ${item}`);
@@ -1873,15 +1955,14 @@ it("requires a fresh review verdict for a nightly apply", () => {
       { ...reviewer, iface: "codex", provider: "openai", model: "gpt-5.6-sol" },
       { ...reviewer, model: "another-model" },
     ]) {
-      const other = {
+      validateNightlyReview({
         ...reviewed,
         nightlyReview: { ...reviewed.nightlyReview!, reviewer: otherReviewer },
-      } satisfies SyncReport;
-      validateNightlyReview(renderRecord(other), other);
+      } satisfies SyncReport);
     }
     assert.throws(
       () =>
-        validateNightlyReview(record, {
+        validateNightlyReview({
           ...reviewed,
           nightlyReview: {
             ...reviewed.nightlyReview!,
@@ -1891,52 +1972,43 @@ it("requires a fresh review verdict for a nightly apply", () => {
       /shares the proposer's session/,
     );
 
-    const botCarried = { ...base, botCarried: true } satisfies SyncReport;
-    validateNightlyReview(renderRecord(botCarried), botCarried);
-    const withheld: SyncReport = {
-      ...reviewed,
-      nightlyReview: {
-        status: "withheld",
-        proposer,
-        reviewer,
-        reviewedAt: "2026-09-04T10:00:00.000Z",
-        reason: "fork intent is undefined",
-      },
-    };
+    validateNightlyReview({ ...base, botCarried: true } satisfies SyncReport);
     assert.throws(
-      () => validateNightlyReview(renderRecord(withheld), withheld),
+      () =>
+        validateNightlyReview({
+          ...reviewed,
+          nightlyReview: {
+            status: "withheld",
+            proposer,
+            reviewer,
+            reviewedAt: "2026-09-04T10:00:00.000Z",
+            reason: "fork intent is undefined",
+          },
+        }),
       /review was withheld/,
     );
-    // A new seam verdict-row still voids the review: the count lives in
-    // the bound half even though each summary is free prose.
-    const changed = {
-      ...reviewed,
-      silentSeams: [{ path: "apps/web/src/a.ts", summary: "late change", touchesBehaviour: false }],
-    } satisfies SyncReport;
-    assert.throws(() => validateNightlyReview(renderRecord(changed), changed), /review is stale/);
-    assert.throws(
-      () => validateNightlyReview(record, changed),
-      /review evidence is stale against the report/,
-    );
+    // A new seam verdict row still voids the review: the count lives in the projection.
     assert.throws(
       () =>
-        validateNightlyReview(record, {
+        validateNightlyReview({
           ...reviewed,
-          target: { tag: "v1.2.3", sha: B },
-        }),
-      /record target binding is stale/,
+          silentSeams: [
+            { path: "apps/web/src/a.ts", summary: "late change", touchesBehaviour: false },
+          ],
+        } satisfies SyncReport),
+      /review is stale/,
     );
+    // A moved lease voids it too.
     assert.throws(
       () =>
-        validateNightlyReview(
-          record.replace("- Reviewed at:", "- Unbound reviewer note\n- Reviewed at:"),
-          reviewed,
-        ),
-      /reviewed provenance/,
+        validateNightlyReview({
+          ...reviewed,
+          source: { ...reviewed.source!, expectedOld: "d".repeat(40) },
+        } satisfies SyncReport),
+      /review is stale/,
     );
-    // Free prose never enters the digest: a bare reference at sign-off,
-    // wrapped in backticks afterwards, keeps the sign-off. A verdict-row
-    // change still voids it.
+    // Free prose never enters the projection: an orientation edit or a seam summary rewrite
+    // keeps the sign-off, while the seam's own path and behaviour flag do not.
     const seamed = {
       ...reviewed,
       silentSeams: [
@@ -1947,32 +2019,19 @@ it("requires a fresh review verdict for a nightly apply", () => {
         },
       ],
     } satisfies SyncReport;
-    const { nightlyReview: _dropped, ...seamedProposal } = seamed;
-    const seamedEvidence = {
-      ...evidence,
-      recordDigest: nightlyProposalDigest(renderRecord(seamedProposal)),
-    };
-    const seamedReview = {
-      ...seamed,
-      nightlyReview: { ...seamed.nightlyReview!, evidence: seamedEvidence },
-    } satisfies SyncReport;
-    const liveRecord = renderRecord(seamedReview);
-    assert(liveRecord.includes("see RSI-Software/t3code-hyprws#650"), liveRecord.slice(-600));
-    validateNightlyReview(liveRecord, seamedReview);
-    const wrapped = liveRecord.replace(
-      "see RSI-Software/t3code-hyprws#650",
-      "see `RSI-Software/t3code-hyprws#650`",
+    assert.strictEqual(
+      nightlyProposalDigest({ ...seamed, orientation: "rewritten prose" }),
+      nightlyProposalDigest({
+        ...seamed,
+        silentSeams: [{ ...seamed.silentSeams![0]!, summary: "see `#650`" }],
+      }),
     );
-    assert.strictEqual(nightlyProposalDigest(wrapped), nightlyProposalDigest(liveRecord));
-    validateNightlyReview(wrapped, seamedReview);
-    // A moved lease still voids the review even though prose does not.
-    const leaseChange = liveRecord.replace(
-      `\`expected_old\`: \`${C}\``,
-      `\`expected_old\`: \`${"d".repeat(40)}\``,
-    );
-    assert.throws(
-      () => validateNightlyReview(leaseChange, seamedReview),
-      /evidence is stale against the report/,
+    assert.notStrictEqual(
+      nightlyProposalDigest(seamed),
+      nightlyProposalDigest({
+        ...seamed,
+        silentSeams: [{ ...seamed.silentSeams![0]!, touchesBehaviour: true }],
+      }),
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -2039,7 +2098,7 @@ it("asks a record for decisions and a go, never a login or a date", () => {
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: "rehearse/v1.2.3", worktree: root },
     installedHead: B,
-    orientationDecisions: orientationDecisionRows(
+    orientationDecisions: candidateRows(
       "  [candidate] `feat(web): themed menus` (workspace-files)",
     ),
   });
@@ -2047,12 +2106,14 @@ it("asks a record for decisions and a go, never a login or a date", () => {
     const rendered = renderRecord(checked);
     assert.notInclude(rendered, "Human sanity");
     // Every claim is the rendered default, so the surface asks for nothing else.
-    assert.include(decisionSurface(rendered), "Stop. Obtain every decision and an explicit go.\n");
-    assert.throws(() => validateSignedRecord(rendered, checked), /unsigned decision row/);
-    const decided = rendered.replace("| TODO |", "| retire |");
-    // An action nobody signed is the rendered default, not a decision the walk may land on.
-    assert.throws(() => validateSignedRecord(decided, checked), /unsigned decision row/);
-    validateSignedRecord(decided.replace("| TODO |", "| human |"), checked);
+    assert.include(decisionSurface(checked), "Stop. Obtain every decision and an explicit go.\n");
+    assert.throws(() => validateSignedDecisions(checked), /unsigned decision row/);
+    // Editing the rendered record decides nothing: the action must arrive typed and signed.
+    assert.throws(
+      () => validateSignedDecisions({ ...checked, recordDecisions: [] }),
+      /unsigned decision row/,
+    );
+    validateSignedDecisions(signed(checked, "retire", "human"));
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
@@ -2069,19 +2130,18 @@ it("names every unsigned row when Gate 4 refuses", () => {
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: "rehearse/v1.2.3", worktree: root },
     installedHead: B,
-    orientationDecisions: orientationDecisionRows(
+    orientationDecisions: candidateRows(
       "  [candidate] `feat(web): first subject` (workspace-files)\n  [candidate] `feat(web): second subject` (workspace-files)",
     ),
   });
   try {
-    const rendered = renderRecord(checked);
     let message = "";
     try {
-      validateSignedRecord(rendered, checked);
+      validateSignedDecisions(checked);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    assert.include(message, "record has 2 unsigned decision row(s):");
+    assert.include(message, "report has 2 unsigned decision row(s):");
     assert.include(message, "feat(web): first subject");
     assert.include(message, "feat(web): second subject");
   } finally {
@@ -2090,7 +2150,7 @@ it("names every unsigned row when Gate 4 refuses", () => {
   }
 });
 
-it("reads a signed decision back through a row whose evidence quotes a pipe", () => {
+it("renders a row whose evidence quotes a pipe without shifting a cell", () => {
   const root = fixtureRoot();
   const quoted = "| --- | --- |";
   const checked = report(root, {
@@ -2099,7 +2159,7 @@ it("reads a signed decision back through a row whose evidence quotes a pipe", ()
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: "rehearse/v1.2.3", worktree: root },
     installedHead: B,
-    orientationDecisions: orientationDecisionRows(
+    orientationDecisions: candidateRows(
       "  [candidate] `feat(web): themed menus` (workspace-files)",
     ),
     retireEvidence: [
@@ -2117,43 +2177,65 @@ it("reads a signed decision back through a row whose evidence quotes a pipe", ()
     // renderer escapes. Reading the row back on unescaped pipes only would shift every later
     // cell and leave the signed action in the wrong column.
     assert.include(rendered, "target-tree: \\| --- \\| --- \\| at docs/table.md:8");
-    const decided = rendered.replace("| TODO |", "| keep |").replace("| TODO |", "| agent |");
+    const decided = signed(checked, "keep", "agent");
     assert.include(decisionSurface(decided), "feat(web): themed menus");
-    validateSignedRecord(decided, checked);
+    validateSignedDecisions(decided);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
 });
 
-it("reads only the decision cells someone signed", () => {
-  const table = [
-    "## Fork commits",
-    "",
-    "| Exact subject | Domain | Class summary | Action | Grounding claim | Decided by |",
-    "| --- | --- | --- | --- | --- | --- |",
-    "| `fix: signed` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | human |",
-    "| `fix: unsigned` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | TODO |",
-    "| `fix: undecided` | fork-meta | orientation: candidate; retire-candidate | TODO | n/a | TODO |",
-    "",
-    "## Silent seams",
-  ].join("\n");
-  assert.deepStrictEqual(filledDecisionCells(table), [
-    { subject: "fix: signed", action: "retire", decidedBy: "human" },
-  ]);
+it("keeps only the decision cells someone signed", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    orientationDecisions: candidateRows(
+      "  [candidate] `fix: signed` (fork-meta)\n  [candidate] `fix: undecided` (fork-meta)",
+    ),
+    recordDecisions: [{ subject: "fix: signed", action: "retire", decidedBy: "human" }],
+  });
+  try {
+    assert.deepStrictEqual(
+      [...decisionTableRows(state).values()].map(({ subject, action, decidedBy }) => ({
+        subject,
+        action,
+        decidedBy,
+      })),
+      [
+        { subject: "fix: signed", action: "retire", decidedBy: "human" },
+        { subject: "fix: undecided", action: "TODO", decidedBy: "TODO" },
+      ],
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
 });
 
-it("still asks for grounding when a row carries a claim", () => {
-  const claimed =
-    "| Exact subject | Domain | Class summary | Action | Grounding claim |\n| --- | --- | --- | --- | --- |\n| `fix: one` | fork-meta | orientation: candidate; retire-candidate | TODO | grounded in the desktop label |";
-  assert.include(
-    decisionSurface(claimed),
-    "Stop. Obtain every decision, every grounding confirmation, and an explicit go.\n",
-  );
-  assert.include(
-    decisionSurface(claimed.replace("grounded in the desktop label", NO_GROUNDING_CLAIM)),
-    "Stop. Obtain every decision and an explicit go.\n",
-  );
+it("still asks for grounding when the report carries a claim", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    orientationDecisions: candidateRows("  [candidate] `fix: one` (fork-meta)"),
+    grounding: [{ subject: "fix: one", claim: "grounded in the desktop label" }],
+  });
+  try {
+    assert.include(
+      decisionSurface(state),
+      "Stop. Obtain every decision, every grounding confirmation, and an explicit go.\n",
+    );
+    assert.include(
+      decisionSurface({ ...state, grounding: [] }),
+      "Stop. Obtain every decision and an explicit go.\n",
+    );
+    assert.throws(
+      () =>
+        validateSignedDecisions({ ...state, grounding: [{ subject: "fix: one", pending: "?" }] }),
+      /pending grounding/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
 });
 
 it("Gate 4 decides every orientation row and asks for nothing", () => {
@@ -2468,7 +2550,7 @@ it("Gate 4 keeps a candidate whether or not the target tree already carries it",
   const state = (matches: RetireEvidence["matches"]): SyncReport =>
     report(root, {
       orientation,
-      orientationDecisions: orientationDecisionRows(orientation),
+      orientationDecisions: candidateRows(orientation),
       retireEvidence: [
         { subject: "feat: candidate", commit: C, identifiers: ["ForkOnlyHelper"], matches },
       ],
@@ -2582,7 +2664,7 @@ it("Gate 4 carries the complete slice-4 orientation with a type-only silent seam
     stage: "checked",
     installedHead: B,
     orientation: slice4Orientation,
-    orientationDecisions: orientationDecisionRows(slice4Orientation),
+    orientationDecisions: candidateRows(slice4Orientation),
     conflicts: [
       {
         commit: C,
@@ -2614,7 +2696,7 @@ it("Gate 4 carries the complete slice-4 orientation with a type-only silent seam
     const record = renderRecord(decided);
     assert.include(record, "[type]: return upstream DesktopPreviewRecordingSource");
     assert.include(record, "| keep (mechanical seam) |");
-    validateSignedRecord(record, decided);
+    validateSignedDecisions(decided);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
@@ -2828,6 +2910,7 @@ it("snapshots the tags between the pre-apply base and the gate tag before the le
   );
   runner.set("git", ["rev-parse", "v1.2.3^{commit}"], { stdout: `${B}\n` });
   runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  setRecordCommentResponse(runner, checked);
   const ledger = ledgerFixture(root, checked.recordPath);
   let stderr = "";
   const original = process.stderr.write;
@@ -2953,6 +3036,7 @@ it("publishes the walk row and its outcomes before it reports applied", () => {
     ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
     { stdout: `${B}\trefs/heads/${branch}\n` },
   );
+  setRecordCommentResponse(runner, checked);
   const ledger = ledgerFixture(root, checked.recordPath);
   try {
     const { output, result } = captureStdout(() =>
@@ -3009,6 +3093,7 @@ it("stops the walk on environment when the trunk moved and the ledger write cann
     ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
     { stdout: `${B}\trefs/heads/${branch}\n` },
   );
+  setRecordCommentResponse(runner, checked);
   const ledger = ledgerFixture(root, checked.recordPath, { reachable: false });
   let stderr = "";
   const originalError = process.stderr.write;
@@ -3104,12 +3189,16 @@ it("appends the trunk's own missing row before it walks the next target", () => 
     installedHead: B,
     ciHead: B,
     orientation: coherentOrientation,
+    // The apply persisted the record comment before it pushed, so the resume publishes the row
+    // from the report alone (RSI-Software/t3code-hyprws#1144).
+    recordCommentUrl: "https://example.test/record#issuecomment-1",
   });
   NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
   NodeFS.writeFileSync(applied.recordPath, renderRecord(applied));
   const runner = new FakeRunner();
   setBotResponses(runner, "candidate");
   runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${B}\n` });
+  setRecordCommentResponse(runner, applied);
   const ledger = ledgerFixture(root, applied.recordPath);
   try {
     const { output } = captureStdout(() =>
@@ -3146,6 +3235,7 @@ it("unblock-auto prints the resume line after an apply refusal", () => {
   const runner = new FakeRunner();
   setBotResponses(runner, "candidate");
   setOrientationResponses(runner);
+  setRecordCommentResponse(runner, checked);
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
     "git",
@@ -3341,7 +3431,7 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
   };
   try {
     const record = renderRecord(checked);
-    assert.deepStrictEqual(inspectRecord(record, observed), []);
+    assert.deepStrictEqual(inspectReport(checked, observed), []);
     assert.include(record, `- Ref: \`refs/heads/archive/hyprws-pre-rewrite-${C.slice(0, 12)}\``);
     assert.include(record, `- SHA: \`${C}\``);
     assert.include(record, "this archive remains as failed-attempt evidence");
@@ -3355,19 +3445,14 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
         },
       },
     });
-    assert.strictEqual(
-      nightlyProposalDigest(renderRecord(verified)),
-      nightlyProposalDigest(record),
-    );
+    assert.strictEqual(nightlyProposalDigest(verified), nightlyProposalDigest(checked));
     assert.strictEqual(
       validateReport(JSON.parse(JSON.stringify(verified))).rewrite?.archive?.sha,
       C,
     );
     const { baseTag: _baseTag, ...untagged } = rewrite;
     const withoutTag = report(root, { ...checked, rewrite: untagged });
-    assert.deepStrictEqual(inspectRecord(renderRecord(withoutTag), observed), [
-      `Target mismatch: record absent@${A}, checkout v0.0.38-nightly.20260831.1236@${A}`,
-    ]);
+    assert.deepStrictEqual(inspectReport(withoutTag, observed), ["report is missing Target"]);
     NodeFS.rmSync(NodePath.dirname(withoutTag.reportPath), { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(verified.reportPath), { recursive: true, force: true });
   } finally {
@@ -4491,8 +4576,7 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
     assert.strictEqual(checked.installedHead, REPAIRED);
     assert.strictEqual(checked.rebasedHead, REPAIRED);
     assert.strictEqual(checked.stackSize, 2);
-    const record = NodeFS.readFileSync(checked.recordPath, "utf8");
-    assert.deepStrictEqual(parseRepairCommits(record), []);
+    assert.deepStrictEqual(checked.walk?.repairCommits ?? [], []);
 
     // The apply gate accepts the appended commit and still refuses a fork commit that changed.
     const binding = {
@@ -4502,9 +4586,9 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
       rebasedHead: REPAIRED,
       stackSize: "2",
     };
-    assert.deepStrictEqual(inspectRecord(record, binding), []);
-    assert.deepStrictEqual(inspectRecord(record, { ...binding, rebasedHead: A }), [
-      `Rebased head mismatch: record ${REPAIRED}, checkout ${A}`,
+    assert.deepStrictEqual(inspectReport(checked, binding), []);
+    assert.deepStrictEqual(inspectReport(checked, { ...binding, rebasedHead: A }), [
+      `Rebased head mismatch: report ${REPAIRED}, checkout ${A}`,
     ]);
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -5650,7 +5734,7 @@ const additiveWalkFixture = (
   const reportPath = NodePath.join(reportDirectory, "report.json");
   const recordPath = NodePath.join(reportDirectory, "record.md");
   const replayed: SyncReport = validateReport({
-    schemaVersion: 1,
+    schemaVersion: 2,
     stage: "replayed",
     kind: "unblock",
     repositoryRoot: root,
@@ -6174,46 +6258,27 @@ const undecidedRun = (): ReturnType<typeof replayedRun> => {
   return state;
 };
 
-const signRecord = (recordPath: string, action: string, decidedBy: string): void => {
-  const signed = NodeFS.readFileSync(recordPath, "utf8")
-    .replace("| TODO |", `| ${action} |`)
-    .replace("| TODO |", `| ${decidedBy} |`);
-  NodeFS.writeFileSync(recordPath, signed);
+/** Sign the report the way `record-decisions --input` does: typed, never through the record. */
+const signReport = (reportPath: string, action: string, decidedBy: "human" | "agent"): void => {
+  const state = validateReport(JSON.parse(NodeFS.readFileSync(reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    reportPath,
+    JSON.stringify({
+      ...state,
+      recordDecisions: (state.orientationDecisions ?? []).map(({ subject }) => ({
+        subject,
+        action,
+        decidedBy,
+      })),
+    }),
+  );
 };
 
-it("preserves a report-only retire when refreshing rendered decision cells", () => {
-  const root = fixtureRoot();
-  const state = report(root, {
-    orientationDecisions: [
-      {
-        subject: SUBJECT,
-        domain: "workspace-files",
-        verdict: "candidate",
-        action: "keep (mechanical seam)",
-        decidedBy: "agent",
-      },
-    ],
-    recordDecisions: [
-      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
-    ],
-  });
-  NodeFS.writeFileSync(state.recordPath, renderRecord(state));
-  try {
-    assert.deepStrictEqual(preserveRecordDecisions(state).recordDecisions, [
-      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
-      { subject: SUBJECT, action: "keep (mechanical seam)", decidedBy: "agent" },
-    ]);
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("carries a decision cell filled in the record through the regeneration a check performs", () => {
+it("carries a typed decision through the regeneration a check performs", () => {
   const state = undecidedRun();
   const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
   try {
-    signRecord(recordPath, "retire", "human");
+    signReport(state.reportPath, "retire", "human");
     execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
     const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
     assert.deepStrictEqual(checked.recordDecisions, [
@@ -6245,16 +6310,17 @@ it("carries a decision cell filled after the check through the checked-branch re
       state.runner,
     );
     assert.strictEqual(checked.stage, "checked");
-    signRecord(recordPath, "keep", "human");
-    const resumed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
-    const carried = preserveRecordDecisions(resumed);
-    NodeFS.writeFileSync(state.reportPath, JSON.stringify(carried));
+    signReport(state.reportPath, "keep", "human");
+    // A record edit after the signature is inert: the regeneration reads the report only.
+    NodeFS.writeFileSync(checked.recordPath, "clobbered\n");
     const reread = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
-    const regenerated = renderRecord(autoGateFour(reread));
-    const row = regenerated.split("\n").find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
+    const decided = autoGateFour(reread);
+    const row = renderRecord(decided)
+      .split("\n")
+      .find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
     assert.include(row ?? "", "| keep |");
     assert.include(row ?? "", "| human |");
-    validateSignedRecord(regenerated, { ...reread, installedHead: reread.installedHead ?? A });
+    validateSignedDecisions({ ...decided, installedHead: decided.installedHead ?? A });
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -6268,9 +6334,7 @@ it("carries a hand-resolved conflict stop as a keep decided by human", () => {
   // asks only for a decision no stop has already collected.
   const root = fixtureRoot();
   const state = report(root, {
-    orientationDecisions: orientationDecisionRows(
-      "  [candidate] `feat(fork): move the seam` (web)",
-    ),
+    orientationDecisions: candidateRows("  [candidate] `feat(fork): move the seam` (web)"),
     conflicts: [
       {
         commit: A,
@@ -6324,14 +6388,14 @@ it("carries a hand-resolved conflict stop as a keep decided by human", () => {
 
 // RSI-Software/t3code-hyprws#695: a refresh rebinds the head and the stack size. The decision
 // cells are not a binding, they are the human's answer, and `unblock-check` already keeps them.
-it("carries a decision cell filled in the record through the regeneration a refresh performs", () => {
+it("carries a typed decision through the regeneration a refresh performs", () => {
   const state = undecidedRun();
   const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
   state.runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], {
     stdout: `${C}\n`,
   });
   try {
-    signRecord(recordPath, "retire", "human");
+    signReport(state.reportPath, "retire", "human");
     const { output } = captureStdout(() =>
       execute(["unblock-refresh", "--report", state.reportPath], state.root, state.runner),
     );
@@ -6360,7 +6424,7 @@ it("drops a filled decision cell whose subject left the replay, and names it", (
     stdout: `${C}\n`,
   });
   try {
-    signRecord(recordPath, "retire", "human");
+    signReport(state.reportPath, "retire", "human");
     // The subject leaves the replay: the rebound lane no longer carries the commit it was about.
     const withoutSubject = validateReport(
       JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")),
@@ -7020,7 +7084,7 @@ it("carries a human verdict from the churn ledger into the rendered record as in
   // Direct render test without reading the live ledger: verify the rendering contract.
   try {
     const fakeReport = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       stage: "oriented" as const,
       repositoryRoot: root,
       reportPath,
@@ -7079,12 +7143,11 @@ it("carries a human verdict from the churn ledger into the rendered record as in
     ]);
     assert.isTrue(onlyHuman.has(subject));
     assert.isFalse(onlyHuman.has("feat(web): agent decided"));
-    // Inherited decider is distinguishable from human: parse keeps the string.
-    const { parseDecisionRows } =
+    // Inherited decider is distinguishable from human in the typed table, not in the record.
+    const { decisionTableRows } =
       require("./fork-sync-state.ts") as typeof import("./fork-sync-state.ts");
-    const parsed = parseDecisionRows(rendered);
     assert.strictEqual(
-      parsed.find((r) => r.subject === subject)?.decidedBy,
+      decisionTableRows(fakeReport).get(subject)?.decidedBy,
       "inherited (v0.0.38-nightly.20260901.1245)",
     );
   } finally {
@@ -7103,7 +7166,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
   const report = (stage: "replayed" | "checked") =>
     ({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       stage,
       repositoryRoot: root,
       reportPath:
@@ -7329,6 +7392,7 @@ it("does not refuse when origin/hyprws is still at the leased SHA", () => {
   // The record is signed (checked has no decisions), so the only refusal
   // that remains would be the staleness one — which should be silent here.
   runner.set("git", ["status", "--porcelain"], { stdout: "" });
+  setRecordCommentResponse(runner, checked);
   const ledger = ledgerFixture(root, checked.recordPath);
   // Stub the gate — the full tree read does not exercise its branches here; the
   // staleness is the _last_ guard before push, so any non-staleness refusal
@@ -7413,7 +7477,6 @@ it("a recorded retire verdict drops the commit from the replay and verifies as r
     recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
   };
   NodeFS.writeFileSync(state.reportPath, JSON.stringify(retired));
-  signRecord(retired.recordPath, "retire", "human");
   const filteredMessages = `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`;
   state.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
     stdout: "1\n",
@@ -7464,7 +7527,6 @@ it("reads a previous walk's repair on trunk as part of the baseline, not as a sh
     recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
   };
   NodeFS.writeFileSync(state.reportPath, JSON.stringify(withRepair));
-  signRecord(withRepair.recordPath, "retire", "human");
   state.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
     stdout: "1\n",
   });
@@ -7504,7 +7566,6 @@ it("retire enacts exactly one subject: other count or message changes still fail
         recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
       };
       NodeFS.writeFileSync(s.reportPath, JSON.stringify(retired));
-      signRecord(retired.recordPath, "retire", "human");
       s.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
         stdout: "0\n",
       });
@@ -7541,7 +7602,6 @@ it("retire enacts exactly one subject: other count or message changes still fail
         recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
       };
       NodeFS.writeFileSync(s.reportPath, JSON.stringify(retired));
-      signRecord(retired.recordPath, "retire", "human");
       s.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
         stdout: "1\n",
       });
@@ -7834,8 +7894,7 @@ it("strips the completed gate 1 stop from the record's automerged overlap review
     assert.notInclude(record, "Continue only after the human confirms the target");
     assert.notInclude(record, "## Stop");
     // orientation helpers still parse the full orientation
-    const { orientationReviewSection, orientationTouchedPaths } = require("./fork-sync-state.ts");
-    assert.deepStrictEqual(orientationTouchedPaths(orientation), ["a.ts"]);
+    const { orientationReviewSection } = require("./fork-sync-state.ts");
     assert.notInclude(orientationReviewSection(orientation), "Continue only");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -8066,7 +8125,7 @@ it("round-trips decision records through the rendered record", () => {
     const reportPath = NodePath.join(root, "report.json");
     const recordPath = NodePath.join(root, "record.md");
     const report = validateReport({
-      schemaVersion: 1,
+      schemaVersion: 2,
       stage: "conflicts",
       kind: "unblock",
       repositoryRoot: root,
@@ -8080,15 +8139,13 @@ it("round-trips decision records through the rendered record", () => {
       verification: [],
       decisions: records,
     } as unknown);
-    const parsed = parseDecisionRecords(renderRecord(report));
-    assert.deepStrictEqual(parsed.map(walkDecisionIdentity), records.map(walkDecisionIdentity));
-    // Rendering the parse of a render is the same record: no drift across a save/load cycle.
+    // The report is the carrier: a save/load cycle keeps every decision identity intact.
+    const reloaded = validateReport(JSON.parse(JSON.stringify(report)));
     assert.deepStrictEqual(
-      parseDecisionRecords(renderRecord({ ...report, decisions: parsed })).map(
-        walkDecisionIdentity,
-      ),
+      (reloaded.decisions ?? []).map(walkDecisionIdentity),
       records.map(walkDecisionIdentity),
     );
+    assert.notInclude(renderRecord(reloaded), "TODO |\n| TODO");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -8291,17 +8348,38 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
         "",
       ].join("\n"),
     );
+    // `fork:orient --json` is the only orientation source now, so the shim answers with the typed
+    // orientation the walk decodes (RSI-Software/t3code-hyprws#1144).
     const orientation = NodePath.join(root, "orientation.txt");
     NodeFS.writeFileSync(
       orientation,
-      [
-        `mirror:  origin/main matches upstream/main at ${blockingSha.slice(0, 12)}`,
-        "",
-        "## Automerged overlap",
-        "",
-        "None.",
-        "",
-      ].join("\n"),
+      JSON.stringify({
+        target: {
+          ref: "v0.0.1-nightly.20260901.1",
+          sha: blockingSha,
+          stable: false,
+          reachableFrom: "upstream/main",
+        },
+        source: { ref: "origin/hyprws", sha: blockingSha },
+        sharedBase: blockingSha,
+        mirror: `origin/main matches upstream/main at ${blockingSha.slice(0, 12)}`,
+        dependencies: "node_modules is absent",
+        feasibility: {
+          upstreamCommitCount: 1,
+          cleanCommitCount: 0,
+          firstConflict: null,
+          conflictFiles: [],
+        },
+        overlap: {
+          upstreamChanged: 1,
+          forkChanged: 1,
+          overlap: 1,
+          hardConflict: 1,
+          automerged: [],
+        },
+        retireCandidates: [],
+        watch: { target: "v0.0.1-nightly.20260901.1", issues: [], error: null },
+      }),
     );
     process.env.PATH = `${bin}:${previous.PATH ?? ""}`;
     process.env.FIXTURE_STATE = NodePath.join(root, "gh-state");
@@ -8347,7 +8425,15 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
     NodeFS.writeFileSync(NodePath.join(lane, "scripts/fixture-seam.txt"), "l1\nRESOLVED\nl3\n");
     git(["add", "scripts/fixture-seam.txt"], lane);
     const recorded = execute(
-      ["record-decisions", "--report", reportPath, "--tag", tagA],
+      [
+        "record-decisions",
+        "--report",
+        reportPath,
+        "--tag",
+        tagA,
+        "--input",
+        decisionInputFile(stopped),
+      ],
       root,
       runner,
     );
@@ -8842,7 +8928,19 @@ it("record-decisions republishes the row an operator stop kept with the report (
       ["issue", "comment", "352", "-R", REPOSITORY, "--body-file", stopped.recordPath],
       { stdout: "https://example.test/record#issuecomment-1\n" },
     );
-    execute(["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"], root, runner);
+    execute(
+      [
+        "record-decisions",
+        "--report",
+        stopped.reportPath,
+        "--tag",
+        "v0.0.42",
+        "--input",
+        decisionInputFile(stopped),
+      ],
+      root,
+      runner,
+    );
     const ledger = parseLedger(readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
     assert.deepStrictEqual(
       ledger.map((entry) => entry.tag),
@@ -8904,7 +9002,15 @@ it("record-decisions resolves the declined row and never comments twice (#876)",
   );
   try {
     const recorded = execute(
-      ["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"],
+      [
+        "record-decisions",
+        "--report",
+        stopped.reportPath,
+        "--tag",
+        "v0.0.42",
+        "--input",
+        decisionInputFile(stopped),
+      ],
       root,
       runner,
     );
@@ -8914,13 +9020,12 @@ it("record-decisions resolves the declined row and never comments twice (#876)",
     assert.strictEqual(row?.resolution, "resolved by hand in the lane");
     assert.strictEqual(row?.agentSafe, "no");
     assert.strictEqual(row?.decidedBy, "human");
-    const recordRow = parseConflictRows(NodeFS.readFileSync(stopped.recordPath, "utf8")).find(
-      (entry) => entry.path === declinedPath,
-    );
-    assert.strictEqual(recordRow?.class, "human");
-    assert.strictEqual(recordRow?.resolution, "resolved by hand in the lane");
-    assert.strictEqual(recordRow?.agentSafe, "no");
-    assert.strictEqual(recordRow?.decidedBy, "human");
+    // The record is a projection of that row, never a second source for it.
+    const rendered = renderRecord(recorded);
+    const recordLine = rendered.split("\n").find((line) => line.includes(declinedPath)) ?? "";
+    assert.include(recordLine, "resolved by hand in the lane");
+    assert.include(recordLine, "| human |");
+    assert.notInclude(recordLine, "| TODO |");
     // The pending append reached refs/fork/churn as a pending row for the stopped tag.
     const ledger = parseLedger(readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
     assert.deepStrictEqual(
@@ -9159,7 +9264,7 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
       ) as unknown as SyncReport;
       assert.strictEqual(written.walk?.stop?.reason, "conflict");
       assert.include(written.walk?.stop?.detail ?? "", "The conflict handoff is incomplete:");
-      assert.include(written.walk?.stop?.detail ?? "", `${declinedPath}: record row still on TODO`);
+      assert.include(written.walk?.stop?.detail ?? "", `${declinedPath}: report row still on TODO`);
       assert.isFalse(runner.calls.some(({ args }) => args.includes("--continue")));
       assert.isFalse(runner.calls.some(({ args }) => args.includes("--skip")));
     } finally {
@@ -9277,7 +9382,7 @@ describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
       folds,
     });
 
-  it("renders zero-fold records exactly like unfolded records and parses them back foldless", () => {
+  it("renders zero-fold records exactly like unfolded records", () => {
     const root = fixtureRoot();
     const plain = report(root, {
       stage: "checked",
@@ -9290,38 +9395,9 @@ describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
     assert.include(record, `- Source: \`origin/hyprws@${B}\``);
     assert.notInclude(record, "Source incorporated");
     assert.notInclude(record, "## Folds");
-    assert.strictEqual(parseFoldRecordHeader(record), undefined);
-    assert.strictEqual(parseFoldSection(record), undefined);
   });
 
-  it("round-trips a record with one fold through the header and Folds section", () => {
-    const root = fixtureRoot();
-    const folds = [foldSegment()];
-    const record = renderRecord(folded(root, folds));
-    const header = parseFoldRecordHeader(record)!;
-    assert.deepStrictEqual(header, {
-      originalSource: A,
-      incorporatedSource: B,
-      baseCheckedHead: "5".repeat(40),
-      finalHead: "4".repeat(40),
-    });
-    const rows = parseFoldSection(record)!;
-    assert.strictEqual(rows.length, 1);
-    assert.deepStrictEqual(rows[0], {
-      from: "1".repeat(40),
-      to: "2".repeat(40),
-      onto: "3".repeat(40),
-      originalCount: 2,
-      messagesDigest: foldMessagesDigest(folds[0]!.originalMessages),
-      repairCommits: [],
-    });
-    assert.deepStrictEqual(restoreFoldSegments(folds, rows), folds);
-    // parseRecord still reads the conflict tables of a folded record untouched.
-    const parsed = parseRecord(record);
-    assert.deepStrictEqual(parsed.conflicts, []);
-  });
-
-  it("round-trips two folds, including repair-commit subjects with escaped pipes", () => {
+  it("carries the fold chain on the report and projects it into the record", () => {
     const root = fixtureRoot();
     const folds = [
       foldSegment({
@@ -9337,32 +9413,18 @@ describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
         originalMessages: "feat(c): three",
       }),
     ];
-    const record = renderRecord(folded(root, folds));
-    const rows = parseFoldSection(record)!;
-    assert.strictEqual(rows.length, 2);
-    assert.deepStrictEqual(rows[1], {
-      from: "8".repeat(40),
-      to: "9".repeat(40),
-      onto: "6".repeat(40),
-      replayedHead: "a".repeat(40),
-      originalCount: 1,
-      messagesDigest: foldMessagesDigest("feat(c): three"),
-      repairCommits: [],
-    });
-    assert.strictEqual(rows[0]!.repairCommits[0]!.subject, "fix: keep a | pipe and a \\ slash");
-    assert.deepStrictEqual(restoreFoldSegments(folds, rows), folds);
-  });
-
-  it("refuses a record whose fold chain no longer matches the report", () => {
-    const root = fixtureRoot();
-    const folds = [foldSegment()];
-    const record = renderRecord(folded(root, folds));
-    const rows = parseFoldSection(record)!;
-    assert.throws(
-      () => restoreFoldSegments([{ ...folds[0]!, originalMessages: "feat(z): different" }], rows),
-      /does not match the report/,
-    );
-    assert.throws(() => restoreFoldSegments([], rows), /does not match the report/);
+    const state = folded(root, folds);
+    // The report is the carrier: a save/load cycle keeps every fold field exact.
+    const reloaded = validateReport(JSON.parse(JSON.stringify(state)));
+    assert.deepStrictEqual(reloaded.folds, folds);
+    const record = renderRecord(state);
+    assert.include(record, "## Folds");
+    assert.include(record, foldMessagesDigest(folds[0]!.originalMessages));
+    assert.include(record, foldMessagesDigest("feat(c): three"));
+    assert.include(record, "fix: keep a \\| pipe and a \\\\ slash");
+    // An edited record changes nothing: the next render comes from the report alone.
+    NodeFS.writeFileSync(NodePath.join(root, "record.md"), "clobbered\n");
+    assert.strictEqual(renderRecord(reloaded), record);
   });
 
   it("validates fold fields on the report and keeps existing foldless reports valid", () => {
@@ -9394,68 +9456,6 @@ describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
         }),
       /fold publication is invalid/,
     );
-  });
-
-  it("parses the current walk-record shape as a foldless report", () => {
-    // Inline copy of a current walk record: no Folds section, no incorporated-source line.
-    const record = [
-      "## Header",
-      "",
-      `- Source: \`origin/hyprws@${"b891577fbf4bebf2974e916bcb1e64a3741783b7"}\``,
-      "- Target: `v0.0.41-nightly.20260913.1625@2db675aeffd9cb1e8b5ad76ddd018433b45b02e9`",
-      "- `expected_old`: `b891577fbf4bebf2974e916bcb1e64a3741783b7`",
-      "- Lease: report leased at `b891577fbf4bebf2974e916bcb1e64a3741783b7` (origin/hyprws) — any movement of `origin/hyprws` voids this rehearsal; restart at `vp run fork:sync unblock-list`",
-      "- Rehearsal branch: `rehearse/v0.0.41-nightly.20260913.1625-from-b891577fbf4b`",
-      "- Rebased head: `absent`",
-      "- Stack size: `219` fork commits",
-      "",
-      "## Conflicts",
-      "",
-      "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`); write a literal backslash as `\\\\`.",
-      "",
-      "| Fork commit and subject | Domain | File | Class | Resolution | Agent-safe? | Decided by |",
-      "| --- | --- | --- | --- | --- | --- | --- |",
-      "| `347da0d7ad9e` `refactor(web): centralize thread route navigation` | project-windows | `apps/web/src/components/ChatView.tsx` | mechanical | rerere replay | true | agent |",
-      "",
-      "## Automerged overlap review",
-      "",
-      "See orientation in the JSON report.",
-      "",
-      "## Fork commits",
-      "",
-      "None.",
-      "",
-      "## Silent seams",
-      "",
-      "None.",
-      "",
-      "## Decisions",
-      "",
-      "None.",
-      "",
-      "## Repair commits",
-      "",
-      "None.",
-      "",
-      "## Verification",
-      "",
-      "",
-      "## Grounding",
-      "",
-      "None.",
-      "",
-      "do-not-land",
-      "",
-    ].join("\n");
-    assert.strictEqual(parseFoldRecordHeader(record), undefined);
-    assert.strictEqual(parseFoldSection(record), undefined);
-    const parsed = parseRecord(record);
-    assert.strictEqual(parsed.conflicts.length, 1);
-    assert.strictEqual(
-      parsed.conflicts[0]!.subject,
-      "refactor(web): centralize thread route navigation",
-    );
-    assert.deepStrictEqual(parsed.decisions, []);
   });
 });
 
@@ -9620,8 +9620,14 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
         if (command === "gh") {
           if (args[0] === "issue" && args[1] === "comment") {
             if (options.commentResult !== undefined) return options.commentResult();
-            if (options.commentUrl !== undefined)
-              return { status: 0, stdout: `${options.commentUrl}\n`, stderr: "" };
+            // Posting a comment always answers with its URL, and the report persists that URL as
+            // the ledger row's only pointer to the record, so the default is a real one
+            // (RSI-Software/t3code-hyprws#1144).
+            return {
+              status: 0,
+              stdout: `${options.commentUrl ?? "https://example.test/record#issuecomment-1"}\n`,
+              stderr: "",
+            };
           } else if (args[0] === "api" && args.includes("--jq"))
             return { status: 0, stdout: `${options.recordBody?.() ?? ""}`, stderr: "" };
           if (args[0] === "api" && args.includes("-X") && options.patchResult !== undefined)
@@ -9819,6 +9825,10 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
         stage: "checked",
         installedHead: head,
         rebasedHead: head,
+        // The apply persists the record comment before it pushes, so a report that carries a
+        // publication receipt necessarily carries the comment the ledger row points at
+        // (RSI-Software/t3code-hyprws#1144).
+        recordCommentUrl: "https://example.test/record#issuecomment-1",
         publication: {
           expectedOld: landing,
           head,
@@ -9915,7 +9925,6 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       };
       const context: FoldVerbContext = {
         rehearsalRebaseArgs,
-        preserveRecordDecisions,
         rehearsalConflictStop,
         recordWalkStop,
         unblockCheck: () => {
@@ -10085,7 +10094,9 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const row = stopped.conflicts[stopped.conflicts.length - 1]!;
       assert.strictEqual(row.path, "seam.txt");
       assert.include(row.subject, "(fold 1)");
-      // Resolve the seam, stage it, and fill the record's TODO cells like the human handoff does.
+      // Resolve the seam and stage it, then fill the record's TODO cells the way the old handoff
+      // did. The record is a projection now, so those edits authorize nothing and the resume
+      // still refuses (RSI-Software/t3code-hyprws#1144).
       NodeFS.writeFileSync(NodePath.join(item.lane, "seam.txt"), "resolved\n");
       gitRun(item.lane, ["add", "seam.txt"]);
       const recordPath = stopped.recordPath;
@@ -10096,6 +10107,29 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       );
       assert.notStrictEqual(record, filledRecord);
       NodeFS.writeFileSync(recordPath, filledRecord);
+      assert.throws(
+        () => execute(["unblock-rehearse", "--report", stopped.reportPath], item.trunk),
+        /report row still on TODO/,
+      );
+      // The typed, signed decisions are the only thing that clears the handoff.
+      const ledger = ledgerEnv(item.trunk, recordPath);
+      try {
+        execute(
+          [
+            "record-decisions",
+            "--report",
+            stopped.reportPath,
+            "--tag",
+            "v1.2.3",
+            "--input",
+            decisionInputFile(stopped),
+          ],
+          item.trunk,
+          wrapperRunner(),
+        );
+      } finally {
+        ledger.restore();
+      }
       const resumed = execute(["unblock-rehearse", "--report", stopped.reportPath], item.trunk);
       assert.strictEqual(resumed.stage, "replayed");
       assert.strictEqual(resumed.activeFold, undefined);
@@ -10153,9 +10187,9 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const landing = item.land("up1.txt", "1\n", "upstream landing 1");
       const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
       const head = folded.folds![0]!.replayedHead!;
-      const record = renderRecord({ ...folded, rebasedHead: head, stackSize: 2 });
+      const bound = { ...folded, rebasedHead: head, stackSize: 2 } satisfies SyncReport;
       assert.deepStrictEqual(
-        inspectRecord(record, {
+        inspectReport(bound, {
           targetTag: "v1.2.3",
           targetSha: item.sharedBase,
           expectedOld: landing,
@@ -10165,7 +10199,7 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
         [],
       );
       assert.notDeepEqual(
-        inspectRecord(record, {
+        inspectReport(bound, {
           targetTag: "v1.2.3",
           targetSha: item.sharedBase,
           expectedOld: item.landed,
@@ -10208,7 +10242,6 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       NodeFS.writeFileSync(foldedChecked.recordPath, renderRecord(foldedChecked));
       const context: FoldVerbContext = {
         rehearsalRebaseArgs,
-        preserveRecordDecisions,
         rehearsalConflictStop,
         recordWalkStop,
         unblockCheck: () => {
@@ -10349,6 +10382,8 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
         stage: "checked",
         installedHead: head,
         rebasedHead: head,
+        // Persisted before the push, so any receipt carries it (RSI-Software/t3code-hyprws#1144).
+        recordCommentUrl: "https://example.test/record#issuecomment-1",
         publication: { expectedOld: landing, head, recordDigest: sha256(record) },
       };
       NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
@@ -10390,7 +10425,15 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       const ledger = ledgerEnv(recordedItem.trunk, stopped.recordPath);
       try {
         const recorded = execute(
-          ["record-decisions", "--report", stopped.reportPath, "--tag", "v1.2.3"],
+          [
+            "record-decisions",
+            "--report",
+            stopped.reportPath,
+            "--tag",
+            "v1.2.3",
+            "--input",
+            decisionInputFile(stopped),
+          ],
           recordedItem.trunk,
           wrapperRunner(),
         );
@@ -10412,15 +10455,23 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
       NodeFS.writeFileSync(NodePath.join(item.lane, "seam.txt"), "resolved\n");
       gitRun(item.lane, ["add", "seam.txt"]);
-      const record = NodeFS.readFileSync(stopped.recordPath, "utf8");
-      const filledRecord = record.replace(
-        /\| TODO \| TODO \| TODO \| TODO \|/,
-        "| mechanical | resolved by hand in the lane | yes | human |",
-      );
-      assert.notStrictEqual(record, filledRecord);
-      NodeFS.writeFileSync(stopped.recordPath, filledRecord);
       const ledger = ledgerEnv(item.trunk, stopped.recordPath);
       try {
+        // The verdicts come from typed, signed input; the rendered record carries none
+        // (RSI-Software/t3code-hyprws#1144).
+        execute(
+          [
+            "record-decisions",
+            "--report",
+            stopped.reportPath,
+            "--tag",
+            "v1.2.3",
+            "--input",
+            decisionInputFile(stopped),
+          ],
+          item.trunk,
+          wrapperRunner(),
+        );
         const runner = wrapperRunner();
         const finished: SyncReport = execute(
           ["unblock-auto", "--report", stopped.reportPath],

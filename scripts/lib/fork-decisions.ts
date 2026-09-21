@@ -91,27 +91,8 @@ export const appendDecision = (
   return [...decisions.filter((row) => walkDecisionIdentity(row) !== identity), decision];
 };
 
-const section = (record: string, heading: string): string =>
-  record.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
-
 const escapeCell = (value: string): string =>
   value.replaceAll("\\", "\\\\").replaceAll("|", "\\|").replaceAll("\n", " ");
-
-const unescapeCell = (value: string): string => {
-  let result = "";
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index] ?? "";
-    if (character !== "\\") {
-      result += character;
-      continue;
-    }
-    const escaped = value[index + 1];
-    if (escaped !== "\\" && escaped !== "|") return result;
-    result += escaped;
-    index += 1;
-  }
-  return result;
-};
 
 /** One rendered decision row: `- \`subject\` (kind, outcome, decider, stamp, from) at \`path\``. */
 export const decisionLine = (decision: WalkDecision): string =>
@@ -122,30 +103,3 @@ export const decisionLine = (decision: WalkDecision): string =>
     })`,
     ...(decision.path === undefined ? [] : [`at \`${escapeCell(decision.path)}\``]),
   ].join(" ");
-
-const DECISION_ROW =
-  /^- `(.+)` \((\w+), ([^,]+), (machine|rerere|human), ([^,)]+)(?:, from ([^)]+))?\)(?: at `(.*)`)?$/;
-
-/** Read the walk's decision records back from a rendered record; the walk tag comes from the header. */
-export const parseDecisionRecords = (record: string): ReadonlyArray<WalkDecision> => {
-  const tag = /^- Target: `([^@`]+)@/m.exec(record)?.[1] ?? "unknown";
-  const rows: Array<WalkDecision> = [];
-  for (const line of section(record, "## Decisions").split("\n")) {
-    const match = DECISION_ROW.exec(line);
-    if (match === null) continue;
-    const kind = match[2] as DecisionKind;
-    const stamp = (match[5] ?? "").trim();
-    if (!KINDS.includes(kind) || !ISO_STAMP.test(stamp)) continue;
-    rows.push({
-      kind,
-      subject: unescapeCell(match[1] ?? ""),
-      outcome: (match[3] ?? "").trim(),
-      decidedBy: (match[4] ?? "") as DecisionDecider,
-      tag,
-      recordedAt: stamp,
-      ...((match[6] ?? "").trim().length === 0 ? {} : { from: (match[6] ?? "").trim() }),
-      ...(match[7] === undefined ? {} : { path: unescapeCell(match[7]) }),
-    });
-  }
-  return rows;
-};
