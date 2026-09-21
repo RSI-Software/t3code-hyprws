@@ -211,8 +211,8 @@ export const startRecording = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_RECORDING_START_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     const store = yield* DesktopClientSettings.DesktopClientSettings;
     const settings = yield* store.get;
     const options = Option.map(settings, (value) => ({
