@@ -38,6 +38,7 @@ const fixture = (options: {
   readonly upstreamContent: string;
   /** The fork branches from the tagged upstream commit instead of its base. */
   readonly forkOnTag?: boolean;
+  readonly nightlyTag?: boolean;
 }): Fixture => {
   const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
   const git = (args: ReadonlyArray<string>, cwd = base): string => {
@@ -70,7 +71,25 @@ const fixture = (options: {
     NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), options.upstreamContent);
     git(["commit", "--quiet", "-am", "upstream change"], repo);
     git(["tag", "v1.0.0"], repo);
-    git(["push", "--quiet", "upstream", "main", "v1.0.0"], repo);
+    if (options.nightlyTag === true) {
+      NodeFS.writeFileSync(
+        NodePath.join(repo, "shared.txt"),
+        `${options.upstreamContent}upstream more\n`,
+      );
+      git(["commit", "--quiet", "-am", "upstream nightly"], repo);
+      git(["tag", "v1.0.1-nightly.20260901.1"], repo);
+    }
+    git(
+      [
+        "push",
+        "--quiet",
+        "upstream",
+        "main",
+        "v1.0.0",
+        ...(options.nightlyTag === true ? ["v1.0.1-nightly.20260901.1"] : []),
+      ],
+      repo,
+    );
   };
 
   // The fork branches from the base, or from the tag itself when it already sits on it.
@@ -258,6 +277,25 @@ it("exits 0 with already applied when the fork sits on the tag", () => {
       assert.strictEqual(report.outcome, "already-applied");
       assert.strictEqual(report.conflicts.length, 0);
       assert.strictEqual(report.trunk.after, report.trunk.before);
+    },
+  );
+});
+
+it("picks the newest upstream release tag when no tag is given", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+    },
+    (f) => {
+      const { runner } = exec();
+      const code = capture(() => run(["--dry-run"], { runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.1-nightly.20260901.1");
+      assert.strictEqual(report.target.tag, "v1.0.1-nightly.20260901.1");
+      assert.strictEqual(report.outcome, "applied");
+      assert.strictEqual(report.conflicts.length, 0);
     },
   );
 });
