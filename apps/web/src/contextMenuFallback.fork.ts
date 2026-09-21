@@ -14,6 +14,12 @@ export const forkIconPaths: Record<
     { tag: "path", attrs: { d: "m3 8 4-4 4 4" } },
     { tag: "path", attrs: { d: "M7 4v16" } },
   ],
+  // Lucide `external-link`: the glyph for Open in New Window.
+  "external-link": [
+    { tag: "path", attrs: { d: "M15 3h6v6" } },
+    { tag: "path", attrs: { d: "M10 14 21 3" } },
+    { tag: "path", attrs: { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" } },
+  ],
   // Lucide `git-fork`: the glyph for Fork thread.
   "git-fork": [
     { tag: "circle", attrs: { cx: "12", cy: "18", r: "3" } },
