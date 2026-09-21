@@ -23,6 +23,7 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import { renderOrientation, type Orientation } from "./fork-orient.ts";
 import {
   FORK_RETIREMENT_LEDGER_PATH,
   readForkRetirementLedger,
@@ -122,18 +123,14 @@ import {
   DECISION_ACTIONS,
   externalPath,
   extractBlockingSha,
-  filledDecisionCells,
   git,
   gitRaw,
   lines,
   NIGHTLY_REVIEW_EVIDENCE,
   NO_GROUNDING_CLAIM,
   oneValue,
-  orientationDecisionRows,
-  orientationTouchedPaths,
-  parseConflictRows,
-  parseDecisionRows,
   parseVerbArgs,
+  recordDecisionRows,
   renderNightlyReview,
   renderRecord,
   readReport,
@@ -169,13 +166,9 @@ import {
 } from "./fork-sync-state.ts";
 
 export {
-  filledDecisionCells,
   NIGHTLY_REVIEW_EVIDENCE,
   NIGHTLY_WITHHOLD_RULES,
   NO_GROUNDING_CLAIM,
-  orientationDecisionRows,
-  orientationTouchedPaths,
-  parseConflictRows,
   renderNightlyReview,
   renderRecord,
   validateReport,
@@ -746,13 +739,25 @@ const unblockOrient = (
   // used to leave no outcome bundle — the receipt guards see a report with no bound target yet
   // and return nothing.
   declareSyncOutcome(report, { tag: targetTag, sha: liveTarget }, expectedOld);
-  const orientation = requireSuccess(
-    runner,
-    "node",
-    ["scripts/fork-orient.ts", "--target", targetTag],
-    root,
+  // Orientation is read as the typed `Orientation` it always was; the prose is rendered from it
+  // for the record and never scraped back (RSI-Software/t3code-hyprws#1144).
+  const oriented = JSON.parse(
+    requireSuccess(
+      runner,
+      "node",
+      ["scripts/fork-orient.ts", "--target", targetTag, "--json"],
+      root,
+    ),
+  ) as Orientation;
+  const orientation = renderOrientation(oriented);
+  const orientationDecisions: ReadonlyArray<OrientationDecisionRow> = oriented.retireCandidates.map(
+    (candidate) => ({
+      verdict: candidate.decision as OrientationDecisionRow["verdict"],
+      subject: candidate.subject,
+      domain: candidate.domain,
+      decidedBy: "TODO",
+    }),
   );
-  const orientationDecisions = orientationDecisionRows(orientation);
   const retireEvidence = collectRetireEvidence(
     runner,
     root,
@@ -770,7 +775,7 @@ const unblockOrient = (
     orientationDecisions,
     retireEvidence,
     inheritedVerdicts,
-    touchedPaths: orientationTouchedPaths(orientation),
+    touchedPaths: [...oriented.overlap.automerged].toSorted(),
   };
   writeReport(next);
   writeRecord(next);
@@ -994,33 +999,14 @@ const assertRetiredInLedger = (subjects: ReadonlySet<string>, cwd: string): void
   }
 };
 
+/**
+ * Every subject this walk retires, read from the report's own decision table. The rendered record
+ * is a projection of that table, so it is never re-read (RSI-Software/t3code-hyprws#1144).
+ */
 const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
   const subjects = new Set<string>();
-  for (const row of report.recordDecisions ?? []) {
-    if (row.action === "retire") subjects.add(row.subject);
-  }
-  for (const row of report.orientationDecisions ?? []) {
+  for (const row of recordDecisionRows(report)) {
     if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
-  }
-  if (report.recordPath !== undefined && NodeFS.existsSync(report.recordPath)) {
-    let text: string;
-    try {
-      text = NodeFS.readFileSync(report.recordPath, "utf8");
-    } catch (error) {
-      throw new Error(
-        `failed to read retire decisions from ${report.recordPath}: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-    for (const row of filledDecisionCells(text)) {
-      if (row.action === "retire") subjects.add(row.subject);
-    }
-    // A record a stop left partly undecided carries fork-commit rows whose Action cell is still
-    // TODO (#876). This reader only looks for retire rows, so it tolerates the undecided cells
-    // instead of rejecting a record the pending ledger row legally carries.
-    for (const row of parseDecisionRows(text, { allowIncomplete: true })) {
-      if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
-    }
   }
   return subjects;
 };
@@ -1369,7 +1355,6 @@ const unblockRehearse = (
     if (report.lane === undefined) throw new Error("rehearsal lane is missing");
     const lane = report.lane;
     const rebasing = rebaseInProgress(runner, lane.worktree);
-    const recordRows = parseConflictRows(NodeFS.readFileSync(report.recordPath, "utf8"));
     const pending = report.conflicts.filter(
       (row) =>
         row.resolution === "TODO" ||
@@ -1380,25 +1365,18 @@ const unblockRehearse = (
     // stop that names one row at a time costs the operator a rerun for each of them.
     const handoffGaps: Array<string> = [];
     for (const row of pending.filter(({ class: klass }) => klass !== "generated")) {
-      const edited = recordRows.find(
-        (candidate) => candidate.path === row.path && candidate.subject === row.subject,
-      );
-      if (edited === undefined) {
-        handoffGaps.push(`${row.path}: the record carries no row for ${row.subject}`);
-        continue;
-      }
       const blank = (
         [
-          ["class", edited.class],
-          ["resolution", edited.resolution],
-          ["agent-safe", edited.agentSafe],
-          ["decided by", edited.decidedBy],
+          ["class", row.class],
+          ["resolution", row.resolution],
+          ["agent-safe", row.agentSafe],
+          ["decided by", row.decidedBy],
         ] as const
       )
         .filter(([, cell]) => cell === "TODO")
         .map(([name]) => name);
       if (blank.length > 0)
-        handoffGaps.push(`${row.path}: record row still on TODO for ${blank.join(", ")}`);
+        handoffGaps.push(`${row.path}: report row still on TODO for ${blank.join(", ")}`);
     }
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
@@ -1442,14 +1420,11 @@ const unblockRehearse = (
     }
     report = {
       ...report,
-      conflicts: report.conflicts.map((row) => {
-        if (pending.includes(row) && row.class === "generated")
-          return completeGeneratedConflictRegeneration(row);
-        return (
-          recordRows.find((edited) => edited.path === row.path && edited.subject === row.subject) ??
-          row
-        );
-      }),
+      conflicts: report.conflicts.map((row) =>
+        pending.includes(row) && row.class === "generated"
+          ? completeGeneratedConflictRegeneration(row)
+          : row,
+      ),
     };
     const retiredForRehearse = retiredSubjectsForReport(report);
     const pendingRetiredSubjects = new Set(
@@ -1509,17 +1484,13 @@ const unblockRehearse = (
     // dirty-lane allowance covers the automerge material the stop staged and record-decisions
     // accepts the report (RSI-Software/t3code-hyprws#922, #1089). The same shape the fold conflict
     // stop writes.
-    report = preserveRecordDecisions(
-      recordWalkStop(
-        {
-          ...report,
-          stage: "conflicts",
-          conflicts: [...report.conflicts, ...additions],
-        },
-        `rehearsal conflict at ${commit.subject} (${commit.sha.slice(0, 12)}): ${conflicts.join(
-          ", ",
-        )}`,
-      ),
+    report = recordWalkStop(
+      {
+        ...report,
+        stage: "conflicts",
+        conflicts: [...report.conflicts, ...additions],
+      },
+      `rehearsal conflict at ${commit.subject} (${commit.sha.slice(0, 12)}): ${conflicts.join(", ")}`,
     );
     writeReport(report);
     writeRecord(report);
@@ -1549,15 +1520,13 @@ const unblockRehearse = (
   const size = walkSizeRecord(report, runner);
   // The replay passing supersedes any earlier battery stop the walk carries: the resumed walk
   // proved the series it once stopped on (RSI-Software/t3code-hyprws#1073).
-  report = preserveRecordDecisions(
-    clearWalkStop({
-      ...report,
-      stage: "replayed",
-      rebasedHead,
-      stackSize,
-      walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-    }),
-  );
+  report = clearWalkStop({
+    ...report,
+    stage: "replayed",
+    rebasedHead,
+    stackSize,
+    walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -2082,27 +2051,6 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * The record is the decision surface, so a cell filled there is the decision — a rerun that
- * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
- * was a human gate on a lane that has no human in it. Every verb that rewrites the record runs
- * this first, rehearse included: a rehearsal resumed after the operator filled a cell must not
- * re-mint it as `TODO`.
- */
-export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
-  if (!NodeFS.existsSync(report.recordPath)) return report;
-  const filled = filledDecisionCells(NodeFS.readFileSync(report.recordPath, "utf8"));
-  if (filled.length === 0) return report;
-  const filledSubjects = new Set(filled.map(({ subject }) => subject));
-  return {
-    ...report,
-    recordDecisions: [
-      ...(report.recordDecisions ?? []).filter(({ subject }) => !filledSubjects.has(subject)),
-      ...filled,
-    ],
-  };
-};
-
-/**
  * Workflow drift the walk repairs mechanically (RSI-Software/t3code-hyprws#1071): the drift
  * reader binds the reviews file at the lane head, so only a commit clears it. When the fork side
  * of a drifted copy is byte-identical to the last review, the upstream side moved alone and the
@@ -2343,7 +2291,6 @@ const unblockCheck = (
   } else {
     if (report.lane === undefined || report.target === undefined)
       throw new Error("replay binding is incomplete");
-    report = preserveRecordDecisions(report);
     verifyReplay(report, runner);
   }
   const lane = report.lane!;
@@ -2829,49 +2776,47 @@ const unblockCheck = (
   const headDrifted =
     report.rebasedHead !== undefined &&
     (checkedHead !== report.rebasedHead || laneStackSize !== report.stackSize);
-  report = preserveRecordDecisions(
-    clearWalkStop({
-      ...report,
-      stage: "checked",
-      installedHead: checkedHead,
-      ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
-        ? {
-            rebasedHead: checkedHead,
-            stackSize: laneStackSize,
-          }
-        : {}),
-      ...(foldsWithRepairs.length > 0 &&
-      (foldsWithRepairs !== report.folds ||
-        foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
-        ? {
-            folds: foldsWithRepairs.map((fold, position) =>
-              position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
-            ),
-          }
-        : {}),
-      ...(ciHead === undefined ? {} : { ciHead }),
-      ...(proposedBy === undefined ? {} : { proposedBy }),
-      verification,
-      walk: (() => {
-        // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
-        // are now folded into their owners, and an empty list must not leave the stale array behind.
-        const walk = { ...(report.walk ?? {}), repairs: verification };
-        if (repairCommits.length === 0) delete walk.repairCommits;
-        else walk.repairCommits = repairCommits;
-        return walk;
-      })(),
-      // Declared seams replace the recorded rows by path, so the operator repeats only the flags
-      // that changed; a path not re-declared keeps its recorded summary and type.
-      silentSeams: uniqueSilentSeams([
-        ...(report.silentSeams ?? []).filter(
-          (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
-        ),
-        ...silentSeams,
-      ]),
-      // A checked lane passed the repair battery the walk once stopped on, so the resumed walk no
-      // longer carries that stop (RSI-Software/t3code-hyprws#1073).
-    }),
-  );
+  report = clearWalkStop({
+    ...report,
+    stage: "checked",
+    installedHead: checkedHead,
+    ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+      ? {
+          rebasedHead: checkedHead,
+          stackSize: laneStackSize,
+        }
+      : {}),
+    ...(foldsWithRepairs.length > 0 &&
+    (foldsWithRepairs !== report.folds ||
+      foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
+      ? {
+          folds: foldsWithRepairs.map((fold, position) =>
+            position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
+          ),
+        }
+      : {}),
+    ...(ciHead === undefined ? {} : { ciHead }),
+    ...(proposedBy === undefined ? {} : { proposedBy }),
+    verification,
+    walk: (() => {
+      // Always override `repairCommits`: the spread may carry a pre-autosquash entry whose fixups
+      // are now folded into their owners, and an empty list must not leave the stale array behind.
+      const walk = { ...(report.walk ?? {}), repairs: verification };
+      if (repairCommits.length === 0) delete walk.repairCommits;
+      else walk.repairCommits = repairCommits;
+      return walk;
+    })(),
+    // Declared seams replace the recorded rows by path, so the operator repeats only the flags
+    // that changed; a path not re-declared keeps its recorded summary and type.
+    silentSeams: uniqueSilentSeams([
+      ...(report.silentSeams ?? []).filter(
+        (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
+      ),
+      ...silentSeams,
+    ]),
+    // A checked lane passed the repair battery the walk once stopped on, so the resumed walk no
+    // longer carries that stop (RSI-Software/t3code-hyprws#1073).
+  });
   writeReport(report);
   writeRecord(report);
   const leaseSha = report.source?.expectedOld ?? report.rewrite?.originSha;
@@ -3546,11 +3491,13 @@ const publishChurnRow = (report: SyncReport, tag: string): SyncReport => {
   // trunk into the root first (#700). A failed fetch is absorbed: the scan degrades to an empty
   // listing rather than failing the append, and the row shows the absence instead of dying.
   runCommand("git", ["fetch", "--quiet", "origin", HYPRWS_REF], { cwd: report.repositoryRoot });
+  // The row is read from the report on disk, so the in-memory state must be persisted first.
+  writeReport(report);
   return ledgerWrite(report, "churn row", () =>
     appendChurnRow(
       [
-        "--record",
-        report.recordPath,
+        "--report",
+        report.reportPath,
         "--issue",
         String(report.issue.number),
         "--tag",
@@ -3596,11 +3543,12 @@ const publishPendingDecisionRow = (
     );
     return report;
   }
+  writeReport(report);
   return ledgerWrite(report, "pending decision row", () =>
     appendChurnRow(
       [
-        "--record",
-        report.recordPath,
+        "--report",
+        report.reportPath,
         "--issue",
         String(report.issue.number),
         "--tag",
@@ -3743,7 +3691,6 @@ const recordWalkStop = (report: SyncReport, detail: string): SyncReport => ({
 
 const foldVerbContext: FoldVerbContext = {
   rehearsalRebaseArgs,
-  preserveRecordDecisions,
   unblockCheck,
   rehearsalConflictStop,
   recordWalkStop,
@@ -3896,8 +3843,8 @@ const unblockApply = (
     "fork:sync-gate",
     "--tag",
     gateTag,
-    "--record",
-    recordPath,
+    "--report",
+    report.reportPath,
     ...(isNightlyUpstreamTag(gateTag) ? ["--allow-nightly"] : []),
   ];
   requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
@@ -4423,7 +4370,7 @@ const refreshRehearsalHead = (report: SyncReport, runner: CommandRunner): SyncRe
   // then refuses one verb later on answers nobody withdrew (RSI-Software/t3code-hyprws#695).
   // The rebind is also a passing stage: an earlier battery stop the report carries is superseded
   // (RSI-Software/t3code-hyprws#1073).
-  const preserved = preserveRecordDecisions(clearWalkStop(next));
+  const preserved = clearWalkStop(next);
   writeReport(preserved);
   writeRecord(preserved);
   return preserved;
@@ -5223,10 +5170,6 @@ const walkOnce = (
     }
 
     if (report.stage === "checked") {
-      // A cell the operator filled after the check is the decision (RSI-Software/
-      // t3code-hyprws#1068): preserve it before the regeneration, the same way the check and
-      // rehearse verbs do, or the rewrite renders every filled cell back to TODO.
-      report = preserveRecordDecisions(report);
       report = autoGateFour(report);
       writeReport(report);
       writeRecord(report);

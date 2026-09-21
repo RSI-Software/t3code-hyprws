@@ -28,12 +28,9 @@ import {
 
 export {
   foldMessagesDigest,
-  parseFoldRecordHeader,
-  parseFoldSection,
   renderFoldHeader,
   renderFoldSection,
   requireFoldSegment,
-  restoreFoldSegments,
   type ActiveFold,
   type FoldPublication,
   type FoldSegment,
@@ -983,16 +980,12 @@ export const baseDecisionRows = (report: SyncReport): ReadonlyMap<string, Decisi
   return decisions;
 };
 
-export const renderRecord = (report: SyncReport): string => {
-  if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
-  const target = report.target;
-  const source = report.source;
-  const lane = report.lane;
-  const head = report.rebasedHead ?? "absent";
-  const rows = report.conflicts.map(
-    (row) =>
-      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} | ${row.decidedBy} |`,
-  );
+/**
+ * The decision table as the record renders it and the ledger stores it: the replay's base rows,
+ * then the operator cells `record-decisions` persisted, then the inherited carry. The record is a
+ * rendering of this map, never its source (RSI-Software/t3code-hyprws#1144).
+ */
+export const decisionTableRows = (report: SyncReport): ReadonlyMap<string, DecisionTableRow> => {
   const decisions = new Map(baseDecisionRows(report));
   // A cell an operator filled by hand outlives regeneration; the report is otherwise the only truth
   // and would reset the decision to TODO.
@@ -1023,15 +1016,36 @@ export const renderRecord = (report: SyncReport): string => {
       decidedBy: `inherited (${inherited.sourceTag})` as DecidedBy,
     });
   }
-  const decisionRows = [...decisions.values()].map((row) => {
-    const inherited = inheritedBySubject.get(row.subject);
-    const decidedCell =
-      inherited !== undefined &&
-      row.decidedBy === (`inherited (${inherited.sourceTag})` as DecidedBy)
-        ? row.decidedBy
-        : row.decidedBy;
-    return `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${decidedCell} |`;
+  return decisions;
+};
+
+/** The ledger's view of the same table: one orientation row per decided subject. */
+export const recordDecisionRows = (report: SyncReport): ReadonlyArray<OrientationDecisionRow> =>
+  [...decisionTableRows(report).values()].map((row) => {
+    const qualified = DECISION_ACTIONS.includes(row.action as DecisionAction);
+    return {
+      subject: row.subject,
+      domain: row.domain,
+      verdict: (qualified ? "keep" : row.action) as OrientationDecisionRow["verdict"],
+      ...(qualified ? { action: row.action as DecisionAction } : {}),
+      decidedBy: row.decidedBy,
+    };
   });
+
+export const renderRecord = (report: SyncReport): string => {
+  if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
+  const target = report.target;
+  const source = report.source;
+  const lane = report.lane;
+  const head = report.rebasedHead ?? "absent";
+  const rows = report.conflicts.map(
+    (row) =>
+      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} | ${row.decidedBy} |`,
+  );
+  const decisionRows = [...decisionTableRows(report).values()].map(
+    (row) =>
+      `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${row.decidedBy} |`,
+  );
   const folds = report.folds ?? [];
   const leaseBoundary =
     source?.expectedOld === undefined
@@ -1249,47 +1263,6 @@ export const reviewBoundRows = (record: string): string => {
   return `${header}\n${tables}`;
 };
 
-export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> => {
-  const section = recordSection(record, "## Conflicts");
-  const rows: Array<ConflictRow> = [];
-  for (const line of section.split("\n")) {
-    const cells = splitTableCells(line);
-    if (cells === null || cells[0] === "Fork commit and subject") continue;
-    if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 6 && cells.length !== 7) {
-      throw new Error(`invalid conflict row: expected 6 or 7 columns, found ${cells.length}`);
-    }
-
-    const commitAndSubject = /^`([0-9a-f]{7,12})` `([^`]*)`$/.exec(cells[0] ?? "");
-    if (commitAndSubject === null)
-      throw invalidConflictCell("Fork commit and subject", "expected `sha` `subject`");
-    const path = /^`([^`]*)`$/.exec(cells[2] ?? "");
-    if (path === null) throw invalidConflictCell("File", "expected a backticked path");
-
-    const domain = cells[1] ?? "";
-    if (/\\[\\|]/.test(domain))
-      throw invalidConflictCell("Domain", "escaped pipes and backslashes are not accepted");
-    const klass = cells[3] ?? "TODO";
-    if (
-      !["generated", "mechanical", "seam-moved", "retire-candidate", "human", "TODO"].includes(
-        klass,
-      )
-    )
-      throw invalidConflictCell("Class", klass);
-    rows.push({
-      commit: commitAndSubject[1] ?? "",
-      subject: unescapeCell(commitAndSubject[2] ?? "", "Subject"),
-      domain,
-      path: unescapeCell(path[1] ?? "", "File"),
-      class: klass as ConflictRow["class"],
-      resolution: unescapeCell(cells[4] ?? "", "Resolution"),
-      agentSafe: unescapeCell(cells[5] ?? "", "Agent-safe"),
-      decidedBy: readDecidedBy(cells[6], (detail) => invalidConflictCell("Decided by", detail)),
-    });
-  }
-  return rows;
-};
-
 /** Keep actions an agent may record on its own, each naming the proof that earned it. */
 export const DECISION_ACTIONS = [
   "keep (mechanical seam)",
@@ -1298,122 +1271,6 @@ export const DECISION_ACTIONS = [
   // retiring a fork commit removes fork behaviour, and no walk does that without a human.
   "keep (target tree present)",
 ] as const satisfies ReadonlyArray<DecisionAction>;
-
-const invalidDecisionCell = (column: string, detail: string): Error =>
-  new Error(`invalid fork commit ${column} cell: ${detail}`);
-
-export const parseDecisionRows = (
-  record: string,
-  { allowIncomplete = false }: { allowIncomplete?: boolean } = {},
-): ReadonlyArray<OrientationDecisionRow> => {
-  const section = recordSection(record, "## Fork commits");
-  const rows: Array<OrientationDecisionRow> = [];
-  for (const line of section.split("\n")) {
-    const cells = splitTableCells(line);
-    if (cells === null || cells[0] === "Exact subject") continue;
-    if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 5 && cells.length !== 6) {
-      throw new Error(`invalid fork commit row: expected 5 or 6 columns, found ${cells.length}`);
-    }
-
-    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
-    if (subject === null)
-      throw invalidDecisionCell("Exact subject", "expected a backticked subject");
-    const domain = cells[1] ?? "";
-    if (/\\[\\|]/.test(domain))
-      throw invalidDecisionCell("Domain", "escaped pipes and backslashes are not accepted");
-    const action = cells[3] ?? "";
-    const qualified = DECISION_ACTIONS.includes(action as DecisionAction);
-    const verdict = qualified ? "keep" : action;
-    // A stopped walk's fork-commit rows keep their Action cells as TODO until decided; only the
-    // pending ledger row that carries the stop may read such a record (#662, #876).
-    const incomplete = verdict === "TODO" && allowIncomplete;
-    if (!incomplete && !["keep", "retire", "partial"].includes(verdict)) {
-      throw invalidDecisionCell(
-        "Action",
-        `expected keep, ${DECISION_ACTIONS.join(", ")}, retire, or partial; found ${action}`,
-      );
-    }
-    rows.push({
-      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
-      domain,
-      verdict: verdict as OrientationDecisionRow["verdict"],
-      ...(qualified ? { action: action as DecisionAction } : {}),
-      decidedBy: readDecidedBy(cells[5], (detail) => invalidDecisionCell("Decided by", detail)),
-    });
-  }
-  return rows;
-};
-
-/**
- * Decision cells an operator already filled, read without demanding a complete record. A row still
- * showing `TODO` carries no decision, so it is not returned.
- */
-export const filledDecisionCells = (record: string): ReadonlyArray<RecordDecision> => {
-  const section = recordSection(record, "## Fork commits");
-  const rows: Array<RecordDecision> = [];
-  for (const line of section.split("\n")) {
-    const cells = splitTableCells(line);
-    if (cells === null || cells[0] === "Exact subject") continue;
-    if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 5 && cells.length !== 6) continue;
-    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
-    const action = cells[3] ?? "";
-    if (subject === null || !["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(action))
-      continue;
-    const decidedBy = readDecidedBy(cells[5], (detail) =>
-      invalidDecisionCell("Decided by", detail),
-    );
-    if (decidedBy === "TODO") continue;
-    // Inherited verdicts never read back as live operator input; they are the carry-form.
-    if (isInheritedDecidedBy(decidedBy)) continue;
-    rows.push({
-      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
-      action,
-      // Inherited cells were already guarded above.
-      decidedBy: decidedBy as Exclude<DecidedBy, "TODO">,
-    });
-  }
-  return rows;
-};
-
-export const inheritedDecisionCells = (
-  record: string,
-): ReadonlyArray<InheritedVerdict & { readonly sourceTag: string }> => {
-  const section = recordSection(record, "## Fork commits");
-  const rows: Array<InheritedVerdict & { readonly sourceTag: string }> = [];
-  for (const line of section.split("\n")) {
-    const cells = splitTableCells(line);
-    if (cells === null || cells[0] === "Exact subject") continue;
-    if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 5 && cells.length !== 6) continue;
-    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
-    const domain = cells[1] ?? "";
-    const action = cells[3] ?? "";
-    if (subject === null || !["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(action))
-      continue;
-    const decidedBy = readDecidedBy(cells[5], (detail) =>
-      invalidDecisionCell("Decided by", detail),
-    );
-    const sourceTag = inheritedTarget(decidedBy);
-    if (sourceTag === null) continue;
-    rows.push({
-      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
-      domain,
-      action,
-      decidedBy: decidedBy as Exclude<DecidedBy, "TODO">,
-      sourceTag,
-    });
-  }
-  return rows;
-};
-
-export interface ParsedRecord {
-  readonly conflicts: ReadonlyArray<ConflictRow>;
-  readonly decisions: ReadonlyArray<OrientationDecisionRow>;
-  readonly nightlyReview?: NightlyReview;
-  readonly additive?: AdditiveRecordRow;
-}
 
 /** The additive outcome a walk record or a churn ledger row carries, counts only. */
 export interface AdditiveRecordRow {
@@ -1435,146 +1292,8 @@ export const requireAdditiveRecordRow = (
   return { pass: row.pass, attempts: row.attempts, findings: row.findings as number };
 };
 
-/** Parse the rendered `## Additive` section, absent on records written before #661. */
-export const parseAdditiveSummary = (record: string): AdditiveRecordRow | undefined => {
-  const section = recordSection(record, "## Additive");
-  if (section === "") return undefined;
-  const cell = (name: string): string | undefined =>
-    new RegExp(`^- ${name}: (.+)$`, "m").exec(section)?.[1]?.trim();
-  const pass = cell("pass");
-  const attempts = Number(cell("attempts"));
-  const findings = Number(cell("findings"));
-  if (pass !== "true" && pass !== "false") throw new Error("additive record section is incomplete");
-  return requireAdditiveRecordRow({ pass: pass === "true", attempts, findings });
-};
-
-const reviewIdentity = (section: string, label: string): AgentProvenance | undefined => {
-  const line = section.split("\n").find((value) => value.startsWith(`- ${label}: `));
-  const match =
-    /^- (?:Proposer|Reviewer): agent `([^/]+)\/([^/]+)\/([^`]+)`, session `([^`]+)`$/.exec(
-      line ?? "",
-    );
-  return match === null
-    ? undefined
-    : requireAgentProvenance(
-        {
-          iface: match[1] ?? "",
-          provider: match[2] ?? "",
-          model: match[3] ?? "",
-          session: match[4] ?? "",
-        },
-        `nightly ${label.toLowerCase()}`,
-      );
-};
-
-const reviewList = (
-  section: string,
-  label: string,
-  nextLabel: string | null,
-): ReadonlyArray<string> => {
-  const start = section.indexOf(`- ${label}:\n`);
-  if (start === -1) return [];
-  const rest = section.slice(start + label.length + 4);
-  const end = nextLabel === null ? rest.length : rest.indexOf(`\n- ${nextLabel}:\n`);
-  return (end === -1 ? rest : rest.slice(0, end))
-    .split("\n")
-    .filter((line) => line.startsWith("  - "))
-    .map((line) => line.slice(4));
-};
-
-/** Parse the durable nightly reviewer provenance from a rendered record. */
-export const parseNightlyReview = (record: string): NightlyReview | undefined => {
-  const review = recordSection(record, "## Nightly review");
-  const status = /^- Verdict: (signed-off|withheld)$/m.exec(review)?.[1] as
-    | NightlyReview["status"]
-    | undefined;
-  if (status === undefined) return undefined;
-  if (
-    JSON.stringify(reviewList(review, "Review evidence set", "Withhold on")) !==
-      JSON.stringify(NIGHTLY_REVIEW_EVIDENCE) ||
-    JSON.stringify(reviewList(review, "Withhold on", null)) !==
-      JSON.stringify(NIGHTLY_WITHHOLD_RULES)
-  )
-    throw new Error("nightly review declarations are incomplete");
-  const proposer = reviewIdentity(review, "Proposer");
-  const reviewer = reviewIdentity(review, "Reviewer");
-  if (proposer === undefined || reviewer === undefined)
-    throw new Error("nightly review provenance is incomplete");
-  const binding =
-    /^- Evidence binding: target `([^@`]+)@([^`]+)`; blocking `([^`]+)`; expected-old `([^`]+)`; installed `([^`]+)`; CI `([^`]+)`; lane `([^`]+)`; record `([^`]+)`$/m.exec(
-      review,
-    );
-  const reviewedAt = /^- Reviewed at: (.+)$/m.exec(review)?.[1];
-  if (reviewedAt === undefined) throw new Error("nightly review timestamp is missing");
-  const reason = /^- Withheld reason: (.+)$/m.exec(review)?.[1];
-  return requireNightlyReview({
-    status,
-    proposer,
-    reviewer,
-    reviewedAt,
-    ...(binding === null
-      ? {}
-      : {
-          evidence: {
-            target: binding[1] ?? "",
-            targetSha: binding[2] ?? "",
-            blockingSha: binding[3] ?? "",
-            expectedOld: binding[4] ?? "",
-            installedHead: binding[5] ?? "",
-            ciHead: binding[6] ?? "",
-            laneBranch: binding[7] ?? "",
-            recordDigest: binding[8] ?? "",
-            inspected: NIGHTLY_REVIEW_EVIDENCE,
-          },
-        }),
-    ...(reason === undefined ? {} : { reason }),
-  });
-};
-
-/** Reads the decision tables and review provenance for a landed walk. */
-export const parseRecord = (
-  record: string,
-  { allowIncomplete = false }: { allowIncomplete?: boolean } = {},
-): ParsedRecord => {
-  const conflicts = parseConflictRows(record);
-  const incomplete = conflicts.find((row) => row.class === "TODO");
-  // A stopped walk's record keeps its declined rows as TODO until the human resolves; only the
-  // pending ledger row that carries those decisions may read such a record (#662).
-  if (incomplete !== undefined && !allowIncomplete)
-    throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
-  const nightlyReview = parseNightlyReview(record);
-  const additive = parseAdditiveSummary(record);
-  return {
-    conflicts,
-    decisions: parseDecisionRows(record, { allowIncomplete }),
-    ...(nightlyReview === undefined ? {} : { nightlyReview }),
-    ...(additive === undefined ? {} : { additive }),
-  };
-};
-
 export const orientationReviewSection = (orientation: string): string => {
   const raw = orientation.trimEnd();
   const stopIndex = raw.search(/\n## Stop\n/);
   return stopIndex === -1 ? raw : raw.slice(0, stopIndex).trimEnd();
 };
-
-export const orientationTouchedPaths = (orientation: string): ReadonlyArray<string> => {
-  const overlap = /## Automerged overlap\n([\s\S]*?)(?:\n## |$)/.exec(orientation)?.[1] ?? "";
-  return [...overlap.matchAll(/^  - (.+)$/gm)]
-    .map((match) => match[1] ?? "")
-    .filter(Boolean)
-    .toSorted();
-};
-
-/** Retire candidates arrive with the subject in a code span; the row stores the subject itself. */
-export const orientationDecisionRows = (
-  orientation: string,
-): ReadonlyArray<OrientationDecisionRow> =>
-  [...orientation.matchAll(/^\s+\[(candidate|keep|retire|partial)\] `(.+)` \(([^)]+)\)$/gm)].map(
-    (match) => ({
-      verdict: (match[1] ?? "candidate") as OrientationVerdict,
-      subject: match[2] ?? "",
-      domain: match[3] ?? "?",
-      decidedBy: "TODO",
-    }),
-  );
