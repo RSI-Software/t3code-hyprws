@@ -21,8 +21,8 @@ There is no state machine, no gates, no lanes, no modes: one run, one exit code,
 | blocked | one block issue per blocking sha, through `ghb`               | `ghb` refuses and `gh` cannot post                 |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post    |                                                    |
 
-A tag the fork already sits on exits 0 with `already applied`.
-`--dry-run` rebases and checks, then stops: no push, no issue.
+A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
+`--dry-run` rebases and checks, then stops: no push, no issue, no close.
 Every push triggers `hyprws-release.yml`, so an applied run cuts the nightly by itself.
 
 ## The report
@@ -61,13 +61,14 @@ There is no "upstream superseded this" rule: retirement is a traced verdict writ
 A blocked run writes its report first, then files one issue per blocking upstream sha through `ghb`; on a runner without `ghb`, the same write falls back to bare `gh`.
 The title phrase and the sha key the issue; the body carries the conflict table (path, fork commit, upstream commit) and the resume commands.
 
-| Rule       | Detail                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------- |
-| Identity   | Title phrase `hyprws sync blocked`, label `ci`, and the exact `blocking-sha` body marker |
-| Filed once | Per blocking SHA, including after a manual close                                         |
-| Rerun      | Same sha updates the issue; a clean run closes it                                        |
-| Route      | `ghb`; when it cannot spawn (CI), bare `gh`                                              |
-| Refusal    | A refusing `ghb` prints the body; the run exits non-zero                                 |
+| Rule       | Detail                                                                                                                                                                                                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity   | Title phrase `hyprws sync blocked`, label `ci`, and the exact `blocking-sha` body marker                                                                                                                                                                                               |
+| Filed once | Per blocking SHA, including after a manual close                                                                                                                                                                                                                                       |
+| Rerun      | Same sha updates the issue; a clean run closes it                                                                                                                                                                                                                                      |
+| Close      | A clean run (applied or already-applied) claims each open block issue — judged Standalone 📍, since the driver files parentless with `--no-project` — posts the attested `Resolved by hyprws <sha>` comment, then closes it completed; a refusal lands in the report and fails the run |
+| Route      | `ghb`; when it cannot spawn (CI), bare `gh`                                                                                                                                                                                                                                            |
+| Refusal    | A refusing `ghb` prints the body; the run exits non-zero                                                                                                                                                                                                                               |
 
 Never post a block to `pingdotgg/t3code`, and never use `gh` to route around a `ghb` refusal: `gh` is the no-`ghb` fallback only.
 

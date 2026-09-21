@@ -162,6 +162,14 @@ export const CheckRow = Schema.Struct({
 });
 export interface CheckRow extends Schema.Schema.Type<typeof CheckRow> {}
 
+/** One stale block issue an applied run tried to close after the push. */
+export const BlockClosure = Schema.Struct({
+  issue: Schema.Number,
+  /** Why the claim → comment → close sequence stopped; null when closed. */
+  refusal: Schema.NullOr(Schema.String),
+});
+export interface BlockClosure extends Schema.Schema.Type<typeof BlockClosure> {}
+
 export const ForkSyncReport = Schema.Struct({
   schema: Schema.Literal(REPORT_SCHEMA),
   outcome: Schema.Literals(["applied", "already-applied", "blocked", "failed"]),
@@ -186,6 +194,8 @@ export const ForkSyncReport = Schema.Struct({
   }),
   conflicts: Schema.Array(ConflictRow),
   checks: Schema.Array(CheckRow),
+  /** The block issues the applied run closed, or failed to close, after the push. */
+  closedBlocks: Schema.Array(BlockClosure),
   decision: DecisionRoute,
   blocked: Schema.NullOr(
     Schema.Struct({
@@ -599,8 +609,10 @@ export interface GitHub {
   readonly route: "ghb" | "gh";
   readonly list: () => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
+  /** Take the issue so the completed close finds an assignee; a no-op on `gh`. */
+  readonly claim: (issue: number) => void;
   readonly comment: (issue: number, bodyPath: string) => void;
-  readonly close: (issue: number, comment: string) => void;
+  readonly close: (issue: number) => void;
 }
 
 /** The governed filing ghb performs; `gh` cannot set these fields. */
@@ -684,6 +696,9 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         const url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
         return url === undefined ? null : Number(url);
       },
+      claim: () => {
+        // bare `gh` has no completed-close preconditions, so there is no claim to mirror
+      },
       comment: (issue, bodyPath) => {
         runRequire(
           runner,
@@ -692,11 +707,11 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
           { cwd: root },
         );
       },
-      close: (issue, comment) => {
+      close: (issue) => {
         runRequire(
           runner,
           "gh",
-          ["issue", "close", String(issue), "--reason", "completed", "--comment", comment, ...repo],
+          ["issue", "close", String(issue), "--reason", "completed", ...repo],
           { cwd: root },
         );
       },
@@ -713,6 +728,13 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
       const url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
       return url === undefined ? null : Number(url);
     },
+    claim: (issue) => {
+      // the driver files parentless with --no-project, so the claim must judge
+      // the intake Standalone 📍 or ghb refuses it
+      runRequire(runner, "ghb", ["issue", "claim", String(issue), "--standalone", ...repo], {
+        cwd: root,
+      });
+    },
     comment: (issue, bodyPath) => {
       runRequire(
         runner,
@@ -721,11 +743,12 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         { cwd: root },
       );
     },
-    close: (issue, comment) => {
+    close: (issue) => {
+      // no --comment: the attested comment published before this check is the evidence
       runRequire(
         runner,
         "ghb",
-        ["issue", "close", String(issue), "--reason", "completed", "--comment", comment, ...repo],
+        ["issue", "close", String(issue), "--reason", "completed", ...repo],
         { cwd: root },
       );
     },
@@ -797,19 +820,37 @@ export const publishBlock = (
   }
 };
 
-/** A clean run closes every open block issue: the trunk moved, so none can block. */
+/** The applied-sha note the attested close comment carries; it is the close evidence. */
+const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRANCH} ${newSha}.`;
+
+/**
+ * A clean run closes every open block issue: the trunk moved, so none can block.
+ * The ghb completed close refuses without an assignee and without attested
+ * evidence naming a default-branch sha, and `--comment` publishes after that
+ * check, so the sequence is claim, attested sha comment, then close. Each issue
+ * reports its own refusal; one refusal never stops the other closes.
+ */
 export const closeBlocks = (
   runner: CommandRunner,
   root: string,
   newSha: string,
-): ReadonlyArray<number> => {
+): ReadonlyArray<BlockClosure> => {
   const github = githubClient(runner, root);
-  const closed: number[] = [];
+  const closures: BlockClosure[] = [];
   for (const issue of github.list()) {
-    github.close(issue.number, `Resolved by ${HYPRWS_BRANCH} ${newSha}.`);
-    closed.push(issue.number);
+    try {
+      github.claim(issue.number);
+      withBodyFile(blockCloseComment(newSha), (path) => github.comment(issue.number, path));
+      github.close(issue.number);
+      closures.push({ issue: issue.number, refusal: null });
+    } catch (error) {
+      closures.push({
+        issue: issue.number,
+        refusal: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  return closed;
+  return closures;
 };
 
 // ---------------------------------------------------------------------------
@@ -830,6 +871,17 @@ export const renderReport = (report: ForkSyncReport): string => {
     `Rerere: ${report.rerere.restored ? "restored" : "cold"}, ${report.rerere.saved ? "saved" : "nothing saved"}${report.rerere.published ? ", published" : ""}`,
     `Report: ${SYNC_DIR}/${report.target.tag}.json`,
   ];
+  const blocks =
+    report.closedBlocks.length === 0
+      ? []
+      : [
+          "",
+          ...report.closedBlocks.map(({ issue, refusal }) =>
+            refusal === null
+              ? `- ✅ closed block #${issue}`
+              : `- ❌ block #${issue} close refused: ${refusal}`,
+          ),
+        ];
   const conflictTable =
     report.conflicts.length === 0
       ? []
@@ -866,7 +918,7 @@ export const renderReport = (report: ForkSyncReport): string => {
           "```",
         ];
   const failure = report.error === null ? [] : ["", `Error: ${report.error}`];
-  return [...rows, ...conflictTable, ...checks, ...decision, ...failure].join("\n");
+  return [...rows, ...conflictTable, ...checks, ...blocks, ...decision, ...failure].join("\n");
 };
 
 // ---------------------------------------------------------------------------
@@ -899,7 +951,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   const finish = (report: ForkSyncReport): number => {
     const path = writeReport(root, report);
     process.stdout.write(`${renderReport(report)}\n${path}\n`);
-    return report.outcome === "applied" || report.outcome === "already-applied" ? 0 : 1;
+    return report.error === null &&
+      (report.outcome === "applied" || report.outcome === "already-applied")
+      ? 0
+      : 1;
   };
 
   try {
@@ -924,6 +979,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       rerere: { restored: false, saved: false, published: false },
       conflicts: [],
       checks: [],
+      closedBlocks: [],
       decision: emptyDecision(),
       blocked: null,
       push: { pushed: false, detail: "" },
@@ -931,18 +987,52 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       ...partial,
     });
 
-    // target — a tag the fork already sits on exits 0 with `already applied`
+    // target — a tag the fork already sits on exits clean with `already applied`,
+    // after closing the block issues a previous run left open
     const target = resolveTarget(releaseTags(runner, root), explicit);
+
+    /**
+     * The one close pass every clean outcome shares: the trunk resolved the
+     * block, so none can block. This runs before the report writes, so a
+     * refused close lands in the typed report and the summary instead of dying
+     * as a hidden note on stderr.
+     */
+    const closeStaleBlocks = (
+      resolvedSha: string,
+    ): { readonly closed: ReadonlyArray<BlockClosure>; readonly error: string | null } => {
+      let closed: ReadonlyArray<BlockClosure> = [];
+      let failure: string | null = null;
+      try {
+        closed = closeBlocks(runner, root, resolvedSha);
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      }
+      const refused = closed.filter((closure) => closure.refusal !== null);
+      return {
+        closed,
+        error:
+          failure ??
+          (refused.length === 0
+            ? null
+            : `closing stale block issues failed: ${refused
+                .map(({ issue, refusal }) => `#${issue}: ${refusal}`)
+                .join("; ")}`),
+      };
+    };
 
     if (
       gitResult(runner, root, ["merge-base", "--is-ancestor", target.sha, expectedOld]).status === 0
-    )
+    ) {
+      const close = closeStaleBlocks(expectedOld);
       return finish(
         frame({
           outcome: "already-applied",
           trunk: { before: expectedOld, after: expectedOld },
+          closedBlocks: [...close.closed],
+          ...(close.error === null ? {} : { error: close.error }),
         }),
       );
+    }
 
     // rebase
     const restored = restoreRerereCache(root);
@@ -1063,6 +1153,9 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         }),
       );
 
+    // a clean run closes the block issues it made stale, whether the rebase
+    // moved the trunk or the trunk already sat on the target
+    const close = closeStaleBlocks(newSha);
     const report = finish(
       frame({
         outcome: "applied",
@@ -1071,18 +1164,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         conflicts: [...rebase.conflicts],
         checks,
         push: { pushed: true, detail: `${newSha.slice(0, 7)} → origin/${HYPRWS_BRANCH}` },
+        closedBlocks: [...close.closed],
+        ...(close.error === null ? {} : { error: close.error }),
       }),
     );
-
-    // a clean run closes the block issues it made stale
-    try {
-      for (const number of closeBlocks(runner, root, newSha))
-        process.stdout.write(`closed #${number}\n`);
-    } catch (error) {
-      process.stderr.write(
-        `note: closing stale block issues failed: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-    }
     return report;
   } catch (error) {
     const message =
@@ -1105,6 +1190,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         rerere: { restored: false, saved: false, published: false },
         conflicts: [],
         checks: [],
+        closedBlocks: [],
         decision: emptyDecision(),
         blocked: null,
         push: { pushed: false, detail: "" },
