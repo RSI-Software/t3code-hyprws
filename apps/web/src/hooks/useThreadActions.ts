@@ -39,7 +39,7 @@ import {
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
-import { resolveThreadRouteRef } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";
 import {
   formatWorktreePathForDisplay,
