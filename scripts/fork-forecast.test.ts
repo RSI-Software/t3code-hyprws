@@ -8,12 +8,16 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
-  appendForecast,
   forecast,
+  forecastComplete,
   forecastPullRequest,
-  renderForecast,
+  type MainForecast,
+  mainOnlyRows,
+  mainState,
+  PULL_REQUEST_FORECAST_MARKER,
   renderPullRequestForecast,
 } from "./fork-forecast.ts";
+import { botForecastComment, publication, run } from "./fork-pr-forecast.ts";
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -47,7 +51,7 @@ const fixture = (conflict: boolean) => {
   return { root, base, main };
 };
 
-it("reports a clean main tip and records dedupe by main SHA", () => {
+it("reads a clean main tip as `not observed` and publishes no pull-request comment", () => {
   const item = fixture(false);
   try {
     const result = forecast(item.root);
@@ -56,10 +60,9 @@ it("reports a clean main tip and records dedupe by main SHA", () => {
       result.conflicts.map((row) => row.conflicts),
       [false],
     );
-    assert.include(renderForecast(result, false), `clean at \`${item.main}\``);
-    const appended = appendForecast([], result);
-    assert.strictEqual(appended.deduped, false);
-    assert.strictEqual(appendForecast(appended.forecasts, result).deduped, true);
+    const row = { commit: result.conflicts[0]!.commit, path: "seam.txt" };
+    assert.strictEqual(mainState(result, row, { sourceSha: result.source }), "not observed");
+    assert.strictEqual(renderPullRequestForecast(result), null);
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
@@ -94,7 +97,8 @@ it("forecasts only the pull request range and renders the exact clean string", (
       [feature],
     );
     assert.deepStrictEqual(result.conflicts[0]?.files, ["seam.txt"]);
-    assert.include(renderPullRequestForecast({ ...result, conflicts: [] }), `clean at ${main}`);
+    assert.strictEqual(renderPullRequestForecast({ ...result, conflicts: [] }), null);
+    assert.include(renderPullRequestForecast(result)!, `Forecast against origin/main ${main}`);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -112,6 +116,32 @@ it("uses the census conflict rows without moving fork refs or tags", () => {
     assert.strictEqual(row.seam, item.main);
     assert.strictEqual(git(item.root, ["rev-parse", "hyprws"]), beforeHead);
     assert.strictEqual(git(item.root, ["tag", "--list"]), beforeTags);
+    assert.strictEqual(
+      mainState(result, { commit: row.commit, path: "seam.txt" }, { sourceSha: result.source }),
+      "conflict",
+    );
+    assert.strictEqual(
+      mainState(null, { commit: row.commit, path: "seam.txt" }, { sourceSha: result.source }),
+      "unknown (unavailable)",
+    );
+    assert.strictEqual(
+      mainState(result, { commit: row.commit, path: "seam.txt" }, { sourceSha: "0".repeat(40) }),
+      "unknown (source-mismatch)",
+    );
+    assert.strictEqual(
+      mainState(
+        { ...result, complete: false },
+        { commit: row.commit, path: "seam.txt" },
+        { sourceSha: result.source },
+      ),
+      "unknown (partial)",
+    );
+    assert.strictEqual(
+      mainState(result, { commit: "1".repeat(40), path: "seam.txt" }, { sourceSha: result.source }),
+      "unknown (stale)",
+    );
+    // A partial forecast publishes its rows as a lower bound, never as a clean claim.
+    assert.include(renderPullRequestForecast({ ...result, complete: false })!, "lower bound");
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
@@ -188,5 +218,170 @@ it("attributes a seam the pull request shares with upstream to the pull-request 
     assert.strictEqual(result.conflicts[0]?.seam, main);
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+const evidenceOf = (source: string, rows: ReadonlyArray<{ commit: string; path: string }>) => ({
+  version: 2 as const,
+  method: "sequential-rebase-walk-resolution" as const,
+  sourceSha: source,
+  baseSha: "b".repeat(40),
+  targetSha: "t".repeat(40),
+  targetTag: "v1.0.0",
+  complete: true,
+  rows: rows.map((row, index) => ({
+    stop: index + 1,
+    commit: row.commit,
+    subject: "feat: fork",
+    domain: "fork-meta",
+    path: row.path,
+    kind: "content" as const,
+  })),
+});
+
+const forecastOf = (
+  source: string,
+  files: ReadonlyArray<string>,
+  complete = true,
+): MainForecast => ({
+  main: "m".repeat(40),
+  base: "b".repeat(40),
+  source,
+  complete,
+  conflicts: [
+    {
+      commit: "f".repeat(40),
+      subject: "feat: fork",
+      domain: "fork-meta",
+      conflicts: files.length > 0,
+      files,
+      seam: null,
+    },
+  ],
+});
+
+it("never reads absent or inconsistent census evidence as complete", () => {
+  const complete = { version: 2 as const, complete: true };
+  assert.isFalse(forecastComplete({ truncated: false }));
+  assert.isFalse(forecastComplete({ truncated: true }));
+  assert.isFalse(
+    forecastComplete({
+      truncated: false,
+      evidence: { ...evidenceOf("s".repeat(40), []), complete: false },
+    }),
+  );
+  // Truncated wins over a census that still called its own rows complete.
+  assert.isFalse(
+    forecastComplete({
+      truncated: true,
+      evidence: { ...evidenceOf("s".repeat(40), []), ...complete },
+    }),
+  );
+  assert.isTrue(forecastComplete({ truncated: false, evidence: evidenceOf("s".repeat(40), []) }));
+});
+
+it("unions a main-only conflict into the blocked rows on the exact key", () => {
+  const source = "s".repeat(40);
+  const fork = "f".repeat(40);
+  const evidence = evidenceOf(source, [{ commit: fork, path: "tagged.ts" }]);
+  const forecast = forecastOf(source, ["tagged.ts", "main-only.ts"]);
+  assert.deepStrictEqual(
+    mainOnlyRows(forecast, evidence).map((row) => row.path),
+    ["main-only.ts"],
+  );
+  assert.strictEqual(
+    mainState(forecast, { commit: fork, path: "tagged.ts" }, evidence),
+    "conflict",
+  );
+  // A forecast taken from another source never contributes rows to this census.
+  assert.deepStrictEqual(mainOnlyRows(forecastOf("0".repeat(40), ["main-only.ts"]), evidence), []);
+  assert.deepStrictEqual(mainOnlyRows(null, evidence), []);
+});
+
+it("publishes conflicts, retires a stale comment, and never claims a partial walk clean", () => {
+  const source = "s".repeat(40);
+  const conflict = publication(forecastOf(source, ["seam.ts"]));
+  assert.strictEqual(conflict.kind, "upsert");
+  assert.include(conflict.kind === "upsert" ? conflict.body : "", "`seam.ts`");
+  // conflict -> clean: the comment goes, with no warning.
+  const clean = publication(forecastOf(source, []));
+  assert.deepStrictEqual(clean, { kind: "delete", warning: null });
+  // conflict -> partial with rows: published as an explicit lower bound.
+  const partialRows = publication(forecastOf(source, ["seam.ts"], false));
+  assert.strictEqual(partialRows.kind, "upsert");
+  assert.include(partialRows.kind === "upsert" ? partialRows.body : "", "lower bound");
+  // conflict -> partial with no rows, and conflict -> unavailable: the obsolete claim
+  // is removed rather than left standing, and the run warns instead of claiming clean.
+  for (const row of [
+    forecastOf(source, [], false),
+    { ...forecastOf(source, [], false), conflicts: [] },
+  ]) {
+    const stale = publication(row);
+    assert.strictEqual(stale.kind, "delete");
+    assert.isNotNull(stale.kind === "delete" ? stale.warning : null);
+  }
+});
+
+it("owns only the comment the bot authored, never a human copy of its marker", () => {
+  const body = `quoting ${PULL_REQUEST_FORECAST_MARKER} for context`;
+  assert.isNull(botForecastComment([{ id: 1, body, user: { type: "User" } }]));
+  assert.isNull(botForecastComment([{ id: 2, body: "unrelated", user: { type: "Bot" } }]));
+  assert.isNull(botForecastComment([{ id: 3, body }]));
+  assert.strictEqual(
+    botForecastComment([
+      { id: 4, body, user: { type: "User" } },
+      { id: 5, body, user: { type: "Bot" } },
+    ]),
+    5,
+  );
+});
+
+it("removes the stale bot comment exactly once when the forecast throws, and rethrows", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-pr-forecast-test-"));
+  try {
+    git(root, ["init", "-b", "main"]);
+    git(root, ["config", "user.name", "test"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "base\n");
+    commit(root, "base");
+    git(root, ["remote", "add", "origin", root]);
+
+    // A fake gh that records every invocation and answers the comment lookup.
+    const log = NodePath.join(root, "invocations.log");
+    const bin = NodePath.join(root, "bin");
+    NodeFS.mkdirSync(bin);
+    NodeFS.writeFileSync(
+      NodePath.join(bin, "gh"),
+      `#!/usr/bin/env node
+const NodeFS = require("node:fs");
+NodeFS.appendFileSync(process.env.FORK_FAKE_GH_LOG ?? "/dev/null", process.argv.slice(2).join(" ") + "\\n");
+if (process.argv.includes("--paginate")) {
+  process.stdout.write(JSON.stringify([
+    { id: 41, body: "x <!-- hyprws-pull-request-forecast -->", user: { type: "Bot" } },
+  ]));
+}
+`,
+      { mode: 0o755 },
+    );
+    const previousPath = process.env.PATH;
+    const previousLog = process.env.FORK_FAKE_GH_LOG;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    process.env.FORK_FAKE_GH_LOG = log;
+    try {
+      // An unresolvable head makes forecastPullRequest throw after the lookup.
+      assert.throws(() => run(root, "7", "0".repeat(40)));
+      const calls = NodeFS.readFileSync(log, "utf8").trim().split("\n");
+      assert.deepStrictEqual(
+        calls.filter((line) => line.includes("DELETE")),
+        ["api --method DELETE repos/RSI-Software/t3code-hyprws/issues/comments/41"],
+      );
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousLog === undefined) delete process.env.FORK_FAKE_GH_LOG;
+      else process.env.FORK_FAKE_GH_LOG = previousLog;
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -116,44 +116,6 @@ jobs:
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  forecast:
-    name: Forecast
-    needs: mirror
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: hyprws
-          fetch-depth: 0
-      - uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-      - name: Configure Git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - name: Forecast the upstream main tip
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: vp run fork:forecast
-
-      # Every census writes its rows here as it walks, so a forecast that is cancelled
-      # or times out still hands over the stops it reached.
-      - name: Upload census rows
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: forecast-census-${{ github.run_attempt }}
-          path: .dump/runs/fork-census/*.json
-          if-no-files-found: ignore
-          retention-days: 14
-
   generate:
     name: Report
     runs-on: ubuntu-latest
@@ -269,6 +231,9 @@ jobs:
           name: fork-feasibility
           path: ${{ runner.temp }}/feasibility
 
+      # The blocked report's `upstream/main state` column comes from a forecast this
+      # same job takes against live origin/main (RSI-Software/t3code-hyprws#1143); it
+      # is advisory, so its failure warns and still lets notify publish the block.
       - name: Rebase fork stack
         id: rebase
         env:
