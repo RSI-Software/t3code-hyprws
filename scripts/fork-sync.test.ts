@@ -347,6 +347,7 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
     },
   ],
   checks: [],
+  closedBlocks: [],
   decision: {
     worktree: "/tmp/fork-sync/worktree",
     paths: ["apps/web/src/page.tsx"],
@@ -501,32 +502,89 @@ it("falls back to bare gh when ghb cannot spawn, same body and title", () => {
   assert.deepStrictEqual(closed, []);
 });
 
-it("closes every open block issue after a clean run", () => {
-  const closed: Array<{ readonly number: number; readonly comment: string }> = [];
-  const runner: CommandRunner = {
-    run: (command, args) => {
-      if (command === "gh" && args[0] === "issue" && args[1] === "list")
-        return ok(
-          JSON.stringify([
-            { number: 7, title: "a", body: "x" },
-            { number: 9, title: "b", body: "y" },
-          ]),
-        );
-      if (command === "ghb" && args[0] === "issue" && args[1] === "close")
-        closed.push({
-          number: Number(args[2]),
-          comment: args[args.indexOf("--comment") + 1] ?? "",
-        });
+it("closes every open block issue with the claim, comment, close sequence", () => {
+  const bodies: string[] = [];
+  const recording = exec({
+    gh: () =>
+      ok(
+        JSON.stringify([
+          { number: 7, title: "a", body: "x" },
+          { number: 9, title: "b", body: "y" },
+        ]),
+      ),
+    ghb: (args) => {
+      if (args[0] === "issue" && args[1] === "comment")
+        bodies.push(NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"));
       return ok();
     },
-  };
-  closeBlocks(runner, "/tmp", "abc1234def");
+  });
+  const closures = closeBlocks(recording.runner, "/tmp", "abc1234def");
+  assert.deepStrictEqual(closures, [
+    { issue: 7, refusal: null },
+    { issue: 9, refusal: null },
+  ]);
+  // claim (judged Standalone 📍: the driver files parentless, --no-project)
+  // before comment before close, per issue, with no sleeps between
+  const claim = recording.calls.find(
+    ({ command, args }) => command === "ghb" && args[1] === "claim",
+  );
+  assert.notStrictEqual(claim, undefined);
+  assert.ok(claim!.args.includes("--standalone"));
+  const sequence = recording.calls
+    .filter(({ command, args }) => command === "ghb" && args[0] !== "--version")
+    .map(({ args }) => [args[1], String(args[2])]);
+  assert.deepStrictEqual(sequence, [
+    ["claim", "7"],
+    ["comment", "7"],
+    ["close", "7"],
+    ["claim", "9"],
+    ["comment", "9"],
+    ["close", "9"],
+  ]);
+  // the comment names the applied trunk sha: it publishes before the close
+  // precondition check, so unlike --comment it counts as evidence
+  assert.deepStrictEqual(bodies, [
+    "Resolved by hyprws abc1234def.",
+    "Resolved by hyprws abc1234def.",
+  ]);
+  const close = recording.calls.find(
+    ({ command, args }) => command === "ghb" && args[1] === "close",
+  );
+  assert.notStrictEqual(close, undefined);
+  assert.ok(close!.args.includes("--reason"));
+  assert.strictEqual(close!.args.includes("--comment"), false);
+});
+
+it("records a refused close per issue and still closes the others", () => {
+  const recording = exec({
+    gh: () =>
+      ok(
+        JSON.stringify([
+          { number: 7, title: "a", body: "x" },
+          { number: 9, title: "b", body: "y" },
+        ]),
+      ),
+    ghb: (args) =>
+      args[1] === "close" && args[2] === "7"
+        ? refused("Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.")
+        : ok(),
+  });
+  const closures = closeBlocks(recording.runner, "/tmp", "abc1234def");
+  assert.deepStrictEqual(closures, [
+    {
+      issue: 7,
+      refusal:
+        "ghb issue close 7 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.",
+    },
+    { issue: 9, refusal: null },
+  ]);
+  // the claim and the sha comment still ran for the refused issue
+  const refused7 = recording.calls.filter(
+    ({ command, args }) => command === "ghb" && args[2] === "7",
+  );
   assert.deepStrictEqual(
-    closed.map(({ number, comment }) => ({ number, comment })),
-    [
-      { number: 7, comment: "Resolved by hyprws abc1234def." },
-      { number: 9, comment: "Resolved by hyprws abc1234def." },
-    ],
+    refused7.map(({ args }) => args[1]),
+    ["claim", "comment", "close"],
   );
 });
 
@@ -542,4 +600,120 @@ it("renders the report and the issue body as pure output of the typed report", (
   assert.match(body, /The typed report is the authority/);
   assert.include(body, blockingShaMarker("5".repeat(40)));
   assert.match(body, /git -C \/tmp\/fork-sync\/worktree add/);
+});
+
+// ---------------------------------------------------------------------------
+// The clean run closing the block issues it filed
+// ---------------------------------------------------------------------------
+
+const appliedFixture = {
+  forkContent: "fork line1\nline2\nline3\n",
+  upstreamContent: "line1\nline2\nline3 upstream\n",
+};
+
+const alreadyAppliedFixture = { ...appliedFixture, forkOnTag: true } as const;
+
+const openBlocks = (): string =>
+  JSON.stringify([{ number: 1164, title: "hyprws sync blocked at v1.0.0", body: "stale" }]);
+
+it("a clean applied run closes its open block issues unaided", () => {
+  withFixture(appliedFixture, (f) => {
+    const { runner } = exec({
+      gh: () => ok(openBlocks()),
+      ghb: (args) => {
+        if (args[1] === "comment")
+          assert.match(
+            NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+            new RegExp(`Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}\\.`),
+          );
+        return ok();
+      },
+    });
+    const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+    assert.strictEqual(applied.value, 0);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.outcome, "applied");
+    assert.strictEqual(report.push.pushed, true);
+    assert.strictEqual(report.error, null);
+    assert.deepStrictEqual(report.closedBlocks, [{ issue: 1164, refusal: null }]);
+    assert.match(applied.output, /- ✅ closed block #1164/);
+  });
+});
+
+it("fails the applied run and records the refusal when the block close is refused", () => {
+  withFixture(appliedFixture, (f) => {
+    const { runner } = exec({
+      gh: () => ok(openBlocks()),
+      ghb: (args) =>
+        args[1] === "close"
+          ? refused("Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.")
+          : ok(),
+    });
+    const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+    assert.strictEqual(applied.value, 1);
+    const report = readReport(f.root, "v1.0.0");
+    // the push landed; the run still fails so a person sees the refusal
+    assert.strictEqual(report.outcome, "applied");
+    assert.strictEqual(report.push.pushed, true);
+    assert.deepStrictEqual(report.closedBlocks, [
+      {
+        issue: 1164,
+        refusal:
+          "ghb issue close 1164 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.",
+      },
+    ]);
+    assert.match(report.error ?? "", /closing stale block issues failed/);
+    assert.match(report.error ?? "", /no assignee/);
+    assert.match(applied.output, /- ❌ block #1164 close refused: .*no assignee/);
+    assert.match(applied.output, /Error: closing stale block issues failed/);
+  });
+});
+
+it("an already-applied run also closes its open block issues unaided", () => {
+  withFixture(alreadyAppliedFixture, (f) => {
+    const { runner } = exec({
+      gh: () => ok(openBlocks()),
+      ghb: (args) => {
+        if (args[1] === "comment")
+          assert.match(
+            NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+            new RegExp(`Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}\\.`),
+          );
+        return ok();
+      },
+    });
+    const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+    assert.strictEqual(applied.value, 0);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.outcome, "already-applied");
+    assert.strictEqual(report.push.pushed, false);
+    assert.strictEqual(report.error, null);
+    assert.deepStrictEqual(report.closedBlocks, [{ issue: 1164, refusal: null }]);
+    assert.match(applied.output, /- ✅ closed block #1164/);
+  });
+});
+
+it("an already-applied run fails and records the refusal when the block close is refused", () => {
+  withFixture(alreadyAppliedFixture, (f) => {
+    const { runner } = exec({
+      gh: () => ok(openBlocks()),
+      ghb: (args) =>
+        args[1] === "close"
+          ? refused("Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.")
+          : ok(),
+    });
+    const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+    assert.strictEqual(applied.value, 1);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.outcome, "already-applied");
+    assert.deepStrictEqual(report.closedBlocks, [
+      {
+        issue: 1164,
+        refusal:
+          "ghb issue close 1164 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.",
+      },
+    ]);
+    assert.match(report.error ?? "", /closing stale block issues failed/);
+    assert.match(applied.output, /- ❌ block #1164 close refused/);
+  });
 });
