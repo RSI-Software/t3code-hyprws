@@ -79,13 +79,18 @@ The server automatically links open PRs matching an unsettled thread's branch. O
 - **Command palette** (`Cmd/Ctrl+K`): Searches threads across connected environments by title, branch, PR, project, and message contents (use `"exact phrase"` for exact matches). On mobile, use the thread list search (or `Cmd+K` on iPad with a keyboard).
 - **Copy reference**: Copies the linked PR URL if one exists, otherwise a thread link that pastes into any composer as a thread chip. Use **Copy → Thread** (or **Copy thread** on mobile) to force a thread link, or **Thread ID** for scripts and the `t3` CLI.
 
-## Desktop project windows
+## Desktop windows
 
-In the desktop app, open the project switcher and select the open-in-new-window button beside a project.
+In the desktop app, **File → New Window** opens another window on all projects.
+The command palette and `mod+shift+w` do the same.
+
+To open a project in its own window, select the open-in-new-window button beside it in the project switcher.
 The legacy sidebar offers the same action in each project's context menu.
-You can also run **Open project in new window** from the command palette.
+A thread's context menu offers **Open in New Window**, which opens that thread in a new window.
 
-Opening a project that already has a window reveals that window instead of creating a duplicate.
+Open in New Window always creates a window, even when the project already has one.
+**Open project window** in the command palette, `mod+alt+o`, and a project link reuse a window already showing that project, and open one only when none does.
+Work you start from a window, such as an issue's thread, opens in that same window.
 A project window's sidebar stays pinned to that project: the project filter shows its name and
 cannot be changed, and new threads start in it. The hub window still lists every project.
 Web and mobile clients do not show project-window actions.
