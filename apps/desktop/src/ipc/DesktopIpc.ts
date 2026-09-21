@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as WindowTargets from "../electron/WindowTargets.fork.ts"; // fork-hook: multi-window/window-targets-import
 
 export interface DesktopIpcInvokeEvent {
   readonly sender: { readonly id: number };
@@ -14,6 +15,7 @@ export interface DesktopIpcInvokeEvent {
 
 export interface DesktopIpcSyncEvent extends DesktopIpcInvokeEvent {
   returnValue: unknown;
+  readonly sender?: { readonly id: number }; // fork-hook: multi-window/window-targets-sync-sender
 }
 
 export type DesktopIpcSenderGuard = (event: DesktopIpcInvokeEvent) => Effect.Effect<boolean>;
@@ -160,6 +162,7 @@ export const make = (
                   }
                   return yield* handler();
                 }).pipe(
+                  WindowTargets.withIpcSender(event), // fork-hook: multi-window/window-targets-sync
                   Effect.annotateLogs({ channel }),
                   Effect.withSpan("desktop.ipc.invokeSync"),
                 ),
@@ -184,6 +187,9 @@ export const layer = (ipcMain: DesktopIpcMain) =>
     DesktopIpc,
     Effect.gen(function* () {
       const electronWindow = yield* ElectronWindow.ElectronWindow;
+      if (Object.hasOwn(electronWindow, "windowsByRecency")) {
+        return make(ipcMain, WindowTargets.makeRegisteredSenderGuard(electronWindow));
+      } // fork-hook: multi-window/registered-ipc-sender
       return make(ipcMain, (event) =>
         Effect.map(
           electronWindow.main,
@@ -266,6 +272,7 @@ export const makeIpcMethod = <
     handler: (raw, event) =>
       decode(raw).pipe(
         Effect.flatMap((input) => method.handler(input, event)),
+        WindowTargets.withIpcSender(event), // fork-hook: multi-window/window-targets-invoke
         Effect.flatMap(encode),
         Effect.withSpan("desktop.ipc.method", { attributes: { channel: method.channel } }),
       ),
