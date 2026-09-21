@@ -13,7 +13,7 @@ vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]
 ```
 
 One invocation walks one eligible tag to the end and asks for nothing.
-It selects the target, resolves every conflict, repairs the lane, applies under the lease, and appends the churn row.
+It selects the target, resolves every conflict, repairs the lane, and applies under the lease.
 
 There is no `--resume`: a report already on disk is a walk in flight.
 Conflicts are machine-owned and never yours to pre-empt, under the [conflict doctrine](../../../../docs/fork/operations/fork-sync.md#conflict-doctrine).
@@ -84,21 +84,6 @@ Treat `mechanical` and `seam-moved` rows as `clear` unless the resolution droppe
 - **Only in:** a file type the fork commit changed
 
 A name that merely appears in the tree is a sighting of the word, not of the behaviour, so it never reaches the row.
-
-## The `upstream/main state` column
-
-The blocked issue's census table carries one extra column per row: the same fork commit and path replayed against live `origin/main`.
-
-| Value                | Meaning                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `conflict`           | That path conflicts on `main` too                                |
-| `not observed`       | Complete matching-source evidence saw no conflict                |
-| `unknown (<reason>)` | No verdict: `partial`, `unavailable`, `stale`, `source-mismatch` |
-
-It is advisory. It selects no tag, applies nothing, and retires nothing.
-
-A conflicting pull request gets one sticky comment; a clean one gets none.
-`main` conflicts surface only when a tag rebase runs, so no eligible tag means no forecast.
 
 ## Manual verbs
 
@@ -179,11 +164,6 @@ A refresh names any decision it drops for a subject that left the replay.
 
 A series rewrite requires the review gate below.
 Rejection voids the report: retain its external files, restart at step 1, and never commit them.
-
-### 6. Ledger row
-
-Step 5 already published it on `refs/fork/churn`.
-Run the append by hand only for a row no apply wrote ([churn ledger](../../../../docs/fork/operations/fork-sync.md#churn-ledger)).
 
 ## Same-base historical preparation
 

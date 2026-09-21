@@ -14,16 +14,8 @@ import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import { UsageError } from "./lib/fork-cli.ts";
-import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
 import { parseTestDebtBaseline, TEST_DEBT_BASELINE } from "./lib/fork-test-debt.ts";
-import {
-  readLessonEvidence,
-  renderLessonGuidance,
-  resolveLessonSource,
-  staleBoundaryDeclarations,
-  type StaleBoundaryDeclaration,
-} from "./fork-lesson-guidance.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import {
@@ -42,7 +34,6 @@ import {
   collectScanWarnings,
   commitPatchArguments,
   parseCommitPatches,
-  readHotSeams,
   renderScanWarnings,
   significantTestLines,
   type CommitPatch,
@@ -74,8 +65,6 @@ export interface ScanOptions {
   // landed on a tagged upstream commit the trunk has not reached.
   readonly replayOf: string | null;
   readonly strict: boolean;
-  readonly ledgerRef: string;
-  readonly offline: boolean;
 }
 
 export interface ScanRange {
@@ -107,7 +96,6 @@ export interface ScanResult {
   readonly domains: ReadonlyArray<DomainScan>;
   readonly overlaps: ReadonlyArray<ScanOverlap>;
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
-  readonly staleBoundaries: ReadonlyArray<StaleBoundaryDeclaration>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<ScanWarning>;
@@ -118,7 +106,7 @@ export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: vp run fork:scan [options]
 
-Verify declared fork seams against upstream changes and retained lessons.
+Verify declared fork seams against upstream changes.
 
 Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
@@ -130,16 +118,10 @@ Options:
   --replay-of <ref>
                   Treat head as a rebase rehearsal of <ref> after proving head omits <ref> and
                   sits on a tagged upstream commit <ref> has not reached
-  --ledger-ref <ref> Named refs/fork/... lesson ledger (default: refs/fork/churn)
-  --offline      Read retained local lesson evidence without network access or writes
   --strict        Fail on ledger guard warnings as well as scan gaps
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
-Ledger guidance reports the selected ref, exact SHA, and current/stale/offline evidence.
-Online reads check origin and fetch immutable objects without moving any local ref.
-The inventory retains original seams and all recorded census paths, including unmapped
-lessons. A named boundary or guard is guidance, not proof that a repair is verified.
 General ledger warnings are advisory unless --strict is set. With --since,
 adopted authoring guards fail without --strict; historical warnings stay advisory.
 A proven --replay-of rehearsal returns them to advisory, because replaying the
@@ -168,8 +150,6 @@ const defaultOptions = (): ScanOptions => ({
   sameTreeRewriteOf: null,
   replayOf: null,
   strict: false,
-  ledgerRef: CHURN_REF,
-  offline: false,
 });
 
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
@@ -182,17 +162,15 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     "--since",
     "--same-tree-rewrite-of",
     "--replay-of",
-    "--ledger-ref",
   ]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
-    if (argument === "--no-typecheck" || argument === "--strict" || argument === "--offline") {
+    if (argument === "--no-typecheck" || argument === "--strict") {
       if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
       seen.add(argument);
       if (argument === "--strict") options.strict = true;
-      else if (argument === "--offline") options.offline = true;
       else options.typecheck = false;
       continue;
     }
@@ -209,7 +187,6 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     else if (argument === "--since") options.since = value;
     else if (argument === "--same-tree-rewrite-of") options.sameTreeRewriteOf = value;
     else if (argument === "--replay-of") options.replayOf = value;
-    else if (argument === "--ledger-ref") options.ledgerRef = value;
     else options.target = value;
   }
 
@@ -227,11 +204,6 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   }
   if (options.head.length === 0) throw new UsageError("--head cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
-  try {
-    requireBotRef(options.ledgerRef);
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
   return options;
 };
 
@@ -379,7 +351,6 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     domains,
     overlaps: overlaps.toSorted((left, right) => left.path.localeCompare(right.path)),
     typecheckGaps: [],
-    staleBoundaries: [],
     undeclaredDomains,
     untaggedCommits,
     warnings: input.guard === undefined ? [] : collectScanWarnings(input.guard),
@@ -396,10 +367,6 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
-  ),
-  ...result.staleBoundaries.map(
-    ({ owner, kind, path }) =>
-      `lesson-boundary: ${kind} path no longer exists: ${path} (policy reference #${owner})`,
   ),
   ...result.workflowDrift.flatMap((drift) =>
     drift.problem === undefined
@@ -424,11 +391,6 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
   if (result.typecheckGaps.length > 0) {
     summary.push(
       `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file`,
-    );
-  }
-  if (result.staleBoundaries.length > 0) {
-    summary.push(
-      `failed: ${result.staleBoundaries.length} stale lesson boundary declaration(s); the census numerator counts seams with a reviewed boundary, so a renamed or deleted path silently lowers it. Correct the entry in scripts/fork-lesson-guidance.ts, or mark it retired where the path is meant to be gone`,
     );
   }
   const workflowGaps = result.workflowDrift.filter(({ problem }) => problem !== undefined).length;
@@ -781,7 +743,6 @@ const buildGuardInput = (
   range: ScanRange,
   commits: ReadonlyArray<ForkCommit>,
   filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
-  churn: string | null,
 ): GuardInput => {
   const since = resolveAuthoringSince(git, options);
   const warned =
@@ -824,7 +785,6 @@ const buildGuardInput = (
     filesBySha,
     patchesBySha,
     upstreamFiles,
-    hotSeams: churn === null ? new Map() : readHotSeams(churn),
     upstreamTestDebt: readTestDivergenceDebt(git, range.head),
     upstreamTestFiles,
     upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
@@ -834,12 +794,7 @@ const buildGuardInput = (
   };
 };
 
-export const readScan = (
-  git: GitReader,
-  options: ScanOptions,
-  ledger: string,
-  churn: string | null = null,
-): ScanResult => {
+export const readScan = (git: GitReader, options: ScanOptions, ledger: string): ScanResult => {
   const range = resolveRange(git, options);
   const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
   const shas = commits.flatMap((commit) => (commit.domain === undefined ? [] : [commit.sha]));
@@ -853,7 +808,7 @@ export const readScan = (
     scans: parseRebaseScans(ledger),
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
-    guard: buildGuardInput(git, options, range, commits, filesBySha, churn),
+    guard: buildGuardInput(git, options, range, commits, filesBySha),
   });
   return { ...result, workflowDrift: readWorkflowDrift(git, range.head, range.target) };
 };
@@ -869,19 +824,12 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
-    const lessons = resolveLessonSource(root, options.ledgerRef, options.offline);
-    const evidence =
-      lessons.raw === null ? { walks: [], seamRecords: [] } : readLessonEvidence(lessons.raw);
-    const churn = lessons.raw;
-    const scanned = readScan(git, options, ledger, churn);
+    const scanned = readScan(git, options, ledger);
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
     const result: ScanResult = {
       ...scanned,
-      // Read against the working tree, not the rehearsed head: a rename lands in the tree that
-      // renamed it, which is the walk that must fail on the entry it orphaned.
-      staleBoundaries: staleBoundaryDeclarations(root),
       typecheckGaps: typecheckCurrentHead
         ? findForkOwnedTypecheckGaps(
             root,
@@ -890,7 +838,6 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
         : [],
     };
     process.stdout.write(renderScanReport(result));
-    process.stdout.write(renderLessonGuidance(lessons, evidence));
     if (!options.typecheck) {
       process.stdout.write("typecheck: skipped (--no-typecheck)\n");
     } else if (!typecheckCurrentHead) {

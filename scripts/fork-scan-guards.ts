@@ -1,8 +1,7 @@
-// Authoring guards for `vp run fork:scan`, derived from what the churn ledger
-// already charged us for. Each rule names a shape a later rebase pays for, at
-// the moment a fork commit creates it rather than three walks later:
+// Authoring guards for `vp run fork:scan`. Each rule names a shape a later
+// rebase pays for, at the moment a fork commit creates it rather than three
+// walks later:
 //
-// - hot-seam: the commit touches a path the churn ledger lists as a hot seam.
 // - upstream-test: the commit adds a fork test block to an upstream-owned test
 //   file instead of its `*.fork.test.ts` sibling, or renames a test title in
 //   one of the six slice files below (a rename-only reintroduction nets to
@@ -28,7 +27,6 @@
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
 
-import { lessonHotSeams, readLessonEvidence } from "./fork-lesson-guidance.ts";
 import { forkHookSeamWarnings } from "./lib/fork-hook-guard.ts";
 
 // `#73` spans 12 hunks over 6 files in the v0.0.39-nightly.20260902.1256
@@ -36,7 +34,6 @@ import { forkHookSeamWarnings } from "./lib/fork-hook-guard.ts";
 export const UPSTREAM_FOOTPRINT_BUDGET = 6;
 
 export type ScanWarningRule =
-  | "hot-seam"
   | "upstream-test"
   | "footprint"
   | "replaced-export"
@@ -54,8 +51,7 @@ export type ScanWarningRule =
   | "fork-hook-seam"
   | "reshape-split";
 
-// Exact integration targets used by the real matchers and the lesson-guidance
-// coverage invariant. Upstream test ownership is a separate generic policy.
+// Exact integration targets used by the real matchers. Upstream test ownership is a separate generic policy.
 export const AUTHORING_GUARD_TARGETS = {
   "terminal-attachment-boundary": { metadata: "apps/web/src/state/terminalSessions.ts" },
   "provider-agent-boundary": {
@@ -135,7 +131,6 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
-  "hot-seam",
   "upstream-test",
   "footprint",
   "replaced-export",
@@ -164,16 +159,6 @@ export interface ScanWarning {
   readonly commit: string;
   readonly domain: string;
   readonly detail: string;
-}
-
-export interface HotSeam {
-  // Which unit `walkCount` is in. The guard only reads membership, but the value carries the
-  // discriminant because a conflict walk and a census observation are not comparable counts
-  // (RSI-Software/t3code-hyprws#1020).
-  readonly kind: "conflict" | "census";
-  readonly walkCount: number;
-  readonly countUnit: string;
-  readonly worstClass: string;
 }
 
 export interface ExportDeclaration {
@@ -266,7 +251,6 @@ export interface GuardInput {
   // so it is green on the day it lands; a file leaves the baseline by leaving
   // that list. An absent set is an empty baseline, never a licence.
   readonly upstreamTestDebt?: ReadonlySet<string>;
-  readonly hotSeams: ReadonlyMap<string, HotSeam>;
   // Manifest keys from scripts/lib/fork-hooks.ts. A marker outside this set is
   // a hook the sync walk cannot reason about.
   readonly forkHooks: ReadonlySet<string>;
@@ -670,9 +654,6 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
   return patches;
 };
 
-export const readHotSeams = (churnLedger: string): ReadonlyMap<string, HotSeam> =>
-  lessonHotSeams(readLessonEvidence(churnLedger));
-
 // `pnpm-lock.yaml`, `package-lock.json`, `bun.lock`, `Cargo.lock`, `uv.lock`.
 const LOCKFILE = /(?:^|\/)(?:[^/]*-lock\.[^/.]+|[^/]*\.lock)$/;
 
@@ -789,15 +770,6 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "mobile-ignored-file-listing",
         "keep ignored-file preference and includeIgnored request policy in ignoredWorkspaceFileListing.ts; the route and inspector call useIgnoredWorkspaceFileListing with their existing cwd and retain their environment and file-inspector gates",
-      );
-    }
-
-    for (const path of upstreamTouched) {
-      const seam = input.hotSeams.get(path);
-      if (seam === undefined) continue;
-      warn(
-        "hot-seam",
-        `${path} is a retained seam (${seam.walkCount} ${seam.countUnit}, ${seam.worstClass}); use the declared lesson inventory and preferred boundary printed by this scan`,
       );
     }
 
