@@ -27,33 +27,11 @@ const postComment = (root: string, pullRequest: string, body: string): void => {
   runCommandText("gh", [...args, "--raw-field", `body=${body}`], { cwd: root });
 };
 
-const postNeutralCheck = (root: string, head: string): void => {
-  runCommandText(
-    "gh",
-    [
-      "api",
-      "--method",
-      "POST",
-      `repos/${FORK_REPOSITORY}/check-runs`,
-      "--raw-field",
-      "name=Fork conflict forecast",
-      "--raw-field",
-      `head_sha=${head}`,
-      "--raw-field",
-      "status=completed",
-      "--raw-field",
-      "conclusion=neutral",
-    ],
-    { cwd: root },
-  );
-};
-
 export const run = (root: string, pullRequest: string, head: string): void => {
   const row = forecastPullRequest(root, head);
   const body = renderPullRequestForecast(row);
   postComment(root, pullRequest, body);
-  postNeutralCheck(root, head);
-  process.stdout.write(`forecast comment and neutral check on pull request ${pullRequest}\n`);
+  process.stdout.write(`forecast comment on pull request ${pullRequest}\n`);
 };
 
 if (import.meta.main) {
