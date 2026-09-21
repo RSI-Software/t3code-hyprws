@@ -1,22 +1,29 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - Forecasting is standalone Git plumbing.
 
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
+import { rehearseStopCensus } from "./fork-stop-census.ts";
+import type { ForecastEntry } from "./fork-churn-ledger.ts";
+import { runCommand, runCommandText } from "./lib/fork-command.ts";
+import type { SequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 
-import { rehearseStopCensus } from "./fork-auto-rebase.ts";
-import { readChurnState, writeChurnState, type ForecastEntry } from "./fork-churn-ledger.ts";
-import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
-import { runCommand, runCommandText, runCommandTextWithRetry } from "./lib/fork-command.ts";
-import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
+/**
+ * A forecast is evidence, never a publication. It replays the fork stack against
+ * live `origin/main` so the blocked issue can carry one `upstream/main state`
+ * column and a conflicting pull request can carry one comment
+ * (RSI-Software/t3code-hyprws#1143). It selects no tag, applies nothing, and
+ * retires nothing.
+ */
+export interface MainForecast extends ForecastEntry {
+  /** The fork tip the forecast replayed, so a join can refuse mismatched evidence. */
+  readonly source: string;
+  /** False when the rehearsal was truncated; a partial forecast is never clean. */
+  readonly complete: boolean;
+}
 
-export const FORECAST_MARKER = "<!-- hyprws-fork-forecast -->";
-export const FORECAST_STATE = /<!-- hyprws-fork-forecast-state:([0-9a-f]{40,64}) -->/;
-// #443 is the longest-lived mission issue in this chain, so its standing forecast
-// survives transient block and feature issues closing.
-export const FORECAST_PARENT_ISSUE = 443;
-export const PULL_REQUEST_FORECAST_MARKER = "<!-- hyprws-pull-request-forecast -->";
+/** Why a census row has no usable `upstream/main` verdict. */
+export type MainStateReason = "partial" | "unavailable" | "stale" | "source-mismatch";
+
+export type MainState = "conflict" | "not observed" | `unknown (${MainStateReason})`;
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   runCommandText("git", args, { cwd: root }).trim();
@@ -24,14 +31,6 @@ const git = (root: string, args: ReadonlyArray<string>): string =>
 // merge-base --is-ancestor signals its verdict in the exit code, not stdout.
 const isAncestor = (root: string, commit: string, ancestor: string): boolean =>
   runCommand("git", ["merge-base", "--is-ancestor", commit, ancestor], { cwd: root }).status === 0;
-
-export const appendForecast = (
-  forecasts: ReadonlyArray<ForecastEntry>,
-  forecast: ForecastEntry,
-): { readonly forecasts: ReadonlyArray<ForecastEntry>; readonly deduped: boolean } =>
-  forecasts.some((row) => row.main === forecast.main)
-    ? { forecasts, deduped: true }
-    : { forecasts: [...forecasts, forecast], deduped: false };
 
 const forkCommits = (root: string, base: string, head: string) =>
   git(root, ["log", "--reverse", "--format=%H%x1f%s%x1f%b%x1e", `${base}..${head}`])
@@ -54,7 +53,7 @@ export const forecastRange = (
   head: string,
   base: string,
   main: string,
-): ForecastEntry => {
+): MainForecast => {
   const resolvedHead = git(root, ["rev-parse", `${head}^{commit}`]);
   const resolvedBase = git(root, ["rev-parse", `${base}^{commit}`]);
   const resolvedMain = git(root, ["rev-parse", `${main}^{commit}`]);
@@ -75,6 +74,9 @@ export const forecastRange = (
   return {
     main: resolvedMain,
     base: resolvedBase,
+    source: resolvedHead,
+    // A truncated rehearsal saw only part of the stack, and partial is never clean.
+    complete: !census.truncated && (census.evidence?.complete ?? true),
     conflicts: forkCommits(root, resolvedBase, resolvedHead).map((commit) => {
       const files = [...new Set(byCommit.get(commit.commit) ?? [])].toSorted();
       const seam =
@@ -93,7 +95,7 @@ export const forecastRange = (
   };
 };
 
-export const forecast = (root: string): ForecastEntry => {
+export const forecast = (root: string): MainForecast => {
   const head = git(root, ["rev-parse", "hyprws^{commit}"]);
   git(root, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
   const main = git(root, ["rev-parse", "origin/main^{commit}"]);
@@ -101,7 +103,7 @@ export const forecast = (root: string): ForecastEntry => {
   return forecastRange(root, head, base, main);
 };
 
-export const forecastPullRequest = (root: string, head: string): ForecastEntry => {
+export const forecastPullRequest = (root: string, head: string): MainForecast => {
   // On a hyprws checkout the trunk is the checked-out branch; on a workflow
   // dispatch of another branch only the remote-tracking ref exists.
   const trunk =
@@ -120,127 +122,44 @@ export const forecastPullRequest = (root: string, head: string): ForecastEntry =
   return { ...census, conflicts };
 };
 
-export const renderForecast = (row: ForecastEntry, deduped: boolean): string => {
-  const conflicts = row.conflicts.filter((commit) => commit.conflicts);
-  return [
-    FORECAST_MARKER,
-    "## Forecast",
-    "",
-    deduped
-      ? `Deduped forecast for origin/main ${"`"}${row.main}${"`"}.`
-      : conflicts.length === 0
-        ? `clean at ${"`"}${row.main}${"`"}`
-        : `Forecast for origin/main ${"`"}${row.main}${"`"}: ${conflicts.length} fork commit(s) conflict.`,
-    "",
-    "| Fork commit | Conflicts | Files | Upstream seam |",
-    "| --- | --- | --- | --- |",
-    ...row.conflicts.map(
-      (commit) =>
-        `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | ${commit.conflicts ? "yes" : "no"} | ${commit.files.map((path) => `\`${path}\``).join(", ") || "—"} | ${commit.seam === null ? "—" : `\`${commit.seam}\``} |`,
-    ),
-    "",
-    `<!-- hyprws-fork-forecast-state:${row.main} -->`,
-  ].join("\n");
+export const PULL_REQUEST_FORECAST_MARKER = "<!-- hyprws-pull-request-forecast -->";
+
+/**
+ * The `upstream/main state` cell for one census row, joined on the replayed fork
+ * commit and its path. `not observed` is claimed only from a complete forecast whose
+ * source is the census's source; every other shape says why it cannot say.
+ */
+export const mainState = (
+  forecast: MainForecast | null,
+  row: { readonly commit: string; readonly path: string },
+  evidence: Pick<SequentialCensusEvidence, "sourceSha">,
+): MainState => {
+  if (forecast === null) return "unknown (unavailable)";
+  if (forecast.source !== evidence.sourceSha) return "unknown (source-mismatch)";
+  if (!forecast.complete) return "unknown (partial)";
+  const entry = forecast.conflicts.find((commit) => commit.commit === row.commit);
+  if (entry === undefined) return "unknown (stale)";
+  return entry.files.includes(row.path) ? "conflict" : "not observed";
 };
 
-export const renderPullRequestForecast = (row: ForecastEntry): string => {
+/**
+ * The sticky pull-request comment, conflict rows only. A clean or unusable forecast
+ * renders nothing; the caller deletes any prior comment instead of posting a clean one.
+ */
+export const renderPullRequestForecast = (row: MainForecast): string | null => {
   const conflicts = row.conflicts.filter((commit) => commit.conflicts);
+  if (!row.complete || conflicts.length === 0) return null;
   return [
     PULL_REQUEST_FORECAST_MARKER,
     "## Fork conflict forecast",
     "",
-    conflicts.length === 0 ? `clean at ${row.main}` : `Forecast against origin/main ${row.main}.`,
-    ...(conflicts.length === 0
-      ? []
-      : [
-          "",
-          "| Fork commit | Fork-Domain | Conflicting files |",
-          "| --- | --- | --- |",
-          ...conflicts.map(
-            (commit) =>
-              `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | \`${commit.domain}\` | ${commit.files.map((path) => `\`${path}\``).join(", ")} |`,
-          ),
-        ]),
+    `Forecast against origin/main ${row.main}.`,
+    "",
+    "| Fork commit | Fork-Domain | Conflicting files |",
+    "| --- | --- | --- |",
+    ...conflicts.map(
+      (commit) =>
+        `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | \`${commit.domain}\` | ${commit.files.map((path) => `\`${path}\``).join(", ")} |`,
+    ),
   ].join("\n");
 };
-
-const post = (root: string, body: string): void => {
-  const issues = JSON.parse(
-    runCommandTextWithRetry(
-      "gh",
-      [
-        "issue",
-        "list",
-        "--state",
-        "open",
-        "--label",
-        "rebase-blocked",
-        "--repo",
-        FORK_REPOSITORY,
-        "--json",
-        "number",
-      ],
-      { cwd: root },
-    ),
-  ) as ReadonlyArray<{ readonly number: number }>;
-  const issue = issues[0]?.number ?? FORECAST_PARENT_ISSUE;
-  if (issues.length > 1) throw new Error("expected at most one open rebase-blocked issue");
-  const view = JSON.parse(
-    runCommandTextWithRetry(
-      "gh",
-      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "comments"],
-      { cwd: root },
-    ),
-  ) as { comments: ReadonlyArray<{ url: string; body: string }> };
-  const existing = view.comments.findLast((comment) => comment.body.includes(FORECAST_MARKER));
-  const file = NodePath.join(
-    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-forecast-")),
-    "forecast.md",
-  );
-  NodeFS.writeFileSync(file, body);
-  if (existing === undefined) {
-    // Deliberately unretried: gh can return a transient 503 *after* creating the comment, so a
-    // retry would double-post the forecast. Losing a run is cheaper than a duplicate record.
-    runCommandText(
-      "gh",
-      ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", file],
-      { cwd: root },
-    );
-  } else {
-    const id = /#issuecomment-(\d+)$/.exec(existing.url)?.[1];
-    if (id === undefined) throw new Error("forecast comment URL has no REST id");
-    // Same body each time, so a PATCH retry is idempotent and safe.
-    runCommandTextWithRetry(
-      "gh",
-      [
-        "api",
-        "--method",
-        "PATCH",
-        `repos/${FORK_REPOSITORY}/issues/comments/${id}`,
-        "--field",
-        `body=@${file}`,
-      ],
-      { cwd: root },
-    );
-  }
-  process.stdout.write(`forecast section on #${issue}\n`);
-};
-
-export const run = (root: string, publish = true): void => {
-  const row = forecast(root);
-  const lease = acquireBotRefLease(root, CHURN_REF, publish);
-  const state = readChurnState(root);
-  const appended = appendForecast(state.forecasts, row);
-  if (!appended.deduped) {
-    const commit = writeChurnState(
-      root,
-      { ...state, forecasts: appended.forecasts },
-      `forecast: ${row.main}`,
-    );
-    if (publish && lease !== null) publishBotRefLease(root, lease, commit);
-  }
-  process.stdout.write(`${appended.deduped ? "dedupe hit" : "forecast recorded"}: ${row.main}\n`);
-  post(root, renderForecast(row, appended.deduped));
-};
-
-if (import.meta.main) run(process.cwd());

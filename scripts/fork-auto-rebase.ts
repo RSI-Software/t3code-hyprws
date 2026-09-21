@@ -38,6 +38,7 @@ export {
 } from "./fork-auto-rebase-plan.ts";
 import { SystemGit } from "./lib/fork-command.ts";
 import { prepareAutoOutcome } from "./fork-churn-outcomes.ts";
+import { forecast as forecastAgainstMain, mainState, type MainForecast } from "./fork-forecast.ts";
 
 export { SystemGit } from "./lib/fork-command.ts";
 import {
@@ -264,10 +265,14 @@ const blockedReport = (
   plan: Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility">,
   census: RebaseStopCensus | null,
   censusUnavailable: string | null,
+  forecast: MainForecast | null = null,
 ): BlockedIssue | null => {
   if (plan.feasibility.ffBoundary.firstConflict === null) return null;
   if (census?.conflictingForkCommitCount === 0 && !census.truncated) return null;
-  return buildBlockedIssue(plan, census, censusUnavailable);
+  const evidence = census?.evidence;
+  return buildBlockedIssue(plan, census, censusUnavailable, (row) =>
+    evidence === undefined ? "unknown (unavailable)" : mainState(forecast, row, evidence),
+  );
 };
 
 const decideByCensus = (
@@ -340,6 +345,13 @@ const postAdvanceBlockedPlan = (
 export interface AutoRebaseHooks {
   readonly beforeHyprwsPush?: () => void;
   readonly rehearseStopCensus?: StopCensusRunner;
+  /**
+   * Replays the fork stack against live `origin/main` for the blocked issue's
+   * `upstream/main state` column. Absent means no forecast was taken and every row
+   * reads `unknown (unavailable)`; the CLI supplies it, so a forecast failure costs
+   * the column and never the block (RSI-Software/t3code-hyprws#1143).
+   */
+  readonly forecastMain?: () => MainForecast | null;
 }
 
 export const executeAutoRebase = (
@@ -355,6 +367,7 @@ export const executeAutoRebase = (
   const censusRunner = hooks.rehearseStopCensus ?? rehearseStopCensus;
   const pairwiseFirstConflict = plan.feasibility.ffBoundary.firstConflict;
   const { census, censusUnavailableReason } = decideByCensus(root, plan, censusRunner);
+  const forecast = census?.evidence === undefined ? null : (hooks.forecastMain?.() ?? null);
   const censusConflictCount = census?.truncated
     ? null
     : (census?.conflictingForkCommitCount ?? null);
@@ -362,7 +375,7 @@ export const executeAutoRebase = (
   const decidedPlan = { ...plan, target };
   const decision = { pairwiseFirstConflict, census, censusUnavailableReason };
   if (options.mode === "off") {
-    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason);
+    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason, forecast);
     return {
       schemaVersion: 1,
       mode: options.mode,
@@ -398,7 +411,7 @@ export const executeAutoRebase = (
   }
 
   if (target === null || target.sha === plan.baseSha) {
-    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason);
+    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason, forecast);
     if (!options.dryRun) createStableSnapshots(root, stableCandidates, true);
     return {
       schemaVersion: 1,
@@ -423,7 +436,7 @@ export const executeAutoRebase = (
   const newSha = targetStack.sha;
   const refreshedPlan =
     censusConflictCount === 0 ? decidedPlan : postAdvanceBlockedPlan(git, decidedPlan, newSha);
-  const blocked = blockedReport(refreshedPlan, census, censusUnavailableReason);
+  const blocked = blockedReport(refreshedPlan, census, censusUnavailableReason, forecast);
   if (!options.dryRun) {
     const previousBeforeRun =
       options.mode === "on" ? remoteBranchSha(root, "hyprws-previous") : null;
@@ -548,6 +561,18 @@ const fetchRefs = (git: SystemGit): void => {
   git.run(["fetch", "--prune", "--tags", "upstream", "main"]);
 };
 
+/** A forecast is advisory: its failure costs the column, never the blocked report. */
+const forecastMain = (root: string): MainForecast | null => {
+  try {
+    return forecastAgainstMain(root);
+  } catch (error) {
+    process.stderr.write(
+      `::warning::upstream/main forecast failed: ${autoFailureReason(root, error)}\n`,
+    );
+    return null;
+  }
+};
+
 export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(HELP);
@@ -576,7 +601,9 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       );
     let result: AutoRebaseResult;
     try {
-      result = executeAutoRebase(root, options, plan);
+      result = executeAutoRebase(root, options, plan, verifyReplay, {
+        forecastMain: () => forecastMain(root),
+      });
     } catch (error) {
       // The declarations are already on disk, so the always() retain step can still record
       // this attempt: leave the bounded failure receipt it reads

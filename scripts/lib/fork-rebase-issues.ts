@@ -414,61 +414,18 @@ interface BlockedPlan {
 }
 
 /**
- * The three counts a walk-resolution census reports, and the unverified rows by name. The
- * unverified count stands apart from both totals: the census placed those hooks but never ran the
- * walk's scoped typecheck, so a reader takes `humanFileCount` as the optimistic operator cost and
- * `humanFileCount + unverifiedFileCount` as the pessimistic one.
+ * The `upstream/main state` cell for one census row. The default is what a caller with
+ * no forecast can honestly say (RSI-Software/t3code-hyprws#1143); `fork-forecast.ts`
+ * owns the real join, and this module never imports it, so a forecast failure can
+ * never stop the block from being published.
  */
-const censusSplitProse = (
-  evidence: SequentialCensusEvidence,
-  split: ReturnType<typeof censusResolutionSplit>,
-): ReadonlyArray<string> => {
-  const unverified = evidence.rows.filter(
-    (row) => censusRowStage(row) === "hook-reapply-unverified",
-  );
-  return [
-    `Each path was decided by the walk's own resolution sequence, so the stage column says who owns it. Of ${evidence.rows.length} conflict-file ${evidence.rows.length === 1 ? "observation" : "observations"}: ${split.mechanicalFileCount} mechanical, ${split.unverifiedFileCount} unverified, ${split.humanFileCount} human, over ${split.humanStopCount} ${split.humanStopCount === 1 ? "stop" : "stops"} in ${split.humanForkCommitCount} fork ${split.humanForkCommitCount === 1 ? "commit" : "commits"}. The operator cost is at least ${split.humanFileCount} and at most ${split.humanFileCount + split.unverifiedFileCount} ${split.humanFileCount + split.unverifiedFileCount === 1 ? "file" : "files"}.`,
-    `An unverified row is a hook re-apply this census placed without running the scoped typecheck the walk runs, so it does not know whether the result compiles; it is never counted mechanical. A declined path is resolved provisionally from index stage 3 so the rehearsal can continue.`,
-    ...(unverified.length === 0
-      ? []
-      : [
-          "",
-          "Unverified hook re-applies:",
-          ...unverified.map(
-            (row) =>
-              `- stop ${row.stop}: ${inlineCode(row.path)} in ${inlineCode(`${row.commit} ${row.subject}`)}`,
-          ),
-        ]),
-  ];
-};
-
-/**
- * The carry-cost table RSI-Software/t3code-hyprws#443 asks for, which only a v2 census can fill.
- * It ranks by recurring seams rather than by conflict volume, because a domain with many hooked
- * conflicts costs a guard once while a domain with few woven ones costs an operator every walk.
- */
-const censusCarryCostProse = (evidence: SequentialCensusEvidence): ReadonlyArray<string> => {
-  const rows = censusCarryCost(evidence.rows);
-  const split = censusShapeSplit(evidence.rows);
-  return [
-    "",
-    "### Carry cost by domain",
-    "",
-    `Shape is judged at the replayed commit: ${split.hookedFileCount} hooked, ${split.wovenFileCount} woven, ${split.additionFileCount} fork-owned${split.unclassifiedFileCount === 0 ? "" : `, ${split.unclassifiedFileCount} unclassified`}. Recurring counts distinct woven paths, so a path conflicting at several stops is one seam an operator carries, not several.`,
-    "",
-    "| Domain | Recurring | Retirable | Fork-owned | Conflict files | Fork commits |",
-    "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ...rows.map(
-      (row) =>
-        `| ${inlineCode(row.domain)} | ${row.measured ? row.recurring : "?"} | ${row.measured ? row.retirable : "?"} | ${row.measured ? row.owned : "?"} | ${row.conflictFileCount} | ${row.forkCommitCount} |`,
-    ),
-  ];
-};
+export type MainStateOf = (row: { readonly commit: string; readonly path: string }) => string;
 
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
   stopCensusUnavailableReason: string | null = null,
+  mainStateOf: MainStateOf = () => "unknown (unavailable)",
 ): BlockedIssue | null => {
   if (stopCensus?.evidence !== undefined) {
     stopCensus = { ...stopCensus, ...censusTotals(stopCensus.evidence.rows) };
@@ -487,7 +444,6 @@ export const buildBlockedIssue = (
   const remaining =
     plan.feasibility.ffBoundary.upstreamCommitCount - plan.feasibility.ffBoundary.cleanCommitCount;
   const evidence = stopCensus?.evidence;
-  const split = evidence === undefined ? null : censusResolutionSplit(evidence.rows);
   const totals = stopCensus;
   const cell = (value: string) => inlineCode(value.replaceAll("\\", "\\\\").replaceAll("|", "\\|"));
   const body = [
@@ -507,23 +463,17 @@ export const buildBlockedIssue = (
         ? "No upstream release tag exists beyond this block, so there is no tagged rebase target to rehearse."
         : `A throwaway rebase rehearsal to ${inlineCode(stopCensus.targetTag)} found ${totals!.conflictingForkCommitCount} conflicting fork ${totals!.conflictingForkCommitCount === 1 ? "commit" : "commits"} and ${totals!.conflictingFileCount} conflict-file ${totals!.conflictingFileCount === 1 ? "observation" : "observations"}. Repeated paths count at each stop.`,
     ...(evidence === undefined
-      ? [
-          "Legacy count-only sequential measurement: stop rows and replay SHAs were not retained. Feasibility overlap below is a different measurement, not evidence for these totals.",
-        ]
+      ? ["Legacy count-only sequential measurement: stop rows and replay SHAs were not retained."]
       : [
-          `Method: ${inlineCode(evidence.method)}. Source: ${inlineCode(evidence.sourceSha)}; base: ${inlineCode(evidence.baseSha)}; target: ${inlineCode(evidence.targetSha)}. ${evidence.complete ? "Complete" : "Partial"} observation set.`,
-          ...(evidence.method === "sequential-rebase-stage3-provisional"
-            ? [
-                "Continuation provisionally takes fork-side index stage 3 (or its deletion) with rerere disabled. These observations record no human or agent resolution verdict.",
-              ]
-            : censusSplitProse(evidence, split!)),
-          ...(evidence.version === 1 ? [] : censusCarryCostProse(evidence)),
+          `Source: ${inlineCode(evidence.sourceSha)}; base: ${inlineCode(evidence.baseSha)}; target: ${inlineCode(evidence.targetSha)}. ${evidence.complete ? "Complete" : "Partial"} observation set.`,
           "",
-          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain |`,
-          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- |`,
+          `The ${inlineCode("upstream/main state")} column replays the same fork commit against live ${inlineCode("origin/main")}: ${inlineCode("conflict")}, ${inlineCode("not observed")}, or ${inlineCode("unknown (<reason>)")} when the forecast cannot answer. It selects nothing and applies nothing.`,
+          "",
+          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain | upstream/main state |`,
+          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- | --- |`,
           ...evidence.rows.map(
             (row) =>
-              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} | ${mainStateOf(row)} |`,
           ),
           `<!-- sequential-census-v${evidence.version}:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
         ]),
@@ -538,9 +488,6 @@ export const buildBlockedIssue = (
         : []),
     "",
     "## Feasibility overlap",
-    "",
-    `Pairwise merge-tree analysis: ${new Set(conflicts.map((conflict) => conflict.forkCommit)).size} introducing fork commits and ${conflicts.length} file rows. Complete overlap table, independent of sequential stop counts.`,
-    `Source: ${inlineCode(plan.oldSha ?? "unknown (legacy report)")}; base: ${inlineCode(plan.baseSha ?? "unknown (legacy report)")}; upstream: ${inlineCode(plan.horizon?.sha ?? "unknown (legacy report)")}. Attribution names the introducing fork commit, not a sequential replay stop.`,
     "",
     "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
     "",

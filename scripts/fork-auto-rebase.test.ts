@@ -1134,12 +1134,22 @@ it("keeps sequential totals and overlap totals bound to their own rows", () => {
       };
       const body = buildBlockedIssue(plan, census)!.body;
       assert.include(body, "29 conflicting fork commits and 41 conflict-file observations");
-      assert.include(body, "26 introducing fork commits and 37 file rows");
+      assert.strictEqual(body.split("| Hunks |").length - 1, 1);
       assert.notInclude(body, "999 conflicting fork");
       assert.notInclude(body, "999 conflict-file");
       assert.include(body, `${complete ? "Complete" : "Partial"} observation set`);
       if (!complete) assert.include(body, "lower-bound counts");
       assert.deepStrictEqual(parseSequentialCensusEvidence(body), census.evidence);
+      // The census marker is read by the churn ledger, so its bytes never move.
+      assert.include(
+        body,
+        `<!-- sequential-census-v${census.evidence.version}:${JSON.stringify(census.evidence).replaceAll("<", "\\u003c")} -->`,
+      );
+      // Every row carries the forecast column; with no forecast it says so.
+      assert.strictEqual(
+        body.split("| unknown (unavailable) |").length - 1,
+        census.evidence.rows.length,
+      );
       const files = parseCensusFiles(body);
       assert.strictEqual(files.length, 41);
       assert.strictEqual(files.filter((file) => file.path === "repeated.ts").length, 29);

@@ -8,10 +8,9 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
-  appendForecast,
   forecast,
   forecastPullRequest,
-  renderForecast,
+  mainState,
   renderPullRequestForecast,
 } from "./fork-forecast.ts";
 
@@ -47,7 +46,7 @@ const fixture = (conflict: boolean) => {
   return { root, base, main };
 };
 
-it("reports a clean main tip and records dedupe by main SHA", () => {
+it("reads a clean main tip as `not observed` and publishes no pull-request comment", () => {
   const item = fixture(false);
   try {
     const result = forecast(item.root);
@@ -56,10 +55,9 @@ it("reports a clean main tip and records dedupe by main SHA", () => {
       result.conflicts.map((row) => row.conflicts),
       [false],
     );
-    assert.include(renderForecast(result, false), `clean at \`${item.main}\``);
-    const appended = appendForecast([], result);
-    assert.strictEqual(appended.deduped, false);
-    assert.strictEqual(appendForecast(appended.forecasts, result).deduped, true);
+    const row = { commit: result.conflicts[0]!.commit, path: "seam.txt" };
+    assert.strictEqual(mainState(result, row, { sourceSha: result.source }), "not observed");
+    assert.strictEqual(renderPullRequestForecast(result), null);
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
@@ -94,7 +92,8 @@ it("forecasts only the pull request range and renders the exact clean string", (
       [feature],
     );
     assert.deepStrictEqual(result.conflicts[0]?.files, ["seam.txt"]);
-    assert.include(renderPullRequestForecast({ ...result, conflicts: [] }), `clean at ${main}`);
+    assert.strictEqual(renderPullRequestForecast({ ...result, conflicts: [] }), null);
+    assert.include(renderPullRequestForecast(result)!, `Forecast against origin/main ${main}`);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -112,6 +111,32 @@ it("uses the census conflict rows without moving fork refs or tags", () => {
     assert.strictEqual(row.seam, item.main);
     assert.strictEqual(git(item.root, ["rev-parse", "hyprws"]), beforeHead);
     assert.strictEqual(git(item.root, ["tag", "--list"]), beforeTags);
+    assert.strictEqual(
+      mainState(result, { commit: row.commit, path: "seam.txt" }, { sourceSha: result.source }),
+      "conflict",
+    );
+    assert.strictEqual(
+      mainState(null, { commit: row.commit, path: "seam.txt" }, { sourceSha: result.source }),
+      "unknown (unavailable)",
+    );
+    assert.strictEqual(
+      mainState(result, { commit: row.commit, path: "seam.txt" }, { sourceSha: "0".repeat(40) }),
+      "unknown (source-mismatch)",
+    );
+    assert.strictEqual(
+      mainState(
+        { ...result, complete: false },
+        { commit: row.commit, path: "seam.txt" },
+        { sourceSha: result.source },
+      ),
+      "unknown (partial)",
+    );
+    assert.strictEqual(
+      mainState(result, { commit: "1".repeat(40), path: "seam.txt" }, { sourceSha: result.source }),
+      "unknown (stale)",
+    );
+    // A partial forecast is never clean and never publishes a comment.
+    assert.strictEqual(renderPullRequestForecast({ ...result, complete: false }), null);
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
