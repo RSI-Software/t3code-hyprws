@@ -43,7 +43,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { supportsDesktopProjectWindows } from "../../desktopProjectWindows";
+import { isDesktopWindowCommand, supportsDesktopProjectWindows } from "../../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding-settings-import
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutKeyParts, formatShortcutLabel } from "../../keybindings";
@@ -1496,10 +1496,16 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 function useKeybindingCatalog() {
   const sendShortcut = useClientSettings((settings) => settings.sendShortcut);
   const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const showDesktopWindowBindings =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge); // fork-hook: multi-window/dispatch-keybinding-settings
+  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []).filter(
+    (binding) => showDesktopWindowBindings || !isDesktopWindowCommand(binding.command),
+  ); // fork-hook: multi-window/dispatch-keybinding-settings
   const m = useMessages();
   return {
-    commandOptions: buildKeybindingCommandOptions(merged, m),
+    commandOptions: buildKeybindingCommandOptions(merged, m).filter(
+      (command) => showDesktopWindowBindings || !isDesktopWindowCommand(command),
+    ), // fork-hook: multi-window/dispatch-keybinding-settings
     allRows: buildKeybindingRows(merged, navigator.platform, sendShortcut, m),
   };
 }
