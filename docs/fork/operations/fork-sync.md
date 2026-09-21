@@ -110,7 +110,7 @@ Malformed input leaves the ref untouched; a failed push restores it.
 Three seam states block: `returned-unresolved`, `repair-unverified`, `regressed`.
 Neither absence nor a recorded guard clears one; only comparable verification does.
 `unblock-apply` appends its own row, so `append --push` is only for a row no apply wrote.
-Each report run replaces the `## Churn` section on the open block issue.
+Each blocked report assesses the ledger locally and hands the lesson receipt to the retained outcome evidence; no section is posted anywhere.
 
 ## Regenerable files
 
@@ -146,11 +146,7 @@ In candidate mode, compare its rebased head with `origin/hyprws-next`.
 | Filed once | Per blocking SHA, including after a manual close   |
 | Rotation   | The old issue closes by identity before a new one  |
 | Refresh    | Body rewritten silently; title unchanged           |
-| Horizon    | One **Refresh log** comment, edited in place       |
 | Notices    | Assignment on creation, a comment on close         |
-
-Refresh-log glyphs: `o` commit, `X` block, `N` nightly, `S` stable, `Nc` conflicting fork commits.
-Dedupe assumes the marker and label stay intact.
 
 ## Unblocking a `rebase-blocked` issue
 

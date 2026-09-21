@@ -8,7 +8,6 @@ import { runCommand } from "./lib/fork-command.ts";
 import { parseUpstreamReleaseTag, type VersionParts } from "./lib/fork-policy.ts";
 import {
   closeComment,
-  refreshRow,
   type BlockedIssue,
   type RebaseMode,
   type StableCandidate,
@@ -23,8 +22,6 @@ const RELEASE_LABEL = "release";
 const NOTIFICATION_ISSUE_TYPE = "Notification";
 const HIGH_PRIORITY = "High";
 const BLOCKING_MARKER = /<!-- blocking-sha:([0-9a-f]{40,64}) -->/;
-const REFRESH_LOG_MARKER = "<!-- hyprws-rebase-refresh-log -->";
-const REFRESH_TAG_MARKER = /<!-- hyprws-rebase-refresh-tag:([^ ]+) -->/;
 
 export interface NotifyInput {
   readonly mode: RebaseMode;
@@ -105,13 +102,11 @@ export interface RebaseGitHubClient {
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
   listHardFailureIssues(): ReadonlyArray<RebaseIssue>;
   listReleaseIssues(): ReadonlyArray<RebaseIssue>;
-  listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment>;
   lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string;
   applyIssueType(issue: RebaseIssue, issueTypeId: string): void;
   createIssue(issue: CreateNotificationIssue): RebaseIssue;
   updateIssueBody(issueNumber: number, body: string): void;
   createIssueComment(issueNumber: number, body: string): RebaseIssueComment;
-  updateIssueComment(commentId: number, body: string): void;
   stableReleaseTagExists(candidate: string): boolean;
   closeIssue(issueNumber: number, reason?: IssueCloseReason): void;
 }
@@ -119,83 +114,8 @@ export interface RebaseGitHubClient {
 const blockingSha = (issue: RebaseIssue): string | null =>
   BLOCKING_MARKER.exec(issue.body)?.[1] ?? null;
 
-const blockedTag = (blocked: BlockedIssue): string => {
-  const tag = blocked.newestUpstreamTagBeyondWindow;
-  if (tag === null) throw new Error("blocked issue payload has no tagged rebase horizon");
-  return tag;
-};
-
 const effectiveTrunkSha = (input: NotifyInput): string | null =>
   input.mode === "on" && input.status === "advanced" ? input.newSha : input.oldSha;
-
-const rowFor = (blocked: BlockedIssue, index: number, at: Date): string =>
-  refreshRow({
-    index,
-    at,
-    blockingShortSha: blocked.blockingShortSha,
-    tag: blockedTag(blocked),
-    upstreamCommitCount: blocked.remainingUpstreamCount,
-    conflictingForkCommitCount: blocked.stopCensus?.conflictingForkCommitCount ?? null,
-  });
-
-export const initialRefreshLog = (blocked: BlockedIssue, at: Date): string => {
-  const tag = blockedTag(blocked);
-  return [
-    REFRESH_LOG_MARKER,
-    "Refresh log  (1 update)",
-    "",
-    "```text",
-    rowFor(blocked, 0, at),
-    "",
-    `block ${blocked.blockingShortSha} unchanged since #0`,
-    "o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag",
-    "```",
-    `<!-- hyprws-rebase-refresh-tag:${tag} -->`,
-  ].join("\n");
-};
-
-export const appendRefreshLog = (
-  current: string,
-  blocked: BlockedIssue,
-  at: Date,
-): string | null => {
-  const currentTag = REFRESH_TAG_MARKER.exec(current)?.[1] ?? null;
-  const nextTag = blockedTag(blocked);
-  if (currentTag === nextTag) return null;
-  if (!current.includes(REFRESH_LOG_MARKER)) {
-    throw new Error("refresh-log comment is missing its identity marker");
-  }
-  const rows = current.match(/^#\d+ /gm)?.length ?? 0;
-  if (rows === 0 || !/^Refresh log  \(\d+ updates?\)$/m.test(current)) {
-    throw new Error("refresh-log comment has an unrecognized shape");
-  }
-  const blockIndex = current.indexOf("\n\nblock ");
-  if (blockIndex === -1) throw new Error("refresh-log comment is missing its block footer");
-  return `${current.slice(0, blockIndex)}\n${rowFor(blocked, rows, at)}${current.slice(blockIndex)}`
-    .replace(/^Refresh log  \(\d+ updates?\)$/m, `Refresh log  (${rows + 1} updates)`)
-    .replace(REFRESH_TAG_MARKER, `<!-- hyprws-rebase-refresh-tag:${nextTag} -->`);
-};
-
-const refreshIssue = (
-  client: RebaseGitHubClient,
-  issueNumber: number,
-  blocked: BlockedIssue,
-  at: Date,
-): void => {
-  const comments = client
-    .listIssueComments(issueNumber)
-    .filter((comment) => comment.body.includes(REFRESH_LOG_MARKER));
-  if (comments.length > 1) {
-    throw new Error(`issue #${issueNumber} has more than one Refresh log comment`);
-  }
-  const comment = comments[0];
-  if (comment === undefined) {
-    client.createIssueComment(issueNumber, initialRefreshLog(blocked, at));
-    return;
-  }
-  const updated = appendRefreshLog(comment.body, blocked, at);
-  if (updated !== null) client.updateIssueComment(comment.id, updated);
-};
 
 const hasNotificationType = (issue: RebaseIssue): boolean =>
   issue.issueType === NOTIFICATION_ISSUE_TYPE ||
@@ -210,15 +130,9 @@ const ensureNotificationType = (
   client.applyIssueType(issue, issueTypeId ?? client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE));
 };
 
-const refreshBlockIssue = (
-  client: RebaseGitHubClient,
-  issue: RebaseIssue,
-  blocked: BlockedIssue,
-  at: Date,
-): void => {
+const refreshBlockIssue = (client: RebaseGitHubClient, issue: RebaseIssue, body: string): void => {
   ensureNotificationType(client, issue);
-  client.updateIssueBody(issue.number, blocked.body);
-  refreshIssue(client, issue.number, blocked, at);
+  client.updateIssueBody(issue.number, body);
 };
 
 const closeByIdentity = (client: RebaseGitHubClient, issue: RebaseIssue, comment: string): void => {
@@ -229,11 +143,7 @@ const closeByIdentity = (client: RebaseGitHubClient, issue: RebaseIssue, comment
   client.closeIssue(issue.number);
 };
 
-export const reconcileRebaseBlock = (
-  client: RebaseGitHubClient,
-  input: NotifyInput,
-  at = new Date(),
-): void => {
+export const reconcileRebaseBlock = (client: RebaseGitHubClient, input: NotifyInput): void => {
   client.ensureBlockedLabel();
   const issues = client.listBlockedIssues();
   const open = issues.filter((issue) => issue.state === "open");
@@ -257,7 +167,7 @@ export const reconcileRebaseBlock = (
 
   if (input.blocked === null) return;
   if (kept !== null) {
-    refreshBlockIssue(client, kept, input.blocked, at);
+    refreshBlockIssue(client, kept, input.blocked.body);
     return;
   }
   const preCreateMatch = client
@@ -265,7 +175,7 @@ export const reconcileRebaseBlock = (
     .filter((issue) => issue.state === "open" && blockingSha(issue) === desiredSha)
     .toSorted((left, right) => left.number - right.number)[0];
   if (preCreateMatch !== undefined) {
-    refreshBlockIssue(client, preCreateMatch, input.blocked, at);
+    refreshBlockIssue(client, preCreateMatch, input.blocked.body);
     return;
   }
 
@@ -278,7 +188,6 @@ export const reconcileRebaseBlock = (
     priority: HIGH_PRIORITY,
   });
   client.applyIssueType(created, issueTypeId);
-  client.createIssueComment(created.number, initialRefreshLog(input.blocked, at));
 };
 
 export const hardFailureBody = (report: HardFailureReport, at: Date): string =>
@@ -451,7 +360,7 @@ export const reconcileForkIssues = (
   at = new Date(),
 ): void => {
   const failures: Array<unknown> = [];
-  captureFailure(failures, () => reconcileRebaseBlock(client, input, at));
+  captureFailure(failures, () => reconcileRebaseBlock(client, input));
   captureFailure(failures, () => reconcileStableCandidates(client, input.stableCandidates));
   captureFailure(failures, () => closeRecoveredHardFailures(client, at));
   if (failures.length > 0) {
@@ -699,15 +608,6 @@ export class SystemGitHub implements RebaseGitHubClient {
     );
   }
 
-  listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment> {
-    return this.pages<ApiComment>(
-      `repos/${this.repository}/issues/${issueNumber}/comments?per_page=100`,
-    ).map((comment) => ({
-      id: requireNumber(comment.id, "comment id"),
-      body: comment.body ?? "",
-    }));
-  }
-
   createIssue(issue: CreateNotificationIssue): RebaseIssue {
     const metadata = this.issueMetadata(issue);
     const created = this.api<ApiIssue>("POST", `repos/${this.repository}/issues`, {
@@ -740,10 +640,6 @@ export class SystemGitHub implements RebaseGitHubClient {
       { body },
     );
     return { id: requireNumber(created.id, "comment id"), body: created.body ?? body };
-  }
-
-  updateIssueComment(commentId: number, body: string): void {
-    this.api("PATCH", `repos/${this.repository}/issues/comments/${commentId}`, { body });
   }
 
   stableReleaseTagExists(candidate: string): boolean {

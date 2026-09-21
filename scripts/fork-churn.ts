@@ -3,7 +3,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - The churn ledger is standalone fork operator state.
 
 import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import {
@@ -29,33 +28,47 @@ import {
   writeChurnState,
   writeChurnLedger,
   type CensusFile,
+  type CensusSnapshot,
   type ChurnConflict,
   type ChurnEntry,
   type RepairCommit,
 } from "./fork-churn-ledger.ts";
-import {
-  CHURN_MARKER,
-  blockingSeamLines,
-  renderChurnSection,
-  type ChurnDelta,
-} from "./fork-churn-section.ts";
 import { composeSeamBundle } from "./lib/fork-churn-compose.ts";
-import { bridgedLegacy, requireSeamRecords } from "./lib/fork-churn-seams.ts";
+import {
+  bridgedLegacy,
+  censusFilesFromEvidence,
+  requireSeamRecords,
+} from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
-import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
+import { parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { appendDecision, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
-import { readHostIdentity } from "./lib/fork-agent-identity.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
-import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
+import {
+  parseSequentialCensusEvidence,
+  requireSequentialCensusEvidence,
+  type BlockedIssue,
+  type RebaseStopCensus,
+} from "./lib/fork-rebase-issues.ts";
 import { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
 import { canonicalizeOutcomeReceiptsForRoot, runOutcome } from "./fork-churn-outcomes.ts";
 import {
   readLessonEvidence,
   lessonAssessmentUnavailable,
   resolveLessonSource,
-  renderLessonSource,
 } from "./fork-lesson-guidance.ts";
+
+/**
+ * Three seam states block the walk's next step; the report verb turns them into the
+ * `report-policy: failed` receipt the outcome ledger retains.
+ */
+export const blockingSeamLines = (churn: ReturnType<typeof censusChurn>): ReadonlyArray<string> =>
+  churn.seams
+    .filter((seam) => seam.blocking)
+    .map(
+      (seam) =>
+        `${seam.status}${seam.bridged === "legacy" ? " (bridged: legacy)" : ""}: ${seam.path} / ${seam.subject} (${seam.domain}): ${seam.reason}`,
+    );
 
 export {
   censusChurn,
@@ -118,55 +131,7 @@ export const trunkRepairCommits = (
     });
 };
 
-/** How many trailing ledger entries the cost gate inspects (RSI-Software/t3code-hyprws#1019). */
-export const WALK_COST_WINDOW = 5;
-
-/** Every entry in the window carries elapsedMs, or the gate names what is missing. */
-export const walkCostGaps = (
-  entries: ReadonlyArray<ChurnEntry>,
-  window = WALK_COST_WINDOW,
-): ReadonlyArray<string> =>
-  entries
-    .slice(-window)
-    .flatMap((entry) => (entry.elapsedMs === undefined ? [`${entry.tag}: missing elapsedMs`] : []));
-
-interface WalkReportProbe {
-  readonly recordPath?: unknown;
-  readonly target?: { readonly tag?: unknown };
-  readonly walk?: { readonly elapsedMs?: unknown };
-}
-
-/**
- * How long the walk ran — applied or stopped — from the walk report the walk wrote beside the
- * record (RSI-Software/t3code-hyprws#703); a stop writes its report before the pending row is
- * appended, so the same probe finds the stopped walk's own number (#1023). A record path is reused across walks, so only a
- * report bound to this record whose target tag matches this walk qualifies; anything else is
- * another walk's number, and a wrong number on append-only history is worse than none. A walk
- * with no tag-matching report records a row without `elapsedMs`, never a guess.
- */
-export const walkElapsedMs = (recordPath: string, tag: string): number | undefined => {
-  try {
-    const resolved = NodePath.resolve(recordPath);
-    const directory = NodePath.dirname(resolved);
-    for (const name of NodeFS.readdirSync(directory)) {
-      if (!name.endsWith(".json")) continue;
-      let report: WalkReportProbe;
-      try {
-        report = JSON.parse(NodeFS.readFileSync(NodePath.join(directory, name), "utf8"));
-      } catch {
-        continue;
-      }
-      if (report.recordPath !== resolved || report.target?.tag !== tag) continue;
-      const elapsedMs = report.walk?.elapsedMs;
-      if (typeof elapsedMs === "number" && Number.isSafeInteger(elapsedMs) && elapsedMs >= 0)
-        return elapsedMs;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-};
-
+/** Resolve each census commit's subject from the repository while its objects are available. */
 const censusSubjectOf =
   (root: string) =>
   (commit: string): string =>
@@ -199,45 +164,6 @@ const readDurableLedger = (
     );
   return entries;
 };
-
-/** Collect rendering inputs outside the pure section renderer; missing local tooling is visible. */
-export const churnDelta = (root: string): ChurnDelta | null => {
-  const result = runCommand(process.execPath, ["scripts/fork-delta.ts", "--inventory", "--json"], {
-    cwd: root,
-  });
-  if (result.status !== 0) return null;
-  try {
-    const inventory = JSON.parse(result.stdout) as {
-      domains?: Array<{ domain?: unknown; commits?: unknown; added?: unknown; deleted?: unknown }>;
-    };
-    if (!Array.isArray(inventory.domains)) return null;
-    const domains = inventory.domains.map((row) => {
-      const { domain, commits, added, deleted } = row;
-      if (
-        typeof domain !== "string" ||
-        typeof commits !== "number" ||
-        typeof added !== "number" ||
-        typeof deleted !== "number" ||
-        !Number.isSafeInteger(commits) ||
-        !Number.isSafeInteger(added) ||
-        !Number.isSafeInteger(deleted)
-      )
-        throw new Error("invalid fork:delta inventory");
-      return { domain, commits, added, deleted, overlaps: 0 };
-    });
-    return {
-      commits: domains.reduce((total, row) => total + row.commits, 0),
-    };
-  } catch {
-    return null;
-  }
-};
-
-interface IssueView {
-  readonly body: string;
-  readonly url: string;
-  readonly comments: ReadonlyArray<{ readonly body: string; readonly url: string }>;
-}
 
 const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<string, string> => {
   const options = new Map<string, string>();
@@ -298,6 +224,11 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
   const parsed = parseRecord(record, { allowIncomplete: pending });
+  interface IssueView {
+    readonly body: string;
+    readonly url: string;
+    readonly comments: ReadonlyArray<{ readonly body: string; readonly url: string }>;
+  }
   const issueView = JSON.parse(
     runCommandText(
       "gh",
@@ -347,21 +278,6 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
   const repairCommits = pending
     ? parseRepairCommits(record)
     : trunkRepairCommits(root, before, after);
-  // Elapsed time comes from the walk report beside the record; effort from the host attestation
-  // (RSI-Software/t3code-hyprws#703). Both paths read the same sources for the same walk — a
-  // stopped walk is a walk, and the walks that cost the most are exactly the rows that used to
-  // render absent (#1023). Either can be absent, and absence renders as absent. Effort is
-  // decoration on a history row: an unavailable or unparseable handoff (no ghb, an expired
-  // credential, CI) is recorded as absent and never fails the write. The parser stays strict;
-  // only this call site absorbs the failure.
-  const elapsedMs = walkElapsedMs(recordPath, tag);
-  const handoff = (() => {
-    try {
-      return readHostIdentity(root);
-    } catch {
-      return undefined;
-    }
-  })();
   // Every decision the walk recorded, carried from the record's own decision lines. A rewrite
   // keeps both sides: the existing pending row's decisions merged with the new record's — and
   // the sharper pointer wins, so a `record-decisions` rewrite upgrades the stop's issue-URL
@@ -390,8 +306,6 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     ...(walkDecisions.length === 0 ? {} : { walkDecisions }),
     ...(pending ? { pending: true as const } : {}),
     ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
-    ...(elapsedMs === undefined ? {} : { elapsedMs }),
-    ...(handoff === undefined ? {} : { effort: { model: handoff.model, effort: handoff.effort } }),
   };
   const next =
     pendingEntry === undefined
@@ -405,66 +319,21 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
   );
 };
 
-interface BlockedIssueView {
-  readonly number: number;
-}
-
-/** The single open block issue the walk hangs off, or null when nothing is blocked. */
-const blockedIssueNumber = (root: string): number | null => {
-  const issues = JSON.parse(
-    runCommandText(
-      "gh",
-      [
-        "issue",
-        "list",
-        "--state",
-        "open",
-        "--label",
-        BLOCK_LABEL,
-        "--repo",
-        FORK_REPOSITORY,
-        "--json",
-        "number",
-      ],
-      { cwd: root },
-    ),
-  ) as ReadonlyArray<BlockedIssueView>;
-  if (issues.length > 1)
-    throw new Error(`expected at most one open ${BLOCK_LABEL} issue, found ${issues.length}`);
-  return issues[0]?.number ?? null;
-};
-
-interface IssueComments {
-  readonly body: string;
-  readonly comments: ReadonlyArray<{ readonly url: string; readonly body: string }>;
-}
-
 /**
- * `gh issue view --json comments` reports a comment's GraphQL node id, which the REST
- * comment path refuses; the permalink it returns alongside carries the numeric database
- * id that path wants.
- */
-export const commentRestId = (url: string): string => {
-  const id = /#issuecomment-(\d+)$/.exec(url)?.[1];
-  if (id === undefined) throw new Error(`comment url carries no REST id: ${url}`);
-  return id;
-};
-
-/**
- * Post the churn section on the block issue, replacing the section the previous
- * report left so the issue carries one live view instead of a pile of snapshots.
+ * Assess this walk's lessons without publishing anything: no issue is read, no comment is
+ * written, and the receipt the outcome step retains always says `publication:
+ * "not-attempted"`. The verdict — unavailable or blocking seams — lands in the outcome
+ * ledger, and `fork:scan` remains the seam view agents read.
  */
 const report = (args: ReadonlyArray<string>, root: string): number => {
   const options = parseOptions(args);
   for (const option of options.keys())
-    if (option !== "--issue" && option !== "--receipt")
+    if (option !== "--receipt" && option !== "--census")
       throw new UsageError(`unknown option: ${option}`);
   const receiptPath = options.get("--receipt");
   const receipt = (
-    publication: string,
     policy: string,
-    url?: string,
-    reason?: "lesson-unavailable" | "blocking-seams",
+    reason?: "lesson-unavailable" | "blocking-seams" | "census-unavailable",
   ) => {
     if (receiptPath === undefined) return;
     const path = NodePath.resolve(root, receiptPath);
@@ -472,30 +341,101 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     NodeFS.writeFileSync(
       path,
       `${JSON.stringify({
-        publication,
+        publication: "not-attempted",
         policy,
-        ...(url ? { url } : {}),
         ...(reason ? { reason } : {}),
       })}\n`,
     );
   };
-  receipt("not-attempted", "not-attempted");
-  const explicit = options.get("--issue");
-  const issue = explicit === undefined ? blockedIssueNumber(root) : Number(explicit);
-  if (issue === null) {
-    process.stdout.write(`no open ${BLOCK_LABEL} issue; churn section not posted\n`);
-    return 0;
+  receipt("not-attempted");
+  // The live census comes from the rebase job's auto-result artifact (a typed
+  // `AutoRebaseResult` on disk), passed explicitly with --census. It is a local file:
+  // the report still reads nothing from GitHub. Without the flag the assessment
+  // runs on the ledger's landed snapshots only, and the run says so. With it, a
+  // live census the artifact cannot provide is a non-passing verdict, never a
+  // quiet fall-back to history: the same hole the publication removal closed.
+  const censusPath = options.get("--census");
+  let currentCensus: CensusSnapshot | null = null;
+  let censusUnavailable: string | null = null;
+  if (censusPath !== undefined) {
+    const resolved = NodePath.resolve(root, censusPath);
+    if (!NodeFS.existsSync(resolved))
+      throw new Error(`--census file does not exist: ${censusPath}`);
+    const malformed = (): Error =>
+      new Error(`--census artifact is not a recognizable auto result: ${censusPath}`);
+    const parsed: unknown = JSON.parse(NodeFS.readFileSync(resolved, "utf8"));
+    const record = (value: unknown): Record<string, unknown> | null =>
+      typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
+    const envelope = record(parsed);
+    const decision = record(envelope?.decision);
+    if (envelope === null || envelope.schemaVersion !== 1 || decision === null) throw malformed();
+    const stopRecord = record(decision.census);
+    if (decision.census !== null && stopRecord === null) throw malformed();
+    const blockedRecord = record(envelope.blocked);
+    if (envelope.blocked !== null && envelope.blocked !== undefined && blockedRecord === null)
+      throw malformed();
+    const stop = stopRecord as unknown as RebaseStopCensus | null;
+    const blocked = blockedRecord as unknown as BlockedIssue | null;
+    // Evidence provenance is validated by the shared census validator - the one
+    // base reached through parseSequentialCensusEvidence - so method, version,
+    // SHAs, and rows are checked exactly once, where the ledger checks them.
+    const evidence =
+      stop === null || stop.evidence === undefined
+        ? undefined
+        : requireSequentialCensusEvidence(stop.evidence);
+    if (stop !== null && evidence !== undefined && evidence.targetTag !== stop.targetTag)
+      throw new Error(
+        `--census evidence targets ${evidence.targetTag} but the stop census targets ${stop.targetTag}: ${censusPath}`,
+      );
+    // The feasibility overlap conflicts are the structured fallback the block
+    // issue body always carried, independent of sequential stop counts: count-only
+    // and census-unavailable attempts still assess live evidence through it.
+    const fallbackFiles = (): CensusSnapshot | null => {
+      const conflicts = blocked?.conflicts;
+      if (conflicts === undefined || conflicts.length === 0) return null;
+      return {
+        tag: blocked?.newestUpstreamTagBeyondWindow ?? stop?.targetTag ?? "unknown",
+        fixedAt: null,
+        files: conflicts.map((conflict) => ({
+          path: conflict.path,
+          hunks: conflict.hunks,
+          commit: conflict.forkCommitShort,
+          subject: conflict.forkSubject,
+          domain: conflict.domain ?? "?",
+        })),
+      };
+    };
+    if (stop === null) {
+      currentCensus = fallbackFiles();
+      if (currentCensus === null)
+        censusUnavailable =
+          (typeof decision.censusUnavailableReason === "string"
+            ? decision.censusUnavailableReason
+            : null) ?? "the artifact records no blocked conflicts";
+    } else if (evidence === undefined) {
+      // A legacy count-only measurement retained no stop rows; the overlap
+      // conflicts are its live evidence, under the legacy identity basis.
+      currentCensus = fallbackFiles();
+      if (currentCensus === null)
+        censusUnavailable =
+          "count-only census carries no typed rows and the artifact records no blocked conflicts";
+    } else if (evidence.rows.length === 0 && !evidence.complete) {
+      // Truncation to zero rows says nothing about presence; a complete-empty
+      // census below is real live absence and stays an observation.
+      censusUnavailable = "partial census was truncated to zero rows";
+    } else {
+      currentCensus = {
+        tag: stop.targetTag,
+        fixedAt: null,
+        files: censusFilesFromEvidence(evidence),
+        censusEvidence: evidence,
+      } as const;
+    }
+  } else {
+    process.stderr.write("No --census passed; the assessment reads landed history only.\n");
   }
-  if (!Number.isSafeInteger(issue) || issue < 1)
-    throw new Error("--issue must be a positive integer");
-  const view = JSON.parse(
-    runCommandText(
-      "gh",
-      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "body,comments"],
-      { cwd: root },
-    ),
-  ) as IssueComments;
-  const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
   // A report reads one immutable snapshot; fetching current guidance must not move
   // the retained ref used by local append/record writers.
   const source = resolveLessonSource(root, CHURN_REF, false);
@@ -503,92 +443,49 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     throw new Error(`${CHURN_REF} lesson evidence is unavailable: ${source.detail}`);
   const lessons = readLessonEvidence(source.raw);
   const entries = readDurableLedger(root, lessons.walks);
-  const currentCensus = {
-    tag: parseCensusTag(view.body),
-    fixedAt: null,
-    files: parseCensusFiles(view.body),
-    ...(parseSequentialCensusEvidence(view.body) === null
-      ? {}
-      : {
-          censusEvidence: parseSequentialCensusEvidence(view.body)!,
-        }),
-  } as const;
-  const records = lessons.seamRecords;
   const unavailable = lessonAssessmentUnavailable(lessons, source);
-  const churn = unavailable === null ? censusChurn(entries, currentCensus, records) : null;
-  const section =
-    churn === null
-      ? `${CHURN_MARKER}\n## Churn\n\nLesson assessment unavailable: ${unavailable}. No repair or policy pass is inferred.\n`
-      : renderChurnSection(
-          entries,
-          existing?.body ?? null,
-          currentCensus,
-          records,
-          lessons.outcomes ?? [],
-          churnDelta(root),
-        );
-  const body = `${section}\n\n\`\`\`text\n${renderLessonSource(source, lessons)}\n\`\`\`\n`;
-  const bodyPath = NodePath.join(
-    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
-    "churn.md",
-  );
-  NodeFS.writeFileSync(bodyPath, body);
-  let url: string;
-  try {
-    url = runCommandText(
-      "gh",
-      existing === undefined
-        ? ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", bodyPath]
-        : [
-            "api",
-            "--method",
-            "PATCH",
-            `repos/${FORK_REPOSITORY}/issues/comments/${commentRestId(existing.url)}`,
-            "--field",
-            `body=@${bodyPath}`,
-            "--jq",
-            ".html_url",
-          ],
-      { cwd: root },
-    ).trim();
-  } catch (error) {
-    receipt("failed", "not-attempted");
-    throw error;
-  }
-  process.stdout.write(`churn section on #${issue}: ${url}\n`);
+  const churn =
+    unavailable === null ? censusChurn(entries, currentCensus, lessons.seamRecords) : null;
   if (churn === null) {
-    // A missing lesson is a warning on the notification, not a job failure: the
-    // run already selected a target and the outcome step still records it
-    // (RSI-Software/t3code-hyprws#860). Blocking seams keep their own exit 1.
-    receipt("succeeded", "failed", url, "lesson-unavailable");
+    // A missing lesson is a warning, not a job failure: the run already selected a
+    // target and the outcome step still records it (RSI-Software/t3code-hyprws#860).
+    receipt("failed", "lesson-unavailable");
     process.stdout.write(
-      `Lesson assessment unavailable: ${unavailable}; the published report does not establish a policy pass.\n`,
+      `Lesson assessment unavailable: ${unavailable}; no policy pass is inferred.\n`,
     );
     return 0;
   }
   const failures = blockingSeamLines(churn);
+  if (censusUnavailable !== null) {
+    process.stderr.write(
+      `Live census unavailable: ${censusUnavailable}; the verdict cannot rest on live evidence.\n`,
+    );
+    if (failures.length === 0) {
+      // Live evidence was requested but could not be assessed: that is never a
+      // pass, by the same rule as a missing lesson (RSI-Software/t3code-hyprws#860).
+      receipt("failed", "census-unavailable");
+      process.stdout.write(
+        "lesson assessment: live census unavailable; no policy pass is inferred\n",
+      );
+      return 0;
+    }
+  }
   receipt(
-    "succeeded",
     failures.length === 0 ? "succeeded" : "failed",
-    url,
     failures.length === 0 ? undefined : "blocking-seams",
   );
-  if (failures.length === 0) return 0;
-  // The verdict stays recorded but no longer fails the job: the carried unblock
-  // walk owns seam resolution and the outcome ledger keeps `report-policy:
-  // failed` visible (RSI-Software/t3code-hyprws#869). Publication failures still
-  // throw and exit nonzero above.
-  if (process.env.GITHUB_ACTIONS === "true")
-    process.stdout.write(
-      `::warning::${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n`,
-    );
-  else
-    process.stderr.write(
-      `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
-    );
+  if (failures.length === 0) {
+    process.stdout.write("lesson assessment: no unresolved blocking seam\n");
+    return 0;
+  }
+  // The verdict stays recorded but never fails the job: the carried unblock walk
+  // owns seam resolution and the outcome ledger keeps `report-policy: failed`
+  // visible (RSI-Software/t3code-hyprws#869).
+  process.stderr.write(
+    `${failures.length} unresolved blocking seam(s):\n${failures.slice(0, 10).join("\n")}\n`,
+  );
   return 0;
 };
-
 /**
  * A bridged legacy→sequential verification must prove the repair landed before the frozen after
  * head; `comparable()` alone cannot check ancestry, and non-bridged verifications keep today's
@@ -742,31 +639,8 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
   return 0;
 };
 
-/**
- * The cost gate (RSI-Software/t3code-hyprws#1019): every entry in the trailing window
- * carries elapsedMs, or the gate fails naming the gap. Legacy rows written before the
- * field existed stay valid outside the window; inside it they are the failure this
- * condition exists to force. Pending rows count: a stopped walk is a walk. Effort is
- * recorded but never required: only a host attestation carries it, so a delegated walk
- * never records it and the gate cannot ask for it (RSI-Software/t3code-hyprws#1090).
- */
-const verifyWalkCost = (args: ReadonlyArray<string>, root: string): number => {
-  if (args.length > 0) throw new UsageError("usage: fork-churn verify-cost");
-  const entries = readDurableLedger(root);
-  const gaps = walkCostGaps(entries);
-  if (gaps.length > 0) {
-    process.stderr.write(
-      `walk cost incomplete in the trailing ${WALK_COST_WINDOW} walk(s):\n${gaps.map((gap) => `  - ${gap}`).join("\n")}\n`,
-    );
-    return 1;
-  }
-  const count = Math.min(entries.length, WALK_COST_WINDOW);
-  process.stdout.write(`walk cost complete: trailing ${count} walk(s) carry elapsedMs\n`);
-  return 0;
-};
-
 const USAGE =
-  "usage: fork-churn append <options> | compose --plan <json> --out <json> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push] | verify-cost";
+  "usage: fork-churn append <options> | compose --plan <json> --out <json> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | report [--receipt <json>] [--census <auto-result.json>] | seed [--from <json>] [--push]";
 
 const HELP = `Record fork rebase evidence and target outcomes through distribution.
 ${USAGE}
@@ -777,7 +651,7 @@ outcome imports immutable {version:1, receipts:[...]} evidence. Alternatively,
 --release collects FORK_RELEASE_NEEDS job results and verifies GitHub tag/assets.
 FORK_OUTCOME_EXPORT retains an importable bundle before ledger publication.
 Eligibility is declared independently of bot mode. Missing stages never imply success.
-Output is JSON with retained outcomes, resume action and explicitly eligible streaks.
+Output is JSON with retained outcomes and the resume action.
 
 compose --plan PATH --out PATH builds that bundle from local sequential census
 artifacts, freezing each census as an evidence-bearing observation and resolving
@@ -787,11 +661,17 @@ and never touches the ledger; guard results stay maintainer attestations.
 record --input PATH imports a reviewed {version:1, records:[...]} bundle.
 It validates content digests and frozen evidence; it does not execute guard commands.
 --push publishes the bot-owned ref with an expected-old lease.
-report writes the GitHub churn comment and reports unresolved failures.
-It reads one current immutable lesson source and reports its SHA/freshness without moving local refs.
-Newer schemas publish an unavailable assessment and exit 1; no policy pass is inferred.
+report assesses the walk's lessons without publishing: receipt publication is always
+not-attempted, the verdict (lesson unavailable, blocking seams, or clear) goes to the
+receipt the outcome step retains, and unresolved seams are named on stderr.
+--census PATH assesses the live census from the rebase job's auto-result artifact
+(a typed AutoRebaseResult on disk); without it the assessment reads landed history
+only and says so on stderr. A live census the artifact cannot provide - count-only
+with no conflicts, or a truncated-to-zero partial - is a non-passing
+census-unavailable verdict, never a pass inferred from history; a malformed
+artifact or census provenance is an error.
 seed initializes the ledger; append records a completed walk.
-Exit: 0 complete, 1 runtime/evidence failure or blocking seam, 2 invalid arguments.
+Exit: 0 complete, 1 runtime/evidence failure, 2 invalid arguments.
 Output: compact receipts on stdout; failures on stderr. -h / --help writes nothing.
 `;
 
@@ -817,7 +697,6 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb === "report") return report(args, root);
     if (verb === "seed") return seed(args, root);
     if (verb === "migrate-subjects") return migrateSubjects(args, root);
-    if (verb === "verify-cost") return verifyWalkCost(args, root);
     throw new UsageError(USAGE);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

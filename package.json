@@ -65,7 +65,6 @@
     "fork:sync-gate": "node scripts/fork-sync-gate.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
     "fork:rebase-report": "node scripts/fork-rebase-report.ts",
-    "fork:rebase-report:artifact": "node scripts/fork-rebase-report-artifact.ts",
     "fork:rebase-notify": "node scripts/fork-rebase-notify.ts",
     "fork:release-version": "node scripts/fork-release-version.ts",
     "fork:release-delta-rev": "node scripts/fork-release-delta-rev.ts",
