@@ -17,6 +17,7 @@ import { applyLanguage, m, onLocaleChange } from "../i18n/messages.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import { newWindowMenuItems } from "./DesktopApplicationMenu.fork.ts"; // fork-hook: multi-window/dispatch-menu
 
 export class DesktopApplicationMenuActionError extends Schema.TaggedError<DesktopApplicationMenuActionError>()(
   "DesktopApplicationMenuActionError",
@@ -230,6 +231,15 @@ export const make = Effect.gen(function* () {
       }
       runMenuEffect("paste-as-text", dispatchMenuAction("paste-as-text"));
     };
+    const newWindowClick = () => {
+      runMenuEffect(
+        "new-window",
+        Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.requestWindow({ kind: "new-window" });
+        }),
+      );
+    }; // fork-hook: multi-window/dispatch-menu
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
     };
@@ -272,6 +282,7 @@ export const make = Effect.gen(function* () {
       {
         label: m(msg("File", { $context: "menu bar title" })),
         submenu: [
+          ...newWindowMenuItems(newWindowClick), // fork-hook: multi-window/dispatch-menu
           ...(environment.platform === "darwin"
             ? []
             : [
