@@ -6,13 +6,14 @@ import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
 import {
-  FORK_HOOKS,
+  forkHookManifest,
   FORK_HOOK_BLOCK_SUFFIX,
   FORK_HOOK_JSX_END,
   FORK_HOOK_JSX_OPEN,
   parseForkHookMarkers,
   stripForkHookLineMarker,
   type ForkHookEntry,
+  type ForkHooksManifest,
   type ParsedForkHook,
 } from "./fork-hooks.ts";
 import { unexplainedRemoval } from "./fork-hook-alignment.ts";
@@ -407,22 +408,25 @@ const resolveConflictsToUpstream = (diff3: string): string | null => {
 };
 
 /** The manifest the walk replays against; tests may scope it to their fixture's entries. */
-export type ForkHooksManifest = typeof FORK_HOOKS;
+export type { ForkHooksManifest };
 
 /**
- * The manifest entries whose upstream-owned file is this path, in manifest order. Shared with
- * the stop census so the two cannot disagree about which keys a path owns.
+ * The derived entries whose upstream-owned file is this path, in manifest order, one row per key:
+ * the walk reads a hook's fork-side lines by key, so two markers sharing a key are one row here.
+ * Shared with the stop census so the two cannot disagree about which keys a path owns.
  */
 export const manifestHooksFor = (
   path: string,
-  manifest: ForkHooksManifest = FORK_HOOKS,
+  manifest: ForkHooksManifest = forkHookManifest(),
 ): ReadonlyArray<{
   readonly key: string;
   readonly anchor: ForkHookEntry["anchor"];
-}> =>
-  Object.entries(manifest)
-    .filter(([, entry]) => entry.path === path)
-    .map(([key, entry]) => ({ key, anchor: entry.anchor }));
+}> => {
+  const seen = new Set<string>();
+  return manifest
+    .filter((entry) => entry.path === path && !seen.has(entry.key) && seen.add(entry.key) !== null)
+    .map((entry) => ({ key: entry.key, anchor: entry.anchor }));
+};
 
 /**
  * The stage after keep-both: re-apply the path's marked fork hooks into the merged upstream text.
@@ -509,7 +513,7 @@ const blockMatches = (
 export const resolveTipHookSpans = (
   path: string,
   stages: ConflictStages,
-  manifest: ForkHooksManifest = FORK_HOOKS,
+  manifest: ForkHooksManifest = forkHookManifest(),
 ): ResolvedTipSpans => {
   if (stages.tip === undefined) return EMPTY_TIP_SPANS;
   const spans = new Map<string, ParsedForkHook>();
@@ -633,7 +637,7 @@ export interface SeamShape {
 export const judgeSeamShape = (
   path: string,
   stages: ConflictStages,
-  manifest: ForkHooksManifest = FORK_HOOKS,
+  manifest: ForkHooksManifest = forkHookManifest(),
 ): SeamShape => {
   const owned = new Set(manifestHooksFor(path, manifest).map(({ key }) => key));
   if (owned.size === 0) return { shape: "woven", hooks: [] };
@@ -688,7 +692,7 @@ const hookReapply = (
   path: string,
   stages: ConflictStages,
   keepBothReason: string,
-  manifest: ForkHooksManifest = FORK_HOOKS,
+  manifest: ForkHooksManifest = forkHookManifest(),
   verify = true,
   replaySha?: string,
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
@@ -746,13 +750,7 @@ const hookReapply = (
       `fork-hook reapply of ${keys} refused: the merged text could not be resolved to upstream's side${absentTipNote}`,
       keepBothReason,
     );
-  const reapply = reapplyForkHooks(
-    upstream,
-    stages.theirs,
-    entries,
-    matchingDelimiter,
-    resolvedTipSpans,
-  );
+  const reapply = reapplyForkHooks(upstream, stages.theirs, entries, resolvedTipSpans);
   const refused = reapply.results.filter(({ outcome }) => outcome.status === "refuse");
   if (refused.length > 0)
     return hookDeclined(
@@ -1211,7 +1209,7 @@ export const executeConflictOutcome = (
   runner: CommandRunner,
   worktree: string,
   path: string,
-  manifest: ForkHooksManifest = FORK_HOOKS,
+  manifest: ForkHooksManifest = forkHookManifest(),
   verifyHookReapply = true,
   replay: ReplayPosition = {},
 ): OutcomeResult => {
