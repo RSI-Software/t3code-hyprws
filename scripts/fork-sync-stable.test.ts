@@ -225,7 +225,7 @@ it("stable-list reads every candidate into an external report without accepting 
     {
       stdout: JSON.stringify([
         { number: candidate.issue, title: candidate.title, body: candidate.body },
-        { number: 999, title: "UAT v1.2.3-hyprws", body: "human test" },
+        { number: 999, title: "Verify v1.2.3-hyprws", body: "human test" },
       ]),
     },
   );
@@ -240,7 +240,7 @@ it("stable-list reads every candidate into an external report without accepting 
   );
 });
 
-it("stable-prepare binds the selected snapshot, takes the CI verdict, and renders UAT", () => {
+it("stable-prepare binds the selected snapshot and takes the CI verdict", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
   const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
   const listed = reportFixture(root);
@@ -287,19 +287,6 @@ it("stable-prepare binds the selected snapshot, takes the CI verdict, and render
     command: `hyprws CI ${CI_RUN_URL}`,
     result: "passed",
   });
-  // Tooling comes from trunk, product comes from the snapshot: the UAT gate runs the canonical
-  // checkout's `fork:uat` against the snapshot ref, never the lane's frozen copy of the script.
-  assert.isTrue(
-    runner.calls.some(
-      (call) =>
-        call.command === "vp" &&
-        call.args.slice(0, 4).join(" ") === `run fork:uat --ref origin/${candidate.branch}` &&
-        call.cwd === root,
-    ),
-  );
-  assert.isFalse(
-    runner.calls.some((call) => call.command === laneVp && call.args[1] === "fork:uat"),
-  );
 });
 
 it("stable-prepare removes its cut lane when a release check fails", () => {
@@ -366,7 +353,7 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
   );
 });
 
-it("stable-prepare stops on a failed CI verdict before the UAT draft renders", () => {
+it("stable-prepare stops on a failed CI verdict", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
   const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
   const listed = reportFixture(root);
@@ -404,7 +391,6 @@ it("stable-prepare stops on a failed CI verdict before the UAT draft renders", (
       ),
     /hyprws CI failed: https:\/\/example\.test\/runs\/43[\s\S]*Failing job: Test[\s\S]*provider registry timed out[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws/,
   );
-  assert.isFalse(runner.calls.some((call) => call.args[1] === "fork:uat"));
   assert.strictEqual(
     validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
     "stable-listed",
@@ -432,7 +418,6 @@ it("stable-prepare stops when the CI verdict never arrives", () => {
     runner.calls.filter(({ command, args }) => command === "sleep" && args.join(" ") === "30"),
     90,
   );
-  assert.isFalse(runner.calls.some((call) => call.args[1] === "fork:uat"));
   assert.strictEqual(
     validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
     "stable-listed",
@@ -448,7 +433,6 @@ it("stable-publish requires the exact go, revalidates create-only refs, and clos
     snapshot: { branch: candidate.branch, sha: SHA },
     lane: { branch: "cut/v1.2.3-hyprws", worktree: lane },
     release: { tag: "v1.2.3-hyprws.4", priorTags: ["v1.2.3-hyprws.3"] },
-    uatDraftPath: "/tmp/uat-v1.2.3-hyprws.md",
   });
   NodeFS.writeFileSync(prepared.reportPath, JSON.stringify(prepared));
   const runner = new FakeRunner();

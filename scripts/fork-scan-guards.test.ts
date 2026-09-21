@@ -11,7 +11,6 @@ import {
   commitPatchArguments,
   forkTestSibling,
   parseCommitPatches,
-  readHotSeams,
   renderScanWarnings,
   significantTestLines,
   ADOPTED_AUTHORING_GUARDS,
@@ -28,68 +27,12 @@ const RS = "";
 
 const patch = (sha: string, body: string) => `${RS}${sha}\n${body}`;
 
-// Two walks conflict on ChatView.tsx, one on quiet.ts: only the first is hot.
-const churn = JSON.stringify([
-  {
-    tag: "v0.0.38",
-    before: "1111111",
-    after: "2222222",
-    recordUrl: "https://example.invalid/1",
-    conflicts: [
-      {
-        path: "apps/web/src/components/ChatView.tsx",
-        commit: "aaaaaaa",
-        subject: "feat: one",
-        domain: "project-windows",
-        class: "mechanical",
-        resolution: "reapplied",
-        decidedBy: "agent",
-      },
-      {
-        path: "apps/web/src/quiet.ts",
-        commit: "aaaaaaa",
-        subject: "feat: one",
-        domain: "project-windows",
-        class: "mechanical",
-        resolution: "reapplied",
-        decidedBy: "agent",
-      },
-    ],
-    decisions: [],
-    censusFiles: [
-      { path: "apps/web/src/components/ChatView.tsx", hunks: 2, commit: "aaaaaaa", domain: "x" },
-    ],
-  },
-  {
-    tag: "v0.0.39",
-    before: "2222222",
-    after: "3333333",
-    recordUrl: "https://example.invalid/2",
-    conflicts: [
-      {
-        path: "apps/web/src/components/ChatView.tsx",
-        commit: "bbbbbbb",
-        subject: "feat: two",
-        domain: "project-windows",
-        class: "seam-moved",
-        resolution: "reapplied",
-        decidedBy: "human",
-      },
-    ],
-    decisions: [],
-    censusFiles: [
-      { path: "apps/web/src/components/ChatView.tsx", hunks: 1, commit: "bbbbbbb", domain: "x" },
-    ],
-  },
-]);
-
 const guardInput = (overrides: Partial<GuardInput> = {}): GuardInput => ({
   commits: [{ sha: "a".repeat(40), short: "aaaaaaa", domain: "project-windows" }],
   filesBySha: new Map(),
   patchesBySha: new Map(),
   upstreamFiles: new Set(),
   forkHooks: new Set(Object.keys(FORK_HOOKS)),
-  hotSeams: readHotSeams(churn),
   ...overrides,
 });
 
@@ -519,17 +462,6 @@ it("guards direct thread navigation policy while preserving boundary calls and u
   assert.deepStrictEqual(warnings, []);
 });
 
-it("keeps a path hot only while the ledger charged for it more than once", () => {
-  const seams = readHotSeams(churn);
-  assert.deepStrictEqual([...seams.keys()], ["apps/web/src/components/ChatView.tsx"]);
-  assert.deepStrictEqual(seams.get("apps/web/src/components/ChatView.tsx"), {
-    kind: "conflict",
-    walkCount: 2,
-    worstClass: "seam-moved",
-    countUnit: "conflict walk(s)",
-  });
-});
-
 it("warns about inline terminal retention and selection while allowing its fork-owned hook and upstream index", () => {
   const sha = "a".repeat(40);
   const make = (file: string, content: string) =>
@@ -747,30 +679,6 @@ it("rejects the old pull-request scope policy while permitting upstream derivati
       `${file}: ${content}`,
     );
   }
-});
-
-it("warns when a fork commit touches a hot seam and stays quiet on a cold upstream file", () => {
-  const hot = collectScanWarnings(
-    guardInput({
-      filesBySha: new Map([
-        ["a".repeat(40), ["apps/web/src/components/ChatView.tsx", "apps/web/src/quiet.ts"]],
-      ]),
-      upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx", "apps/web/src/quiet.ts"]),
-    }),
-  );
-  assert.deepStrictEqual(
-    hot.map(({ rule, commit, domain }) => `${rule} ${commit} ${domain}`),
-    ["hot-seam aaaaaaa project-windows"],
-  );
-  assert.include(hot[0]?.detail ?? "", "2 conflict walk(s), seam-moved");
-
-  const forkOwned = collectScanWarnings(
-    guardInput({
-      filesBySha: new Map([["a".repeat(40), ["apps/web/src/components/ChatView.tsx"]]]),
-      upstreamFiles: new Set(),
-    }),
-  );
-  assert.deepStrictEqual(forkOwned, []);
 });
 
 it("warns when a fork test block lands in an upstream test file, not in its fork sibling", () => {
@@ -1202,9 +1110,9 @@ it("renders warnings under one counted heading and nothing when there are none",
   assert.deepStrictEqual(renderScanWarnings([]), []);
   const lines = renderScanWarnings([
     { rule: "footprint", commit: "aaaaaaa", domain: "project-windows", detail: "9 upstream" },
-    { rule: "hot-seam", commit: "bbbbbbb", domain: "custom-agents", detail: "ChatView.tsx" },
+    { rule: "lockfile", commit: "bbbbbbb", domain: "custom-agents", detail: "pnpm-lock.yaml" },
   ]);
-  assert.strictEqual(lines[1], "Ledger guards, 2 warning(s) (hot-seam: 1, footprint: 1):");
+  assert.strictEqual(lines[1], "Ledger guards, 2 warning(s) (footprint: 1, lockfile: 1):");
   assert.strictEqual(lines[2], "  WARN  footprint  aaaaaaa  project-windows  9 upstream");
 });
 

@@ -9,15 +9,11 @@ name: hyprws upstream sync
 # Auto-rebase drops the checkout token before it runs rebased
 # code; the mirror PAT reaches only the push helper.
 #
-# The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
-# the blocked report assesses it locally and hands the lesson receipt to the
-# retained outcome evidence.
-#
 # With HYPRWS_AUTO_REBASE=on a blocked candidate also gets a carried unblock walk:
 # the bot restores its shared rerere cache, runs unblock-auto non-interactively, and
 # either applies under the walk's own lease or hands the exact stop surface to the
-# notification issue. Bot-owned refs (refs/fork/churn, refs/fork/rerere) carry the
-# ledger and the cache; the fork series never does.
+# notification issue. The bot-owned refs/fork/rerere carries the cache; the fork
+# series never does.
 
 on:
   push:
@@ -231,9 +227,6 @@ jobs:
           name: fork-feasibility
           path: ${{ runner.temp }}/feasibility
 
-      # The blocked report's `upstream/main state` column comes from a forecast this
-      # same job takes against live origin/main (RSI-Software/t3code-hyprws#1143); it
-      # is advisory, so its failure warns and still lets notify publish the block.
       - name: Rebase fork stack
         id: rebase
         env:
@@ -287,46 +280,6 @@ jobs:
                 --run-url "$RUN_URL"
               ;;
           esac
-
-      # The ledger is read from refs/fork/churn, which this repository serves
-      # unauthenticated, so the stripped checkout credential is not needed. The
-      # assessment stays local: no section is posted, and the receipt it writes
-      # is read by the outcome gate below. The live census comes from the typed
-      # auto-result the rebase step already wrote, never from a GitHub read.
-      - name: Assess walk lessons
-        if: ${{ always() && steps.rebase.outputs.status == 'blocked' }}
-        run: |
-          node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json" \
-            --census "$RUNNER_TEMP/fork-auto-rebase-issues.json"
-
-      # `outcome` skips when the rebase never wrote its outcome declarations, so a
-      # rebase that died before selecting a target leaves its own error as the last
-      # red step rather than this one.
-      - name: Retain target outcomes
-        if: always()
-        env:
-          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
-          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-outcome-receipts.json
-        run: |
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_VALUE_0
-          node scripts/fork-churn.ts outcome --auto-report "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
-            --report-receipt "$RUNNER_TEMP/fork-churn-report-receipt.json" --push
-
-      - name: Upload outcome evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: sync-outcomes-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/fork-outcome-receipts.json
-            ${{ runner.temp }}/fork-auto-rebase-issues.json*
-            ${{ runner.temp }}/fork-churn-report-receipt.json
-            .dump/runs/fork-census/*.json
-          if-no-files-found: warn
-          retention-days: 90
 
   # The carried unblock walk. It resolves, repairs, and applies in one invocation,
   # and verifies in its own lane rather than waiting on a pushed CI verdict. It
@@ -426,7 +379,6 @@ jobs:
           HYPRWS_AUTO_REBASE: ${{ vars.HYPRWS_AUTO_REBASE }}
           BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
           REPORT: ${{ runner.temp }}/fork-sync-report.json
-          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
         run: |
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
@@ -468,35 +420,6 @@ jobs:
             failed="an earlier step (the carry step itself was skipped)"
           fi
           echo "::warning::Carry unblock walk ended at '${failed}'; the carry step was skipped, so no outcome was retained"
-
-      # An applied walk published its own row and outcomes before it reported `applied`
-      # (RSI-Software/t3code-hyprws#664), so this step only covers the runs that never got
-      # that far: a stop, or a carry that died before it retained a report.
-      - name: Retain the outcomes of a walk that did not apply
-        if: ${{ always() && steps.carry.outputs.outcome != 'applied' && steps.carry.outcome != 'skipped' }}
-        env:
-          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
-          FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
-          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
-          FORK_OUTCOME_CACHE_EXPORT: ${{ steps.rerere_save.outcome }}
-        run: |
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_VALUE_0
-          node scripts/fork-churn.ts outcome --sync-report "$RUNNER_TEMP/fork-sync-report.json" --push
-
-      - name: Upload carried outcome evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: carry-outcomes-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/fork-carry-outcome-receipts.json
-            ${{ runner.temp }}/fork-sync-report.json*
-            ${{ runner.temp }}/carry.log
-          if-no-files-found: warn
-          retention-days: 90
 
       - name: Hand the stop surface to the notification issue
         if: ${{ steps.carry.outputs.outcome == 'stop' }}

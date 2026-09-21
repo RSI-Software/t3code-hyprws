@@ -36,12 +36,12 @@ In `on` mode a landing that triggers a rebase produces two nightlies by design.
 
 ### Which walk modes publish, per ref
 
-| Walk                                 | `hyprws` | `refs/fork/churn` | `refs/fork/rerere` | Comments |
-| ------------------------------------ | -------- | ----------------- | ------------------ | -------- |
-| `unblock-auto`, `off` or `candidate` | no       | local row         | no                 | no       |
-| `unblock-auto --bot-carried`         | yes      | yes               | yes                | yes      |
-| `record-decisions`                   | no       | yes               | yes                | yes      |
-| `unblock-apply`                      | yes      | yes               | yes                | yes      |
+| Walk                                 | `hyprws` | `refs/fork/rerere` | Comments |
+| ------------------------------------ | -------- | ------------------ | -------- |
+| `unblock-auto`, `off` or `candidate` | no       | no                 | no       |
+| `unblock-auto --bot-carried`         | yes      | yes                | yes      |
+| `record-decisions`                   | no       | yes                | yes      |
+| `unblock-apply`                      | yes      | yes                | yes      |
 
 An unblock never moves `hyprws-previous`, `hyprws-next`, or a release ref.
 
@@ -80,37 +80,13 @@ Never create, move, delete, or force-push these by hand:
 | `hyprws-next`                              | Verified candidate stack      |
 | `release/vX.Y.Z-hyprws`                    | Create-only stable snapshot   |
 | `archive/hyprws-pre-rewrite-<12-char old>` | Create-only pre-rewrite trunk |
-| `refs/fork/churn`                          | Churn ledger orphan history   |
 | `refs/fork/rerere`                         | Shared `.git/rr-cache`        |
 
 `refs/fork/*` is append-only and never rebased, so walk data never enters the series.
 
 ```bash
 git fetch origin '+refs/fork/*:refs/fork/*'
-git show refs/fork/churn:fork-churn.json
 ```
-
-### Churn ledger
-
-Authoring scans read `refs/fork/churn` and print its ref, SHA, and freshness.
-
-Record schemas, seam identity, seam states, and importer validation live in `scripts/lib/fork-churn-seams.ts`.
-
-| Command                                | Use                                    |
-| -------------------------------------- | -------------------------------------- |
-| `scripts/fork-churn.ts compose --plan` | Build a bundle from local artifacts    |
-| `scripts/fork-churn.ts record --input` | The only import path. Attested bundles |
-| `scripts/fork-churn.ts outcome`        | Record one receipt per selected target |
-
-`--ledger-ref` reads another `refs/fork/<name>`, `--offline` queries nothing and says so, and `--push` leases the advertised ref.
-Stale, offline, or blocking evidence records `report-policy: failed` while the run stays green.
-Freeze a seam's census and mapping before rewriting its path, subject, or split.
-Malformed input leaves the ref untouched; a failed push restores it.
-
-Three seam states block: `returned-unresolved`, `repair-unverified`, `regressed`.
-Neither absence nor a recorded guard clears one; only comparable verification does.
-`unblock-apply` appends its own row, so `append --push` is only for a row no apply wrote.
-Each blocked report assesses the ledger locally and hands the lesson receipt to the retained outcome evidence; no section is posted anywhere.
 
 ## Regenerable files
 
@@ -157,7 +133,7 @@ git worktree add --detach <dir> origin/hyprws
 vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]
 ```
 
-One invocation walks one eligible tag end to end: select, orient, resolve, repair, guard, apply, append the churn row, push.
+One invocation walks one eligible tag end to end: select, orient, resolve, repair, guard, apply, push.
 That push starts the next run, which the walk does not await.
 It takes no `--resume`: a report on disk is a walk in flight, picked up where it stopped, and it re-lists once if `origin/hyprws` moves under it.
 
@@ -234,8 +210,8 @@ vp run fork:sync record-decisions --report <json> --tag <tag> [--input <decision
 ```
 
 Run it from the stopped session after resolving and staging the seam.
-It flushes the resolution into shared rerere, posts the record, and writes the tag's ledger row as `pending`.
-The next walk resolves the same content from that record; the applied row upgrades the pending one.
+It flushes the resolution into shared rerere and posts the record.
+The next walk resolves the same content from that record.
 
 `--input` is required whenever the walk declined a row, and each entry is bound to the report's source, target, and lease.
 An unknown or duplicate row identity, an unsigned decision, and an edited record body are all refused.
@@ -342,14 +318,14 @@ The rewrite never moves `hyprws-previous`.
 
 One `release`-labelled `Notification 🔔` issue per stable snapshot is the entry point; invoke the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill at **cut stable**.
 
-| Verb             | Does                                                     | Refuses on                           |
-| ---------------- | -------------------------------------------------------- | ------------------------------------ |
-| `stable-list`    | Validates open candidates, writes a report               | An issue number; a human selects     |
-| `stable-prepare` | Binds the snapshot, cuts `cut/vX.Y.Z-hyprws`, drafts UAT | Tag collision, dirty lane, red CI    |
-| `stable-publish` | Tags the snapshot SHA, closes the candidate              | Inexact go, stale snapshot, no asset |
+| Verb             | Does                                         | Refuses on                           |
+| ---------------- | -------------------------------------------- | ------------------------------------ |
+| `stable-list`    | Validates open candidates, writes a report   | An issue number; a human selects     |
+| `stable-prepare` | Binds the snapshot, cuts `cut/vX.Y.Z-hyprws` | Tag collision, dirty lane, red CI    |
+| `stable-publish` | Tags the snapshot SHA, closes the candidate  | Inexact go, stale snapshot, no asset |
 
 Candidate identity is the `<!-- hyprws-stable-candidate: <name> -->` marker; a title homing marker is accepted, never typed.
-`stable-prepare` installs frozen, runs `fork:delta --check`, takes every verdict from `hyprws CI` on the pushed head, and carries prior UAT conditions.
+`stable-prepare` installs frozen, runs `fork:delta --check`, and takes every verdict from `hyprws CI` on the pushed head.
 A failed preparation removes the cut lane and needs a fresh `stable-list`.
 `stable-publish` needs the human to repeat the candidate, and an `.AppImage` plus `latest-linux.yml` on the tag run.
 
@@ -361,31 +337,16 @@ A release snapshot is the immutable branch a stable tag is cut from, never follo
 An unblock apply therefore snapshots every crossed stable tag before pushing, checking replay shape only.
 
 `hyprws-release.yml` fires on every push to `hyprws`, so a leased apply cuts the nightly by itself.
-Only stable needs a candidate, a UAT cycle, and an explicit human go.
-
-### UAT boundary
-
-The preparation stop is the [`fork-uat`](../../../.agents/skills/fork-uat/SKILL.md) judgement boundary.
-
-| #   | Step                                                           |
-| --- | -------------------------------------------------------------- |
-| 1   | Agent reviews sources and carried conditions                   |
-| 2   | `fork:uat --prepare` builds a parent and a child per condition |
-| 3   | Agent shows the bundle; a human go permits `--create`          |
-| 4   | Human runs the candidate and closes passing children           |
-
-A `Signed off` parent comment is recommended, but no closure gates automatically.
-Omitting `--since` selects the newest eligible stable tag; passing it marks the snapshot `(overridden)`.
+Only stable needs a candidate and an explicit human go.
 
 ### Stable sign-off stop
 
-Present the selected issue, snapshot branch and SHA, derived tag, prior tags, preparation results, and UAT evidence.
+Present the selected issue, snapshot branch and SHA, derived tag, prior tags, and preparation results.
 
 The human withholds the go if the app cannot launch or basic use fails; open children, polish findings, and a missing sign-off stay non-blocking.
 After a refusal, return to `stable-list`.
 
 The issue close, immutable tag, workflow run, and GitHub release are the record.
-An `upstream-watch` issue closes only once the released build is installed and verified.
 
 ## Recovering local lanes after a rewrite
 
