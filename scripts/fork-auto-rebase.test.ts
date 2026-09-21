@@ -138,6 +138,7 @@ import {
   autoFailureReason,
   buildAutoRebasePlan,
   executeAutoRebase,
+  forecastMain,
   parseArgs,
   rehearseStopCensus,
   renderSummary,
@@ -1134,7 +1135,7 @@ it("keeps sequential totals and overlap totals bound to their own rows", () => {
       };
       const body = buildBlockedIssue(plan, census)!.body;
       assert.include(body, "29 conflicting fork commits and 41 conflict-file observations");
-      assert.strictEqual(body.split("| Hunks |").length - 1, 1);
+      assert.notInclude(body, "| Hunks |");
       assert.notInclude(body, "999 conflicting fork");
       assert.notInclude(body, "999 conflict-file");
       assert.include(body, `${complete ? "Complete" : "Partial"} observation set`);
@@ -1238,6 +1239,35 @@ it("retains add/add and modify/delete observations before provisional continuati
     assert.deepStrictEqual(partialDecision.blocked?.stopCensus, partial);
     assert.include(partialDecision.blocked!.body, "Partial observation set");
     assert.include(renderSummary(partialDecision), "pairwise (census unavailable:");
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("publishes the block unchanged when the upstream/main forecast throws", () => {
+  const fixture = fixtureRepository();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const options = { ...dryRunOptions, mode: "off" as const };
+    const withoutForecast = executeAutoRebase(fixture.root, options, plan, () => "shared-install");
+    let calls = 0;
+    const withFailedForecast = executeAutoRebase(
+      fixture.root,
+      options,
+      plan,
+      () => "shared-install",
+      {
+        forecastMain: () =>
+          forecastMain(fixture.root, () => {
+            calls += 1;
+            throw new Error("synthetic forecast failure");
+          }),
+      },
+    );
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(withFailedForecast.status, withoutForecast.status);
+    assert.strictEqual(withFailedForecast.blocked?.body, withoutForecast.blocked?.body);
+    assert.include(withFailedForecast.blocked?.body ?? "", "unknown (unavailable)");
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

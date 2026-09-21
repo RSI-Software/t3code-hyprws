@@ -4,14 +4,12 @@
 import { rehearseStopCensus } from "./fork-stop-census.ts";
 import type { ForecastEntry } from "./fork-churn-ledger.ts";
 import { runCommand, runCommandText } from "./lib/fork-command.ts";
-import type { SequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
+import type { RebaseStopCensus, SequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 
 /**
- * A forecast is evidence, never a publication. It replays the fork stack against
- * live `origin/main` so the blocked issue can carry one `upstream/main state`
- * column and a conflicting pull request can carry one comment
- * (RSI-Software/t3code-hyprws#1143). It selects no tag, applies nothing, and
- * retires nothing.
+ * A forecast is evidence, never a publication: it replays the fork stack against live
+ * `origin/main` for one blocked-issue column and one pull-request comment
+ * (RSI-Software/t3code-hyprws#1143). It selects no tag, applies nothing, retires nothing.
  */
 export interface MainForecast extends ForecastEntry {
   /** The fork tip the forecast replayed, so a join can refuse mismatched evidence. */
@@ -48,6 +46,14 @@ const forkCommits = (root: string, base: string, head: string) =>
       };
     });
 
+/**
+ * Partial is never clean: a truncated walk saw part of the stack, and absent evidence
+ * proves nothing, so neither is complete (RSI-Software/t3code-hyprws#942).
+ */
+export const forecastComplete = (
+  census: Pick<RebaseStopCensus, "truncated" | "evidence">,
+): boolean => !census.truncated && (census.evidence?.complete ?? false);
+
 export const forecastRange = (
   root: string,
   head: string,
@@ -75,8 +81,7 @@ export const forecastRange = (
     main: resolvedMain,
     base: resolvedBase,
     source: resolvedHead,
-    // A truncated rehearsal saw only part of the stack, and partial is never clean.
-    complete: !census.truncated && (census.evidence?.complete ?? true),
+    complete: forecastComplete(census),
     conflicts: forkCommits(root, resolvedBase, resolvedHead).map((commit) => {
       const files = [...new Set(byCommit.get(commit.commit) ?? [])].toSorted();
       const seam =
@@ -125,9 +130,8 @@ export const forecastPullRequest = (root: string, head: string): MainForecast =>
 export const PULL_REQUEST_FORECAST_MARKER = "<!-- hyprws-pull-request-forecast -->";
 
 /**
- * The `upstream/main state` cell for one census row, joined on the replayed fork
- * commit and its path. `not observed` is claimed only from a complete forecast whose
- * source is the census's source; every other shape says why it cannot say.
+ * The `upstream/main state` cell, joined on the exact `(source, fork commit, path)` key.
+ * `not observed` needs a complete forecast whose source matches the census's.
  */
 export const mainState = (
   forecast: MainForecast | null,
@@ -142,18 +146,42 @@ export const mainState = (
   return entry.files.includes(row.path) ? "conflict" : "not observed";
 };
 
-/**
- * The sticky pull-request comment, conflict rows only. A clean or unusable forecast
- * renders nothing; the caller deletes any prior comment instead of posting a clean one.
- */
+/** The same-key conflict rows the tagged census never recorded, never joined by subject. */
+export const mainOnlyRows = (
+  forecast: MainForecast | null,
+  evidence: SequentialCensusEvidence,
+): ReadonlyArray<{
+  readonly commit: string;
+  readonly subject: string;
+  readonly domain: string;
+  readonly path: string;
+}> => {
+  if (forecast === null || forecast.source !== evidence.sourceSha) return [];
+  const tagged = new Set(evidence.rows.map((row) => `${row.commit}\u0000${row.path}`));
+  return forecast.conflicts.flatMap((commit) =>
+    commit.files
+      .filter((path) => !tagged.has(`${commit.commit}\u0000${path}`))
+      .map((path) => ({
+        commit: commit.commit,
+        subject: commit.subject,
+        domain: commit.domain,
+        path,
+      })),
+  );
+};
+
+/** The sticky comment, conflict rows only; a clean walk renders nothing to post. */
 export const renderPullRequestForecast = (row: MainForecast): string | null => {
   const conflicts = row.conflicts.filter((commit) => commit.conflicts);
-  if (!row.complete || conflicts.length === 0) return null;
+  if (conflicts.length === 0) return null;
   return [
     PULL_REQUEST_FORECAST_MARKER,
     "## Fork conflict forecast",
     "",
-    `Forecast against origin/main ${row.main}.`,
+    `Forecast against origin/main ${row.main} from source ${row.source}.`,
+    ...(row.complete
+      ? []
+      : ["", "Partial observation set: these rows are a lower bound, not the whole walk."]),
     "",
     "| Fork commit | Fork-Domain | Conflicting files |",
     "| --- | --- | --- |",

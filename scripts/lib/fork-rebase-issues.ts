@@ -414,18 +414,28 @@ interface BlockedPlan {
 }
 
 /**
- * The `upstream/main state` cell for one census row. The default is what a caller with
- * no forecast can honestly say (RSI-Software/t3code-hyprws#1143); `fork-forecast.ts`
- * owns the real join, and this module never imports it, so a forecast failure can
- * never stop the block from being published.
+ * The forecast side of the blocked table (RSI-Software/t3code-hyprws#1143): one row's
+ * `upstream/main state`, plus the conflict rows only `origin/main` saw. `fork-forecast.ts`
+ * owns both joins and this module never imports it, so a forecast failure never stops
+ * the block from being published.
  */
-export type MainStateOf = (row: { readonly commit: string; readonly path: string }) => string;
+export interface ForecastJoin {
+  readonly stateOf: (row: { readonly commit: string; readonly path: string }) => string;
+  readonly mainOnly: ReadonlyArray<{
+    readonly commit: string;
+    readonly subject: string;
+    readonly domain: string;
+    readonly path: string;
+  }>;
+}
+
+const NO_FORECAST: ForecastJoin = { stateOf: () => "unknown (unavailable)", mainOnly: [] };
 
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
   stopCensusUnavailableReason: string | null = null,
-  mainStateOf: MainStateOf = () => "unknown (unavailable)",
+  forecastJoin: ForecastJoin = NO_FORECAST,
 ): BlockedIssue | null => {
   if (stopCensus?.evidence !== undefined) {
     stopCensus = { ...stopCensus, ...censusTotals(stopCensus.evidence.rows) };
@@ -469,11 +479,18 @@ export const buildBlockedIssue = (
           "",
           `The ${inlineCode("upstream/main state")} column replays the same fork commit against live ${inlineCode("origin/main")}: ${inlineCode("conflict")}, ${inlineCode("not observed")}, or ${inlineCode("unknown (<reason>)")} when the forecast cannot answer. It selects nothing and applies nothing.`,
           "",
-          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain | upstream/main state |`,
-          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- | --- |`,
+          `| Stop | File | Conflict kind | Stage |${evidence.version === 1 ? "" : " Shape |"} Replayed fork commit | Domain | tagged replay state | upstream/main state |`,
+          `| ---: | --- | --- | --- |${evidence.version === 1 ? "" : " --- |"} --- | --- | --- | --- |`,
           ...evidence.rows.map(
             (row) =>
-              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} | ${mainStateOf(row)} |`,
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} |${evidence.version === 1 ? "" : ` ${censusRowShape(row)}${row.hooks === undefined ? "" : ` ${row.hooks.map(cell).join(" ")}`} |`} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} | conflict | ${forecastJoin.stateOf(row)} |`,
+          ),
+          // A path that conflicts on `origin/main` but not at the tag has no census row,
+          // so the union adds it here. The tagged cell may only read `not observed` from
+          // a complete census; a partial one cannot say it never conflicts.
+          ...forecastJoin.mainOnly.map(
+            (row) =>
+              `| — | ${cell(row.path)} | — | — |${evidence.version === 1 ? "" : " — |"} ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain)} | ${evidence.complete ? "not observed" : "unknown (partial)"} | conflict |`,
           ),
           `<!-- sequential-census-v${evidence.version}:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
         ]),
@@ -487,16 +504,22 @@ export const buildBlockedIssue = (
           ]
         : []),
     "",
-    "## Feasibility overlap",
-    "",
     "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/fork/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
-    "",
-    "| File | Hunks | Fork commit | Domain |",
-    "| --- | ---: | --- | --- |",
-    ...conflicts.map(
-      (conflict) =>
-        `| ${inlineCode(conflict.path.replaceAll("|", "\\|"))} | ${conflict.hunks} | ${inlineCode(`${conflict.forkCommitShort} ${conflict.forkSubject.replaceAll("|", "\\|")}`)} | ${conflict.domain ?? "?"} |`,
-    ),
+    // The census table is the report once it exists. A legacy count-only census keeps the
+    // markerless four-column overlap table, which is still the only thing its reader parses.
+    ...(evidence !== undefined
+      ? []
+      : [
+          "",
+          "## Feasibility overlap",
+          "",
+          "| File | Hunks | Fork commit | Domain |",
+          "| --- | ---: | --- | --- |",
+          ...conflicts.map(
+            (conflict) =>
+              `| ${inlineCode(conflict.path.replaceAll("|", "\\|"))} | ${conflict.hunks} | ${inlineCode(`${conflict.forkCommitShort} ${conflict.forkSubject.replaceAll("|", "\\|")}`)} | ${conflict.domain ?? "?"} |`,
+          ),
+        ]),
     "",
     "<!-- gh-bot:relationships:start -->",
     "Relationships: none (`--no-relationship`).",

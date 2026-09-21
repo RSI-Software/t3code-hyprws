@@ -38,7 +38,12 @@ export {
 } from "./fork-auto-rebase-plan.ts";
 import { SystemGit } from "./lib/fork-command.ts";
 import { prepareAutoOutcome } from "./fork-churn-outcomes.ts";
-import { forecast as forecastAgainstMain, mainState, type MainForecast } from "./fork-forecast.ts";
+import {
+  forecast as forecastAgainstMain,
+  mainOnlyRows,
+  mainState,
+  type MainForecast,
+} from "./fork-forecast.ts";
 
 export { SystemGit } from "./lib/fork-command.ts";
 import {
@@ -270,9 +275,11 @@ const blockedReport = (
   if (plan.feasibility.ffBoundary.firstConflict === null) return null;
   if (census?.conflictingForkCommitCount === 0 && !census.truncated) return null;
   const evidence = census?.evidence;
-  return buildBlockedIssue(plan, census, censusUnavailable, (row) =>
-    evidence === undefined ? "unknown (unavailable)" : mainState(forecast, row, evidence),
-  );
+  if (evidence === undefined) return buildBlockedIssue(plan, census, censusUnavailable);
+  return buildBlockedIssue(plan, census, censusUnavailable, {
+    stateOf: (row) => mainState(forecast, row, evidence),
+    mainOnly: mainOnlyRows(forecast, evidence),
+  });
 };
 
 const decideByCensus = (
@@ -562,9 +569,12 @@ const fetchRefs = (git: SystemGit): void => {
 };
 
 /** A forecast is advisory: its failure costs the column, never the blocked report. */
-const forecastMain = (root: string): MainForecast | null => {
+export const forecastMain = (
+  root: string,
+  take: (root: string) => MainForecast = forecastAgainstMain,
+): MainForecast | null => {
   try {
-    return forecastAgainstMain(root);
+    return take(root);
   } catch (error) {
     process.stderr.write(
       `::warning::upstream/main forecast failed: ${autoFailureReason(root, error)}\n`,

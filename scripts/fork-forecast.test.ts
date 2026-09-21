@@ -9,10 +9,15 @@ import { assert, it } from "@effect/vitest";
 
 import {
   forecast,
+  forecastComplete,
   forecastPullRequest,
+  type MainForecast,
+  mainOnlyRows,
   mainState,
+  PULL_REQUEST_FORECAST_MARKER,
   renderPullRequestForecast,
 } from "./fork-forecast.ts";
+import { botForecastComment, publication } from "./fork-pr-forecast.ts";
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -135,8 +140,8 @@ it("uses the census conflict rows without moving fork refs or tags", () => {
       mainState(result, { commit: "1".repeat(40), path: "seam.txt" }, { sourceSha: result.source }),
       "unknown (stale)",
     );
-    // A partial forecast is never clean and never publishes a comment.
-    assert.strictEqual(renderPullRequestForecast({ ...result, complete: false }), null);
+    // A partial forecast publishes its rows as a lower bound, never as a clean claim.
+    assert.include(renderPullRequestForecast({ ...result, complete: false })!, "lower bound");
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
@@ -214,4 +219,119 @@ it("attributes a seam the pull request shares with upstream to the pull-request 
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
+});
+
+const evidenceOf = (source: string, rows: ReadonlyArray<{ commit: string; path: string }>) => ({
+  version: 2 as const,
+  method: "sequential-rebase-walk-resolution" as const,
+  sourceSha: source,
+  baseSha: "b".repeat(40),
+  targetSha: "t".repeat(40),
+  targetTag: "v1.0.0",
+  complete: true,
+  rows: rows.map((row, index) => ({
+    stop: index + 1,
+    commit: row.commit,
+    subject: "feat: fork",
+    domain: "fork-meta",
+    path: row.path,
+    kind: "content" as const,
+  })),
+});
+
+const forecastOf = (
+  source: string,
+  files: ReadonlyArray<string>,
+  complete = true,
+): MainForecast => ({
+  main: "m".repeat(40),
+  base: "b".repeat(40),
+  source,
+  complete,
+  conflicts: [
+    {
+      commit: "f".repeat(40),
+      subject: "feat: fork",
+      domain: "fork-meta",
+      conflicts: files.length > 0,
+      files,
+      seam: null,
+    },
+  ],
+});
+
+it("never reads absent or inconsistent census evidence as complete", () => {
+  const complete = { version: 2 as const, complete: true };
+  assert.isFalse(forecastComplete({ truncated: false }));
+  assert.isFalse(forecastComplete({ truncated: true }));
+  assert.isFalse(
+    forecastComplete({
+      truncated: false,
+      evidence: { ...evidenceOf("s".repeat(40), []), complete: false },
+    }),
+  );
+  // Truncated wins over a census that still called its own rows complete.
+  assert.isFalse(
+    forecastComplete({
+      truncated: true,
+      evidence: { ...evidenceOf("s".repeat(40), []), ...complete },
+    }),
+  );
+  assert.isTrue(forecastComplete({ truncated: false, evidence: evidenceOf("s".repeat(40), []) }));
+});
+
+it("unions a main-only conflict into the blocked rows on the exact key", () => {
+  const source = "s".repeat(40);
+  const fork = "f".repeat(40);
+  const evidence = evidenceOf(source, [{ commit: fork, path: "tagged.ts" }]);
+  const forecast = forecastOf(source, ["tagged.ts", "main-only.ts"]);
+  assert.deepStrictEqual(
+    mainOnlyRows(forecast, evidence).map((row) => row.path),
+    ["main-only.ts"],
+  );
+  assert.strictEqual(
+    mainState(forecast, { commit: fork, path: "tagged.ts" }, evidence),
+    "conflict",
+  );
+  // A forecast taken from another source never contributes rows to this census.
+  assert.deepStrictEqual(mainOnlyRows(forecastOf("0".repeat(40), ["main-only.ts"]), evidence), []);
+  assert.deepStrictEqual(mainOnlyRows(null, evidence), []);
+});
+
+it("publishes conflicts, retires a stale comment, and never claims a partial walk clean", () => {
+  const source = "s".repeat(40);
+  const conflict = publication(forecastOf(source, ["seam.ts"]));
+  assert.strictEqual(conflict.kind, "upsert");
+  assert.include(conflict.kind === "upsert" ? conflict.body : "", "`seam.ts`");
+  // conflict -> clean: the comment goes, with no warning.
+  const clean = publication(forecastOf(source, []));
+  assert.deepStrictEqual(clean, { kind: "delete", warning: null });
+  // conflict -> partial with rows: published as an explicit lower bound.
+  const partialRows = publication(forecastOf(source, ["seam.ts"], false));
+  assert.strictEqual(partialRows.kind, "upsert");
+  assert.include(partialRows.kind === "upsert" ? partialRows.body : "", "lower bound");
+  // conflict -> partial with no rows, and conflict -> unavailable: the obsolete claim
+  // is removed rather than left standing, and the run warns instead of claiming clean.
+  for (const row of [
+    forecastOf(source, [], false),
+    { ...forecastOf(source, [], false), conflicts: [] },
+  ]) {
+    const stale = publication(row);
+    assert.strictEqual(stale.kind, "delete");
+    assert.isNotNull(stale.kind === "delete" ? stale.warning : null);
+  }
+});
+
+it("owns only the comment the bot authored, never a human copy of its marker", () => {
+  const body = `quoting ${PULL_REQUEST_FORECAST_MARKER} for context`;
+  assert.isNull(botForecastComment([{ id: 1, body, user: { type: "User" } }]));
+  assert.isNull(botForecastComment([{ id: 2, body: "unrelated", user: { type: "Bot" } }]));
+  assert.isNull(botForecastComment([{ id: 3, body }]));
+  assert.strictEqual(
+    botForecastComment([
+      { id: 4, body, user: { type: "User" } },
+      { id: 5, body, user: { type: "Bot" } },
+    ]),
+    5,
+  );
 });
