@@ -33,7 +33,6 @@ export interface HookGuardCommit {
 
 export interface HookGuardChange {
   readonly added: ReadonlyArray<string>;
-  readonly removed?: ReadonlyArray<string>;
 }
 
 export interface HookGuardInput {
@@ -42,76 +41,6 @@ export interface HookGuardInput {
   readonly changedLines: ReadonlyMap<string, HookGuardChange>;
   readonly upstreamFiles: ReadonlySet<string>;
 }
-
-/**
- * A formatter reflow: same code tokens in the same order, whitespace and
- * trailing commas aside. `vp fmt` re-wrapping a landed fork line moves no
- * token across the seam, so the rewrapped lines are not new fork logic and
- * the rule skips the file. Two narrowings keep the exemption safe:
- *
- * - whitespace inside string or template literals is significant
- *   (`"a b"` is not `"ab"`), so runs inside quotes compare exactly;
- * - only the same lines reflowed qualify: the added side must be a
- *   line-for-line rewrite of the removed side, so relocated identical
- *   code (same tokens, different position) never reads as a reflow.
- *
- * An empty removal side is a pure addition and never qualifies.
- */
-export const isFormatterReflow = (
-  added: ReadonlyArray<string>,
-  removed: ReadonlyArray<string>,
-): boolean => {
-  if (removed.length === 0 || added.length !== removed.length) return false;
-  return added.every((line, index) => reflowedLine(line, removed[index] ?? ""));
-};
-
-// Whitespace runs outside string/template literals collapse; runs inside
-// quotes are kept verbatim. Handles single, double, and backtick quotes
-// with backslash escapes — enough for the reflow shapes `vp fmt` emits.
-const collapseOutsideLiterals = (line: string): string => {
-  let out = "";
-  let quote: string | null = null;
-  let pendingSpace = false;
-  const flushSpace = (): void => {
-    if (quote !== null) out += " ";
-    pendingSpace = false;
-  };
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index] ?? "";
-    if (quote !== null) {
-      if (char === "\\") {
-        if (pendingSpace) flushSpace();
-        out += char + (line[index + 1] ?? "");
-        index += 1;
-        continue;
-      }
-      if (char === quote) quote = null;
-      if (pendingSpace) flushSpace();
-      out += char;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-      out += char;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      pendingSpace = true;
-      continue;
-    }
-    pendingSpace = false;
-    out += char;
-  }
-  return out;
-};
-
-const reflowedLine = (left: string, right: string): boolean => {
-  const stripTrailingComma = (line: string): string => line.replace(/,(?=[)\]}])/g, "");
-  return (
-    stripTrailingComma(collapseOutsideLiterals(left)) ===
-    stripTrailingComma(collapseOutsideLiterals(right))
-  );
-};
 
 const isForkHookSuffixLine = (line: string): boolean =>
   FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
@@ -138,10 +67,9 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     if (!MARKER_CAPABLE_PATH.test(path)) continue;
     const change = input.changedLines.get(path);
     if (change === undefined || change.added.length === 0) continue;
-    // A pure formatter reflow moves no token across the seam: skipping the
-    // file keeps `vp fmt` re-wrapping a landed fork line from reading as
-    // new unmarked logic.
-    if (isFormatterReflow(change.added, change.removed ?? [])) continue;
+    // No formatter exemption: any unmarked edit in range is refused, full
+    // stop. Over-refusing is safe — a human marks the line — while
+    // under-refusing ships the unmarked edit this gate exists to catch.
 
     const addedText = change.added.join("\n");
     const hooks = parseForkHookMarkers(addedText);
