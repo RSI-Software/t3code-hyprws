@@ -518,17 +518,16 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
 });
 
 // The guard rules read one patch per warned commit, so `--since` is what
-// keeps a pull request's run proportional to the commits it adds. A proven
-// `--replay-of` rehearsal re-authors every stack commit, so no `--since`
-// range can name what's new: selection returns no commits and the guards
-// stay advisory for the replay.
+// keeps a pull request's run proportional to the commits it adds: only
+// commits after the trunk tip the change branched from are enforced, and
+// `--replay-of` is accepted for the CI job's shape but never treated as a
+// replay signal here.
 export const resolveGuardedCommits = (
   git: GitReader,
   options: ScanOptions,
   range: ScanRange,
   commits: ReadonlyArray<ForkCommit>,
 ): ReadonlyArray<ForkCommit> => {
-  if (options.replayOf !== null) return [];
   const since = options.since;
   const warned =
     since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
@@ -639,17 +638,14 @@ export const readScan = (
     // Base + since, never live upstream: files and migrations read against
     // the pinned base, tests diff head against the since tree so only new
     // loss fires, with upstream-target filtering so removing a fork-added
-    // line is free. A replay run re-authors every commit, so no range can
-    // name what's new and the tests check is skipped.
+    // line is free.
     additive:
       additiveRunner === undefined
         ? []
         : checkAdditive(
             additiveRunner,
             additiveRunner.worktree,
-            options.replayOf === null
-              ? { base: range.base, since: options.since }
-              : { base: range.base, since: null },
+            { base: range.base, since: options.since },
             { head: range.head },
           ),
   });

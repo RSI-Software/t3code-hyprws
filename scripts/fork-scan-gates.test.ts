@@ -73,13 +73,14 @@ it("fails an additive files finding carried on the scan result", () => {
   );
 });
 
-it("a replay run guards no commits", () => {
-  // A sync rehearsal re-authors every stack commit, so no `--since` range
-  // can name what's new: `--replay-of` must empty the guard selection and
-  // keep enforcement limited to new work.
-  const git = {
+it("--replay-of is not a replay signal; --since scopes the guards", () => {
+  // `--replay-of` is emitted whenever origin/hyprws resolves — every
+  // ordinary pull request — so it must never suppress guard selection.
+  // Commit recency via the `--since` range is what limits enforcement to
+  // new work.
+  const throwingGit = {
     run: () => {
-      throw new Error("must not read git on a replay");
+      throw new Error("must not read git when since is null");
     },
   };
   const commits = [
@@ -91,39 +92,33 @@ it("a replay run guards no commits", () => {
       tier: "core",
     },
   ];
+  const opts = {
+    base: null,
+    head: "head",
+    target: "target",
+    typecheck: false,
+  } as const;
+  const range = { base: "base", head: "head", target: "target" };
+  // A null since selects the commit even with --replay-of present.
   assert.deepStrictEqual(
     resolveGuardedCommits(
-      git,
-      {
-        base: null,
-        head: "head",
-        target: "target",
-        typecheck: false,
-        since: "since",
-        replayOf: "origin/hyprws",
-      },
-      { base: "base", head: "head", target: "target" },
-      commits,
-    ),
-    [],
-  );
-  // Without the flag the same since range still selects the commit, and no
-  // git read happens when since is null.
-  assert.deepStrictEqual(
-    resolveGuardedCommits(
-      git,
-      {
-        base: null,
-        head: "head",
-        target: "target",
-        typecheck: false,
-        since: null,
-        replayOf: null,
-      },
-      { base: "base", head: "head", target: "target" },
+      throwingGit,
+      { ...opts, since: null, replayOf: "origin/hyprws" },
+      range,
       commits,
     ),
     commits,
+  );
+  // A since range that excludes the commit excludes it, replay flag or not.
+  const excludingGit = { run: () => "" };
+  assert.deepStrictEqual(
+    resolveGuardedCommits(
+      excludingGit,
+      { ...opts, since: "since", replayOf: "origin/hyprws" },
+      range,
+      commits,
+    ),
+    [],
   );
 });
 

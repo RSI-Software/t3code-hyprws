@@ -330,8 +330,7 @@ const testFindings = (
  * only NEW loss fires. Lost-line measurement additionally filters through
  * the base tree: a line the fork added itself may leave freely, so moving
  * a legacy fork case into a `.fork.test.ts` sibling is not refused. A
- * null since (proven replay or unscoped run) skips the tests check: on a
- * replay every commit is re-authored and no range can name what's new.
+ * null since (unscoped run) skips the tests check.
  */
 export const checkAdditive = (
   runner: CommandRunner,
