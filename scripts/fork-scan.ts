@@ -674,13 +674,15 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
-    // The additive gate resolves trees, not refs: it runs only when the
-    // scan reads the live checkout, matching the typecheck scoping.
+    // The additive gate reads git objects (`show <tree>:<path>`,
+    // `diff <base> <head>`), never the working tree, so the runner is
+    // always available — including the normal CI case, where the checkout
+    // is the synthetic merge commit and `--head` is the pull-request head.
     const commandRunner = new SystemCommandRunner();
-    const additiveRunner: AdditiveRunner | undefined =
-      workingHead === scannedHead
-        ? { worktree: root, run: commandRunner.run.bind(commandRunner) }
-        : undefined;
+    const additiveRunner: AdditiveRunner = {
+      worktree: root,
+      run: commandRunner.run.bind(commandRunner),
+    };
     const result: ScanResult = {
       ...readScan(git, options, ledger, additiveRunner),
       typecheckGaps: typecheckCurrentHead
