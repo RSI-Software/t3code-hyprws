@@ -702,14 +702,25 @@ export interface OpenBlockIssue {
   readonly body: string;
 }
 
+/**
+ * The writes the sync projection performs against the fork repository. Reruns
+ * edit the existing issue in place — create only files a fresh issue, and the
+ * only comment that ever posts is the close evidence in `closeBlocks`.
+ */
 export interface GitHub {
   /** Which CLI posts the writes: `ghb` when present, `gh` when `ghb` cannot spawn. */
   readonly route: "ghb" | "gh";
   /** Open issues under the governed label matching one title phrase. */
   readonly list: (titlePhrase: string) => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
+  /**
+   * Rewrite an existing issue's title and body in place; the rerun projection.
+   * Both CLIs take title and body in one call.
+   */
+  readonly edit: (issue: number, title: string, bodyPath: string) => void;
   /** Take the issue so the completed close finds an assignee; a no-op on `gh`. */
   readonly claim: (issue: number) => void;
+  /** Post the small close-evidence comment; never the report body. */
   readonly comment: (issue: number, bodyPath: string) => void;
   readonly close: (issue: number) => void;
 }
@@ -737,11 +748,18 @@ const ghbCreateArgs = (repo: ReadonlyArray<string>, title: string, bodyPath: str
   "--no-relationship",
 ];
 
+/** The issue type bare `gh` files and edits with; `ghb` files it governed. */
+const NOTIFICATION_TYPE = "Notification 🔔";
+
 /**
  * `ghb` first: its filing is governed and attested. CI has no `ghb`, so when the
  * binary cannot spawn at all the writes fall back to bare `gh` with the same
  * body, title, and marker. A `ghb` that runs but refuses never falls back — the
  * refusal is the observation, and `gh` must not route around governance.
+ *
+ * Every route edits in place: `edit` rewrites title and body in one call, and
+ * `comment` exists only for the small close-evidence note, never the report
+ * body.
  */
 export const githubClient = (runner: CommandRunner, root: string): GitHub => {
   const repo = ["--repo", FORK_REPOSITORY];
@@ -768,6 +786,14 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         { cwd: root },
       ),
     ) as ReadonlyArray<OpenBlockIssue>;
+  const editIssue = (cli: "gh" | "ghb", issue: number, title: string, bodyPath: string): void => {
+    runRequire(
+      runner,
+      cli,
+      ["issue", "edit", String(issue), ...repo, "--title", title, "--body-file", bodyPath],
+      { cwd: root },
+    );
+  };
   if (route === "gh")
     return {
       route,
@@ -783,17 +809,46 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
             title,
             "--body-file",
             bodyPath,
+            "--type",
+            NOTIFICATION_TYPE,
             "--label",
             BLOCK_LABEL,
           ],
           { cwd: root },
         );
-        if (result.status !== 0 || result.error !== undefined)
-          throw new Error(
-            `gh issue create failed: ${result.stderr.trim() || result.stdout.trim() || result.error?.message || "no output"}`,
+        let url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+        if (result.status !== 0 || result.error !== undefined) {
+          // An older `gh` can reject `--type` at create; retry bare and set the
+          // type by editing the fresh issue right after, noting either refusal.
+          const retry = runner.run(
+            "gh",
+            [
+              "issue",
+              "create",
+              ...repo,
+              "--title",
+              title,
+              "--body-file",
+              bodyPath,
+              "--label",
+              BLOCK_LABEL,
+            ],
+            { cwd: root },
           );
-        const url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+          if (retry.status !== 0 || retry.error !== undefined)
+            throw new Error(
+              `gh issue create failed: ${retry.stderr.trim() || retry.stdout.trim() || result.stderr.trim() || result.error?.message || "no output"}`,
+            );
+          url = /issues\/(\d+)/.exec(`${retry.stdout}\n${retry.stderr}`)?.[1];
+          if (url !== undefined)
+            runner.run("gh", ["issue", "edit", url, ...repo, "--type", NOTIFICATION_TYPE], {
+              cwd: root,
+            });
+        }
         return url === undefined ? null : Number(url);
+      },
+      edit: (issue, title, bodyPath) => {
+        editIssue("gh", issue, title, bodyPath);
       },
       claim: () => {
         // bare `gh` has no completed-close preconditions, so there is no claim to mirror
@@ -834,6 +889,9 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         cwd: root,
       });
     },
+    edit: (issue, title, bodyPath) => {
+      editIssue("ghb", issue, title, bodyPath);
+    },
     comment: (issue, bodyPath) => {
       runRequire(
         runner,
@@ -866,10 +924,29 @@ const withBodyFile = <T>(body: string, effect: (path: string) => T): T => {
 };
 
 /**
- * Upsert the one open issue keyed by `marker`: a matching issue gets the body
- * as a comment, otherwise the title files a fresh one. The typed report is the
+ * Upsert the one open issue keyed by `marker`: a matching issue gets its title
+ * and body rewritten in place when the normalised body drifted, and a rerun
+ * whose normalised body already matches makes no write at all; only a marker
+ * with no open issue files a fresh one. The ghb attest footer and machine
+ * title suffix are normalised away, so they never trigger a rewrite. The
+ * report body is never posted as a comment. The typed report is the
  * authority; this projection happens beside it.
  */
+/**
+ * Normalise an issue body for the no-write comparison: ghb appends attest
+ * footers (`<!-- gh-bot:attest … -->`, `<!-- gh-bot:edit-attest … -->`) to every
+ * write and can suffix the title, so raw equality would never hold and every
+ * rerun would stack another attest line. Strip those lines, trim trailing
+ * whitespace per line, then trim the whole.
+ */
+const normalisedBody = (body: string): string =>
+  body
+    .split("\n")
+    .filter((line) => !/^<!-- gh-bot:.*-->\s*$/.test(line))
+    .map((line) => line.replace(/\s+$/, ""))
+    .join("\n")
+    .trim();
+
 const upsertMarkerIssue = (
   runner: CommandRunner,
   root: string,
@@ -880,13 +957,20 @@ const upsertMarkerIssue = (
 ): { readonly issue: number | null; readonly publishedVia: "ghb" | "gh" } => {
   const github = githubClient(runner, root);
   const existing = github.list(titlePhrase).find((issue) => issue.body.includes(marker));
-  return withBodyFile(body, (bodyPath) => {
-    if (existing !== undefined) {
-      github.comment(existing.number, bodyPath);
+  if (existing !== undefined) {
+    // the machine title suffix and attest footers never match the render, so
+    // the decision is on the normalised body alone
+    if (normalisedBody(existing.body) === normalisedBody(body))
       return { issue: existing.number, publishedVia: github.route };
-    }
-    return { issue: github.create(title, bodyPath), publishedVia: github.route };
-  });
+    return withBodyFile(body, (bodyPath) => {
+      github.edit(existing.number, title, bodyPath);
+      return { issue: existing.number, publishedVia: github.route };
+    });
+  }
+  return withBodyFile(body, (bodyPath) => ({
+    issue: github.create(title, bodyPath),
+    publishedVia: github.route,
+  }));
 };
 
 /**
