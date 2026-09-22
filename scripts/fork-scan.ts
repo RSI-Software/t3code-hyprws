@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git check runs before an Effect runtime exists.
+// Gate: fork:ci — the Fork rebase scan step of the hyprws-ci Check job, carrying the additive gate, hook guard, and authoring guards inside its range.
 
 // Checks every fork domain's rebase scan against the shared files its own
 // commits touch. Shared means the fork changed the file above its upstream base

@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Standalone fork gates read this required file before Effect.
+// Gate: none — retire verdicts; fork:delta --check turns them into retired-but-present refusals (pull-request).
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";

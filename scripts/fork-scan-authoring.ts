@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// Gate: fork:ci — the authoring guards, computed inside the fork:scan range; a finding fails the scan.
 
 // Authoring guards for `vp run fork:scan` (fork:ci step 3). Each rule names a
 // shape a later rebase pays for, at the moment a fork commit creates it:
