@@ -85,6 +85,7 @@ Only a `human` row stops the run.
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back verbatim.
+Upstream deleted and the fork edit is net-zero: the deletion stands.
 
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
