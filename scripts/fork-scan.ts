@@ -25,8 +25,13 @@ import {
 } from "./fork-scan-authoring.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
+import {
+  checkAdditive,
+  renderAdditiveFindings,
+  type AdditiveFinding,
+} from "./lib/fork-additive-gate.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { runCommand, SystemCommandRunner, SystemGit, type CwdCommandRunner } from "./lib/fork-command.ts";
 
 export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
@@ -82,6 +87,11 @@ export interface ScanResult {
   // stays advisory.
   readonly warnings: ReadonlyArray<ScanAuthoringWarning>;
   readonly hookDetails: ReadonlyArray<string>;
+  // Step 1: the additive gate (files, migrations, tests intact). Read from
+  // the scan's own range so the gate runs everywhere the scan runs —
+  // including the CI `Fork rebase scan` step, which invokes `fork:scan`
+  // directly and never `fork:ci`.
+  readonly additive: ReadonlyArray<AdditiveFinding>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -254,6 +264,9 @@ export interface ScanInput extends ScanRange {
   // Absent when the caller only wants the rebase-scan verdict, as the unit
   // tests and the ledger-only walks do.
   readonly guard?: AuthoringGuardInput | undefined;
+  // Step 1 findings, computed by the runner from the scan's own range so
+  // unit tests can pass them in directly without a git checkout.
+  readonly additive?: ReadonlyArray<AdditiveFinding>;
 }
 
 export interface AuthoringGuardInput {
@@ -318,6 +331,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     undeclaredDomains,
     untaggedCommits,
     warnings: input.guard === undefined ? [] : collectAuthoringWarnings(input.guard),
+    additive: input.additive ?? [],
     hookDetails:
       input.guard === undefined
         ? []
@@ -343,6 +357,9 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
+  ),
+  ...result.additive.map(
+    (finding) => `additive:${finding.check}: ${finding.path}: ${finding.detail}`,
   ),
   ...result.warnings.map(
     (warning) => `${warning.rule}: ${warning.commit} ${warning.domain}: ${warning.detail}`,
@@ -397,6 +414,9 @@ export const renderScanReport = (result: ScanResult): string => {
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
   lines.push(...renderAuthoringWarnings(result.warnings));
+  if (result.additive.length > 0) {
+    lines.push(...renderAdditiveFindings(result.additive).map((line) => `  ${line}`));
+  }
   if (result.hookDetails.length > 0) {
     lines.push("", `Hook guard, ${result.hookDetails.length} finding(s):`);
     for (const detail of result.hookDetails) lines.push(`  HOOK  ${detail}`);
@@ -580,7 +600,12 @@ const readUpstreamTestLines = (
   return lines;
 };
 
-export const readScan = (git: GitReader, options: ScanOptions, ledger: string): ScanResult => {
+export const readScan = (
+  git: GitReader,
+  options: ScanOptions,
+  ledger: string,
+  additiveRunner?: AdditiveRunner,
+): ScanResult => {
   const range = resolveRange(git, options);
   const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
   const shas = commits.flatMap((commit) => (commit.domain === undefined ? [] : [commit.sha]));
@@ -595,8 +620,28 @@ export const readScan = (git: GitReader, options: ScanOptions, ledger: string): 
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
     guard: buildGuardInput(git, options, range, commits, filesBySha),
+    // Base + since, never live upstream: files and migrations read against
+    // the pinned base, tests against the since tree so only new test loss
+    // fires. A replay run re-authors every commit, so no range can name
+    // what's new and the tests check is skipped.
+    additive:
+      additiveRunner === undefined
+        ? []
+        : checkAdditive(
+            additiveRunner,
+            additiveRunner.worktree,
+            options.replayOf === null
+              ? { base: range.base, since: options.since }
+              : { base: range.base, since: null },
+            { head: range.head },
+          ),
   });
 };
+
+/** What `checkAdditive` needs beyond the git reads: the worktree the trees resolve in. */
+export interface AdditiveRunner extends CwdCommandRunner {
+  readonly worktree: string;
+}
 
 export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -612,8 +657,15 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
+    // The additive gate resolves trees, not refs: it runs only when the
+    // scan reads the live checkout, matching the typecheck scoping.
+    const commandRunner = new SystemCommandRunner();
+    const additiveRunner: AdditiveRunner | undefined =
+      workingHead === scannedHead
+        ? { worktree: root, run: commandRunner.run.bind(commandRunner) }
+        : undefined;
     const result: ScanResult = {
-      ...readScan(git, options, ledger),
+      ...readScan(git, options, ledger, additiveRunner),
       typecheckGaps: typecheckCurrentHead
         ? findForkOwnedTypecheckGaps(
             root,

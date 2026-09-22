@@ -10,21 +10,20 @@
 // jobs; the release and sync workflows gate elsewhere.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
-import { checkAdditive, renderAdditiveFindings } from "./lib/fork-additive-gate.ts";
-import { runCommand, SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
 const HELP = `Usage: vp run fork:ci
 
 Runs what the fork's pull-request CI jobs run, in CI's own shape:
 
-  1. the additive gate: the head tree is a pure addition on upstream base
-     (scripts/lib/fork-additive-gate.ts: files, migrations, tests)
-  2. the ledger flags, derived by scripts/lib/fork-ci-flags.ts
-  3. vp run fork:scan with exactly those flags (--no-typecheck included),
-     which carries the hook guard (marked insertions only,
-     scripts/lib/fork-hook-guard.ts) and the replaced-export /
-     upstream-test authoring findings (scripts/fork-scan-authoring.ts)
-  4. the whole @t3tools/scripts test suite
+  1. the ledger flags, derived by scripts/lib/fork-ci-flags.ts
+  2. vp run fork:scan with exactly those flags (--no-typecheck included),
+     which carries step 1 (the additive gate: files, migrations, tests
+     intact, scripts/lib/fork-additive-gate.ts), the hook guard (marked
+     insertions only, scripts/lib/fork-hook-guard.ts) and the
+     replaced-export / upstream-test authoring findings
+     (scripts/fork-scan-authoring.ts)
+  3. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the release or sync workflows.
 `;
@@ -55,24 +54,6 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       flags.replayOf === null ? "" : `, replay-of ${flags.replayOf}`
     }\n`,
   );
-
-  const additive = checkAdditive(
-    new SystemCommandRunner(),
-    root,
-    // Base + since, never live upstream: files and migrations read against
-    // the pinned base, tests against the since tree so only new test loss
-    // fires. Replay runs prove nothing new and skip the tests check.
-    flags.replayOf === null
-      ? { base: flags.base, since: flags.since }
-      : { base: flags.base, since: null },
-    { head: flags.head },
-  );
-  if (additive.length > 0) {
-    for (const line of renderAdditiveFindings(additive)) process.stderr.write(`${line}\n`);
-    process.stderr.write("fork:ci: additive gate failed; fix above before pushing\n");
-    return 1;
-  }
-  process.stdout.write("fork:ci: additive gate ok\n");
 
   const scan = runCommand("vp", ["run", "fork:scan", ...forkScanArguments(flags)], {
     cwd: root,

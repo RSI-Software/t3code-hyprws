@@ -47,6 +47,26 @@ it("stays green with no guard input", () => {
   assert.match(renderScanReport(result), /1 commit\(s\), 0 shared file\(s\)/);
 });
 
+it("fails an additive files finding carried on the scan result", () => {
+  // The CI `Fork rebase scan` step invokes `fork:scan` directly, never
+  // `fork:ci`: the additive gate only gates a pull request if a finding
+  // computed from the scan's own range fails the scan.
+  const result = buildScanResult({
+    ...baseInput(),
+    additive: [
+      {
+        check: "files",
+        path: "apps/web/src/gone.ts",
+        detail: "upstream file is missing from the head tree",
+      },
+    ],
+  });
+  const failures = scanFailures(result);
+  assert.isTrue(
+    failures.some((failure) => failure.startsWith("additive:files: apps/web/src/gone.ts")),
+  );
+});
+
 it("fails an upstream-test addition in the since range", () => {
   const raw = [
     "abc1234",
