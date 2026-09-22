@@ -32,6 +32,11 @@ import {
 } from "./lib/fork-additive-gate.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
 import {
+  assessForkSupersedes,
+  collectForkSupersedes,
+  type SituatedDeclaration,
+} from "./lib/fork-supersedes.ts";
+import {
   runCommand,
   SystemCommandRunner,
   SystemGit,
@@ -104,6 +109,13 @@ export interface ScanResult {
   // including the CI `Fork rebase scan` step, which invokes `fork:scan`
   // directly and never `fork:ci`.
   readonly additive: ReadonlyArray<AdditiveFinding>;
+  // The forkSupersedes declarations (RSI-Software/t3code-hyprws#716):
+  // malformed calls and declarations naming an absent upstream file or
+  // title, plus the retire candidates whose upstream case adopted the fork
+  // behaviour. A named upstream case reads as superseded rather than
+  // contradictory; the additive gate consumes that reading.
+  readonly supersedes: ReadonlyArray<string>;
+  readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -279,6 +291,10 @@ export interface ScanInput extends ScanRange {
   // Step 1 findings, computed by the runner from the scan's own range so
   // unit tests can pass them in directly without a git checkout.
   readonly additive?: ReadonlyArray<AdditiveFinding>;
+  // Step 4 findings (RSI-Software/t3code-hyprws#716), likewise injectable:
+  // declaration refusals plus undeclared-contradiction findings.
+  readonly supersedes?: ReadonlyArray<string>;
+  readonly retireCandidates?: ReadonlyArray<SituatedDeclaration>;
 }
 
 export interface AuthoringGuardInput {
@@ -344,6 +360,8 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     untaggedCommits,
     warnings: input.guard === undefined ? [] : collectAuthoringWarnings(input.guard),
     additive: input.additive ?? [],
+    supersedes: input.supersedes ?? [],
+    retireCandidates: input.retireCandidates ?? [],
     hookDetails:
       input.guard === undefined
         ? []
@@ -373,6 +391,7 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ...result.additive.map(
     (finding) => `additive:${finding.check}: ${finding.path}: ${finding.detail}`,
   ),
+  ...result.supersedes.map((refusal) => `supersedes: ${refusal}`),
   ...result.warnings.map(
     (warning) => `${warning.rule}: ${warning.commit} ${warning.domain}: ${warning.detail}`,
   ),
@@ -435,6 +454,17 @@ export const renderScanReport = (result: ScanResult): string => {
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
   lines.push(...renderAuthoringWarnings(result.warnings));
+  if (result.supersedes.length > 0) {
+    lines.push("", `Supersedes, ${result.supersedes.length} finding(s):`);
+    for (const refusal of result.supersedes) lines.push(`  SUPERSEDES  ${refusal}`);
+  }
+  if (result.retireCandidates.length > 0) {
+    lines.push("", `Retire candidates, ${result.retireCandidates.length}:`);
+    for (const candidate of result.retireCandidates)
+      lines.push(
+        `  RETIRE  ${candidate.sibling}: forkSupersedes names "${candidate.upstreamTitle}" in ${candidate.upstreamPath}, which now carries the fork behaviour; delete the declaration and its sibling case in the same change`,
+      );
+  }
   if (result.additive.length > 0) {
     lines.push(...renderAdditiveFindings(result.additive).map((line) => `  ${line}`));
   }
@@ -636,6 +666,83 @@ const readUpstreamTestLines = (
   return lines;
 };
 
+/**
+ * The supersedes declarations of every fork sibling at the scanned
+ * head, judged against the target tree. Siblings are read from the head
+ * tree (`show <head>:<path>`), never the working tree, so the check stays
+ * proportional to the scan's own refs — including the CI case where the
+ * checkout is the synthetic merge commit. A sibling whose counterpart is
+ * absent from the head tree is skipped: fork-only tests with no upstream
+ * file carry no divergence. An unreadable blob leaves the declaration
+ * refused, because an unread tree is not evidence the named case exists.
+ */
+const readSupersedesAssessment = (
+  git: GitReader,
+  range: ScanRange,
+): {
+  readonly supersedes: ReadonlyArray<string>;
+  readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
+} => {
+  let siblings: ReadonlyArray<string>;
+  try {
+    siblings = readLines(
+      git.run([
+        "-c",
+        "core.quotePath=false",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        range.head,
+        "--",
+        "apps",
+        "packages",
+        "scripts",
+      ]),
+    ).filter((path) => /\.fork\.test\.tsx?$/.test(path));
+  } catch {
+    return { supersedes: [], retireCandidates: [] };
+  }
+  if (siblings.length === 0) return { supersedes: [], retireCandidates: [] };
+  const siblingTexts = new Map<string, string>();
+  for (const sibling of siblings) {
+    try {
+      siblingTexts.set(sibling, git.run(["show", `${range.head}:${sibling}`]));
+    } catch {
+      // An unreadable sibling leaves no entry; its declarations stay unread.
+    }
+  }
+  if (siblingTexts.size === 0) return { supersedes: [], retireCandidates: [] };
+  // Candidate upstream texts: every counterpart plus every file a
+  // declaration names. A named file outside the sibling's counterpart is
+  // how a stale declaration surfaces — read it, then let the assessment
+  // refuse it.
+  const needed = new Set<string>();
+  for (const [sibling, text] of siblingTexts) {
+    needed.add(sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1"));
+    for (const call of collectForkSupersedes(text).declarations) needed.add(call.upstreamPath);
+  }
+  const upstreamTexts = new Map<string, string>();
+  for (const path of [...needed].toSorted()) {
+    try {
+      upstreamTexts.set(path, git.run(["show", `${range.target}:${path}`]));
+    } catch {
+      // Absent from the target tree: the assessment refuses the naming
+      // declaration. No entry is the signal.
+    }
+  }
+  const assessment = assessForkSupersedes(siblingTexts, upstreamTexts);
+  return {
+    supersedes: [
+      ...assessment.refusals,
+      ...assessment.undeclared.map(
+        ({ sibling, title }) =>
+          `${sibling}: case "${title}" contradicts its upstream counterpart with no forkSupersedes declaration; name the upstream case, why the fork differs, and the fork commit`,
+      ),
+    ],
+    retireCandidates: [...assessment.retireCandidates],
+  };
+};
+
 export const readScan = (
   git: GitReader,
   options: ScanOptions,
@@ -669,6 +776,7 @@ export const readScan = (
             { base: range.base, since: options.since },
             { head: range.head },
           ),
+    ...readSupersedesAssessment(git, range),
   });
 };
 

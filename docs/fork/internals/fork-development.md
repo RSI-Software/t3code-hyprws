@@ -184,6 +184,8 @@ Genuine divergence is two sibling parts, neither editing the upstream assertion.
 
 ```ts
 // In the sibling, never in the upstream file:
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
+
 forkSupersedes({
   upstream: "<upstream path> > <test name>",
   reason: "<why fork behavior differs>",
@@ -191,8 +193,12 @@ forkSupersedes({
 });
 ```
 
+The import is a typed no-op: `fork:scan` reads the declaration from the
+sibling's text and never runs it, while the import gives the call site a
+binding typecheck accepts.
+
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
-RSI-Software/t3code-hyprws#716 owns the parser; write the declaration anyway.
+The scan reads the declaration (`fork:scan`, step 4): a call missing `upstream`, `reason`, or `commit`, or naming an upstream file or test name the target tree does not carry, fails the scan, and a sibling case that contradicts its upstream counterpart with no declaration is a finding. A named upstream case reads as superseded rather than contradictory in the additive gate. A declaration whose upstream case has adopted the fork behaviour surfaces as a retire candidate on the pinned-target walk.
 
 **Retiring one.** When upstream adopts the behavior, delete the declaration and its contradicting sibling case in the same change.
 The upstream file needs no repair, because it never changed, and a sibling whose declaration is gone is a contradiction waiting for the next suite run.
