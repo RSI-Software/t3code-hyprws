@@ -10,11 +10,7 @@
 import * as NodePath from "node:path";
 
 import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import {
-  collectForkSupersedes,
-  testCaseTitles,
-  type ForkSupersedesDeclaration,
-} from "./fork-supersedes.ts";
+import { enclosedSupersededTitles } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -259,22 +255,6 @@ export const forkTestSibling = (path: string): string =>
 export const upstreamTestPath = (sibling: string): string =>
   sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
 
-/**
- * The upstream cases a live declaration names for one upstream file: the
- * sibling's `forkSupersedes` calls whose `upstream` path is this file.
- * Read from the head tree's sibling text, so a declaration the fork has
- * not yet committed excuses nothing.
- */
-const declaredSupersededTitles = (siblingText: string | null, path: string): Set<string> => {
-  if (siblingText === null) return new Set();
-  return new Set(
-    collectForkSupersedes(siblingText).declarations.flatMap(
-      (declaration: ForkSupersedesDeclaration) =>
-        declaration.upstreamPath === path ? [declaration.upstreamTitle] : [],
-    ),
-  );
-};
-
 // The significant lines one upstream case carries: the opener line naming
 // the title through the next case opener. Line-based, the way
 // `significantLines` is — a case body is what the lost-line multiset counts.
@@ -359,11 +339,19 @@ const testFindings = (
     // sibling carries the fork behaviour beside a record of why. Only a
     // named case is excused — a sibling case contradicting without one
     // stays a finding, and the scan's own supersedes findings name it.
-    const named = declaredSupersededTitles(siblingText, path);
+    // The exemption is per declaration, resolved by documentation: each
+    // declaration must sit immediately before a sibling case, and each
+    // documented case excuses exactly one declaration. Five declarations
+    // stacked before one case excuse one deletion, never five
+    // (RSI-Software/t3code-hyprws#1208).
+    // An inversion names a different title than upstream's, so the
+    // exemption keys on the declaration, never on a same-titled sibling
+    // case.
+    const named = enclosedSupersededTitles(siblingText ?? "", path);
     const excused =
-      named.size === 0
+      named.length === 0
         ? new Set<string>()
-        : new Set([...named].flatMap((title) => caseLines(upstreamText, title)));
+        : new Set(named.flatMap((title) => caseLines(upstreamText, title)));
     const unsuperseded = unmoved.filter((line) => !excused.has(line));
     if (unsuperseded.length > 0)
       findings.push({
@@ -374,12 +362,11 @@ const testFindings = (
       });
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);
-    // A superseded case's declarations live in the sibling now: count a
-    // named upstream case as still present when the sibling carries a
-    // case of the same title.
-    const siblingTitles =
-      named.size === 0 ? new Set<string>() : new Set(testCaseTitles(siblingText ?? ""));
-    const present = headPresent + [...named].filter((title) => siblingTitles.has(title)).length;
+    // A declared-superseded case's behaviour lives in the sibling under a
+    // replacement title, so each documented declaration counts as still
+    // present — one documented case, one excusal
+    // (RSI-Software/t3code-hyprws#1208).
+    const present = headPresent + named.length;
     if (present < upstreamPresent)
       findings.push({
         check: "tests",

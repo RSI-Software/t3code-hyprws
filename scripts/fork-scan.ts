@@ -312,6 +312,8 @@ export interface AuthoringGuardInput {
   // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
   // inputs built before the map existed; the guard then behaves as before.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  readonly siblingTexts: ReadonlyMap<string, string>;
 }
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
@@ -637,6 +639,10 @@ const buildGuardInput = (
             git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
           ),
         );
+  const upstreamTestTexts =
+    guardCommits.length === 0
+      ? new Map<string, string>()
+      : readUpstreamTestTexts(git, range.target, patchesBySha, upstreamTestFiles);
   return {
     commits: guardCommits,
     filesBySha,
@@ -662,6 +668,11 @@ const buildGuardInput = (
         !GENERATED_HOOK_PATH.test(path) &&
         !upstreamTestFiles.has(path),
     ),
+    upstreamTestTexts,
+    siblingTexts:
+      guardCommits.length === 0
+        ? new Map<string, string>()
+        : readSiblingTexts(git, range.head, upstreamTestTexts),
   };
 };
 
@@ -701,6 +712,59 @@ const readUpstreamLines = (
     }
   }
   return lines;
+};
+
+/**
+ * The target-tree text of every upstream test file a warned commit removes a
+ * test line from — the same path set `readUpstreamLines` selects for the
+ * test side, plus the full text. The declared-superseded exemption compares
+ * structurally by case, so it needs the text, not just the line set
+ * (RSI-Software/t3code-hyprws#1208).
+ */
+const readUpstreamTestTexts = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamTestFiles: ReadonlySet<string>,
+): ReadonlyMap<string, string> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const path of patch.removedTestLines.keys())
+      if (upstreamTestFiles.has(path)) paths.add(path);
+  const texts = new Map<string, string>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      texts.set(path, git.run(["show", `${target}:${path}`]));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return texts;
+};
+
+/**
+ * The head-tree (scanned-head) text of the fork sibling for every touched
+ * upstream test file. Read from the head tree, never the working tree, so
+ * the exemption cannot go stale against the commit being scanned: an
+ * uncommitted declaration excuses nothing, the same way the additive
+ * gate's reader works. A sibling unreadable at the head excuses
+ * nothing, because an unread tree is not evidence of a replacement case.
+ */
+const readSiblingTexts = (
+  git: GitReader,
+  head: string,
+  upstreamTestTexts: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> => {
+  const texts = new Map<string, string>();
+  for (const path of [...upstreamTestTexts.keys()].toSorted()) {
+    const sibling = path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
+    try {
+      texts.set(sibling, git.run(["show", `${head}:${sibling}`]));
+    } catch {
+      // Absent at the head: no declarations to exempt.
+    }
+  }
+  return texts;
 };
 
 /**

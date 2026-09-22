@@ -118,6 +118,117 @@ it("flags a removed upstream test line even when declarations hold", () => {
   );
 });
 
+it("does not count a declared-superseded case as a shrink, and still shrinks an undeclared one", () => {
+  // RSI-Software/t3code-hyprws#1208: the sibling declares the upstream title the fork
+  // contradicts under a DIFFERENT replacement title, so the declaration must carry
+  // the exemption — counting same-titled sibling cases keeps the deadlock. The
+  // replacement case must exist: a bare declaration buys nothing.
+  const setup = (): { root: string; base: string; since: string } => {
+    const { root, run, write, commit } = fixture();
+    write(
+      "apps/web/src/thing.test.ts",
+      'it("upstream", () => {\n  expect(keep).toBe(1);\n});\nit("other", () => {});\n',
+    );
+    commit("upstream: base");
+    const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    return { root, base, since: base };
+  };
+  const declaredSibling = [
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
+    'it("replacement", () => {',
+    "  expect(keep).toBe(2);",
+    "});",
+    "",
+  ].join("\n");
+  {
+    // Declared, replacement present, upstream case deleted: no tests finding.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.fork.test.ts"), declaredSibling);
+    commitAll(root, "fork: delete declared case, declare in sibling");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
+  {
+    // Declaration after the last case opener: resolves to none, the shrink
+    // still fires. The doc-comment convention puts the declaration before
+    // the case it documents.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'it("replacement", () => {\n  expect(keep).toBe(2);\n});\nforkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
+    );
+    commitAll(root, "fork: delete with a trailing declaration");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(findings.some((finding) => finding.check === "tests"));
+  }
+  {
+    // No declaration at all: the shrink still fires exactly as today.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n',
+    );
+    commitAll(root, "fork: delete with no declaration");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(findings.some((finding) => finding.check === "tests"));
+  }
+  {
+    // Five declarations stacked before one case: only one excusal, so
+    // deleting five upstream cases still fails. Per-declaration
+    // documentation, not per-file presence (RSI-Software/t3code-hyprws#1208).
+    const { root, run, write, commit } = fixture();
+    write(
+      "apps/web/src/thing.test.ts",
+      [1, 2, 3, 4, 5]
+        .map((n) => `it("case-${n}", () => {\n  expect(keep).toBe(${n});\n});`)
+        .join("\n") + "\n",
+    );
+    commit("upstream: base");
+    const fiveBase = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+    })
+      .toString()
+      .trim();
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.test.ts"), "");
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      [
+        ...[1, 2, 3, 4, 5].map(
+          (n) =>
+            `forkSupersedes({ upstream: "apps/web/src/thing.test.ts > case-${n}", reason: "the fork inverts it", commit: "abc1234" });`,
+        ),
+        'it("replacement", () => {',
+        "  expect(keep).toBe(2);",
+        "});",
+        "",
+      ].join("\n"),
+    );
+    commitAll(root, "fork: delete five, declare five beside one case");
+    const findings = checkAdditive(runner, root, { base: fiveBase, since: fiveBase });
+    const details = findings
+      .filter((finding) => finding.check === "tests")
+      .map((finding) => finding.detail ?? "");
+    assert.isTrue(details.length > 0, "deleting five with one documented case still fails");
+    assert.isTrue(
+      details.some((detail) => /shrunk from 5 to 1/.test(detail)),
+      `one documented case excuses one declaration, not five (got: ${details.join(" | ")})`,
+    );
+  }
+});
+
 it("lets a fork-added line leave freely but guards upstream lines via the sibling", () => {
   // Base carries an upstream case; since adds a fork case on top. A line
   // the fork added itself may leave the upstream-owned file freely; only
@@ -173,9 +284,10 @@ it("lets a fork-added line leave freely but guards upstream lines via the siblin
 });
 
 it("excuses a named upstream case a live declaration supersedes, and holds an unnamed one", () => {
-  // The fork moves the whole upstream case body into the sibling beside a
-  // forkSupersedes declaration: the named case's lines are superseded
-  // rather than contradictory, so no tests finding fires.
+  // The fork moves the whole upstream case body into the sibling with a
+  // forkSupersedes declaration immediately before it: the named case's
+  // lines are superseded rather than contradictory, so no tests finding
+  // fires. The declaration documents the case that follows it.
   const setup = (): { root: string; base: string; since: string } => {
     const { root, run, write, commit } = fixture();
     write("apps/web/src/thing.test.ts", 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n');
