@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git helper runs before an Effect runtime exists.
+// Gate: none — flag derivation the Check job and fork:ci share; decides scope, never pass or fail.
 
 // The one derivation of the `fork:scan` flags the hyprws CI pull-request Check
 // job pins a branch with. The workflow's `Fork ledger` and `Fork rebase scan`
