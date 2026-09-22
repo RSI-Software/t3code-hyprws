@@ -21,7 +21,7 @@
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
-const HELP = `Usage: vp run fork:ci
+const HELP = `Usage: vp run fork:ci [--since <ref>]
 
 Runs what the fork's pull-request CI jobs run, in CI's own shape:
 
@@ -60,13 +60,30 @@ export const run = (
     process.stdout.write(HELP);
     return 0;
   }
+  const sinceArg = argv.indexOf("--since");
+  if (sinceArg !== -1 && argv.length <= sinceArg + 1) {
+    process.stderr.write("fork:ci: --since requires a value\n");
+    return 2;
+  }
+  const sinceOverride = sinceArg === -1 ? undefined : argv[sinceArg + 1];
+  if (sinceArg !== -1 && argv.length !== sinceArg + 2) {
+    process.stderr.write("fork:ci: unexpected argument\n");
+    return 2;
+  }
 
   const git = new SystemGit(cwd);
   const root = git.run(["rev-parse", "--show-toplevel"]).trim();
   const head = git.run(["rev-parse", "HEAD"]).trim();
   let flags;
   try {
-    flags = deriveForkCiFlags(systemForkCiGit(git), head);
+    // Only the sync battery passes --since (its rehearsal target tag), so a
+    // rehearsed head guards the replayed fork delta; the pull-request path
+    // keeps the merge-base derivation.
+    flags = deriveForkCiFlags(
+      systemForkCiGit(git),
+      head,
+      sinceOverride === undefined ? {} : { since: sinceOverride },
+    );
   } catch (error) {
     process.stderr.write(
       `fork:ci: ${error instanceof Error ? error.message : String(error)}\n` +
