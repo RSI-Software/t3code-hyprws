@@ -5,12 +5,16 @@
 // a branch, in one command. The delta trailer check runs first with the same
 // flags the workflow's Fork ledger step uses (`--check --head <head>`), the
 // rebase scan consumes the exact flags CI pins, derived by
-// scripts/lib/fork-ci-flags.ts — the same helper the workflow calls — and
-// the scripts workspace suite runs whole, the way the Test Scripts job
+// scripts/lib/fork-ci-flags.ts — the same helper the workflow calls — the
+// read-only `vp check` runs in the exact form of the workflow's Check step
+// (never `--fix`, which reformats files outside branch scope on this trunk),
+// and the scripts workspace suite runs whole, the way the Test Scripts job
 // does, so a local green run cannot be greener than CI
-// (RSI-Software/t3code-hyprws#1148). Scope: the hyprws-ci.yml pull-request
-// jobs; the Body job's squash-body check needs the pull-request body
-// artifact and gates separately, as do the release and sync workflows.
+// (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
+// the Fork rebase scan, the `vp check` step, and the Test Scripts job of
+// hyprws-ci.yml; the Body job's squash-body check needs the pull-request
+// body artifact and gates separately, as do knip, typecheck, the desktop
+// build, the product test jobs, and the release and sync workflows.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
@@ -23,12 +27,15 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
   2. vp run fork:delta --check --head <head>, the same form the workflow's
      Fork ledger step runs (scripts/fork-delta.ts)
   3. vp run fork:scan with exactly those flags (--no-typecheck included),
-     which carries step 1 (the additive gate: files, migrations, tests
-     intact, scripts/lib/fork-additive-gate.ts), the hook guard (marked
+     which carries the additive gate: files, migrations, tests
+     intact (scripts/lib/fork-additive-gate.ts), the hook guard (marked
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  4. the whole @t3tools/scripts test suite
+  4. vp check, the exact form the workflow's Check step runs
+     (scripts/fork-ci.ts never passes --fix: the fixer reformats files
+     outside branch scope on this trunk)
+  5. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -83,6 +90,12 @@ export const run = (
     return 1;
   }
 
+  const check = step("vp", ["check"], root);
+  if (check !== 0) {
+    process.stderr.write("fork:ci: vp check failed; fix above before pushing\n");
+    return 1;
+  }
+
   const suite = step("vp", ["run", "--filter", "@t3tools/scripts", "test"], root);
   if (suite !== 0) {
     process.stderr.write("fork:ci: scripts suite failed; fix above before pushing\n");
@@ -90,7 +103,7 @@ export const run = (
   }
 
   process.stdout.write(
-    "fork:ci: ok; the delta check, rebase scan, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, rebase scan, vp check, and scripts suite are green on this head\n",
   );
   return 0;
 };
