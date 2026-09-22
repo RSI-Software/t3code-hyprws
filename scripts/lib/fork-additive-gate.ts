@@ -248,6 +248,9 @@ const lostUpstreamLines = (
 /** Enough of the loss to recognise the case it came from, without pasting the file into a report. */
 const LOST_LINE_SAMPLE = 5;
 
+export const forkTestSibling = (path: string): string =>
+  path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
+
 const testFindings = (
   runner: CommandRunner,
   worktree: string,
@@ -279,24 +282,32 @@ const testFindings = (
       });
       continue;
     }
-    // Lost lines are measured against the upstream target tree, not the
-    // since tree: a line the fork added itself (absent upstream) may leave
-    // freely — moving a legacy fork case into a `.fork.test.ts` sibling
-    // must not read as upstream loss. Only a line upstream carries counts.
+    // Lost lines are measured against the union of the upstream target
+    // tree and the since tree: a line the fork added itself on top of
+    // since may MOVE to a `.fork.test.ts` sibling, not vanish — a
+    // fork-added line that leaves the upstream-owned file and appears in
+    // no sibling is a finding. Only a line upstream or in since counts
+    // as carried in the first place.
     const upstreamLines =
       target === upstreamTarget
         ? new Set(significantLines(upstreamText))
         : new Set(significantLines(showTree(runner, worktree, upstreamTarget, path) ?? ""));
-    const lost = lostUpstreamLines(
-      significantLines(upstreamText).filter((line) => upstreamLines.has(line)),
-      significantLines(headText),
+    const sinceLines = new Set(significantLines(showTree(runner, worktree, target, path) ?? ""));
+    const headLines = significantLines(headText);
+    const carried = significantLines(upstreamText).filter(
+      (line) => upstreamLines.has(line) || sinceLines.has(line),
     );
-    if (lost.length > 0)
+    const lost = lostUpstreamLines(carried, headLines);
+    const siblingLines = new Set(
+      significantLines(showTree(runner, worktree, head, forkTestSibling(path)) ?? ""),
+    );
+    const unmoved = lost.filter((line) => !siblingLines.has(line));
+    if (unmoved.length > 0)
       findings.push({
         check: "tests",
         path,
-        lines: [...new Set(lost)].sort().slice(0, LOST_LINE_SAMPLE),
-        detail: `${lost.length} upstream test line(s) are gone from the head tree; a fork commit may only append to an upstream test file`,
+        lines: [...new Set(unmoved)].sort().slice(0, LOST_LINE_SAMPLE),
+        detail: `${unmoved.length} upstream test line(s) are gone from the head tree and appear in no ${forkTestSibling(path)} sibling; a fork commit may only move a case to the sibling, never drop it`,
       });
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);

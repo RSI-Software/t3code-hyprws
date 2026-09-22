@@ -41,6 +41,22 @@ const fixture = (): {
 
 const runner = new SystemCommandRunner();
 
+const commitEnv = { ...process.env };
+
+const commitAll = (root: string, message: string): void => {
+  NodeChildProcess.execFileSync("git", ["add", "-A"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["commit", "-m", message], {
+    cwd: root,
+    env: {
+      ...commitEnv,
+      GIT_AUTHOR_NAME: "fixture",
+      GIT_AUTHOR_EMAIL: "fixture@example.test",
+      GIT_COMMITTER_NAME: "fixture",
+      GIT_COMMITTER_EMAIL: "fixture@example.test",
+    },
+  });
+};
+
 it("passes a pure-addition head", () => {
   const { root, run, write, commit } = fixture();
   write("apps/web/src/thing.ts", "export const keep = 1;\n");
@@ -102,22 +118,50 @@ it("flags a removed upstream test line even when declarations hold", () => {
   );
 });
 
-it("permits removing a fork-added test line, matching the upstream-test guard", () => {
-  // Base carries an upstream case; since adds a fork case on top; head
-  // removes the fork case again (the move-to-sibling cleanup). Upstream
-  // loss is nil, so no tests finding fires.
-  const { root, run, write, commit } = fixture();
-  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
-  commit("upstream: base");
-  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
-    .toString()
-    .trim();
-  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\nit("fork", () => {});\n');
-  commit("fork: add case in place");
-  const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
-    .toString()
-    .trim();
-  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
-  commit("fork: move case to sibling");
-  assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+it("permits moving a fork-added test line to the sibling, not dropping it", () => {
+  // Base carries an upstream case; since adds a fork case on top. Head
+  // removes the fork case from the upstream-owned file: green only when
+  // the removed lines appear in the `.fork.test.ts` sibling.
+  const setup = (): { root: string; base: string; since: string } => {
+    const { root, run, write, commit } = fixture();
+    write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
+    commit("upstream: base");
+    const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    write(
+      "apps/web/src/thing.test.ts",
+      'it("upstream", () => {});\nit("fork", () => {});\n',
+    );
+    commit("fork: add case in place");
+    const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    return { root, base, since };
+  };
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("upstream", () => {});\n',
+    );
+    commitAll(root, "fork: drop case");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(
+      findings.some((finding) => finding.check === "tests" && /no .* sibling/.test(finding.detail)),
+    );
+  }
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("upstream", () => {});\n',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'it("fork", () => {});\n',
+    );
+    commitAll(root, "fork: move case to sibling");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
 });
