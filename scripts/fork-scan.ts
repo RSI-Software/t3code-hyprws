@@ -13,7 +13,18 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
+import {
+  type AuthoringGuardCommit,
+  collectAuthoringWarnings,
+  commitPatchArguments,
+  parseCommitPatches,
+  renderAuthoringWarnings,
+  significantTestLines,
+  type CommitPatch,
+  type ScanAuthoringWarning,
+} from "./fork-scan-authoring.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
@@ -65,6 +76,12 @@ export interface ScanResult {
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
+  // Steps 2-3 (fork:ci steps 2-3): the hook guard (marked insertions only)
+  // and the `replaced-export` / `upstream-test` authoring findings, scoped
+  // by `--since` to the commits one change introduces. Historical range
+  // stays advisory.
+  readonly warnings: ReadonlyArray<ScanAuthoringWarning>;
+  readonly hookDetails: ReadonlyArray<string>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -234,6 +251,18 @@ export interface ScanInput extends ScanRange {
   readonly scans: ReadonlyMap<string, ReadonlyArray<string>>;
   readonly forkChanged: ReadonlySet<string>;
   readonly upstreamChanged: ReadonlySet<string>;
+  // Absent when the caller only wants the rebase-scan verdict, as the unit
+  // tests and the ledger-only walks do.
+  readonly guard?: AuthoringGuardInput | undefined;
+}
+
+export interface AuthoringGuardInput {
+  readonly commits: ReadonlyArray<AuthoringGuardCommit>;
+  readonly filesBySha: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly patchesBySha: ReadonlyMap<string, CommitPatch>;
+  readonly upstreamFiles: ReadonlySet<string>;
+  readonly upstreamTestFiles: ReadonlySet<string>;
+  readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
@@ -288,6 +317,20 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     typecheckGaps: [],
     undeclaredDomains,
     untaggedCommits,
+    warnings: input.guard === undefined ? [] : collectAuthoringWarnings(input.guard),
+    hookDetails:
+      input.guard === undefined
+        ? []
+        : input.guard.commits.flatMap((commit) => {
+            const patch = input.guard?.patchesBySha.get(commit.sha);
+            if (patch === undefined) return [];
+            return hookGuardWarnings({
+              commit,
+              files: input.guard?.filesBySha.get(commit.sha) ?? [],
+              changedLines: patch.changedLines,
+              upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
+            }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
+          }),
   };
 };
 
@@ -301,6 +344,10 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
   ),
+  ...result.warnings.map(
+    (warning) => `${warning.rule}: ${warning.commit} ${warning.domain}: ${warning.detail}`,
+  ),
+  ...result.hookDetails.map((detail) => `hook-guard: ${detail}`),
 ];
 
 // The two gap classes need different repairs: a ledger gap is an entry the human adds, and a
@@ -348,6 +395,11 @@ export const renderScanReport = (result: ScanResult): string => {
     lines.push("", "Fork-owned typecheck gaps:");
     for (const gap of result.typecheckGaps)
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
+  }
+  lines.push(...renderAuthoringWarnings(result.warnings));
+  if (result.hookDetails.length > 0) {
+    lines.push("", `Hook guard, ${result.hookDetails.length} finding(s):`);
+    for (const detail of result.hookDetails) lines.push(`  HOOK  ${detail}`);
   }
   if (result.untaggedCommits.length > 0) {
     lines.push(
@@ -445,6 +497,89 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
   target: options.target,
 });
 
+// The guard rules read one patch per warned commit, so `--since` is what
+// keeps a pull request's run proportional to the commits it adds.
+const buildGuardInput = (
+  git: GitReader,
+  options: ScanOptions,
+  range: ScanRange,
+  commits: ReadonlyArray<ForkCommit>,
+  filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
+): AuthoringGuardInput | undefined => {
+  const since = options.since;
+  const warned =
+    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
+  const guardCommits = commits.flatMap((commit) =>
+    commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
+      ? []
+      : [
+          {
+            sha: commit.sha,
+            short: commit.short,
+            domain: commit.domain,
+            ...(commit.tier === undefined ? {} : { tier: commit.tier }),
+            ...(commit.upstreamable === undefined ? {} : { upstreamable: commit.upstreamable }),
+          },
+        ],
+  );
+  const patchesBySha =
+    guardCommits.length === 0
+      ? new Map<string, CommitPatch>()
+      : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))));
+  const upstreamFiles =
+    guardCommits.length === 0
+      ? new Set<string>()
+      : new Set(
+          readLines(
+            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.base]),
+          ),
+        );
+  const upstreamTestFiles =
+    guardCommits.length === 0
+      ? new Set<string>()
+      : new Set(
+          readLines(
+            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
+          ),
+        );
+  return {
+    commits: guardCommits,
+    filesBySha,
+    patchesBySha,
+    upstreamFiles,
+    upstreamTestFiles,
+    upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
+  };
+};
+
+/**
+ * The target-tree text of every upstream test file a warned commit removes a
+ * line from — nothing else, so a scan stays proportional to the commits it
+ * warns about. Without it the append-only rule would also refuse the repair
+ * it asks for: deleting the fork's own line out of an upstream test file is
+ * a removal too.
+ */
+const readUpstreamTestLines = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamTestFiles: ReadonlySet<string>,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const path of patch.removedTestLines.keys())
+      if (upstreamTestFiles.has(path)) paths.add(path);
+  const lines = new Map<string, ReadonlySet<string>>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return lines;
+};
+
 export const readScan = (git: GitReader, options: ScanOptions, ledger: string): ScanResult => {
   const range = resolveRange(git, options);
   const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
@@ -459,6 +594,7 @@ export const readScan = (git: GitReader, options: ScanOptions, ledger: string): 
     scans: parseRebaseScans(ledger),
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
+    guard: buildGuardInput(git, options, range, commits, filesBySha),
   });
 };
 
