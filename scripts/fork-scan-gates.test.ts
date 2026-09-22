@@ -205,3 +205,40 @@ it("reads the sibling name and significant lines", () => {
   );
   void ledger;
 });
+
+it("fails supersedes refusals and reports undeclared contradictions", () => {
+  const declared = buildScanResult({
+    ...baseInput(),
+    supersedes: [
+      "thing.fork.test.ts:3: forkSupersedes is missing commit; a declaration names the upstream case, why the fork differs, and the fork commit",
+    ],
+  });
+  assert.isTrue(scanFailures(declared).some((failure) => failure.startsWith("supersedes:")));
+  assert.match(renderScanReport(declared), /Supersedes, 1 finding/);
+
+  const clean = buildScanResult(baseInput());
+  assert.isFalse(scanFailures(clean).some((failure) => failure.startsWith("supersedes:")));
+});
+
+it("surfaces a retire candidate without failing the scan", () => {
+  // AGENTS.md: the rebase feasibility walk flags a retire candidate. The
+  // pinned-target walk (`fork:scan --target vX.Y.Z`) is that walk's home:
+  // the candidate is reported, never a failure, so the declaration and its
+  // sibling case are deleted in the same change by a human.
+  const result = buildScanResult({
+    ...baseInput(),
+    retireCandidates: [
+      {
+        sibling: "apps/web/src/thing.fork.test.ts",
+        upstreamPath: "apps/web/src/thing.test.ts",
+        upstreamTitle: "keeps the case",
+        reason: "the fork inverts it",
+        commit: "abc1234",
+        line: 3,
+      },
+    ],
+  });
+  assert.deepStrictEqual(scanFailures(result), []);
+  assert.match(renderScanReport(result), /Retire candidates, 1/);
+  assert.match(renderScanReport(result), /delete the declaration and its sibling case/);
+});
