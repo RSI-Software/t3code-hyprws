@@ -103,9 +103,9 @@ export interface ScanResult {
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
-  // Steps 2-3 (fork:ci steps 2-3): the hook guard (marked insertions only)
-  // and the `replaced-export` / `upstream-test` authoring findings, scoped
-  // by `--since` to the commits one change introduces. Historical range
+  // The hook guard (marked insertions only) and the `replaced-export` /
+  // `upstream-test` authoring findings, two fork:scan stages scoped by
+  // `--since` to the commits one change introduces. Historical range
   // stays advisory.
   readonly warnings: ReadonlyArray<ScanAuthoringWarning>;
   readonly hookDetails: ReadonlyArray<string>;
