@@ -26,6 +26,29 @@ it("flags an unmarked insertion on a marker-capable path", () => {
   assert.match(warnings[0] ?? "", /outside a marked hook/);
 });
 
+it("skips a formatter reflow that moves no token", () => {
+  // `vp fmt` re-wrapping a landed fork line is not new fork logic: the
+  // removed side carries the same tokens in the same order.
+  const path = "apps/web/src/thing.ts";
+  assert.deepStrictEqual(
+    hookGuardWarnings({
+      commit: { short: "abc1234", domain: "project-windows" },
+      files: [path],
+      changedLines: new Map([
+        [
+          path,
+          {
+            added: ["const x = foo(", "  1,", ");"],
+            removed: ["const x = foo(1);"],
+          },
+        ],
+      ]),
+      upstreamFiles: new Set([path]),
+    }),
+    [],
+  );
+});
+
 it("stays silent on package.json, where no marker comment can be written", () => {
   assert.deepStrictEqual(
     hookGuardWarnings({

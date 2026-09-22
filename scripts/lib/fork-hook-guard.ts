@@ -33,6 +33,7 @@ export interface HookGuardCommit {
 
 export interface HookGuardChange {
   readonly added: ReadonlyArray<string>;
+  readonly removed?: ReadonlyArray<string>;
 }
 
 export interface HookGuardInput {
@@ -87,6 +88,10 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     if (!MARKER_CAPABLE_PATH.test(path)) continue;
     const change = input.changedLines.get(path);
     if (change === undefined || change.added.length === 0) continue;
+    // A pure formatter reflow moves no token across the seam: skipping the
+    // file keeps `vp fmt` re-wrapping a landed fork line from reading as
+    // new unmarked logic.
+    if (isFormatterReflow(change.added, change.removed ?? [])) continue;
 
     const addedText = change.added.join("\n");
     const hooks = parseForkHookMarkers(addedText);
