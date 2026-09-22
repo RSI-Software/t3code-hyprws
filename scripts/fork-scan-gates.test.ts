@@ -197,6 +197,53 @@ it("flags an unmarked insertion through the hook guard", () => {
   assert.isTrue(scanFailures(result).some((failure) => failure.startsWith("hook-guard:")));
 });
 
+it("passes a hook-guard restore the target tree already has", () => {
+  // RSI-Software/t3code-hyprws#1207 end to end: the guard input carries the
+  // target-tree lines, so a byte-identical restore stays silent while a
+  // genuine insertion still fails.
+  const raw = [
+    "abc1234",
+    "--- a/apps/web/src/thing.ts",
+    "+++ b/apps/web/src/thing.ts",
+    "@@ -1 +1,2 @@",
+    '+it("replaces the standalone explorer", () => {});',
+    "+export const forkThing = 1;",
+    "",
+  ].join("\n");
+  const restored = 'it("replaces the standalone explorer", () => {});';
+  const guard = {
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.ts"]]]),
+    patchesBySha: parseCommitPatches(raw),
+    upstreamFiles: new Set(["apps/web/src/thing.ts"]),
+    upstreamTestFiles: new Set<string>(),
+    upstreamTestLines: new Map(),
+    upstreamLines: new Map([["apps/web/src/thing.ts", new Set([restored])]]),
+  };
+  const mixed = buildScanResult(baseInput(guard));
+  assert.isTrue(
+    mixed.hookDetails.some((detail) => detail.includes("export const forkThing = 1;")) &&
+      !mixed.hookDetails.some((detail) => detail.includes("replaces the standalone")),
+  );
+  const clean = buildScanResult(
+    baseInput({
+      ...guard,
+      patchesBySha: parseCommitPatches(
+        [
+          "abc1234",
+          "--- a/apps/web/src/thing.ts",
+          "+++ b/apps/web/src/thing.ts",
+          "@@ -1 +1 @@",
+          `+${restored}`,
+          "",
+        ].join("\n"),
+      ),
+    }),
+  );
+  assert.deepStrictEqual(clean.hookDetails, []);
+  assert.isFalse(scanFailures(clean).some((failure) => failure.startsWith("hook-guard:")));
+});
+
 it("reads the sibling name and significant lines", () => {
   assert.equal(forkTestSibling("apps/web/src/thing.test.tsx"), "apps/web/src/thing.fork.test.tsx");
   assert.deepStrictEqual(
