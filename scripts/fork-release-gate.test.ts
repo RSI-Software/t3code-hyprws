@@ -1,15 +1,22 @@
 import { assert, it } from "@effect/vitest";
 
-import { decideReleaseGate, parseReleaseGateOptions, renderGateOutput } from "./fork-release-gate.ts";
+import {
+  decideReleaseGate,
+  parseReleaseGateOptions,
+  renderGateOutput,
+} from "./fork-release-gate.ts";
 
 const sha = (prefix: string): string => `${prefix}${"0".repeat(40 - prefix.length)}`;
 
 it("opens the gate only for the trunk tip with green hyprws CI", () => {
   const tip = sha("abc");
-  assert.deepStrictEqual(decideReleaseGate({ releaseSha: tip, trunkTip: tip, ciConclusion: "success" }), {
-    proceed: true,
-    reason: `release gate open: ${tip.slice(0, 12)} is the hyprws tip with green hyprws CI`,
-  });
+  assert.deepStrictEqual(
+    decideReleaseGate({ releaseSha: tip, trunkTip: tip, ciConclusion: "success" }),
+    {
+      proceed: true,
+      reason: `release gate open: ${tip.slice(0, 12)} is the hyprws tip with green hyprws CI`,
+    },
+  );
 });
 
 it("closes the gate for a green sha that is no longer the trunk tip", () => {

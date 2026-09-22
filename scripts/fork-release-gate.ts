@@ -103,9 +103,7 @@ if (import.meta.main) {
       }
       NodeFS.appendFileSync(outputPath, renderGateOutput(decision));
     } else {
-      process.stdout.write(
-        `${decision.proceed ? "proceed" : "skip"}: ${decision.reason}\n`,
-      );
+      process.stdout.write(`${decision.proceed ? "proceed" : "skip"}: ${decision.reason}\n`);
     }
     if (!decision.proceed) process.stdout.write("missing or red means no cut\n");
   } catch (error) {
