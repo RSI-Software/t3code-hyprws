@@ -118,10 +118,10 @@ it("flags a removed upstream test line even when declarations hold", () => {
   );
 });
 
-it("permits moving a fork-added test line to the sibling, not dropping it", () => {
-  // Base carries an upstream case; since adds a fork case on top. Head
-  // removes the fork case from the upstream-owned file: green only when
-  // the removed lines appear in the `.fork.test.ts` sibling.
+it("lets a fork-added line leave freely but guards upstream lines via the sibling", () => {
+  // Base carries an upstream case; since adds a fork case on top. A line
+  // the fork added itself may leave the upstream-owned file freely; only
+  // an upstream-carried line must MOVE to the `.fork.test.ts` sibling.
   const setup = (): { root: string; base: string; since: string } => {
     const { root, run, write, commit } = fixture();
     write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
@@ -142,7 +142,16 @@ it("permits moving a fork-added test line to the sibling, not dropping it", () =
       NodePath.join(root, "apps/web/src/thing.test.ts"),
       'it("upstream", () => {});\n',
     );
-    commitAll(root, "fork: drop case");
+    commitAll(root, "fork: drop fork case");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("fork", () => {});\n',
+    );
+    commitAll(root, "fork: drop upstream case");
     const findings = checkAdditive(runner, root, { base, since });
     assert.isTrue(
       findings.some((finding) => finding.check === "tests" && /no .* sibling/.test(finding.detail)),
@@ -152,13 +161,13 @@ it("permits moving a fork-added test line to the sibling, not dropping it", () =
     const { root, base, since } = setup();
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.test.ts"),
-      'it("upstream", () => {});\n',
+      'it("fork", () => {});\n',
     );
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
-      'it("fork", () => {});\n',
+      'it("upstream", () => {});\n',
     );
-    commitAll(root, "fork: move case to sibling");
+    commitAll(root, "fork: move upstream case to sibling");
     assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
   }
 });
@@ -239,4 +248,61 @@ it("excuses a named upstream case a live declaration supersedes, and holds an un
     // moved to the sibling: only the declared case is superseded.
     assert.isTrue(findings.some((finding) => finding.check === "tests"));
   }
+});
+
+it("lets a fork-created test leave with its source", () => {
+  const { root, write, commit } = fixture();
+  write("apps/web/src/thing.ts", "export const keep = 1;\n");
+  commit("upstream: base");
+  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write("apps/web/src/feature.ts", "export const feature = 1;\n");
+  write("apps/web/src/feature.test.ts", 'it("fork case", () => {});\n');
+  commit("fork: add feature with test");
+  const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  NodeFS.unlinkSync(NodePath.join(root, "apps/web/src/feature.ts"));
+  NodeFS.unlinkSync(NodePath.join(root, "apps/web/src/feature.test.ts"));
+  commitAll(root, "fork: drop feature");
+  assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+});
+
+it("still refuses deleting an upstream-carried test", () => {
+  const { root, write, commit } = fixture();
+  write("apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
+  commit("upstream: base");
+  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write("apps/web/src/extra.ts", "export const extra = 1;\n");
+  commit("fork: add unrelated file");
+  const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  NodeFS.unlinkSync(NodePath.join(root, "apps/web/src/thing.test.ts"));
+  commitAll(root, "fork: delete upstream test");
+  const findings = checkAdditive(runner, root, { base, since });
+  assert.isTrue(
+    findings.some((finding) => finding.check === "tests" && /missing/.test(finding.detail)),
+  );
+});
+
+it("still flags .skip markers in a fork-created test", () => {
+  const { root, write, commit } = fixture();
+  write("apps/web/src/thing.ts", "export const keep = 1;\n");
+  commit("upstream: base");
+  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write("apps/web/src/feature.test.ts", 'it.skip("fork case", () => {});\n');
+  commit("fork: add skipped test");
+  const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  const findings = checkAdditive(runner, root, { base, since });
+  assert.isTrue(
+    findings.some((finding) => finding.check === "tests" && /\.skip/.test(finding.detail)),
+  );
 });

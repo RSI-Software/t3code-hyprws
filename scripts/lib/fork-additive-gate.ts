@@ -320,14 +320,19 @@ const testFindings = (
     // upstream) may leave freely — moving a legacy fork case into a
     // `.fork.test.ts` sibling must not read as upstream loss. Only an
     // upstream-carried declaration counts.
-    const upstreamCountText =
-      target === upstreamTarget
-        ? upstreamText
-        : (showTree(runner, worktree, upstreamTarget, path) ?? upstreamText);
+    const upstreamBaseText = showTree(runner, worktree, upstreamTarget, path);
+    const forkOwned = target !== upstreamTarget && upstreamBaseText === null;
+    // A null base text IS the fork-created case: trees.base is the upstream
+    // merge base, so every upstream-carried test is in it by construction.
+    // A fork-created file is exempt from the deletion, lost-line, and
+    // shrink checks below — but NOT from the .skip/.todo/.only marker
+    // check, which has no upstream-ownership premise.
+    const upstreamCountText = target === upstreamTarget ? upstreamText : (upstreamBaseText ?? "");
     const upstreamCountModifiers = declarationModifiers(upstreamCountText);
     const upstreamPresent = countPresent(upstreamCountModifiers);
     const headText = showTree(runner, worktree, head, path);
     if (headText === null) {
+      if (forkOwned) continue;
       findings.push({
         check: "tests",
         path,
@@ -337,21 +342,14 @@ const testFindings = (
       });
       continue;
     }
-    // Lost lines are measured against the union of the upstream target
-    // tree and the since tree: a line the fork added itself on top of
-    // since may MOVE to a `.fork.test.ts` sibling, not vanish — a
-    // fork-added line that leaves the upstream-owned file and appears in
-    // no sibling is a finding. Only a line upstream or in since counts
-    // as carried in the first place.
-    const upstreamLines =
-      target === upstreamTarget
-        ? new Set(significantLines(upstreamText))
-        : new Set(significantLines(showTree(runner, worktree, upstreamTarget, path) ?? ""));
-    const sinceLines = new Set(significantLines(showTree(runner, worktree, target, path) ?? ""));
+    // Lost lines are measured against the upstream target tree only: a
+    // line the fork added itself may leave freely, so moving a legacy
+    // fork case into a `.fork.test.ts` sibling is not refused. The old
+    // union with the since tree was dead code — the since tree here IS
+    // `target`, so its line set could never reject anything carried.
+    const upstreamLines = new Set(significantLines(upstreamCountText));
     const headLines = significantLines(headText);
-    const carried = significantLines(upstreamText).filter(
-      (line) => upstreamLines.has(line) || sinceLines.has(line),
-    );
+    const carried = significantLines(upstreamText).filter((line) => upstreamLines.has(line));
     const lost = lostUpstreamLines(carried, headLines);
     const siblingText = showTree(runner, worktree, head, forkTestSibling(path));
     const siblingLines = new Set(significantLines(siblingText ?? ""));
