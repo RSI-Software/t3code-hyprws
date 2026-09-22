@@ -68,7 +68,7 @@ it("fails an untagged tip through the delta check, before the scan", () => {
   }
 });
 
-it("runs delta, scan, and suite in order when every step passes", () => {
+it("runs delta, scan, check, and suite in order when every step passes", () => {
   const { root, head, base } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
@@ -93,8 +93,32 @@ it("runs delta, scan, and suite in order when every step passes", () => {
         `${head}^`,
         "--no-typecheck",
       ],
+      ["vp", "check"],
       ["vp", "run", "--filter", "@t3tools/scripts", "test"],
     ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a misformatted file through vp check, reformatting nothing", () => {
+  // A failing read-only check stops the battery: delta and scan pass
+  // stubbed, the check reports nonzero, and the suite never runs. The
+  // exact check argv below is what proves the Scope close condition: no
+  // --fix and no extra argument, so no file is reformatted.
+  const { root } = untaggedFixture();
+  try {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const step: ForkCiStep = (command, args) => {
+      calls.push([command, ...args]);
+      return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
+    };
+    assert.strictEqual(run([], root, step), 1);
+    const [delta, scan, check] = calls;
+    assert.strictEqual(calls.length, 3);
+    assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(check, ["vp", "check"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
