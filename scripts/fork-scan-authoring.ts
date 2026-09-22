@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// fork job step 5: authoring guards
 // Gate: fork:ci — the authoring guards, computed inside the fork:scan range; a finding fails the scan.
 
 // Authoring guards for `vp run fork:scan`. Each rule names a

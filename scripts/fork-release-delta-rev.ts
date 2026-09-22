@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // @effect-diagnostics nodeBuiltinImport:off - This release helper runs before an Effect runtime exists.
+// fork job step 3: release delta revision
 // Gate: release — resolves the delta revision the release workflow publishes; a throw fails the step and stops the cut.
 
 import * as NodeCrypto from "node:crypto";

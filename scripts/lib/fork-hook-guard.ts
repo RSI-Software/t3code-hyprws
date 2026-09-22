@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
 // Hook guard (a fork:scan stage): for a fork commit touching an
+// fork job steps 2 and 5: hook guard
 // Gate: fork:ci — the hook guard, computed inside the fork:scan range; an unmarked insertion fails the scan.
 // upstream-owned file, added lines must sit inside a marked hook. Marked
 // insertions only — cause (a) of the old four-cause hook-seam rule

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone body check runs before an Effect runtime exists.
+// fork job step 5: PR CI refs gate
 // Gate: pull-request — the Body job runs it against the pull-request body file; a live upstream reference refuses.
 // Refuses fork prose citing an upstream item outside a code span or fence: a
 // live `pingdotgg/t3code#4379` or item URL posts a backlink on the upstream

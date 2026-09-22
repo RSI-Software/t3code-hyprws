@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
+// fork job steps 3 and 5: the CI battery
 // Gate: local — the pre-pull-request battery, run by hand; no workflow invokes it, so it blocks nothing by itself.
 
 // The local pre-pull-request battery: what the fork's pull-request CI runs on
