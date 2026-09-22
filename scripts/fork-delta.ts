@@ -156,9 +156,9 @@ const isForkTier = (value: string | undefined): value is ForkTier =>
 
 /**
  * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
- * design, and the autosquash in `scripts/fork-sync.ts` folds them into their
- * owners immediately after the delta check runs, so the ledger never sees them
- * as permanent stack members and must not demand trailers from them.
+ * design, and the sync rebase autosquashes them into their owners immediately
+ * after the delta check runs, so the ledger never sees them as permanent stack
+ * members and must not demand trailers from them.
  */
 export const dropTransientFixups = (
   commits: ReadonlyArray<ForkCommit>,

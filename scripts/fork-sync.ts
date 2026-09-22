@@ -143,8 +143,8 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
 // Typed report
 // ---------------------------------------------------------------------------
 
-/** How a conflict row resolved. Rerere's autoupdated replays never leave an unmerged path. */
-export const ConflictVia = Schema.Literals(["rerere", "hook", "human"]);
+/** How a conflict row resolved: hook re-apply reinserted it, or a human must. */
+export const ConflictVia = Schema.Literals(["hook", "human"]);
 
 export const ConflictRow = Schema.Struct({
   /** Repo-relative path of the conflicted file. */
