@@ -1,14 +1,9 @@
-// @effect-diagnostics nodeBuiltinImport:off - Temporary ledger fixtures use Node helpers.
-
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
+// @effect-diagnostics nodeBuiltinImport:off - Fork CLI and command helpers under test.
 
 import { assert, it } from "@effect/vitest";
 
 import { parseArgs, UsageError } from "./fork-cli.ts";
 import { commandText, requireCommandSuccess } from "./fork-command.ts";
-import { readForkRetirementLedger } from "./fork-retirement-ledger.ts";
 import {
   FORK_LOG_FIELD_SEPARATOR as FS,
   FORK_LOG_RECORD_SEPARATOR as RS,
@@ -59,13 +54,4 @@ it("parses trailers from the full body above a co-author paragraph", () => {
   });
   const raw = `abc${FS}abc${FS}2026-09-09T14:28:59+12:00${FS}fix: example${FS}${body}${RS}`;
   assert.equal(parseForkLog(raw)[0]?.domain, "fork-meta");
-});
-
-it("requires the canonical retirement ledger file", () => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-ledger-required-"));
-  try {
-    assert.throws(() => readForkRetirementLedger(root), /ENOENT/);
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
 });

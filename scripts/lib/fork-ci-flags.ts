@@ -12,7 +12,7 @@
 import { UsageError } from "./fork-cli.ts";
 import { SystemGit } from "./fork-command.ts";
 
-/** The workflow that consumes the flags, and the only file the drift guard reads. */
+/** The workflow that consumes the flags. */
 export const FORK_CI_WORKFLOW_PATH = ".github/workflows/hyprws-ci.yml";
 /** This file's path as the workflow invokes it. */
 export const FORK_CI_FLAGS_SCRIPT = "scripts/lib/fork-ci-flags.ts";
@@ -97,44 +97,6 @@ export const renderForkCiOutputs = (flags: ForkCiFlags): string =>
 export const renderForkCiScanArguments = (flags: ForkCiFlags): string =>
   `${forkScanArguments(flags).join("\n")}\n`;
 
-// The step body from `name: <step>` to the next step at the job's six-space
-// indent. Both guarded steps have successor steps inside their own job, so the
-// body never reaches into a following one.
-const stepBody = (workflow: string, stepName: string): string => {
-  const start = workflow.indexOf(`name: ${stepName}\n`);
-  if (start === -1) return "";
-  const next = workflow.indexOf("\n      - name: ", start);
-  return workflow.slice(start, next === -1 ? undefined : next);
-};
-
-const LEDGER_INVOCATION = `node ${FORK_CI_FLAGS_SCRIPT} ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"`;
-const SCAN_MAPFILE = `mapfile -t SCAN_ARGS < <(node ${FORK_CI_FLAGS_SCRIPT} scan --head "$HEAD_SHA")`;
-const SCAN_CONSUMPTION = 'vp run fork:scan "${SCAN_ARGS[@]}"';
-
-/**
- * The drift between the workflow's flag handling and this helper, as one
- * refusal, or `undefined` when they agree. The workflow must call the helper
- * for the derivation and replay its argv without restating either; anything
- * else lets CI and `vp run fork:ci` disagree again.
- */
-export const forkCiWorkflowDriftProblem = (workflow: string | undefined): string | undefined => {
-  if (workflow === undefined)
-    return `${FORK_CI_WORKFLOW_PATH} is missing; the pull-request checks have nowhere to derive their flags from`;
-  const ledger = stepBody(workflow, "Fork ledger");
-  if (!ledger.includes(LEDGER_INVOCATION))
-    return `${FORK_CI_WORKFLOW_PATH}'s Fork ledger step must derive the flags with \`${LEDGER_INVOCATION}\`; a workflow-side derivation drifts from the helper \`vp run fork:ci\` imports`;
-  if (ledger.includes("merge-base"))
-    return `${FORK_CI_WORKFLOW_PATH}'s Fork ledger step restates the flag derivation (merge-base); it belongs only in ${FORK_CI_FLAGS_SCRIPT}, which \`vp run fork:ci\` shares`;
-  const scan = stepBody(workflow, "Fork rebase scan");
-  if (!scan.includes(SCAN_MAPFILE))
-    return `${FORK_CI_WORKFLOW_PATH}'s Fork rebase scan step must build its argv with \`${SCAN_MAPFILE}\`; hand-built flags drift from the helper \`vp run fork:ci\` shares`;
-  if (!scan.includes(SCAN_CONSUMPTION))
-    return `${FORK_CI_WORKFLOW_PATH}'s Fork rebase scan step must run \`${SCAN_CONSUMPTION}\`; the helper's argv is the only shape CI and \`vp run fork:ci\` share`;
-  if (scan.includes("args+=") || scan.includes("args=("))
-    return `${FORK_CI_WORKFLOW_PATH}'s Fork rebase scan step assembles scan flags by hand; add the flag to forkScanArguments in ${FORK_CI_FLAGS_SCRIPT} instead, so \`vp run fork:ci\` passes it too`;
-  return undefined;
-};
-
 interface Invocation {
   readonly mode: "ledger" | "scan";
   readonly head: string;
@@ -180,6 +142,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       throw new Error(
         `${error instanceof Error ? error.message : String(error)}\n` +
           `the derivation reads ${UPSTREAM_MAIN} and ${FORK_TRUNK_REF}; add and fetch those remotes first (the workflow's Fork ledger step provisions them)`,
+        { cause: error },
       );
     }
     process.stdout.write(

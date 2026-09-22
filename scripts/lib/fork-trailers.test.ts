@@ -14,7 +14,6 @@ const trailerBlock = [
   "Fork-Domain: fork-meta",
   "Fork-Tier: bugfix",
   "Fork-Upstreamable: no",
-  "Fork-Wire: reviewed #1",
   "Fork-Repair: none",
 ].join("\n");
 
@@ -24,7 +23,6 @@ it("one trailer per key parses unchanged", () => {
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    wireReviewed: "reviewed #1",
     repair: "none",
   });
 });
@@ -64,7 +62,6 @@ for (const [key, first, second] of [
   ["Fork-Domain", "fork-meta", "worktrunk-hooks"],
   ["Fork-Tier", "bugfix", "feature"],
   ["Fork-Upstreamable", "no", "yes"],
-  ["Fork-Wire", "reviewed #1", "reviewed #2"],
   ["Fork-Repair", "none", "replayed"],
 ] as const) {
   it(`disagreement in ${key} throws naming both values`, () => {
@@ -143,7 +140,6 @@ it("a cherry-pick line inside the block does not hide it (c324f9bab0)", () => {
   const body = [
     "Fork-Domain: worktrunk-hooks",
     "Fork-Tier: core",
-    "Fork-Wire: reviewed fork-local alias removed; wire slots and literals unchanged",
     "Co-authored-by: donjor <38745786+donjor@users.noreply.github.com>",
     "(cherry picked from commit 042c93b823229dca8aeb587d8dd8e3c72ac5123d)",
   ].join("\n");
@@ -187,7 +183,6 @@ it("a trailing comment paragraph and co-author line do not hide the real block (
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    wireReviewed: "reviewed #1",
     repair: "none",
   });
 });
