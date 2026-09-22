@@ -30,7 +30,6 @@ import * as NodePath from "node:path";
 
 import * as Schema from "effect/Schema";
 
-import { publishRerereSnapshot, restoreRerereCache, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
   commandText,
@@ -1019,7 +1018,6 @@ export const renderReport = (report: ForkSyncReport): string => {
     `Run: ${head}${report.dryRun ? " (dry run)" : ""} — ${report.target.tag}@${report.target.sha.slice(0, 7)}`,
     `Trunk: ${report.trunk.before.slice(0, 7)} → ${report.trunk.after === null ? "unchanged" : report.trunk.after.slice(0, 7)}`,
     `Lease: origin/${HYPRWS_BRANCH} at ${report.lease.expectedOld.slice(0, 7)}`,
-    `Rerere: ${report.rerere.restored ? "restored" : "cold"}, ${report.rerere.saved ? "saved" : "nothing saved"}${report.rerere.published ? ", published" : ""}`,
     `Report: ${SYNC_DIR}/${report.target.tag}.json`,
   ];
   const blocks =
@@ -1222,30 +1220,12 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // rebase
     step = "rebase";
-    const restored = restoreRerereCache(root);
-    const rerere = { restored, saved: false, published: false };
+    // No shared cache: the runner is ephemeral, so nothing published could replay
+    // on the next run. Local rerere still replays within this rebase.
+    const rerere = { restored: false, saved: false, published: false };
     const rebase = rebaseOnto(runner, root, target, expectedOld);
 
-    const teachRerere = (): void => {
-      // Every run teaches rerere something, applied or stopped; publication is a
-      // push, so a dry run keeps the snapshot local. A refused publication never
-      // fails the run — the snapshot is retained for the next one.
-      const snapshot = saveRerereCache(root, `rerere: ${HYPRWS_BRANCH} onto ${target.tag}`);
-      if (snapshot === null) return;
-      rerere.saved = true;
-      if (dryRun) return;
-      try {
-        publishRerereSnapshot(root, snapshot);
-        rerere.published = true;
-      } catch (error) {
-        process.stderr.write(
-          `note: rerere publication failed; the snapshot is retained locally: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      }
-    };
-
     if (rebase.status === "blocked") {
-      teachRerere();
       const humanPaths = rebase.conflicts
         .filter((row) => row.via === "human")
         .map((row) => row.path);
@@ -1295,7 +1275,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     step = "check";
     const checks = runChecks(runner, root, worktreePath(root));
     if (checks.some((check) => check.status === "failed")) {
-      teachRerere();
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
       return fail({
         rerere: { ...rerere },
@@ -1308,7 +1287,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     // push — the documented expected-old lease; a dry run reaches applied without it
     step = "push";
     if (dryRun) {
-      teachRerere();
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
       return finish(
         frame({
@@ -1328,7 +1306,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       `--force-with-lease=${HYPRWS_BRANCH}:${expectedOld}`,
     ]);
     const pushRefused = pushed.status !== 0 || pushed.error !== undefined;
-    teachRerere();
     gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
     if (pushRefused)
       return fail({

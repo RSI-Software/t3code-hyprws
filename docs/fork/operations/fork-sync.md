@@ -61,7 +61,7 @@ Conflict resolution is machine-owned, in this order.
 
 | #   | Rule                                                                                                                 |
 | --- | -------------------------------------------------------------------------------------------------------------------- |
-| 1   | Rerere replays shared resolutions and stages them                                                                    |
+| 1   | Local rerere replays resolutions within the run's rebase and stages them                                             |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text |
 | 3   | Anything left is a `human` row and stops the run                                                                     |
 
@@ -94,7 +94,7 @@ Never post a block to `pingdotgg/t3code`, and never use `gh` to route around a `
 5. `git rebase --continue`.
 6. Rerun `vp run fork:sync <tag>`.
 
-Rerere replays the recorded resolution and the run completes.
+Rerere replays the recorded resolution within the rerun's rebase and the run completes.
 
 ## Failure lifecycle
 
@@ -107,17 +107,6 @@ A run that fails on a non-blocked step — target, fetch, rebase, check, push, o
 | Filed once | Per key, including after a manual close                                                                                                                          |
 | Rerun      | The same failure updates the issue; a dry run reports and never files                                                                                            |
 | Close      | A clean run (applied or already-applied) closes it in the claim → comment → close pass that closes block issues; a refusal lands in the report and fails the run |
-
-## Bot-owned refs
-
-Never create, move, delete, or force-push these by hand:
-
-| Ref                | Meaning                |
-| ------------------ | ---------------------- |
-| `refs/fork/rerere` | Shared `.git/rr-cache` |
-
-The driver restores the cache before each rebase and publishes what the run taught, under expected-old leases.
-A refused publication never fails the run; the snapshot is retained locally.
 
 ## Regenerable files
 
@@ -212,15 +201,14 @@ T3 Connect stays dark unless all four repository variables exist:
 
 ## Failure handling
 
-| Failure                        | Response                                                         |
-| ------------------------------ | ---------------------------------------------------------------- |
-| **Mirror fails**               | Recreate the token. Someone wrote `main`; never force            |
-| **Trunk lease rejected**       | Inspect and rerun; never swap in `--force`                       |
-| **A blocked issue remains**    | Unblock by hand. Retirement needs a traced decision              |
-| **A failure issue remains**    | Inspect the report, fix, and rerun; the next clean run closes it |
-| **Check battery red**          | Fix by pull request; never weaken a check                        |
-| **Rerere publication refused** | Inspect; the snapshot is retained for the next run               |
-| **Stable release fails**       | Fix and rerun. Never move a published tag                        |
+| Failure                     | Response                                                         |
+| --------------------------- | ---------------------------------------------------------------- |
+| **Mirror fails**            | Recreate the token. Someone wrote `main`; never force            |
+| **Trunk lease rejected**    | Inspect and rerun; never swap in `--force`                       |
+| **A blocked issue remains** | Unblock by hand. Retirement needs a traced decision              |
+| **A failure issue remains** | Inspect the report, fix, and rerun; the next clean run closes it |
+| **Check battery red**       | Fix by pull request; never weaken a check                        |
+| **Stable release fails**    | Fix and rerun. Never move a published tag                        |
 
 ## Version ordering caveat
 
