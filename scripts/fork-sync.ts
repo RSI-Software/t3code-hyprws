@@ -414,12 +414,48 @@ export type RebaseOutcome =
     }
   | { readonly status: "blocked"; readonly conflicts: ReadonlyArray<ConflictRow> };
 
+/** The subject prefix marking a fork landing that amends the commit it names. */
+export const FIXUP_PREFIX = "fixup! ";
+
+/** Subjects of the fork commits above `target` that a `fixup!` commit may name. */
+export const forkSubjects = (
+  runner: CommandRunner,
+  root: string,
+  target: ReleaseTag,
+  oldSha: string,
+): ReadonlyArray<string> =>
+  lines(git(runner, root, ["log", "--format=%s", `${target.sha}..${oldSha}`]));
+
 /**
- * Rebase `oldSha` onto `target` in a detached worktree. Known seams resolve by
- * themselves: rerere autoupdate stages them, and hook re-apply re-inserts the
- * marked fork hooks a conflicted file declares. Any path left standing after
- * both stops the run; its rows name the fork commit, the upstream commit, and
- * the worktree a human resumes in.
+ * The `fixup!` commits whose named subject is absent from, or named more than
+ * once by, the fork stack above `target`. Either shape refuses before the
+ * rebase starts: an orphan would silently become a regular commit, and an
+ * ambiguous name could fold into the wrong commit.
+ */
+export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const owners = subjects.filter((subject) => !subject.startsWith(FIXUP_PREFIX));
+  const counts = new Map<string, number>();
+  for (const owner of owners) counts.set(owner, (counts.get(owner) ?? 0) + 1);
+  return subjects
+    .filter((subject) => subject.startsWith(FIXUP_PREFIX))
+    .flatMap((subject) => {
+      const named = subject.slice(FIXUP_PREFIX.length);
+      const count = counts.get(named) ?? 0;
+      if (count === 0) return [`fixup "${subject}" names no fork commit above the target`];
+      if (count > 1) return [`fixup "${subject}" names ${count} fork commits above the target`];
+      return [];
+    });
+};
+
+/**
+ * Rebase `oldSha` onto `target` in a detached worktree. A fork landing that
+ * amends a fork commit is titled `fixup! <subject>`; the rebase runs
+ * interactive with `--autosquash` and a no-op sequence editor, so the fixup
+ * folds into the commit it names and the series never carries fix-of-fix
+ * (RSI-Software/t3code-hyprws#1179). Hook re-apply re-inserts the marked fork
+ * hooks a conflicted file declares. Any path left standing after the fold
+ * stops the run; its rows name the fork commit, the upstream commit, and the
+ * worktree a human resumes in.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
@@ -431,13 +467,18 @@ export const rebaseOnto = (
   gitAllow(runner, root, ["worktree", "remove", "--force", worktree]);
   git(runner, root, ["worktree", "prune"]);
   git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
-  const editorEnv = { ...process.env, GIT_EDITOR: "true" };
-  const rebaseArgs = ["rebase", "--rerere-autoupdate", target.sha];
+  const refusals = fixupRefusals(forkSubjects(runner, root, target, oldSha));
+  if (refusals.length > 0) throw new Error(refusals.join("; "));
+  const editorEnv = { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" };
+  const rebaseArgs = ["rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha];
   const conflicts: ConflictRow[] = [];
   const forkCommitCount = Number(
     git(runner, root, ["rev-list", "--count", `${target.sha}..${oldSha}`]),
   );
-  let status = gitResult(runner, worktree, [...REBASE_CONFIG, ...rebaseArgs]);
+  let status = runner.run("git", [...REBASE_CONFIG, ...rebaseArgs], {
+    cwd: worktree,
+    env: editorEnv,
+  });
   let stops = 0;
   while (status.status !== 0) {
     stops += 1;

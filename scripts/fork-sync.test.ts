@@ -12,8 +12,10 @@ import {
   closeBlocks,
   failureIssueBody,
   failureMarker,
+  fixupRefusals,
   publishBlock,
   publishFailure,
+  rebaseOnto,
   readReport,
   renderReport,
   reportPath,
@@ -1078,5 +1080,159 @@ it("an already-applied run fails and records the refusal when the block close is
     ]);
     assert.match(report.error ?? "", /closing stale block issues failed/);
     assert.match(applied.output, /- ❌ block #1164 close refused/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fold at sync: fixup! landings autosquash onto the tag (RSI-Software/t3code-hyprws#1179)
+// ---------------------------------------------------------------------------
+
+/** A fork stack carrying one owner plus its fixup; the sync must fold the pair. */
+const foldFixture = (): Fixture => {
+  const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-fold-"));
+  const git = (args: ReadonlyArray<string>, cwd = base): string => {
+    const result = runCommand("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 });
+    if (result.status !== 0)
+      throw new Error(`git ${args.join(" ")} in ${cwd}: ${result.stderr.trim() || "failed"}`);
+    return result.stdout.trim();
+  };
+  const configure = (cwd: string): void => {
+    git(["config", "user.email", "fork@example.invalid"], cwd);
+    git(["config", "user.name", "fork"], cwd);
+    // The authoring workstation carries a global commit-msg hook that bans agent
+    // attribution; fixtures commit with fork trailers, so they opt out locally
+    // without touching the operator's global config.
+    git(["config", "core.hooksPath", "/dev/null"], cwd);
+  };
+  const upstream = NodePath.join(base, "upstream.git");
+  const origin = NodePath.join(base, "origin.git");
+  const repo = NodePath.join(base, "repo");
+  git(["init", "--quiet", "--bare", "--initial-branch", "main", upstream]);
+  git(["init", "--quiet", "--bare", "--initial-branch", "main", origin]);
+  git(["init", "--quiet", "--initial-branch", "main", repo]);
+  configure(repo);
+  NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3\n");
+  git(["add", "."], repo);
+  git(["commit", "--quiet", "-m", "base"], repo);
+  git(["remote", "add", "origin", origin], repo);
+  git(["remote", "add", "upstream", upstream], repo);
+  git(["push", "--quiet", "origin", "main"], repo);
+  git(["push", "--quiet", "upstream", "main"], repo);
+  git(["checkout", "--quiet", "-b", "hyprws", "main"], repo);
+  NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "fork line1\nline2\nline3\n");
+  git(["add", "shared.txt"], repo);
+  git(
+    [
+      "commit",
+      "--quiet",
+      "-m",
+      "feat(fork): owned change\n\nFork-Domain: fork-meta\nFork-Tier: core\nCo-authored-by: fork <fork@example.invalid>",
+    ],
+    repo,
+  );
+  NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "fork line1 fixed\nline2\nline3\n");
+  git(["add", "shared.txt"], repo);
+  git(["commit", "--quiet", "-m", "fixup! feat(fork): owned change"], repo);
+  git(["push", "--quiet", "origin", "hyprws"], repo);
+  git(["checkout", "--quiet", "main"], repo);
+  NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3 upstream\n");
+  git(["commit", "--quiet", "-am", "upstream change"], repo);
+  git(["tag", "v1.0.0"], repo);
+  git(["push", "--quiet", "upstream", "main", "v1.0.0"], repo);
+  git(["checkout", "--quiet", "hyprws"], repo);
+  return {
+    root: repo,
+    worktree: NodePath.join(repo, ".t3", "fork-sync", "worktree"),
+    git,
+  };
+};
+
+const withFoldFixture = (effect: (fixture: Fixture) => void): void => {
+  const f = foldFixture();
+  try {
+    effect(f);
+  } finally {
+    NodeFS.rmSync(NodePath.dirname(f.root), { recursive: true, force: true });
+  }
+};
+
+it("refuses a fixup whose subject names no fork commit above the target", () => {
+  assert.deepStrictEqual(
+    fixupRefusals(["feat(fork): owned change", "fixup! feat(fork): missing change"]),
+    ['fixup "fixup! feat(fork): missing change" names no fork commit above the target'],
+  );
+});
+
+it("refuses a fixup whose subject names more than one fork commit above the target", () => {
+  assert.deepStrictEqual(
+    fixupRefusals([
+      "feat(fork): twice owned",
+      "feat(fork): twice owned",
+      "fixup! feat(fork): twice owned",
+    ]),
+    ['fixup "fixup! feat(fork): twice owned" names 2 fork commits above the target'],
+  );
+});
+
+it("starts the sync rebase interactive with autosquash and no-op editors", () => {
+  withFoldFixture((f) => {
+    const seen: Array<{
+      readonly args: ReadonlyArray<string>;
+      readonly env: NodeJS.ProcessEnv | undefined;
+    }> = [];
+    const target = { tag: "v1.0.0", sha: f.git(["rev-parse", "v1.0.0"], f.root) };
+    const oldSha = f.git(["rev-parse", "hyprws"], f.root);
+    const runner: CommandRunner = {
+      run: (command, args, spec) => {
+        if (command === "git" && args.includes("rebase"))
+          seen.push({ args: [...args], env: spec.env });
+        return runCommand(command, args, {
+          cwd: spec.cwd,
+          ...(spec.env === undefined ? {} : { env: spec.env }),
+          ...(spec.stream === undefined ? {} : { stream: spec.stream }),
+        });
+      },
+    };
+    const outcome = rebaseOnto(runner, f.root, target, oldSha);
+    assert.strictEqual(outcome.status, "applied");
+    const initial = seen[0];
+    assert.notStrictEqual(initial, undefined);
+    assert.ok(initial!.args.includes("-i"));
+    assert.ok(initial!.args.includes("--autosquash"));
+    assert.strictEqual(initial!.env?.GIT_EDITOR, "true");
+    assert.strictEqual(initial!.env?.GIT_SEQUENCE_EDITOR, "true");
+  });
+});
+
+it("folds the fixup into its owner so the applied series never carries fix-of-fix", () => {
+  withFoldFixture((f) => {
+    const fold = (): void => {
+      const result = runCommand("git", ["rebase", "-i", "--autosquash", "v1.0.0"], {
+        cwd: f.root,
+        env: { ...process.env, GIT_SEQUENCE_EDITOR: "true" },
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (result.status !== 0)
+        throw new Error(`git rebase -i --autosquash in ${f.root}: ${result.stderr.trim()}`);
+    };
+    fold();
+    const subjects = f
+      .git(["log", "--format=%s", "v1.0.0..HEAD"], f.root)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    assert.deepStrictEqual(subjects, ["feat(fork): owned change"]);
+    const folded = f.git(["rev-parse", "HEAD^{tree}"], f.root);
+    // Rehearsal: folding the same base a second time reaches the same tree.
+    f.git(["checkout", "--quiet", "hyprws@{1}"], f.root);
+    fold();
+    assert.strictEqual(f.git(["rev-parse", "HEAD^{tree}"], f.root), folded);
+    // Trailers survive the fold as exactly one contiguous trailer block.
+    const body = f.git(["log", "-1", "--format=%B", "HEAD"], f.root);
+    const trailers = f.git(["log", "-1", "--format=%(trailers)", "HEAD"], f.root);
+    assert.match(trailers, /Fork-Domain: fork-meta/);
+    assert.match(trailers, /Fork-Tier: core/);
+    assert.match(trailers, /Co-authored-by: fork <fork@example\.invalid>/);
+    assert.strictEqual(body.trimEnd().endsWith(trailers.trimEnd()), true);
   });
 });
