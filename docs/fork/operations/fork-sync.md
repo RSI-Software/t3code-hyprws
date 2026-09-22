@@ -25,6 +25,19 @@ A tag the fork already sits on reports `already applied` — after closing the b
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
 Every push triggers `hyprws-release.yml`, so an applied run cuts the nightly by itself.
 
+## Local trunk
+
+A run publishes the rebased stack by force push to `origin/hyprws` under a lease; local clones see the rewrite only after `git fetch origin hyprws`.
+The local `hyprws` cannot follow a rewrite: `git pull --ff-only` refuses and leaves the stale branch in place.
+Reset it in the canonical checkout, then rerun whatever refused:
+
+```bash
+git fetch origin hyprws
+git reset --hard origin/hyprws
+```
+
+Worktree setup refuses a branch cut from the stale history.
+
 ## The report
 
 The typed report is the only run authority; the Markdown a run prints is output and never read back.

@@ -271,7 +271,8 @@ Directory switching needs the shell integration, which an agent shell does not h
 PR=<pr-number>
 TRIAL_BRANCH="upstream-trial-$PR"
 
-wt switch --create "$TRIAL_BRANCH" --base hyprws --no-cd
+git fetch origin hyprws
+wt switch --create "$TRIAL_BRANCH" --base origin/hyprws --no-cd
 
 TRIAL_PATH=$(wt list --format=json |
   jq -r --arg b "$TRIAL_BRANCH" '.items[] | select(.branch == $b) | .worktree.path')
@@ -282,7 +283,7 @@ cd "$TRIAL_PATH"
   { echo "not on the trial branch; refusing to check out a pull request"; exit 1; }
 
 gh pr checkout "$PR" --repo pingdotgg/t3code --branch "$TRIAL_BRANCH" --force
-git rebase hyprws
+git rebase origin/hyprws
 ```
 
 `--force` is what lets the checkout reset the branch Worktrunk just created; without it `gh` refuses an existing branch.
