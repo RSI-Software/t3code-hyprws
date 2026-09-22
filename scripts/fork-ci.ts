@@ -2,12 +2,15 @@
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
 
 // The local pre-pull-request battery: what the fork's pull-request CI runs on
-// a branch, in one command. The rebase scan consumes the exact flags CI pins,
-// derived by scripts/lib/fork-ci-flags.ts — the same helper the workflow calls
-// — and the scripts workspace suite runs whole, the way the Test Scripts job
+// a branch, in one command. The delta trailer check runs first with the same
+// flags the workflow's Fork ledger step uses (`--check --head <head>`), the
+// rebase scan consumes the exact flags CI pins, derived by
+// scripts/lib/fork-ci-flags.ts — the same helper the workflow calls — and
+// the scripts workspace suite runs whole, the way the Test Scripts job
 // does, so a local green run cannot be greener than CI
 // (RSI-Software/t3code-hyprws#1148). Scope: the hyprws-ci.yml pull-request
-// jobs; the release and sync workflows gate elsewhere.
+// jobs; the Body job's squash-body check needs the pull-request body
+// artifact and gates separately, as do the release and sync workflows.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
@@ -17,20 +20,33 @@ const HELP = `Usage: vp run fork:ci
 Runs what the fork's pull-request CI jobs run, in CI's own shape:
 
   1. the ledger flags, derived by scripts/lib/fork-ci-flags.ts
-  2. vp run fork:scan with exactly those flags (--no-typecheck included),
+  2. vp run fork:delta --check --head <head>, the same form the workflow's
+     Fork ledger step runs (scripts/fork-delta.ts)
+  3. vp run fork:scan with exactly those flags (--no-typecheck included),
      which carries step 1 (the additive gate: files, migrations, tests
      intact, scripts/lib/fork-additive-gate.ts), the hook guard (marked
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  3. the whole @t3tools/scripts test suite
+  4. the whole @t3tools/scripts test suite
 
-Stops at the first failing step. Never runs the release or sync workflows.
+Stops at the first failing step. Never runs the Body job's squash-body
+check, nor the release or sync workflows.
 `;
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
 
-export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number => {
+/** One fork:ci step: the command, its argv, and the repo root to run it in. */
+export type ForkCiStep = (command: string, args: ReadonlyArray<string>, cwd: string) => number;
+
+const systemStep: ForkCiStep = (command, args, cwd) =>
+  runCommand(command, args, { cwd, stream: true }).status;
+
+export const run = (
+  argv: ReadonlyArray<string>,
+  cwd = process.cwd(),
+  step: ForkCiStep = systemStep,
+): number => {
   if (argv.some((argument) => argument === "-h" || argument === "--help")) {
     process.stdout.write(HELP);
     return 0;
@@ -55,25 +71,27 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     }\n`,
   );
 
-  const scan = runCommand("vp", ["run", "fork:scan", ...forkScanArguments(flags)], {
-    cwd: root,
-    stream: true,
-  });
-  if (scan.status !== 0) {
+  const delta = step("vp", ["run", "fork:delta", "--check", "--head", flags.head], root);
+  if (delta !== 0) {
+    process.stderr.write("fork:ci: delta trailer check failed; fix above before pushing\n");
+    return 1;
+  }
+
+  const scan = step("vp", ["run", "fork:scan", ...forkScanArguments(flags)], root);
+  if (scan !== 0) {
     process.stderr.write("fork:ci: rebase scan failed; fix above before pushing\n");
     return 1;
   }
 
-  const suite = runCommand("vp", ["run", "--filter", "@t3tools/scripts", "test"], {
-    cwd: root,
-    stream: true,
-  });
-  if (suite.status !== 0) {
+  const suite = step("vp", ["run", "--filter", "@t3tools/scripts", "test"], root);
+  if (suite !== 0) {
     process.stderr.write("fork:ci: scripts suite failed; fix above before pushing\n");
     return 1;
   }
 
-  process.stdout.write("fork:ci: ok; the pull-request checks are green on this head\n");
+  process.stdout.write(
+    "fork:ci: ok; the delta check, rebase scan, and scripts suite are green on this head\n",
+  );
   return 0;
 };
 
