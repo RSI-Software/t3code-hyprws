@@ -6,12 +6,12 @@ import {
   type GitHubLinkOpenMode,
 } from "@t3tools/contracts/settings";
 
+import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import {
-  useClientSettings,
-  usePrimarySettings,
-  useUpdateClientSettings,
-  useUpdatePrimarySettings,
-} from "../../hooks/useSettings";
+  useScopedSettings,
+  useScopedSettingsMixed,
+  useUpdateScopedSettings,
+} from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
@@ -30,14 +30,15 @@ const GITHUB_LINK_DESTINATION_LABELS: Record<GitHubLinkOpenMode, string> = {
 };
 
 export function GitHubIssueSettingsSection() {
-  const template = usePrimarySettings((settings) => settings.githubIssueHandoffPromptTemplate);
-  const updateSettings = useUpdatePrimarySettings();
+  const template = useScopedSettings((settings) => settings.githubIssueHandoffPromptTemplate);
+  const templateMixed = useScopedSettingsMixed(["githubIssueHandoffPromptTemplate"]);
+  const updateSettings = useUpdateScopedSettings();
   const githubLinkOpenMode = useClientSettings((settings) => settings.githubLinkOpenMode);
   const githubChangeRequestOpenMode = useClientSettings(
     (settings) => settings.githubChangeRequestOpenMode,
   );
   const updateClientSettings = useUpdateClientSettings();
-  const isDirty = template !== DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE;
+  const isDirty = templateMixed || template !== DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE;
 
   return (
     <SettingsSection title="GitHub links">
@@ -123,6 +124,8 @@ export function GitHubIssueSettingsSection() {
       />
       <SettingsRow
         serverScoped
+        settingKeys={["githubIssueHandoffPromptTemplate"]}
+        mixed={templateMixed}
         {...GITHUB_ISSUE_HANDOFF_SEARCH_ANCHOR}
         description="Controls the unsent text placed in a new thread by Work on this issue."
         resetAction={
@@ -142,6 +145,7 @@ export function GitHubIssueSettingsSection() {
           <Textarea
             key={template}
             defaultValue={template}
+            placeholder={templateMixed ? "Mixed across selected environments" : undefined}
             onBlur={(event) => {
               const nextTemplate =
                 event.target.value.trim() || DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE;
