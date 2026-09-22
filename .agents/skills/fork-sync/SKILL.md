@@ -37,6 +37,47 @@ Post-push recovery reads this file, never a comment.
 
 Never edit a report; a rerun supersedes it.
 
+## Stops
+
+| Report                          | Stop                            |
+| ------------------------------- | ------------------------------- |
+| `failed` at `fetch` or `target` | [Environment](#environment)     |
+| `blocked` with `human` rows     | [Conflict](#conflict)           |
+| `failed` at `check`             | [Check battery](#check-battery) |
+| `failed` at `push`              | [Lease refusal](#lease-refusal) |
+
+### Environment
+
+The run never rebased; the stack is untouched.
+
+- **Fix**: the remote or the tag
+- **Rerun**: the same command
+
+### Conflict
+
+A seam neither rerere nor hook re-apply resolves.
+Resolve each seam by verdict, then follow Unblock.
+
+| Verdict | Seam                                                        |
+| ------- | ----------------------------------------------------------- |
+| Keep    | Only upstream moved; upstream stands, hook returns verbatim |
+| Reshape | Fork side moved too; narrow the seam, land `fixup!`         |
+| Retire  | Upstream owns it now; traced verdict, drop at rebase        |
+
+### Check battery
+
+The battery is red.
+
+- **Fix**: by pull request
+- **Never**: weaken a check
+
+### Lease refusal
+
+The expected-old lease lost; someone landed first.
+
+- **Inspect**: the trunk
+- **Rerun**: never `--force`
+
 ## Unblock
 
 The driver resolves every seam it can: rerere replays the shared cache, and hook re-apply re-inserts marked fork hooks.
