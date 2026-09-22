@@ -1,6 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 import {
   migratePersistedRightPanelState,
   selectActiveRightPanelSurface,
@@ -18,6 +19,39 @@ beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });
 describe("rightPanelStore", () => {
+  // Fork divergence (RSI-Software/t3code-hyprws#1204): the fork keeps the explorer beside
+  // open files while upstream replaces it (commit `cb6fe69b6d`), and widens the Agents
+  // surface with drill-down state while upstream asserts the plain shape (commit
+  // `b14ef0ccce`). Each declaration names the inverted upstream case beside the fork's
+  // replacement so the divergence is machine-readable.
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > replaces the standalone explorer with peer file surfaces",
+    reason:
+      "the fork keeps the standalone explorer beside peer file surfaces while upstream replaces it",
+    commit: "cb6fe69b6d",
+  });
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > reopening an inactive singleton activates its existing surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > removes persisted file surfaces when their workspace no longer exists",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > close hides the panel without clearing its selected surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
   it("upgrades saved Agents surfaces with neutral drill-down state", () => {
     expect(
       migratePersistedRightPanelState({
