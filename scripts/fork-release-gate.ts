@@ -3,6 +3,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - This release helper runs before an Effect runtime exists.
 
 // The release gate: a cut happens only for what the lease push landed, proven
+// Gate: release — the hyprws-release.yml cut; refuses unless the sha is the tip with a green hyprws CI conclusion.
 // green. The release sha must be the current tip of origin/hyprws (so it is
 // what the lease push moved the trunk to) AND that sha must carry a green
 // `hyprws CI` conclusion. A green sha that is no longer the tip, or a tip

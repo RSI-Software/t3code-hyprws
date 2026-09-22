@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
+// Gate: pull-request — the Fork ledger step of the hyprws-ci Check job and the release workflow's Fork ledger step; --check refuses untagged or retired-but-present commits.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
 // See docs/fork/internals/fork-delta.md for the conventions it enforces.

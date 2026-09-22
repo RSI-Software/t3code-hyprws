@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Gate: release — resolves the release version the release workflow publishes; usage errors fail the step and stop the cut.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";

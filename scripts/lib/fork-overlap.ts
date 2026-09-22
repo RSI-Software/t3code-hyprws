@@ -1,4 +1,5 @@
 // The overlap definition that `fork:scan` and `fork:delta --inventory` share: a
+// Gate: none — pure overlap predicate; read by fork:scan (fork:ci) and fork:delta --inventory.
 // file overlaps when the fork changed it above its upstream base and upstream
 // also changed it on the way to the comparison target. Both sides are net diffs
 // against the shared base, so a file an intermediate fork commit touched and a

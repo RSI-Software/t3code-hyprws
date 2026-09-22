@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
+// Gate: local — the pre-pull-request battery, run by hand; no workflow invokes it, so it blocks nothing by itself.
 
 // The local pre-pull-request battery: what the fork's pull-request CI runs on
 // a branch, in one command. The delta trailer check runs first with the same

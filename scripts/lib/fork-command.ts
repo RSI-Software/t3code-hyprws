@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// Gate: none — synchronous child-process runner every fork script shares; gates nothing itself.
 
 import * as NodeChildProcess from "node:child_process";
 
