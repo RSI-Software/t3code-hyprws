@@ -1,5 +1,6 @@
 // The re-apply stage the sync walk runs on every unmerged path left after rerere
 // autoupdate stages what it can (RSI-Software/t3code-hyprws#953):
+// fork job steps 2 and 5: hook re-apply
 // Gate: sync tip — re-inserts fully marked hooks during the sync rebase; anything else refuses and stops the run.
 // when upstream rewrote a file a fork commit also touched, the marked hook lines are re-inserted
 // from the manifest instead of handing the seam to a human.

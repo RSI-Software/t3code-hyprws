@@ -56,18 +56,7 @@ At parity, plain browser windows or a small Electron shell suffice, which retire
 
 A `bugfix` upstream reproduces is a retire candidate: wait for upstream's fix, then drop the commit at the next rebase.
 Every signalled commit gets one retirement outcome during the rebase.
-
-`scripts/fork-retirement-ledger.json` holds both arrays.
-
-| Outcome     | Where it lands                                 |
-| ----------- | ---------------------------------------------- |
-| **Retire**  | A `retired` row; the subject leaves the stack  |
-| **Keep**    | A `kept` row with the behaviour upstream lacks |
-| **Partial** | Both arrays: replacement cell and keep reason  |
-
-A subject in both arrays is a partial decision and stays in the active ledger.
-A retired-only subject still present reads as `retired but present` in `fork:delta --check` until the rebase drops it.
-Upstream references in either array are code-spanned records, never live links.
+A retirement is recorded by the retire commit itself, not a ledger.
 
 ## Trailers
 
@@ -425,7 +414,7 @@ Retired with the fork.
 
 | Item                                              | Role                                                             |
 | ------------------------------------------------- | ---------------------------------------------------------------- |
-| `.github/workflows/hyprws-ci.yml`                 | Checks, tests, ledger, citation guard, desktop build             |
+| `.github/workflows/hyprws-ci.yml`                 | Checks, tests, trailer check, citation guard, desktop build      |
 | `.github/workflows/hyprws-release.yml`            | Human-cut stable releases plus a prerelease per `hyprws` landing |
 | `scripts/fork-release-version.ts`                 | Resolves channel metadata and the previous tag in that channel   |
 | `scripts/build-desktop-artifact.ts`               | Derives the update feed from `GITHUB_REPOSITORY`                 |
