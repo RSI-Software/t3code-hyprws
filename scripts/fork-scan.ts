@@ -24,7 +24,11 @@ import {
   type ScanAuthoringWarning,
 } from "./fork-scan-authoring.ts";
 import { UsageError } from "./lib/fork-cli.ts";
-import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
+import {
+  hookGuardWarnings,
+  GENERATED_HOOK_PATH,
+  MARKER_CAPABLE_PATH,
+} from "./lib/fork-hook-guard.ts";
 import {
   checkAdditive,
   renderAdditiveFindings,
@@ -304,6 +308,10 @@ export interface AuthoringGuardInput {
   readonly upstreamFiles: ReadonlySet<string>;
   readonly upstreamTestFiles: ReadonlySet<string>;
   readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
+  // Significant target-tree lines per touched upstream file, for the hook
+  // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
+  // inputs built before the map existed; the guard then behaves as before.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
 }
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
@@ -373,6 +381,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
               files: input.guard?.filesBySha.get(commit.sha) ?? [],
               changedLines: patch.changedLines,
               upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
+              upstreamLines: input.guard?.upstreamLines,
             }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
           }),
   };
@@ -634,27 +643,55 @@ const buildGuardInput = (
     patchesBySha,
     upstreamFiles,
     upstreamTestFiles,
-    upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
+    upstreamTestLines: readUpstreamLines(
+      git,
+      range.target,
+      patchesBySha,
+      upstreamTestFiles,
+      (patch) => patch.removedTestLines.keys(),
+      () => true,
+    ),
+    upstreamLines: readUpstreamLines(
+      git,
+      range.target,
+      patchesBySha,
+      upstreamFiles,
+      (patch) => patch.changedLines.keys(),
+      (path) =>
+        MARKER_CAPABLE_PATH.test(path) &&
+        !GENERATED_HOOK_PATH.test(path) &&
+        !upstreamTestFiles.has(path),
+    ),
   };
 };
 
 /**
- * The target-tree text of every upstream test file a warned commit removes a
- * line from — nothing else, so a scan stays proportional to the commits it
- * warns about. Without it the append-only rule would also refuse the repair
- * it asks for: deleting the fork's own line out of an upstream test file is
- * a removal too.
+ * The target-tree text of every upstream file a warned commit touches —
+ * nothing else, so a scan stays proportional to the commits it warns about.
+ * One reader serves both rules that measure a patch against the target:
+ * upstream-test selects the removed test lines, the hook guard the changed
+ * lines of marker-capable source. Without the test side the append-only
+ * rule would also refuse the repair it asks for: deleting the fork's own
+ * line out of an upstream test file is a removal too. Without the hook
+ * side the guard would refuse the repair it cannot name: restoring
+ * upstream's own text byte for byte reads as a fork insertion
+ * (RSI-Software/t3code-hyprws#1207).
  */
-const readUpstreamTestLines = (
+const readUpstreamLines = (
   git: GitReader,
   target: string,
   patchesBySha: ReadonlyMap<string, CommitPatch>,
-  upstreamTestFiles: ReadonlySet<string>,
+  upstreamFiles: ReadonlySet<string>,
+  selectPaths: (patch: CommitPatch) => Iterable<string>,
+  keepPath: (path: string) => boolean,
 ): ReadonlyMap<string, ReadonlySet<string>> => {
   const paths = new Set<string>();
   for (const patch of patchesBySha.values())
-    for (const path of patch.removedTestLines.keys())
-      if (upstreamTestFiles.has(path)) paths.add(path);
+    for (const path of selectPaths(patch)) {
+      if (!upstreamFiles.has(path)) continue;
+      if (!keepPath(path)) continue;
+      paths.add(path);
+    }
   const lines = new Map<string, ReadonlySet<string>>();
   for (const path of [...paths].toSorted()) {
     try {
