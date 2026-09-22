@@ -19,6 +19,13 @@ import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
 export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 
+export const LIVE_SCAN_TARGET = "upstream/main";
+
+// The default scan target is a moving remote-tracking ref, not a pin: a bare
+// run watches live upstream while CI's blocking gate pins --target to the
+// merge base. A failure against the live ref is deferred rebase-time debt,
+// never a defect on this head (RSI-Software/t3code-hyprws#1129).
+
 const RECORD_SEPARATOR = "";
 
 export interface ScanOptions {
@@ -96,7 +103,7 @@ Rebase rehearsal, gate 3 (silent seams, from the rehearsed worktree):
 const defaultOptions = (): ScanOptions => ({
   base: null,
   head: "HEAD",
-  target: "upstream/main",
+  target: LIVE_SCAN_TARGET,
   typecheck: true,
   since: null,
   replayOf: null,
@@ -312,9 +319,18 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
     result.undeclaredDomains.length +
     result.domains.reduce((count, domain) => count + domain.gaps.length, 0);
   if (ledgerGaps > 0) {
-    summary.push(
-      `failed: ${ledgerGaps} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}`,
-    );
+    if (result.range.target === LIVE_SCAN_TARGET) {
+      summary.push(
+        `failed: ${ledgerGaps} rebase-scan gap(s): target ${result.range.target} is a live ref (upstream moved past base ${result.range.base.slice(0, 7)}); deferred rebase-time debt for the next rebase, not a defect on this head; record each path in its domain's Rebase scan table in ${LEDGER_PATH} at rebase time`,
+      );
+      summary.push(
+        `blocking gate pins the merge base instead: vp run fork:scan --head ${result.range.head} --target "$(git merge-base ${result.range.target} ${result.range.head})" --no-typecheck`,
+      );
+    } else {
+      summary.push(
+        `failed: ${ledgerGaps} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}`,
+      );
+    }
   }
   if (result.typecheckGaps.length > 0) {
     summary.push(

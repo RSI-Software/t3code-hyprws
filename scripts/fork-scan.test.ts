@@ -251,6 +251,12 @@ it("summarises each gap class with its own repair", () => {
 
   const ledgerOnly = buildScanResult(scanInput());
   assert.deepStrictEqual(scanFailureSummary(ledgerOnly), [
+    `failed: 1 rebase-scan gap(s): target upstream/main is a live ref (upstream moved past base base); deferred rebase-time debt for the next rebase, not a defect on this head; record each path in its domain's Rebase scan table in docs/fork/internals/fork-delta.md at rebase time`,
+    `blocking gate pins the merge base instead: vp run fork:scan --head HEAD --target "$(git merge-base upstream/main HEAD)" --no-typecheck`,
+  ]);
+
+  const pinned = buildScanResult(scanInput({ target: "v0.0.35" }));
+  assert.deepStrictEqual(scanFailureSummary(pinned), [
     "failed: 1 rebase-scan gap(s); add each path to its domain's Rebase scan table in docs/fork/internals/fork-delta.md",
   ]);
 
@@ -259,7 +265,7 @@ it("summarises each gap class with its own repair", () => {
     "failed: 1 typecheck gap(s); fix each in the fork commit that owns the file and rerun; never amend a replayed fork commit",
   ]);
 
-  assert.lengthOf(scanFailureSummary({ ...ledgerOnly, typecheckGaps: seam }), 2);
+  assert.lengthOf(scanFailureSummary({ ...ledgerOnly, typecheckGaps: seam }), 3);
 });
 
 it("defaults the target to upstream/main and the base to the merge base", () => {
