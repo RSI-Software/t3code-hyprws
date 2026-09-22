@@ -565,8 +565,8 @@ it("files one issue per blocking sha with the governed fields", () => {
   assert.include(body, blockingShaMarker("5".repeat(40)));
 });
 
-it("updates the open issue keyed by the blocking sha instead of filing a new one", () => {
-  const created: boolean[] = [];
+it("edits the open issue in place when the rendered body drifts, never comments", () => {
+  const edits: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
   const recording = exec({
     gh: () =>
       ok(
@@ -575,16 +575,118 @@ it("updates the open issue keyed by the blocking sha instead of filing a new one
         ]),
       ),
     ghb: (args) => {
-      if (args[0] === "issue" && args[1] === "create") created.push(true);
+      if (args[0] === "issue" && args[1] === "edit")
+        edits.push({
+          args,
+          body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+        });
       return ok();
     },
   });
   const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 11);
-  assert.deepStrictEqual(created, []);
-  const comment = recording.calls.find(({ args }) => args[0] === "issue" && args[1] === "comment");
-  assert.notStrictEqual(comment, undefined);
-  assert.strictEqual(comment!.args[2], "11");
+  // exactly one in-place edit, no fresh filing, and the report body never posts
+  // as a comment
+  assert.strictEqual(edits.length, 1);
+  const args = edits[0]!.args;
+  assert.deepStrictEqual(args.slice(0, 2), ["issue", "edit"]);
+  assert.strictEqual(args[2], "11");
+  const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
+  assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
+  assert.include(edits[0]!.body, blockingShaMarker("5".repeat(40)));
+  assert.strictEqual(
+    recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "comment"),
+    false,
+  );
+  assert.strictEqual(
+    recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "create"),
+    false,
+  );
+});
+
+it("makes no write when the live title and body already match the render", () => {
+  const report = blockedReport("5".repeat(40));
+  const recording = exec({
+    gh: () =>
+      ok(
+        JSON.stringify([
+          {
+            number: 11,
+            title: report.blocked!.title,
+            body: blockedIssueBody(report),
+          },
+        ]),
+      ),
+  });
+  const published = publishBlock(recording.runner, "/tmp", report);
+  assert.strictEqual(published.blocked?.issue, 11);
+  assert.strictEqual(published.blocked?.publishError, null);
+  // the probe is the only ghb traffic: no create, no edit, no comment
+  for (const call of recording.calls)
+    if (call.command === "ghb") assert.strictEqual(call.args[0], "--version");
+});
+
+it("makes no write when the ghb attest footer and machine title suffix decorate the render", () => {
+  const report = blockedReport("5".repeat(40));
+  const recording = exec({
+    gh: () =>
+      ok(
+        JSON.stringify([
+          {
+            number: 11,
+            title: `${report.blocked!.title} [🔔#3]`,
+            body: `${blockedIssueBody(report)}\n<!-- gh-bot:attest sha256:aaaa -->\n<!-- gh-bot:edit-attest sha256:bbbb -->\n`,
+          },
+        ]),
+      ),
+  });
+  const published = publishBlock(recording.runner, "/tmp", report);
+  assert.strictEqual(published.blocked?.issue, 11);
+  // the ghb decorations normalise away: no create, no edit, no comment
+  for (const call of recording.calls)
+    if (call.command === "ghb") assert.strictEqual(call.args[0], "--version");
+});
+
+it("falls back to gh issue edit --type when gh rejects --type at create", () => {
+  const recording = exec({
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "create")
+        return args.includes("--type")
+          ? refused("unknown flag: --type")
+          : ok("https://github.com/RSI-Software/t3code-hyprws/issues/44\n");
+      if (args[0] === "issue" && args[1] === "list") return ok("[]");
+      return ok();
+    },
+    ghb: () => ({
+      status: 1,
+      stdout: "",
+      stderr: "spawnSync ghb ENOENT",
+      error: new Error("spawnSync ghb ENOENT"),
+    }),
+  });
+  const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
+  assert.strictEqual(report.blocked?.issue, 44);
+  assert.strictEqual(report.blocked?.publishedVia, "gh");
+  assert.strictEqual(report.blocked?.publishError, null);
+  const creates = recording.calls.filter(
+    ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "create",
+  );
+  assert.strictEqual(creates.length, 2, "one refused attempt, one bare retry");
+  assert.strictEqual(creates[0]!.args.includes("--type"), true);
+  assert.strictEqual(creates[1]!.args.includes("--type"), false);
+  // the fresh issue gets its Notification type by editing right after create
+  const typeEdit = recording.calls.find(
+    ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "edit",
+  );
+  assert.notStrictEqual(typeEdit, undefined);
+  assert.strictEqual(typeEdit!.args[2], "44");
+  const typeIndex = typeEdit!.args.indexOf("--type");
+  assert.strictEqual(typeEdit!.args[typeIndex + 1], "Notification 🔔");
+  // still exactly one label on the landed create
+  assert.deepStrictEqual(
+    creates[1]!.args.filter((argument, index) => creates[1]!.args[index - 1] === "--label"),
+    ["ci"],
+  );
 });
 
 it("prints the body and records the refusal when ghb refuses", () => {
@@ -630,11 +732,11 @@ it("falls back to bare gh when ghb cannot spawn, same body and title", () => {
   const args = create!.args;
   const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
   assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
+  assert.strictEqual(value("--type"), "Notification 🔔");
   assert.deepStrictEqual(
     args.filter((argument, index) => args[index - 1] === "--label"),
     ["ci"],
   );
-  assert.strictEqual(args.includes("--type"), false, "bare gh carries no governed filing fields");
   const body = issueBodies[0] ?? "";
   assert.match(body, /^Origin: hyprws sync run onto v1\.0\.0;/);
   assert.match(body, /\| `apps\/web\/src\/page\.tsx` \|/);
@@ -824,10 +926,10 @@ it("files one governed failure issue when the check battery goes red", () => {
   });
 });
 
-it("a rerun with the same failure comments on the issue instead of filing again", () => {
+it("a rerun with the same failure edits the issue in place instead of filing again", () => {
   withFixture(checkRedFixture, (f) => {
     let creates = 0;
-    const comments: Array<{ readonly issue: string; readonly body: string }> = [];
+    const edits: string[] = [];
     let listResponse = ok("[]");
     const recording = exec({
       vp: () => refused("fork:delta --check is red"),
@@ -837,11 +939,7 @@ it("a rerun with the same failure comments on the issue instead of filing again"
           creates += 1;
           return ok("https://github.com/RSI-Software/t3code-hyprws/issues/42\n");
         }
-        if (args[0] === "issue" && args[1] === "comment")
-          comments.push({
-            issue: args[2] ?? "",
-            body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
-          });
+        if (args[0] === "issue" && args[1] === "edit") edits.push(args[2] ?? "");
         return ok();
       },
     });
@@ -865,11 +963,12 @@ it("a rerun with the same failure comments on the issue instead of filing again"
       1,
     );
     assert.strictEqual(creates, 1, "never files again");
-    assert.deepStrictEqual(
-      comments.map(({ issue }) => issue),
-      ["42"],
+    // the drifted body is rewritten in place, never commented
+    assert.deepStrictEqual(edits, ["42"]);
+    assert.strictEqual(
+      recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "comment"),
+      false,
     );
-    assert.include(comments[0]?.body ?? "", failureMarker("check", "v1.0.0"));
     const report = readReport(f.root, "v1.0.0");
     assert.strictEqual(report.failure?.issue, 42);
     assert.strictEqual(report.failure?.publishedVia, "ghb");
