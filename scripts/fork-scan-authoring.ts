@@ -8,6 +8,12 @@
 //   assertion in place (a same-size swap nets to zero added blocks, so the
 //   removed side is the whole shape).
 // - replaced-export: the commit deletes an upstream-owned exported declaration
+import { supersededTitlesByPath, testCaseTitles } from "./lib/fork-supersedes.ts";
+
+// A case title: the first string literal of an `it`/`test`/`effectIt`
+// opener, including the dotted effect forms (`it.effect`, `it.layer`).
+// Mirrors the additive gate's opener; kept local so this module stays
+// runnable without the gate's git runner.
 //   and re-declares it, so every later upstream edit to it lands invisibly.
 //
 // (RSI-Software/t3code-hyprws#1190: smallest form of the old authoring-guard
@@ -88,6 +94,14 @@ export interface AuthoringGuardInput {
   // Absent on inputs built before the map existed; the guard then behaves
   // as it always has.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  // The target-tree text of each touched upstream test file, plus the
+  // head-tree (scanned-head) text of every fork sibling. Read together,
+  // they let the rule exempt a declared-superseded case structurally —
+  // by the case's own lines — instead of by whole-file line membership,
+  // which cannot tell a shared body line from an upstream one
+  // (RSI-Software/t3code-hyprws#1208).
+  readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  readonly siblingTexts: ReadonlyMap<string, string>;
 }
 
 const PATCH_RECORD_SEPARATOR = "\x1e";
@@ -226,6 +240,72 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
 const TEST_FILE = /\.test\.tsx?$/;
 const FORK_TEST_FILE = /\.fork\.test\.tsx?$/;
 
+const TITLE_OF =
+  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
+
+/** Trimmed, without blank and comment-only lines: the case-body lines the rule counts. */
+const significant = (content: string): boolean => {
+  const trimmed = content.trim();
+  return (
+    trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*") && trimmed !== "/*"
+  );
+};
+
+const significantLines = (text: string): ReadonlyArray<string> =>
+  text
+    .split("\n")
+    .filter((line) => significant(line))
+    .map((line) => line.trim());
+
+/**
+ * The significant lines of one named case in the target-tree text: the
+ * opener line through the next case opener. Structural, so a fork case
+ * that kept the body of the case it replaced exempts by its own case,
+ * never by whole-file line membership (RSI-Software/t3code-hyprws#1208).
+ */
+const caseLines = (text: string, title: string): ReadonlySet<string> => {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const started: Array<string> = [];
+  let inside = false;
+  for (const line of lines) {
+    const current =
+      TITLE_OF.exec(line)
+        ?.slice(1)
+        .find((part) => part !== undefined) ?? null;
+    if (current !== null) {
+      if (current === title && !inside) {
+        inside = true;
+        started.push(line.trim());
+        continue;
+      }
+      if (inside) break;
+      continue;
+    }
+    if (inside) started.push(line);
+  }
+  return new Set(significantLines(started.join("\n")));
+};
+
+/**
+ * The target-tree lines of every case the scanned head's sibling declares
+ * as superseded for one upstream path. Empty unless the sibling both
+ * declares the case and carries a replacement test case — a bare
+ * declaration exempts nothing (RSI-Software/t3code-hyprws#1208).
+ */
+const declaredSupersededLines = (input: AuthoringGuardInput, path: string): ReadonlySet<string> => {
+  const upstreamText = input.upstreamTestTexts.get(path);
+  if (upstreamText === undefined) return new Set();
+  const siblingText = input.siblingTexts.get(forkTestSibling(path));
+  if (siblingText === undefined) return new Set();
+  if (testCaseTitles(siblingText).length === 0) return new Set();
+  const lines = new Set<string>();
+  for (const { title, hasReplacement } of supersededTitlesByPath(siblingText, path)) {
+    if (!hasReplacement) continue;
+    for (const line of caseLines(upstreamText, title)) lines.add(line);
+  }
+  return lines;
+};
+
 export const forkTestSibling = (path: string): string =>
   path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
 
@@ -270,6 +350,12 @@ export const collectAuthoringWarnings = (
     // in place, which is a removal on the source side and an addition of the
     // same size on the target side. The removed side alone is the whole
     // shape, so refuse on it and let the sibling carry the fork's case.
+    // A declared-superseded case is exempted structurally: the target-tree
+    // lines of each case the sibling declares for this path are stripped
+    // before membership is tested, so a shared body line the fork kept
+    // from the case it replaced does not count as an upstream removal
+    // (RSI-Software/t3code-hyprws#1208). The declaration alone buys
+    // nothing: the sibling must carry a replacement case.
     for (const [path, lines] of [...patch.removedTestLines].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {
@@ -278,11 +364,14 @@ export const collectAuthoringWarnings = (
       const upstreamLines = input.upstreamTestLines.get(path);
       const upstream =
         upstreamLines === undefined ? lines : lines.filter((line) => upstreamLines.has(line));
-      if (upstream.length === 0) continue;
-      const first = upstream[0] ?? "";
+      const declared = declaredSupersededLines(input, path);
+      const undeclared =
+        declared.size === 0 ? upstream : upstream.filter((line) => !declared.has(line));
+      if (undeclared.length === 0) continue;
+      const first = undeclared[0] ?? "";
       warn(
         "upstream-test",
-        `${path} changes or removes ${upstream.length} upstream test line(s) (first: ${first}); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
+        `${path} changes or removes ${undeclared.length} upstream test line(s) (first: ${first}); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
       );
     }
 

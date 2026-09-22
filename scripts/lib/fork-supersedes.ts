@@ -167,6 +167,25 @@ export const testCaseTitles = (text: string): ReadonlyArray<string> => {
   return titles;
 };
 
+/**
+ * The upstream titles a sibling text declares as superseded for one upstream
+ * path, each paired with whether the sibling carries at least one test
+ * case beside the declaration. A bare declaration buys no exemption: the
+ * sibling must hold the replacement behaviour, or deleting upstream
+ * coverage would pass silently. Additive-only reader over
+ * `collectForkSupersedes` (RSI-Software/t3code-hyprws#1208); the parser
+ * itself is untouched.
+ */
+export const supersededTitlesByPath = (
+  text: string,
+  path: string,
+): ReadonlyArray<{ readonly title: string; readonly hasReplacement: boolean }> => {
+  const hasReplacement = testCaseTitles(text).length > 0;
+  return collectForkSupersedes(text).declarations.flatMap((declaration) =>
+    declaration.upstreamPath === path ? [{ title: declaration.upstreamTitle, hasReplacement }] : [],
+  );
+};
+
 /** The sibling titles that contradict an upstream title set — same title, different behaviour. */
 export const contradictingTitles = (
   siblingTitles: ReadonlyArray<string>,

@@ -178,7 +178,7 @@ it("passes a declared-superseded deletion and still fails an undeclared one", ()
     upstreamTestTexts,
     siblingTexts,
   });
-  const upstreamText = 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n';
+  const upstreamText = 'it("upstream", () => {\n  expect(keep).toBe(2);\n});\n';
   const declaredSibling =
     'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n' +
     'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n';
