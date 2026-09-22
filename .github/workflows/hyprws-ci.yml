@@ -84,42 +84,6 @@ jobs:
           fi
           vp run fork:scan "${SCAN_ARGS[@]}"
 
-      # A rebase scan is what the next sync reads before trusting an automerge,
-      # so a domain that changes a file upstream is changing too has to name it
-      # (docs/fork/internals/fork-delta.md). Reuses the upstream remote the ledger
-      # step added. Advisory, not blocking: the only window with signal here is
-      # live upstream/main, and upstream landing a commit on a shared file is
-      # not the fault of the pull request under test. The blocking run is gates 3
-      # and 4 of the fork-sync skill, which scan against the new target tag while
-      # the fork still sits on the old one.
-      - name: Live upstream rebase scan (advisory)
-        id: live_scan
-        continue-on-error: true
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          SINCE: ${{ steps.fork_ledger.outputs.since }}
-        run: |
-          set +e
-          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck \
-            2>&1 | tee "$RUNNER_TEMP/live-upstream-scan.log"
-          code=${PIPESTATUS[0]}
-          set -e
-          # Advisory, so the exit code cannot red the run — but a step that
-          # fails and reports nothing is the same silence the scan exists to
-          # remove. Surface it as an annotation and a summary section instead:
-          # upstream landing on a shared file is not the branch's fault, yet
-          # the sync lane still has to learn about it. The blocking live
-          # upstream scan runs in hyprws-upstream-sync.yml against trunk.
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::live upstream rebase scan failed (exit $code): a domain's scan has no row for a shared file upstream now touches; see the step summary"
-            {
-              printf '## Live upstream rebase scan (advisory) failed\n\n```\n'
-              cat "$RUNNER_TEMP/live-upstream-scan.log"
-              printf '```\n'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$code"
-
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
 
@@ -144,6 +108,67 @@ jobs:
           test -f apps/desktop/dist-electron/preload.cjs
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
+
+  # Merge-tree conflict gate: is this head harder to rebase than the
+  # trunk? `git merge-tree --write-tree upstream/main <ref>` lists every
+  # path whose merge back into live upstream/main conflicts. Running it
+  # for the PR head and for origin/hyprws separates conflicts the branch
+  # introduces (head-only paths red the job and land in the step summary)
+  # from conflicts the trunk already carries (base-inherited paths stay
+  # silent). Replaces the old advisory rebase scan, which blamed the
+  # branch for upstream landing on a shared file.
+  merge-tree:
+    name: merge-tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Merge-tree conflict check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git 2>/dev/null || true
+          git fetch --no-tags upstream main
+          git fetch --no-tags origin hyprws
+          set +e
+          git merge-tree --write-tree --name-only --no-messages upstream/main "$HEAD_SHA" > "$RUNNER_TEMP/head-conflicts.txt"
+          head_code=$?
+          git merge-tree --write-tree --name-only --no-messages upstream/main origin/hyprws > "$RUNNER_TEMP/base-conflicts.txt"
+          base_code=$?
+          set -e
+          # 0 is clean, 1 is conflicts; anything else is a broken
+          # invocation that must fail loudly rather than pass silent.
+          if [ "$head_code" -ne 0 ] && [ "$head_code" -ne 1 ]; then
+            echo "merge-tree for head failed (exit $head_code)" >&2
+            exit "$head_code"
+          fi
+          if [ "$base_code" -ne 0 ] && [ "$base_code" -ne 1 ]; then
+            echo "merge-tree for origin/hyprws failed (exit $base_code)" >&2
+            exit "$base_code"
+          fi
+          tail -n +2 "$RUNNER_TEMP/head-conflicts.txt" | sort -u > "$RUNNER_TEMP/head-paths.txt"
+          tail -n +2 "$RUNNER_TEMP/base-conflicts.txt" | sort -u > "$RUNNER_TEMP/base-paths.txt"
+          comm -23 "$RUNNER_TEMP/head-paths.txt" "$RUNNER_TEMP/base-paths.txt" > "$RUNNER_TEMP/head-only.txt"
+          if [ -s "$RUNNER_TEMP/head-only.txt" ]; then
+            {
+              printf '## Merge-tree conflicts introduced by this head\n\n'
+              printf 'These paths conflict against `upstream/main` for this head but not for `origin/hyprws`:\n\n```\n'
+              cat "$RUNNER_TEMP/head-only.txt"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "head-only merge-tree conflicts:" >&2
+            cat "$RUNNER_TEMP/head-only.txt" >&2
+            exit 1
+          fi
+          echo "merge-tree clean: no head-only conflicts"
 
   # Everything except `t3` (apps/server), `web`, and the fork's own
   # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
