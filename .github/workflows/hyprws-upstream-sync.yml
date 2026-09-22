@@ -8,7 +8,7 @@ name: hyprws upstream sync
 # failed run files its issue inside the driver before it exits non-zero, so no
 # `if: failure()` step exists here.
 #
-# The sync job's own pushes (the trunk and the shared rerere cache) need the
+# The sync job's own push (the trunk) needs the
 # mirror PAT, because upstream commits touch .github/workflows, which
 # GITHUB_TOKEN may never push. The PAT reaches Git only through GIT_CONFIG_*,
 # exported around the driver step: check commands run rebased code, and the
@@ -136,7 +136,7 @@ jobs:
           git config rerere.enabled true
           git config rerere.autoupdate false
 
-      # The driver pushes the trunk and the shared rerere cache with the mirror
+      # The driver pushes the trunk with the mirror
       # PAT, built here so the token never lands in .git/config or a workflow
       # env block the check battery inherits. Its issue writes go through ghb
       # with the job's own token (issues: write).
