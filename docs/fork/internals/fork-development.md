@@ -98,11 +98,15 @@ Reorder only on a clean stack; publish with a lease.
 ### Branch bases
 
 ```bash
-wt switch --create <branch> --base hyprws          # fork-specific work
+git fetch origin hyprws
+wt switch --create <branch> --base origin/hyprws   # fork-specific work
 wt switch --create <branch> --base upstream/main   # no fork dependencies
 ```
 
 An `upstream/main` base keeps a commit removable, never a route upstream.
+
+A sync rebase rewrites `origin/hyprws`; the local `hyprws` keeps the old history.
+Base on the fetched ref, never the local branch: discarded history survives on no remote, and worktree setup refuses a HEAD that no remote-tracking ref contains.
 
 ### Landing
 
