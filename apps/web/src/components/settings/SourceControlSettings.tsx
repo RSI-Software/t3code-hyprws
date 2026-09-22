@@ -602,8 +602,6 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
-      {/* Their rows are serverScoped: without a primary they render inert with
-          an explanation, which beats disappearing. */}
       <GitHubIssueSettingsSection />
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
