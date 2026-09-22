@@ -139,6 +139,8 @@ it("fails an upstream-test addition in the since range", () => {
       upstreamFiles: new Set(["apps/web/src/other.test.ts"]),
       upstreamTestFiles: new Set(["apps/web/src/other.test.ts"]),
       upstreamTestLines: new Map([["apps/web/src/other.test.ts", new Set()]]),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   const failures = scanFailures(result);
@@ -250,6 +252,8 @@ it("fails a replaced export matched by name across files", () => {
       upstreamFiles: new Set(["apps/web/src/upstream.ts"]),
       upstreamTestFiles: new Set(),
       upstreamTestLines: new Map(),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   const failures = scanFailures(result);
@@ -273,6 +277,8 @@ it("flags an unmarked insertion through the hook guard", () => {
       upstreamFiles: new Set(["apps/web/src/thing.ts"]),
       upstreamTestFiles: new Set(),
       upstreamTestLines: new Map(),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   assert.isTrue(result.hookDetails.some((detail) => detail.includes("outside a marked hook")));
