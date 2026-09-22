@@ -136,8 +136,8 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     return { root, base, since: base };
   };
   const declaredSibling = [
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
     'it("replacement", () => {',
-    '  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
     "  expect(keep).toBe(2);",
     "});",
     "",
@@ -154,7 +154,9 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
   }
   {
-    // Bare declaration, no replacement case: the shrink still fires.
+    // Declaration after the last case opener: resolves to none, the shrink
+    // still fires. The doc-comment convention puts the declaration before
+    // the case it documents.
     const { root, base, since } = setup();
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.test.ts"),
@@ -162,9 +164,9 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     );
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
-      'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
+      'it("replacement", () => {\n  expect(keep).toBe(2);\n});\nforkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
     );
-    commitAll(root, "fork: delete with a bare declaration");
+    commitAll(root, "fork: delete with a trailing declaration");
     const findings = checkAdditive(runner, root, { base, since });
     assert.isTrue(findings.some((finding) => finding.check === "tests"));
   }
@@ -184,9 +186,9 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     assert.isTrue(findings.some((finding) => finding.check === "tests"));
   }
   {
-    // Five declarations, one enclosing case: only one excusal, so deleting
-    // five upstream cases still fails. Per-declaration enclosure, not
-    // per-file presence (RSI-Software/t3code-hyprws#1208).
+    // Five declarations stacked before one case: only one excusal, so
+    // deleting five upstream cases still fails. Per-declaration
+    // documentation, not per-file presence (RSI-Software/t3code-hyprws#1208).
     const { root, run, write, commit } = fixture();
     write(
       "apps/web/src/thing.test.ts",
@@ -204,11 +206,11 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
       [
-        'it("replacement", () => {',
         ...[1, 2, 3, 4, 5].map(
           (n) =>
-            `  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > case-${n}", reason: "the fork inverts it", commit: "abc1234" });`,
+            `forkSupersedes({ upstream: "apps/web/src/thing.test.ts > case-${n}", reason: "the fork inverts it", commit: "abc1234" });`,
         ),
+        'it("replacement", () => {',
         "  expect(keep).toBe(2);",
         "});",
         "",
@@ -219,10 +221,10 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     const details = findings
       .filter((finding) => finding.check === "tests")
       .map((finding) => finding.detail ?? "");
-    assert.isTrue(details.length > 0, "deleting five with one enclosing case still fails");
+    assert.isTrue(details.length > 0, "deleting five with one documented case still fails");
     assert.isTrue(
       details.some((detail) => /shrunk from 5 to 1/.test(detail)),
-      `one enclosing case excuses one declaration, not five (got: ${details.join(" | ")})`,
+      `one documented case excuses one declaration, not five (got: ${details.join(" | ")})`,
     );
   }
 });
@@ -282,10 +284,10 @@ it("lets a fork-added line leave freely but guards upstream lines via the siblin
 });
 
 it("excuses a named upstream case a live declaration supersedes, and holds an unnamed one", () => {
-  // The fork moves the whole upstream case body into the sibling beside a
-  // forkSupersedes declaration: the named case's lines are superseded
-  // rather than contradictory, so no tests finding fires. The declaration
-  // sits inside the replacement case it documents.
+  // The fork moves the whole upstream case body into the sibling with a
+  // forkSupersedes declaration immediately before it: the named case's
+  // lines are superseded rather than contradictory, so no tests finding
+  // fires. The declaration documents the case that follows it.
   const setup = (): { root: string; base: string; since: string } => {
     const { root, run, write, commit } = fixture();
     write("apps/web/src/thing.test.ts", 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n');
@@ -301,8 +303,8 @@ it("excuses a named upstream case a live declaration supersedes, and holds an un
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
       [
+        'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
         'it("upstream", () => {',
-        '  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
         "  expect(keep).toBe(2);",
         "});",
         "",
@@ -342,8 +344,8 @@ it("excuses a named upstream case a live declaration supersedes, and holds an un
     NodeFS.writeFileSync(
       NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
       [
+        'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
         'it("upstream", () => {',
-        '  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
         "  expect(keep).toBe(1);",
         "});",
         'it("other", () => {',

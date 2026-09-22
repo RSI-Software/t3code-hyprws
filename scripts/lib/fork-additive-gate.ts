@@ -339,10 +339,11 @@ const testFindings = (
     // sibling carries the fork behaviour beside a record of why. Only a
     // named case is excused — a sibling case contradicting without one
     // stays a finding, and the scan's own supersedes findings name it.
-    // The exemption is per declaration, resolved by enclosure: each
-    // declaration must sit inside a sibling case, and each enclosing case
-    // excuses exactly one declaration. Five declarations beside one case
-    // excuse one deletion, never five (RSI-Software/t3code-hyprws#1208).
+    // The exemption is per declaration, resolved by documentation: each
+    // declaration must sit immediately before a sibling case, and each
+    // documented case excuses exactly one declaration. Five declarations
+    // stacked before one case excuse one deletion, never five
+    // (RSI-Software/t3code-hyprws#1208).
     // An inversion names a different title than upstream's, so the
     // exemption keys on the declaration, never on a same-titled sibling
     // case.
@@ -362,8 +363,8 @@ const testFindings = (
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);
     // A declared-superseded case's behaviour lives in the sibling under a
-    // replacement title, so each enclosed declaration counts as still
-    // present — one enclosing case, one excusal
+    // replacement title, so each documented declaration counts as still
+    // present — one documented case, one excusal
     // (RSI-Software/t3code-hyprws#1208).
     const present = headPresent + named.length;
     if (present < upstreamPresent)

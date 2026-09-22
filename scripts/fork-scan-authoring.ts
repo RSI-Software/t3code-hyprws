@@ -298,9 +298,9 @@ const declaredSupersededLines = (input: AuthoringGuardInput, path: string): Read
   const siblingText = input.siblingTexts.get(forkTestSibling(path));
   if (siblingText === undefined) return new Set();
   const lines = new Set<string>();
-  // One excusal per enclosing sibling case, mirroring the additive gate:
-  // five declarations beside one case strip one case's lines.
-  // A bare declaration strips nothing (RSI-Software/t3code-hyprws#1208).
+  // One excusal per documented sibling case, mirroring the additive gate:
+  // five declarations stacked before one case strip one case's lines.
+  // A declaration after the last case strips nothing (RSI-Software/t3code-hyprws#1208).
   const enclosed = enclosedSupersededTitles(siblingText, path);
   const declared = new Set(
     supersededTitlesByPath(siblingText, path)
