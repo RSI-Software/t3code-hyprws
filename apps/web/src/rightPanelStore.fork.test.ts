@@ -19,35 +19,11 @@ beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });
 describe("rightPanelStore", () => {
-  // Fork divergence (RSI-Software/t3code-hyprws#1204): the fork keeps the explorer beside
-  // open files while upstream replaces it (commit `cb6fe69b6d`), and widens the Agents
-  // surface with drill-down state while upstream asserts the plain shape (commit
-  // `b14ef0ccce`). Each declaration names the inverted upstream case beside the fork's
-  // replacement so the divergence is machine-readable.
-  forkSupersedes({
-    upstream:
-      "apps/web/src/rightPanelStore.test.ts > replaces the standalone explorer with peer file surfaces",
-    reason:
-      "the fork keeps the standalone explorer beside peer file surfaces while upstream replaces it",
-    commit: "cb6fe69b6d",
-  });
-  forkSupersedes({
-    upstream:
-      "apps/web/src/rightPanelStore.test.ts > reopening an inactive singleton activates its existing surface",
-    reason:
-      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
-    commit: "b14ef0ccce",
-  });
+  // The fork persists the Agents surface with drill-down state while upstream
+  // reconciles the plain shape (commit `b14ef0ccce`).
   forkSupersedes({
     upstream:
       "apps/web/src/rightPanelStore.test.ts > removes persisted file surfaces when their workspace no longer exists",
-    reason:
-      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
-    commit: "b14ef0ccce",
-  });
-  forkSupersedes({
-    upstream:
-      "apps/web/src/rightPanelStore.test.ts > close hides the panel without clearing its selected surface",
     reason:
       "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
     commit: "b14ef0ccce",
@@ -80,6 +56,15 @@ describe("rightPanelStore", () => {
       },
     });
   });
+  // The fork activates Agents drill-down selection while upstream activates
+  // the plain singleton surface (commit `b14ef0ccce`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > reopening an inactive singleton activates its existing surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
   it("opens one child directly and returns to its roster row", () => {
     useRightPanelStore.getState().openAgents(refA, { selectedAgentId: "agent-1" });
     expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
@@ -98,6 +83,15 @@ describe("rightPanelStore", () => {
       selectedAgentId: null,
       rosterFocusAgentId: "agent-1",
     });
+  });
+  // The fork backfills pre-widen Agents surfaces while upstream asserts the
+  // selected surface keeps the plain shape (commit `b14ef0ccce`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > close hides the panel without clearing its selected surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
   });
   it("backfills a pre-widen Agents surface and round-trips a widened one", () => {
     // A v13/v14 panel stored the surface before it carried drill-down state.
@@ -201,6 +195,15 @@ describe("rightPanelStore", () => {
       activeSurfaceId: "github-issues",
       surfaces: [{ id: "github-issues", kind: "github-issues" }],
     });
+  });
+  // The fork keeps the standalone explorer beside open files while upstream
+  // replaces it (commit `cb6fe69b6d`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > replaces the standalone explorer with peer file surfaces",
+    reason:
+      "the fork keeps the standalone explorer beside peer file surfaces while upstream replaces it",
+    commit: "cb6fe69b6d",
   });
   it("keeps the standalone explorer beside peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
