@@ -168,21 +168,69 @@ export const testCaseTitles = (text: string): ReadonlyArray<string> => {
 };
 
 /**
+ * The 1-based lines opening a sibling test case (`it`/`test`/`effectIt`
+ * with a string-literal title), in source order. A forkSupersedes call
+ * belongs to the case whose opener is nearest at-or-before its own
+ * line — a declaration floating outside any case belongs to none.
+ */
+export const siblingCaseOpenerLines = (text: string): ReadonlyArray<number> => {
+  const openers: Array<number> = [];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  for (const [index, line] of lines.entries()) {
+    if (TITLE_OPENER.test(line)) openers.push(index + 1);
+  }
+  return openers;
+};
+
+/**
  * The upstream titles a sibling text declares as superseded for one upstream
- * path, each paired with whether the sibling carries at least one test
- * case beside the declaration. A bare declaration buys no exemption: the
- * sibling must hold the replacement behaviour, or deleting upstream
- * coverage would pass silently. Additive-only reader over
- * `collectForkSupersedes` (RSI-Software/t3code-hyprws#1208); the parser
- * itself is untouched.
+ * path, excused one per enclosing sibling case. Declarations resolve to
+ * the nearest case opener at-or-before their own line; each enclosing case
+ * excuses exactly one declaration, so five declarations beside one case
+ * excuse one deletion and a floating declaration excuses none
+ * (RSI-Software/t3code-hyprws#1208). Additive-only reader over
+ * `collectForkSupersedes`; the parser itself is untouched.
+ */
+export const enclosedSupersededTitles = (text: string, path: string): ReadonlyArray<string> => {
+  const openers = siblingCaseOpenerLines(text);
+  const enclosed = collectForkSupersedes(text).declarations.filter(
+    (declaration) =>
+      declaration.upstreamPath === path && openers.some((opener) => opener <= declaration.line),
+  );
+  // One excusal per enclosing case: group the enclosed declarations by
+  // their nearest opener and keep a single title each.
+  const byOpener = new Map<number, string>();
+  for (const declaration of enclosed) {
+    const opener = Math.max(...openers.filter((line) => line <= declaration.line));
+    if (!byOpener.has(opener)) byOpener.set(opener, declaration.upstreamTitle);
+  }
+  return [...byOpener.values()];
+};
+
+/**
+ * The upstream titles a sibling text declares as superseded for one upstream
+ * path, each paired with whether the declaration resolves to an enclosing
+ * sibling case. hasReplacement is per declaration: the nearest case opener
+ * at-or-before the declaration's own line must exist, or the declaration
+ * floats outside any case and buys no exemption. One replacement case
+ * excuses one declaration — five declarations beside one case excuse one
+ * deletion, never five (RSI-Software/t3code-hyprws#1208). Additive-only
+ * reader over `collectForkSupersedes`; the parser itself is untouched.
  */
 export const supersededTitlesByPath = (
   text: string,
   path: string,
 ): ReadonlyArray<{ readonly title: string; readonly hasReplacement: boolean }> => {
-  const hasReplacement = testCaseTitles(text).length > 0;
+  const openers = siblingCaseOpenerLines(text);
   return collectForkSupersedes(text).declarations.flatMap((declaration) =>
-    declaration.upstreamPath === path ? [{ title: declaration.upstreamTitle, hasReplacement }] : [],
+    declaration.upstreamPath === path
+      ? [
+          {
+            title: declaration.upstreamTitle,
+            hasReplacement: openers.some((opener) => opener <= declaration.line),
+          },
+        ]
+      : [],
   );
 };
 

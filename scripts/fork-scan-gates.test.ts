@@ -182,8 +182,10 @@ it("passes a declared-superseded deletion and still fails an undeclared one", ()
   });
   const upstreamText = 'it("upstream", () => {\n  expect(keep).toBe(2);\n});\n';
   const declaredSibling =
-    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n' +
-    'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n';
+    'it("replacement", () => {\n' +
+    '  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    "  expect(keep).toBe(2);\n" +
+    "});\n";
   const declared = buildScanResult(
     baseInput(
       guardInput({
@@ -226,6 +228,53 @@ it("passes a declared-superseded deletion and still fails an undeclared one", ()
   assert.isTrue(
     scanFailures(bareDeclaration).some((failure) => failure.startsWith("upstream-test:")),
     "a declaration with no replacement case in the sibling must not exempt",
+  );
+  // Per-declaration enclosure: one declaration inside a sibling case is
+  // excused, one floating at file top level is not.
+  const removedTwo = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,6 +1,0 @@",
+    '-it("first", () => {',
+    "-  expect(first).toBe(1);",
+    "-});",
+    '-it("second", () => {',
+    "-  expect(second).toBe(1);",
+    "-});",
+    "",
+  ].join("\n");
+  const twoUpstreamText =
+    'it("first", () => {\n  expect(first).toBe(1);\n});\nit("second", () => {\n  expect(second).toBe(1);\n});\n';
+  const twoGuard = (sibling: string): AuthoringGuardInput => ({
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+    patchesBySha: parseCommitPatches(removedTwo),
+    upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestLines: new Map([
+      [
+        "apps/web/src/thing.test.ts",
+        new Set(["expect(first).toBe(1);", "expect(second).toBe(1);"]),
+      ],
+    ]),
+    upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", twoUpstreamText]]),
+    siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+  });
+  const mixedSibling =
+    'it("replacement", () => {\n' +
+    '  forkSupersedes({ upstream: "apps/web/src/thing.test.ts > first", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    "  expect(keep).toBe(2);\n" +
+    "});\n" +
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > second", reason: "the fork inverts it", commit: "abc1234" });\n';
+  const mixed = buildScanResult(baseInput(twoGuard(mixedSibling)));
+  const mixedFailures = scanFailures(mixed).filter((failure) =>
+    failure.startsWith("upstream-test:"),
+  );
+  assert.equal(mixedFailures.length, 1, "only the floating declaration still warns");
+  assert.isTrue(
+    mixedFailures[0]?.includes("expect(second).toBe(1);"),
+    "the warning names the unexcused case's line",
   );
 });
 

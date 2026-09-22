@@ -8,7 +8,7 @@
 //   assertion in place (a same-size swap nets to zero added blocks, so the
 //   removed side is the whole shape).
 // - replaced-export: the commit deletes an upstream-owned exported declaration
-import { supersededTitlesByPath, testCaseTitles } from "./lib/fork-supersedes.ts";
+import { enclosedSupersededTitles, supersededTitlesByPath } from "./lib/fork-supersedes.ts";
 
 // A case title: the first string literal of an `it`/`test`/`effectIt`
 // opener, including the dotted effect forms (`it.effect`, `it.layer`).
@@ -297,10 +297,18 @@ const declaredSupersededLines = (input: AuthoringGuardInput, path: string): Read
   if (upstreamText === undefined) return new Set();
   const siblingText = input.siblingTexts.get(forkTestSibling(path));
   if (siblingText === undefined) return new Set();
-  if (testCaseTitles(siblingText).length === 0) return new Set();
   const lines = new Set<string>();
-  for (const { title, hasReplacement } of supersededTitlesByPath(siblingText, path)) {
-    if (!hasReplacement) continue;
+  // One excusal per enclosing sibling case, mirroring the additive gate:
+  // five declarations beside one case strip one case's lines.
+  // A bare declaration strips nothing (RSI-Software/t3code-hyprws#1208).
+  const enclosed = enclosedSupersededTitles(siblingText, path);
+  const declared = new Set(
+    supersededTitlesByPath(siblingText, path)
+      .filter((entry) => entry.hasReplacement)
+      .map((entry) => entry.title),
+  );
+  for (const title of enclosed) {
+    if (!declared.has(title)) continue;
     for (const line of caseLines(upstreamText, title)) lines.add(line);
   }
   return lines;

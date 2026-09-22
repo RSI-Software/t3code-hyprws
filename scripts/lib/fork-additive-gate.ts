@@ -10,7 +10,7 @@
 import * as NodePath from "node:path";
 
 import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { supersededTitlesByPath } from "./fork-supersedes.ts";
+import { enclosedSupersededTitles } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -339,20 +339,18 @@ const testFindings = (
     // sibling carries the fork behaviour beside a record of why. Only a
     // named case is excused — a sibling case contradicting without one
     // stays a finding, and the scan's own supersedes findings name it.
-    // The declaration alone buys nothing: the sibling must carry a
-    // replacement case, or deleting upstream coverage would pass silently
-    // (RSI-Software/t3code-hyprws#1208). An inversion names a different
-    // title than upstream's, so the exemption keys on the declaration,
-    // never on a same-titled sibling case.
-    const named = new Set(
-      supersededTitlesByPath(siblingText ?? "", path)
-        .filter((entry) => entry.hasReplacement)
-        .map((entry) => entry.title),
-    );
+    // The exemption is per declaration, resolved by enclosure: each
+    // declaration must sit inside a sibling case, and each enclosing case
+    // excuses exactly one declaration. Five declarations beside one case
+    // excuse one deletion, never five (RSI-Software/t3code-hyprws#1208).
+    // An inversion names a different title than upstream's, so the
+    // exemption keys on the declaration, never on a same-titled sibling
+    // case.
+    const named = enclosedSupersededTitles(siblingText ?? "", path);
     const excused =
-      named.size === 0
+      named.length === 0
         ? new Set<string>()
-        : new Set([...named].flatMap((title) => caseLines(upstreamText, title)));
+        : new Set(named.flatMap((title) => caseLines(upstreamText, title)));
     const unsuperseded = unmoved.filter((line) => !excused.has(line));
     if (unsuperseded.length > 0)
       findings.push({
@@ -364,10 +362,10 @@ const testFindings = (
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);
     // A declared-superseded case's behaviour lives in the sibling under a
-    // replacement title, so each named case counts as still present — the
-    // replacement's existence was already required to earn the exemption
+    // replacement title, so each enclosed declaration counts as still
+    // present — one enclosing case, one excusal
     // (RSI-Software/t3code-hyprws#1208).
-    const present = headPresent + named.size;
+    const present = headPresent + named.length;
     if (present < upstreamPresent)
       findings.push({
         check: "tests",
