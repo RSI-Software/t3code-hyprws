@@ -216,7 +216,7 @@ it("passes a hook-guard restore the target tree already has", () => {
     filesBySha: new Map([["abc1234", ["apps/web/src/thing.ts"]]]),
     patchesBySha: parseCommitPatches(raw),
     upstreamFiles: new Set(["apps/web/src/thing.ts"]),
-    upstreamTestFiles: new Set(),
+    upstreamTestFiles: new Set<string>(),
     upstreamTestLines: new Map(),
     upstreamLines: new Map([["apps/web/src/thing.ts", new Set([restored])]]),
   };
