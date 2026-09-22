@@ -22,11 +22,11 @@ vi.mock("~/components/files/projectFilesQueryState", () => ({
 
 vi.mock("~/rpc/atomRegistry", () => ({ appAtomRegistry: {} }));
 
-import { readT3ProjectFileDefaultThreadEnvMode } from "./t3ProjectFileDefaults";
+import { readT3ProjectFile } from "./t3ProjectFileDefaults";
 
 const environmentId = "env-1" as EnvironmentId;
 
-describe("readT3ProjectFileDefaultThreadEnvMode", () => {
+describe("readT3ProjectFile", () => {
   beforeEach(() => {
     executeAtomQueryMock.mockReset();
   });
@@ -37,9 +37,9 @@ describe("readT3ProjectFileDefaultThreadEnvMode", () => {
       value: { contents: JSON.stringify({ defaultThreadEnvMode: "worktree" }), truncated: false },
     });
 
-    await expect(readT3ProjectFileDefaultThreadEnvMode(environmentId, "/repo")).resolves.toBe(
-      "worktree",
-    );
+    await expect(readT3ProjectFile(environmentId, "/repo")).resolves.toMatchObject({
+      defaultThreadEnvMode: "worktree",
+    });
   });
 
   // An unreachable environment leaves the file query pending forever. New-thread
@@ -48,8 +48,6 @@ describe("readT3ProjectFileDefaultThreadEnvMode", () => {
   it("falls back to null when the query never settles", async () => {
     executeAtomQueryMock.mockReturnValue(new Promise(() => {}));
 
-    await expect(readT3ProjectFileDefaultThreadEnvMode(environmentId, "/repo", 5)).resolves.toBe(
-      null,
-    );
+    await expect(readT3ProjectFile(environmentId, "/repo", 5)).resolves.toBe(null);
   });
 });
