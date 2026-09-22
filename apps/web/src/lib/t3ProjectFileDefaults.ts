@@ -1,8 +1,4 @@
-import {
-  T3_PROJECT_FILE_NAME,
-  type EnvironmentId,
-  type ForkThreadEnvMode,
-} from "@t3tools/contracts";
+import { T3_PROJECT_FILE_NAME, type EnvironmentId, type T3ProjectFile } from "@t3tools/contracts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
@@ -22,7 +18,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
 
 /**
- * Read `defaultThreadEnvMode` from the project's checked-in `t3.json`.
+ * Read and decode the project's checked-in `t3.json`.
  *
  * Imperative counterpart to `useT3ProjectFileScripts` for the new-thread
  * path, which resolves defaults at call time rather than render time. The
@@ -31,11 +27,11 @@ const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
  * `useProjectFileQuery` renders. Missing, truncated, invalid, and unreachable
  * files all resolve to null.
  */
-export async function readT3ProjectFileDefaultThreadEnvMode(
+export async function readT3ProjectFile(
   environmentId: EnvironmentId,
   workspaceRoot: string,
   timeoutMs: number = PROJECT_FILE_DEFAULTS_TIMEOUT_MS,
-): Promise<ForkThreadEnvMode | null> {
+): Promise<T3ProjectFile | null> {
   const result = await withTimeout(
     executeAtomQuery(
       appAtomRegistry,
@@ -52,7 +48,7 @@ export async function readT3ProjectFileDefaultThreadEnvMode(
     result._tag === "Success" ? result.value : null,
   );
   if (data === null || data.truncated) return null;
-  return parseT3ProjectFile(data.contents)?.defaultThreadEnvMode ?? null;
+  return parseT3ProjectFile(data.contents);
 }
 
 async function withTimeout<A>(promise: Promise<A>, timeoutMs: number): Promise<A | null> {
