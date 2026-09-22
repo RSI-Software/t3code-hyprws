@@ -83,6 +83,18 @@ Never post a block to `pingdotgg/t3code`, and never use `gh` to route around a `
 
 Rerere replays the recorded resolution and the run completes.
 
+## Failure lifecycle
+
+A run that fails on a non-blocked step — target, fetch, rebase, check, push, or a crash — files one issue the same way a block does, through the same `ghb`/`gh` route.
+
+| Rule       | Detail                                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity   | Title phrase `hyprws sync failed`, label `ci`, and the `sync-failure:<step>:<key>` body marker                                                                   |
+| Key        | The failing step plus the target tag, or the trunk sha before a tag resolved                                                                                     |
+| Filed once | Per key, including after a manual close                                                                                                                          |
+| Rerun      | The same failure updates the issue; a dry run reports and never files                                                                                            |
+| Close      | A clean run (applied or already-applied) closes it in the claim → comment → close pass that closes block issues; a refusal lands in the report and fails the run |
+
 ## Bot-owned refs
 
 Never create, move, delete, or force-push these by hand:
@@ -187,14 +199,15 @@ T3 Connect stays dark unless all four repository variables exist:
 
 ## Failure handling
 
-| Failure                        | Response                                              |
-| ------------------------------ | ----------------------------------------------------- |
-| **Mirror fails**               | Recreate the token. Someone wrote `main`; never force |
-| **Trunk lease rejected**       | Inspect and rerun; never swap in `--force`            |
-| **A blocked issue remains**    | Unblock by hand. Retirement needs a traced decision   |
-| **Check battery red**          | Fix by pull request; never weaken a check             |
-| **Rerere publication refused** | Inspect; the snapshot is retained for the next run    |
-| **Stable release fails**       | Fix and rerun. Never move a published tag             |
+| Failure                        | Response                                                         |
+| ------------------------------ | ---------------------------------------------------------------- |
+| **Mirror fails**               | Recreate the token. Someone wrote `main`; never force            |
+| **Trunk lease rejected**       | Inspect and rerun; never swap in `--force`                       |
+| **A blocked issue remains**    | Unblock by hand. Retirement needs a traced decision              |
+| **A failure issue remains**    | Inspect the report, fix, and rerun; the next clean run closes it |
+| **Check battery red**          | Fix by pull request; never weaken a check                        |
+| **Rerere publication refused** | Inspect; the snapshot is retained for the next run               |
+| **Stable release fails**       | Fix and rerun. Never move a published tag                        |
 
 ## Version ordering caveat
 

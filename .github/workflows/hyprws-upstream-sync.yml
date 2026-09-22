@@ -1,10 +1,12 @@
 name: hyprws upstream sync
 
 # One driver runs one upstream release tag end to end: fetch, rebase, check,
-# push, blocked-issue publication, report. `fork:sync` is the whole state
-# machine; this workflow only gives it credentials and a checkout. The push
-# goes out under the documented expected-old lease, and a clean run closes the
-# block issues it made stale.
+# push, blocked-issue and failure-issue publication, report. `fork:sync` is the
+# whole state machine; this workflow only gives it credentials and a checkout.
+# The push goes out under the documented expected-old lease, and a clean run
+# closes the stale sync issues — block and failure alike — it made stale. A
+# failed run files its issue inside the driver before it exits non-zero, so no
+# `if: failure()` step exists here.
 #
 # The sync job's own pushes (the trunk and the shared rerere cache) need the
 # mirror PAT, because upstream commits touch .github/workflows, which
