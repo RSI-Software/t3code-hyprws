@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// fork job step 3: release version
 // Gate: release — resolves the release version the release workflow publishes; usage errors fail the step and stop the cut.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
