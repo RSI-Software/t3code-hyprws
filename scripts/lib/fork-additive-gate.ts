@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Additive gate step (fork:ci step 1): the finished fork tree must be a pure
+// Additive gate (a fork:scan stage): the finished fork tree must be a pure
 // Gate: fork:ci — the additive gate, computed inside the fork:scan range; a finding fails the scan.
 // addition on top of its upstream base. Checks 1-3 of the old four-check walk
 // (RSI-Software/t3code-hyprws#1190): every upstream file still exists, every
