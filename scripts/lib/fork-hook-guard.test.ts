@@ -90,7 +90,7 @@ it("stays silent on package.json, where no marker comment can be written", () =>
     hookGuardWarnings({
       commit: { short: "abc1234", domain: "project-windows" },
       files: ["package.json"],
-      changedLines: new Map([["package.json", { added: ['  \"fork\": true,'] }]]),
+      changedLines: new Map([["package.json", { added: ['  "fork": true,'] }]]),
       upstreamFiles: new Set(["package.json"]),
     }),
     [],

@@ -268,7 +268,9 @@ const testFindings = (
     // `.fork.test.ts` sibling must not read as upstream loss. Only an
     // upstream-carried declaration counts.
     const upstreamCountText =
-      target === upstreamTarget ? upstreamText : (showTree(runner, worktree, upstreamTarget, path) ?? upstreamText);
+      target === upstreamTarget
+        ? upstreamText
+        : (showTree(runner, worktree, upstreamTarget, path) ?? upstreamText);
     const upstreamCountModifiers = declarationModifiers(upstreamCountText);
     const upstreamPresent = countPresent(upstreamCountModifiers);
     const headText = showTree(runner, worktree, head, path);
@@ -353,9 +355,7 @@ export const checkAdditive = (
   return [
     ...missingUpstreamFiles(runner, worktree, trees.base, head),
     ...migrationFindings(runner, worktree, trees.base, head),
-    ...(trees.since === null
-      ? []
-      : testFindings(runner, worktree, trees.since, trees.base, head)),
+    ...(trees.since === null ? [] : testFindings(runner, worktree, trees.since, trees.base, head)),
   ];
 };
 

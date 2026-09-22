@@ -31,7 +31,12 @@ import {
   type AdditiveFinding,
 } from "./lib/fork-additive-gate.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { runCommand, SystemCommandRunner, SystemGit, type CwdCommandRunner } from "./lib/fork-command.ts";
+import {
+  runCommand,
+  SystemCommandRunner,
+  SystemGit,
+  type CwdCommandRunner,
+} from "./lib/fork-command.ts";
 
 export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
 

@@ -129,10 +129,7 @@ it("permits moving a fork-added test line to the sibling, not dropping it", () =
     const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
       .toString()
       .trim();
-    write(
-      "apps/web/src/thing.test.ts",
-      'it("upstream", () => {});\nit("fork", () => {});\n',
-    );
+    write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\nit("fork", () => {});\n');
     commit("fork: add case in place");
     const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
       .toString()
