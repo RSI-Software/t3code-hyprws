@@ -252,14 +252,22 @@ const testFindings = (
   runner: CommandRunner,
   worktree: string,
   target: string,
+  upstreamTarget: string,
   head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
   for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
     const upstreamText = showTree(runner, worktree, target, path);
     if (upstreamText === null) continue;
-    const upstreamModifiers = declarationModifiers(upstreamText);
-    const upstreamPresent = countPresent(upstreamModifiers);
+    // Lost lines and declaration counts are measured against the upstream
+    // target tree, not the since tree: a case the fork added itself (absent
+    // upstream) may leave freely — moving a legacy fork case into a
+    // `.fork.test.ts` sibling must not read as upstream loss. Only an
+    // upstream-carried declaration counts.
+    const upstreamCountText =
+      target === upstreamTarget ? upstreamText : (showTree(runner, worktree, upstreamTarget, path) ?? upstreamText);
+    const upstreamCountModifiers = declarationModifiers(upstreamCountText);
+    const upstreamPresent = countPresent(upstreamCountModifiers);
     const headText = showTree(runner, worktree, head, path);
     if (headText === null) {
       findings.push({
@@ -271,7 +279,18 @@ const testFindings = (
       });
       continue;
     }
-    const lost = lostUpstreamLines(significantLines(upstreamText), significantLines(headText));
+    // Lost lines are measured against the upstream target tree, not the
+    // since tree: a line the fork added itself (absent upstream) may leave
+    // freely — moving a legacy fork case into a `.fork.test.ts` sibling
+    // must not read as upstream loss. Only a line upstream carries counts.
+    const upstreamLines =
+      target === upstreamTarget
+        ? new Set(significantLines(upstreamText))
+        : new Set(significantLines(showTree(runner, worktree, upstreamTarget, path) ?? ""));
+    const lost = lostUpstreamLines(
+      significantLines(upstreamText).filter((line) => upstreamLines.has(line)),
+      significantLines(headText),
+    );
     if (lost.length > 0)
       findings.push({
         check: "tests",
@@ -289,7 +308,7 @@ const testFindings = (
         head: headPresent,
         detail: `test declarations shrunk from ${upstreamPresent} to ${headPresent}`,
       });
-    const upstreamRestrictive = countRestrictive(upstreamModifiers);
+    const upstreamRestrictive = countRestrictive(upstreamCountModifiers);
     const headRestrictive = countRestrictive(headModifiers);
     if (headRestrictive > upstreamRestrictive)
       findings.push({
@@ -304,13 +323,15 @@ const testFindings = (
 };
 
 /**
- * The head's own tree against two trees: files and migrations read
- * against the upstream base (a deleted upstream file is a violation
- * whenever it left), while tests read against the since tree — the trunk
- * tip the change branched from — so only NEW test loss fires and the
- * trunk's pre-existing in-place test edits stay silent. A null since
- * (proven replay or unscoped run) skips the tests check: on a replay every
- * commit is re-authored and no range can name what's new.
+ * The head's own tree against the upstream base tree: files and
+ * migrations read against the base (a deleted upstream file is a
+ * violation whenever it left), while the tests check diffs the head
+ * against the since tree — the trunk tip the change branched from — so
+ * only NEW loss fires. Lost-line measurement additionally filters through
+ * the base tree: a line the fork added itself may leave freely, so moving
+ * a legacy fork case into a `.fork.test.ts` sibling is not refused. A
+ * null since (proven replay or unscoped run) skips the tests check: on a
+ * replay every commit is re-authored and no range can name what's new.
  */
 export const checkAdditive = (
   runner: CommandRunner,
@@ -322,7 +343,9 @@ export const checkAdditive = (
   return [
     ...missingUpstreamFiles(runner, worktree, trees.base, head),
     ...migrationFindings(runner, worktree, trees.base, head),
-    ...(trees.since === null ? [] : testFindings(runner, worktree, trees.since, head)),
+    ...(trees.since === null
+      ? []
+      : testFindings(runner, worktree, trees.since, trees.base, head)),
   ];
 };
 

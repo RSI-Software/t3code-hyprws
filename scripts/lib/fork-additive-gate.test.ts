@@ -101,3 +101,23 @@ it("flags a removed upstream test line even when declarations hold", () => {
     findings.some((finding) => finding.check === "tests" && /gone/.test(finding.detail)),
   );
 });
+
+it("permits removing a fork-added test line, matching the upstream-test guard", () => {
+  // Base carries an upstream case; since adds a fork case on top; head
+  // removes the fork case again (the move-to-sibling cleanup). Upstream
+  // loss is nil, so no tests finding fires.
+  const { root, run, write, commit } = fixture();
+  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
+  commit("upstream: base");
+  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\nit("fork", () => {});\n');
+  commit("fork: add case in place");
+  const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
+  commit("fork: move case to sibling");
+  assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+});

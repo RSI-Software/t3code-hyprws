@@ -637,9 +637,10 @@ export const readScan = (
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
     guard: buildGuardInput(git, options, range, commits, filesBySha),
     // Base + since, never live upstream: files and migrations read against
-    // the pinned base, tests against the since tree so only new test loss
-    // fires. A replay run re-authors every commit, so no range can name
-    // what's new and the tests check is skipped.
+    // the pinned base, tests diff head against the since tree so only new
+    // loss fires, with upstream-target filtering so removing a fork-added
+    // line is free. A replay run re-authors every commit, so no range can
+    // name what's new and the tests check is skipped.
     additive:
       additiveRunner === undefined
         ? []
