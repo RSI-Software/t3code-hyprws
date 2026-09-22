@@ -1,14 +1,21 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import { assert, it } from "@effect/vitest";
 
 import {
   buildScanResult,
+  readScan,
   renderScanReport,
   resolveGuardedCommits,
   scanFailures,
   type ScanInput,
 } from "./fork-scan.ts";
+import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
 import {
   forkTestSibling,
   parseCommitPatches,
@@ -423,4 +430,175 @@ it("surfaces a retire candidate without failing the scan", () => {
   assert.deepStrictEqual(scanFailures(result), []);
   assert.match(renderScanReport(result), /Retire candidates, 1/);
   assert.match(renderScanReport(result), /delete the declaration and its sibling case/);
+});
+
+/**
+ * One fixture, three scans: the additive gate and the authoring checks run
+ * together the way `fork:scan` runs them, because the #1210 deadlock fell
+ * between the two separate unit suites. The upstream case below is rewritten
+ * in place, then declared-superseded on a second tip.
+ */
+const rewriteFixture = (): {
+  root: string;
+  base: string;
+  bad: string;
+  old: string;
+  newer: string;
+  declared: string;
+  upstreamPath: string;
+} => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-gates-"));
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "fixture",
+    GIT_AUTHOR_EMAIL: "fixture@example.test",
+    GIT_COMMITTER_NAME: "fixture",
+    GIT_COMMITTER_EMAIL: "fixture@example.test",
+    GIT_CONFIG_GLOBAL: NodePath.join(root, ".isolated-global-gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+  const git = (...args: ReadonlyArray<string>): string =>
+    NodeChildProcess.execFileSync("git", args, { cwd: root, env }).toString().trim();
+  const write = (path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), contents);
+  };
+  const upstreamPath = "apps/web/src/thing.test.ts";
+  const upstreamCase = 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n';
+  git("init", "-b", "fixture");
+  write(upstreamPath, upstreamCase);
+  git("add", "-A");
+  git("commit", "-m", "upstream: base");
+  const base = git("rev-parse", "HEAD");
+  const trailers = ["Fork-Domain: fork-meta", "Fork-Tier: qol"].join("\n");
+  // A bad tip: the upstream case rewritten in place.
+  write(upstreamPath, upstreamCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
+  git("add", "-A");
+  git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
+  const bad = git("rev-parse", "HEAD");
+  // Landed history: the same rewrite as an old commit, then a clean tip commit.
+  git("checkout", "--quiet", "-b", "landed", base);
+  write(upstreamPath, upstreamCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
+  git("add", "-A");
+  git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
+  const old = git("rev-parse", "HEAD");
+  write("apps/web/src/added.ts", "export const added = 1;\n");
+  git("add", "-A");
+  git("commit", "-m", `feat: fork-owned addition\n\n${trailers}`);
+  const newer = git("rev-parse", "HEAD");
+  // The escape hatch: the upstream case removed, its replacement in the
+  // fork sibling, the forkSupersedes declaration placed before it.
+  git("checkout", "--quiet", "-b", "declared", base);
+  write(upstreamPath, "");
+  write(
+    "apps/web/src/thing.fork.test.ts",
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "declared" });\n' +
+      'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n',
+  );
+  git("add", "-A");
+  git("commit", "-m", `fix: supersede upstream case\n\n${trailers}`);
+  const declared = git("rev-parse", "HEAD");
+  return { root, base, bad, old, newer, declared, upstreamPath };
+};
+
+const scanLedger = `# Fork delta
+
+## fork-meta
+
+### Rebase scan
+
+| Path | Why |
+| --- | --- |
+| \`apps/web/src/thing.test.ts\` | The seam. |
+`;
+
+it("refuses a new in-window rewrite through the additive and authoring checks together", () => {
+  const f = rewriteFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: f.base,
+          head: f.bad,
+          target: f.base,
+          typecheck: false,
+          since: f.base,
+          replayOf: null,
+        },
+        scanLedger,
+        { worktree: f.root, run: commandRunner.run.bind(commandRunner) },
+      ),
+    );
+    assert.isTrue(
+      failures.some((failure) => failure.startsWith("upstream-test:")),
+      `an in-window rewrite must fail the authoring check: ${JSON.stringify(failures)}`,
+    );
+    assert.isTrue(
+      failures.some((failure) => failure.startsWith(`additive:tests: ${f.upstreamPath}`)),
+      `an in-window rewrite must fail the additive tests check: ${JSON.stringify(failures)}`,
+    );
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it("ignores the same rewrite as a historical commit outside the since window", () => {
+  const f = rewriteFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    // The trunk tip the change branched from sits past the rewrite: the
+    // rewrite is landed history, not new work.
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: f.base,
+          head: f.newer,
+          target: f.base,
+          typecheck: false,
+          since: f.old,
+          replayOf: null,
+        },
+        scanLedger,
+        { worktree: f.root, run: commandRunner.run.bind(commandRunner) },
+      ),
+    );
+    assert.deepStrictEqual(failures, []);
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it("passes a declared replacement: upstream case removed, fork sibling carries it", () => {
+  const f = rewriteFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: f.base,
+          head: f.declared,
+          target: f.base,
+          typecheck: false,
+          since: f.base,
+          replayOf: null,
+        },
+        scanLedger,
+        { worktree: f.root, run: commandRunner.run.bind(commandRunner) },
+      ),
+    );
+    assert.deepStrictEqual(
+      failures,
+      [],
+      `a declared replacement must pass: ${JSON.stringify(failures)}`,
+    );
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
 });
