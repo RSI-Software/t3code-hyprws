@@ -40,6 +40,12 @@ export interface HookGuardInput {
   readonly files: ReadonlyArray<string>;
   readonly changedLines: ReadonlyMap<string, HookGuardChange>;
   readonly upstreamFiles: ReadonlySet<string>;
+  // The significant lines each touched upstream file carries in the target
+  // tree (RSI-Software/t3code-hyprws#1207). An added line the target already
+  // has is a revert, not a fork insertion, so it is dropped before the
+  // unmarked/code filtering. An absent entry refuses every addition, because
+  // an unread tree is not evidence the line was upstream's.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
 }
 
 const isForkHookSuffixLine = (line: string): boolean =>
@@ -77,7 +83,12 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
 
     const unmarked: Array<string> = [];
+    // The mirror of the upstream-test filter (RSI-Software/t3code-hyprws#1207):
+    // that rule drops lines the fork authored, this one drops added lines
+    // the upstream target already has.
+    const upstream = input.upstreamLines?.get(path);
     for (const [index, line] of change.added.entries()) {
+      if (upstream !== undefined && upstream.has(line.trim())) continue;
       if (marked.has(index + 1)) continue;
       if (line.includes("fork-hook:")) continue;
       if (isFragmentScaffold(change.added, index)) continue;
