@@ -80,7 +80,7 @@ The expected-old lease lost; someone landed first.
 
 ## Unblock
 
-The driver resolves every seam it can: rerere replays the shared cache, and hook re-apply re-inserts marked fork hooks.
+The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, and hook re-apply re-inserts marked fork hooks.
 Only a `human` row stops the run.
 
 Only upstream moved: upstream's text stands.
@@ -93,7 +93,7 @@ A marked fork hook goes back verbatim.
 5. `git rebase --continue`.
 6. Rerun `vp run fork:sync <tag>`.
 
-Rerere replays the resolution; the run completes.
+Rerere replays the resolution within the rerun's rebase; the run completes.
 
 A blocked run files one block issue (label `ci`) keyed by the blocking upstream sha.
 A rerun on the same sha updates that issue; a clean run closes it.
@@ -105,6 +105,6 @@ A rerun with the same failure updates it; a clean run closes it.
 
 - **Post** to `pingdotgg/t3code`
 - **Merge** upstream into `hyprws`
-- **Move** `refs/fork/rerere` or published tags
+- **Move** published tags
 - **Force** past a refused lease: inspect, rerun
 - **Edit** a report; a comment decides nothing
