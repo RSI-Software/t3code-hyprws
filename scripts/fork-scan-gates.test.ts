@@ -2,7 +2,13 @@
 
 import { assert, it } from "@effect/vitest";
 
-import { buildScanResult, renderScanReport, scanFailures, type ScanInput } from "./fork-scan.ts";
+import {
+  buildScanResult,
+  renderScanReport,
+  resolveGuardedCommits,
+  scanFailures,
+  type ScanInput,
+} from "./fork-scan.ts";
 import {
   forkTestSibling,
   parseCommitPatches,
@@ -64,6 +70,60 @@ it("fails an additive files finding carried on the scan result", () => {
   const failures = scanFailures(result);
   assert.isTrue(
     failures.some((failure) => failure.startsWith("additive:files: apps/web/src/gone.ts")),
+  );
+});
+
+it("a replay run guards no commits", () => {
+  // A sync rehearsal re-authors every stack commit, so no `--since` range
+  // can name what's new: `--replay-of` must empty the guard selection and
+  // keep enforcement limited to new work.
+  const git = {
+    run: () => {
+      throw new Error("must not read git on a replay");
+    },
+  };
+  const commits = [
+    {
+      sha: "abc1234",
+      short: "abc1234",
+      subject: "feat: thing",
+      domain: "example",
+      tier: "core",
+    },
+  ];
+  assert.deepStrictEqual(
+    resolveGuardedCommits(
+      git,
+      {
+        base: null,
+        head: "head",
+        target: "target",
+        typecheck: false,
+        since: "since",
+        replayOf: "origin/hyprws",
+      },
+      { base: "base", head: "head", target: "target" },
+      commits,
+    ),
+    [],
+  );
+  // Without the flag the same since range still selects the commit, and no
+  // git read happens when since is null.
+  assert.deepStrictEqual(
+    resolveGuardedCommits(
+      git,
+      {
+        base: null,
+        head: "head",
+        target: "target",
+        typecheck: false,
+        since: null,
+        replayOf: null,
+      },
+      { base: "base", head: "head", target: "target" },
+      commits,
+    ),
+    commits,
   );
 });
 

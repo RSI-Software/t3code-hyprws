@@ -518,7 +518,25 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
 });
 
 // The guard rules read one patch per warned commit, so `--since` is what
-// keeps a pull request's run proportional to the commits it adds.
+// keeps a pull request's run proportional to the commits it adds. A proven
+// `--replay-of` rehearsal re-authors every stack commit, so no `--since`
+// range can name what's new: selection returns no commits and the guards
+// stay advisory for the replay.
+export const resolveGuardedCommits = (
+  git: GitReader,
+  options: ScanOptions,
+  range: ScanRange,
+  commits: ReadonlyArray<ForkCommit>,
+): ReadonlyArray<ForkCommit> => {
+  if (options.replayOf !== null) return [];
+  const since = options.since;
+  const warned =
+    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
+  return commits.filter(
+    (commit) => commit.domain !== undefined && (warned === null || warned.has(commit.sha)),
+  );
+};
+
 const buildGuardInput = (
   git: GitReader,
   options: ScanOptions,
@@ -526,11 +544,9 @@ const buildGuardInput = (
   commits: ReadonlyArray<ForkCommit>,
   filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
 ): AuthoringGuardInput | undefined => {
-  const since = options.since;
-  const warned =
-    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
-  const guardCommits = commits.flatMap((commit) =>
-    commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
+  const guarded = resolveGuardedCommits(git, options, range, commits);
+  const guardCommits = guarded.flatMap((commit) =>
+    commit.domain === undefined
       ? []
       : [
           {
