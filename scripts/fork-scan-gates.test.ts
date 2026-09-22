@@ -145,6 +145,88 @@ it("fails an upstream-test addition in the since range", () => {
   assert.isTrue(failures.some((failure) => failure.startsWith("upstream-test:")));
 });
 
+it("passes a declared-superseded deletion and still fails an undeclared one", () => {
+  // RSI-Software/t3code-hyprws#1208: the sibling declares the upstream case the fork
+  // contradicts, so deleting the fork's in-place rewrite from the upstream copy is
+  // the documented move, not an upstream rewrite. The declaration text rides on the
+  // guard input the same way the target-tree line sets do.
+  const removedCase = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,3 +1,0 @@",
+    '-it("upstream", () => {',
+    "-  expect(keep).toBe(2);",
+    "-});",
+    "",
+  ].join("\n");
+  const guardInput = ({
+    upstreamTestTexts,
+    siblingTexts,
+  }: {
+    upstreamTestTexts: ReadonlyMap<string, string>;
+    siblingTexts: ReadonlyMap<string, string>;
+  }): AuthoringGuardInput => ({
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+    patchesBySha: parseCommitPatches(removedCase),
+    upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestLines: new Map([
+      ["apps/web/src/thing.test.ts", new Set(["expect(keep).toBe(2);"])],
+    ]),
+    upstreamTestTexts,
+    siblingTexts,
+  });
+  const upstreamText = 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n';
+  const declaredSibling =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n';
+  const declared = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", declaredSibling]]),
+      }),
+    ),
+  );
+  assert.isFalse(
+    scanFailures(declared).some((failure) => failure.startsWith("upstream-test:")),
+    "a declared-superseded deletion must not warn",
+  );
+  const undeclared = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([
+          ["apps/web/src/thing.fork.test.ts", 'it("replacement", () => {});\n'],
+        ]),
+      }),
+    ),
+  );
+  assert.isTrue(
+    scanFailures(undeclared).some((failure) => failure.startsWith("upstream-test:")),
+    "an undeclared deletion must still warn",
+  );
+  const bareDeclaration = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([
+          [
+            "apps/web/src/thing.fork.test.ts",
+            'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
+          ],
+        ]),
+      }),
+    ),
+  );
+  assert.isTrue(
+    scanFailures(bareDeclaration).some((failure) => failure.startsWith("upstream-test:")),
+    "a declaration with no replacement case in the sibling must not exempt",
+  );
+});
+
 it("fails a replaced export matched by name across files", () => {
   const raw = [
     "abc1234",

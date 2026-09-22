@@ -118,6 +118,73 @@ it("flags a removed upstream test line even when declarations hold", () => {
   );
 });
 
+it("does not count a declared-superseded case as a shrink, and still shrinks an undeclared one", () => {
+  // RSI-Software/t3code-hyprws#1208: the sibling declares the upstream title the fork
+  // contradicts under a DIFFERENT replacement title, so the declaration must carry
+  // the exemption — counting same-titled sibling cases keeps the deadlock. The
+  // replacement case must exist: a bare declaration buys nothing.
+  const setup = (): { root: string; base: string; since: string } => {
+    const { root, run, write, commit } = fixture();
+    write(
+      "apps/web/src/thing.test.ts",
+      'it("upstream", () => {\n  expect(keep).toBe(1);\n});\nit("other", () => {});\n',
+    );
+    commit("upstream: base");
+    const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    return { root, base, since: base };
+  };
+  const declaredSibling = [
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
+    'it("replacement", () => {',
+    "  expect(keep).toBe(2);",
+    "});",
+    "",
+  ].join("\n");
+  {
+    // Declared, replacement present, upstream case deleted: no tests finding.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.fork.test.ts"), declaredSibling);
+    commitAll(root, "fork: delete declared case, declare in sibling");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
+  {
+    // Bare declaration, no replacement case: the shrink still fires.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
+    );
+    commitAll(root, "fork: delete with a bare declaration");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(findings.some((finding) => finding.check === "tests"));
+  }
+  {
+    // No declaration at all: the shrink still fires exactly as today.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("other", () => {});\n',
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n',
+    );
+    commitAll(root, "fork: delete with no declaration");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(findings.some((finding) => finding.check === "tests"));
+  }
+});
+
 it("lets a fork-added line leave freely but guards upstream lines via the sibling", () => {
   // Base carries an upstream case; since adds a fork case on top. A line
   // the fork added itself may leave the upstream-owned file freely; only
