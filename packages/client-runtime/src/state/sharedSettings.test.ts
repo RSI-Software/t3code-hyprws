@@ -125,6 +125,7 @@ describe("pickSharedServerSettings", () => {
     ).toEqual([
       "autoResumeLimitedThreads",
       "continueThreadsAfterServerUpdate",
+      "githubIssueHandoffPromptTemplate", // fork-hook: github-issues/shared-handoff-template
       "newWorktreesStartFromOrigin",
       "sidebarAutoSettleAfterDays",
       "sidebarAutoSettleOnMerge",
