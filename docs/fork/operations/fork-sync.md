@@ -23,7 +23,7 @@ There is no state machine, no gates, no lanes, no modes: one run, one exit code,
 
 A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
-Every push triggers `hyprws-release.yml`, so an applied run cuts the nightly by itself.
+Every push triggers `hyprws-release.yml`, so an applied run cuts the nightly by itself — once the release gate opens: the release sha is the current `origin/hyprws` tip and that sha carries a green `hyprws CI` conclusion. A red battery cuts no release (RSI-Software/t3code-hyprws#1181).
 
 ## Local trunk
 
@@ -189,7 +189,7 @@ Applied by hand in **Settings > Rules > Rulesets**, all `active`; nothing change
 ### Runners
 
 Both fork workflows run on `ubuntu-latest`.
-`hyprws-release.yml` publishes a nightly on every trunk landing, with a six-hour fallback schedule.
+`hyprws-release.yml` publishes a nightly on every trunk landing that passes the release gate (trunk tip plus green `hyprws CI`), with a six-hour fallback schedule.
 It keeps the newest 7 nightlies and deletes older ones with their tags; stable is never pruned.
 Stable fork releases are tagged by hand; `hyprws-release.yml` owns the build either way.
 
