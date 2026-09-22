@@ -162,3 +162,81 @@ it("permits moving a fork-added test line to the sibling, not dropping it", () =
     assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
   }
 });
+
+it("excuses a named upstream case a live declaration supersedes, and holds an unnamed one", () => {
+  // The fork moves the whole upstream case body into the sibling beside a
+  // forkSupersedes declaration: the named case's lines are superseded
+  // rather than contradictory, so no tests finding fires.
+  const setup = (): { root: string; base: string; since: string } => {
+    const { root, run, write, commit } = fixture();
+    write("apps/web/src/thing.test.ts", 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n');
+    commit("upstream: base");
+    const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    return { root, base, since: base };
+  };
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.test.ts"), "");
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      [
+        'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
+        'it("upstream", () => {',
+        "  expect(keep).toBe(2);",
+        "});",
+        "",
+      ].join("\n"),
+    );
+    commitAll(root, "fork: supersede with a declaration");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
+  {
+    // Same move, no declaration: the lost lines stay a finding.
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.test.ts"), "");
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      'it("upstream", () => {\n  expect(keep).toBe(2);\n});\n',
+    );
+    commitAll(root, "fork: supersede without a declaration");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.isTrue(
+      findings.some((finding) => finding.check === "tests" && /gone/.test(finding.detail)),
+    );
+  }
+  {
+    // A declaration names one case only: a second moved case it does not
+    // name stays a finding. Two cases live here from the start so the
+    // since tree (base2) still carries both.
+    const { root, run, write, commit } = fixture();
+    write(
+      "apps/web/src/thing.test.ts",
+      'it("upstream", () => {\n  expect(keep).toBe(1);\n});\nit("other", () => {\n  expect(keep).toBe(1);\n});\n',
+    );
+    commit("upstream: base");
+    const base2 = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.test.ts"), "");
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.fork.test.ts"),
+      [
+        'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });',
+        'it("upstream", () => {',
+        "  expect(keep).toBe(1);",
+        "});",
+        'it("other", () => {',
+        "  expect(keep).toBe(2);",
+        "});",
+        "",
+      ].join("\n"),
+    );
+    commitAll(root, "fork: move two, declare one");
+    const findings = checkAdditive(runner, root, { base: base2, since: base2 });
+    // The unnamed "other" case stays a finding even though its lines
+    // moved to the sibling: only the declared case is superseded.
+    assert.isTrue(findings.some((finding) => finding.check === "tests"));
+  }
+});

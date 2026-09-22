@@ -10,6 +10,11 @@
 import * as NodePath from "node:path";
 
 import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import {
+  collectForkSupersedes,
+  testCaseTitles,
+  type ForkSupersedesDeclaration,
+} from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -251,6 +256,54 @@ const LOST_LINE_SAMPLE = 5;
 export const forkTestSibling = (path: string): string =>
   path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
 
+export const upstreamTestPath = (sibling: string): string =>
+  sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
+
+/**
+ * The upstream cases a live declaration names for one upstream file: the
+ * sibling's `forkSupersedes` calls whose `upstream` path is this file.
+ * Read from the head tree's sibling text, so a declaration the fork has
+ * not yet committed excuses nothing.
+ */
+const declaredSupersededTitles = (siblingText: string | null, path: string): Set<string> => {
+  if (siblingText === null) return new Set();
+  return new Set(
+    collectForkSupersedes(siblingText).declarations.flatMap(
+      (declaration: ForkSupersedesDeclaration) =>
+        declaration.upstreamPath === path ? [declaration.upstreamTitle] : [],
+    ),
+  );
+};
+
+// The significant lines one upstream case carries: the opener line naming
+// the title through the next case opener. Line-based, the way
+// `significantLines` is — a case body is what the lost-line multiset counts.
+const TITLE_OF =
+  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
+
+const caseLines = (text: string, title: string): ReadonlyArray<string> => {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const started: Array<string> = [];
+  let inside = false;
+  for (const line of lines) {
+    const current =
+      TITLE_OF.exec(line)
+        ?.slice(1)
+        .find((part) => part !== undefined) ?? null;
+    if (current !== null) {
+      if (current === title && !inside) {
+        inside = true;
+        started.push(line.trim());
+        continue;
+      }
+      if (inside) break;
+      continue;
+    }
+    if (inside) started.push(line);
+  }
+  return significantLines(started.join("\n"));
+};
+
 const testFindings = (
   runner: CommandRunner,
   worktree: string,
@@ -300,26 +353,42 @@ const testFindings = (
       (line) => upstreamLines.has(line) || sinceLines.has(line),
     );
     const lost = lostUpstreamLines(carried, headLines);
-    const siblingLines = new Set(
-      significantLines(showTree(runner, worktree, head, forkTestSibling(path)) ?? ""),
-    );
+    const siblingText = showTree(runner, worktree, head, forkTestSibling(path));
+    const siblingLines = new Set(significantLines(siblingText ?? ""));
     const unmoved = lost.filter((line) => !siblingLines.has(line));
-    if (unmoved.length > 0)
+    // A live declaration supersedes rather than contradicts: the upstream
+    // case it names may lose its lines and its declarations, because the
+    // sibling carries the fork behaviour beside a record of why. Only a
+    // named case is excused — a sibling case contradicting without one
+    // stays a finding, and the scan's own supersedes findings name it.
+    const named = declaredSupersededTitles(siblingText, path);
+    const excused =
+      named.size === 0
+        ? new Set<string>()
+        : new Set([...named].flatMap((title) => caseLines(upstreamText, title)));
+    const unsuperseded = unmoved.filter((line) => !excused.has(line));
+    if (unsuperseded.length > 0)
       findings.push({
         check: "tests",
         path,
-        lines: [...new Set(unmoved)].sort().slice(0, LOST_LINE_SAMPLE),
-        detail: `${unmoved.length} upstream test line(s) are gone from the head tree and appear in no ${forkTestSibling(path)} sibling; a fork commit may only move a case to the sibling, never drop it`,
+        lines: [...new Set(unsuperseded)].sort().slice(0, LOST_LINE_SAMPLE),
+        detail: `${unsuperseded.length} upstream test line(s) are gone from the head tree and appear in no ${forkTestSibling(path)} sibling; a fork commit may only move a case to the sibling, never drop it`,
       });
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);
-    if (headPresent < upstreamPresent)
+    // A superseded case's declarations live in the sibling now: count a
+    // named upstream case as still present when the sibling carries a
+    // case of the same title.
+    const siblingTitles =
+      named.size === 0 ? new Set<string>() : new Set(testCaseTitles(siblingText ?? ""));
+    const present = headPresent + [...named].filter((title) => siblingTitles.has(title)).length;
+    if (present < upstreamPresent)
       findings.push({
         check: "tests",
         path,
         upstream: upstreamPresent,
-        head: headPresent,
-        detail: `test declarations shrunk from ${upstreamPresent} to ${headPresent}`,
+        head: present,
+        detail: `test declarations shrunk from ${upstreamPresent} to ${present}`,
       });
     const upstreamRestrictive = countRestrictive(upstreamCountModifiers);
     const headRestrictive = countRestrictive(headModifiers);
