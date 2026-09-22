@@ -71,13 +71,12 @@ Upstream references in either array are code-spanned records, never live links.
 
 ## Trailers
 
-| Trailer             | Values                        | Required on              |
-| ------------------- | ----------------------------- | ------------------------ |
-| `Fork-Domain`       | A domain from the index below | Every fork commit        |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit        |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`           |
-| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
-| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair   |
+| Trailer             | Values                        | Required on            |
+| ------------------- | ----------------------------- | ---------------------- |
+| `Fork-Domain`       | A domain from the index below | Every fork commit      |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit      |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`         |
+| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair |
 
 `Fork-Upstreamable: yes` is a tracking tag, never authorization to post upstream; `AGENTS.md` owns that rule.
 `Fork-Repair` marks what a walk's repair pass rewrote, keeping that commit out of the replayed series.
@@ -85,29 +84,8 @@ Upstream references in either array are code-spanned records, never live links.
 `vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
 
 **Squash-body mode.** Fork CI also runs it with `--base origin/hyprws --head <sha> --squash-body <file>`, both refs explicit.
-It compares the merge-base tree with the exact head, and validates findings against the body's final trailer paragraph, which becomes the squash trailers.
-A trailer carried only by a branch commit cannot satisfy it, and a historical baseline entry exempts no new pull request.
-
-`scripts/fork-wire-baseline.json` records wire findings that predate the check.
-A new commit uses `Fork-Wire: reviewed <reason>` and never adds itself to the baseline.
-A baseline key the stack no longer produces is stale; delete it.
-
-## Wire compatibility
-
-`vp run fork:delta --check` refuses a fork commit that changes a shipped contract under `packages/contracts/src/`.
-
-| Binding                         | Refused change                               |
-| ------------------------------- | -------------------------------------------- |
-| Exported `Schema.Literals`      | Adds a member                                |
-| Exported `Schema.Struct`        | Adds a required field                        |
-| Exported `Schema.Struct`        | Removes or renames a field                   |
-| Any exported schema             | Removes it, renames it, or switches its kind |
-| `packages/contracts/src/ipc.ts` | Any change beyond added optional fields      |
-
-A field is optional under `Schema.optional`, `optionalKey`, `optionalWith`, `withDecodingDefault`, or `withConstructorDefault`.
-Keep fork-only contract data in an optional sibling field so released clients still decode the upstream shape.
-Restoring a literal or field the upstream base already ships is not a fork wire change.
-The check is textual, so type widening, settings migrations, and deep-link parameters need separate review.
+It validates the body's final trailer paragraph, which becomes the squash trailers.
+A trailer carried only by a branch commit cannot satisfy it.
 
 ## Carry cost
 
@@ -415,7 +393,7 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 | `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; `package.json` names them          |
 | [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure        |
 | `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts |
-| `.github/pull_request_template.md` trailer block                                                  | Domain list held equal to `FORK_DOMAINS`           |
+| `.github/pull_request_template.md` trailer block                                                  | Domain list copied from `FORK_DOMAINS`             |
 
 Every fork workflow checkout that runs rebased code scrubs its persisted credential first; `hyprws-upstream-sync.yml`'s scrub step is the pattern.
 

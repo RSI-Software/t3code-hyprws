@@ -116,8 +116,7 @@ A sync keeps the new base's version and reruns the generator after applying fork
 | ---------------- | ---------------------------- | ----------------------------------------------------------------- |
 | `pnpm-lock.yaml` | `vp install --lockfile-only` | Restore from `HEAD`, resolve sources, regenerate, stage, continue |
 
-`vp run fork:lockfile` proves the same on a feature branch; only `importers` drift fails.
-Run it on every branch that changes a package manifest, so a hand-merged lockfile fails there instead of costing a sync run.
+On a branch that changes a package manifest, regenerate the lockfile before pushing, so a hand-merged lockfile fails there instead of costing a sync run.
 
 ## Reading a bot run
 
