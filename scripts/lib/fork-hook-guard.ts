@@ -44,23 +44,73 @@ export interface HookGuardInput {
 }
 
 /**
- * A formatter reflow: same tokens, same order, whitespace and trailing
- * commas aside. `vp fmt` re-wrapping a landed fork line moves no token
- * across the seam, so the rewrapped lines are not new fork logic and the
- * rule skips the file. An empty removal side is a pure addition and never
- * qualifies.
+ * A formatter reflow: same code tokens in the same order, whitespace and
+ * trailing commas aside. `vp fmt` re-wrapping a landed fork line moves no
+ * token across the seam, so the rewrapped lines are not new fork logic and
+ * the rule skips the file. Two narrowings keep the exemption safe:
+ *
+ * - whitespace inside string or template literals is significant
+ *   (`"a b"` is not `"ab"`), so runs inside quotes compare exactly;
+ * - only the same lines reflowed qualify: the added side must be a
+ *   line-for-line rewrite of the removed side, so relocated identical
+ *   code (same tokens, different position) never reads as a reflow.
+ *
+ * An empty removal side is a pure addition and never qualifies.
  */
 export const isFormatterReflow = (
   added: ReadonlyArray<string>,
   removed: ReadonlyArray<string>,
 ): boolean => {
-  if (removed.length === 0) return false;
-  const normalize = (lines: ReadonlyArray<string>) =>
-    lines
-      .join("\n")
-      .replace(/\s+/g, "")
-      .replace(/,(?=[)\]}])/g, "");
-  return normalize(added) === normalize(removed);
+  if (removed.length === 0 || added.length !== removed.length) return false;
+  return added.every((line, index) => reflowedLine(line, removed[index] ?? ""));
+};
+
+// Whitespace runs outside string/template literals collapse; runs inside
+// quotes are kept verbatim. Handles single, double, and backtick quotes
+// with backslash escapes — enough for the reflow shapes `vp fmt` emits.
+const collapseOutsideLiterals = (line: string): string => {
+  let out = "";
+  let quote: string | null = null;
+  let pendingSpace = false;
+  const flushSpace = (): void => {
+    if (quote !== null) out += " ";
+    pendingSpace = false;
+  };
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        if (pendingSpace) flushSpace();
+        out += char + (line[index + 1] ?? "");
+        index += 1;
+        continue;
+      }
+      if (char === quote) quote = null;
+      if (pendingSpace) flushSpace();
+      out += char;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      out += char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      pendingSpace = true;
+      continue;
+    }
+    pendingSpace = false;
+    out += char;
+  }
+  return out;
+};
+
+const reflowedLine = (left: string, right: string): boolean => {
+  const stripTrailingComma = (line: string): string => line.replace(/,(?=[)\]}])/g, "");
+  return (
+    stripTrailingComma(collapseOutsideLiterals(left)) ===
+    stripTrailingComma(collapseOutsideLiterals(right))
+  );
 };
 
 const isForkHookSuffixLine = (line: string): boolean =>
