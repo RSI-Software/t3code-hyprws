@@ -186,7 +186,7 @@ jobs:
               core.setOutput('gate_proceed', 'false');
               core.setOutput('gate_reason', reason);
               await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
-              core.setFailed(`release gate closed: ${reason}`);
+              core.setFailed(reason);
             };
             let trunkTip;
             try {
@@ -194,7 +194,7 @@ jobs:
               trunkTip = execSync('git rev-parse FETCH_HEAD', { encoding: 'utf8' }).trim();
             } catch (error) {
               await close(
-                `could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+                `release gate closed: could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
               );
               return;
             }
@@ -205,11 +205,19 @@ jobs:
               runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
             );
             core.info(`release sha: ${releaseSha}; hyprws tip: ${trunkTip}; hyprws CI: ${conclusion ?? 'missing'}`);
-            const first = execSync(
-              `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
-              (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
-              { encoding: 'utf8' },
-            ).trim().split('\n')[0] ?? '';
+            let first;
+            try {
+              first = execSync(
+                `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
+                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
+                { encoding: 'utf8' },
+              ).trim().split('\n')[0] ?? '';
+            } catch (error) {
+              await close(
+                `release gate closed: the gate decision failed (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
             const proceed = first.startsWith('proceed');
             const reason = first.replace(/^(proceed|skip):\s*/, '');
             core.setOutput('gate_proceed', proceed ? 'true' : 'false');
