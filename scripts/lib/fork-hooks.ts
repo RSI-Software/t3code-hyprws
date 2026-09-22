@@ -1,4 +1,5 @@
 // The fork-hook seam model. A `fork-hook:` marker in an upstream-owned source
+// fork job steps 2 and 5: the hook seam
 // Gate: none — pure seam model; read by the hook guard (fork:ci) and hook re-apply (sync tip).
 // file is the whole declaration of a seam: there is no hand-kept manifest, and
 // nothing outside the marked source decides whether a hook exists

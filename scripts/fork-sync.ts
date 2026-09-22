@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver bootstraps Git before any Effect runtime exists.
+// fork job steps 1-4: fetch tag, rebase with hooks, fold fixups, one issue
 // Gate: sync tip — the driver moves hyprws only after the check battery passes; a red battery or unresolvable seam stops the run.
 //
 // One driver, one run, one exit code, one report. `fork:sync [<tag>] [--dry-run]`
