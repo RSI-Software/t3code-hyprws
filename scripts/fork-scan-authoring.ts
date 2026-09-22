@@ -82,6 +82,12 @@ export interface AuthoringGuardInput {
   // refuses every removal, because an unread tree is not evidence that the
   // line was the fork's.
   readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
+  // The significant lines each touched upstream file carries in the target
+  // tree, for the hook guard's mirror filter (RSI-Software/t3code-hyprws#1207):
+  // an added line the target already has is a revert, not a fork insertion.
+  // Absent on inputs built before the map existed; the guard then behaves
+  // as it always has.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
 }
 
 const PATCH_RECORD_SEPARATOR = "\x1e";
