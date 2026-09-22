@@ -159,6 +159,8 @@ export const ConflictRow = Schema.Struct({
   via: ConflictVia,
   /** Hook keys re-inserted by hook re-apply; empty for every other row. */
   hooksReapplied: Schema.Array(Schema.String),
+  /** Why hook re-apply refused the path; set on `human` rows that carried hooks. */
+  refuseReason: Schema.optionalKey(Schema.String),
 });
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 
@@ -347,16 +349,20 @@ const upstreamTouch = (
 /**
  * Hook re-apply for one conflicted path: the merged text is the upstream side
  * (`:2:`), the fork side (`:3:`) declares the hooks, and every reinserted key is
- * named. `null` when the path is not purely a hook re-insertion.
+ * named. The fork side must be a fully marked insertion — the base stage (`:1:`)
+ * equals the fork stage with every marked span removed
+ * (RSI-Software/t3code-hyprws#1187); any other shape refuses. `null` when the
+ * path is not purely a hook re-insertion.
  */
 const reapplyHooks = (
   runner: CommandRunner,
   worktree: string,
   path: string,
-): ReadonlyArray<string> | null => {
+): { readonly reinserted: ReadonlyArray<string> } | { readonly refuseReason: string } | null => {
+  const base = stageContent(runner, worktree, 1, path);
   const ours = stageContent(runner, worktree, 2, path);
   const theirs = stageContent(runner, worktree, 3, path);
-  if (ours === null || theirs === null) return null;
+  if (base === null || ours === null || theirs === null) return null;
   let entries;
   try {
     entries = deriveForkHooksIn(path, theirs);
@@ -364,16 +370,41 @@ const reapplyHooks = (
     return null;
   }
   if (entries.length === 0) return null;
+  const marked = new Set<number>();
+  for (const entry of entries)
+    for (let line = entry.span.startLine; line <= entry.span.endLine; line += 1) marked.add(line);
+  // Line arrays, not raw text: the fork blob and the base blob may differ in a
+  // trailing newline while carrying the same lines.
+  const shape = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
+    lines.length > 0 && lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines;
+  const baseLines = shape(base.split("\n"));
+  const forkLines = shape(theirs.split("\n").filter((_, index) => !marked.has(index + 1)));
+  const pureInsertion =
+    baseLines.length === forkLines.length &&
+    baseLines.every((line, index) => line === forkLines[index]);
+  if (!pureInsertion)
+    return {
+      refuseReason:
+        "the fork side is not a fully marked insertion: the base stage differs outside the marked region",
+    };
   const result = reapplyForkHooks(
     ours,
     theirs,
     entries.map(({ key, anchor, span }) => ({ key, anchor, span })),
   );
-  if (result.results.some(({ outcome }) => outcome.status === "refuse")) return null;
+  if (result.results.some(({ outcome }) => outcome.status === "refuse"))
+    return {
+      refuseReason: result.results
+        .filter(({ outcome }) => outcome.status === "refuse")
+        .map(({ key, outcome }) =>
+          outcome.status === "refuse" ? `${key}: ${outcome.reason}` : key,
+        )
+        .join("; "),
+    };
   if (result.reinserted.length === 0) return null;
   NodeFS.writeFileSync(NodePath.join(worktree, path), result.text);
   git(runner, worktree, ["add", "--", path]);
-  return result.reinserted;
+  return { reinserted: result.reinserted };
 };
 
 export type RebaseOutcome =
@@ -424,7 +455,7 @@ export const rebaseOnto = (
     for (const path of unmerged) {
       const touch = upstreamTouch(runner, root, target.sha, path);
       const applied = reapplyHooks(runner, worktree, path);
-      if (applied === null) {
+      if (applied === null || "refuseReason" in applied) {
         human.push(path);
         conflicts.push({
           path,
@@ -434,6 +465,7 @@ export const rebaseOnto = (
           upstreamSubject: touch.subject,
           via: "human",
           hooksReapplied: [],
+          ...(applied !== null ? { refuseReason: applied.refuseReason } : {}),
         });
         continue;
       }
@@ -444,7 +476,7 @@ export const rebaseOnto = (
         upstreamCommit: touch.sha,
         upstreamSubject: touch.subject,
         via: "hook",
-        hooksReapplied: [...applied],
+        hooksReapplied: [...applied.reinserted],
       });
     }
     if (human.length > 0) return { status: "blocked", conflicts };
@@ -601,11 +633,11 @@ export const blockedIssueBody = (report: ForkSyncReport): string => {
     "",
     `Blocking upstream commit: ${cell(`${blocked.blockingSha} ${first?.upstreamSubject ?? ""}`)}`,
     "",
-    "| Path | Fork commit | Upstream commit |",
-    "| --- | --- | --- |",
+    "| Path | Fork commit | Upstream commit | Refusal |",
+    "| --- | --- | --- | --- |",
     ...report.conflicts.map(
       (row) =>
-        `| ${cell(row.path)} | ${cell(`${row.forkCommit.slice(0, 7)} ${row.forkSubject}`)} | ${cell(`${row.upstreamCommit.slice(0, 7)} ${row.upstreamSubject}`)} |`,
+        `| ${cell(row.path)} | ${cell(`${row.forkCommit.slice(0, 7)} ${row.forkSubject}`)} | ${cell(`${row.upstreamCommit.slice(0, 7)} ${row.upstreamSubject}`)} | ${cell(row.refuseReason ?? "-")} |`,
     ),
     "",
     "## Resume",
