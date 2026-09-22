@@ -39,6 +39,8 @@ interface Fixture {
 const fixture = (options: {
   readonly forkContent: string;
   readonly upstreamContent: string;
+  /** Base file both sides start from; defaults to the legacy line fixture. */
+  readonly baseContent?: string;
   /** The fork branches from the tagged upstream commit instead of its base. */
   readonly forkOnTag?: boolean;
   readonly nightlyTag?: boolean;
@@ -61,7 +63,10 @@ const fixture = (options: {
   git(["init", "--quiet", "--bare", "--initial-branch", "main", origin]);
   git(["init", "--quiet", "--initial-branch", "main", repo]);
   configure(repo);
-  NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3\n");
+  NodeFS.writeFileSync(
+    NodePath.join(repo, "shared.txt"),
+    options.baseContent ?? "line1\nline2\nline3\n",
+  );
   git(["add", "."], repo);
   git(["commit", "--quiet", "-m", "base"], repo);
   git(["remote", "add", "origin", origin], repo);
@@ -311,8 +316,10 @@ it("pushes the rebased tip after a green battery", () => {
 it("resolves a marked hook seam by re-applying the hook", () => {
   withFixture(
     {
-      forkContent: 'line1\nexport const line2 = "fork"; // fork-hook: fork-meta/test\nline3\n',
-      upstreamContent: "line1\nline2 upstream\nline3\n",
+      baseContent: 'import { a } from "a";\n',
+      forkContent:
+        'import { a } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
+      upstreamContent: 'import { a } from "a";\nimport { b } from "b";\n',
     },
     (f) => {
       const { runner } = exec();
@@ -324,6 +331,43 @@ it("resolves a marked hook seam by re-applying the hook", () => {
       const row = report.conflicts[0]!;
       assert.strictEqual(row.via, "hook");
       assert.deepEqual(row.hooksReapplied, ["fork-meta/test"]);
+    },
+  );
+});
+
+it("refuses a marked hook beside an unmarked edit and files one keyed block", () => {
+  withFixture(
+    {
+      baseContent: 'import { a } from "a";\n',
+      forkContent:
+        'import { changed } from "fork";\nimport { a } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
+      upstreamContent: 'import { a } from "upstream";\nimport { b } from "b";\n',
+    },
+    (f) => {
+      const { runner } = exec();
+      const first = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+      assert.strictEqual(first.value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "blocked");
+      assert.strictEqual(report.conflicts.length, 1);
+      const row = report.conflicts[0]!;
+      assert.strictEqual(row.path, "shared.txt");
+      assert.strictEqual(row.via, "human");
+      assert.deepStrictEqual(row.hooksReapplied, []);
+      assert.match(
+        row.refuseReason ?? "",
+        /not a fully marked insertion: the base stage differs outside the marked region/,
+      );
+      assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
+      const body = blockedIssueBody(report);
+      assert.match(body, /shared\.txt/);
+      assert.match(body, /not a fully marked insertion/);
+      const worktreeContent = NodeFS.readFileSync(NodePath.join(f.worktree, "shared.txt"), "utf8");
+      // The stop is the proof of never re-applying: the walk writes nothing
+      // and leaves git's conflict markers for a human.
+      assert.match(worktreeContent, /<{7} /);
+      assert.match(worktreeContent, /={7}\n/);
+      assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
     },
   );
 });
@@ -911,7 +955,7 @@ it("renders the report and the issue body as pure output of the typed report", (
   assert.match(markdown, /## Decision route/);
   assert.match(markdown, /`\/tmp\/fork-sync\/worktree`/);
   const body = blockedIssueBody(report);
-  assert.match(body, /\| Path \| Fork commit \| Upstream commit \|/);
+  assert.match(body, /\| Path \| Fork commit \| Upstream commit \| Refusal \|/);
   assert.match(body, /The typed report is the authority/);
   assert.include(body, blockingShaMarker("5".repeat(40)));
   assert.match(body, /git -C \/tmp\/fork-sync\/worktree add/);
