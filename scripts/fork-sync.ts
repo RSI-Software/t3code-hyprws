@@ -15,6 +15,11 @@
 // | push    | the expected-old lease is refused                  |
 // | blocked | `ghb` is unavailable                               |
 //
+// A failed run — target, fetch, check, push, or a crash — files one issue the
+// way a blocked run files its block issue: keyed by the failing step and the
+// target tag (the trunk sha before a tag resolves), refreshed by a rerun with
+// the same failure, closed by the next clean run.
+//
 // The typed report at `.t3/fork-sync/<tag>.json` is the only run authority; the
 // Markdown this prints is output, never read back. Publication goes through
 // `ghb`, never bare `gh`, and nothing is ever posted to upstream.
@@ -51,6 +56,7 @@ const WORKTREE_DIR = "worktree";
 /** ghb issues only this label from the governed set; the title search does the rest. */
 const BLOCK_LABEL = "ci";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
+const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v1";
 /** The task the sync program files under; taxonomy Source is `repo#number` form. */
 const BLOCK_SOURCE_ISSUE = "1151";
@@ -60,6 +66,13 @@ const blockIssueTitle = (tag: string, blockingShortSha: string): string =>
 
 const blockingShaMarker = (sha: string): string => `<!-- blocking-sha:${sha} -->`;
 export { blockingShaMarker };
+
+/** A failed run's identity: the failing step plus the target tag or trunk sha. */
+const failureIssueTitle = (step: string, key: string): string =>
+  `hyprws sync failed at ${step} (${key.length === 40 ? key.slice(0, 7) : key})`;
+
+export const failureMarker = (step: string, key: string): string =>
+  `<!-- sync-failure:${step}:${key} -->`;
 
 // ---------------------------------------------------------------------------
 // Command runner
@@ -117,6 +130,14 @@ const runRequire = (
   args: ReadonlyArray<string>,
   spec: CommandSpec,
 ): string => requireCommandSuccess(runner.run(command, args, spec), command, args);
+
+/** Best-effort trunk sha for a failure that stops before any tag resolved. */
+const trunkSha = (runner: CommandRunner, root: string): string => {
+  const result = gitResult(runner, root, ["rev-parse", "HEAD"]);
+  return result.status === 0 && result.error === undefined && result.stdout.trim() !== ""
+    ? result.stdout.trim()
+    : "unknown";
+};
 
 // ---------------------------------------------------------------------------
 // Typed report
@@ -205,6 +226,20 @@ export const ForkSyncReport = Schema.Struct({
       blockingSha: Schema.String,
       publishError: Schema.NullOr(Schema.String),
       /** Which CLI posted: `ghb` when present, `gh` when it cannot spawn. */
+      publishedVia: Schema.NullOr(Schema.Literals(["ghb", "gh"])),
+    }),
+  ),
+  /** The one failure issue a non-blocked failed run files; `null` otherwise. */
+  failure: Schema.NullOr(
+    Schema.Struct({
+      /** The open issue carrying the failure; `null` when unfiled or dry-run. */
+      issue: Schema.NullOr(Schema.Number),
+      title: Schema.String,
+      /** The failing step; names the issue and keys its marker. */
+      step: Schema.String,
+      /** The target tag, or the trunk sha before a tag resolved. */
+      key: Schema.String,
+      publishError: Schema.NullOr(Schema.String),
       publishedVia: Schema.NullOr(Schema.Literals(["ghb", "gh"])),
     }),
   ),
@@ -546,7 +581,7 @@ export const runChecks = (
 };
 
 // ---------------------------------------------------------------------------
-// Blocked publication
+// Issue publication
 // ---------------------------------------------------------------------------
 
 export const blockingShaOf = (conflicts: ReadonlyArray<ConflictRow>): string | null =>
@@ -597,7 +632,8 @@ export interface OpenBlockIssue {
 export interface GitHub {
   /** Which CLI posts the writes: `ghb` when present, `gh` when `ghb` cannot spawn. */
   readonly route: "ghb" | "gh";
-  readonly list: () => ReadonlyArray<OpenBlockIssue>;
+  /** Open issues under the governed label matching one title phrase. */
+  readonly list: (titlePhrase: string) => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
   /** Take the issue so the completed close finds an assignee; a no-op on `gh`. */
   readonly claim: (issue: number) => void;
@@ -638,7 +674,7 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
   const repo = ["--repo", FORK_REPOSITORY];
   const probe = runner.run("ghb", ["--version"], { cwd: root });
   const route = probe.error === undefined ? "ghb" : "gh";
-  const list = () =>
+  const list = (titlePhrase: string) =>
     JSON.parse(
       runRequire(
         runner,
@@ -651,7 +687,7 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
           "--label",
           BLOCK_LABEL,
           "--search",
-          BLOCK_TITLE_PHRASE,
+          titlePhrase,
           ...repo,
           "--json",
           "number,title,body",
@@ -757,6 +793,30 @@ const withBodyFile = <T>(body: string, effect: (path: string) => T): T => {
 };
 
 /**
+ * Upsert the one open issue keyed by `marker`: a matching issue gets the body
+ * as a comment, otherwise the title files a fresh one. The typed report is the
+ * authority; this projection happens beside it.
+ */
+const upsertMarkerIssue = (
+  runner: CommandRunner,
+  root: string,
+  titlePhrase: string,
+  marker: string,
+  title: string,
+  body: string,
+): { readonly issue: number | null; readonly publishedVia: "ghb" | "gh" } => {
+  const github = githubClient(runner, root);
+  const existing = github.list(titlePhrase).find((issue) => issue.body.includes(marker));
+  return withBodyFile(body, (bodyPath) => {
+    if (existing !== undefined) {
+      github.comment(existing.number, bodyPath);
+      return { issue: existing.number, publishedVia: github.route };
+    }
+    return { issue: github.create(title, bodyPath), publishedVia: github.route };
+  });
+};
+
+/**
  * Upsert the one open block issue keyed by the blocking sha. A `ghb` that
  * refuses is the raw observation printed with the body, and the run exits
  * non-zero with `blocked.publishError` set on the report.
@@ -769,34 +829,23 @@ export const publishBlock = (
   const blocked = report.blocked!;
   const body = blockedIssueBody(report);
   try {
-    const github = githubClient(runner, root);
-    const existing = github
-      .list()
-      .find((issue) => issue.body.includes(blockingShaMarker(blocked.blockingSha)));
-    return withBodyFile(body, (bodyPath) => {
-      if (existing !== undefined) {
-        github.comment(existing.number, bodyPath);
-        return {
-          ...report,
-          blocked: {
-            ...blocked,
-            issue: existing.number,
-            publishError: null,
-            publishedVia: github.route,
-          },
-        };
-      }
-      const number = github.create(blocked.title, bodyPath);
-      return {
-        ...report,
-        blocked: {
-          ...blocked,
-          ...(number === null ? {} : { issue: number }),
-          publishError: null,
-          publishedVia: github.route,
-        },
-      };
-    });
+    const { issue, publishedVia } = upsertMarkerIssue(
+      runner,
+      root,
+      BLOCK_TITLE_PHRASE,
+      blockingShaMarker(blocked.blockingSha),
+      blocked.title,
+      body,
+    );
+    return {
+      ...report,
+      blocked: {
+        ...blocked,
+        ...(issue === null ? {} : { issue }),
+        publishError: null,
+        publishedVia,
+      },
+    };
   } catch (error) {
     process.stdout.write(`${body}\n`);
     return {
@@ -814,12 +863,91 @@ export const publishBlock = (
 const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRANCH} ${newSha}.`;
 
 /**
- * A clean run closes every open block issue: the trunk moved, so none can block.
- * The ghb completed close refuses without an assignee and without attested
- * evidence naming a default-branch sha, and `--comment` publishes after that
- * check, so the sequence is claim, attested sha comment, then close. Each issue
- * reports its own refusal; one refusal never stops the other closes.
+ * A clean run closes every open sync issue — block and failure alike: the trunk
+ * moved, so none can hold. The ghb completed close refuses without an assignee
+ * and without attested evidence naming a default-branch sha, and `--comment`
+ * publishes after that check, so the sequence is claim, attested sha comment,
+ * then close. Each issue reports its own refusal; one refusal never stops the
+ * other closes.
  */
+export const failureIssueBody = (report: ForkSyncReport): string => {
+  const failure = report.failure!;
+  const command =
+    report.target.tag === "" ? "vp run fork:sync" : `vp run fork:sync ${report.target.tag}`;
+  const subject =
+    report.target.tag !== ""
+      ? report.target.tag
+      : report.trunk.before === ""
+        ? "the trunk"
+        : report.trunk.before.slice(0, 7);
+  return [
+    `Origin: hyprws sync run onto ${subject}; \`${command}\`.`,
+    "",
+    `A sync run failed at the \`${failure.step}\` step:`,
+    "",
+    "```",
+    report.error ?? "unknown error",
+    "```",
+    ...(report.checks.length === 0
+      ? []
+      : [
+          "",
+          "| Check | Verdict |",
+          "| --- | --- |",
+          ...report.checks.map((check) => `| \`${check.command}\` | ${check.status} |`),
+        ]),
+    "",
+    "A rerun with the same failure updates this issue; a clean run closes it.",
+    ...(report.target.tag === ""
+      ? []
+      : [`Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`]),
+    "",
+    failureMarker(failure.step, failure.key),
+  ].join("\n");
+};
+
+/**
+ * Upsert the one open failure issue keyed by the failing step and the target
+ * tag (the trunk sha before a tag resolves), exactly as `publishBlock` does
+ * for a block. A refusal prints the body and sets `failure.publishError`.
+ */
+export const publishFailure = (
+  runner: CommandRunner,
+  root: string,
+  report: ForkSyncReport,
+): ForkSyncReport => {
+  const failure = report.failure!;
+  const body = failureIssueBody(report);
+  try {
+    const { issue, publishedVia } = upsertMarkerIssue(
+      runner,
+      root,
+      FAILURE_TITLE_PHRASE,
+      failureMarker(failure.step, failure.key),
+      failure.title,
+      body,
+    );
+    return {
+      ...report,
+      failure: {
+        ...failure,
+        ...(issue === null ? {} : { issue }),
+        publishError: null,
+        publishedVia,
+      },
+    };
+  } catch (error) {
+    process.stdout.write(`${body}\n`);
+    return {
+      ...report,
+      failure: {
+        ...failure,
+        publishError: error instanceof Error ? error.message : String(error),
+        publishedVia: null,
+      },
+    };
+  }
+};
 export const closeBlocks = (
   runner: CommandRunner,
   root: string,
@@ -827,19 +955,20 @@ export const closeBlocks = (
 ): ReadonlyArray<BlockClosure> => {
   const github = githubClient(runner, root);
   const closures: BlockClosure[] = [];
-  for (const issue of github.list()) {
-    try {
-      github.claim(issue.number);
-      withBodyFile(blockCloseComment(newSha), (path) => github.comment(issue.number, path));
-      github.close(issue.number);
-      closures.push({ issue: issue.number, refusal: null });
-    } catch (error) {
-      closures.push({
-        issue: issue.number,
-        refusal: error instanceof Error ? error.message : String(error),
-      });
+  for (const titlePhrase of [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE])
+    for (const issue of github.list(titlePhrase)) {
+      try {
+        github.claim(issue.number);
+        withBodyFile(blockCloseComment(newSha), (path) => github.comment(issue.number, path));
+        github.close(issue.number);
+        closures.push({ issue: issue.number, refusal: null });
+      } catch (error) {
+        closures.push({
+          issue: issue.number,
+          refusal: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-  }
   return closures;
 };
 
@@ -937,6 +1066,11 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   }
   const dryRun = parsed.flags.has("--dry-run");
   const explicit = parsed.positionals[0] ?? null;
+  // The failing step names the failure issue; it advances as the run does.
+  let step = "fetch";
+  // The resolved target, kept for the catch: it keys the failure issue when a
+  // crash lands after the target resolved.
+  let resolved: ReleaseTag | null = null;
 
   const finish = (report: ForkSyncReport): number => {
     const path = writeReport(root, report);
@@ -972,20 +1106,50 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       closedBlocks: [],
       decision: emptyDecision(),
       blocked: null,
+      failure: null,
       push: { pushed: false, detail: "" },
       error: null,
       ...partial,
     });
 
     // target — a tag the fork already sits on exits clean with `already applied`,
-    // after closing the block issues a previous run left open
+    // after closing the stale sync issues a previous run left open
+    step = "target";
     const target = resolveTarget(releaseTags(runner, root), explicit);
+    resolved = target;
+
+    /**
+     * A failed run files one issue the way a blocked one does: the report
+     * persists first, the issue upserts beside it, and a dry run never files.
+     */
+    const fail = (partial: Partial<ForkSyncReport>): number => {
+      const failure: ForkSyncReport["failure"] = {
+        issue: null,
+        title: failureIssueTitle(step, target.tag),
+        step,
+        key: target.tag,
+        publishError: null,
+        publishedVia: null,
+      };
+      const failed = frame({ ...partial, failure });
+      writeReport(root, failed);
+      process.stdout.write(`${renderReport(failed)}\n`);
+      if (dryRun) return 1;
+      const published = publishFailure(runner, root, failed);
+      const path = writeReport(root, published);
+      process.stdout.write(
+        published.failure?.publishError !== null && published.failure?.publishError !== undefined
+          ? `failure publication failed: ${published.failure.publishError}\n${path}\n`
+          : `${path}\n`,
+      );
+      return 1;
+    };
 
     /**
      * The one close pass every clean outcome shares: the trunk resolved the
-     * block, so none can block. This runs before the report writes, so a
-     * refused close lands in the typed report and the summary instead of dying
-     * as a hidden note on stderr.
+     * stale sync issues — block and failure alike — so none can hold. This runs
+     * before the report writes, so a refused close lands in the typed report
+     * and the summary instead of dying as a hidden note on stderr.
      */
     const closeStaleBlocks = (
       resolvedSha: string,
@@ -1025,6 +1189,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     }
 
     // rebase
+    step = "rebase";
     const restored = restoreRerereCache(root);
     const rerere = { restored, saved: false, published: false };
     const rebase = rebaseOnto(runner, root, target, expectedOld);
@@ -1095,21 +1260,21 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const newSha = rebase.newSha;
 
     // check
+    step = "check";
     const checks = runChecks(runner, root, worktreePath(root));
     if (checks.some((check) => check.status === "failed")) {
       teachRerere();
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
-      return finish(
-        frame({
-          rerere: { ...rerere },
-          conflicts: [...rebase.conflicts],
-          checks,
-          error: "the check battery is red",
-        }),
-      );
+      return fail({
+        rerere: { ...rerere },
+        conflicts: [...rebase.conflicts],
+        checks,
+        error: "the check battery is red",
+      });
     }
 
     // push — the documented expected-old lease; a dry run reaches applied without it
+    step = "push";
     if (dryRun) {
       teachRerere();
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
@@ -1134,14 +1299,12 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     teachRerere();
     gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
     if (pushRefused)
-      return finish(
-        frame({
-          rerere: { ...rerere },
-          conflicts: [...rebase.conflicts],
-          checks,
-          error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
-        }),
-      );
+      return fail({
+        rerere: { ...rerere },
+        conflicts: [...rebase.conflicts],
+        checks,
+        error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
+      });
 
     // a clean run closes the block issues it made stale, whether the rebase
     // moved the trunk or the trunk already sat on the target
@@ -1163,17 +1326,20 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const message =
       error instanceof UsageError || error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
-    // A tag name known so far keys the failure report; an unresolved target has none.
-    if (explicit === null) return 1;
+    // The failure issue keys on the target tag when one resolved or was named,
+    // else the trunk sha; the report still needs a tag, so a crash before any
+    // tag writes none.
+    const tag = resolved?.tag ?? explicit ?? "";
+    const key = resolved?.tag ?? explicit ?? trunkSha(runner, root);
     try {
-      return finish({
+      const report: ForkSyncReport = {
         schema: REPORT_SCHEMA,
         outcome: "failed",
         dryRun,
         startedAt: startedAt.toISOString(),
         finishedAt: now().toISOString(),
         repository: FORK_REPOSITORY,
-        target: { tag: explicit, sha: "" },
+        target: { tag, sha: "" },
         lease: { expectedOld: "" },
         trunk: { before: "", after: null },
         base: "",
@@ -1183,9 +1349,41 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         closedBlocks: [],
         decision: emptyDecision(),
         blocked: null,
+        failure: {
+          issue: null,
+          title: failureIssueTitle(step, key),
+          step,
+          key,
+          publishError: null,
+          publishedVia: null,
+        },
         push: { pushed: false, detail: "" },
         error: message,
-      });
+      };
+      if (dryRun) {
+        if (tag === "") return 1;
+        return finish(report);
+      }
+      if (tag === "") {
+        // No tag keys a report; the failure issue carries the run instead.
+        const published = publishFailure(runner, root, report);
+        if (
+          published.failure?.publishError !== null &&
+          published.failure?.publishError !== undefined
+        )
+          process.stdout.write(`failure publication failed: ${published.failure.publishError}\n`);
+        return 1;
+      }
+      writeReport(root, report);
+      process.stdout.write(`${renderReport(report)}\n`);
+      const published = publishFailure(runner, root, report);
+      const path = writeReport(root, published);
+      process.stdout.write(
+        published.failure?.publishError !== null && published.failure?.publishError !== undefined
+          ? `failure publication failed: ${published.failure.publishError}\n${path}\n`
+          : `${path}\n`,
+      );
+      return 1;
     } catch {
       return 1;
     }

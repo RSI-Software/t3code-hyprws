@@ -57,6 +57,9 @@ Rerere replays the resolution; the run completes.
 A blocked run files one block issue (label `ci`) keyed by the blocking upstream sha.
 A rerun on the same sha updates that issue; a clean run closes it.
 
+A failed run files one failure issue the same way, keyed by the failing step and the target tag (the trunk sha before a tag resolves).
+A rerun with the same failure updates it; a clean run closes it.
+
 ## Never
 
 - **Post** to `pingdotgg/t3code`
