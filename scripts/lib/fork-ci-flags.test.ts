@@ -4,28 +4,19 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import * as NodeURL from "node:url";
 
 import { assert, it } from "@effect/vitest";
 
 import {
   deriveForkCiFlags,
-  forkCiWorkflowDriftProblem,
   forkScanArguments,
-  FORK_CI_FLAGS_SCRIPT,
   FORK_CI_OUTPUT_KEYS,
-  FORK_CI_WORKFLOW_PATH,
   renderForkCiOutputs,
   renderForkCiScanArguments,
   systemForkCiGit,
   type ForkCiGit,
 } from "./fork-ci-flags.ts";
 import { SystemGit } from "./fork-command.ts";
-
-const repoRoot = NodePath.resolve(
-  NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
-  "../..",
-);
 
 const HEAD = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
 const BASE = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
@@ -178,82 +169,4 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
-});
-
-const workflow = (ledgerRun: string, scanRun: string): string => `jobs:
-  check:
-    steps:
-      - name: Fork ledger
-        id: fork_ledger
-        env:
-          HEAD_SHA: \${{ github.sha }}
-        run: |
-${ledgerRun}
-      - name: Fork rebase scan
-        env:
-          HEAD_SHA: \${{ github.sha }}
-        run: |
-${scanRun}
-`;
-
-const goodLedgerRun = [
-  "          git remote add upstream https://github.com/pingdotgg/t3code.git",
-  "          git fetch --no-tags upstream main",
-  `          vp run fork:delta --check --head "$HEAD_SHA"`,
-  `          node ${FORK_CI_FLAGS_SCRIPT} ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"`,
-].join("\n");
-const goodScanRun = [
-  `          mapfile -t SCAN_ARGS < <(node ${FORK_CI_FLAGS_SCRIPT} scan --head "$HEAD_SHA")`,
-  '          vp run fork:scan "${SCAN_ARGS[@]}"',
-].join("\n");
-
-it("accepts the workflow when both steps replay the helper", () => {
-  assert.strictEqual(forkCiWorkflowDriftProblem(workflow(goodLedgerRun, goodScanRun)), undefined);
-});
-
-it("reports a missing workflow", () => {
-  assert.include(forkCiWorkflowDriftProblem(undefined) ?? "", "is missing");
-});
-
-it("reports a ledger step that derives the flags by hand", () => {
-  const restated = goodLedgerRun.replace(
-    `node ${FORK_CI_FLAGS_SCRIPT} ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"`,
-    'BASE=$(git merge-base upstream/main "$HEAD_SHA")',
-  );
-  assert.include(
-    forkCiWorkflowDriftProblem(workflow(restated, goodScanRun)) ?? "",
-    FORK_CI_FLAGS_SCRIPT,
-  );
-  const noHelper = goodLedgerRun
-    .split("\n")
-    .filter((line) => !line.includes(`${FORK_CI_FLAGS_SCRIPT} ledger`))
-    .join("\n");
-  assert.include(
-    forkCiWorkflowDriftProblem(workflow(noHelper, goodScanRun)) ?? "",
-    "must derive the flags",
-  );
-});
-
-it("reports a scan step that assembles its flags by hand", () => {
-  const handBuilt = [
-    '          args=(--head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck)',
-    "          if git rev-parse --verify --quiet origin/hyprws >/dev/null; then",
-    "            args+=(--replay-of origin/hyprws)",
-    "          fi",
-    '          vp run fork:scan "${args[@]}"',
-  ].join("\n");
-  assert.include(
-    forkCiWorkflowDriftProblem(workflow(goodLedgerRun, handBuilt)) ?? "",
-    "must build its argv",
-  );
-  const partial = goodScanRun.replace(
-    'vp run fork:scan "${SCAN_ARGS[@]}"',
-    'vp run fork:scan --head "$HEAD_SHA"',
-  );
-  assert.include(forkCiWorkflowDriftProblem(workflow(goodLedgerRun, partial)) ?? "", "must run");
-});
-
-it("accepts the real workflow", () => {
-  const real = NodeFS.readFileSync(NodePath.join(repoRoot, FORK_CI_WORKFLOW_PATH), "utf8");
-  assert.strictEqual(forkCiWorkflowDriftProblem(real), undefined);
 });

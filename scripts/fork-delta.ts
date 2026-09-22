@@ -16,29 +16,71 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { FORK_PR_TEMPLATE_PATH, forkTemplateDriftProblem } from "./lib/fork-pr-template.ts";
 import {
-  commitNumstatArguments,
-  EMPTY_NUMSTAT,
-  parseCommitNumstat,
-  type CommitNumstat,
-} from "./lib/fork-numstat.ts";
-import { isForkDomain, isForkUpstreamable, parseForkTrailers } from "./lib/fork-trailers.ts";
-import {
-  compareWireShapes,
-  extractWireShapes,
-  FORK_WIRE_BASELINE_PATH,
-  parseForkWireBaseline,
-  wireFindingKey,
-  type ForkWireBaseline,
-  type WireShapeFinding,
-} from "./lib/fork-wire-shapes.ts";
+  FORK_LOG_RECORD_SEPARATOR,
+  forkLogArguments,
+  isForkDomain,
+  isForkUpstreamable,
+  parseForkLog,
+  parseForkTrailers,
+  trailerBlock as squashTrailers,
+} from "./lib/fork-trailers.ts";
 import {
   EMPTY_RETIREMENT_LEDGER,
   readForkRetirementLedger,
   retirementDecision,
   type ForkRetirementLedger,
 } from "./lib/fork-retirement-ledger.ts";
+
+/** Lines added and deleted by one commit; the inventory derives them from `git show --numstat`. */
+export interface CommitNumstat {
+  readonly files: ReadonlyArray<string>;
+  readonly added: number;
+  readonly deleted: number;
+}
+
+export const EMPTY_NUMSTAT: CommitNumstat = { files: [], added: 0, deleted: 0 };
+
+/** One numstat record per commit. `--no-renames` keeps every path a real path, so
+ * a renamed file intersects the net fork and upstream diffs — which list the new
+ * path only — exactly like fork:scan's `--name-only` commit lists do. */
+export const commitNumstatArguments = (shas: ReadonlyArray<string>) =>
+  [
+    "-c",
+    "core.quotePath=false",
+    "show",
+    "--numstat",
+    "--no-renames",
+    `--format=${FORK_LOG_RECORD_SEPARATOR}%H`,
+    ...shas,
+  ] as const;
+
+/** The `added\tdeleted\tpath` rows of one numstat block. Binary files report "-"
+ * for both counts; they still count as touched. */
+export const parseNumstatRows = (rows: ReadonlyArray<string>): CommitNumstat => {
+  let added = 0;
+  let deleted = 0;
+  const files: Array<string> = [];
+  for (const row of rows) {
+    const cells = row.split("\t");
+    const path = (cells[2] ?? "").trim();
+    if (path.length === 0) continue;
+    files.push(path);
+    added += Number.parseInt(cells[0] ?? "", 10) || 0;
+    deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
+  }
+  return { files, added, deleted };
+};
+
+export const parseCommitNumstat = (raw: string): ReadonlyMap<string, CommitNumstat> => {
+  const stats = new Map<string, CommitNumstat>();
+  for (const record of raw.replace(/\r\n/g, "\n").split(FORK_LOG_RECORD_SEPARATOR)) {
+    const [sha = "", ...rows] = record.split("\n");
+    if (sha.trim().length === 0) continue;
+    stats.set(sha.trim(), parseNumstatRows(rows));
+  }
+  return stats;
+};
 
 export const ForkTier = Schema.Literals(["core", "qol", "bugfix"]);
 export type ForkTier = typeof ForkTier.Type;
@@ -56,7 +98,6 @@ export const ForkCommit = Schema.Struct({
   domain: OptionalTrailer,
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
-  wireReviewed: OptionalTrailer,
   repair: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
@@ -100,21 +141,7 @@ export class ForkLogExitError extends Schema.TaggedError<ForkLogExitError>()("Fo
   }
 }
 
-export {
-  commitNumstatArguments,
-  parseCommitNumstat,
-  type CommitNumstat,
-} from "./lib/fork-numstat.ts";
-import {
-  forkLogArguments,
-  parseForkLog,
-  trailerBlock as squashTrailers,
-} from "./lib/fork-trailers.ts";
-export {
-  forkLogArguments,
-  parseForkLog,
-  trailerBlock as squashTrailers,
-} from "./lib/fork-trailers.ts";
+export { forkLogArguments, parseForkLog, squashTrailers };
 
 export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
   sha: "squash",
@@ -122,9 +149,6 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
   subject,
   ...parseForkTrailers(squashTrailers(body)),
 });
-
-export const isReviewedWireTrailer = (value: string | undefined): boolean =>
-  value !== undefined && /^reviewed\s+\S/i.test(value);
 
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
@@ -165,8 +189,6 @@ export const buildLedger = (
   head: string,
   commits: ReadonlyArray<ForkCommit>,
   retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
-  wireFindings: ReadonlyMap<string, ReadonlyArray<WireShapeFinding>> = new Map(),
-  wireBaseline: ForkWireBaseline = new Map(),
 ): ForkLedger => {
   const stackSubjects = new Set(commits.map((commit) => commit.subject));
   const retired = commits.filter(
@@ -175,31 +197,12 @@ export const buildLedger = (
   const active = commits.filter(
     (commit) => retirementDecision(retirementLedger, commit.subject).decision !== "retire",
   );
-  const wireRows = active.flatMap((commit) =>
-    (wireFindings.get(commit.sha) ?? []).map((finding) => ({
-      commit,
-      finding,
-      key: wireFindingKey(commit.subject, finding),
-    })),
-  );
-  const producedWireKeys = new Set(wireRows.map((row) => row.key));
   return {
     base,
     head,
     commits: active,
     findings: [
       ...collectFindings(active),
-      ...wireRows.flatMap(({ commit, finding, key }) =>
-        isReviewedWireTrailer(commit.wireReviewed) || wireBaseline.has(key)
-          ? []
-          : [
-              {
-                short: commit.short,
-                subject: commit.subject,
-                problem: `${finding.schema}: ${finding.change}; ${finding.hint}`,
-              },
-            ],
-      ),
       ...retired.map((commit) => ({
         short: commit.short,
         subject: commit.subject,
@@ -216,26 +219,13 @@ export const buildLedger = (
           problem: "kept but absent",
         })),
     ],
-    warnings: [...wireBaseline.keys()]
-      .filter((key) => !producedWireKeys.has(key))
-      .map((key) => `stale wire baseline: ${key}`),
+    warnings: [],
   };
 };
 
-export const buildSquashLedger = (
-  base: string,
-  head: string,
-  body: string,
-  wireFindings: ReadonlyArray<WireShapeFinding>,
-): ForkLedger => {
+export const buildSquashLedger = (base: string, head: string, body: string): ForkLedger => {
   const commit = parseSquashBody("pull-request body", body);
-  return buildLedger(
-    base,
-    head,
-    [commit],
-    EMPTY_RETIREMENT_LEDGER,
-    new Map([[commit.sha, wireFindings]]),
-  );
+  return buildLedger(base, head, [commit]);
 };
 
 // Narrows the ledger to one domain so its commits can be extracted as a unit.
@@ -278,11 +268,11 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
       .filter((c) => c.domain === domain)
       .toSorted((left, right) => tierRank(left.tier) - tierRank(right.tier));
     lines.push(`## ${domain}`, "");
-    lines.push("| Tier | Commit | Change | Upstreamable | Wire review |");
+    lines.push("| Tier | Commit | Change | Upstreamable |");
     lines.push("| --- | --- | --- | --- | --- |");
     for (const row of rows) {
       lines.push(
-        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} | ${row.wireReviewed ?? ""} |`,
+        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} |`,
       );
     }
     lines.push("");
@@ -343,77 +333,6 @@ export const ForkInventory = Schema.Struct({
 export type ForkInventory = typeof ForkInventory.Type;
 
 const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
-
-// Pre-#861 backlog, 10 commits, never grown since. Keyed by (author date, subject) rather than
-// sha: a history rewrite rewrites every commit's tree and parent, so its sha changes, but copies
-// the author header and message verbatim, so this pair survives unchanged. Subject alone is not
-// unique here — three of the ten share
-// "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414" — so drop the author
-// date half and this exemption stops working, silently, on the next rewrite. Remove this list when
-// the host's leased flatten lands; no new entry is ever added.
-export const grandfatheredWalkRepairKey = (
-  commit: Pick<ForkCommit, "authorDate" | "subject">,
-): string => `${commit.authorDate ?? ""}\u0000${commit.subject}`;
-
-export const GRANDFATHERED_WALK_REPAIR_KEYS = new Set([
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-10T18:24:02+12:00",
-    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-10T18:20:26+12:00",
-    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260910.1473",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-10T18:16:29+12:00",
-    subject: "chore(fork-sync): repair fork budget after v0.0.41-nightly.20260910.1473",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T17:22:13+12:00",
-    subject: "chore(fork-sync): repair budget after v0.0.41-nightly.20260909.1426",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T16:00:02+12:00",
-    subject: "chore(fork-sync): repair tests after v0.0.41-nightly.20260908.1414",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T15:44:32+12:00",
-    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T15:30:10+12:00",
-    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T14:37:33+12:00",
-    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T14:36:47+12:00",
-    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
-  }),
-  grandfatheredWalkRepairKey({
-    authorDate: "2026-09-09T14:28:59+12:00",
-    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
-  }),
-]);
-
-export const legacyWalkRepairFindings = (
-  commits: ReadonlyArray<ForkCommit>,
-  grandfathered = GRANDFATHERED_WALK_REPAIR_KEYS,
-): ReadonlyArray<ForkFinding> =>
-  commits.flatMap((commit) =>
-    /^chore\(fork-sync\): repair\b/.test(commit.subject) &&
-    !grandfathered.has(grandfatheredWalkRepairKey(commit))
-      ? [
-          {
-            short: commit.short,
-            subject: commit.subject,
-            problem: "legacy walk repair must be folded",
-          },
-        ]
-      : [],
-  );
 
 // Per-domain and per-commit views of the same stack. A commit's overlap count
 // uses its own files against both net diffs; a domain aggregates its commits'
@@ -606,7 +525,7 @@ const collectInventory = Effect.fn("collectForkInventory")(function* (
   target: string,
   head: string,
 ) {
-  const base = yield* resolveMergeBase(target, head, process.cwd());
+  const base = yield* resolveInventoryMergeBase(target, head, process.cwd());
   const commits = yield* readForkLog(base, head);
   const [forkChanged, upstreamChanged, statsBySha] = yield* Effect.all(
     [
@@ -627,20 +546,7 @@ const collectInventory = Effect.fn("collectForkInventory")(function* (
   });
 });
 
-const missingRevisionPath = (stderr: string): boolean =>
-  /(?:does not exist in|exists on disk, but not in)/.test(stderr);
-
-const readRevisionPath = Effect.fn("readForkWireRevisionPath")(function* (
-  revisionPath: string,
-  cwd: string,
-) {
-  const result = yield* runGit(["show", revisionPath], cwd);
-  if (result.exitCode === 0) return result.stdout;
-  if (missingRevisionPath(result.stderr)) return "";
-  return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
-});
-
-const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
+const resolveInventoryMergeBase = Effect.fn("resolveForkInventoryMergeBase")(function* (
   base: string,
   head: string,
   cwd: string,
@@ -654,138 +560,6 @@ const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
     });
   }
   return mergeBase;
-});
-
-/** Merge base plus the contract paths it changed: the wire gate's one path listing. */
-const changedContractPaths = Effect.fn("changedContractPaths")(function* (
-  base: string,
-  head: string,
-  cwd: string,
-) {
-  const mergeBase = yield* resolveMergeBase(base, head, cwd);
-  const changed = yield* runGit(
-    ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
-    cwd,
-  );
-  if (changed.exitCode !== 0) {
-    return yield* new ForkLogExitError({
-      exitCode: changed.exitCode,
-      stderr: changed.stderr,
-    });
-  }
-  const paths = [
-    ...new Set(
-      changed.stdout
-        .split("\n")
-        .map((path) => path.trim())
-        .filter((path) => path.startsWith("packages/contracts/src/")),
-    ),
-  ];
-  return { mergeBase, paths };
-});
-
-export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindingsBetween")(
-  function* (base: string, head: string, cwd = process.cwd()) {
-    const { mergeBase, paths } = yield* changedContractPaths(base, head, cwd);
-    const findings = yield* Effect.forEach(
-      paths,
-      (path) =>
-        Effect.gen(function* () {
-          const [before, after] = yield* Effect.all(
-            [
-              readRevisionPath(`${mergeBase}:${path}`, cwd),
-              readRevisionPath(`${head}:${path}`, cwd),
-            ],
-            { concurrency: "unbounded" },
-          );
-          return compareWireShapes(before, after, path);
-        }),
-      { concurrency: 4 },
-    );
-    return findings.flat();
-  },
-);
-
-/** Merge base of the default upstream ref, or `undefined` when the repository has none. */
-const resolveDefaultUpstreamBase = Effect.fn("resolveDefaultUpstreamBase")(function* (cwd: string) {
-  const result = yield* runGit(["merge-base", "upstream/main", "HEAD"], cwd);
-  const base = result.stdout.trim();
-  return result.exitCode === 0 && base.length > 0 ? base : undefined;
-});
-
-export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(function* (
-  commits: ReadonlyArray<ForkCommit>,
-  cwd = process.cwd(),
-  upstream?: { readonly base: string; readonly head: string },
-) {
-  // The upstream base is the merge base the ledger range already spans, so one resolution serves
-  // both: a fork commit cannot ADD to the shipped wire shape a literal or field the base itself
-  // ships at that path — that is a restore, not a fork wire change. A repository without the
-  // default upstream ref keeps its findings unfiltered rather than failing the ledger.
-  const upstreamBase =
-    upstream === undefined
-      ? yield* resolveDefaultUpstreamBase(cwd)
-      : yield* resolveMergeBase(upstream.base, upstream.head, cwd);
-  const entries = yield* Effect.forEach(
-    commits,
-    (commit) =>
-      Effect.gen(function* () {
-        if (isReviewedWireTrailer(commit.wireReviewed)) {
-          return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
-        }
-        const { mergeBase, paths } = yield* changedContractPaths(`${commit.sha}^`, commit.sha, cwd);
-        const findings = yield* Effect.forEach(
-          paths,
-          (path) =>
-            Effect.gen(function* () {
-              const [before, after] = yield* Effect.all(
-                [
-                  readRevisionPath(`${mergeBase}:${path}`, cwd),
-                  readRevisionPath(`${commit.sha}:${path}`, cwd),
-                ],
-                { concurrency: "unbounded" },
-              );
-              const found = compareWireShapes(before, after, path);
-              // Only an addition can be a restore: read the upstream base revision of the same
-              // path with the same shape reader and check the added literal or field is already
-              // a member there, by the identity the finding carries. Removals, renames, and a
-              // path the base does not ship stay.
-              const additions = found.filter(
-                (finding) =>
-                  finding.change.startsWith("literal added: ") ||
-                  finding.change.startsWith("required field added: "),
-              );
-              if (additions.length === 0 || upstreamBase === undefined) return found;
-              const upstreamText = yield* readRevisionPath(`${upstreamBase}:${path}`, cwd);
-              if (upstreamText === "") return found;
-              const upstreamByName = new Map(
-                extractWireShapes(upstreamText).map((shape) => [shape.name, shape]),
-              );
-              const isRestored = (finding: WireShapeFinding): boolean => {
-                const shape = upstreamByName.get(finding.schema);
-                if (shape === undefined) return false;
-                const literal = /^literal added: (.+)$/.exec(finding.change);
-                if (literal !== null)
-                  return shape.kind === "literals" && shape.members.has(literal[1] ?? "");
-                const field = /^required field added: (.+)$/.exec(finding.change);
-                if (field !== null) {
-                  // A field the upstream base carries only as optional is not a restoration:
-                  // reintroducing it as required imposes a new wire requirement on consumers.
-                  const upstream =
-                    shape.kind === "struct" ? shape.fields.get(field[1] ?? "") : undefined;
-                  return upstream !== undefined && !upstream.optional;
-                }
-                return false;
-              };
-              return found.filter((finding) => !isRestored(finding));
-            }),
-          { concurrency: 4 },
-        );
-        return [commit.sha, findings.flat()] as const;
-      }),
-    { concurrency: 4 },
-  );
-  return new Map(entries);
 });
 
 const command = Command.make(
@@ -805,7 +579,7 @@ const command = Command.make(
     ),
     check: Flag.Boolean("check").pipe(
       Flag.withDescription(
-        "Exit 1 when a fork commit has invalid trailers, changes a shipped wire shape, or is still present after retirement.",
+        "Exit 1 when a fork commit has invalid trailers or is still present after retirement.",
       ),
       Flag.withDefault(false),
     ),
@@ -860,19 +634,18 @@ const command = Command.make(
         const squashHead = Option.getOrThrow(head);
         const fileSystem = yield* FileSystem.FileSystem;
         const body = yield* fileSystem.readFileString(squashBody.value);
-        const wireFindings = yield* collectWireShapeFindingsBetween(squashBase, squashHead);
-        const ledger = buildSquashLedger(squashBase, squashHead, body, wireFindings);
+        const ledger = buildSquashLedger(squashBase, squashHead, body);
         for (const finding of ledger.findings) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
         }
         if (ledger.findings.length > 0) {
           process.stderr.write(
-            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/fork/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier (docs/fork/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
         }
-        process.stdout.write("ok: prospective squash carries its fork trailers and wire review\n");
+        process.stdout.write("ok: prospective squash carries its fork trailers\n");
         return;
       }
       if (inventory) {
@@ -891,29 +664,14 @@ const command = Command.make(
         );
         return;
       }
-      const fileSystem = yield* FileSystem.FileSystem;
-      const retirementLedger = readForkRetirementLedger(process.cwd());
-      const wireBaseline = parseForkWireBaseline(
-        yield* fileSystem.readFileString(FORK_WIRE_BASELINE_PATH),
-      );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");
       const read = yield* readForkLog(resolvedBase, resolvedHead);
-      // Transient walk fixups stay out of the ledger entirely: trailer rules and
-      // the legacy-repair scan all check the folded stack only.
+      // Transient walk fixups stay out of the ledger entirely: trailer rules
+      // check the folded stack only.
       const commits = dropTransientFixups(read);
-      const wireFindings = yield* collectWireShapeFindings(commits, process.cwd(), {
-        base: resolvedBase,
-        head: resolvedHead,
-      });
-      const full = buildLedger(
-        resolvedBase,
-        resolvedHead,
-        commits,
-        retirementLedger,
-        wireFindings,
-        wireBaseline,
-      );
+      const retirementLedger = readForkRetirementLedger(process.cwd());
+      const full = buildLedger(resolvedBase, resolvedHead, commits, retirementLedger);
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");
@@ -926,23 +684,7 @@ const command = Command.make(
         return;
       }
       if (check) {
-        // A repository invariant rather than a property of the walked range: the template is the
-        // only place an author reads the domain list, so it fails the check wherever the range
-        // starts. RSI-Software/t3code-hyprws#713 records the drift that made this necessary.
-        const templateDrift = forkTemplateDriftProblem(
-          yield* fileSystem
-            .readFileString(FORK_PR_TEMPLATE_PATH)
-            .pipe(Effect.orElseSucceed(() => undefined)),
-        );
-        if (templateDrift !== undefined) {
-          process.stderr.write(`failed: ${templateDrift}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        for (const warning of ledger.warnings) {
-          process.stderr.write(`warning: ${warning}\n`);
-        }
-        const findings = [...ledger.findings, ...legacyWalkRepairFindings(commits)];
+        const findings = ledger.findings;
         for (const finding of findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
         }
