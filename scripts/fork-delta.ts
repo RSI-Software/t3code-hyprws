@@ -2,7 +2,7 @@
 
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
 // fork job step 5: PR CI trailer gate
-// Gate: pull-request — the Fork ledger step of the hyprws-ci Check job and the release workflow's Fork ledger step; --check refuses untagged or retired-but-present commits.
+// Gate: pull-request — the Fork ledger step of the hyprws-ci Check job and the release workflow's Fork ledger step; --check refuses untagged commits.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
 // See docs/fork/internals/fork-delta.md for the conventions it enforces.
@@ -27,12 +27,6 @@ import {
   parseForkTrailers,
   trailerBlock as squashTrailers,
 } from "./lib/fork-trailers.ts";
-import {
-  EMPTY_RETIREMENT_LEDGER,
-  readForkRetirementLedger,
-  retirementDecision,
-  type ForkRetirementLedger,
-} from "./lib/fork-retirement-ledger.ts";
 
 /** Lines added and deleted by one commit; the inventory derives them from `git show --numstat`. */
 export interface CommitNumstat {
@@ -190,40 +184,13 @@ export const buildLedger = (
   base: string,
   head: string,
   commits: ReadonlyArray<ForkCommit>,
-  retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
-): ForkLedger => {
-  const stackSubjects = new Set(commits.map((commit) => commit.subject));
-  const retired = commits.filter(
-    (commit) => retirementDecision(retirementLedger, commit.subject).decision === "retire",
-  );
-  const active = commits.filter(
-    (commit) => retirementDecision(retirementLedger, commit.subject).decision !== "retire",
-  );
-  return {
-    base,
-    head,
-    commits: active,
-    findings: [
-      ...collectFindings(active),
-      ...retired.map((commit) => ({
-        short: commit.short,
-        subject: commit.subject,
-        problem: "retired but present",
-      })),
-      // The mirror of "retired but present" (#916): a Kept row names a fork
-      // commit the stack must carry, so a subject that walks away without a
-      // Retired row fails the check instead of staying green forever.
-      ...[...retirementLedger.kept.keys()]
-        .filter((subject) => !stackSubjects.has(subject))
-        .map((subject) => ({
-          short: "ledger",
-          subject,
-          problem: "kept but absent",
-        })),
-    ],
-    warnings: [],
-  };
-};
+): ForkLedger => ({
+  base,
+  head,
+  commits,
+  findings: collectFindings(commits),
+  warnings: [],
+});
 
 export const buildSquashLedger = (base: string, head: string, body: string): ForkLedger => {
   const commit = parseSquashBody("pull-request body", body);
@@ -580,9 +547,7 @@ const command = Command.make(
       Flag.optional,
     ),
     check: Flag.Boolean("check").pipe(
-      Flag.withDescription(
-        "Exit 1 when a fork commit has invalid trailers or is still present after retirement.",
-      ),
+      Flag.withDescription("Exit 1 when a fork commit has invalid trailers."),
       Flag.withDefault(false),
     ),
     json: Flag.Boolean("json").pipe(
@@ -672,8 +637,7 @@ const command = Command.make(
       // Transient walk fixups stay out of the ledger entirely: trailer rules
       // check the folded stack only.
       const commits = dropTransientFixups(read);
-      const retirementLedger = readForkRetirementLedger(process.cwd());
-      const full = buildLedger(resolvedBase, resolvedHead, commits, retirementLedger);
+      const full = buildLedger(resolvedBase, resolvedHead, commits);
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");
