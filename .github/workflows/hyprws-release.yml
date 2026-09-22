@@ -106,6 +106,8 @@ jobs:
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
       delta_revision: ${{ steps.delta_revision.outputs.delta_revision }}
+      gate_proceed: ${{ steps.release_gate.outputs.gate_proceed }}
+      gate_reason: ${{ steps.release_gate.outputs.gate_reason }}
       ref: ${{ steps.release_ref.outputs.sha }}
     steps:
       - id: release_channel
@@ -158,6 +160,73 @@ jobs:
       - id: release_ref
         name: Resolve release commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The release gate: the cut runs only after the lease push that moved
+      # hyprws. The release sha must be the current tip of origin/hyprws (so
+      # it is what the lease push landed) and that sha must carry a green
+      # `hyprws CI` conclusion. A human trigger is not a reason to cut from a
+      # red trunk, so the stable tag channel passes the same gate — and a tag
+      # on an older commit, or a trunk that advanced past the tag, closes the
+      # gate: the cut stays shut and this step fails with the reason.
+      # Missing or red means no cut: the step fails and the build never runs.
+      - id: release_gate
+        name: Gate the cut on the lease push and a green battery
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+        with:
+          script: |
+            const { execSync } = require('node:child_process');
+            const releaseSha = process.env.RELEASE_SHA;
+            // The checkout fetches only the ref it checks out, so origin/hyprws
+            // may not exist here (notably on stable-tag runs); fetch the trunk
+            // explicitly the way the merge-tree job does, and read FETCH_HEAD.
+            // A fetch failure closes the gate with a reason, never a throw.
+            const close = async (reason) => {
+              core.setOutput('gate_proceed', 'false');
+              core.setOutput('gate_reason', reason);
+              await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
+              core.setFailed(reason);
+            };
+            let trunkTip;
+            try {
+              execSync('git fetch --no-tags origin hyprws', { stdio: ['ignore', 'pipe', 'pipe'] });
+              trunkTip = execSync('git rev-parse FETCH_HEAD', { encoding: 'utf8' }).trim();
+            } catch (error) {
+              await close(
+                `release gate closed: could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const conclusion = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { ...context.repo, head_sha: releaseSha, per_page: 100 },
+            ).then((runs) =>
+              runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
+            );
+            core.info(`release sha: ${releaseSha}; hyprws tip: ${trunkTip}; hyprws CI: ${conclusion ?? 'missing'}`);
+            let first;
+            try {
+              first = execSync(
+                `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
+                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
+                { encoding: 'utf8' },
+              ).trim().split('\n')[0] ?? '';
+            } catch (error) {
+              await close(
+                `release gate closed: the gate decision failed (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const proceed = first.startsWith('proceed');
+            const reason = first.replace(/^(proceed|skip):\s*/, '');
+            core.setOutput('gate_proceed', proceed ? 'true' : 'false');
+            core.setOutput('gate_reason', reason);
+            if (!proceed) {
+              await close(reason);
+              return;
+            }
+            await core.summary.addHeading('Release gate: open').addRaw(reason).write();
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -237,6 +306,7 @@ jobs:
     needs: [preflight, check_changes]
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
+      needs.preflight.outputs.gate_proceed == 'true' &&
       (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
