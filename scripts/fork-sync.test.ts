@@ -374,6 +374,106 @@ it("refuses a marked hook beside an unmarked edit and files one keyed block", ()
   );
 });
 
+it("accepts an upstream delete whose fork edit is net-zero and continues the rebase", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      // The fork modifies the file, then restores the base content: net-zero.
+      NodeFS.writeFileSync(NodePath.join(f.root, "shared.txt"), "line1\nline2\nline3\n");
+      f.git(["commit", "--quiet", "-am", "fork restores"], f.root);
+      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      // Upstream deletes the file in the new release tag.
+      f.git(["checkout", "--quiet", "main"], f.root);
+      f.git(["rm", "--quiet", "shared.txt"], f.root);
+      f.git(["commit", "--quiet", "-m", "upstream deletes shared"], f.root);
+      f.git(["tag", "v2.0.0"], f.root);
+      f.git(["push", "--quiet", "upstream", "main", "v2.0.0"], f.root);
+      f.git(["checkout", "--quiet", "hyprws"], f.root);
+
+      const { runner } = exec();
+      const applied = capture(() => run(["v2.0.0", "--dry-run"], { runner, root: f.root }));
+      assert.strictEqual(applied.value, 0);
+      const report = readReport(f.root, "v2.0.0");
+      assert.strictEqual(report.outcome, "applied");
+      assert.notStrictEqual(report.trunk.after, null);
+      assert.strictEqual(report.conflicts.length, 2);
+      for (const row of report.conflicts) {
+        assert.strictEqual(row.path, "shared.txt");
+        assert.strictEqual(row.via, "net-zero-delete");
+        assert.strictEqual(row.reason, "upstream deleted; fork edit is net-zero");
+        assert.deepStrictEqual(row.hooksReapplied, []);
+      }
+      // The rebased trunk agrees with upstream: the file stays deleted.
+      assert.strictEqual(
+        f.git(["ls-tree", "--name-only", report.trunk.after!, "--", "shared.txt"], f.root),
+        "",
+      );
+      assert.strictEqual(report.checks.length, 3);
+      for (const check of report.checks) assert.strictEqual(check.status, "passed");
+    },
+  );
+});
+
+it("still blocks a delete/modify whose fork edit is not net-zero", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      f.git(["checkout", "--quiet", "main"], f.root);
+      f.git(["rm", "--quiet", "shared.txt"], f.root);
+      f.git(["commit", "--quiet", "-m", "upstream deletes shared"], f.root);
+      f.git(["tag", "v2.0.0"], f.root);
+      f.git(["push", "--quiet", "upstream", "main", "v2.0.0"], f.root);
+      f.git(["checkout", "--quiet", "hyprws"], f.root);
+
+      const { runner } = exec();
+      const blockedRun = capture(() => run(["v2.0.0"], { runner, root: f.root }));
+      assert.strictEqual(blockedRun.value, 1);
+      const report = readReport(f.root, "v2.0.0");
+      assert.strictEqual(report.outcome, "blocked");
+      assert.strictEqual(report.conflicts.length, 1);
+      const row = report.conflicts[0]!;
+      assert.strictEqual(row.path, "shared.txt");
+      assert.strictEqual(row.via, "human");
+      assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
+      // The modified text still stands in the worktree, awaiting a human.
+      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "shared.txt")), true);
+    },
+  );
+});
+
+it("still blocks when the fork side deleted the path and upstream modified it", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      // The fork trunk's one commit deletes the file outright.
+      f.git(["rm", "--quiet", "shared.txt"], f.root);
+      f.git(["commit", "--quiet", "--amend", "-m", "fork deletes"], f.root);
+      f.git(["push", "--quiet", "--force", "origin", "hyprws"], f.root);
+
+      const { runner } = exec();
+      const blockedRun = capture(() => run(["v1.0.0"], { runner, root: f.root }));
+      assert.strictEqual(blockedRun.value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "blocked");
+      assert.strictEqual(report.conflicts.length, 1);
+      const row = report.conflicts[0]!;
+      assert.strictEqual(row.path, "shared.txt");
+      assert.strictEqual(row.via, "human");
+      // Upstream's text stands; nothing was removed on the fork's behalf.
+      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "shared.txt")), true);
+    },
+  );
+});
+
 it("exits 0 with already applied when the fork sits on the tag", () => {
   withFixture(
     {

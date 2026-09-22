@@ -144,8 +144,11 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
 // Typed report
 // ---------------------------------------------------------------------------
 
-/** How a conflict row resolved: hook re-apply reinserted it, or a human must. */
-export const ConflictVia = Schema.Literals(["hook", "human"]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, or a human must. */
+export const ConflictVia = Schema.Literals(["hook", "human", "net-zero-delete"]);
+
+/** The recorded reason when an upstream deletion meets a net-zero fork edit. */
+export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
 
 export const ConflictRow = Schema.Struct({
   /** Repo-relative path of the conflicted file. */
@@ -162,6 +165,8 @@ export const ConflictRow = Schema.Struct({
   hooksReapplied: Schema.Array(Schema.String),
   /** Why hook re-apply refused the path; set on `human` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
+  /** Why an automatic rule resolved the path; set on `net-zero-delete` rows. */
+  reason: Schema.optionalKey(Schema.String),
 });
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 
@@ -455,9 +460,11 @@ export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<st
  * interactive with `--autosquash` and a no-op sequence editor, so the fixup
  * folds into the commit it names and the series never carries fix-of-fix
  * (RSI-Software/t3code-hyprws#1179). Hook re-apply re-inserts the marked fork
- * hooks a conflicted file declares. Any path left standing after the fold
- * stops the run; its rows name the fork commit, the upstream commit, and the
- * worktree a human resumes in.
+ * hooks a conflicted file declares. A delete/modify whose deletion is on the
+ * upstream side and whose fork edit nets to zero against the base the fork
+ * stack sits on accepts the deletion outright. Any path left standing after
+ * those stops the run; its rows name the fork commit, the upstream commit, and
+ * the worktree a human resumes in.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
@@ -469,6 +476,10 @@ export const rebaseOnto = (
   gitAllow(runner, root, ["worktree", "remove", "--force", worktree]);
   git(runner, root, ["worktree", "prune"]);
   git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
+  // The fork stack above `target` sits on this upstream commit — for a normal
+  // run the previous release tag. Net-zero compares the fork trunk to it from
+  // real refs, once per run, never from the worktree.
+  const baseSha = git(runner, root, ["merge-base", target.sha, oldSha]);
   const refusals = fixupRefusals(forkSubjects(runner, root, target, oldSha));
   if (refusals.length > 0) throw new Error(refusals.join("; "));
   const editorEnv = { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" };
@@ -496,6 +507,29 @@ export const rebaseOnto = (
     const human: string[] = [];
     for (const path of unmerged) {
       const touch = upstreamTouch(runner, root, target.sha, path);
+      // Delete/modify with the deletion on the upstream (rebase base) side:
+      // when the fork trunk's final blob for the path equals the base blob,
+      // the fork edit is net-zero and the deletion is accepted outright. Any
+      // other delete/modify shape falls through to hook re-apply, which
+      // refuses it, and then to a human row.
+      if (
+        stageContent(runner, worktree, 2, path) === null &&
+        stageContent(runner, worktree, 3, path) !== null &&
+        gitResult(runner, root, ["diff", "--quiet", baseSha, oldSha, "--", path]).status === 0
+      ) {
+        git(runner, worktree, ["rm", "--quiet", "--", path]);
+        conflicts.push({
+          path,
+          forkCommit,
+          forkSubject,
+          upstreamCommit: touch.sha,
+          upstreamSubject: touch.subject,
+          via: "net-zero-delete",
+          hooksReapplied: [],
+          reason: NET_ZERO_REASON,
+        });
+        continue;
+      }
       const applied = reapplyHooks(runner, worktree, path);
       if (applied === null || "refuseReason" in applied) {
         human.push(path);
@@ -538,7 +572,7 @@ export const rebaseOnto = (
 // Check
 // ---------------------------------------------------------------------------
 
-const VERIFICATION_ENV_KEYS = [
+const VERIFICATION_ENV_KEYS = new Set([
   // Vite+'s `node_modules/.bin/vp` shim exports an absolute NODE_PATH into the
   // store of the checkout it belongs to; inherited, it pins module resolution
   // for every process below to a foreign store.
@@ -554,7 +588,7 @@ const VERIFICATION_ENV_KEYS = [
   "GIT_CONFIG_KEY_0",
   "GIT_CONFIG_VALUE_0",
   "HYPRWS_PUSH_TOKEN",
-];
+]);
 
 /** The worktree's own `.bin` first, and no other checkout's bin directory at all. */
 const worktreeExecutablePath = (inherited: string | undefined, worktree: string): string => {
@@ -572,7 +606,7 @@ const worktreeExecutablePath = (inherited: string | undefined, worktree: string)
 
 const verificationEnv = (worktree: string): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !VERIFICATION_ENV_KEYS.includes(key)),
+    Object.entries(process.env).filter(([key]) => !VERIFICATION_ENV_KEYS.has(key)),
   ),
   PATH: worktreeExecutablePath(process.env.PATH, worktree),
 });
