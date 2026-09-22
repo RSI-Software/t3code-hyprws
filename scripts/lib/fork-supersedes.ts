@@ -264,15 +264,74 @@ export interface SupersedesAssessment {
   readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
 }
 
-const caseBody = (text: string): string =>
+const openerTitle = (line: string): string | undefined =>
+  TITLE_OPENER.exec(line)
+    ?.slice(1)
+    .find((part) => part !== undefined);
+
+const significantLines = (text: string): Array<string> =>
   stripDeclarationCalls(text)
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => line.trim())
     .filter(
       (line) => line !== "" && !line.startsWith("//") && !line.startsWith("*") && line !== "/*",
-    )
-    .join("\n");
+    );
+
+/**
+ * The significant lines of the named case in a test file's text: from its
+ * opener to the next case opener (or end of file). Null when no case
+ * carries the title. A declaration names one upstream case, so validation
+ * reads that case — never the whole file
+ * (RSI-Software/t3code-hyprws#1206).
+ */
+const caseBodyForTitle = (text: string, title: string): ReadonlyArray<string> | null => {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => openerTitle(line) === title);
+  if (start === -1) return null;
+  const next = lines.findIndex((line, index) => index > start && openerTitle(line) !== undefined);
+  return significantLines(lines.slice(start, next === -1 ? lines.length : next).join("\n"));
+};
+
+/**
+ * The significant body lines of the named case with the opener's title
+ * literal stripped, so a rename that changes only the title still
+ * matches by body. A body rewrite still mismatches on its own lines.
+ * Null when no case carries the title.
+ */
+const caseBodyForRename = (text: string, title: string): ReadonlyArray<string> | null => {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => openerTitle(line) === title);
+  if (start === -1) return null;
+  const openerStripped = lines
+    .slice(start, start + 1)
+    .join("\n")
+    .replace(TITLE_OPENER, "");
+  const rest = lines.slice(start + 1);
+  const next = rest.findIndex((line) => openerTitle(line) !== undefined);
+  return significantLines(
+    [openerStripped, ...rest.slice(0, next === -1 ? rest.length : next)].join("\n"),
+  );
+};
+
+/**
+ * The significant lines of the sibling case a declaration documents: from
+ * the nearest case opener at-or-after the declaration's own line to the
+ * following opener (or end of file), reusing `siblingCaseOpenerLines` so
+ * the doc-comment resolution rule stays single-sourced
+ * (RSI-Software/t3code-hyprws#1208). Null when the declaration sits after
+ * the last opener and documents no case.
+ */
+const documentedCaseBody = (text: string, line: number): ReadonlyArray<string> | null => {
+  const openers = siblingCaseOpenerLines(text);
+  const after = openers.filter((opener) => opener >= line);
+  if (after.length === 0) return null;
+  const start = Math.min(...after);
+  const following = openers.filter((opener) => opener > start);
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const end = following.length === 0 ? lines.length : Math.min(...following) - 1;
+  return significantLines(lines.slice(start - 1, end).join("\n"));
+};
 
 // The declaration calls themselves are bookkeeping, not behaviour: the
 // retire comparison reads the sibling's case body without them.
@@ -280,17 +339,20 @@ const stripDeclarationCalls = (text: string): string =>
   text.replace(/forkSupersedes\s*\(\s*\{[^}]*\}\s*\)\s*;?/gs, "");
 
 /**
- * Every declaration in the fork siblings, judged against the target tree's
- * texts. `siblings` maps a sibling path to its text; `upstreamTexts` maps an
- * upstream path to its target-tree text (absent when the tree no longer
- * carries the file). A declaration whose upstream case now carries the fork
- * behaviour — its significant lines are a subset of the upstream file's — is
- * a retire candidate: the declaration and its sibling case go in the same
- * change. Judgement is advisory per se; the caller decides what fails.
+ * Every declaration in the fork siblings, judged against the upstream
+ * texts. `siblings` maps a sibling path to its text; `upstreamTexts` maps
+ * an upstream path to its assessed-tree text (absent when the tree no
+ * longer carries the file); `baseTexts` maps an upstream path to its
+ * merge-base text (absent the same way). A declaration whose upstream
+ * case now carries the fork behaviour — its significant lines are a
+ * subset of the upstream file's — is a retire candidate: the declaration
+ * and its sibling case go in the same change. Judgement is advisory per
+ * se; the caller decides what fails.
  */
 export const assessForkSupersedes = (
   siblings: ReadonlyMap<string, string>,
   upstreamTexts: ReadonlyMap<string, string>,
+  baseTexts: ReadonlyMap<string, string>,
 ): SupersedesAssessment => {
   const refusals: Array<string> = [];
   const superseded: Array<{ readonly path: string; readonly title: string }> = [];
@@ -318,29 +380,86 @@ export const assessForkSupersedes = (
         );
         continue;
       }
-      superseded.push({ path: declaration.upstreamPath, title: declaration.upstreamTitle });
-      // The fork behaviour adopted upstream: every significant sibling
-      // line except the declaration itself already sits in the upstream
-      // file, so the divergence is gone and the declaration with its case
-      // is deletion-ready.
-      const upstreamBody = new Set(caseBody(upstreamText).split("\n"));
-      const siblingBody = caseBody(text).split("\n");
-      if (siblingBody.length > 0 && siblingBody.every((line) => upstreamBody.has(line))) {
+      // A live divergence contradicts upstream: the named upstream case
+      // must differ from the documented sibling case. When the upstream
+      // body already carries the sibling case, the declaration is not a
+      // live divergence — it is a retire candidate, deletion-ready with
+      // its case — so it never reads as superseded on title alone
+      // (RSI-Software/t3code-hyprws#1206).
+      const upstreamCase = caseBodyForTitle(upstreamText, declaration.upstreamTitle);
+      const siblingCase = documentedCaseBody(text, declaration.line);
+      const bodyAgrees =
+        upstreamCase !== null &&
+        siblingCase !== null &&
+        siblingCase.length > 0 &&
+        siblingCase.every((line) => new Set(upstreamCase).has(line));
+      if (bodyAgrees) {
         retireCandidates.push({ ...declaration, sibling });
+        continue;
       }
+      superseded.push({ path: declaration.upstreamPath, title: declaration.upstreamTitle });
     }
     // A sibling case that shares an upstream title contradicts it by
     // definition: same name, fork-owned behaviour. Without a declaration
-    // that contradiction is unrecorded. The counterpart is the sibling
-    // with the `.fork` segment dropped, so a sibling contradicts only its
-    // own upstream file — never a same-titled case elsewhere.
+    // that contradiction is unrecorded. Against the merge base, a sibling
+    // title the assessed text dropped whose body the assessed text
+    // carries under a new title is the rename shape: upstream's case was
+    // renamed in place while the sibling still carries the base title,
+    // so no shared title survives. That is undeclared too — the more
+    // damaging shape, because it mutates the upstream file
+    // (RSI-Software/t3code-hyprws#1206).
+    // The counterpart is the sibling with the `.fork` segment dropped, so
+    // a sibling contradicts only its own upstream file — never a
+    // same-titled case elsewhere.
     const counterpart = sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
     const counterpartText = upstreamTexts.get(counterpart);
     const counterpartTitles =
       counterpartText === undefined ? new Set<string>() : new Set(testCaseTitles(counterpartText));
+    const baseText = baseTexts.get(counterpart);
+    const baseBodies = new Map<string, ReadonlyArray<string>>();
+    if (baseText !== undefined) {
+      for (const title of testCaseTitles(baseText)) {
+        const body = caseBodyForRename(baseText, title);
+        if (body !== null) baseBodies.set(title, body);
+      }
+    }
     for (const title of [...new Set(testCaseTitles(text))].toSorted()) {
-      if (declaredTitles.has(title) || !counterpartTitles.has(title)) continue;
-      undeclared.push({ sibling, title });
+      if (declaredTitles.has(title)) continue;
+      if (counterpartTitles.has(title)) {
+        undeclared.push({ sibling, title });
+        continue;
+      }
+      // Rename shape: the base carried a body under this title that the
+      // assessed text dropped, while the assessed text carries that
+      // same body under a new title — the head renamed the case in
+      // place while the sibling still carries the base title, so no
+      // shared title survives. That is undeclared too. The sibling
+      // agreeing with the base body is not required: the sibling
+      // predates the rename and may carry fork behaviour. A base-absent
+      // counterpart leaves the old rule standing: no shared title, no
+      // finding.
+      if (baseText === undefined) continue;
+      const baseBody = baseBodies.get(title);
+      if (baseBody === undefined || baseBody.length === 0) continue;
+      if (counterpartTitles.has(title)) continue;
+      // The assessed text carries the base body under a new title:
+      // some head case other than this title agrees with the base body.
+      const baseLines = new Set(baseBody);
+      const headBodies = new Map<string, ReadonlyArray<string>>();
+      if (counterpartText !== undefined) {
+        for (const headTitle of testCaseTitles(counterpartText)) {
+          const body = caseBodyForRename(counterpartText, headTitle);
+          if (body !== null) headBodies.set(headTitle, body);
+        }
+      }
+      const headCarries = [...headBodies].some(
+        ([headTitle, headBody]) =>
+          headTitle !== title &&
+          headBody.length > 0 &&
+          headBody.every((line) => baseLines.has(line)) &&
+          baseBody.every((line) => new Set(headBody).has(line)),
+      );
+      if (headCarries) undeclared.push({ sibling, title });
     }
   }
 

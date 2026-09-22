@@ -832,7 +832,20 @@ const readSupersedesAssessment = (
       // declaration. No entry is the signal.
     }
   }
-  const assessment = assessForkSupersedes(siblingTexts, upstreamTexts);
+  // Merge-base texts for the same paths: the rename check compares the
+  // base against the assessed tree, so an in-place upstream rename the
+  // sibling still carries under the base title reads as undeclared. An
+  // unreadable base blob leaves no entry; the old title-sharing rule
+  // stands for that path.
+  const baseTexts = new Map<string, string>();
+  for (const path of [...needed].toSorted()) {
+    try {
+      baseTexts.set(path, git.run(["show", `${range.base}:${path}`]));
+    } catch {
+      // Absent from the base tree: no rename baseline for this path.
+    }
+  }
+  const assessment = assessForkSupersedes(siblingTexts, upstreamTexts, baseTexts);
   return {
     supersedes: [
       ...assessment.refusals,
