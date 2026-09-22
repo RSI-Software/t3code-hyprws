@@ -22,6 +22,35 @@ import {
   selectDomain,
   squashTrailers,
 } from "./fork-delta.ts";
+import {
+  FORK_RETIREMENT_LEDGER_PATH,
+  parseForkRetirementLedger,
+  retirementDecision,
+  type KeptCommit,
+  type RetiredCommit,
+} from "./lib/fork-retirement-ledger.ts";
+
+/** A ledger file body; every row field the case does not exercise defaults to empty. */
+const ledgerJson = (sections: {
+  readonly retired?: ReadonlyArray<Partial<RetiredCommit>>;
+  readonly kept?: ReadonlyArray<Partial<KeptCommit>>;
+}): string =>
+  JSON.stringify({
+    retired: (sections.retired ?? []).map((row) => ({
+      subject: "",
+      domain: "",
+      upstreamReplacement: "",
+      retiredAt: "v1.0.0",
+      ...row,
+    })),
+    kept: (sections.kept ?? []).map((row) => ({
+      subject: "",
+      domain: "",
+      reason: "",
+      reviewedAt: "v1.0.0",
+      ...row,
+    })),
+  });
 
 const RS = "";
 const FS = "";
@@ -202,6 +231,98 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
     lines.some((line) =>
       line.startsWith("| `ddddddddd` | chore: untagged | missing Fork-Domain |"),
     ),
+  );
+});
+
+it("skips retired subjects from listings and makes --check fail while one is present", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    ledgerJson({
+      retired: [{ subject: "fix(web): scope markdown actions", domain: "project-windows" }],
+    }),
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.notInclude(
+    ledger.commits.map((commit) => commit.subject),
+    "fix(web): scope markdown actions",
+  );
+  assert.deepInclude(ledger.findings, {
+    short: "aaaaaaaaa",
+    subject: "fix(web): scope markdown actions",
+    problem: "retired but present",
+  });
+  assert.isAbove(ledger.findings.length, 0);
+});
+
+it("fails kept but absent: a Kept row whose commit left the stack without a Retired row", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    ledgerJson({
+      kept: [
+        {
+          subject: "feat(web): add manual sidebar thread ordering",
+          domain: "thread-ordering",
+          reason: "kept for fork users",
+        },
+      ],
+    }),
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.deepInclude(ledger.findings, {
+    short: "ledger",
+    subject: "feat(web): add manual sidebar thread ordering",
+    problem: "kept but absent",
+  });
+});
+
+it("resolves a subject written as a code span to its bare commit subject", () => {
+  const backticked = parseForkRetirementLedger(
+    ledgerJson({
+      retired: [{ subject: "`fix(web): scope markdown actions`", domain: "project-windows" }],
+    }),
+  );
+  // The exact subject the commit carries, and the backticked spelling, are the
+  // same key: a code span in a row must not silently resolve to none.
+  assert.strictEqual(
+    retirementDecision(backticked, "fix(web): scope markdown actions").decision,
+    "retire",
+  );
+  assert.strictEqual(
+    retirementDecision(backticked, "`fix(web): scope markdown actions`").decision,
+    "retire",
+  );
+  // Inner or unpaired backticks are part of the subject, not its wrapping.
+  const bare = parseForkRetirementLedger(
+    ledgerJson({
+      retired: [{ subject: "fix(web): scope `markdown` actions", domain: "project-windows" }],
+    }),
+  );
+  assert.strictEqual(
+    retirementDecision(bare, "fix(web): scope `markdown` actions").decision,
+    "retire",
+  );
+  assert.strictEqual(retirementDecision(bare, "fix(web): scope markdown actions").decision, "none");
+});
+
+it("keeps a partial subject active when its retired and kept portions are both recorded", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    ledgerJson({
+      retired: [{ subject: "fix(web): scope markdown actions", domain: "project-windows" }],
+      kept: [
+        {
+          subject: "fix(web): scope markdown actions",
+          domain: "project-windows",
+          reason: "project scope remains",
+        },
+      ],
+    }),
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.include(
+    ledger.commits.map((commit) => commit.subject),
+    "fix(web): scope markdown actions",
+  );
+  assert.notInclude(
+    ledger.findings.map((finding) => finding.problem),
+    "retired but present",
   );
 });
 
@@ -478,6 +599,8 @@ it("diverges per-commit and per-domain overlap when a domain's commits share a f
 const createStackFixture = () => {
   const { root } = createGitFixture();
   NodeFS.writeFileSync(NodePath.join(root, "seed.txt"), "seed\n");
+  NodeFS.mkdirSync(NodePath.join(root, "scripts"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH), `${ledgerJson({})}\n`);
   git(root, ["add", "."]);
   const base = commitAll(root, "fixture: seed the fork stack");
   git(root, ["switch", "-c", "upstream"]);

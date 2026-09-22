@@ -55,6 +55,19 @@ At parity, plain browser windows or a small Electron shell suffice, which retire
 | `bugfix` | A defect fix; note upstream reproduction | Dropped once upstream supersedes it |
 
 A `bugfix` upstream reproduces is a retire candidate: wait for upstream's fix, then drop the commit at the next rebase.
+Every signalled commit gets one retirement outcome during the rebase.
+
+`scripts/fork-retirement-ledger.json` holds both arrays.
+
+| Outcome     | Where it lands                                 |
+| ----------- | ---------------------------------------------- |
+| **Retire**  | A `retired` row; the subject leaves the stack  |
+| **Keep**    | A `kept` row with the behaviour upstream lacks |
+| **Partial** | Both arrays: replacement cell and keep reason  |
+
+A subject in both arrays is a partial decision and stays in the active ledger.
+A retired-only subject still present reads as `retired but present` in `fork:delta --check` until the rebase drops it.
+Upstream references in either array are code-spanned records, never live links.
 
 ## Trailers
 
