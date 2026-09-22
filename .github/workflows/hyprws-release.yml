@@ -165,9 +165,9 @@ jobs:
       # hyprws. The release sha must be the current tip of origin/hyprws (so
       # it is what the lease push landed) and that sha must carry a green
       # `hyprws CI` conclusion. A human trigger is not a reason to cut from a
-      # red trunk, so the stable tag channel passes the same gate: a hand-cut
-      # tag still names the trunk commit the lease push landed, and the
-      # committed sha the tag points at is visible to the gate either way.
+      # red trunk, so the stable tag channel passes the same gate — and a tag
+      # on an older commit, or a trunk that advanced past the tag, closes the
+      # gate: the cut stays shut and this step fails with the reason.
       # Missing or red means no cut: the step fails and the build never runs.
       - id: release_gate
         name: Gate the cut on the lease push and a green battery
@@ -178,7 +178,26 @@ jobs:
           script: |
             const { execSync } = require('node:child_process');
             const releaseSha = process.env.RELEASE_SHA;
-            const trunkTip = execSync('git rev-parse origin/hyprws', { encoding: 'utf8' }).trim();
+            // The checkout fetches only the ref it checks out, so origin/hyprws
+            // may not exist here (notably on stable-tag runs); fetch the trunk
+            // explicitly the way the merge-tree job does, and read FETCH_HEAD.
+            // A fetch failure closes the gate with a reason, never a throw.
+            const close = async (reason) => {
+              core.setOutput('gate_proceed', 'false');
+              core.setOutput('gate_reason', reason);
+              await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
+              core.setFailed(`release gate closed: ${reason}`);
+            };
+            let trunkTip;
+            try {
+              execSync('git fetch --no-tags origin hyprws', { stdio: ['ignore', 'pipe', 'pipe'] });
+              trunkTip = execSync('git rev-parse FETCH_HEAD', { encoding: 'utf8' }).trim();
+            } catch (error) {
+              await close(
+                `could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
             const conclusion = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo,
               { ...context.repo, head_sha: releaseSha, per_page: 100 },
@@ -186,13 +205,20 @@ jobs:
               runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
             );
             core.info(`release sha: ${releaseSha}; hyprws tip: ${trunkTip}; hyprws CI: ${conclusion ?? 'missing'}`);
-            const output = execSync(
+            const first = execSync(
               `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
-              (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`) +
-              ' --github-output',
+              (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
               { encoding: 'utf8' },
-            );
-            core.info(output.trim());
+            ).trim().split('\n')[0] ?? '';
+            const proceed = first.startsWith('proceed');
+            const reason = first.replace(/^(proceed|skip):\s*/, '');
+            core.setOutput('gate_proceed', proceed ? 'true' : 'false');
+            core.setOutput('gate_reason', reason);
+            if (!proceed) {
+              await close(reason);
+              return;
+            }
+            await core.summary.addHeading('Release gate: open').addRaw(reason).write();
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
