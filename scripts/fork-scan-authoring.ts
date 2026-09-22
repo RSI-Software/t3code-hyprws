@@ -417,10 +417,10 @@ export const renderAuthoringWarnings = (
     .join(", ");
   return [
     "",
-    `Authoring guards, ${warnings.length} warning(s) (${counts}):`,
+    `Authoring guards, ${warnings.length} refusal(s) (${counts}):`,
     ...warnings.map(
       (warning) =>
-        `  WARN  ${warning.rule}  ${warning.commit}  ${warning.domain}  ${warning.detail}`,
+        `  REFUSE  ${warning.rule}  ${warning.commit}  ${warning.domain}  ${warning.detail}`,
     ),
   ];
 };
