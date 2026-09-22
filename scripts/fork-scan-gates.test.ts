@@ -139,10 +139,139 @@ it("fails an upstream-test addition in the since range", () => {
       upstreamFiles: new Set(["apps/web/src/other.test.ts"]),
       upstreamTestFiles: new Set(["apps/web/src/other.test.ts"]),
       upstreamTestLines: new Map([["apps/web/src/other.test.ts", new Set()]]),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   const failures = scanFailures(result);
   assert.isTrue(failures.some((failure) => failure.startsWith("upstream-test:")));
+});
+
+it("passes a declared-superseded deletion and still fails an undeclared one", () => {
+  // RSI-Software/t3code-hyprws#1208: the sibling declares the upstream case the fork
+  // contradicts, so deleting the fork's in-place rewrite from the upstream copy is
+  // the documented move, not an upstream rewrite. The declaration text rides on the
+  // guard input the same way the target-tree line sets do.
+  const removedCase = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,3 +1,0 @@",
+    '-it("upstream", () => {',
+    "-  expect(keep).toBe(2);",
+    "-});",
+    "",
+  ].join("\n");
+  const guardInput = ({
+    upstreamTestTexts,
+    siblingTexts,
+  }: {
+    upstreamTestTexts: ReadonlyMap<string, string>;
+    siblingTexts: ReadonlyMap<string, string>;
+  }): AuthoringGuardInput => ({
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+    patchesBySha: parseCommitPatches(removedCase),
+    upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestLines: new Map([
+      ["apps/web/src/thing.test.ts", new Set(["expect(keep).toBe(2);"])],
+    ]),
+    upstreamTestTexts,
+    siblingTexts,
+  });
+  const upstreamText = 'it("upstream", () => {\n  expect(keep).toBe(2);\n});\n';
+  const declaredSibling =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n';
+  const declared = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", declaredSibling]]),
+      }),
+    ),
+  );
+  assert.isFalse(
+    scanFailures(declared).some((failure) => failure.startsWith("upstream-test:")),
+    "a declared-superseded deletion must not warn",
+  );
+  const undeclared = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([
+          ["apps/web/src/thing.fork.test.ts", 'it("replacement", () => {});\n'],
+        ]),
+      }),
+    ),
+  );
+  assert.isTrue(
+    scanFailures(undeclared).some((failure) => failure.startsWith("upstream-test:")),
+    "an undeclared deletion must still warn",
+  );
+  const bareDeclaration = buildScanResult(
+    baseInput(
+      guardInput({
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+        siblingTexts: new Map([
+          [
+            "apps/web/src/thing.fork.test.ts",
+            'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > upstream", reason: "the fork inverts it", commit: "abc1234" });\n',
+          ],
+        ]),
+      }),
+    ),
+  );
+  assert.isTrue(
+    scanFailures(bareDeclaration).some((failure) => failure.startsWith("upstream-test:")),
+    "a declaration after the last case documents nothing and must not exempt",
+  );
+  // Per-declaration documentation: one declaration before a sibling case is
+  // excused, one after the last case opener is not.
+  const removedTwo = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,6 +1,0 @@",
+    '-it("first", () => {',
+    "-  expect(first).toBe(1);",
+    "-});",
+    '-it("second", () => {',
+    "-  expect(second).toBe(1);",
+    "-});",
+    "",
+  ].join("\n");
+  const twoUpstreamText =
+    'it("first", () => {\n  expect(first).toBe(1);\n});\nit("second", () => {\n  expect(second).toBe(1);\n});\n';
+  const twoGuard = (sibling: string): AuthoringGuardInput => ({
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+    patchesBySha: parseCommitPatches(removedTwo),
+    upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestLines: new Map([
+      [
+        "apps/web/src/thing.test.ts",
+        new Set(["expect(first).toBe(1);", "expect(second).toBe(1);"]),
+      ],
+    ]),
+    upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", twoUpstreamText]]),
+    siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+  });
+  const mixedSibling =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > first", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    'it("replacement", () => {\n  expect(keep).toBe(2);\n});\n' +
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > second", reason: "the fork inverts it", commit: "abc1234" });\n';
+  const mixed = buildScanResult(baseInput(twoGuard(mixedSibling)));
+  const mixedFailures = scanFailures(mixed).filter((failure) =>
+    failure.startsWith("upstream-test:"),
+  );
+  assert.equal(mixedFailures.length, 1, "only the trailing declaration still warns");
+  assert.isTrue(
+    mixedFailures[0]?.includes("expect(second).toBe(1);"),
+    "the warning names the unexcused case's line",
+  );
 });
 
 it("fails a replaced export matched by name across files", () => {
@@ -168,6 +297,8 @@ it("fails a replaced export matched by name across files", () => {
       upstreamFiles: new Set(["apps/web/src/upstream.ts"]),
       upstreamTestFiles: new Set(),
       upstreamTestLines: new Map(),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   const failures = scanFailures(result);
@@ -191,6 +322,8 @@ it("flags an unmarked insertion through the hook guard", () => {
       upstreamFiles: new Set(["apps/web/src/thing.ts"]),
       upstreamTestFiles: new Set(),
       upstreamTestLines: new Map(),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
     }),
   );
   assert.isTrue(result.hookDetails.some((detail) => detail.includes("outside a marked hook")));
@@ -219,6 +352,8 @@ it("passes a hook-guard restore the target tree already has", () => {
     upstreamTestFiles: new Set<string>(),
     upstreamTestLines: new Map(),
     upstreamLines: new Map([["apps/web/src/thing.ts", new Set([restored])]]),
+    upstreamTestTexts: new Map(),
+    siblingTexts: new Map(),
   };
   const mixed = buildScanResult(baseInput(guard));
   assert.isTrue(

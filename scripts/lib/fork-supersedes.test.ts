@@ -6,6 +6,7 @@ import {
   assessForkSupersedes,
   collectForkSupersedes,
   contradictingTitles,
+  enclosedSupersededTitles,
   parseForkSupersedesCalls,
   testCaseTitles,
 } from "./fork-supersedes.ts";
@@ -48,6 +49,33 @@ it("refuses a declaration missing a field or carrying a malformed upstream ref",
     commit: "abc",
     line: 1,
   });
+});
+
+it("resolves a declaration before its case, and none after the last opener", () => {
+  // The CodexAdapter shape: a declaration with a comment above it sits
+  // immediately before the case it documents, with no case opener before
+  // it. At-or-after resolution excuses it; a declaration after the last
+  // opener excuses nothing (RSI-Software/t3code-hyprws#1208).
+  const decl =
+    'forkSupersedes({ upstream: "apps/server/src/provider/Layers/CodexAdapter.test.ts > maps codex model options before starting a session", reason: "the fork splits identity from launch options", commit: "afe622b5dc" });';
+  const before = [
+    "// Moved from the upstream file: the runtime options are asserted as identity.",
+    decl,
+    'it.effect("maps codex model options before starting a session", () => {});',
+    "",
+  ].join("\n");
+  assert.deepStrictEqual(
+    enclosedSupersededTitles(before, "apps/server/src/provider/Layers/CodexAdapter.test.ts"),
+    ["maps codex model options before starting a session"],
+  );
+  const after = [
+    'it.effect("maps codex model options before starting a session", () => {});',
+    decl,
+    "",
+  ].join("\n");
+  assert.isEmpty(
+    enclosedSupersededTitles(after, "apps/server/src/provider/Layers/CodexAdapter.test.ts"),
+  );
 });
 
 it("ignores a forkSupersedes-shaped mention that is not a call", () => {
