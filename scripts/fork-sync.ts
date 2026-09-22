@@ -669,22 +669,42 @@ export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "typecheck"],
 ];
 
+/** The last lines of combined check output kept in a failure detail. */
+export const CHECK_DETAIL_TAIL_LINES = 40;
+
+export const checkFailureDetail = (
+  result: CommandResult,
+  tail = CHECK_DETAIL_TAIL_LINES,
+): string => {
+  const combined = [result.stdout, result.stderr].filter((stream) => stream.length > 0).join("\n");
+  const text = combined.trim();
+  if (text.length === 0) return `no output (exit ${result.status})`;
+  return `${text.split("\n").slice(-tail).join("\n")} (exit ${result.status})`;
+};
+
 export const runChecks = (
   runner: CommandRunner,
   root: string,
   worktree: string,
+  target: ReleaseTag,
 ): ReadonlyArray<CheckRow> => {
   linkInstalledModules(root, worktree);
   const env = verificationEnv(worktree);
   return checkCommands().map((args) => {
-    const result = runner.run("vp", args, { cwd: worktree, env, stream: true });
-    return result.status === 0 && result.error === undefined
-      ? { command: commandText("vp", args), status: "passed", detail: "" }
-      : {
-          command: commandText("vp", args),
-          status: "failed",
-          detail: `${result.stderr.trim() || result.stdout.trim() || "no output"} (exit ${result.status})`,
-        };
+    // The rehearsal head authors no commits, so the battery scopes the hook
+    // guard to the replayed fork delta: everything after the rehearsal
+    // target. Pull-request runs keep the merge-base rule inside fork:ci.
+    const scoped = args[1] === "fork:ci" ? [...args, "--since", target.sha] : args;
+    const result = runner.run("vp", scoped, { cwd: worktree, env, stream: true });
+    if (result.status === 0 && result.error === undefined)
+      return { command: commandText("vp", args), status: "passed", detail: "" };
+    const detail = checkFailureDetail(result);
+    process.stderr.write(`${commandText("vp", args)} failed:\n${detail}\n`);
+    return {
+      command: commandText("vp", args),
+      status: "failed",
+      detail,
+    };
   });
 };
 
@@ -1434,7 +1454,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // check
     step = "check";
-    const checks = runChecks(runner, root, worktreePath(root));
+    const checks = runChecks(runner, root, worktreePath(root), target);
     if (checks.some((check) => check.status === "failed")) {
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
       return fail({

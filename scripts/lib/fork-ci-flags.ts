@@ -53,14 +53,28 @@ export const systemForkCiGit = (git: SystemGit): ForkCiGit => ({
 // Both fallbacks mean the head has no trunk ancestry to report from: the trunk
 // ref is absent, or the head is the trunk tip itself so the merge base is the
 // head. The parent then stands in, exactly as the workflow shell used to.
-export const deriveForkCiFlags = (git: ForkCiGit, head: string): ForkCiFlags => {
+// An explicit `since` overrides the derivation without touching it: only the
+// sync battery passes one (its rehearsal target tag), so pull-request runs
+// keep the merge-base rule.
+export interface ForkCiSinceOverride {
+  /** Range start for the scan guard; the merge-base derivation when absent. */
+  readonly since?: string;
+}
+
+export const deriveForkCiFlags = (
+  git: ForkCiGit,
+  head: string,
+  overrides: ForkCiSinceOverride = {},
+): ForkCiFlags => {
   const base = git.run(["merge-base", UPSTREAM_MAIN, head]).trim();
   const resolvedHead = git.run(["rev-parse", head]).trim();
   const trunkMergeBase = git.attempt(["merge-base", FORK_TRUNK_REF, resolvedHead])?.trim() ?? "";
-  const since =
+  const derived =
     trunkMergeBase.length === 0 || trunkMergeBase === resolvedHead
       ? `${resolvedHead}^`
       : trunkMergeBase;
+  const since =
+    overrides.since !== undefined && overrides.since.length > 0 ? overrides.since : derived;
   const trunkResolves = git.attempt(["rev-parse", "--verify", "--quiet", FORK_TRUNK_REF]) !== null;
   return {
     head: resolvedHead,

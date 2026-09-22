@@ -170,3 +170,32 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
+
+it("lets an explicit since override the merge-base derivation", () => {
+  const flags = deriveForkCiFlags(fakeGit({}), HEAD, { since: "ffff5555" });
+  assert.strictEqual(flags.since, "ffff5555");
+  // The override touches only the range start: the pull-request shape is intact.
+  assert.deepStrictEqual(flags, {
+    head: HEAD,
+    base: BASE,
+    since: "ffff5555",
+    target: BASE,
+    replayOf: "origin/hyprws",
+  });
+  assert.deepStrictEqual(forkScanArguments(flags), [
+    "--head",
+    HEAD,
+    "--target",
+    BASE,
+    "--since",
+    "ffff5555",
+    "--replay-of",
+    "origin/hyprws",
+    "--no-typecheck",
+  ]);
+});
+
+it("ignores an empty since override and keeps the merge-base rule", () => {
+  const flags = deriveForkCiFlags(fakeGit({}), HEAD, { since: "" });
+  assert.strictEqual(flags.since, TRUNK);
+});
