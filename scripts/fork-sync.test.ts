@@ -1491,3 +1491,30 @@ it("says no output only when both check streams are empty", () => {
     /no output \(exit 1\)/,
   );
 });
+
+it("records a non-empty detail tail when a streamed battery check fails", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      // A nested vp failure whose output arrives the streamed way: captured
+      // text present on the result, the way runCommand's stream mode returns.
+      const nested = Array.from({ length: 45 }, (_, index) => `nested line ${index + 1}`);
+      const recording = exec({
+        vp: () => ({ status: 1, stdout: `${nested.join("\n")}\n`, stderr: "nested boom\n" }),
+      });
+      const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+      assert.strictEqual(printed.value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      const red = report.checks.find((check) => check.status === "failed");
+      assert.notStrictEqual(red, undefined);
+      assert.notMatch(red!.detail, /no output/);
+      const kept = red!.detail.replace(/ \(exit 1\)$/, "").split("\n");
+      assert.strictEqual(kept.length, 40);
+      assert.strictEqual(kept[kept.length - 1], "nested boom");
+      assert.match(red!.detail, /exit 1/);
+    },
+  );
+});
