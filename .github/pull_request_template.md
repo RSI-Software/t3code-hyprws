@@ -55,8 +55,7 @@ we may close it without merging it, or never review it.
        worktrunk-hooks
        zmux-estate
 
-     This list is FORK_DOMAINS in scripts/lib/fork-trailers.ts, and hyprws CI
-     refuses a disagreement between the two. The check cannot tell a wrong domain
+     This list copies FORK_DOMAINS in scripts/lib/fork-trailers.ts. It cannot tell a wrong domain
      from a right one, only a known value from an unknown one, so a plausible
      wrong pick quietly mis-attributes the change to a domain nobody touched.
 
