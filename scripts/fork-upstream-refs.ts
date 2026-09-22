@@ -125,25 +125,60 @@ export const renderReferences = (references: ReadonlyArray<UpstreamReference>): 
     )
     .join("");
 
-const run = (argv: ReadonlyArray<string>): number => {
-  const source = argv[0] ?? "";
+interface CheckResult {
+  readonly ok: boolean;
+  readonly unreadable: boolean;
+  readonly references: number;
+}
+
+const check = (source: string): CheckResult => {
   let body: string;
   try {
     body = NodeFS.readFileSync(source, "utf8");
   } catch (error) {
-    process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
+    process.stderr.write(
+      `failed: cannot read ${source}: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return { ok: false, unreadable: true, references: 0 };
   }
   const references = findUpstreamReferences(body);
   if (references.length === 0) {
     process.stdout.write(`ok: no live upstream references in ${source}\n`);
-    return 0;
+    return { ok: true, unreadable: false, references: 0 };
   }
   process.stderr.write(renderReferences(references));
   process.stderr.write(
     `failed: ${references.length} live upstream reference(s) in ${source}; wrap each one in a code span or a fenced block so GitHub does not post a backlink on the ${UPSTREAM_REPO} thread, or write a bare number that names a fork item as ${FORK_REPO}#N, which renders the same (docs/fork/internals/fork-development.md)\n`,
   );
-  return 1;
+  return { ok: false, unreadable: false, references: references.length };
+};
+
+const run = (argv: ReadonlyArray<string>): number => {
+  if (argv.length === 0) {
+    process.stderr.write("failed: no input files; pass at least one body file to check\n");
+    return 1;
+  }
+  let failedFiles = 0;
+  let unreadableFiles = 0;
+  let totalReferences = 0;
+  for (const source of argv) {
+    const { ok, unreadable, references } = check(source);
+    if (!ok) failedFiles += 1;
+    if (unreadable) unreadableFiles += 1;
+    totalReferences += references;
+  }
+  if (argv.length === 1) return failedFiles > 0 ? 1 : 0;
+  if (failedFiles > 0) {
+    const parts: string[] = [];
+    if (totalReferences > 0) parts.push(`${totalReferences} live upstream reference(s)`);
+    if (unreadableFiles > 0) parts.push(`${unreadableFiles} unreadable file(s)`);
+    process.stderr.write(
+      `failed: ${parts.join(" and ")} in ${failedFiles} of ${argv.length} file(s)\n`,
+    );
+    return 1;
+  }
+  process.stdout.write(`ok: no live upstream references in ${argv.length} file(s)\n`);
+  return 0;
 };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));
