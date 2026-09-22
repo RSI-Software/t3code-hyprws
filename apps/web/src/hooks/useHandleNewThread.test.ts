@@ -150,6 +150,11 @@ vi.mock("../lib/chatThreadActions", async (importOriginal) => ({
 }));
 vi.mock("../lib/t3ProjectFileDefaults", () => ({
   readT3ProjectFileDefaultThreadEnvMode: () => testState.projectFileRead,
+  // Fork pre-adoption of upstream's readT3ProjectFile rename: the hook now
+  // calls the new export, bound here to the same handle. This file is
+  // upstream-authored, so the old line stays until the sync supersedes the
+  // rename commit.
+  readT3ProjectFile: () => testState.projectFileRead,
 }));
 vi.mock("../lib/utils", () => ({
   newDraftId: () => "draft-delayed",

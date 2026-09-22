@@ -33,7 +33,7 @@ import {
   resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
-import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
 import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { resolveThreadRouteFamily } from "../threadRoutes";
@@ -166,10 +166,8 @@ export function useNewThreadHandler() {
         return resolveDefaultStoredThreadEnvMode({
           projectSetting: project ? fromWireThreadEnvModeFields(project) : null,
           projectFile: consultProjectFile
-            ? await readT3ProjectFileDefaultThreadEnvMode(
-                project.environmentId,
-                project.workspaceRoot,
-              )
+            ? ((await readT3ProjectFile(project.environmentId, project.workspaceRoot))
+                ?.defaultThreadEnvMode ?? null)
             : null,
           globalDefault: fromWireThreadEnvModeFields(targetServerSettings),
         });
