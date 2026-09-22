@@ -17,7 +17,12 @@ const HELP = `Usage: vp run fork:ci
 Runs what the fork's pull-request CI jobs run, in CI's own shape:
 
   1. the ledger flags, derived by scripts/lib/fork-ci-flags.ts
-  2. vp run fork:scan with exactly those flags (--no-typecheck included)
+  2. vp run fork:scan with exactly those flags (--no-typecheck included),
+     which carries step 1 (the additive gate: files, migrations, tests
+     intact, scripts/lib/fork-additive-gate.ts), the hook guard (marked
+     insertions only, scripts/lib/fork-hook-guard.ts) and the
+     replaced-export / upstream-test authoring findings
+     (scripts/fork-scan-authoring.ts)
   3. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the release or sync workflows.
