@@ -96,13 +96,14 @@ it("reads case titles across the dotted effect forms", () => {
 
 it("refuses a declaration naming an absent file or title", () => {
   const sibling = `forkSupersedes({ upstream: "gone.test.ts > t", reason: "why", commit: "abc" });`;
-  const absent = assessForkSupersedes(new Map([["a.fork.test.ts", sibling]]), new Map());
+  const absent = assessForkSupersedes(new Map([["a.fork.test.ts", sibling]]), new Map(), new Map());
   assert.match(absent.refusals.join("\n"), /does not carry/);
   assert.isEmpty(absent.superseded);
 
   const renamed = assessForkSupersedes(
     new Map([["a.fork.test.ts", sibling.replace("gone.test.ts", "here.test.ts")]]),
     new Map([["here.test.ts", `it("other", () => {});`]]),
+    new Map(),
   );
   assert.match(renamed.refusals.join("\n"), /renamed or removed/);
   assert.isEmpty(renamed.superseded);
@@ -122,6 +123,7 @@ it("treats a declared contradiction as superseded and an undeclared one as a fin
       ],
     ]),
     texts,
+    new Map(),
   );
   assert.isEmpty(declared.refusals);
   assert.isEmpty(declared.undeclared);
@@ -130,6 +132,7 @@ it("treats a declared contradiction as superseded and an undeclared one as a fin
   const bare = assessForkSupersedes(
     new Map([["thing.fork.test.ts", `it("keeps the case", () => { expect(1).toBe(2); });`]]),
     texts,
+    new Map(),
   );
   assert.deepStrictEqual(bare.undeclared, [
     { sibling: "thing.fork.test.ts", title: "keeps the case" },
@@ -140,25 +143,147 @@ it("treats a declared contradiction as superseded and an undeclared one as a fin
   );
 });
 
-it("names a declaration whose upstream case adopted the behaviour as a retire candidate", () => {
-  const upstream = [`it("keeps the case", () => {`, `  expect(1).toBe(2);`, `});`].join("\n");
-  const sibling = [
+it("refuses a declaration whose upstream case body now matches the fork", () => {
+  // Gap 3: the upstream case was validated on title alone, so rewriting
+  // its body into agreement with the fork still read as a live
+  // divergence (RSI-Software/t3code-hyprws#1206). Fixture strings only:
+  // RSI-Software/t3code-hyprws#1204 removed the live rename instance.
+  const upstream = [
+    `it("other", () => {`,
+    `  expect(0).toBe(0);`,
+    `});`,
+    `it("keeps the case", () => {`,
+    `  expect(1).toBe(2);`,
+    `});`,
+  ].join("\n");
+  const agreed = [
     `forkSupersedes({ upstream: "thing.test.ts > keeps the case", reason: "why", commit: "abc" });`,
     `it("keeps the case", () => {`,
     `  expect(1).toBe(2);`,
     `});`,
   ].join("\n");
-  const adopted = assessForkSupersedes(
-    new Map([["thing.fork.test.ts", sibling]]),
+  const stale = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", agreed]]),
     new Map([["thing.test.ts", upstream]]),
+    new Map(),
   );
-  assert.isEmpty(adopted.refusals);
-  assert.lengthOf(adopted.retireCandidates, 1);
-  assert.equal(adopted.retireCandidates[0]?.sibling, "thing.fork.test.ts");
+  assert.isEmpty(stale.refusals);
+  assert.isEmpty(stale.superseded);
+  assert.lengthOf(stale.retireCandidates, 1);
+  assert.equal(stale.retireCandidates[0]?.sibling, "thing.fork.test.ts");
 
   const diverged = assessForkSupersedes(
-    new Map([[`thing.fork.test.ts`, `${sibling}\n  expect(2).toBe(3);`]]),
+    new Map([["thing.fork.test.ts", agreed.replace("expect(1).toBe(2);", "expect(1).toBe(3);")]]),
     new Map([["thing.test.ts", upstream]]),
+    new Map(),
   );
-  assert.isEmpty(diverged.retireCandidates);
+  assert.isEmpty(diverged.refusals);
+  assert.deepStrictEqual(diverged.superseded, [{ path: "thing.test.ts", title: "keeps the case" }]);
+});
+
+it("reports an in-place rename the sibling copied", () => {
+  // Gap 1 in the issue's own words: undeclared detection is blind to
+  // a rename — it fires only when a sibling case shares a title with
+  // its upstream counterpart, so a fork that renames upstream's case in
+  // place and copies the result to the sibling leaves no shared title
+  // and reports nothing — the damaging shape, because it mutates the
+  // upstream file (RSI-Software/t3code-hyprws#1206). Fixture strings
+  // only: RSI-Software/t3code-hyprws#1204 removed the live rename
+  // instance. The sibling predates the head's rename: it carries the
+  // base body under the base title, so head and sibling share no
+  // renamed title and the old title-sharing rule reports nothing.
+  const base = [
+    `it("replaces the standalone explorer", () => {`,
+    `  expect(1).toBe(1);`,
+    `});`,
+    `it("stays put", () => {`,
+    `  expect(0).toBe(0);`,
+    `});`,
+  ].join("\n");
+  const head = [
+    `it("keeps the standalone explorer", () => {`,
+    `  expect(1).toBe(1);`,
+    `});`,
+    `it("stays put", () => {`,
+    `  expect(0).toBe(0);`,
+    `});`,
+  ].join("\n");
+  const sibling = [
+    `it("replaces the standalone explorer", () => {`,
+    `  expect(1).toBe(1);`,
+    `});`,
+  ].join("\n");
+  // The head renamed the case in place; the sibling still carries the
+  // base body under the base title the head dropped. The old detector
+  // sees no shared title and stays silent; the base comparison reports
+  // the copied rename.
+  const found = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling]]),
+    new Map([["thing.test.ts", head]]),
+    new Map([["thing.test.ts", base]]),
+  );
+  assert.deepStrictEqual(found.undeclared, [
+    { sibling: "thing.fork.test.ts", title: "replaces the standalone explorer" },
+  ]);
+
+  // A sibling case unrelated to the rename stays silent: its title is
+  // new since the base but its body matches no dropped base case.
+  const quiet = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", `it("fork only", () => { expect(0).toBe(0); });`]]),
+    new Map([["thing.test.ts", head]]),
+    new Map([["thing.test.ts", base]]),
+  );
+  assert.isEmpty(quiet.undeclared);
+
+  // Against the base tree the old rule still reports by shared title —
+  // the rename check only adds the in-place upstream mutation the old
+  // rule cannot see.
+  const blind = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling]]),
+    new Map([["thing.test.ts", base]]),
+    new Map([["thing.test.ts", base]]),
+  );
+  assert.deepStrictEqual(blind.undeclared, [
+    { sibling: "thing.fork.test.ts", title: "replaces the standalone explorer" },
+  ]);
+});
+
+it("judges retire per declared case, not per sibling file", () => {
+  // Gap 2: retire candidacy read the whole sibling file inside the
+  // per-declaration loop, so two declarations with one adopted retired
+  // neither, and a sibling that is a subset of the upstream file retired
+  // all (RSI-Software/t3code-hyprws#1206). Fixture strings only:
+  // RSI-Software/t3code-hyprws#1204 removed the live rename instance.
+  const upstream = [
+    `it("first", () => {`,
+    `  expect(1).toBe(2);`,
+    `});`,
+    `it("second", () => {`,
+    `  expect(1).toBe(2);`,
+    `});`,
+    `it("third", () => {`,
+    `  expect(9).toBe(9);`,
+    `});`,
+  ].join("\n");
+  const sibling = [
+    `forkSupersedes({ upstream: "thing.test.ts > first", reason: "why", commit: "abc" });`,
+    `it("first", () => {`,
+    `  expect(1).toBe(2);`,
+    `});`,
+    `forkSupersedes({ upstream: "thing.test.ts > second", reason: "why", commit: "abc" });`,
+    `it("second", () => {`,
+    `  expect(9).toBe(9);`,
+    `});`,
+  ].join("\n");
+  const result = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling]]),
+    new Map([["thing.test.ts", upstream]]),
+    new Map(),
+  );
+  assert.isEmpty(result.refusals);
+  assert.deepStrictEqual(result.superseded, [{ path: "thing.test.ts", title: "second" }]);
+  assert.deepStrictEqual(
+    result.retireCandidates.map((candidate) => candidate.upstreamTitle),
+    ["first"],
+  );
 });
