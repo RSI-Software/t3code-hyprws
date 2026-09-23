@@ -106,7 +106,7 @@ const isTailLine = (line: string): boolean => {
   );
 };
 
-export const trailerBlock = (body: string): string => {
+const bodyParagraphs = (body: string): Array<Array<string>> => {
   const paragraphs: Array<Array<string>> = [[]];
   for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
     if (line.trim().length === 0 && (paragraphs.at(-1)?.length ?? 0) > 0) {
@@ -119,6 +119,18 @@ export const trailerBlock = (body: string): string => {
   while (paragraphs.length > 0 && (paragraphs.at(-1) ?? []).every(isTailLine)) {
     paragraphs.pop();
   }
+  return paragraphs;
+};
+
+/** The body's prose paragraphs: everything above the trailer block and its tail material. */
+export const bodyProse = (body: string): string => {
+  const paragraphs = bodyParagraphs(body);
+  if (trailerBlock(body) !== "") paragraphs.pop();
+  return paragraphs.map((paragraph) => paragraph.join("\n")).join("\n\n");
+};
+
+export const trailerBlock = (body: string): string => {
+  const paragraphs = bodyParagraphs(body);
   const paragraph = paragraphs.at(-1) ?? [];
   if (!paragraph.some((line) => TRAILER_LINE.test(line))) return "";
   if (!paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line))) return "";
