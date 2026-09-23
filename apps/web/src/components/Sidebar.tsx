@@ -87,6 +87,9 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
+import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -978,6 +981,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const boringSidebarEnabled = useBoringSidebarEnabled();
   const folderRowsMultiline = useClientSettings((settings) => settings.boringSidebarMultilineRows);
+  const desktopBridge = useDesktopProjectWindowBridgeFork(); // fork-hook: multi-window/sidebar-desktop-bridge
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
@@ -1246,6 +1250,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       })();
     },
   );
+
+  const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
+    dispatchProjectScopeMenu({ type: "open-changed", open: false }),
+  ); // fork-hook: multi-window/sidebar-open-window
 
   const {
     workingShelfEnabled,
@@ -3102,6 +3110,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
+                            {/* fork-hook: project-windows/sidebar-open-window-button */}
+                            {project ? (
+                              <SidebarOpenProjectWindowButtonFork
+                                desktopBridge={desktopBridge}
+                                project={project}
+                                onOpen={handleOpenProjectWindow}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {project ? (
                               <Button
                                 size="icon-xs"
@@ -3109,7 +3126,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 tabIndex={-1}
                                 aria-hidden="true"
                                 title={`Project settings for ${project.displayName}`}
-                                className="ml-auto"
+                                className={desktopBridge ? undefined : "ml-auto"} // fork-hook: multi-window/sidebar-settings-classname
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
