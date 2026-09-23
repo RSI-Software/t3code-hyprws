@@ -22,6 +22,7 @@ import {
   parseCommitPatches,
   renderAuthoringWarnings,
   significantTestLines,
+  TEST_FILE,
   type CommitPatch,
   type ScanAuthoringWarning,
 } from "./fork-scan-authoring.ts";
@@ -315,6 +316,7 @@ export interface AuthoringGuardInput {
   // inputs built before the map existed; the guard then behaves as before.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
   readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
   readonly siblingTexts: ReadonlyMap<string, string>;
 }
 
@@ -666,11 +668,13 @@ const buildGuardInput = (
       upstreamFiles,
       (patch) => patch.changedLines.keys(),
       (path) =>
-        MARKER_CAPABLE_PATH.test(path) &&
-        !GENERATED_HOOK_PATH.test(path) &&
-        !upstreamTestFiles.has(path),
+        MARKER_CAPABLE_PATH.test(path) && !GENERATED_HOOK_PATH.test(path) && !TEST_FILE.test(path),
     ),
     upstreamTestTexts,
+    headTestTexts:
+      guardCommits.length === 0
+        ? new Map<string, string>()
+        : readTestTexts(git, range.head, upstreamTestTexts.keys()),
     siblingTexts:
       guardCommits.length === 0
         ? new Map<string, string>()
@@ -752,6 +756,22 @@ const readUpstreamTestTexts = (
  * gate's reader works. A sibling unreadable at the head excuses
  * nothing, because an unread tree is not evidence of a replacement case.
  */
+const readTestTexts = (
+  git: GitReader,
+  tree: string,
+  paths: Iterable<string>,
+): ReadonlyMap<string, string> => {
+  const texts = new Map<string, string>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      texts.set(path, git.run(["show", `${tree}:${path}`]));
+    } catch {
+      // An unreadable head blob is not evidence that upstream text survives.
+    }
+  }
+  return texts;
+};
+
 const readSiblingTexts = (
   git: GitReader,
   head: string,
