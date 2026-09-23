@@ -18,7 +18,7 @@ There is no state machine, no gates, no lanes, no modes: one run, one exit code,
 | rebase  | detached worktree, `git rebase --rerere-autoupdate <tag>`         | a conflict rerere and hook re-apply cannot resolve |
 | check   | `fork:delta --check`, `fork:ci`, `vpr typecheck`, in the worktree | any red                                            |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                         | lease refused                                      |
-| blocked | one block issue per blocking sha, through `ghb`                   | `ghb` refuses and `gh` cannot post                 |
+| blocked | one block issue per blocking sha, through `gh`                    | `gh` refuses the write                             |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post        |                                                    |
 
 A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
@@ -72,19 +72,19 @@ There is no "upstream superseded this" rule: retirement is a traced verdict writ
 
 ## Block lifecycle
 
-A blocked run writes its report first, then files one issue per blocking upstream sha through `ghb`; on a runner without `ghb`, the same write falls back to bare `gh`.
+A blocked run writes its report first, then files one issue per blocking upstream sha through plain `gh`.
 The title phrase and the sha key the issue; the body carries the conflict table (path, fork commit, upstream commit) and the resume commands.
 
-| Rule       | Detail                                                                                                                                                                                                                                                                                 |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity   | Title phrase `hyprws sync blocked`, label `ci`, and the exact `blocking-sha` body marker                                                                                                                                                                                               |
-| Filed once | Per blocking SHA, including after a manual close                                                                                                                                                                                                                                       |
-| Rerun      | Same sha updates the issue; a clean run closes it                                                                                                                                                                                                                                      |
-| Close      | A clean run (applied or already-applied) claims each open block issue — judged Standalone 📍, since the driver files parentless with `--no-project` — posts the attested `Resolved by hyprws <sha>` comment, then closes it completed; a refusal lands in the report and fails the run |
-| Route      | `ghb`; when it cannot spawn (CI), bare `gh`                                                                                                                                                                                                                                            |
-| Refusal    | A refusing `ghb` prints the body; the run exits non-zero                                                                                                                                                                                                                               |
+| Rule       | Detail                                                                                                                                                                                               |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity   | Title phrase `hyprws sync blocked`, label `ci`, and the exact `blocking-sha` body marker                                                                                                             |
+| Filed once | Per blocking SHA, including after a manual close                                                                                                                                                     |
+| Rerun      | Same sha updates the issue; a clean run closes it                                                                                                                                                    |
+| Close      | A clean run (applied or already-applied) closes each open block issue with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`; a refusal lands in the report and fails the run |
+| Route      | Plain `gh` only                                                                                                                                                                                      |
+| Refusal    | A refusing `gh` prints the body; the run exits non-zero                                                                                                                                              |
 
-Never post a block to `pingdotgg/t3code`, and never use `gh` to route around a `ghb` refusal: `gh` is the no-`ghb` fallback only.
+Never post a block to `pingdotgg/t3code`.
 
 ### Unblocking by hand
 
@@ -99,15 +99,15 @@ Rerere replays content resolutions but records nothing for a delete/modify: the 
 
 ## Failure lifecycle
 
-A run that fails on a non-blocked step — target, fetch, rebase, check, push, or a crash — files one issue the same way a block does, through the same `ghb`/`gh` route.
+A run that fails on a non-blocked step — target, fetch, rebase, check, push, or a crash — files one issue the same way a block does, through the same `gh` route.
 
-| Rule       | Detail                                                                                                                                                           |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity   | Title phrase `hyprws sync failed`, label `ci`, and the `sync-failure:<step>:<key>` body marker                                                                   |
-| Key        | The failing step plus the target tag, or the trunk sha before a tag resolved                                                                                     |
-| Filed once | Per key, including after a manual close                                                                                                                          |
-| Rerun      | The same failure updates the issue; a dry run reports and never files                                                                                            |
-| Close      | A clean run (applied or already-applied) closes it in the claim → comment → close pass that closes block issues; a refusal lands in the report and fails the run |
+| Rule       | Detail                                                                                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity   | Title phrase `hyprws sync failed`, label `ci`, and the `sync-failure:<step>:<key>` body marker                                                                           |
+| Key        | The failing step plus the target tag, or the trunk sha before a tag resolved                                                                                             |
+| Filed once | Per key, including after a manual close                                                                                                                                  |
+| Rerun      | The same failure updates the issue; a dry run reports and never files                                                                                                    |
+| Close      | A clean run (applied or already-applied) closes it in the same `gh issue close --comment` pass that closes block issues; a refusal lands in the report and fails the run |
 
 ## Regenerable files
 

@@ -15,7 +15,7 @@
 // | rebase  | a conflict neither rerere nor hook re-apply fixes  |
 // | check   | `fork:delta --check`, `fork:ci`, or the typecheck is red |
 // | push    | the expected-old lease is refused                  |
-// | blocked | `ghb` is unavailable                               |
+// | blocked | `gh` refuses the write                             |
 //
 // A failed run — target, fetch, check, push, or a crash — files one issue the
 // way a blocked run files its block issue: keyed by the failing step and the
@@ -24,7 +24,7 @@
 //
 // The typed report at `.t3/fork-sync/<tag>.json` is the only run authority; the
 // Markdown this prints is output, never read back. Publication goes through
-// `ghb`, never bare `gh`, and nothing is ever posted to upstream.
+// plain `gh`, and nothing is ever posted to upstream.
 //
 // The check battery installs fresh in the replay worktree instead of linking
 // the trunk's node_modules whenever the target changed the lockfile, the
@@ -59,13 +59,11 @@ import {
 
 const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
-/** ghb issues only this label from the governed set; the title search does the rest. */
+/** `gh` files and lists block issues only under this label; the title search does the rest. */
 const BLOCK_LABEL = "ci";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v1";
-/** The task the sync program files under; taxonomy Source is `repo#number` form. */
-const BLOCK_SOURCE_ISSUE = "1151";
 
 const blockIssueTitle = (tag: string, blockingShortSha: string): string =>
   `hyprws sync blocked at ${tag} (upstream ${blockingShortSha})`;
@@ -238,7 +236,11 @@ export const ForkSyncReport = Schema.Struct({
       title: Schema.String,
       blockingSha: Schema.String,
       publishError: Schema.NullOr(Schema.String),
-      /** Which CLI posted: `ghb` when present, `gh` when it cannot spawn. */
+      /**
+       * Which CLI posted the write. Always `"gh"` on a run this driver writes;
+       * `"ghb"` only ever appears in a report file an earlier ghb-routed build
+       * wrote, and the decoder stays tolerant of it for that history.
+       */
       publishedVia: Schema.NullOr(Schema.Literals(["ghb", "gh"])),
     }),
   ),
@@ -796,63 +798,21 @@ export interface OpenBlockIssue {
  * only comment that ever posts is the close evidence in `closeBlocks`.
  */
 export interface GitHub {
-  /** Which CLI posts the writes: `ghb` when present, `gh` when `ghb` cannot spawn. */
-  readonly route: "ghb" | "gh";
   /** Open issues under the governed label matching one title phrase. */
   readonly list: (titlePhrase: string) => ReadonlyArray<OpenBlockIssue>;
   readonly create: (title: string, bodyPath: string) => number | null;
-  /**
-   * Rewrite an existing issue's title and body in place; the rerun projection.
-   * Both CLIs take title and body in one call.
-   */
+  /** Rewrite an existing issue's title and body in place; the rerun projection. */
   readonly edit: (issue: number, title: string, bodyPath: string) => void;
-  /** Take the issue so the completed close finds an assignee; a no-op on `gh`. */
-  readonly claim: (issue: number) => void;
-  /** Post the small close-evidence comment; never the report body. */
-  readonly comment: (issue: number, bodyPath: string) => void;
-  readonly close: (issue: number) => void;
+  /** Close with the small close-evidence comment inline; never the report body. */
+  readonly close: (issue: number, comment: string) => void;
 }
 
-/** The governed filing ghb performs; `gh` cannot set these fields. */
-const ghbCreateArgs = (repo: ReadonlyArray<string>, title: string, bodyPath: string) => [
-  "issue",
-  "create",
-  ...repo,
-  "--title",
-  title,
-  "--body-file",
-  bodyPath,
-  "--type",
-  "Notification 🔔",
-  "--priority",
-  "High",
-  "--filed-by",
-  "Agent 🤖",
-  "--source",
-  BLOCK_SOURCE_ISSUE,
-  "--label",
-  BLOCK_LABEL,
-  "--no-project",
-  "--no-relationship",
-];
-
-/** The issue type bare `gh` files and edits with; `ghb` files it governed. */
+/** The issue type `gh` files and edits with. */
 const NOTIFICATION_TYPE = "Notification 🔔";
 
-/**
- * `ghb` first: its filing is governed and attested. CI has no `ghb`, so when the
- * binary cannot spawn at all the writes fall back to bare `gh` with the same
- * body, title, and marker. A `ghb` that runs but refuses never falls back — the
- * refusal is the observation, and `gh` must not route around governance.
- *
- * Every route edits in place: `edit` rewrites title and body in one call, and
- * `comment` exists only for the small close-evidence note, never the report
- * body.
- */
+/** Every write goes through plain `gh`; `edit` rewrites title and body in one call. */
 export const githubClient = (runner: CommandRunner, root: string): GitHub => {
   const repo = ["--repo", FORK_REPOSITORY];
-  const probe = runner.run("ghb", ["--version"], { cwd: root });
-  const route = probe.error === undefined ? "ghb" : "gh";
   const list = (titlePhrase: string) =>
     JSON.parse(
       runRequire(
@@ -874,20 +834,31 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         { cwd: root },
       ),
     ) as ReadonlyArray<OpenBlockIssue>;
-  const editIssue = (cli: "gh" | "ghb", issue: number, title: string, bodyPath: string): void => {
-    runRequire(
-      runner,
-      cli,
-      ["issue", "edit", String(issue), ...repo, "--title", title, "--body-file", bodyPath],
-      { cwd: root },
-    );
-  };
-  if (route === "gh")
-    return {
-      route,
-      list,
-      create: (title, bodyPath) => {
-        const result = runner.run(
+  return {
+    list,
+    create: (title, bodyPath) => {
+      const result = runner.run(
+        "gh",
+        [
+          "issue",
+          "create",
+          ...repo,
+          "--title",
+          title,
+          "--body-file",
+          bodyPath,
+          "--type",
+          NOTIFICATION_TYPE,
+          "--label",
+          BLOCK_LABEL,
+        ],
+        { cwd: root },
+      );
+      let url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+      if (result.status !== 0 || result.error !== undefined) {
+        // An older `gh` can reject `--type` at create; retry bare and set the
+        // type by editing the fresh issue right after, noting either refusal.
+        const retry = runner.run(
           "gh",
           [
             "issue",
@@ -897,103 +868,36 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
             title,
             "--body-file",
             bodyPath,
-            "--type",
-            NOTIFICATION_TYPE,
             "--label",
             BLOCK_LABEL,
           ],
           { cwd: root },
         );
-        let url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
-        if (result.status !== 0 || result.error !== undefined) {
-          // An older `gh` can reject `--type` at create; retry bare and set the
-          // type by editing the fresh issue right after, noting either refusal.
-          const retry = runner.run(
-            "gh",
-            [
-              "issue",
-              "create",
-              ...repo,
-              "--title",
-              title,
-              "--body-file",
-              bodyPath,
-              "--label",
-              BLOCK_LABEL,
-            ],
-            { cwd: root },
+        if (retry.status !== 0 || retry.error !== undefined)
+          throw new Error(
+            `gh issue create failed: ${retry.stderr.trim() || retry.stdout.trim() || result.stderr.trim() || result.error?.message || "no output"}`,
           );
-          if (retry.status !== 0 || retry.error !== undefined)
-            throw new Error(
-              `gh issue create failed: ${retry.stderr.trim() || retry.stdout.trim() || result.stderr.trim() || result.error?.message || "no output"}`,
-            );
-          url = /issues\/(\d+)/.exec(`${retry.stdout}\n${retry.stderr}`)?.[1];
-          if (url !== undefined)
-            runner.run("gh", ["issue", "edit", url, ...repo, "--type", NOTIFICATION_TYPE], {
-              cwd: root,
-            });
-        }
-        return url === undefined ? null : Number(url);
-      },
-      edit: (issue, title, bodyPath) => {
-        editIssue("gh", issue, title, bodyPath);
-      },
-      claim: () => {
-        // bare `gh` has no completed-close preconditions, so there is no claim to mirror
-      },
-      comment: (issue, bodyPath) => {
-        runRequire(
-          runner,
-          "gh",
-          ["issue", "comment", String(issue), ...repo, "--body-file", bodyPath],
-          { cwd: root },
-        );
-      },
-      close: (issue) => {
-        runRequire(
-          runner,
-          "gh",
-          ["issue", "close", String(issue), "--reason", "completed", ...repo],
-          { cwd: root },
-        );
-      },
-    };
-  return {
-    route,
-    list,
-    create: (title, bodyPath) => {
-      const result = runner.run("ghb", ghbCreateArgs(repo, title, bodyPath), { cwd: root });
-      if (result.status !== 0 || result.error !== undefined)
-        throw new Error(
-          `ghb issue create refused: ${result.stderr.trim() || result.stdout.trim() || result.error?.message || "no output"}`,
-        );
-      const url = /issues\/(\d+)/.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+        url = /issues\/(\d+)/.exec(`${retry.stdout}\n${retry.stderr}`)?.[1];
+        if (url !== undefined)
+          runner.run("gh", ["issue", "edit", url, ...repo, "--type", NOTIFICATION_TYPE], {
+            cwd: root,
+          });
+      }
       return url === undefined ? null : Number(url);
     },
-    claim: (issue) => {
-      // the driver files parentless with --no-project, so the claim must judge
-      // the intake Standalone 📍 or ghb refuses it
-      runRequire(runner, "ghb", ["issue", "claim", String(issue), "--standalone", ...repo], {
-        cwd: root,
-      });
-    },
     edit: (issue, title, bodyPath) => {
-      editIssue("ghb", issue, title, bodyPath);
-    },
-    comment: (issue, bodyPath) => {
       runRequire(
         runner,
-        "ghb",
-        ["issue", "comment", String(issue), ...repo, "--body-file", bodyPath],
+        "gh",
+        ["issue", "edit", String(issue), ...repo, "--title", title, "--body-file", bodyPath],
         { cwd: root },
       );
     },
-    close: (issue) => {
-      // no --comment: the attested comment published before this check is the evidence
+    close: (issue, comment) => {
       runRequire(
         runner,
-        "ghb",
-        ["issue", "close", String(issue), "--reason", "completed", ...repo],
+        "gh",
+        ["issue", "close", String(issue), "--reason", "completed", "--comment", comment, ...repo],
         { cwd: root },
       );
     },
@@ -1015,17 +919,16 @@ const withBodyFile = <T>(body: string, effect: (path: string) => T): T => {
  * Upsert the one open issue keyed by `marker`: a matching issue gets its title
  * and body rewritten in place when the normalised body drifted, and a rerun
  * whose normalised body already matches makes no write at all; only a marker
- * with no open issue files a fresh one. The ghb attest footer and machine
- * title suffix are normalised away, so they never trigger a rewrite. The
- * report body is never posted as a comment. The typed report is the
- * authority; this projection happens beside it.
+ * with no open issue files a fresh one. Any stray `gh-bot:` attest footer from
+ * an older ghb-filed issue is normalised away, so it never triggers a
+ * rewrite. The report body is never posted as a comment. The typed report is
+ * the authority; this projection happens beside it.
  */
 /**
- * Normalise an issue body for the no-write comparison: ghb appends attest
- * footers (`<!-- gh-bot:attest … -->`, `<!-- gh-bot:edit-attest … -->`) to every
- * write and can suffix the title, so raw equality would never hold and every
- * rerun would stack another attest line. Strip those lines, trim trailing
- * whitespace per line, then trim the whole.
+ * Normalise an issue body for the no-write comparison: strip any stray
+ * `gh-bot:` attest footer line (`<!-- gh-bot:attest … -->`,
+ * `<!-- gh-bot:edit-attest … -->`) left over on an issue an older ghb-filed
+ * run created, trim trailing whitespace per line, then trim the whole.
  */
 const normalisedBody = (body: string): string =>
   body
@@ -1042,27 +945,27 @@ const upsertMarkerIssue = (
   marker: string,
   title: string,
   body: string,
-): { readonly issue: number | null; readonly publishedVia: "ghb" | "gh" } => {
+): { readonly issue: number | null; readonly publishedVia: "gh" } => {
   const github = githubClient(runner, root);
   const existing = github.list(titlePhrase).find((issue) => issue.body.includes(marker));
   if (existing !== undefined) {
-    // the machine title suffix and attest footers never match the render, so
-    // the decision is on the normalised body alone
+    // the machine title suffix never matches the render, so the decision is
+    // on the normalised body alone
     if (normalisedBody(existing.body) === normalisedBody(body))
-      return { issue: existing.number, publishedVia: github.route };
+      return { issue: existing.number, publishedVia: "gh" };
     return withBodyFile(body, (bodyPath) => {
       github.edit(existing.number, title, bodyPath);
-      return { issue: existing.number, publishedVia: github.route };
+      return { issue: existing.number, publishedVia: "gh" };
     });
   }
   return withBodyFile(body, (bodyPath) => ({
     issue: github.create(title, bodyPath),
-    publishedVia: github.route,
+    publishedVia: "gh",
   }));
 };
 
 /**
- * Upsert the one open block issue keyed by the blocking sha. A `ghb` that
+ * Upsert the one open block issue keyed by the blocking sha. A `gh` that
  * refuses is the raw observation printed with the body, and the run exits
  * non-zero with `blocked.publishError` set on the report.
  */
@@ -1104,16 +1007,14 @@ export const publishBlock = (
   }
 };
 
-/** The applied-sha note the attested close comment carries; it is the close evidence. */
+/** The applied-sha note the close carries as `gh issue close --comment`; it is the close evidence. */
 const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRANCH} ${newSha}.`;
 
 /**
  * A clean run closes every open sync issue — block and failure alike: the trunk
- * moved, so none can hold. The ghb completed close refuses without an assignee
- * and without attested evidence naming a default-branch sha, and `--comment`
- * publishes after that check, so the sequence is claim, attested sha comment,
- * then close. Each issue reports its own refusal; one refusal never stops the
- * other closes.
+ * moved, so none can hold. `gh issue close --comment` posts the close evidence
+ * and closes in one call. Each issue reports its own refusal; one refusal
+ * never stops the other closes.
  */
 export const failureIssueBody = (report: ForkSyncReport): string => {
   const failure = report.failure!;
@@ -1203,9 +1104,7 @@ export const closeBlocks = (
   for (const titlePhrase of [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE])
     for (const issue of github.list(titlePhrase)) {
       try {
-        github.claim(issue.number);
-        withBodyFile(blockCloseComment(newSha), (path) => github.comment(issue.number, path));
-        github.close(issue.number);
+        github.close(issue.number, blockCloseComment(newSha));
         closures.push({ issue: issue.number, refusal: null });
       } catch (error) {
         closures.push({
