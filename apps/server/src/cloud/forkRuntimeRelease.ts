@@ -1,4 +1,4 @@
-import { isExactServiceVersion } from "./serviceProtocol.ts";
+import { isForkServiceVersion } from "@t3tools/shared/forkVersion";
 
 /**
  * The pinned-runtime installer asks npm for `t3@<version>`, which is a registry
@@ -12,17 +12,6 @@ import { isExactServiceVersion } from "./serviceProtocol.ts";
  * boundary, and the SQLite rollback all stay as upstream wrote them.
  */
 const FORK_RELEASE_REPOSITORY = "RSI-Software/t3code-hyprws";
-
-/**
- * Matches the prerelease the fork release workflow writes: `hyprws.<n>` on a
- * stable tag, `hyprws-nightly.<date>.<run>` on a nightly. The version core
- * holds no hyphen, so the first one always starts the prerelease.
- */
-const FORK_PRERELEASE = /^[^-]+-hyprws(?:-nightly)?\./;
-
-/** True for an exact fork release version, such as `0.0.38-hyprws.1`. */
-export const isForkServiceVersion = (version: string): boolean =>
-  isExactServiceVersion(version) && FORK_PRERELEASE.test(version);
 
 /** The release asset name `vp pm pack` writes for a server version. */
 export const forkServerTarballName = (version: string): string => `t3-${version}.tgz`;
