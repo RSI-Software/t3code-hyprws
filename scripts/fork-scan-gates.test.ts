@@ -788,3 +788,137 @@ it("passes a declared replacement: upstream case removed, fork sibling carries i
     NodeFS.rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+/**
+ * Whole-series rehearsal fixture: `landed` (`replayOf`) already carries one
+ * in-place upstream rewrite as legacy debt. `replay` rehearses the same
+ * rewrite (a different sha, identical resulting text) plus one brand-new
+ * rewrite the replay itself introduces.
+ */
+const baselineFixture = (): {
+  root: string;
+  base: string;
+  landed: string;
+  replay: string;
+} => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-baseline-"));
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "fixture",
+    GIT_AUTHOR_EMAIL: "fixture@example.test",
+    GIT_COMMITTER_NAME: "fixture",
+    GIT_COMMITTER_EMAIL: "fixture@example.test",
+    GIT_CONFIG_GLOBAL: NodePath.join(root, ".isolated-global-gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+  const git = (...args: ReadonlyArray<string>): string =>
+    NodeChildProcess.execFileSync("git", args, { cwd: root, env }).toString().trim();
+  const write = (path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), contents);
+  };
+  const trailers = ["Fork-Domain: fork-meta", "Fork-Tier: qol"].join("\n");
+  const thingPath = "apps/web/src/thing.test.ts";
+  const otherPath = "apps/web/src/other.test.ts";
+  const thingCase = 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n';
+  git("init", "-b", "fixture");
+  write(thingPath, thingCase);
+  write(otherPath, 'it("other", () => {\n  expect(other).toBe(1);\n});\n');
+  git("add", "-A");
+  git("commit", "-m", "upstream: base");
+  const base = git("rev-parse", "HEAD");
+
+  // Legacy debt: `landed` already carries the in-place rewrite.
+  git("checkout", "--quiet", "-b", "landed", base);
+  write(thingPath, thingCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
+  git("add", "-A");
+  git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
+  const landed = git("rev-parse", "HEAD");
+
+  // Replay: the identical rewrite as a fresh sha, then a genuinely new one.
+  git("checkout", "--quiet", "-b", "replay", base);
+  write(thingPath, thingCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
+  git("add", "-A");
+  git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
+  write(otherPath, 'it("other", () => {\n  expect(other).toBe(2);\n});\n');
+  git("add", "-A");
+  git("commit", "-m", `fix: rewrite another upstream case\n\n${trailers}`);
+  const replay = git("rev-parse", "HEAD");
+
+  return { root, base, landed, replay };
+};
+
+const baselineLedger = `# Fork delta
+
+## fork-meta
+
+### Rebase scan
+
+| Path | Why |
+| --- | --- |
+| \`apps/web/src/*.test.ts\` | The seam. |
+`;
+
+it("makes only the replay-introduced rewrite fatal against a --replay-of baseline", () => {
+  const f = baselineFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const additiveRunner = { worktree: f.root, run: commandRunner.run.bind(commandRunner) };
+    const result = readScan(
+      git,
+      {
+        base: null,
+        head: f.replay,
+        target: f.base,
+        typecheck: false,
+        since: f.base,
+        replayOf: f.landed,
+      },
+      baselineLedger,
+      additiveRunner,
+    );
+    const failures = scanFailures(result);
+    assert.isTrue(
+      failures.some((failure) => failure.includes("apps/web/src/other.test.ts")),
+      `the replay-introduced rewrite must stay fatal: ${JSON.stringify(failures)}`,
+    );
+    assert.isFalse(
+      failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")),
+      `the rewrite already on ${f.landed} must be advisory, not fatal: ${JSON.stringify(failures)}`,
+    );
+    assert.lengthOf(result.historicalWarnings, 1);
+    assert.lengthOf(result.historicalAdditive, 1);
+    assert.match(renderScanReport(result), /historical: 2 finding\(s\) already on/);
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it("keeps both findings fatal without --replay-of on the same inputs", () => {
+  const f = baselineFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const additiveRunner = { worktree: f.root, run: commandRunner.run.bind(commandRunner) };
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: null,
+          head: f.replay,
+          target: f.base,
+          typecheck: false,
+          since: f.base,
+          replayOf: null,
+        },
+        baselineLedger,
+        additiveRunner,
+      ),
+    );
+    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")));
+    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/other.test.ts")));
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
