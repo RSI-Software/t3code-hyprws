@@ -3,6 +3,7 @@ import { defineConfig } from "vite-plus";
 import * as NodeURL from "node:url";
 import { remoteCacheUrl } from "./infra/task-cache/src/remoteCache.ts";
 import { cachedTestTasks } from "./scripts/lib/cached-tests.ts";
+import { FORK_TEST_EXCLUDE } from "./scripts/lib/test-exclude.fork.ts"; // fork-hook: distribution/test-exclude-import
 
 const TEST_EXCLUDE = [
   "**/.repos/**",
@@ -11,6 +12,7 @@ const TEST_EXCLUDE = [
   "**/dist/**",
   "**/dist-electron/**",
   "**/.{idea,git,cache,output,temp}/**",
+  ...FORK_TEST_EXCLUDE, // fork-hook: distribution/test-exclude
 ];
 
 // Directories whose tests belong to a package's own test config. desktop also
