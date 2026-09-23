@@ -21,6 +21,7 @@ Upstream guidance below remains the default unless this section or the fork guid
   That is a subset of the pull-request jobs, not all of them.
 - Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
+- Fold the ahead commits to one intent each with the [`fork-fold`](.agents/skills/fork-fold/SKILL.md) skill.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
 - Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.
 
