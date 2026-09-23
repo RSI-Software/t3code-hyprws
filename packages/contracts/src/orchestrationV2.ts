@@ -2635,7 +2635,7 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.active.reorder"),
     commandId: CommandId,
     threadId: ThreadId,
-    orderKey: TrimmedNonEmptyString,
+    orderKey: Schema.NullOr(TrimmedNonEmptyString), // fork-hook: thread-ordering/reset-order-null-key
   }),
   Schema.Struct({
     type: Schema.Literal("thread.visit"),
