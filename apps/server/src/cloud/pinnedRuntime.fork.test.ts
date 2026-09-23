@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -8,7 +9,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
-import { forkServerTarballUrl } from "./forkRuntimeRelease.ts";
+import { forkAppImageUrl } from "./forkRuntimeRelease.ts";
 import {
   ensurePinnedRuntimeInstalled,
   pinnedRuntimePaths,
@@ -16,65 +17,89 @@ import {
 } from "./pinnedRuntime.ts";
 
 // The fork publishes no npm package and no per-platform release archives, so a
-// fork version installs the `npm pack`-shaped tarball its release publishes:
-// the installer downloads `t3-<version>.tgz`, extracts the `package/` layout
-// into the staging directory, and links the package bin to the `t3` entry the
-// upstream archive layout guarantees. Everything else stays upstream's.
-const tarBytes = new TextEncoder().encode("not really a tarball");
+// fork version installs the release AppImage the desktop already downloads:
+// the installer downloads `T3-Code-x86_64.AppImage`, runs
+// `--appimage-extract` in the staging directory (which unpacks to a fixed
+// `squashfs-root`), and writes a `t3` shim that runs the extracted server
+// entry through the AppImage's own Electron-as-Node runtime. Everything else
+// stays upstream's.
+const appImageBytes = new TextEncoder().encode("not really an AppImage");
 
-const install = (version: string, releaseBaseUrl?: string) =>
+interface ExtractCall {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string | undefined;
+}
+
+type ExtractBehavior = "succeed" | "fail" | "die";
+
+const install = (options: {
+  readonly version: string;
+  readonly platform?: NodeJS.Platform;
+  readonly arch?: string;
+  readonly downloadStatus?: number;
+  readonly extractBehavior?: ExtractBehavior;
+}) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-fork-" });
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-fork-appimage-" });
     const requests: string[] = [];
-    const commands: Array<ProcessRunner.ProcessRunInput> = [];
+    const extractCalls: ExtractCall[] = [];
     const validated: Array<PinnedRuntimePaths> = [];
-    const archiveName = `t3-${version}-linux-x64.tar.gz`;
-    const archiveHex = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", tarBytes)).pipe(
-      Effect.map((digest) =>
-        Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-      ),
-    );
-    yield* ensurePinnedRuntimeInstalled({
+    const platform = options.platform ?? "linux";
+    const arch = options.arch ?? "x64";
+    const downloadStatus = options.downloadStatus ?? 200;
+    const extractBehavior = options.extractBehavior ?? "succeed";
+
+    const exit = yield* ensurePinnedRuntimeInstalled({
       baseDir,
-      version,
+      version: options.version,
       fs,
       path,
-      platform: "linux",
-      arch: "x64",
+      platform,
+      arch,
       httpClient: HttpClient.make((request) => {
         requests.push(request.url);
-        const body = request.url.endsWith("/SHA256SUMS")
-          ? `${archiveHex}  ${archiveName}\n`
-          : tarBytes;
-        return Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body)));
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(appImageBytes, { status: downloadStatus }),
+          ),
+        );
       }),
-      ...(releaseBaseUrl === undefined ? {} : { releaseBaseUrl }),
       runner: ProcessRunner.ProcessRunner.of({
         run: (input) =>
           Effect.gen(function* () {
-            commands.push(input);
-            const targetIndex = input.args.indexOf("-C");
-            const stagingDir = input.args[targetIndex + 1];
-            if (input.command !== "tar" || stagingDir === undefined) {
-              return yield* Effect.die(`unexpected command ${input.command}`);
+            extractCalls.push({ command: input.command, args: input.args, cwd: input.cwd });
+            if (extractBehavior === "die") {
+              return yield* Effect.die("extract crashed");
             }
-            if (input.args.includes("--strip-components=1") === false) {
-              return yield* Effect.die("expected --strip-components=1");
+            const code = extractBehavior === "fail" ? 1 : 0;
+            if (code === 0 && input.cwd !== undefined) {
+              // --appimage-extract always unpacks to `<cwd>/squashfs-root`.
+              const bin = path.join(
+                input.cwd,
+                "squashfs-root",
+                "resources",
+                "app.asar",
+                "apps",
+                "server",
+                "dist",
+                "bin.mjs",
+              );
+              yield* fs.makeDirectory(path.dirname(bin), { recursive: true }).pipe(Effect.orDie);
+              yield* fs.writeFileString(bin, "#!/usr/bin/env node\n").pipe(Effect.orDie);
+              yield* fs
+                .writeFileString(path.join(input.cwd, "squashfs-root", "t3code"), "#!/bin/sh\n", {
+                  mode: 0o755,
+                })
+                .pipe(Effect.orDie);
             }
-            // A fork tarball unpacks the npm-pack `package/` layout; an
-            // upstream archive carries the executable at its stem's root.
-            const entry =
-              version === "1.2.3"
-                ? path.join(stagingDir, "t3")
-                : path.join(stagingDir, "dist", "bin.mjs");
-            yield* fs.makeDirectory(path.dirname(entry), { recursive: true }).pipe(Effect.orDie);
-            yield* fs.writeFileString(entry, "#!/bin/sh\n").pipe(Effect.orDie);
             return {
               stdout: "",
               stderr: "",
-              code: ChildProcessSpawner.ExitCode(0),
+              code: ChildProcessSpawner.ExitCode(code),
               timedOut: false,
               stdoutTruncated: false,
               stderrTruncated: false,
@@ -87,58 +112,101 @@ const install = (version: string, releaseBaseUrl?: string) =>
         Effect.sync(() => {
           validated.push(paths);
         }),
-    });
+    }).pipe(Effect.exit);
+
     // Directory assertions live inside the scope: the staged base directory is
     // removed when the scope closes, before the it.effect body asserts.
-    const entry = pinnedRuntimePaths(path, baseDir, version, "linux").entryPath;
+    const entry = pinnedRuntimePaths(path, baseDir, options.version, "linux").entryPath;
+    const versionDir = path.dirname(entry);
     const published = {
-      entryLink: Option.isSome(yield* fs.readLink(entry).pipe(Effect.option))
-        ? yield* fs.readLink(entry)
-        : null,
+      versionDirExists: yield* fs.exists(versionDir),
       entryExists: yield* fs.exists(entry),
-      binExists: yield* fs.exists(path.join(path.dirname(entry), "dist", "bin.mjs")),
+      entryContent: Option.isSome(yield* fs.readFileString(entry).pipe(Effect.option))
+        ? yield* fs.readFileString(entry)
+        : null,
+      binExists: yield* fs.exists(
+        path.join(
+          versionDir,
+          "squashfs-root",
+          "resources",
+          "app.asar",
+          "apps",
+          "server",
+          "dist",
+          "bin.mjs",
+        ),
+      ),
       sentinel: Option.isSome(
-        yield* fs
-          .readFileString(path.join(path.dirname(entry), ".install-complete"))
-          .pipe(Effect.option),
+        yield* fs.readFileString(path.join(versionDir, ".install-complete")).pipe(Effect.option),
       )
-        ? yield* fs.readFileString(path.join(path.dirname(entry), ".install-complete"))
+        ? yield* fs.readFileString(path.join(versionDir, ".install-complete"))
         : null,
     };
-    return { requests, commands, validated, published };
+    return { exit, requests, extractCalls, validated, published };
   }).pipe(Effect.scoped);
 
-it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled (fork)", (it) => {
-  it.effect("installs a fork version from its release tarball", () =>
+it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled (fork AppImage)", (it) => {
+  it.effect("installs a fork version by extracting the release AppImage", () =>
     Effect.gen(function* () {
       const version = "0.0.41-hyprws-nightly.20260910.406";
-      const { requests, commands, validated, published } = yield* install(version);
-      assert.deepEqual(requests, [forkServerTarballUrl(version)]);
-      assert.equal(commands.length, 1);
-      assert.equal(commands[0]?.command, "tar");
-      assert.isTrue(commands[0]?.args.includes("--strip-components=1"));
+      const { exit, requests, extractCalls, validated, published } = yield* install({ version });
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.deepEqual(requests, [forkAppImageUrl(version)]);
+      assert.equal(extractCalls.length, 1);
+      assert.isTrue(extractCalls[0]?.command.endsWith("T3-Code-x86_64.AppImage"));
+      assert.deepEqual(extractCalls[0]?.args, ["--appimage-extract"]);
+      assert.isDefined(extractCalls[0]?.cwd);
       assert.lengthOf(validated, 1);
-      assert.equal(published.entryLink, "dist/bin.mjs");
+      assert.isTrue(published.versionDirExists);
       assert.isTrue(published.entryExists);
       assert.isTrue(published.binExists);
+      assert.include(published.entryContent ?? "", "ELECTRON_RUN_AS_NODE=1");
+      assert.include(published.entryContent ?? "", "squashfs-root/t3code");
+      assert.include(published.entryContent ?? "", '"$@"');
       assert.equal(published.sentinel, `${version}\n`);
     }),
   );
 
-  it.effect("leaves an upstream version on the verified archive install", () =>
+  it.effect("refuses a non-Linux or non-x64 host before downloading anything", () =>
     Effect.gen(function* () {
-      const { requests, commands, validated } = yield* install(
-        "1.2.3",
-        "https://releases.example/download",
-      );
-      assert.deepEqual(requests, [
-        "https://releases.example/download/v1.2.3/SHA256SUMS",
-        "https://releases.example/download/v1.2.3/t3-1.2.3-linux-x64.tar.gz",
-      ]);
-      assert.equal(commands.length, 1);
-      assert.equal(commands[0]?.command, "tar");
-      assert.isTrue(commands[0]?.args.includes("--strip-components=1"));
-      assert.equal(validated[0]?.entryPath?.endsWith("t3"), true);
+      const version = "0.0.41-hyprws.1";
+      const { exit, requests, extractCalls, published } = yield* install({
+        version,
+        platform: "darwin",
+        arch: "arm64",
+      });
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepEqual(requests, []);
+      assert.equal(extractCalls.length, 0);
+      assert.isFalse(published.versionDirExists);
+    }),
+  );
+
+  it.effect("leaves no sentinel when the AppImage download fails", () =>
+    Effect.gen(function* () {
+      const version = "0.0.41-hyprws.1";
+      const { exit, extractCalls, published } = yield* install({
+        version,
+        downloadStatus: 404,
+      });
+      assert.isTrue(Exit.isFailure(exit));
+      assert.equal(extractCalls.length, 0);
+      assert.isFalse(published.versionDirExists);
+      assert.isNull(published.sentinel);
+    }),
+  );
+
+  it.effect("leaves no sentinel when the extract step exits non-zero", () =>
+    Effect.gen(function* () {
+      const version = "0.0.41-hyprws.1";
+      const { exit, extractCalls, published } = yield* install({
+        version,
+        extractBehavior: "fail",
+      });
+      assert.isTrue(Exit.isFailure(exit));
+      assert.equal(extractCalls.length, 1);
+      assert.isFalse(published.versionDirExists);
+      assert.isNull(published.sentinel);
     }),
   );
 });
