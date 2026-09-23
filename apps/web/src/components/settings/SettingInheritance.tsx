@@ -21,6 +21,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ProjectOverrideEntry, ScopedSettingsTarget } from "./scopedSettings";
 import { isProjectScopedSettingKey } from "./scopedSettings";
+import { displaySettingInheritanceInputs } from "./SettingInheritance.fork"; // fork-hook: worktrunk-hooks/env-mode-inheritance-import
 
 interface InheritanceLayer {
   readonly key: "project" | "environment" | "built-in";
@@ -80,16 +81,6 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
 }
 
 /**
- * Fork: the stored value behind a layer's settings, so the chain shows the
- * exact mode (including `worktrunk`) rather than the wire stand-in. Every
- * layer decodes the same way or the inheritance arrows would point at a
- * difference that is not real.
- */
-function storedLayerValue(settings: ServerSettings, key: keyof ServerSettings): unknown {
-  return key === "defaultThreadEnvMode" ? fromWireThreadEnvModeFields(settings) : settings[key];
-}
-
-/**
  * The layers a setting resolves through for one target, top-down: the
  * project override when the target is a project, the environment's value,
  * and the built-in default. The first layer that is set wins.
@@ -108,10 +99,7 @@ export function settingInheritanceLayers(
     layers.push({
       key: "project",
       label: "Project",
-      value:
-        projectSource === "project"
-          ? formatValue(key, storedLayerValue(target.settings, key))
-          : "Inherits",
+      value: projectSource === "project" ? formatValue(key, target.settings[key]) : "Inherits",
       effective: projectSource === "project",
       set: projectSource === "project",
     });
@@ -119,16 +107,14 @@ export function settingInheritanceLayers(
   layers.push({
     key: "environment",
     label: target.label,
-    value: environmentSet
-      ? formatValue(key, storedLayerValue(environmentSettings, key))
-      : "Inherits",
+    value: environmentSet ? formatValue(key, environmentValue) : "Inherits",
     effective: projectSource !== "project" && environmentSet,
     set: environmentSet,
   });
   layers.push({
     key: "built-in",
     label: "Default",
-    value: formatValue(key, storedLayerValue(DEFAULT_SERVER_SETTINGS, key)),
+    value: formatValue(key, builtIn),
     effective: projectSource !== "project" && !environmentSet,
     set: true,
   });
@@ -182,12 +168,20 @@ export function SettingInheritance({
       (candidate) => candidate.environmentId === target.environmentId,
     );
     if (!environment?.serverConfig) return [];
+    const displayInputs = displaySettingInheritanceInputs(
+      target,
+      environment.serverConfig.settings,
+    ); // fork-hook: worktrunk-hooks/env-mode-inheritance-inputs
     return [
       {
         target,
         environment: { ...environment, serverConfig: environment.serverConfig },
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
-        layers: settingInheritanceLayers(target, environment.serverConfig.settings, key),
+        layers: settingInheritanceLayers(
+          displayInputs.target,
+          displayInputs.environmentSettings,
+          key,
+        ), // fork-hook: worktrunk-hooks/env-mode-inheritance-arguments
       },
     ];
   });
