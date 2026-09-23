@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 
 import {
   buildScanResult,
+  matchReplayCounterparts,
   readScan,
   renderScanReport,
   resolveGuardedCommits,
@@ -16,6 +17,7 @@ import {
   type ScanInput,
 } from "./fork-scan.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
 import {
   forkTestSibling,
   parseCommitPatches,
@@ -80,16 +82,138 @@ it("fails an additive files finding carried on the scan result", () => {
   );
 });
 
-it("--replay-of is not a replay signal; --since scopes the guards", () => {
-  // `--replay-of` is emitted whenever origin/hyprws resolves — every
-  // ordinary pull request — so it must never suppress guard selection.
-  // Commit recency via the `--since` range is what limits enforcement to
-  // new work.
-  const throwingGit = {
-    run: () => {
-      throw new Error("must not read git when since is null");
+it("keeps every bounded replay commit for line-level guard filtering", () => {
+  const commits = [
+    {
+      sha: "same",
+      short: "same",
+      subject: "feat: same",
+      domain: "example",
+      tier: "core",
     },
-  };
+    {
+      sha: "changed",
+      short: "changed",
+      subject: "feat: changed",
+      domain: "example",
+      tier: "core",
+    },
+    {
+      sha: "new",
+      short: "new",
+      subject: "feat: new",
+      domain: "example",
+      tier: "core",
+    },
+    {
+      sha: "duplicate",
+      short: "duplicate",
+      subject: "feat: duplicate",
+      domain: "example",
+      tier: "core",
+    },
+  ];
+  const patch = (line: string) =>
+    `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -0,0 +1 @@\n+${line}\n`;
+  const outputs = new Map<string, string>([
+    ["rev-list since..head", commits.map(({ sha }) => sha).join("\n")],
+    ["merge-base target origin/hyprws", "base\n"],
+    [
+      "log --reverse --format=%H%x1f%s%x1e base..origin/hyprws",
+      "old-same\u001ffeat: same\u001eold-changed\u001ffeat: changed\u001eold-duplicate-1\u001ffeat: duplicate\u001eold-duplicate-2\u001ffeat: duplicate\u001e",
+    ],
+    ["-c core.quotePath=false show --format= --unified=0 same", patch("same")],
+    ["-c core.quotePath=false show --format= --unified=0 old-same", patch("same")],
+    ["-c core.quotePath=false show --format= --unified=0 changed", patch("after")],
+    ["-c core.quotePath=false show --format= --unified=0 old-changed", patch("before")],
+  ]);
+  const git = { run: (args: ReadonlyArray<string>) => outputs.get(args.join(" ")) ?? "" };
+  const options = {
+    base: null,
+    head: "head",
+    target: "target",
+    typecheck: false,
+    since: "since",
+    replayOf: "origin/hyprws",
+  } as const;
+  const range = { base: "base", head: "head", target: "target" };
+
+  assert.deepStrictEqual(
+    resolveGuardedCommits(git, options, range, commits).map(({ sha }) => sha),
+    ["same", "changed", "new", "duplicate"],
+  );
+});
+
+const replayHookWarnings = (
+  added: ReadonlyArray<string>,
+  replayAddedLines?: ReadonlyArray<string>,
+) =>
+  hookGuardWarnings({
+    commit: { short: "abc1234", domain: "example" },
+    files: ["file.ts"],
+    changedLines: new Map([["file.ts", { added }]]),
+    upstreamFiles: new Set(["file.ts"]),
+    ...(replayAddedLines === undefined
+      ? {}
+      : { replayAddedLines: new Map([["file.ts", replayAddedLines]]) }),
+  });
+
+it("exempts identical replay additions", () => {
+  assert.deepStrictEqual(
+    replayHookWarnings(["const historical = true;"], ["const historical = true;"]),
+    [],
+  );
+});
+
+it("warns only a replay-introduced unmarked line", () => {
+  const warnings = replayHookWarnings(
+    ["const historical = true;", "const introduced = true;"],
+    ["const historical = true;"],
+  );
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /1 added line.*introduced/);
+  assert.notMatch(warnings[0] ?? "", /historical/);
+});
+
+it("warns every unmarked line without a replay counterpart", () => {
+  const warnings = replayHookWarnings(["const first = true;", "const second = true;"]);
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /2 added line/);
+});
+
+it("exempts replay additions count by count", () => {
+  const warnings = replayHookWarnings(
+    ["const repeated = true;", "const repeated = true;"],
+    ["const repeated = true;"],
+  );
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /1 added line/);
+});
+
+it("matches duplicate replay subjects by oldest-first ordinal", () => {
+  const matches = matchReplayCounterparts(
+    [
+      { sha: "replayed-1", subject: "duplicate" },
+      { sha: "replayed-2", subject: "other" },
+      { sha: "replayed-3", subject: "duplicate" },
+      { sha: "replayed-surplus", subject: "duplicate" },
+    ],
+    new Map([
+      ["duplicate", ["original-1", "original-2"]],
+      ["other", ["original-other"]],
+    ]),
+  );
+  assert.deepStrictEqual(
+    [...matches],
+    [
+      ["replayed-1", "original-1"],
+      ["replayed-2", "original-other"],
+      ["replayed-3", "original-2"],
+    ],
+  );
+});
+
+it("guards every bounded commit without --replay-of", () => {
   const commits = [
     {
       sha: "abc1234",
@@ -99,33 +223,22 @@ it("--replay-of is not a replay signal; --since scopes the guards", () => {
       tier: "core",
     },
   ];
-  const opts = {
-    base: null,
-    head: "head",
-    target: "target",
-    typecheck: false,
-  } as const;
-  const range = { base: "base", head: "head", target: "target" };
-  // A null since selects the commit even with --replay-of present.
+  const git = { run: (args: ReadonlyArray<string>) => (args[0] === "rev-list" ? "abc1234\n" : "") };
   assert.deepStrictEqual(
     resolveGuardedCommits(
-      throwingGit,
-      { ...opts, since: null, replayOf: "origin/hyprws" },
-      range,
+      git,
+      {
+        base: null,
+        head: "head",
+        target: "target",
+        typecheck: false,
+        since: "since",
+        replayOf: null,
+      },
+      { base: "base", head: "head", target: "target" },
       commits,
     ),
     commits,
-  );
-  // A since range that excludes the commit excludes it, replay flag or not.
-  const excludingGit = { run: () => "" };
-  assert.deepStrictEqual(
-    resolveGuardedCommits(
-      excludingGit,
-      { ...opts, since: "since", replayOf: "origin/hyprws" },
-      range,
-      commits,
-    ),
-    [],
   );
 });
 
