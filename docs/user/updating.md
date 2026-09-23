@@ -34,6 +34,8 @@ In the desktop app, change **Settings → About → Update track** to switch con
 | `npx` server                        | Stop the server and relaunch with `npx t3@<version>` and your usual flags.                            |
 | Package manager (Nix, AUR)          | Update via your package manager.                                                                      |
 
+For the hyprws build, see [Install and update the hyprws build](../fork/user/install-and-update.md).
+
 Each server checks npm/Homebrew/pnpm using its own local registry and proxy settings.
 
 ## Update providers
