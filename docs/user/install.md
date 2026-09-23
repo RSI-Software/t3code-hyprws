@@ -8,6 +8,8 @@ You need at least one installed, authenticated coding agent (provider) before st
 
 ## Command line
 
+For the hyprws build, see [Install and update the hyprws build](../fork/user/install-and-update.md).
+
 Install the `t3` command to `~/.local/bin`:
 
 ```bash
