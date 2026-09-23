@@ -25,6 +25,11 @@
 // The typed report at `.t3/fork-sync/<tag>.json` is the only run authority; the
 // Markdown this prints is output, never read back. Publication goes through
 // `ghb`, never bare `gh`, and nothing is ever posted to upstream.
+//
+// The check battery installs fresh in the replay worktree instead of linking
+// the trunk's node_modules whenever the target changed the lockfile, the
+// workspace catalog, or a manifest, so the battery's toolchain always matches
+// the target's declared dependency set.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -655,6 +660,26 @@ export const linkInstalledModules = (root: string, worktree: string): void => {
   visit(root, 0);
 };
 
+/** The files whose diff marks the target as having changed the installed dependency set. */
+const DEPENDENCY_FILES = ["pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"];
+
+/**
+ * True when the target changed the dependency set since the trunk: the
+ * lockfile, the catalog, or a manifest. `linkInstalledModules` is only safe
+ * when the replay's node_modules still match what the target's sources
+ * expect — a bumped catalog entry (e.g. `vite-plus` 0.3.0 → 0.3.3) means the
+ * trunk's toolchain runs against the target's sources and skews tool output
+ * (see e.g. `oxfmt` formatting) that no fork commit touches.
+ */
+export const dependencySetChanged = (
+  runner: CommandRunner,
+  root: string,
+  trunkSha: string,
+  targetSha: string,
+): boolean =>
+  gitResult(runner, root, ["diff", "--quiet", trunkSha, targetSha, "--", ...DEPENDENCY_FILES])
+    .status !== 0;
+
 /**
  * The check battery, in the CI shape: the ledger gate, then everything the
  * fork's pull-request CI runs — `vp run fork:ci` derives the pinned scan flags
@@ -687,8 +712,16 @@ export const runChecks = (
   root: string,
   worktree: string,
   target: ReleaseTag,
+  trunkSha: string,
 ): ReadonlyArray<CheckRow> => {
-  linkInstalledModules(root, worktree);
+  if (dependencySetChanged(runner, root, trunkSha, target.sha)) {
+    process.stdout.write(
+      `sync: dependency set changed on ${target.sha.slice(0, 7)}; installing in the replay worktree\n`,
+    );
+    runRequire(runner, "vp", ["i", "--frozen-lockfile"], { cwd: worktree, stream: true });
+  } else {
+    linkInstalledModules(root, worktree);
+  }
   const env = verificationEnv(worktree);
   return checkCommands().map((args) => {
     // The rehearsal head authors no commits, so the battery scopes the hook
@@ -1454,7 +1487,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // check
     step = "check";
-    const checks = runChecks(runner, root, worktreePath(root), target);
+    const checks = runChecks(runner, root, worktreePath(root), target, expectedOld);
     if (checks.some((check) => check.status === "failed")) {
       gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
       return fail({
