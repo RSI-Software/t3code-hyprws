@@ -558,6 +558,10 @@
     "./speech": {
       "types": "./src/speech.ts",
       "import": "./src/speech.ts"
+    },
+    "./forkVersion": {
+      "types": "./src/forkVersion.ts",
+      "import": "./src/forkVersion.ts"
     }
   },
   "scripts": {
