@@ -1915,3 +1915,5 @@ export class SshEnvironmentManager extends Context.Service<
   static readonly layer = (options: SshEnvironmentManagerOptions = {}) =>
     Layer.effect(SshEnvironmentManager, makeSshEnvironmentManager(options));
 }
+
+export { buildRemoteLaunchScript }; // fork-hook: distribution/remote-launch-script-export
