@@ -151,11 +151,16 @@ A seam commit carries one small intent; intent re-derives the resolution.
 
 Fork-only paths need no granularity curation.
 
-### Never squash a landed stack
+### Fold to stay tight
 
-Squashing flattens a domain's commits into one, and the delta table can no longer tell a fork commit from an upstream one.
-The one-time flatten (RSI-Software/t3code-hyprws#671) predates the delta table and stays archived under a ref.
-Do not repeat it.
+Fold the ahead commits to one intent each, so a rebase conflict is solved once.
+The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
+
+| Gate        | Detail                                               |
+| ----------- | ---------------------------------------------------- |
+| Same domain | Never across one: the ledger loses a domain          |
+| Tree-equal  | The folded tip's tree matches the old tip            |
+| `Squashes:` | Every member listed, per [Stack order](#stack-order) |
 
 ### Fork tests live in fork-owned files
 
