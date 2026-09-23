@@ -199,6 +199,7 @@ import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
+import { useAttemptResetThreadOrder } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
@@ -2824,6 +2825,7 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-clear
     archiveThread,
     deleteThread,
     collectOrphanedWorktreePathsForThreads,
@@ -3549,6 +3551,7 @@ export default function Sidebar() {
       }
     })();
   };
+  const attemptResetOrder = useAttemptResetThreadOrder(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const result = await unsnoozeThread(threadRef);
@@ -4741,6 +4744,7 @@ export default function Sidebar() {
           canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
           isRegeneratingTitle,
           isRunning: !threadRuntimeCanArchive(thread.runtime),
+          hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
           supports: {
             settlement: supportsSettlement,
             autoSettleOptOut: supportsAutoSettleOptOut,
@@ -4850,6 +4854,8 @@ export default function Sidebar() {
             }
             return;
           }
+          case "reset-order":
+            return attemptResetOrder(threadRef); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
