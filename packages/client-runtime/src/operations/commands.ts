@@ -103,7 +103,7 @@ export interface ReorderPinnedThreadInput extends ThreadCommandInput {
 
 export interface ReorderActiveThreadInput extends ThreadCommandInput {
   /** Fractional-index key that sorts between the drop position's neighbors. */
-  readonly orderKey: string;
+  readonly orderKey: string | null; // fork-hook: thread-ordering/reset-order-null-key
 }
 
 export interface SnoozeThreadInput extends ThreadCommandInput {
