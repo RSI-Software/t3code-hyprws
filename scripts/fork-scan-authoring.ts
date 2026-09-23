@@ -36,6 +36,7 @@ export interface ExportDeclaration {
   readonly path: string;
   readonly kind: string;
   readonly name: string;
+  readonly line: string;
 }
 
 export interface TestBlockHunk {
@@ -103,6 +104,9 @@ export interface AuthoringGuardInput {
   // which cannot tell a shared body line from an upstream one
   // (RSI-Software/t3code-hyprws#1208).
   readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  // Head-tree text for count-aware removal checks: duplicate upstream text
+  // survives when the fork only removes its own appended copy.
+  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
   readonly siblingTexts: ReadonlyMap<string, string>;
 }
 
@@ -211,6 +215,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
           path,
           kind: declaration[1] ?? "",
           name: declaration[2] ?? "",
+          line: content.trim(),
         });
       }
       if (TEST_BLOCK.test(content)) {
@@ -239,7 +244,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
   return patches;
 };
 
-const TEST_FILE = /\.test\.tsx?$/;
+export const TEST_FILE = /\.test\.tsx?$/;
 const FORK_TEST_FILE = /\.fork\.test\.tsx?$/;
 
 const TITLE_OF =
@@ -372,8 +377,20 @@ export const collectAuthoringWarnings = (
       if (!input.upstreamTestFiles.has(path)) continue;
       if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
       const upstreamLines = input.upstreamTestLines.get(path);
+      const targetText = input.upstreamTestTexts.get(path);
+      const headText = input.headTestTexts?.get(path);
+      const occurrences = (text: string, line: string) =>
+        significantLines(text).filter((candidate) => candidate === line).length;
       const upstream =
-        upstreamLines === undefined ? lines : lines.filter((line) => upstreamLines.has(line));
+        upstreamLines === undefined
+          ? lines
+          : lines.filter(
+              (line) =>
+                upstreamLines.has(line) &&
+                (targetText === undefined ||
+                  headText === undefined ||
+                  occurrences(headText, line) < occurrences(targetText, line)),
+            );
       const declared = declaredSupersededLines(input, path);
       const undeclared =
         declared.size === 0 ? upstream : upstream.filter((line) => !declared.has(line));
@@ -391,6 +408,8 @@ export const collectAuthoringWarnings = (
     const reported = new Set<string>();
     for (const removed of patch.removedExports) {
       if (!input.upstreamFiles.has(removed.path)) continue;
+      const targetLines = input.upstreamLines?.get(removed.path);
+      if (targetLines !== undefined && !targetLines.has(removed.line)) continue;
       const key = `${removed.path}${removed.name}`;
       if (reported.has(key)) continue;
       const readded = patch.addedExports.find((added) => added.name === removed.name);
