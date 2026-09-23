@@ -34,6 +34,7 @@ describe("displaySettingInheritanceInputs", () => {
     expect(layers.map((layer) => [layer.label, layer.value])).toEqual([
       ["Project", "New worktrunk"],
       ["Laptop", "Inherits"],
+      ["t3.json", "Inherits"],
       ["Default", "Current checkout"],
     ]);
     expect(layers[0]?.value).not.toBe("New worktree");
