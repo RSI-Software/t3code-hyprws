@@ -141,7 +141,7 @@ const withFixture = (
 };
 
 // ---------------------------------------------------------------------------
-// Runner stub: git is real, vp/gh/ghb are recorded
+// Runner stub: git is real, vp/gh are recorded
 // ---------------------------------------------------------------------------
 
 interface Recording {
@@ -153,7 +153,6 @@ const exec = (
   handlers: {
     readonly vp?: (args: ReadonlyArray<string>) => CommandResult;
     readonly gh?: (args: ReadonlyArray<string>) => CommandResult;
-    readonly ghb?: (args: ReadonlyArray<string>) => CommandResult;
   } = {},
 ): Recording => {
   const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
@@ -164,7 +163,6 @@ const exec = (
         calls.push({ command, args });
         if (command === "vp") return handlers.vp?.(args) ?? ok();
         if (command === "gh") return handlers.gh?.(args) ?? ok("[]");
-        if (command === "ghb") return handlers.ghb?.(args) ?? ok();
         return runCommand(command, args, {
           cwd: spec.cwd,
           ...(spec.env === undefined ? {} : { env: spec.env }),
@@ -526,8 +524,7 @@ it("refuses a target that is not a release tag on upstream", () => {
     (f) => {
       const created: Array<{ readonly title: string; readonly body: string }> = [];
       const recording = exec({
-        gh: () => ok("[]"),
-        ghb: (args) => {
+        gh: (args) => {
           if (args[0] === "issue" && args[1] === "create") {
             created.push({
               title: args[args.indexOf("--title") + 1] ?? "",
@@ -535,7 +532,7 @@ it("refuses a target that is not a release tag on upstream", () => {
             });
             return ok("https://github.com/RSI-Software/t3code-hyprws/issues/45\n");
           }
-          return ok();
+          return ok("[]");
         },
       });
       const code = capture(() => run(["v9.9.9"], { runner: recording.runner, root: f.root })).value;
@@ -553,7 +550,7 @@ it("refuses a target that is not a release tag on upstream", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Blocked publication through ghb
+// Blocked publication through gh
 // ---------------------------------------------------------------------------
 
 const blockedReport = (blockingSha: string): ForkSyncReport => ({
@@ -630,32 +627,32 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
 it("files one issue per blocking sha with the governed fields", () => {
   const issueBodies: string[] = [];
   const recording = exec({
-    gh: () => ok("[]"),
-    ghb: (args) => {
-      if (args[0] === "issue" && args[1] === "create")
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "create") {
         issueBodies.push(NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"));
-      return ok("https://github.com/RSI-Software/t3code-hyprws/issues/42\n");
+        return ok("https://github.com/RSI-Software/t3code-hyprws/issues/42\n");
+      }
+      return ok("[]");
     },
   });
   const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 42);
-  assert.strictEqual(report.blocked?.publishedVia, "ghb");
-  const create = recording.calls.find(({ args }) => args[0] === "issue" && args[1] === "create");
+  assert.strictEqual(report.blocked?.publishedVia, "gh");
+  const create = recording.calls.find(
+    ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "create",
+  );
   assert.notStrictEqual(create, undefined);
   const args = create!.args;
   const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
   assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
   assert.strictEqual(value("--type"), "Notification 🔔");
-  assert.strictEqual(value("--priority"), "High");
-  assert.strictEqual(value("--filed-by"), "Agent 🤖");
-  assert.strictEqual(value("--source"), "1151");
   assert.deepStrictEqual(
     args.filter((argument, index) => args[index - 1] === "--label"),
     ["ci"],
   );
-  assert.ok(args.includes("--no-project"));
-  assert.ok(args.includes("--no-relationship"));
-  const list = recording.calls.find(({ command, args }) => command === "gh" && args[0] === "issue");
+  const list = recording.calls.find(
+    ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "list",
+  );
   assert.notStrictEqual(list, undefined);
   assert.strictEqual(
     list!.args[list!.args.indexOf("--search") + 1],
@@ -673,19 +670,19 @@ it("files one issue per blocking sha with the governed fields", () => {
 it("edits the open issue in place when the rendered body drifts, never comments", () => {
   const edits: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
   const recording = exec({
-    gh: () =>
-      ok(
-        JSON.stringify([
-          { number: 11, title: "old", body: `stale\n${blockingShaMarker("5".repeat(40))}` },
-        ]),
-      ),
-    ghb: (args) => {
-      if (args[0] === "issue" && args[1] === "edit")
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "edit") {
         edits.push({
           args,
           body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
         });
-      return ok();
+        return ok();
+      }
+      return ok(
+        JSON.stringify([
+          { number: 11, title: "old", body: `stale\n${blockingShaMarker("5".repeat(40))}` },
+        ]),
+      );
     },
   });
   const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
@@ -726,12 +723,14 @@ it("makes no write when the live title and body already match the render", () =>
   const published = publishBlock(recording.runner, "/tmp", report);
   assert.strictEqual(published.blocked?.issue, 11);
   assert.strictEqual(published.blocked?.publishError, null);
-  // the probe is the only ghb traffic: no create, no edit, no comment
-  for (const call of recording.calls)
-    if (call.command === "ghb") assert.strictEqual(call.args[0], "--version");
+  // the list is the only write: no create, no edit
+  assert.strictEqual(
+    recording.calls.some(({ args }) => args[0] === "issue" && args[1] !== "list"),
+    false,
+  );
 });
 
-it("makes no write when the ghb attest footer and machine title suffix decorate the render", () => {
+it("makes no write when a stray gh-bot attest footer and machine title suffix decorate the render", () => {
   const report = blockedReport("5".repeat(40));
   const recording = exec({
     gh: () =>
@@ -747,9 +746,11 @@ it("makes no write when the ghb attest footer and machine title suffix decorate 
   });
   const published = publishBlock(recording.runner, "/tmp", report);
   assert.strictEqual(published.blocked?.issue, 11);
-  // the ghb decorations normalise away: no create, no edit, no comment
-  for (const call of recording.calls)
-    if (call.command === "ghb") assert.strictEqual(call.args[0], "--version");
+  // the stray decorations normalise away: no create, no edit
+  assert.strictEqual(
+    recording.calls.some(({ args }) => args[0] === "issue" && args[1] !== "list"),
+    false,
+  );
 });
 
 it("falls back to gh issue edit --type when gh rejects --type at create", () => {
@@ -762,12 +763,6 @@ it("falls back to gh issue edit --type when gh rejects --type at create", () => 
       if (args[0] === "issue" && args[1] === "list") return ok("[]");
       return ok();
     },
-    ghb: () => ({
-      status: 1,
-      stdout: "",
-      stderr: "spawnSync ghb ENOENT",
-      error: new Error("spawnSync ghb ENOENT"),
-    }),
   });
   const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 44);
@@ -794,10 +789,12 @@ it("falls back to gh issue edit --type when gh rejects --type at create", () => 
   );
 });
 
-it("prints the body and records the refusal when ghb refuses", () => {
+it("prints the body and records the refusal when gh refuses", () => {
   const recording = exec({
-    gh: () => ok("[]"),
-    ghb: () => refused("delegated agents cannot create issues"),
+    gh: (args) =>
+      args[0] === "issue" && args[1] === "create"
+        ? refused("delegated agents cannot create issues")
+        : ok("[]"),
   });
   const printed = capture(() =>
     publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40))),
@@ -808,72 +805,17 @@ it("prints the body and records the refusal when ghb refuses", () => {
   assert.include(printed.output, blockingShaMarker("5".repeat(40)));
 });
 
-it("falls back to bare gh when ghb cannot spawn, same body and title", () => {
-  const issueBodies: string[] = [];
-  const recording = exec({
-    gh: (args) => {
-      if (args[0] === "issue" && args[1] === "create") {
-        issueBodies.push(NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"));
-        return ok("https://github.com/RSI-Software/t3code-hyprws/issues/43\n");
-      }
-      if (args[0] === "issue" && args[1] === "list") return ok("[]");
-      return ok();
-    },
-    ghb: () => ({
-      status: 1,
-      stdout: "",
-      stderr: "spawnSync ghb ENOENT",
-      error: new Error("spawnSync ghb ENOENT"),
-    }),
-  });
-  const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
-  assert.strictEqual(report.blocked?.issue, 43);
-  assert.strictEqual(report.blocked?.publishedVia, "gh");
-  assert.strictEqual(report.blocked?.publishError, null);
-  const create = recording.calls.find(
-    ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "create",
-  );
-  assert.notStrictEqual(create, undefined);
-  const args = create!.args;
-  const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
-  assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
-  assert.strictEqual(value("--type"), "Notification 🔔");
-  assert.deepStrictEqual(
-    args.filter((argument, index) => args[index - 1] === "--label"),
-    ["ci"],
-  );
-  const body = issueBodies[0] ?? "";
-  assert.match(body, /^Origin: hyprws sync run onto v1\.0\.0;/);
-  assert.match(body, /\| `apps\/web\/src\/page\.tsx` \|/);
-  assert.include(body, blockingShaMarker("5".repeat(40)));
-  // the probe is the only ghb traffic
-  for (const call of recording.calls)
-    if (call.command === "ghb") assert.strictEqual(call.args[0], "--version");
-
-  // the same fallback closes through gh
-  const closed: Array<{ readonly number: number; readonly command: string }> = [];
-  closeBlocks(
-    {
-      run: (command, closeArgs) => {
-        if (command === "gh" && closeArgs[1] === "close")
-          closed.push({ number: Number(closeArgs[2]), command });
-        if (command === "gh" && closeArgs[1] === "list") return ok("[]");
-        return ok();
-      },
-    },
-    "/tmp",
-    "abc1234def",
-  );
-  assert.deepStrictEqual(closed, []);
-});
-
-it("closes every open block and failure issue with the claim, comment, close sequence", () => {
+it("closes every open block and failure issue with one close-and-comment call", () => {
   const bodies: string[] = [];
   // each governed search matches only its own phrase: block issues under the
   // blocked phrase, the failure issue under the sync-failure phrase
   const recording = exec({
-    gh: (args) =>
-      ok(
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "close") {
+        bodies.push(args[args.indexOf("--comment") + 1] ?? "");
+        return ok();
+      }
+      return ok(
         JSON.stringify(
           args[args.indexOf("--search") + 1] === '"hyprws sync failed" in:title'
             ? [{ number: 11, title: "f", body: "z" }]
@@ -882,11 +824,7 @@ it("closes every open block and failure issue with the claim, comment, close seq
                 { number: 9, title: "b", body: "y" },
               ],
         ),
-      ),
-    ghb: (args) => {
-      if (args[0] === "issue" && args[1] === "comment")
-        bodies.push(NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"));
-      return ok();
+      );
     },
   });
   const closures = closeBlocks(recording.runner, "/tmp", "abc1234def");
@@ -895,46 +833,33 @@ it("closes every open block and failure issue with the claim, comment, close seq
     { issue: 9, refusal: null },
     { issue: 11, refusal: null },
   ]);
-  // claim (judged Standalone 📍: the driver files parentless, --no-project)
-  // before comment before close, per issue, with no sleeps between
-  const claim = recording.calls.find(
-    ({ command, args }) => command === "ghb" && args[1] === "claim",
-  );
-  assert.notStrictEqual(claim, undefined);
-  assert.ok(claim!.args.includes("--standalone"));
+  // one gh issue close call per issue, no sleeps between
   const sequence = recording.calls
-    .filter(({ command, args }) => command === "ghb" && args[0] !== "--version")
-    .map(({ args }) => [args[1], String(args[2])]);
-  assert.deepStrictEqual(sequence, [
-    ["claim", "7"],
-    ["comment", "7"],
-    ["close", "7"],
-    ["claim", "9"],
-    ["comment", "9"],
-    ["close", "9"],
-    ["claim", "11"],
-    ["comment", "11"],
-    ["close", "11"],
-  ]);
-  // the comment names the applied trunk sha: it publishes before the close
-  // precondition check, so unlike --comment it counts as evidence
+    .filter(({ command, args }) => command === "gh" && args[1] === "close")
+    .map(({ args }) => String(args[2]));
+  assert.deepStrictEqual(sequence, ["7", "9", "11"]);
+  // the comment names the applied trunk sha and is the close evidence
   assert.deepStrictEqual(bodies, [
     "Resolved by hyprws abc1234def.",
     "Resolved by hyprws abc1234def.",
     "Resolved by hyprws abc1234def.",
   ]);
   const close = recording.calls.find(
-    ({ command, args }) => command === "ghb" && args[1] === "close",
+    ({ command, args }) => command === "gh" && args[1] === "close",
   );
   assert.notStrictEqual(close, undefined);
   assert.ok(close!.args.includes("--reason"));
-  assert.strictEqual(close!.args.includes("--comment"), false);
+  assert.ok(close!.args.includes("--comment"));
 });
 
 it("records a refused close per issue and still closes the others", () => {
   const recording = exec({
-    gh: (args) =>
-      ok(
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "close")
+        return args[2] === "7"
+          ? refused("Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.")
+          : ok();
+      return ok(
         JSON.stringify(
           args[args.indexOf("--search") + 1] === '"hyprws sync failed" in:title'
             ? []
@@ -943,28 +868,25 @@ it("records a refused close per issue and still closes the others", () => {
                 { number: 9, title: "b", body: "y" },
               ],
         ),
-      ),
-    ghb: (args) =>
-      args[1] === "close" && args[2] === "7"
-        ? refused("Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.")
-        : ok(),
+      );
+    },
   });
   const closures = closeBlocks(recording.runner, "/tmp", "abc1234def");
   assert.deepStrictEqual(closures, [
     {
       issue: 7,
       refusal:
-        "ghb issue close 7 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.",
+        'gh issue close 7 --reason completed --comment "Resolved by hyprws abc1234def." --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#7 was not closed: no assignee.',
     },
     { issue: 9, refusal: null },
   ]);
-  // the claim and the sha comment still ran for the refused issue
-  const refused7 = recording.calls.filter(
-    ({ command, args }) => command === "ghb" && args[2] === "7",
+  // the close still ran for the refused issue, alongside the untouched one
+  const closeCalls = recording.calls.filter(
+    ({ command, args }) => command === "gh" && args[1] === "close",
   );
   assert.deepStrictEqual(
-    refused7.map(({ args }) => args[1]),
-    ["claim", "comment", "close"],
+    closeCalls.map(({ args }) => args[2]),
+    ["7", "9"],
   );
 });
 
@@ -982,15 +904,14 @@ it("files one governed failure issue when the check battery goes red", () => {
     const issueBodies: string[] = [];
     const recording = exec({
       vp: () => refused("fork:delta --check is red"),
-      gh: () => ok("[]"),
-      ghb: (args) => {
+      gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") {
           issueBodies.push(
             NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
           );
           return ok("https://github.com/RSI-Software/t3code-hyprws/issues/42\n");
         }
-        return ok();
+        return ok("[]");
       },
     });
     const code = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root })).value;
@@ -1000,24 +921,22 @@ it("files one governed failure issue when the check battery goes red", () => {
     assert.strictEqual(report.failure?.step, "check");
     assert.strictEqual(report.failure?.key, "v1.0.0");
     assert.strictEqual(report.failure?.issue, 42);
-    assert.strictEqual(report.failure?.publishedVia, "ghb");
+    assert.strictEqual(report.failure?.publishedVia, "gh");
     assert.strictEqual(report.failure?.publishError, null);
     const create = recording.calls.find(
-      ({ command, args }) => command === "ghb" && args[0] === "issue" && args[1] === "create",
+      ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "create",
     );
     assert.notStrictEqual(create, undefined);
     const args = create!.args;
     const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
     assert.strictEqual(value("--title"), "hyprws sync failed at check (v1.0.0)");
     assert.strictEqual(value("--type"), "Notification 🔔");
-    assert.strictEqual(value("--priority"), "High");
-    assert.strictEqual(value("--source"), "1151");
     assert.deepStrictEqual(
       args.filter((argument, index) => args[index - 1] === "--label"),
       ["ci"],
     );
     const list = recording.calls.find(
-      ({ command, args }) => command === "gh" && args[0] === "issue",
+      ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "list",
     );
     assert.strictEqual(
       list!.args[list!.args.indexOf("--search") + 1],
@@ -1038,8 +957,8 @@ it("a rerun with the same failure edits the issue in place instead of filing aga
     let listResponse = ok("[]");
     const recording = exec({
       vp: () => refused("fork:delta --check is red"),
-      gh: (args) => (args[0] === "issue" && args[1] === "list" ? listResponse : ok()),
-      ghb: (args) => {
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "list") return listResponse;
         if (args[0] === "issue" && args[1] === "create") {
           creates += 1;
           return ok("https://github.com/RSI-Software/t3code-hyprws/issues/42\n");
@@ -1076,7 +995,7 @@ it("a rerun with the same failure edits the issue in place instead of filing aga
     );
     const report = readReport(f.root, "v1.0.0");
     assert.strictEqual(report.failure?.issue, 42);
-    assert.strictEqual(report.failure?.publishedVia, "ghb");
+    assert.strictEqual(report.failure?.publishedVia, "gh");
   });
 });
 
@@ -1085,10 +1004,9 @@ it("a dry run reports the failure and files nothing", () => {
     let creates = 0;
     const recording = exec({
       vp: () => refused("fork:delta --check is red"),
-      gh: () => ok("[]"),
-      ghb: (args) => {
+      gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") creates += 1;
-        return ok();
+        return ok("[]");
       },
     });
     const code = capture(() =>
@@ -1109,8 +1027,7 @@ it("files a failure issue keyed by the trunk sha when the run crashes before a t
     const head = f.git(["rev-parse", "HEAD"], f.root);
     const created: Array<{ readonly title: string; readonly body: string }> = [];
     const recording = exec({
-      gh: () => ok("[]"),
-      ghb: (args) => {
+      gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") {
           created.push({
             title: args[args.indexOf("--title") + 1] ?? "",
@@ -1118,7 +1035,7 @@ it("files a failure issue keyed by the trunk sha when the run crashes before a t
           });
           return ok("https://github.com/RSI-Software/t3code-hyprws/issues/44\n");
         }
-        return ok();
+        return ok("[]");
       },
     });
     const runner: CommandRunner = {
@@ -1139,8 +1056,10 @@ it("files a failure issue keyed by the trunk sha when the run crashes before a t
 
 it("prints the body and records the refusal when the failure issue cannot publish", () => {
   const recording = exec({
-    gh: () => ok("[]"),
-    ghb: () => refused("delegated agents cannot create issues"),
+    gh: (args) =>
+      args[0] === "issue" && args[1] === "create"
+        ? refused("delegated agents cannot create issues")
+        : ok("[]"),
   });
   const body = failureIssueBody(failedReport("push", "v1.0.0"));
   assert.match(body, /failed at the `push` step/);
@@ -1188,14 +1107,15 @@ const openBlocksPerPhrase = (args: ReadonlyArray<string>): CommandResult =>
 it("a clean applied run closes its open block issues unaided", () => {
   withFixture(appliedFixture, (f) => {
     const { runner } = exec({
-      gh: openBlocksPerPhrase,
-      ghb: (args) => {
-        if (args[1] === "comment")
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "close") {
           assert.match(
-            NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+            args[args.indexOf("--comment") + 1] ?? "",
             new RegExp(`Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}\\.`),
           );
-        return ok();
+          return ok();
+        }
+        return openBlocksPerPhrase(args);
       },
     });
     const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
@@ -1212,11 +1132,10 @@ it("a clean applied run closes its open block issues unaided", () => {
 it("fails the applied run and records the refusal when the block close is refused", () => {
   withFixture(appliedFixture, (f) => {
     const { runner } = exec({
-      gh: openBlocksPerPhrase,
-      ghb: (args) =>
-        args[1] === "close"
+      gh: (args) =>
+        args[0] === "issue" && args[1] === "close"
           ? refused("Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.")
-          : ok(),
+          : openBlocksPerPhrase(args),
     });
     const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
     assert.strictEqual(applied.value, 1);
@@ -1227,8 +1146,7 @@ it("fails the applied run and records the refusal when the block close is refuse
     assert.deepStrictEqual(report.closedBlocks, [
       {
         issue: 1164,
-        refusal:
-          "ghb issue close 1164 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.",
+        refusal: `gh issue close 1164 --reason completed --comment "Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}." --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.`,
       },
     ]);
     assert.match(report.error ?? "", /closing stale block issues failed/);
@@ -1241,14 +1159,15 @@ it("fails the applied run and records the refusal when the block close is refuse
 it("an already-applied run also closes its open block issues unaided", () => {
   withFixture(alreadyAppliedFixture, (f) => {
     const { runner } = exec({
-      gh: openBlocksPerPhrase,
-      ghb: (args) => {
-        if (args[1] === "comment")
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "close") {
           assert.match(
-            NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+            args[args.indexOf("--comment") + 1] ?? "",
             new RegExp(`Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}\\.`),
           );
-        return ok();
+          return ok();
+        }
+        return openBlocksPerPhrase(args);
       },
     });
     const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
@@ -1265,11 +1184,10 @@ it("an already-applied run also closes its open block issues unaided", () => {
 it("an already-applied run fails and records the refusal when the block close is refused", () => {
   withFixture(alreadyAppliedFixture, (f) => {
     const { runner } = exec({
-      gh: openBlocksPerPhrase,
-      ghb: (args) =>
-        args[1] === "close"
+      gh: (args) =>
+        args[0] === "issue" && args[1] === "close"
           ? refused("Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.")
-          : ok(),
+          : openBlocksPerPhrase(args),
     });
     const applied = capture(() => run(["v1.0.0"], { runner, root: f.root }));
     assert.strictEqual(applied.value, 1);
@@ -1278,8 +1196,7 @@ it("an already-applied run fails and records the refusal when the block close is
     assert.deepStrictEqual(report.closedBlocks, [
       {
         issue: 1164,
-        refusal:
-          "ghb issue close 1164 --reason completed --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.",
+        refusal: `gh issue close 1164 --reason completed --comment "Resolved by hyprws ${f.git(["rev-parse", "origin/hyprws"], f.root)}." --repo RSI-Software/t3code-hyprws failed: Issue RSI-Software/t3code-hyprws#1164 was not closed: no assignee.`,
       },
     ]);
     assert.match(report.error ?? "", /closing stale block issues failed/);
