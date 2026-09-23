@@ -147,8 +147,8 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
 // Typed report
 // ---------------------------------------------------------------------------
 
-/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, or a human must. */
-export const ConflictVia = Schema.Literals(["hook", "human", "net-zero-delete"]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, or a manual resolution. */
+export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete"]);
 
 /** The recorded reason when an upstream deletion meets a net-zero fork edit. */
 export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
@@ -162,11 +162,11 @@ export const ConflictRow = Schema.Struct({
   /** The newest upstream commit that touched the path on the target side. */
   upstreamCommit: Schema.String,
   upstreamSubject: Schema.String,
-  /** The resolution the run applied, or `human` when the run stopped. */
+  /** The resolution the run applied, or `manual` when the run stopped. */
   via: ConflictVia,
   /** Hook keys re-inserted by hook re-apply; empty for every other row. */
   hooksReapplied: Schema.Array(Schema.String),
-  /** Why hook re-apply refused the path; set on `human` rows that carried hooks. */
+  /** Why hook re-apply refused the path; set on `manual` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
   /** Why an automatic rule resolved the path; set on `net-zero-delete` rows. */
   reason: Schema.optionalKey(Schema.String),
@@ -180,7 +180,7 @@ export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 export const DecisionRoute = Schema.Struct({
   /** The detached worktree holding the stopped rebase; `""` when nothing to resume. */
   worktree: Schema.String,
-  /** The paths a human resolves there. */
+  /** The paths resolved by hand there. */
   paths: Schema.Array(Schema.String),
   /** The exact resume commands, verbatim. */
   resume: Schema.String,
@@ -471,7 +471,7 @@ export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<st
  * upstream side and whose fork edit nets to zero against the base the fork
  * stack sits on accepts the deletion outright. Any path left standing after
  * those stops the run; its rows name the fork commit, the upstream commit, and
- * the worktree a human resumes in.
+ * the worktree the rebase resumes in.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
@@ -511,14 +511,14 @@ export const rebaseOnto = (
     const forkCommit = git(runner, worktree, ["rev-parse", "REBASE_HEAD"]);
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
-    const human: string[] = [];
+    const manual: string[] = [];
     for (const path of unmerged) {
       const touch = upstreamTouch(runner, root, target.sha, path);
       // Delete/modify with the deletion on the upstream (rebase base) side:
       // when the fork trunk's final blob for the path equals the base blob,
       // the fork edit is net-zero and the deletion is accepted outright. Any
       // other delete/modify shape falls through to hook re-apply, which
-      // refuses it, and then to a human row.
+      // refuses it, and then to a manual row.
       if (
         stageContent(runner, worktree, 2, path) === null &&
         stageContent(runner, worktree, 3, path) !== null &&
@@ -539,14 +539,14 @@ export const rebaseOnto = (
       }
       const applied = reapplyHooks(runner, worktree, path);
       if (applied === null || "refuseReason" in applied) {
-        human.push(path);
+        manual.push(path);
         conflicts.push({
           path,
           forkCommit,
           forkSubject,
           upstreamCommit: touch.sha,
           upstreamSubject: touch.subject,
-          via: "human",
+          via: "manual",
           hooksReapplied: [],
           ...(applied !== null ? { refuseReason: applied.refuseReason } : {}),
         });
@@ -562,7 +562,7 @@ export const rebaseOnto = (
         hooksReapplied: [...applied.reinserted],
       });
     }
-    if (human.length > 0) return { status: "blocked", conflicts };
+    if (manual.length > 0) return { status: "blocked", conflicts };
     status = runner.run("git", [...REBASE_CONFIG, "rebase", "--continue"], {
       cwd: worktree,
       env: editorEnv,
@@ -748,7 +748,7 @@ export const runChecks = (
 // ---------------------------------------------------------------------------
 
 export const blockingShaOf = (conflicts: ReadonlyArray<ConflictRow>): string | null =>
-  conflicts.find((row) => row.via === "human")?.upstreamCommit ??
+  conflicts.find((row) => row.via === "manual")?.upstreamCommit ??
   conflicts[0]?.upstreamCommit ??
   null;
 
@@ -1339,8 +1339,8 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const rebase = rebaseOnto(runner, root, target, expectedOld);
 
     if (rebase.status === "blocked") {
-      const humanPaths = rebase.conflicts
-        .filter((row) => row.via === "human")
+      const manualPaths = rebase.conflicts
+        .filter((row) => row.via === "manual")
         .map((row) => row.path);
       const blockingSha = blockingShaOf(rebase.conflicts) ?? target.sha;
       const worktree = worktreePath(root);
@@ -1351,9 +1351,9 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         conflicts: [...rebase.conflicts],
         decision: {
           worktree,
-          paths: humanPaths,
+          paths: manualPaths,
           resume: [
-            `git -C ${worktree} add -- ${humanPaths.map((path) => `"${path}"`).join(" ")}`,
+            `git -C ${worktree} add -- ${manualPaths.map((path) => `"${path}"`).join(" ")}`,
             `git -C ${worktree} rebase --continue`,
             `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
           ].join("\n"),
@@ -1365,7 +1365,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           publishError: null,
           publishedVia: null,
         },
-        error: `blocked by ${blockingSha.slice(0, 7)}: ${humanPaths.length} path${humanPaths.length === 1 ? "" : "s"} neither rerere nor hook re-apply resolves`,
+        error: `blocked by ${blockingSha.slice(0, 7)}: ${manualPaths.length} path${manualPaths.length === 1 ? "" : "s"} neither rerere nor hook re-apply resolves`,
       });
       writeReport(root, blockedReport);
       process.stdout.write(`${renderReport(blockedReport)}\n`);
