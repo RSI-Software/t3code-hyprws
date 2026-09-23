@@ -31,6 +31,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { useReorderActiveThreadFork } from "./useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-key-import
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
@@ -846,6 +847,7 @@ export function useThreadActions() {
       input: { threadId: target.threadId, orderKey },
     });
   };
+  const reorderActiveThreadOrClear = useReorderActiveThreadFork({ reorderActiveThreadMutation }); // fork-hook: thread-ordering/reset-order-action
 
   const unsnoozeThread = async (target: ScopedThreadRef) => {
     if (!readEnvironmentSupportsSnooze(target.environmentId)) {
@@ -973,6 +975,7 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
+    reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-action-export
     collectOrphanedWorktreePathsForThreads,
   };
 }
