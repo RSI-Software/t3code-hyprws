@@ -1,4 +1,5 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+import { FORK_RELEASE_REPOSITORY, forkCliReleaseChannelOf } from "./forkVersion.ts"; // fork-hook: distribution/cli-release-fork-version-import
+const CLI_RELEASE_REPOSITORY = FORK_RELEASE_REPOSITORY; // fork-hook: distribution/cli-release-repository
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -64,7 +65,8 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
 ];
 
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
-  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
+  const channel =
+    forkCliReleaseChannelOf(version) ?? /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1]; // fork-hook: distribution/cli-release-channel
   return channel === "nightly" || channel === "preview" ? channel : "stable";
 }
 
