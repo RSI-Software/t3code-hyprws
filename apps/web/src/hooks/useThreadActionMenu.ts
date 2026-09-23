@@ -16,6 +16,7 @@ import {
   buildThreadActionMenuItems,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
+import { reportResetOrderThreadAction } from "./useThreadActionMenu.fork"; // fork-hook: thread-ordering/reset-order-dispatch-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -90,6 +91,7 @@ export function useThreadActionMenu(input: {
     pinThread,
     confirmAndUnpinThread,
     setThreadAutoSettle,
+    reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-action
     archiveThread,
     deleteThread,
     markThreadUnread,
@@ -151,6 +153,7 @@ export function useThreadActionMenu(input: {
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
           isRegeneratingTitle,
           isRunning: !threadRuntimeCanArchive(thread.runtime),
+          hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
           supports,
           snoozePresets,
         });
@@ -233,6 +236,12 @@ export function useThreadActionMenu(input: {
               setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
             );
             return;
+          case "reset-order":
+            return reportResetOrderThreadAction({
+              threadRef,
+              reorderActiveThread: reorderActiveThreadOrClear,
+              reportFailure,
+            }); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":
             onStartRename();
             return;
