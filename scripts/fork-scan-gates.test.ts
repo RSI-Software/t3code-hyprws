@@ -312,6 +312,79 @@ it("fails a replaced export matched by name across files", () => {
   assert.isTrue(failures.some((failure) => failure.startsWith("replaced-export:")));
 });
 
+it("only treats a replaced export as upstream when its source line exists in the target", () => {
+  const raw = [
+    "abc1234",
+    "--- a/apps/web/src/upstream.ts",
+    "+++ b/apps/web/src/upstream.ts",
+    "@@ -1 +1 @@",
+    "-export const shared = ForkShared; // fork-hook: example",
+    "+export const shared = 2;",
+    "",
+  ].join("\n");
+  const guard = {
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/upstream.ts"]]]),
+    patchesBySha: parseCommitPatches(raw),
+    upstreamFiles: new Set(["apps/web/src/upstream.ts"]),
+    upstreamTestFiles: new Set<string>(),
+    upstreamTestLines: new Map(),
+    upstreamTestTexts: new Map(),
+    siblingTexts: new Map(),
+  };
+  const forkAuthored = buildScanResult(
+    baseInput({ ...guard, upstreamLines: new Map([["apps/web/src/upstream.ts", new Set()]]) }),
+  );
+  assert.isFalse(
+    scanFailures(forkAuthored).some((failure) => failure.startsWith("replaced-export:")),
+  );
+  const upstreamOwned = buildScanResult(
+    baseInput({
+      ...guard,
+      upstreamLines: new Map([
+        [
+          "apps/web/src/upstream.ts",
+          new Set(["export const shared = ForkShared; // fork-hook: example"]),
+        ],
+      ]),
+    }),
+  );
+  assert.isTrue(
+    scanFailures(upstreamOwned).some((failure) => failure.startsWith("replaced-export:")),
+  );
+});
+
+it("does not count removing a duplicate fork-appended test line as upstream loss", () => {
+  const raw = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -3 +2,0 @@",
+    "-};",
+    "",
+  ].join("\n");
+  const common = {
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+    patchesBySha: parseCommitPatches(raw),
+    upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+    upstreamTestLines: new Map([["apps/web/src/thing.test.ts", new Set(["};"])]]),
+    upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", "};\n"]]),
+    siblingTexts: new Map(),
+  };
+  const duplicateSurvives = buildScanResult(
+    baseInput({ ...common, headTestTexts: new Map([["apps/web/src/thing.test.ts", "};\n"]]) }),
+  );
+  assert.isFalse(
+    scanFailures(duplicateSurvives).some((failure) => failure.startsWith("upstream-test:")),
+  );
+  const genuineLoss = buildScanResult(
+    baseInput({ ...common, headTestTexts: new Map([["apps/web/src/thing.test.ts", ""]]) }),
+  );
+  assert.isTrue(scanFailures(genuineLoss).some((failure) => failure.startsWith("upstream-test:")));
+});
+
 it("flags an unmarked insertion through the hook guard", () => {
   const raw = [
     "abc1234",
