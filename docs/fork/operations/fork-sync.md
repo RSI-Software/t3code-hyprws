@@ -64,7 +64,7 @@ Conflict resolution is machine-owned, in this order.
 | 1   | Local rerere replays resolutions within the run's rebase and stages them                                                       |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text           |
 | 3   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
-| 4   | Anything left is a `human` row and stops the run                                                                               |
+| 4   | Anything left is a `manual` row and stops the run                                                                              |
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim.

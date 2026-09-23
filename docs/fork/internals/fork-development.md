@@ -12,9 +12,6 @@ Goal: a small, durable patch stack on upstream.
 1. Run `vp run fork:scan --no-typecheck`.
 2. Prefer one adapter boundary over scattered edits.
 
-The sync driver's typed report is the only authority for sync state.
-Published issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
-
 ## Non-goals
 
 | Never               | Detail                                |
@@ -22,17 +19,30 @@ Published issue comments are projections of it: never parse one, and never treat
 | Per-window backend  | No separate server, database, or auth |
 | Second frontend     | No desktop-only copy of the web app   |
 | Compositor policy   | No workspace policy inside T3 Code    |
-| Removal             | Keep hub, remote, web, mobile         |
+| Window kinds        | Every window can show any project     |
+| Removal             | Keep remote, web, upstream mobile app |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
 `dev:desktop:agent` is the one tooling exception; shipped launches leave placement to Hyprland.
 
 ## Multi-surface rule
 
-`AGENTS.md` owns the surface walk. Two fork-specific rules:
+`AGENTS.md` owns the surface walk. Fork-specific rules:
 
 - **Scoped ref:** resolves in every mode
 - **Project ID:** never globally unique, never local
+
+**Mobile:** no fork build; users run the upstream app.
+A fork server must stay usable from it, which simply lacks fork features.
+
+| Fork wire surface | Rule                                                          |
+| ----------------- | ------------------------------------------------------------- |
+| Fields            | Optional; upstream decoders drop them                         |
+| Capabilities      | Optional flags; absent means unsupported                      |
+| Event types       | Never on a stream the upstream app decodes                    |
+| Literal values    | Never in an upstream slot; a `...Fork` sibling key holds them |
+
+`scripts/upstream-client-compat.fork.test.ts` decodes fork payloads with the upstream base contracts.
 
 ## Testing a fork checkout
 
@@ -70,8 +80,8 @@ Domains are not branches: a commit declares one with `Fork-Domain`.
 ### Extracting a domain
 
 ```bash
-git switch -c extract/project-windows upstream/main
-git cherry-pick $(vp run fork:delta --domain project-windows --shas)
+git switch -c extract/multi-window upstream/main
+git cherry-pick $(vp run fork:delta --domain multi-window --shas)
 ```
 
 A conflict means the domain shares code with another.
@@ -79,7 +89,7 @@ Resolve it there, then record the seam in that domain's rebase scan.
 
 | Rule                      | Detail                          |
 | ------------------------- | ------------------------------- |
-| One domain per commit     | Two domains means two rebases   |     |
+| One domain per commit     | Two domains means two rebases   |
 | New code in its own files | Shared edits appear in the scan |
 | Contiguous commits        | The replay never interleaves    |
 
@@ -94,7 +104,7 @@ Superseded-upstream first, fork-specific last:
 A generic fix in no product domain is `upstream-fixes`.
 New commits land on top and move down at the next rebase.
 Reorder only on a clean stack; publish with a lease.
-A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each, so the rebase scan reads every member as a replay counterpart.
+A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each plus every PR reference the member carried, so the rebase scan reads every member as a replay counterpart; a refold keeps the links an earlier fold gathered.
 
 ### Branch bases
 
@@ -151,11 +161,18 @@ A seam commit carries one small intent; intent re-derives the resolution.
 
 Fork-only paths need no granularity curation.
 
-### Never squash a landed stack
+### Fold to stay tight
 
-Squashing flattens a domain's commits into one, and the delta table can no longer tell a fork commit from an upstream one.
-The one-time flatten (RSI-Software/t3code-hyprws#671) predates the delta table and stays archived under a ref.
-Do not repeat it.
+Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a rebase conflict is solved once.
+The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
+Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
+A fold is tree-equal but rewrites commit boundaries: the release delta revision changes, and a nightly may republish the same tree.
+
+| Gate        | Detail                                                        |
+| ----------- | ------------------------------------------------------------- |
+| Same domain | The plan refuses a mixed line: the ledger would lose a domain |
+| Tree-equal  | The folded tip's tree matches the old tip                     |
+| `Squashes:` | Every member listed, per [Stack order](#stack-order)          |
 
 ### Fork tests live in fork-owned files
 
@@ -194,15 +211,19 @@ forkSupersedes({
 });
 ```
 
-The import is a typed no-op: `fork:scan` reads the declaration from the
-sibling's text and never runs it, while the import gives the call site a
-binding typecheck accepts.
-
+The import is a typed no-op: `fork:scan` reads the declaration from the sibling's text and never runs it.
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
-The scan reads the declaration (`fork:scan`, step 4): a call missing `upstream`, `reason`, or `commit`, or naming an upstream file or test name the target tree does not carry, fails the scan, and a sibling case that contradicts its upstream counterpart with no declaration is a finding. A named upstream case reads as superseded rather than contradictory in the additive gate. A declaration whose upstream case has adopted the fork behaviour surfaces as a retire candidate on the pinned-target walk.
 
-**Retiring one.** When upstream adopts the behavior, delete the declaration and its contradicting sibling case in the same change.
-The upstream file needs no repair, because it never changed, and a sibling whose declaration is gone is a contradiction waiting for the next suite run.
+| `fork:scan` step 4 reads                         | Result           |
+| ------------------------------------------------ | ---------------- |
+| A call missing `upstream`, `reason`, or `commit` | fails the scan   |
+| A named file or test the target lacks            | fails the scan   |
+| A contradicting sibling with no declaration      | finding          |
+| A declared upstream case                         | superseded       |
+| An upstream case now matching the fork           | retire candidate |
+
+**Retiring one.** When upstream adopts the behavior, delete the declaration and its sibling case in one change.
+An orphaned sibling is a contradiction waiting for the next suite run.
 
 ### Extend an upstream export, do not replace it
 
