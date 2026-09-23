@@ -1,0 +1,726 @@
+#!/usr/bin/env node
+// @effect-diagnostics nodeBuiltinImport:off - This standalone fold tool runs before an Effect runtime exists.
+
+// Folds the fork's ahead commits into one-intent commits. The agent writes the plan; this script
+// lists the stack, replays a plan (merge-tree until the first refused block, then a worktree
+// rebase), and proves the new tip against the old. A fork:sync marker lands the fold, so the land
+// run stays the only trunk writer. The fold rules live in .agents/skills/fork-fold/SKILL.md.
+
+import * as Schema from "effect/Schema";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
+import { commitNumstatArguments, parseCommitNumstat } from "./fork-delta.ts";
+import { parseArgs, isUsageError, UsageError } from "./lib/fork-cli.ts";
+import { type CommandResult, commandText, runCommand } from "./lib/fork-command.ts";
+import {
+  isFoldRebaseError,
+  partitionConflicts,
+  rebaseRemaining,
+  resolveForkOwnedTree,
+  type FoldBlock,
+  type FoldCommit,
+  type FoldGit,
+  type FoldRebaseStop,
+  type FoldStack,
+  type PlanLine,
+} from "./lib/fork-fold-rebase.ts";
+import {
+  bodyProse,
+  forkLogArguments,
+  HOOK_RETIRED_TRAILER,
+  parseForkLog,
+  trailerLines,
+} from "./lib/fork-trailers.ts";
+
+export type { FoldBlock, FoldCommit, FoldGit, FoldStack, PlanLine };
+
+const HELP = `Usage: vp run fork:fold <command> [options]
+
+Commands:
+  list [--json]            Ahead commits grouped by Fork-Domain, with files
+  apply <plan.tsv>         Replay the plan onto a detached tip; prints the tip sha
+  prove <old> <new>        Member and link guards, tree-equal, fork:delta --check, fork:scan on <new>
+
+Options:
+  --base <ref>   Upstream base (default: upstream/main)
+  --head <ref>   Stack head for list and apply (default: HEAD)
+  --json         list: print JSON instead of the table
+  -h, --help     Show help
+
+Plan: one line per output commit, tab-separated member shas in stack order.
+A last field that is not a sha overrides the first member's subject.
+A RSI-Software/t3code-hyprws#N field attaches that PR link to the line's
+commit, even a single member, which then renders as a fold.
+Blank lines and # lines are ignored. Every ahead commit appears exactly once,
+and a line's members never mix Fork-Domain values.
+
+apply replays with merge-tree until a block refuses there; from that block on
+the remaining plan replays as one git rebase --autosquash in a throwaway
+worktree under the git common dir. A conflict on a path the stack base lacks is fork-owned and
+resolves to the old head on both paths; only an upstream-owned conflict stops.
+Each stop names the worktree; resolve and rerun the same apply command to
+continue.
+
+fork:fold never writes hyprws. Fold inside a fork:sync session: move its kept
+worktree to the proven tip, rerun fork:sync, and hand off the marker.
+
+Exit 0 passes, 1 fails, 2 is usage.
+`;
+
+class FoldError extends Schema.TaggedError<FoldError>()("FoldError", {
+  message: Schema.String,
+}) {}
+
+const isFoldError = Schema.is(FoldError);
+
+export const systemFoldGit = (cwd: string): FoldGit => ({
+  text: (args, input, env) => {
+    const result = runCommand("git", args, {
+      cwd,
+      ...(input === undefined ? {} : { input }),
+      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+    });
+    if (result.status !== 0 || result.error !== undefined) {
+      throw new FoldError({
+        message: `${commandText("git", args)} failed: ${result.stderr.trim()}`,
+      });
+    }
+    return result.stdout.trim();
+  },
+  result: (args) => runCommand("git", args, { cwd }),
+  run: (args, options = {}) =>
+    runCommand("git", args, {
+      cwd: options.cwd ?? cwd,
+      ...(options.env === undefined ? {} : { env: { ...process.env, ...options.env } }),
+    }),
+});
+
+const commitMessageArguments = (shas: ReadonlyArray<string>) =>
+  ["log", "--no-walk", "--format=%H\u001f%B\u001e", ...shas] as const;
+
+const parseCommitMessages = (raw: string): ReadonlyMap<string, string> => {
+  const messages = new Map<string, string>();
+  for (const record of raw.replace(/\r\n/g, "\n").split("\u001e")) {
+    const normalized = record.replace(/^\n/, "");
+    const separator = normalized.indexOf("\u001f");
+    if (separator <= 0) continue;
+    messages.set(normalized.slice(0, separator), normalized.slice(separator + 1));
+  }
+  return messages;
+};
+
+export const readStack = (git: FoldGit, base: string, head: string): FoldStack => {
+  const commits = parseForkLog(git.text(forkLogArguments(base, head)));
+  const files =
+    commits.length === 0
+      ? new Map()
+      : parseCommitNumstat(git.text(commitNumstatArguments(commits.map(({ sha }) => sha))));
+  const messages =
+    commits.length === 0
+      ? new Map<string, string>()
+      : parseCommitMessages(git.text(commitMessageArguments(commits.map(({ sha }) => sha))));
+  return {
+    base,
+    head,
+    commits: commits.map((commit) => ({
+      ...commit,
+      files: files.get(commit.sha)?.files ?? [],
+      message: messages.get(commit.sha) ?? "",
+    })),
+  };
+};
+
+const LIST_FILES = 5;
+
+export const renderList = (stack: FoldStack): string => {
+  const domains = [...new Set(stack.commits.map((commit) => commit.domain ?? "untagged"))];
+  const lines = [
+    `${stack.commits.length} commits in ${stack.base}..${stack.head}, ${domains.length} domains; # is stack position.`,
+  ];
+  for (const domain of domains) {
+    lines.push("", `## ${domain}`, "");
+    stack.commits.forEach((commit, index) => {
+      if ((commit.domain ?? "untagged") !== domain) return;
+      lines.push(
+        `${String(index + 1).padStart(4)}  ${commit.short}  ${commit.tier ?? "?"}  ${commit.subject}`,
+      );
+      for (const path of commit.files.slice(0, LIST_FILES)) lines.push(`        ${path}`);
+      if (commit.files.length > LIST_FILES) {
+        lines.push(`        +${commit.files.length - LIST_FILES} more (--json)`);
+      }
+    });
+  }
+  return `${lines.join("\n")}\n`;
+};
+
+const readPlan = (path: string): string => {
+  try {
+    return NodeFS.readFileSync(path, "utf8");
+  } catch {
+    throw new FoldError({ message: `cannot read plan ${path}` });
+  }
+};
+
+const SHA = /^[0-9a-f]{4,40}$/i;
+
+export const parsePlan = (text: string): ReadonlyArray<PlanLine> =>
+  text.split("\n").flatMap((raw, index) => {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) return [];
+    const all = raw
+      .split("\t")
+      .map((field) => field.trim())
+      .filter((field) => field.length > 0);
+    const links = [...new Set(all.filter((field) => PLAN_LINK.test(field)))];
+    const fields = all.filter((field) => !PLAN_LINK.test(field));
+    const last = fields.at(-1) ?? "";
+    const subject = SHA.test(last) ? undefined : last;
+    const members = subject === undefined ? fields : fields.slice(0, -1);
+    const bad = members.find((member) => !SHA.test(member));
+    if (members.length === 0 || bad !== undefined) {
+      throw new FoldError({
+        message: `plan line ${index + 1}: expected tab-separated shas, got "${bad ?? raw}"`,
+      });
+    }
+    return [
+      {
+        line: index + 1,
+        members,
+        ...(links.length === 0 ? {} : { links }),
+        ...(subject === undefined ? {} : { subject }),
+      },
+    ];
+  });
+
+/** Maps each plan member onto the stack; every ahead commit must appear exactly once. */
+export const resolvePlan = (
+  plan: ReadonlyArray<PlanLine>,
+  stack: FoldStack,
+): ReadonlyArray<FoldBlock> => {
+  const problems: Array<string> = [];
+  const used = new Set<string>();
+  const blocks = plan.map((line): FoldBlock => {
+    const members = line.members.flatMap((member) => {
+      const matches = stack.commits.filter((commit) => commit.sha.startsWith(member.toLowerCase()));
+      if (matches.length !== 1) {
+        problems.push(
+          `line ${line.line}: ${member} ${matches.length === 0 ? "is not an ahead commit" : "is ambiguous"}`,
+        );
+        return [];
+      }
+      const [commit] = matches as [FoldCommit];
+      if (used.has(commit.sha)) problems.push(`line ${line.line}: ${member} is listed twice`);
+      used.add(commit.sha);
+      return [commit];
+    });
+    // A `fixup!` carries no trailers; it takes its owner's domain.
+    const domains = [...new Set(members.flatMap((member) => member.domain ?? []))];
+    if (domains.length > 1)
+      problems.push(`line ${line.line}: fold mixes Fork-Domain: ${domains.toSorted().join(", ")}`);
+    return {
+      members,
+      ...(line.links === undefined ? {} : { links: line.links }),
+      ...(line.subject === undefined ? {} : { subject: line.subject }),
+    };
+  });
+  for (const commit of stack.commits) {
+    if (!used.has(commit.sha)) problems.push(`${commit.short} ${commit.subject}: missing`);
+  }
+  if (problems.length > 0)
+    throw new FoldError({ message: `plan does not cover the stack:\n${problems.join("\n")}` });
+  return blocks;
+};
+
+const TIER_RANK: Readonly<Record<string, number>> = { core: 0, qol: 1, bugfix: 2 };
+const tierRank = (tier: string | undefined) => TIER_RANK[tier ?? ""] ?? 3;
+
+const MERGED_TRAILER = /^Fork-(?:Domain|Tier|Upstreamable):/i;
+const RETIRED_TRAILER = new RegExp(`^${HOOK_RETIRED_TRAILER}:`, "i");
+
+/**
+ * Every member's other trailers in stack order, exact repeats once. `lostHooks` counts
+ * `Fork-Hook-Retired` per commit against the trunk, so each copy stays.
+ */
+const carriedTrailers = (members: ReadonlyArray<FoldCommit>): ReadonlyArray<string> => {
+  const seen = new Set<string>();
+  return members.flatMap((member) =>
+    trailerLines(member.message.replace(/\r\n/g, "\n").split("\n").slice(1).join("\n"))
+      .filter((line) => !MERGED_TRAILER.test(line))
+      .filter((line) => {
+        if (RETIRED_TRAILER.test(line)) return true;
+        if (seen.has(line)) return false;
+        seen.add(line);
+        return true;
+      }),
+  );
+};
+
+/** The fold's trailer block: the first member's domain, the strongest tier, then every carried trailer. */
+export const foldTrailers = (all: ReadonlyArray<FoldCommit>): string => {
+  // A trailerless `fixup!` takes its owner's trailers; it never votes on them.
+  const tagged = all.filter((member) => member.domain !== undefined);
+  const members = tagged.length === 0 ? all : tagged;
+  const tier = members
+    .map((member) => member.tier)
+    .toSorted((a, b) => tierRank(a) - tierRank(b))[0];
+  const lines = [`Fork-Domain: ${members[0]?.domain ?? ""}`, `Fork-Tier: ${tier ?? ""}`];
+  if (tier === "bugfix" || members.some((member) => member.upstreamable !== undefined)) {
+    const yes = members.every((member) => member.upstreamable === "yes");
+    lines.push(`Fork-Upstreamable: ${yes ? "yes" : "no"}`);
+  }
+  return [...lines, ...carriedTrailers(all)].join("\n");
+};
+
+/**
+ * Drops an earlier fold's `Squashes:` list so fork:scan reads only this fold's members.
+ * The sync reuses it when it re-renders an owner that an earlier sync fold already listed.
+ */
+export const withoutSquashes = (prose: string): string =>
+  prose
+    .split("\n\n")
+    .filter((paragraph) => {
+      const lines = paragraph.split("\n").map((line) => line.trim());
+      return lines[0] !== "Squashes:" && !lines.every((line) => /^- [0-9a-f]{7,40}\b/.test(line));
+    })
+    .join("\n\n");
+
+const FORK_REPO = "RSI-Software/t3code-hyprws";
+const FORK_PULL_URL = new RegExp(`https://github\\.com/${FORK_REPO}/pull/(\\d+)`, "g");
+/** A plan field naming a fork pull request to attach to the line's commit. */
+const PLAN_LINK = new RegExp(`^${FORK_REPO}#\\d+$`);
+/**
+ * A PR ref on a `Squashes:` member line: the full fork ref, or the bare `(#N)`
+ * squash marker a member subject carries — the only form folds before
+ * RSI-Software/t3code-hyprws#1404 wrote.
+ */
+const MEMBER_LINE_REF = new RegExp(`${FORK_REPO}#(\\d+)|\\(#(\\d+)\\)`, "g");
+/** GitHub squash-merge appends ` (#N)` to a landed pull request's subject. */
+const SQUASH_MARKER = /\(#(\d+)\)\s*$/;
+/** A `Squashes:` member line; fork-scan's squashedMembers reads the same shape. */
+const SQUASH_MEMBER_LINE = /^- [0-9a-f]{7,40}\b/;
+
+/**
+ * The fork pull requests a commit cites, as full `RSI-Software/t3code-hyprws#N` refs in first-seen
+ * order: its subject's squash marker, fork pull URLs, and earlier `Squashes:` refs, full or bare
+ * `(#N)`. A bare `#N` in a body is usually an issue, and another repo's ref backlinks upstream.
+ */
+export const forkPullRequests = (message: string): ReadonlyArray<string> => {
+  const normalized = message.replace(/\r\n/g, "\n");
+  const [subject = "", ...bodyLines] = normalized.split("\n");
+  const refs = new Map<string, string>();
+  const add = (n?: string) => {
+    if (n !== undefined) refs.set(`${FORK_REPO}#${n}`, `${FORK_REPO}#${n}`);
+  };
+  add(SQUASH_MARKER.exec(subject.trim())?.[1]);
+  for (const match of normalized.matchAll(FORK_PULL_URL)) add(match[1]);
+  for (const line of squashesLines(bodyLines.join("\n"))) {
+    for (const ref of memberLineRefs(line)) refs.set(ref, ref);
+  }
+  return [...refs.keys()];
+};
+
+/** The fork pull requests one `Squashes:` member line names, as full refs. */
+const memberLineRefs = (line: string): ReadonlyArray<string> =>
+  [...line.matchAll(MEMBER_LINE_REF)].map((match) => `${FORK_REPO}#${match[1] ?? match[2]}`);
+
+/** The trimmed `- <sha> …` member lines under a message's first `Squashes:` heading. */
+export const squashesLines = (message: string): ReadonlyArray<string> => {
+  const lines = message.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === "Squashes:");
+  if (start < 0) return [];
+  const members: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (!SQUASH_MEMBER_LINE.test(trimmed)) break;
+    members.push(trimmed);
+  }
+  return members;
+};
+
+/** The shas a message's `Squashes:` member lines cite. */
+const squashesShas = (message: string): ReadonlyArray<string> =>
+  squashesLines(message).map((line) => line.slice(2).split(/\s/)[0] ?? "");
+
+/**
+ * One member line: the sha first (squashedMembers reads it), then the subject,
+ * then every fork pull request the member cites, rendered full so the link
+ * always stays on the fork. A `fixup!` member, landed by pull request or
+ * committed at the tip by a sync, renders like any other member.
+ */
+export const memberLine = (member: FoldCommit): string => {
+  const links = forkPullRequests(member.message)
+    .filter((ref) => !member.subject.includes(ref))
+    .map((ref) => ` (${ref})`)
+    .join("");
+  return `- ${member.short} ${member.subject}${links}`;
+};
+
+/**
+ * One member without plan links keeps its message verbatim. A fold keeps the
+ * first member's prose, lists every member under `Squashes:` (fork-scan's
+ * squashedMembers reads it) with its fork pull request links, appends the
+ * plan's links to the lead line, and ends with the merged trailers.
+ */
+export const foldMessage = (block: FoldBlock): string => {
+  const [first] = block.members;
+  if (first === undefined) throw new FoldError({ message: "empty plan line" });
+  const [subjectLine = "", ...rest] = first.message.replace(/\r\n/g, "\n").split("\n");
+  const subject = block.subject ?? subjectLine;
+  const attached = block.links ?? [];
+  if (block.members.length === 1 && attached.length === 0) {
+    return [subject, ...rest].join("\n").trimEnd();
+  }
+  const prose = withoutSquashes(bodyProse(rest.join("\n")));
+  const [lead = "", ...others] = block.members.map(memberLine);
+  const listed = new Set([lead, ...others].flatMap(memberLineRefs));
+  const added = attached.filter((ref) => !listed.has(ref)).map((ref) => ` (${ref})`);
+  return [
+    subject,
+    ...(prose.length === 0 ? [] : ["", prose]),
+    "",
+    "Squashes:",
+    "",
+    `${lead}${added.join("")}`,
+    ...others,
+    "",
+    foldTrailers(block.members),
+  ].join("\n");
+};
+
+/**
+ * merge-tree replay of one block onto the running tip: the next tip, or the
+ * member that no longer applies cleanly there (the plan reordered it past a
+ * commit touching the same upstream lines) and hands the run to the worktree
+ * fallback. A conflict confined to fork-owned paths resolves to the old head.
+ */
+const fastBlock = (
+  git: FoldGit,
+  oldHead: string,
+  stackBase: string,
+  tip: string,
+  block: FoldBlock,
+): { readonly tip: string } | { readonly refused: FoldCommit } => {
+  let scratch = tip;
+  let tree = "";
+  for (const [index, member] of block.members.entries()) {
+    const merged = git.result([
+      "merge-tree",
+      "--write-tree",
+      "--name-only",
+      `--merge-base=${member.sha}^`,
+      scratch,
+      member.sha,
+    ]);
+    // Exit 1 is a conflict: the conflicted paths follow the tree, up to a blank line.
+    if (merged.status !== 0 && merged.status !== 1) return { refused: member };
+    const [written = "", ...rest] = merged.stdout.split("\n");
+    tree = written;
+    if (merged.status === 1) {
+      const conflicted = rest.slice(0, Math.max(rest.indexOf(""), 0));
+      const { forkOwned, upstream } = partitionConflicts(git, stackBase, conflicted);
+      if (forkOwned.length === 0 || upstream.length > 0) return { refused: member };
+      tree = resolveForkOwnedTree(git, tree, forkOwned, oldHead);
+    }
+    if (index < block.members.length - 1) {
+      scratch = git.text(["commit-tree", tree, "-p", scratch, "-m", "fork-fold scratch"]);
+    }
+  }
+  const lead = block.members[0] as FoldCommit;
+  const [name = "", email = "", date = ""] = git
+    .text(["log", "-1", "--format=%an%x00%ae%x00%aI", lead.sha])
+    .split("\0");
+  return {
+    tip: git.text(["commit-tree", tree, "-p", tip, "-F", "-"], `${foldMessage(block)}\n`, {
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_AUTHOR_DATE: date,
+    }),
+  };
+};
+
+/**
+ * Per remaining block, the fold message when a plain pick would keep a
+ * different one (any fold, or a subject override); the rebase amends those
+ * picks through `exec`. The message function is the single shape, so a fold
+ * reads the same from either path.
+ */
+const amendMessages = (
+  git: FoldGit,
+  blocks: ReadonlyArray<FoldBlock>,
+): ReadonlyArray<string | undefined> =>
+  blocks.map((block) => {
+    const [lead] = block.members;
+    if (lead === undefined) throw new FoldError({ message: "empty plan line" });
+    const raw = git.text(["log", "-1", "--format=%B", lead.sha]);
+    const folded = foldMessage(block);
+    return folded === raw.replace(/\r\n/g, "\n").trimEnd() ? undefined : `${folded}\n`;
+  });
+
+export type FoldReplay =
+  | { readonly status: "applied"; readonly tip: string }
+  | {
+      readonly status: "stopped";
+      readonly stop: FoldRebaseStop;
+      /** The member merge-tree refused; absent when the run started in the worktree. */
+      readonly refused?: { readonly short: string; readonly subject: string };
+    };
+
+/**
+ * Replays the plan onto a detached tip: merge-tree while blocks apply cleanly,
+ * then one rebase of the remaining plan in a throwaway worktree. Moves no
+ * ref either way; a stopped replay reports the worktree and resumes on rerun.
+ */
+export const replay = (
+  git: FoldGit,
+  stack: FoldStack,
+  blocks: ReadonlyArray<FoldBlock>,
+  planText: string,
+): FoldReplay => {
+  const first = stack.commits[0];
+  if (first === undefined)
+    throw new FoldError({ message: `no ahead commits in ${stack.base}..${stack.head}` });
+  const start = git.text(["rev-parse", `${first.sha}^`]);
+  const fallback = (
+    remaining: ReadonlyArray<FoldBlock>,
+    onto: string,
+    refused?: { readonly short: string; readonly subject: string },
+  ): FoldReplay => {
+    const outcome = rebaseRemaining(git, {
+      base: stack.base,
+      head: stack.head,
+      planText,
+      stack,
+      remaining,
+      amends: amendMessages(git, remaining),
+      onto,
+      stackBase: start,
+    });
+    // The rebase can finish without stopping where merge-tree refused — the
+    // sequencer resolves some shapes git's merge cannot.
+    return outcome.status === "applied"
+      ? outcome
+      : {
+          status: "stopped",
+          stop: outcome,
+          ...(refused === undefined ? {} : { refused }),
+        };
+  };
+  const oldHead = git.text(["rev-parse", "--verify", `${stack.head}^{commit}`]);
+  let tip = start;
+  for (const [index, block] of blocks.entries()) {
+    const fast = fastBlock(git, oldHead, start, tip, block);
+    if ("refused" in fast) {
+      return fallback(blocks.slice(index), tip, {
+        short: fast.refused.short,
+        subject: fast.refused.subject,
+      });
+    }
+    tip = fast.tip;
+  }
+  return { status: "applied", tip };
+};
+
+/**
+ * Per-commit member guard: a new commit's members are the old commits its `Squashes:` lines name
+ * plus the old commit sharing its subject. Flags unknown `Squashes:` shas, memberless commits, paths
+ * no member touched, and old commits owned by none or several, unless every owner cites it.
+ */
+export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
+  const findings: string[] = [];
+  const owners = new Map<string, { short: string; cites: boolean }[]>(
+    old.commits.map((commit) => [commit.sha, []]),
+  );
+  const named = old.commits.flatMap((commit) => [commit.sha, ...squashesShas(commit.message)]);
+  for (const commit of next.commits) {
+    const cited = squashesShas(commit.message);
+    const label = `${commit.short} ${commit.subject}`;
+    for (const sha of cited) {
+      if (named.some((name) => name.startsWith(sha) || sha.startsWith(name))) continue;
+      findings.push(`${label}: cites ${sha}, which the old range never names`);
+    }
+    const members = old.commits.filter(
+      (member) =>
+        member.subject === commit.subject || cited.some((sha) => member.sha.startsWith(sha)),
+    );
+    if (members.length === 0) {
+      findings.push(`${label}: names no commit in the old range`);
+      continue;
+    }
+    for (const member of members) {
+      const cites = cited.some((sha) => member.sha.startsWith(sha));
+      owners.get(member.sha)?.push({ short: commit.short, cites });
+    }
+    const touched = new Set(members.flatMap((member) => member.files));
+    const stray = commit.files.filter((path) => !touched.has(path));
+    if (stray.length > 0) {
+      findings.push(`${label}: touches paths no member touched: ${stray.join(", ")}`);
+    }
+  }
+  for (const commit of old.commits) {
+    const owned = owners.get(commit.sha) ?? [];
+    const label = `${commit.short} ${commit.subject}`;
+    if (owned.length === 0) findings.push(`${label}: belongs to no new commit`);
+    else if (owned.length > 1 && !owned.every((owner) => owner.cites)) {
+      const shorts = owned.map((owner) => owner.short).join(", ");
+      findings.push(`${label}: belongs to several new commits: ${shorts}`);
+    }
+  }
+  return findings;
+};
+
+/**
+ * Link guard: every fork pull request an old commit cites must still be cited
+ * by some new commit, so no fold ever drops a link.
+ */
+export const linkFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
+  const kept = new Set(next.commits.flatMap((commit) => forkPullRequests(commit.message)));
+  return old.commits.flatMap((commit) =>
+    forkPullRequests(commit.message)
+      .filter((ref) => !kept.has(ref))
+      .map((ref) => `${ref}: cited by ${commit.short} ${commit.subject}, by no new commit`),
+  );
+};
+
+export type ProveStep = (command: string, args: ReadonlyArray<string>) => CommandResult;
+
+export const proveChecks = (
+  base: string,
+  old: string,
+  next: string,
+  target: string,
+): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => [
+  ["git", ["diff", "--quiet", old, next]],
+  ["vp", ["run", "fork:delta", "--check", "--base", base, "--head", next]],
+  [
+    "vp",
+    [
+      "run",
+      "fork:scan",
+      "--head",
+      next,
+      "--target",
+      target,
+      "--since",
+      target,
+      "--replay-of",
+      old,
+      "--no-typecheck",
+    ],
+  ],
+];
+
+const prove = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newRef: string) => {
+  const old = git.text(["rev-parse", "--verify", `${oldRef}^{commit}`]);
+  const next = git.text(["rev-parse", "--verify", `${newRef}^{commit}`]);
+  const target = git.text(["merge-base", base, next]);
+  let failed = 0;
+  const oldStack = readStack(git, base, old);
+  const nextStack = readStack(git, base, next);
+  for (const [guard, findings] of [
+    ["member", memberFindings(oldStack, nextStack)],
+    ["link", linkFindings(oldStack, nextStack)],
+  ] as const) {
+    for (const finding of findings) process.stderr.write(`${guard}: ${finding}\n`);
+    if (findings.length > 0) failed += 1;
+    process.stdout.write(`${guard} guard → ${findings.length} finding(s)\n`);
+  }
+  for (const [command, args] of proveChecks(base, old, next, target)) {
+    const result = step(command, args);
+    if (result.status !== 0) {
+      failed += 1;
+      const detail = `${result.stdout}${result.stderr}`.trim();
+      if (detail.length > 0) process.stderr.write(`${detail}\n`);
+    }
+    process.stdout.write(`${commandText(command, args)} → exit ${result.status}\n`);
+  }
+  if (failed > 0) {
+    process.stderr.write(`failed: ${failed} check(s) on ${next.slice(0, 10)}\n`);
+    return 1;
+  }
+  process.stdout.write(`ok: ${next.slice(0, 10)} proves against ${old.slice(0, 10)}\n`);
+  return 0;
+};
+
+export const run = (
+  argv: ReadonlyArray<string>,
+  cwd = process.cwd(),
+  step: ProveStep = (command, args) => runCommand(command, args, { cwd }),
+): number => {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === undefined || subcommand === "-h" || subcommand === "--help") {
+    (subcommand === undefined ? process.stderr : process.stdout).write(HELP);
+    return subcommand === undefined ? 2 : 0;
+  }
+  const git = systemFoldGit(cwd);
+  try {
+    if (subcommand === "list") {
+      const args = parseArgs(rest, { values: ["--base", "--head"], flags: ["--json"] });
+      const stack = readStack(
+        git,
+        args.values.get("--base") ?? "upstream/main",
+        args.values.get("--head") ?? "HEAD",
+      );
+      process.stdout.write(
+        args.flags.has("--json") ? `${JSON.stringify(stack, null, 2)}\n` : renderList(stack),
+      );
+      return 0;
+    }
+    if (subcommand === "apply") {
+      const args = parseArgs(rest, { values: ["--base", "--head"], positionals: 1 });
+      const stack = readStack(
+        git,
+        args.values.get("--base") ?? "upstream/main",
+        args.values.get("--head") ?? "HEAD",
+      );
+      const planPath = args.positionals[0] ?? "";
+      const planText = readPlan(NodePath.resolve(cwd, planPath));
+      const plan = parsePlan(planText);
+      const blocks = resolvePlan(plan, stack);
+      const outcome = replay(git, stack, blocks, planText);
+      if (outcome.status === "stopped") {
+        process.stderr.write(
+          [
+            ...(outcome.refused === undefined
+              ? []
+              : [
+                  `merge-tree refused ${outcome.refused.short} ${outcome.refused.subject}; the remaining plan moved to a rebase in ${outcome.stop.worktree}`,
+                ]),
+            `stopped: ${outcome.stop.commit.slice(0, 10)} ${outcome.stop.subject}`,
+            ...(outcome.stop.unmerged.length === 0
+              ? []
+              : [`unmerged: ${outcome.stop.unmerged.join(", ")}`]),
+            ...(outcome.stop.detail.length === 0 ? [] : [outcome.stop.detail]),
+            "resolve in the worktree, then rerun this apply command to continue",
+            "",
+          ].join("\n"),
+        );
+        return 1;
+      }
+      process.stderr.write(
+        `${stack.commits.length} commits → ${blocks.length} on ${outcome.tip.slice(0, 10)}\n`,
+      );
+      process.stdout.write(`${outcome.tip}\n`);
+      return 0;
+    }
+    if (subcommand === "prove") {
+      const args = parseArgs(rest, { values: ["--base"], positionals: 2 });
+      const [oldRef = "", newRef = ""] = args.positionals;
+      return prove(git, step, args.values.get("--base") ?? "upstream/main", oldRef, newRef);
+    }
+    throw new UsageError({ message: `unknown command: ${subcommand}` });
+  } catch (error) {
+    if (isUsageError(error)) {
+      process.stderr.write(`fork:fold: ${error.message}\n${HELP}`);
+      return 2;
+    }
+    if (isFoldError(error) || isFoldRebaseError(error)) {
+      process.stderr.write(`failed: ${error.message}\n`);
+      return 1;
+    }
+    throw error;
+  }
+};
+
+if (import.meta.main) process.exitCode = run(process.argv.slice(2));
