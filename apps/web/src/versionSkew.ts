@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 
 import { APP_VERSION } from "./branding";
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
+import { forkManualServerUpdateCommand } from "./versionSkew.fork"; // fork-hook: distribution/manual-update-command-import
 
 export interface VersionMismatch {
   readonly clientVersion: string;
@@ -116,7 +117,7 @@ export function supportsServerUpdateThreadContinuation(
 
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(targetVersion: string): string {
-  return `npx t3@${targetVersion}`;
+  return forkManualServerUpdateCommand(targetVersion) ?? `npx t3@${targetVersion}`; // fork-hook: distribution/manual-update-command
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {
