@@ -23,7 +23,7 @@ There is no state machine, no gates, no lanes, no modes: one run, one exit code,
 
 A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
-Every push triggers `hyprws-release.yml`, so an applied run cuts the nightly by itself — once the release gate opens: the release sha is the current `origin/hyprws` tip and that sha carries a green `hyprws CI` conclusion. A red battery cuts no release (RSI-Software/t3code-hyprws#1181).
+Every push runs `hyprws-ci.yml`, whose completion triggers `hyprws-release.yml` (a `workflow_run` trigger, not the push itself, so the gate always finds a finished CI run), so an applied run cuts the nightly by itself — once the release gate opens: the release sha is the current `origin/hyprws` tip and that sha carries a green `hyprws CI` conclusion. A red battery cuts no release (RSI-Software/t3code-hyprws#1181).
 
 ## Local trunk
 
