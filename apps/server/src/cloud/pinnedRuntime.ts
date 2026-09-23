@@ -18,8 +18,9 @@ import {
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
+import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/pinned-runtime-fork-release-import
 import * as ProcessRunner from "../processRunner.ts";
-import { forkServerTarballUrl, isForkServiceVersion } from "./forkRuntimeRelease.ts"; // fork-hook: distribution/pinned-runtime-fork-release-import
+import { forkServerTarballUrl } from "./forkRuntimeRelease.ts"; // fork-hook: distribution/pinned-runtime-fork-release-tarball-import
 
 /**
  * A pinned runtime is an exact t3 release archive unpacked into
