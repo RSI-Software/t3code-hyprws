@@ -85,3 +85,15 @@ export function fromWireThreadEnvModeFields(fields: {
 }): StoredThreadEnvMode | null | undefined {
   return fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode;
 }
+
+/**
+ * Fork: the wire field pair for a settings patch that names the
+ * thread-env-mode pair. `null` clears the mode and must stay `null` rather
+ * than coerce to a stored mode.
+ */
+export function replaceWireThreadEnvModeFields(fields: {
+  readonly defaultThreadEnvMode: ThreadEnvMode | null;
+  readonly defaultThreadEnvModeFork?: ForkThreadEnvMode | undefined;
+}) {
+  return toWireThreadEnvModeOverrideFields(fromWireThreadEnvModeFields(fields) ?? null);
+}
