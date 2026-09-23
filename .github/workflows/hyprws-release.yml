@@ -402,31 +402,41 @@ jobs:
             --build-version "${{ needs.preflight.outputs.version }}" \
             --verbose
 
-      # The fork publishes no npm package, so a launcher-managed `t3 service
-      # update` cannot resolve `t3@<fork version>` from the registry. Ship the
-      # same `npm pack`-shaped tarball as a release asset and let the pinned
-      # runtime install from its URL (apps/server/src/cloud/forkRuntimeRelease.ts).
-      - name: Pack the server runtime tarball
+      # The self-contained CLI archive every runtime installer downloads.
+      # Mirrors the cli_archive steps of upstream release-desktop.yml for
+      # linux-x64; mirror them again on every rebase. The fork publishes no npm
+      # packages, so upstream publish_cli has no counterpart here.
+      - name: Build CLI single-executable
+        shell: bash
+        env:
+          # The exact version, not a major: vp downloads it from nodejs.org/dist on
+          # the runner, and only exact versions have a dist directory. Keep in
+          # step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # The desktop artifact build above compiled the resource monitor for this target.
+      - name: Stage resource monitor for the CLI archive
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ needs.preflight.outputs.version }}"
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$target_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$target_dir/t3-resource-monitor"
 
-          # The launcher names each pinned runtime directory after the version it
-          # asked for, and the client reports the version baked into the bundle.
-          # If the tarball carried a differently stamped bundle, every boot would
-          # see a version mismatch and try the same update again forever. The
-          # alignment step above runs before the build precisely so these agree.
-          built="$(node apps/server/dist/bin.mjs --version)"
-          if [ "$built" != "t3 v${version}" ]; then
-            echo "::error::Built server reports '${built}', expected 't3 v${version}'." >&2
-            exit 1
-          fi
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ needs.preflight.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
 
-          node apps/server/scripts/cli.ts pack \
-            --app-version "$version" \
-            --destination release \
-            --verbose
+      - name: Smoke-test CLI archive
+        shell: bash
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.preflight.outputs.version }}"
 
       - name: Collect release assets
         id: assets
@@ -436,7 +446,7 @@ jobs:
           mkdir -p release-publish
           assets=()
           shopt -s nullglob
-          for file in release/*.AppImage release/*.yml release/*.tgz; do
+          for file in release/*.AppImage release/*.yml release-cli/*.tar.gz; do
             cp "$file" release-publish/
             assets+=("$(basename "$file")")
           done
@@ -467,6 +477,22 @@ jobs:
           merge-multiple: true
           path: release-assets
 
+      # Installers verify archives against this file, so it is written from the
+      # bytes that get uploaded, never from an earlier stage.
+      - name: Write CLI archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          archives=(t3-*.tar.gz)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No CLI archives were produced." >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
@@ -484,7 +510,8 @@ jobs:
           files: |
             release-assets/*.AppImage
             release-assets/*.yml
-            release-assets/*.tgz
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS
           fail_on_unmatched_files: true
           token: ${{ github.token }}
 
