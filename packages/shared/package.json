@@ -358,6 +358,10 @@
     "./gitPatchPath": {
       "types": "./src/gitPatchPath.ts",
       "import": "./src/gitPatchPath.ts"
+    },
+    "./forkVersion": {
+      "types": "./src/forkVersion.ts",
+      "import": "./src/forkVersion.ts"
     }
   },
   "scripts": {
