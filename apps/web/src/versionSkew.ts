@@ -1,10 +1,12 @@
 import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import { forkComparesFullVersions } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/version-skew-fork-version-import
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
 
 import { APP_VERSION } from "./branding";
 import { getLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
+import { forkManualServerUpdateCommand } from "./versionSkew.fork"; // fork-hook: distribution/manual-update-command-import
 
 export interface VersionMismatch {
   readonly clientVersion: string;
@@ -64,8 +66,9 @@ export function resolveVersionMismatch(
   const clientCore = versionCore(normalizedClientVersion);
   const serverCore = versionCore(normalizedServerVersion);
   const compareNightlyBuilds =
-    parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
-    parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly";
+    (parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
+      parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly") ||
+    forkComparesFullVersions(normalizedClientVersion, normalizedServerVersion); // fork-hook: distribution/version-skew-full-compare
   const serverIsBehind =
     parseSemver(clientCore) && parseSemver(serverCore)
       ? compareSemverVersions(
@@ -116,7 +119,7 @@ export function supportsServerUpdateThreadContinuation(
 
 /** The command to hand users whose server cannot update itself. */
 export function manualServerUpdateCommand(targetVersion: string): string {
-  return `npx t3@${targetVersion}`;
+  return forkManualServerUpdateCommand(targetVersion) ?? `npx t3@${targetVersion}`; // fork-hook: distribution/manual-update-command
 }
 
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {
