@@ -218,7 +218,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.strictEqual(blocked.conflicts.length, 1);
       const row = blocked.conflicts[0]!;
       assert.strictEqual(row.path, "shared.txt");
-      assert.strictEqual(row.via, "human");
+      assert.strictEqual(row.via, "manual");
       assert.strictEqual(row.forkCommit, shas.fork);
       assert.strictEqual(row.upstreamCommit, shas.upstream);
       assert.deepEqual(blocked.decision.paths, ["shared.txt"]);
@@ -357,7 +357,7 @@ it("refuses a marked hook beside an unmarked edit and files one keyed block", ()
       assert.strictEqual(report.conflicts.length, 1);
       const row = report.conflicts[0]!;
       assert.strictEqual(row.path, "shared.txt");
-      assert.strictEqual(row.via, "human");
+      assert.strictEqual(row.via, "manual");
       assert.deepStrictEqual(row.hooksReapplied, []);
       assert.match(
         row.refuseReason ?? "",
@@ -369,7 +369,7 @@ it("refuses a marked hook beside an unmarked edit and files one keyed block", ()
       assert.match(body, /not a fully marked insertion/);
       const worktreeContent = NodeFS.readFileSync(NodePath.join(f.worktree, "shared.txt"), "utf8");
       // The stop is the proof of never re-applying: the walk writes nothing
-      // and leaves git's conflict markers for a human.
+      // and leaves git's conflict markers for a manual resolution.
       assert.match(worktreeContent, /<{7} /);
       assert.match(worktreeContent, /={7}\n/);
       assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
@@ -442,9 +442,9 @@ it("still blocks a delete/modify whose fork edit is not net-zero", () => {
       assert.strictEqual(report.conflicts.length, 1);
       const row = report.conflicts[0]!;
       assert.strictEqual(row.path, "shared.txt");
-      assert.strictEqual(row.via, "human");
+      assert.strictEqual(row.via, "manual");
       assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
-      // The modified text still stands in the worktree, awaiting a human.
+      // The modified text still stands in the worktree, awaiting a manual resolution.
       assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "shared.txt")), true);
     },
   );
@@ -470,7 +470,7 @@ it("still blocks when the fork side deleted the path and upstream modified it", 
       assert.strictEqual(report.conflicts.length, 1);
       const row = report.conflicts[0]!;
       assert.strictEqual(row.path, "shared.txt");
-      assert.strictEqual(row.via, "human");
+      assert.strictEqual(row.via, "manual");
       // Upstream's text stands; nothing was removed on the fork's behalf.
       assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "shared.txt")), true);
     },
@@ -572,7 +572,7 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
       forkSubject: "feat: fork seam",
       upstreamCommit: blockingSha,
       upstreamSubject: "feat: upstream rewrite",
-      via: "human",
+      via: "manual",
       hooksReapplied: [],
     },
   ],
