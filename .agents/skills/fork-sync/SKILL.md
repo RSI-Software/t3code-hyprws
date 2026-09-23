@@ -42,7 +42,7 @@ Never edit a report; a rerun supersedes it.
 | Report                          | Stop                            |
 | ------------------------------- | ------------------------------- |
 | `failed` at `fetch` or `target` | [Environment](#environment)     |
-| `blocked` with `human` rows     | [Conflict](#conflict)           |
+| `blocked` with `manual` rows    | [Conflict](#conflict)           |
 | `failed` at `check`             | [Check battery](#check-battery) |
 | `failed` at `push`              | [Lease refusal](#lease-refusal) |
 
@@ -81,7 +81,7 @@ The expected-old lease lost; someone landed first.
 ## Unblock
 
 The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, and hook re-apply re-inserts marked fork hooks.
-Only a `human` row stops the run.
+Only a `manual` row stops the run.
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back verbatim.
