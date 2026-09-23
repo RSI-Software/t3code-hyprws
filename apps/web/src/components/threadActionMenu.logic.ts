@@ -1,12 +1,15 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
+import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import
+
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "filter-by-project"
   | "project-settings"
   | "pin"
   | "unpin"
+  | "reset-order" // fork-hook: thread-ordering/reset-order-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -71,6 +74,7 @@ export interface ThreadActionMenuState {
     readonly isActive: boolean;
   } | null;
   readonly isPinned: boolean;
+  readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -121,6 +125,7 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
         ]
       : []),
+    ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
     ...(state.supports.settlement
       ? [
           state.isSettled
