@@ -674,6 +674,10 @@
     "./assistantInsights": {
       "types": "./src/assistantInsights.ts",
       "import": "./src/assistantInsights.ts"
+    },
+    "./forkVersion": {
+      "types": "./src/forkVersion.ts",
+      "import": "./src/forkVersion.ts"
     }
   },
   "scripts": {

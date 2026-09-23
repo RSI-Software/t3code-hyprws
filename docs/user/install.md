@@ -10,6 +10,8 @@ launch T3 Code and configure providers afterwards.
 
 ## Command line
 
+For the hyprws build, see [Install and update the hyprws build](../fork/user/install-and-update.md).
+
 ```bash
 curl -fsSL https://t3.codes/install.sh | sh
 ```
