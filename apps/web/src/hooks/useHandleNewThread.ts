@@ -169,7 +169,7 @@ export function useNewThreadHandler() {
             ? ((await readT3ProjectFile(project.environmentId, project.workspaceRoot))
                 ?.defaultThreadEnvMode ?? null)
             : null,
-          globalDefault: fromWireThreadEnvModeFields(targetServerSettings),
+          globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
         });
       };
       const logicalProjectKey = project
