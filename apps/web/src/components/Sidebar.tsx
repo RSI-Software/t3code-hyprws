@@ -60,7 +60,6 @@ import {
   CircleDashedIcon,
   ClockIcon,
   EyeIcon,
-  ExternalLinkIcon,
   FolderIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
@@ -96,7 +95,9 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
+import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
+import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -2346,10 +2347,7 @@ export default function Sidebar() {
       );
     },
   });
-  const desktopBridge =
-    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
-      ? window.desktopBridge
-      : null;
+  const desktopBridge = useDesktopProjectWindowBridgeFork(); // fork-hook: project-windows/sidebar-desktop-bridge
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2610,26 +2608,9 @@ export default function Sidebar() {
     clearSelection();
   }, [clearSelection, forcedProjectRef, projectScopeKey]);
 
-  const handleOpenProjectWindow = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
-      event.preventDefault();
-      event.stopPropagation();
-      dispatchProjectScopeMenu({ type: "open-changed", open: false });
-      if (!desktopBridge) return;
-      void desktopBridge
-        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
-        .catch((error: unknown) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to open project window",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-    },
-    [desktopBridge],
-  );
+  const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
+    dispatchProjectScopeMenu({ type: "open-changed", open: false }),
+  ); // fork-hook: project-windows/sidebar-open-window
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
@@ -5168,6 +5149,15 @@ export default function Sidebar() {
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
+                            {/* fork-hook: project-windows/sidebar-open-window-button */}
+                            {project ? (
+                              <SidebarOpenProjectWindowButtonFork
+                                desktopBridge={desktopBridge}
+                                project={project}
+                                onOpen={handleOpenProjectWindow}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {project ? (
                               <Button
                                 size="icon-xs"
@@ -5175,7 +5165,7 @@ export default function Sidebar() {
                                 tabIndex={-1}
                                 aria-hidden="true"
                                 title={`Project settings for ${project.displayName}`}
-                                className="ml-auto"
+                                className={desktopBridge ? undefined : "ml-auto"} // fork-hook: project-windows/sidebar-settings-classname
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
