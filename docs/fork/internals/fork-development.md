@@ -94,6 +94,7 @@ Superseded-upstream first, fork-specific last:
 A generic fix in no product domain is `upstream-fixes`.
 New commits land on top and move down at the next rebase.
 Reorder only on a clean stack; publish with a lease.
+A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each, so the rebase scan reads every member as a replay counterpart.
 
 ### Branch bases
 

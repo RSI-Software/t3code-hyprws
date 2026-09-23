@@ -10,10 +10,12 @@ import { assert, it } from "@effect/vitest";
 import {
   buildScanResult,
   matchReplayCounterparts,
+  normaliseFindingDetail,
   readScan,
   renderScanReport,
   resolveGuardedCommits,
   scanFailures,
+  squashedMembers,
   type ScanInput,
 } from "./fork-scan.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
@@ -206,10 +208,59 @@ it("matches duplicate replay subjects by oldest-first ordinal", () => {
   assert.deepStrictEqual(
     [...matches],
     [
-      ["replayed-1", "original-1"],
-      ["replayed-2", "original-other"],
-      ["replayed-3", "original-2"],
+      ["replayed-1", ["original-1"]],
+      ["replayed-2", ["original-other"]],
+      ["replayed-3", ["original-2"]],
     ],
+  );
+});
+
+it("reads the squashed members a rewrite lists, ignoring surrounding prose", () => {
+  assert.deepStrictEqual(
+    squashedMembers(
+      "Squashes:\n\n- 9f318b69a9 fix(fork): one\n- ea63ce4dae fix(fork): two\n\nFork-Domain: distribution\n",
+    ),
+    ["9f318b69a9", "ea63ce4dae"],
+  );
+  assert.deepStrictEqual(squashedMembers("Squashes: none listed\n\nFork-Domain: x\n"), []);
+  assert.deepStrictEqual(squashedMembers("Fork-Domain: x\n"), []);
+});
+
+it("matches every squashed member by sha prefix and leaves the subject ordinal alone", () => {
+  const matches = matchReplayCounterparts(
+    [
+      { sha: "squash", subject: "duplicate", squashes: ["aaaa111", "bbbb222"] },
+      { sha: "plain", subject: "duplicate" },
+      { sha: "unlisted", subject: "other", squashes: ["ffff999"] },
+    ],
+    new Map([
+      ["duplicate", ["aaaa1111111", "bbbb2222222"]],
+      ["other", ["cccc3333333"]],
+    ]),
+    ["aaaa1111111", "bbbb2222222", "cccc3333333"],
+  );
+  assert.deepStrictEqual(
+    [...matches],
+    [
+      ["squash", ["aaaa1111111", "bbbb2222222"]],
+      ["plain", ["aaaa1111111"]],
+      ["unlisted", ["cccc3333333"]],
+    ],
+  );
+});
+
+it("keys a finding without its sha or count, keeping path digits", () => {
+  assert.strictEqual(
+    normaliseFindingDetail("apps/web/src/a.test.ts gains 4 fork test block(s)"),
+    normaliseFindingDetail("apps/web/src/a.test.ts gains 12 fork test block(s)"),
+  );
+  assert.notStrictEqual(
+    normaliseFindingDetail("docs/02-bug.md gains 1 block"),
+    normaliseFindingDetail("docs/03-bug.md gains 1 block"),
+  );
+  assert.strictEqual(
+    normaliseFindingDetail("moved in 9f318b69a9 and 3 more"),
+    "moved in <sha> and <n> more",
   );
 });
 

@@ -346,17 +346,23 @@ export interface AuthoringGuardInput {
 }
 
 const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/g;
-const stripShas = (text: string): string => text.replace(SHA_PATTERN, "<sha>");
+// A whole-word integer between spaces is a count ("gains 4 fork test
+// block(s)"). A squash sums its members' counts, so the count leaves the key
+// too; a digit inside a path sits against a non-space and survives.
+const COUNT_PATTERN = /(?<=\s)\d+(?=\s)/g;
+export const normaliseFindingDetail = (text: string): string =>
+  text.replace(SHA_PATTERN, "<sha>").replace(COUNT_PATTERN, "<n>");
 
-// One key per finding shape, sha-free so a finding rebases into an identical
-// key on both scans. `warning.detail` always carries its path (the messages
-// `fork-scan-authoring.ts` builds all open on it, or name it a sentence in),
-// so folding it into the stripped detail is enough for uniqueness without a
-// separate path field on `ScanAuthoringWarning`.
+// One key per finding shape, sha-free and count-free so a finding rebases or
+// squashes into an identical key on both scans. `warning.detail` always
+// carries its path (the messages `fork-scan-authoring.ts` builds all open on
+// it, or name it a sentence in), so folding it into the normalised detail is
+// enough for uniqueness without a separate path field on
+// `ScanAuthoringWarning`.
 const warningKey = (warning: ScanAuthoringWarning): string =>
-  `${warning.rule}|${stripShas(warning.detail)}`;
+  `${warning.rule}|${normaliseFindingDetail(warning.detail)}`;
 const additiveKey = (finding: AdditiveFinding): string =>
-  `${finding.check}|${finding.path}|${stripShas(finding.detail)}`;
+  `${finding.check}|${finding.path}|${normaliseFindingDetail(finding.detail)}`;
 
 const partitionBaseline = <Finding>(
   findings: ReadonlyArray<Finding>,
@@ -678,12 +684,14 @@ const addedLinesByPath = (patch: string): ReadonlyMap<string, ReadonlyArray<stri
   return additions;
 };
 
-const replayCounterparts = (
-  git: GitReader,
-  base: string,
-  replayOf: string,
-): ReadonlyMap<string, ReadonlyArray<string>> => {
-  const counterparts = new Map<string, Array<string>>();
+interface ReplayCounterparts {
+  readonly bySubject: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly shas: ReadonlyArray<string>;
+}
+
+const replayCounterparts = (git: GitReader, base: string, replayOf: string): ReplayCounterparts => {
+  const bySubject = new Map<string, Array<string>>();
+  const shas: Array<string> = [];
   for (const record of git
     .run(["log", "--reverse", "--format=%H%x1f%s%x1e", `${base}..${replayOf}`])
     .split("\u001e")) {
@@ -692,24 +700,74 @@ const replayCounterparts = (
     const sha = record.slice(0, separator).trim();
     const subject = record.slice(separator + 1).trim();
     if (sha.length === 0 || subject.length === 0) continue;
-    const matches = counterparts.get(subject) ?? [];
+    shas.push(sha);
+    const matches = bySubject.get(subject) ?? [];
     matches.push(sha);
-    counterparts.set(subject, matches);
+    bySubject.set(subject, matches);
   }
-  return counterparts;
+  return { bySubject, shas };
 };
 
+// A squash lists the originals it replaced under `Squashes:`, one
+// `- <sha> <subject>` line per member (fork-development.md). Every member is
+// a replay counterpart; the subject alone would match only the first one.
+export const squashedMembers = (body: string): ReadonlyArray<string> => {
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "Squashes:");
+  if (start < 0) return [];
+  const members: Array<string> = [];
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const member = /^- ([0-9a-f]{7,40})\b/.exec(trimmed)?.[1];
+    if (member === undefined) break;
+    members.push(member);
+  }
+  return members;
+};
+
+const readSquashedMembers = (
+  git: GitReader,
+  shas: ReadonlyArray<string>,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const members = new Map<string, ReadonlyArray<string>>();
+  if (shas.length === 0) return members;
+  for (const record of git
+    .run(["log", "--no-walk", "--format=%H%x1f%b%x1e", ...shas])
+    .split("\u001e")) {
+    const separator = record.indexOf("\u001f");
+    if (separator < 0) continue;
+    const listed = squashedMembers(record.slice(separator + 1));
+    if (listed.length > 0) members.set(record.slice(0, separator).trim(), listed);
+  }
+  return members;
+};
+
+export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
+  readonly squashes?: ReadonlyArray<string> | undefined;
+}
+
+// A squash resolves every listed member by sha prefix and consumes no subject
+// ordinal; anything else matches its subject, oldest first.
 export const matchReplayCounterparts = (
-  commits: ReadonlyArray<Pick<ForkCommit, "sha" | "subject">>,
+  commits: ReadonlyArray<ReplayedCommit>,
   counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
-): ReadonlyMap<string, string> => {
+  replayShas: ReadonlyArray<string> = [],
+): ReadonlyMap<string, ReadonlyArray<string>> => {
   const ordinalBySubject = new Map<string, number>();
-  const matched = new Map<string, string>();
+  const matched = new Map<string, ReadonlyArray<string>>();
   for (const commit of commits) {
+    const squashed = (commit.squashes ?? []).flatMap((member) =>
+      replayShas.filter((sha) => sha.startsWith(member)),
+    );
+    if (squashed.length > 0) {
+      matched.set(commit.sha, squashed);
+      continue;
+    }
     const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
     ordinalBySubject.set(commit.subject, ordinal + 1);
     const counterpart = counterparts.get(commit.subject)?.[ordinal];
-    if (counterpart !== undefined) matched.set(commit.sha, counterpart);
+    if (counterpart !== undefined) matched.set(commit.sha, [counterpart]);
   }
   return matched;
 };
@@ -761,16 +819,31 @@ const buildGuardInput = (
   if (options.replayOf !== null) {
     const replayBase = git.run(["merge-base", range.target, options.replayOf]).trim();
     const counterparts = replayCounterparts(git, replayBase, options.replayOf);
-    const matches = matchReplayCounterparts(guarded, counterparts);
+    const squashes = readSquashedMembers(
+      git,
+      guarded.map(({ sha }) => sha),
+    );
+    const matches = matchReplayCounterparts(
+      guarded.map((commit) => ({
+        sha: commit.sha,
+        subject: commit.subject,
+        squashes: squashes.get(commit.sha),
+      })),
+      counterparts.bySubject,
+      counterparts.shas,
+    );
     for (const commit of guarded) {
-      const counterpart = matches.get(commit.sha);
-      if (counterpart === undefined) continue;
-      replayAddedLines.set(
-        commit.sha,
-        addedLinesByPath(
-          git.run(["-c", "core.quotePath=false", "show", "--format=", "--unified=0", counterpart]),
-        ),
-      );
+      const shas = matches.get(commit.sha);
+      if (shas === undefined) continue;
+      const added = new Map<string, Array<string>>();
+      for (const sha of shas) {
+        for (const [path, lines] of addedLinesByPath(
+          git.run(["-c", "core.quotePath=false", "show", "--format=", "--unified=0", sha]),
+        )) {
+          added.set(path, [...(added.get(path) ?? []), ...lines]);
+        }
+      }
+      replayAddedLines.set(commit.sha, added);
     }
   }
   const upstreamFiles =
