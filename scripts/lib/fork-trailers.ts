@@ -89,7 +89,7 @@ const isTailLine = (line: string): boolean => {
   );
 };
 
-export const trailerBlock = (body: string): string => {
+const bodyParagraphs = (body: string): Array<Array<string>> => {
   const paragraphs: Array<Array<string>> = [[]];
   for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
     if (line.trim().length === 0 && (paragraphs.at(-1)?.length ?? 0) > 0) {
@@ -102,10 +102,46 @@ export const trailerBlock = (body: string): string => {
   while (paragraphs.length > 0 && (paragraphs.at(-1) ?? []).every(isTailLine)) {
     paragraphs.pop();
   }
-  const paragraph = paragraphs.at(-1) ?? [];
-  if (!paragraph.some((line) => TRAILER_LINE.test(line))) return "";
-  if (!paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line))) return "";
+  return paragraphs;
+};
+
+/** The body's prose paragraphs: everything above the trailer block and its tail material. */
+export const bodyProse = (body: string): string => {
+  const paragraphs = bodyParagraphs(body);
+  if (trailerBlock(body) !== "") paragraphs.pop();
+  return paragraphs.map((paragraph) => paragraph.join("\n")).join("\n\n");
+};
+
+const isTrailerParagraph = (paragraph: ReadonlyArray<string>): boolean =>
+  paragraph.some((line) => TRAILER_LINE.test(line)) &&
+  paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line));
+
+export const trailerBlock = (body: string): string => {
+  const paragraph = bodyParagraphs(body).at(-1) ?? [];
+  if (!isTrailerParagraph(paragraph)) return "";
   return paragraph.filter((line) => TRAILER_LINE.test(line)).join("\n");
+};
+
+/**
+ * The body split at its trailer block: the paragraphs above, then the trailer paragraph verbatim,
+ * tail lines included. A writer that must keep the tail intact (the sync lifting a `Squashes:`
+ * section above the block) splits with this, since `trailerBlock` reads only `Key: value` lines.
+ */
+export const splitTrailerBlock = (
+  body: string,
+): { readonly head: string; readonly trailers: string } => {
+  const normalized = body.replace(/\r\n/g, "\n");
+  const paragraphs = bodyParagraphs(normalized);
+  const last = paragraphs.at(-1);
+  if (last === undefined || !isTrailerParagraph(last))
+    return { head: normalized.trim(), trailers: "" };
+  return {
+    head: paragraphs
+      .slice(0, -1)
+      .map((paragraph) => paragraph.join("\n"))
+      .join("\n\n"),
+    trailers: last.join("\n"),
+  };
 };
 
 /**
