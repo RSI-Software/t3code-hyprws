@@ -23,6 +23,7 @@
 - [Rich Markdown showcase](./fork/user/markdown-showcase.md)
 - [Running in the background](./user/background-service.md)
 - [Updating T3 Code](./user/updating.md)
+- [Install and update the hyprws build](./fork/user/install-and-update.md)
 - Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md)
 
 ---
