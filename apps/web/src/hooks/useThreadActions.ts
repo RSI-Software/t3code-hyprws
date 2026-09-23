@@ -23,6 +23,7 @@ import { environmentServerConfigsAtom } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { useReorderActiveThreadFork } from "./useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-key-import
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
@@ -848,6 +849,7 @@ export function useThreadActions() {
     },
     [reorderActiveThreadMutation],
   );
+  const reorderActiveThreadOrClear = useReorderActiveThreadFork({ reorderActiveThreadMutation }); // fork-hook: thread-ordering/reset-order-action
 
   const unsnoozeThread = useCallback(
     async (target: ScopedThreadRef) => {
@@ -969,6 +971,7 @@ export function useThreadActions() {
       confirmAndUnpinThread,
       reorderPinnedThread,
       reorderActiveThread,
+      reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-action-export
     }),
     [
       archiveThread,
