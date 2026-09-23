@@ -183,20 +183,6 @@ Record a call **only when user-visible behaviour changes**, as one line in `.t3/
 - FilePreviewPanel: truncated `.md` stays read-only; alternative: the rich editor
 ```
 
-## Replay fresh
-
-A `fork:ci` hook finding in a replayed commit means its resolution adapted it.
-A tip `fixup!` never clears it; only a new replay does.
-
-- **Session:** drop marker and kept worktree; rerun
-- **Job:** report the finding; never hand off
-
-```bash
-git push origin --delete sync/resolution
-rm .t3/fork-sync/worktree.json   # main checkout
-vp run fork:sync
-```
-
 ## Fold
 
 After a green run, fold the stack in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
