@@ -137,7 +137,7 @@ Options:
   --target <ref>  Upstream ref to compare against (default: upstream/main)
   --since <ref>   Accepted for the CI job's shape; the report covers the whole range
   --replay-of <ref>
-                  Accepted for the CI job's shape; the report covers the whole range
+                  Guard only commits whose added lines differ from the same-subject commit on this ref
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
@@ -315,6 +315,9 @@ export interface AuthoringGuardInput {
   // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
   // inputs built before the map existed; the guard then behaves as before.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  readonly replayAddedLines?:
+    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
+    | undefined;
   readonly upstreamTestTexts: ReadonlyMap<string, string>;
   readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
   readonly siblingTexts: ReadonlyMap<string, string>;
@@ -388,6 +391,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
               changedLines: patch.changedLines,
               upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
               upstreamLines: input.guard?.upstreamLines,
+              replayAddedLines: input.guard?.replayAddedLines?.get(commit.sha),
             }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
           }),
   };
@@ -583,11 +587,63 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
   target: options.target,
 });
 
-// The guard rules read one patch per warned commit, so `--since` is what
-// keeps a pull request's run proportional to the commits it adds: only
-// commits after the trunk tip the change branched from are enforced, and
-// `--replay-of` is accepted for the CI job's shape but never treated as a
-// replay signal here.
+const addedLinesByPath = (patch: string): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const additions = new Map<string, Array<string>>();
+  let path = "";
+  for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.startsWith("+++ b/")) {
+      path = line.slice("+++ b/".length);
+      continue;
+    }
+    if (path.length > 0 && line.startsWith("+") && !line.startsWith("+++")) {
+      const lines = additions.get(path) ?? [];
+      lines.push(line.slice(1));
+      additions.set(path, lines);
+    }
+  }
+  return additions;
+};
+
+const replayCounterparts = (
+  git: GitReader,
+  base: string,
+  replayOf: string,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const counterparts = new Map<string, Array<string>>();
+  for (const record of git
+    .run(["log", "--reverse", "--format=%H%x1f%s%x1e", `${base}..${replayOf}`])
+    .split("\u001e")) {
+    const separator = record.indexOf("\u001f");
+    if (separator < 0) continue;
+    const sha = record.slice(0, separator).trim();
+    const subject = record.slice(separator + 1).trim();
+    if (sha.length === 0 || subject.length === 0) continue;
+    const matches = counterparts.get(subject) ?? [];
+    matches.push(sha);
+    counterparts.set(subject, matches);
+  }
+  return counterparts;
+};
+
+export const matchReplayCounterparts = (
+  commits: ReadonlyArray<Pick<ForkCommit, "sha" | "subject">>,
+  counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
+): ReadonlyMap<string, string> => {
+  const ordinalBySubject = new Map<string, number>();
+  const matched = new Map<string, string>();
+  for (const commit of commits) {
+    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
+    ordinalBySubject.set(commit.subject, ordinal + 1);
+    const counterpart = counterparts.get(commit.subject)?.[ordinal];
+    if (counterpart !== undefined) matched.set(commit.sha, counterpart);
+  }
+  return matched;
+};
+
+// `--since` is the outer guard bound. Replay-specific suppression happens at
+// line level in the hook guard, so one changed resolution cannot expose the
+// same commit's unchanged historical insertions.
+
 export const resolveGuardedCommits = (
   git: GitReader,
   options: ScanOptions,
@@ -627,6 +683,22 @@ const buildGuardInput = (
     guardCommits.length === 0
       ? new Map<string, CommitPatch>()
       : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))));
+  const replayAddedLines = new Map<string, ReadonlyMap<string, ReadonlyArray<string>>>();
+  if (options.replayOf !== null) {
+    const replayBase = git.run(["merge-base", range.target, options.replayOf]).trim();
+    const counterparts = replayCounterparts(git, replayBase, options.replayOf);
+    const matches = matchReplayCounterparts(guarded, counterparts);
+    for (const commit of guarded) {
+      const counterpart = matches.get(commit.sha);
+      if (counterpart === undefined) continue;
+      replayAddedLines.set(
+        commit.sha,
+        addedLinesByPath(
+          git.run(["-c", "core.quotePath=false", "show", "--format=", "--unified=0", counterpart]),
+        ),
+      );
+    }
+  }
   const upstreamFiles =
     guardCommits.length === 0
       ? new Set<string>()
@@ -661,6 +733,7 @@ const buildGuardInput = (
       (patch) => patch.removedTestLines.keys(),
       () => true,
     ),
+    replayAddedLines,
     upstreamLines: readUpstreamLines(
       git,
       range.target,
