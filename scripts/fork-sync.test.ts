@@ -11,18 +11,22 @@ import {
   blockingShaMarker,
   checkFailureDetail,
   closeBlocks,
+  dependencySetChanged,
   failureIssueBody,
   failureMarker,
   fixupRefusals,
   publishBlock,
   publishFailure,
+  realRunner,
   rebaseOnto,
   readReport,
   renderReport,
   reportPath,
   run,
+  runChecks,
   type CommandRunner,
   type ForkSyncReport,
+  type ReleaseTag,
 } from "./fork-sync.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 
@@ -1517,4 +1521,96 @@ it("records a non-empty detail tail when a streamed battery check fails", () => 
       assert.match(red!.detail, /exit 1/);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// linkInstalledModules vs a fresh install: the dependency-set skew guard
+// ---------------------------------------------------------------------------
+
+/** A minimal repo (no upstream/origin remotes) for the dependency-diff guard. */
+const dependencyRepo = (): { readonly root: string; readonly worktree: string } => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-deps-test-"));
+  const git = (args: ReadonlyArray<string>): string => {
+    const result = runCommand("git", args, { cwd: root });
+    if (result.status !== 0)
+      throw new Error(`git ${args.join(" ")} in ${root}: ${result.stderr.trim() || "failed"}`);
+    return result.stdout.trim();
+  };
+  git(["init", "--quiet", "--initial-branch", "main"]);
+  git(["config", "user.email", "fork@example.invalid"]);
+  git(["config", "user.name", "fork"]);
+  NodeFS.writeFileSync(NodePath.join(root, "pnpm-lock.yaml"), "lockfileVersion: 1\n");
+  git(["add", "."]);
+  git(["commit", "--quiet", "-m", "trunk"]);
+  const worktree = NodePath.join(root, "replay-worktree");
+  NodeFS.mkdirSync(worktree, { recursive: true });
+  return { root, worktree };
+};
+
+it("installs fresh in the replay worktree when the target changed the lockfile", () => {
+  const repo = dependencyRepo();
+  try {
+    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+    NodeFS.writeFileSync(NodePath.join(repo.root, "pnpm-lock.yaml"), "lockfileVersion: 2\n");
+    runCommand("git", ["commit", "--quiet", "-am", "bump vite-plus"], { cwd: repo.root });
+    const targetSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+
+    assert.strictEqual(dependencySetChanged(realRunner, repo.root, trunkSha, targetSha), true);
+
+    const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+    const runner: CommandRunner = {
+      run: (command, args, spec) => {
+        calls.push({ command, args });
+        if (command === "vp") return ok();
+        return runCommand(command, args, { cwd: spec.cwd });
+      },
+    };
+    const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
+    const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
+
+    assert.match(printed.output, /sync: dependency set changed on/);
+    const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
+    assert.notStrictEqual(install, undefined);
+    assert.deepStrictEqual(install!.args, ["i", "--frozen-lockfile"]);
+    // Neither module-linking side effect ran: the fresh install owns node_modules.
+    assert.strictEqual(NodeFS.existsSync(NodePath.join(repo.worktree, "node_modules")), false);
+  } finally {
+    NodeFS.rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+it("links the trunk's install when the target left the dependency set alone", () => {
+  const repo = dependencyRepo();
+  try {
+    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+    NodeFS.writeFileSync(NodePath.join(repo.root, "unrelated.txt"), "hello\n");
+    runCommand("git", ["add", "."], { cwd: repo.root });
+    runCommand("git", ["commit", "--quiet", "-m", "unrelated change"], { cwd: repo.root });
+    const targetSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+
+    assert.strictEqual(dependencySetChanged(realRunner, repo.root, trunkSha, targetSha), false);
+
+    NodeFS.mkdirSync(NodePath.join(repo.root, "node_modules"), { recursive: true });
+    const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+    const runner: CommandRunner = {
+      run: (command, args, spec) => {
+        calls.push({ command, args });
+        if (command === "vp") return ok();
+        return runCommand(command, args, { cwd: spec.cwd });
+      },
+    };
+    const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
+    const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
+
+    assert.notMatch(printed.output, /sync: dependency set changed/);
+    const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
+    assert.strictEqual(install, undefined);
+    // linkInstalledModules ran: the worktree's node_modules is now a symlink to the trunk's.
+    assert.strictEqual(
+      NodeFS.lstatSync(NodePath.join(repo.worktree, "node_modules")).isSymbolicLink(),
+      true,
+    );
+  } finally {
+    NodeFS.rmSync(repo.root, { recursive: true, force: true });
+  }
 });
