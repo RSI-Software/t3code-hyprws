@@ -1,6 +1,8 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
+import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import
+
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
  * `snooze:<presetId>` so the union stays closed while the preset list
@@ -12,6 +14,7 @@ export type ThreadActionMenuId =
   | "project-settings"
   | "pin"
   | "unpin"
+  | "reset-order" // fork-hook: thread-ordering/reset-order-id
   | "settle"
   | "unsettle"
   | "snooze"
@@ -39,6 +42,7 @@ export interface ThreadActionMenuState {
     readonly isActive: boolean;
   } | null;
   readonly isPinned: boolean;
+  readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
   readonly isSettled: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
@@ -82,6 +86,7 @@ export function buildThreadActionMenuItems(
     // Both lifecycle actions stay available on pinned threads: settling
     // clears the pin ("done" beats "keep on top"), and snoozing hides the
     // card until wake with the pin intact.
+    ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
     ...(state.supports.settlement
       ? [
           state.isSettled
