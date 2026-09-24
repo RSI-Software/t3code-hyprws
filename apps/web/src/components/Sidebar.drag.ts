@@ -1,7 +1,6 @@
 import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
-  parseSidebarThreadGroupHeaderId,
   resolveSidebarDropTarget,
   sidebarListItemId,
   sidebarMarkerId,
@@ -9,6 +8,10 @@ import {
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
+import {
+  projectSidebarThreadGroupSpansFork,
+  recordSidebarProjectedLayoutFork,
+} from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-projection-import
 
 const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 const hidden = { ...stationary, scaleY: 0 };
@@ -70,15 +73,9 @@ export function createSidebarCollisionDetection(
           const target = collisions.find((collision) => {
             const id = String(collision.id);
             if (!sections.has(id)) {
-              // A group header has no entry in `items`, so the reorder resolver
-              // declines it. Headers only ever render in the active section, so
-              // read the id space directly; otherwise this branch would promote
-              // a member row past every header the pointer is actually over.
               sections.set(
                 id,
-                parseSidebarThreadGroupHeaderId(id)
-                  ? "active"
-                  : (resolveSidebarDropTarget(items, String(args.active.id), id)?.section ?? null),
+                resolveSidebarDropTarget(items, String(args.active.id), id)?.section ?? null,
               );
             }
             return sections.get(id) === boundarySection;
@@ -197,6 +194,7 @@ export function createSidebarSortingStrategy(input: {
     }
     marker("settled-header");
     section("settled");
+    projectSidebarThreadGroupSpansFork(projected, { items, activeIndex, overIndex, rects }); // fork-hook: thread-ordering/group-span-projection
     const heights = projected.map((item) => {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
@@ -246,6 +244,7 @@ export function createSidebarSortingStrategy(input: {
       if (index !== undefined && rect) result[index] = { ...stationary, y: top - rect.top };
       top += heights[projectedIndex]! + 1;
     }
+    recordSidebarProjectedLayoutFork(items, projected, heights, result); // fork-hook: thread-ordering/group-drop-layout
     result[activeIndex] = stationary;
     return result;
   }
