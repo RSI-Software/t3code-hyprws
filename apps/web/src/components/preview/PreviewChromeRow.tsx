@@ -218,38 +218,42 @@ export function PreviewChromeRow({
               }
             />
           </Tooltip>
+          {/* fork-hook: browser-bookmarks/address-addon */}
           {onOpenInBrowser || onBookmarkScopeChange ? (
-            <InputGroupAddon align="inline-end" className="gap-0.5">
-              {onOpenInBrowser && !inputFocused ? (
-                <span className="pointer-events-none w-0 overflow-hidden opacity-0 transition-[width,opacity] group-hover/address:pointer-events-auto group-hover/address:w-6 group-hover/address:opacity-100">
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={onOpenInBrowser}
-                          aria-label="Open in system browser"
-                          type="button"
-                        />
-                      }
-                    >
-                      <ExternalLink />
-                    </TooltipTrigger>
-                    <TooltipPopup>Open in system browser</TooltipPopup>
-                  </Tooltip>
-                </span>
-              ) : null}
-              {onBookmarkScopeChange && onRemoveBookmark ? (
-                <PreviewBookmarkMenu
-                  scope={bookmarkScope}
-                  projectAvailable={bookmarkProjectAvailable}
-                  onScopeChange={onBookmarkScopeChange}
-                  onRemove={onRemoveBookmark}
-                />
-              ) : null}
+            <InputGroupAddon align="inline-end">
+              <span className="flex gap-0.5">
+                {onOpenInBrowser && !inputFocused ? (
+                  <span className="pointer-events-none w-0 overflow-hidden opacity-0 transition-[width,opacity] focus-within:pointer-events-auto focus-within:w-6 focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:w-6 group-hover/address:opacity-100">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={onOpenInBrowser}
+                            aria-label="Open in system browser"
+                            type="button"
+                          />
+                        }
+                      >
+                        <ExternalLink />
+                      </TooltipTrigger>
+                      <TooltipPopup>Open in system browser</TooltipPopup>
+                    </Tooltip>
+                  </span>
+                ) : null}
+                {onBookmarkScopeChange && onRemoveBookmark ? (
+                  <PreviewBookmarkMenu
+                    scope={bookmarkScope}
+                    projectAvailable={bookmarkProjectAvailable}
+                    onScopeChange={onBookmarkScopeChange}
+                    onRemove={onRemoveBookmark}
+                  />
+                ) : null}
+              </span>
             </InputGroupAddon>
           ) : null}
+          {/* fork-hook-end */}
         </InputGroup>
 
         {onPickElement ? (
