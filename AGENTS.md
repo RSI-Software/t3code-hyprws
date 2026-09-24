@@ -17,11 +17,12 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Never target an untagged upstream commit; use the `fork-sync` skill for the rebase.
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
 - Run `vp run fork:ci` before every pull request.
-  It derives the CI scan flags and runs the delta check, the rebase scan, `vp check`, plus the whole scripts workspace, so scripts tests are never hand-picked.
+  It derives the CI scan flags and runs the delta check, the stale-delete check, the rebase scan, `vp check`, plus the whole scripts workspace, so scripts tests are never hand-picked.
   That is a subset of the pull-request jobs, not all of them.
 - Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Fold the ahead commits to one intent each with the [`fork-fold`](.agents/skills/fork-fold/SKILL.md) skill.
+- Never delete an upstream line a fork commit later restores; `fork:ci` refuses it. Add beside an upstream block instead of rewriting it.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
 - Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.
 

@@ -322,6 +322,20 @@ const declaredSupersededLines = (input: AuthoringGuardInput, path: string): Read
     if (!declared.has(title)) continue;
     for (const line of caseLines(upstreamText, title)) lines.add(line);
   }
+  // A moved case can be the only user of a namespace import. Preserve that
+  // dependency verbatim in the sibling rather than leaving an unused import;
+  // unrelated imports and all non-case assertions remain protected.
+  const siblingLines = new Set(significantLines(siblingText));
+  for (const line of significantLines(upstreamText)) {
+    const binding = /^import \* as ([\w$]+) from ["'][^"']+["'];$/.exec(line)?.[1];
+    if (
+      binding !== undefined &&
+      siblingLines.has(line) &&
+      [...lines].some((caseLine) => caseLine.includes(`${binding}.`))
+    ) {
+      lines.add(line);
+    }
+  }
   return lines;
 };
 

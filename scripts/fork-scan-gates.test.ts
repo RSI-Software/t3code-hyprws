@@ -9,21 +9,20 @@ import { assert, it } from "@effect/vitest";
 
 import {
   buildScanResult,
-  matchReplayCounterparts,
-  normaliseFindingDetail,
   readScan,
   renderScanReport,
-  resolveGuardedCommits,
   scanFailures,
-  squashedMembers,
   type ScanInput,
 } from "./fork-scan.ts";
-import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+
+import { SystemCommandRunner } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
+import { forkTestSibling, upstreamTestPath } from "./lib/fork-supersedes.ts";
 import {
-  forkTestSibling,
   parseCommitPatches,
   significantTestLines,
+  upstreamSourceLines,
   type AuthoringGuardInput,
 } from "./fork-scan-authoring.ts";
 
@@ -81,68 +80,6 @@ it("fails an additive files finding carried on the scan result", () => {
   const failures = scanFailures(result);
   assert.isTrue(
     failures.some((failure) => failure.startsWith("additive:files: apps/web/src/gone.ts")),
-  );
-});
-
-it("keeps every bounded replay commit for line-level guard filtering", () => {
-  const commits = [
-    {
-      sha: "same",
-      short: "same",
-      subject: "feat: same",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "changed",
-      short: "changed",
-      subject: "feat: changed",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "new",
-      short: "new",
-      subject: "feat: new",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "duplicate",
-      short: "duplicate",
-      subject: "feat: duplicate",
-      domain: "example",
-      tier: "core",
-    },
-  ];
-  const patch = (line: string) =>
-    `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -0,0 +1 @@\n+${line}\n`;
-  const outputs = new Map<string, string>([
-    ["rev-list since..head", commits.map(({ sha }) => sha).join("\n")],
-    ["merge-base target origin/hyprws", "base\n"],
-    [
-      "log --reverse --format=%H%x1f%s%x1e base..origin/hyprws",
-      "old-same\u001ffeat: same\u001eold-changed\u001ffeat: changed\u001eold-duplicate-1\u001ffeat: duplicate\u001eold-duplicate-2\u001ffeat: duplicate\u001e",
-    ],
-    ["-c core.quotePath=false show --format= --unified=0 same", patch("same")],
-    ["-c core.quotePath=false show --format= --unified=0 old-same", patch("same")],
-    ["-c core.quotePath=false show --format= --unified=0 changed", patch("after")],
-    ["-c core.quotePath=false show --format= --unified=0 old-changed", patch("before")],
-  ]);
-  const git = { run: (args: ReadonlyArray<string>) => outputs.get(args.join(" ")) ?? "" };
-  const options = {
-    base: null,
-    head: "head",
-    target: "target",
-    typecheck: false,
-    since: "since",
-    replayOf: "origin/hyprws",
-  } as const;
-  const range = { base: "base", head: "head", target: "target" };
-
-  assert.deepStrictEqual(
-    resolveGuardedCommits(git, options, range, commits).map(({ sha }) => sha),
-    ["same", "changed", "new", "duplicate"],
   );
 });
 
@@ -269,107 +206,6 @@ it("exempts a replay addition re-indented by an upstream restructure", () => {
   assert.match(warnings[0] ?? "", /1 added line.*const introduced = true;/);
 });
 
-it("matches duplicate replay subjects by oldest-first ordinal", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "replayed-1", subject: "duplicate" },
-      { sha: "replayed-2", subject: "other" },
-      { sha: "replayed-3", subject: "duplicate" },
-      { sha: "replayed-surplus", subject: "duplicate" },
-    ],
-    new Map([
-      ["duplicate", ["original-1", "original-2"]],
-      ["other", ["original-other"]],
-    ]),
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["replayed-1", ["original-1"]],
-      ["replayed-2", ["original-other"]],
-      ["replayed-3", ["original-2"]],
-    ],
-  );
-});
-
-it("reads the squashed members a rewrite lists, ignoring surrounding prose", () => {
-  assert.deepStrictEqual(
-    squashedMembers(
-      "Squashes:\n\n- 9f318b69a9 fix(fork): one\n- ea63ce4dae fix(fork): two\n\nFork-Domain: distribution\n",
-    ),
-    ["9f318b69a9", "ea63ce4dae"],
-  );
-  assert.deepStrictEqual(squashedMembers("Squashes: none listed\n\nFork-Domain: x\n"), []);
-  assert.deepStrictEqual(squashedMembers("Fork-Domain: x\n"), []);
-});
-
-it("matches every squashed member by sha prefix and leaves the subject ordinal alone", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "squash", subject: "duplicate", squashes: ["aaaa111", "bbbb222"] },
-      { sha: "plain", subject: "duplicate" },
-      { sha: "unlisted", subject: "other", squashes: ["ffff999"] },
-    ],
-    new Map([
-      ["duplicate", ["aaaa1111111", "bbbb2222222"]],
-      ["other", ["cccc3333333"]],
-    ]),
-    ["aaaa1111111", "bbbb2222222", "cccc3333333"],
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["squash", ["aaaa1111111", "bbbb2222222"]],
-      ["plain", ["aaaa1111111"]],
-      ["unlisted", ["cccc3333333"]],
-    ],
-  );
-});
-
-it("keys a finding without its sha or count, keeping path digits", () => {
-  assert.strictEqual(
-    normaliseFindingDetail("apps/web/src/a.test.ts gains 4 fork test block(s)"),
-    normaliseFindingDetail("apps/web/src/a.test.ts gains 12 fork test block(s)"),
-  );
-  assert.notStrictEqual(
-    normaliseFindingDetail("docs/02-bug.md gains 1 block"),
-    normaliseFindingDetail("docs/03-bug.md gains 1 block"),
-  );
-  assert.strictEqual(
-    normaliseFindingDetail("moved in 9f318b69a9 and 3 more"),
-    "moved in <sha> and <n> more",
-  );
-});
-
-it("guards every bounded commit without --replay-of", () => {
-  const commits = [
-    {
-      sha: "abc1234",
-      short: "abc1234",
-      subject: "feat: thing",
-      domain: "example",
-      tier: "core",
-    },
-  ];
-  const git = { run: (args: ReadonlyArray<string>) => (args[0] === "rev-list" ? "abc1234\n" : "") };
-  assert.deepStrictEqual(
-    resolveGuardedCommits(
-      git,
-      {
-        base: null,
-        head: "head",
-        target: "target",
-        typecheck: false,
-        since: "since",
-        replayOf: null,
-      },
-      { base: "base", head: "head", target: "target" },
-      commits,
-    ),
-    commits,
-  );
-});
-
 it("fails an upstream-test addition in the since range", () => {
   const raw = [
     "abc1234",
@@ -393,6 +229,32 @@ it("fails an upstream-test addition in the since range", () => {
   );
   const failures = scanFailures(result);
   assert.isTrue(failures.some((failure) => failure.startsWith("upstream-test:")));
+});
+
+it("passes a restored upstream case and still counts a fork block reusing its title", () => {
+  const path = "apps/web/src/other.test.ts";
+  const opener = 'it("lists running sessions", () => {';
+  const raw = ["abc1234", `--- a/${path}`, `+++ b/${path}`, "@@ -0,0 +1 @@", `+${opener}`, ""].join(
+    "\n",
+  );
+  const scan = (headText: string) =>
+    scanFailures(
+      buildScanResult(
+        baseInput({
+          commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+          filesBySha: new Map([["abc1234", [path]]]),
+          patchesBySha: parseCommitPatches(raw),
+          upstreamFiles: new Set([path]),
+          upstreamTestFiles: new Set([path]),
+          upstreamTestLines: new Map([[path, significantTestLines(`${opener}\n});\n`)]]),
+          upstreamTestTexts: new Map([[path, `${opener}\n});\n`]]),
+          headTestTexts: new Map([[path, headText]]),
+          siblingTexts: new Map(),
+        }),
+      ),
+    ).filter((failure) => failure.startsWith("upstream-test:"));
+  assert.deepStrictEqual(scan(`${opener}\n});\n`), []);
+  assert.lengthOf(scan(`${opener}\n});\n${opener}\n});\n`), 1);
 });
 
 it("passes a declared-superseded deletion and still fails an undeclared one", () => {
@@ -522,6 +384,94 @@ it("passes a declared-superseded deletion and still fails an undeclared one", ()
   );
 });
 
+it("passes a declared-superseded deletion of a wrapped case", () => {
+  // Prettier wraps a long opener so its title sits on the next line; the
+  // declaration still names that case and excuses its head and title lines.
+  const removedCase = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,4 +1,0 @@",
+    "-it.effect(",
+    '-  "a title long enough that prettier wraps it",',
+    "-  () => Effect.sync(() => expect(keep).toBe(2)),",
+    "-);",
+    "",
+  ].join("\n");
+  const upstreamText =
+    'it.effect(\n  "a title long enough that prettier wraps it",\n  () => Effect.sync(() => expect(keep).toBe(2)),\n);\n';
+  const sibling =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > a title long enough that prettier wraps it", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    'it("replacement", () => {\n  expect(keep).toBe(3);\n});\n';
+  const result = buildScanResult(
+    baseInput({
+      commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+      filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+      patchesBySha: parseCommitPatches(removedCase),
+      upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+      upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+      upstreamTestLines: new Map([
+        ["apps/web/src/thing.test.ts", significantTestLines(upstreamText)],
+      ]),
+      upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+      siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+    }),
+  );
+  assert.deepStrictEqual(
+    scanFailures(result).filter((failure) => failure.startsWith("upstream-test:")),
+    [],
+  );
+});
+
+it("only permits namespace imports moved verbatim with a declared superseded case", () => {
+  const imported = 'import * as Fixture from "node:fs";';
+  const unused = 'import * as Unrelated from "node:os";';
+  const upstream = [
+    imported,
+    unused,
+    'it("original", () => {',
+    '  expect(Fixture.existsSync("upstream")).toBe(true);',
+    "});",
+  ].join("\n");
+  const declaration =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > original", reason: "fork path", commit: "abc1234" });';
+  const replacement =
+    'it("replacement", () => { expect(Fixture.existsSync("fork")).toBe(true); });';
+  for (const [removed, sibling, passes] of [
+    [imported, [imported, declaration, replacement].join("\n"), true],
+    [imported, [declaration, replacement].join("\n"), false],
+    [unused, [unused, declaration, replacement].join("\n"), false],
+    [imported, [imported, replacement].join("\n"), false],
+  ] as const) {
+    const patch = [
+      "abc1234",
+      "--- a/apps/web/src/thing.test.ts",
+      "+++ b/apps/web/src/thing.test.ts",
+      "@@ -1 +0,0 @@",
+      `-${removed}`,
+      "",
+    ].join("\n");
+    const result = buildScanResult(
+      baseInput({
+        commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+        filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+        patchesBySha: parseCommitPatches(patch),
+        upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+        upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+        upstreamTestLines: new Map([
+          ["apps/web/src/thing.test.ts", significantTestLines(upstream)],
+        ]),
+        upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstream]]),
+        siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+      }),
+    );
+    assert.equal(
+      scanFailures(result).some((failure) => failure.startsWith("upstream-test:")),
+      !passes,
+    );
+  }
+});
+
 it("fails a replaced export matched by name across files", () => {
   const raw = [
     "abc1234",
@@ -551,6 +501,35 @@ it("fails a replaced export matched by name across files", () => {
   );
   const failures = scanFailures(result);
   assert.isTrue(failures.some((failure) => failure.startsWith("replaced-export:")));
+});
+
+it("passes an upstream export moved verbatim within its own file", () => {
+  const raw = [
+    "abc1234",
+    "--- a/apps/web/src/upstream.ts",
+    "+++ b/apps/web/src/upstream.ts",
+    "@@ -1,2 +1,2 @@",
+    "-export const shared = 1;",
+    " const other = 2;",
+    "+export const shared = 1;",
+    "",
+  ].join("\n");
+  const result = buildScanResult(
+    baseInput({
+      commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+      filesBySha: new Map([["abc1234", ["apps/web/src/upstream.ts"]]]),
+      patchesBySha: parseCommitPatches(raw),
+      upstreamFiles: new Set(["apps/web/src/upstream.ts"]),
+      upstreamTestFiles: new Set(),
+      upstreamTestLines: new Map(),
+      upstreamLines: new Map([
+        ["apps/web/src/upstream.ts", new Set(["export const shared = 1;", "const other = 2;"])],
+      ]),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
+    }),
+  );
+  assert.isFalse(scanFailures(result).some((failure) => failure.startsWith("replaced-export:")));
 });
 
 it("only treats a replaced export as upstream when its source line exists in the target", () => {
@@ -595,7 +574,7 @@ it("only treats a replaced export as upstream when its source line exists in the
   );
 });
 
-it("does not count removing a duplicate fork-appended test line as upstream loss", () => {
+it("does not count a fork duplicate or an exact upstream backport as upstream loss", () => {
   const raw = [
     "abc1234",
     "--- a/apps/web/src/thing.test.ts",
@@ -624,6 +603,14 @@ it("does not count removing a duplicate fork-appended test line as upstream loss
     baseInput({ ...common, headTestTexts: new Map([["apps/web/src/thing.test.ts", ""]]) }),
   );
   assert.isTrue(scanFailures(genuineLoss).some((failure) => failure.startsWith("upstream-test:")));
+  const backport = buildScanResult(
+    baseInput({
+      ...common,
+      headTestTexts: new Map([["apps/web/src/thing.test.ts", ""]]),
+      backports: new Set(["abc1234"]),
+    }),
+  );
+  assert.isFalse(scanFailures(backport).some((failure) => failure.startsWith("upstream-test:")));
 });
 
 it("flags an unmarked insertion through the hook guard", () => {
@@ -702,9 +689,22 @@ it("passes a hook-guard restore the target tree already has", () => {
 
 it("reads the sibling name and significant lines", () => {
   assert.equal(forkTestSibling("apps/web/src/thing.test.tsx"), "apps/web/src/thing.fork.test.tsx");
+  // The browser project includes only `*.browser.test.*`; the sibling must keep that suffix.
+  assert.equal(
+    forkTestSibling("apps/web/src/thing.browser.test.tsx"),
+    "apps/web/src/thing.fork.browser.test.tsx",
+  );
+  assert.equal(
+    upstreamTestPath("apps/web/src/thing.fork.browser.test.tsx"),
+    "apps/web/src/thing.browser.test.tsx",
+  );
   assert.deepStrictEqual(
     [...significantTestLines("// comment\n\nexpect(1).toBe(1);\n")],
     ["expect(1).toBe(1);"],
+  );
+  assert.deepStrictEqual(
+    [...upstreamSourceLines("  // comment\n\nconst one = 1;\n")],
+    ["// comment", "const one = 1;"],
   );
   void ledger;
 });
@@ -756,6 +756,7 @@ const rewriteFixture = (): {
   root: string;
   base: string;
   bad: string;
+  restored: string;
   old: string;
   newer: string;
   declared: string;
@@ -790,6 +791,11 @@ const rewriteFixture = (): {
   git("add", "-A");
   git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
   const bad = git("rev-parse", "HEAD");
+  // The repair: upstream's case restored byte for byte.
+  write(upstreamPath, upstreamCase);
+  git("add", "-A");
+  git("commit", "-m", `fix: restore upstream case\n\n${trailers}`);
+  const restored = git("rev-parse", "HEAD");
   // Landed history: the same rewrite as an old commit, then a clean tip commit.
   git("checkout", "--quiet", "-b", "landed", base);
   write(upstreamPath, upstreamCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
@@ -812,7 +818,7 @@ const rewriteFixture = (): {
   git("add", "-A");
   git("commit", "-m", `fix: supersede upstream case\n\n${trailers}`);
   const declared = git("rev-parse", "HEAD");
-  return { root, base, bad, old, newer, declared, upstreamPath };
+  return { root, base, bad, restored, old, newer, declared, upstreamPath };
 };
 
 const scanLedger = `# Fork delta
@@ -854,6 +860,32 @@ it("refuses a new in-window rewrite through the additive and authoring checks to
       failures.some((failure) => failure.startsWith(`additive:tests: ${f.upstreamPath}`)),
       `an in-window rewrite must fail the additive tests check: ${JSON.stringify(failures)}`,
     );
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it("passes a repair that restores an upstream test case byte for byte", () => {
+  const f = rewriteFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: f.base,
+          head: f.restored,
+          target: f.base,
+          typecheck: false,
+          since: f.bad,
+          replayOf: null,
+        },
+        scanLedger,
+        { worktree: f.root, run: commandRunner.run.bind(commandRunner) },
+      ),
+    );
+    assert.deepStrictEqual(failures, []);
   } finally {
     NodeFS.rmSync(f.root, { recursive: true, force: true });
   }
@@ -917,19 +949,13 @@ it("passes a declared replacement: upstream case removed, fork sibling carries i
   }
 });
 
-/**
- * Whole-series rehearsal fixture: `landed` (`replayOf`) already carries one
- * in-place upstream rewrite as legacy debt. `replay` rehearses the same
- * rewrite (a different sha, identical resulting text) plus one brand-new
- * rewrite the replay itself introduces.
- */
-const baselineFixture = (): {
+const replayFixture = (): {
   root: string;
   base: string;
   landed: string;
   replay: string;
 } => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-baseline-"));
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-replay-"));
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "fixture",
@@ -956,7 +982,6 @@ const baselineFixture = (): {
   git("commit", "-m", "upstream: base");
   const base = git("rev-parse", "HEAD");
 
-  // Legacy debt: `landed` already carries the in-place rewrite.
   git("checkout", "--quiet", "-b", "landed", base);
   write(thingPath, thingCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
   git("add", "-A");
@@ -976,7 +1001,7 @@ const baselineFixture = (): {
   return { root, base, landed, replay };
 };
 
-const baselineLedger = `# Fork delta
+const replayLedger = `# Fork delta
 
 ## fork-meta
 
@@ -987,44 +1012,8 @@ const baselineLedger = `# Fork delta
 | \`apps/web/src/*.test.ts\` | The seam. |
 `;
 
-it("makes only the replay-introduced rewrite fatal against a --replay-of baseline", () => {
-  const f = baselineFixture();
-  try {
-    const git = new SystemGit(f.root);
-    const commandRunner = new SystemCommandRunner();
-    const additiveRunner = { worktree: f.root, run: commandRunner.run.bind(commandRunner) };
-    const result = readScan(
-      git,
-      {
-        base: null,
-        head: f.replay,
-        target: f.base,
-        typecheck: false,
-        since: f.base,
-        replayOf: f.landed,
-      },
-      baselineLedger,
-      additiveRunner,
-    );
-    const failures = scanFailures(result);
-    assert.isTrue(
-      failures.some((failure) => failure.includes("apps/web/src/other.test.ts")),
-      `the replay-introduced rewrite must stay fatal: ${JSON.stringify(failures)}`,
-    );
-    assert.isFalse(
-      failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")),
-      `the rewrite already on ${f.landed} must be advisory, not fatal: ${JSON.stringify(failures)}`,
-    );
-    assert.lengthOf(result.historicalWarnings, 1);
-    assert.lengthOf(result.historicalAdditive, 1);
-    assert.match(renderScanReport(result), /historical: 2 finding\(s\) already on/);
-  } finally {
-    NodeFS.rmSync(f.root, { recursive: true, force: true });
-  }
-});
-
-it("keeps both findings fatal without --replay-of on the same inputs", () => {
-  const f = baselineFixture();
+it("refuses pre-existing and new findings with --replay-of", () => {
+  const f = replayFixture();
   try {
     const git = new SystemGit(f.root);
     const commandRunner = new SystemCommandRunner();
@@ -1038,14 +1027,20 @@ it("keeps both findings fatal without --replay-of on the same inputs", () => {
           target: f.base,
           typecheck: false,
           since: f.base,
-          replayOf: null,
+          replayOf: f.landed,
         },
-        baselineLedger,
+        replayLedger,
         additiveRunner,
       ),
     );
-    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")));
-    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/other.test.ts")));
+    for (const rule of ["upstream-test:", "additive:tests:"]) {
+      for (const path of ["apps/web/src/thing.test.ts", "apps/web/src/other.test.ts"]) {
+        assert.isTrue(
+          failures.some((failure) => failure.startsWith(rule) && failure.includes(path)),
+          `${rule} ${path} must fail: ${JSON.stringify(failures)}`,
+        );
+      }
+    }
   } finally {
     NodeFS.rmSync(f.root, { recursive: true, force: true });
   }
