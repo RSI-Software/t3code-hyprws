@@ -418,3 +418,63 @@ it("still flags .skip markers in a fork-created test", () => {
     findings.some((finding) => finding.check === "tests" && /\.skip/.test(finding.detail)),
   );
 });
+
+it("attributes a lost line to upstream only past the fork's own copies", () => {
+  // Upstream asserts once; the fork adds a fake case repeating the same
+  // generic lines. Dropping the fake loses only fork copies, while dropping
+  // the upstream assertion too still loses upstream's.
+  const upstreamCase = 'it("upstream", () => {\n  assert.isTrue(\n    ready,\n  );\n});\n';
+  const forkCase = 'it("fork fake", () => {\n  assert.isTrue(\n    ready,\n  );\n});\n';
+  const setup = (): { root: string; base: string; since: string } => {
+    const { root, write, commit } = fixture();
+    write("apps/web/src/thing.test.ts", upstreamCase);
+    commit("upstream: base");
+    const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    write("apps/web/src/thing.test.ts", upstreamCase + forkCase);
+    commit("fork: add fake");
+    const since = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+    return { root, base, since };
+  };
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/thing.test.ts"), upstreamCase);
+    commitAll(root, "fork: drop fake");
+    assert.deepStrictEqual(checkAdditive(runner, root, { base, since }), []);
+  }
+  {
+    const { root, base, since } = setup();
+    NodeFS.writeFileSync(
+      NodePath.join(root, "apps/web/src/thing.test.ts"),
+      'it("upstream", () => {\n});\n',
+    );
+    commitAll(root, "fork: drop fake and the upstream assertion");
+    const findings = checkAdditive(runner, root, { base, since });
+    assert.deepStrictEqual(
+      findings.flatMap((finding) => finding.lines ?? []),
+      ["assert.isTrue(", "ready,"],
+    );
+  }
+});
+
+it("never counts a punctuation-only line as lost", () => {
+  const { root, write, commit } = fixture();
+  write(
+    "apps/web/src/thing.test.ts",
+    'it("first", () => {\n  const values = [\n    keep,\n  ];\n});\n',
+  );
+  commit("upstream: base");
+  const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+    .toString()
+    .trim();
+  write(
+    "apps/web/src/thing.test.ts",
+    'it("first", () => {\n  const values = [\n    keep,\n  ] as const;\n});\n',
+  );
+  commit("fork: reshape punctuation");
+  const findings = checkAdditive(runner, root, { base, since: base });
+  assert.deepStrictEqual(findings, []);
+});
