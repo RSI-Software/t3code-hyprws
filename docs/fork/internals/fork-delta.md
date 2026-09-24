@@ -519,9 +519,9 @@ Upstream reveals ignored workspace paths on demand and safely reads explicitly t
 
 | Aspect       | Rule                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------ |
-| Grouping     | A center drop creates or extends a group; an edge drop falls through to upstream's reorder             |
+| Grouping     | Sortable-tree depth: a sideways step nests under the row above, joining its group or starting one      |
 | Storage      | Membership, names, and collapsed state are client-local over `activeOrderKey`                          |
-| Removal      | Dragging outside a group removes the member, and a one-member group dissolves                          |
+| Removal      | A member stepped back to depth 0 leaves, and a one-member group dissolves                              |
 | Collapsed    | A collapsed group holds one slot: its header replaces the anchor row                                   |
 | Names        | Server thread-title generation names groups; headers rename inline and dissolve                        |
 | Scope        | Active, unpinned threads in the same physical project only                                             |
