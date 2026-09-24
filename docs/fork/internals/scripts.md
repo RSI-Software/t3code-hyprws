@@ -24,16 +24,17 @@ Runner flags follow the root task name: `vp run dev --home-dir /tmp/t3code-dev`.
 
 `vp run dev:app [--external|--preview|--desktop]` runs against this checkout's isolated `.t3` home.
 
-| Flag        | Use                                                                       |
-| ----------- | ------------------------------------------------------------------------- |
-| default     | External browser                                                          |
-| `--preview` | Native agents: wait for the ready URL, pass it to `preview_open`          |
-| `--desktop` | DevTools off, profile in `.t3/electron`, records CDP, takes `--workspace` |
+| Flag        | Use                                                                                                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| default     | External browser                                                                                                                                                                                                   |
+| `--preview` | Native agents: wait for the ready URL, pass it to `preview_open`, or `cdb acquire <url> --json` for the chrome-debug web lane; the default and `--external` open the human's browser and are never an agent launch |
+| `--desktop` | DevTools off, profile in `.t3/electron`, records CDP, takes `--workspace`                                                                                                                                          |
 
 Stop the owned run before switching surfaces; later launches keep fixtures, threads, and authentication.
 Dev Web refuses remote, relay, and SSH environments before starting a terminal.
 A cold build holds its preview listener for ten minutes after attachment.
 For a spent pairing link, run `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` from that checkout.
+The [reusable dev credential](../../operations/development.md#reusable-dev-credential) lets a chrome-debug lane tab pair without a one-time token.
 
 ### Dev state directories
 

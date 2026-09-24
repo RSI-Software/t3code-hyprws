@@ -10,7 +10,7 @@ Usage:
   vp run dev:app [--external | --desktop | --preview] [options]
 
 Surfaces:
-  --external             Open the web app in an external browser (default).
+  --external             Open the web app in the human's browser (default); agents use --preview.
   --desktop              Open the Electron development app.
   --preview              Print the ready pairing URL for the native preview.
 

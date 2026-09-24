@@ -43,6 +43,7 @@ Published issue comments are projections of it: never parse one, and never treat
 - **Verify a release:** checkout pinned to the SHA
 - **One home per checkout:** stop before switching
 - **Fixture:** never reset `.t3/test-project`
+- **Ground:** native preview or a `cdb` lane
 
 ## Repository model
 
