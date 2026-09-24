@@ -7,8 +7,16 @@ interface ParsedSemver {
 
 const SEMVER_NUMBER_SEGMENT = /^\d+$/;
 
+/** Splits at the first hyphen only: a prerelease may itself contain hyphens. */
+function splitPrerelease(version: string): readonly [string, string | undefined] {
+  const separator = version.indexOf("-");
+  return separator === -1
+    ? [version, undefined]
+    : [version.slice(0, separator), version.slice(separator + 1)];
+}
+
 export function normalizeSemverVersion(version: string): string {
-  const [main, prerelease] = version.trim().split("-", 2);
+  const [main, prerelease] = splitPrerelease(version.trim());
   const segments: string[] = [];
   for (const segment of (main ?? "").split(".")) {
     const trimmed = segment.trim();
@@ -31,7 +39,7 @@ export function normalizeSemverVersion(version: string): string {
 
 export function parseSemver(value: string): ParsedSemver | null {
   const normalized = normalizeSemverVersion(value).replace(/^v/, "");
-  const [main = "", prerelease] = normalized.split("-", 2);
+  const [main = "", prerelease] = splitPrerelease(normalized);
   const segments = main.split(".");
   if (segments.length !== 3) {
     return null;
