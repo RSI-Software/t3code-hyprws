@@ -104,15 +104,7 @@ export function GitHubIssueOrderMenu({
   const DirectionIcon = DIRECTION_ICON[order.direction];
   return (
     <Menu>
-      <MenuTrigger
-        render={
-          <Button
-            className={cn("relative", reordered && "[--control-icon-color:currentColor]")}
-            size="sm"
-            variant="outline"
-          />
-        }
-      >
+      <MenuTrigger render={<Button className="relative" size="sm" variant="outline" />}>
         <DirectionIcon className="size-4" />
         <span className={ISSUE_CONTROL_LABEL}>
           {gitHubIssueDirectionLabel(order.sort, order.direction)}
