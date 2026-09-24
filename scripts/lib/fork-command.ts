@@ -237,22 +237,3 @@ export class SystemCommandRunner implements CwdCommandRunner {
     return result;
   }
 }
-
-export class SystemGit {
-  readonly cwd: string;
-
-  constructor(cwd: string) {
-    this.cwd = cwd;
-  }
-
-  run(args: ReadonlyArray<string>): string {
-    return runCommandText("git", args, { cwd: this.cwd });
-  }
-
-  runResult(args: ReadonlyArray<string>, timeout?: number): CommandResult {
-    return runCommand("git", args, {
-      cwd: this.cwd,
-      ...(timeout === undefined ? {} : { timeout }),
-    });
-  }
-}
