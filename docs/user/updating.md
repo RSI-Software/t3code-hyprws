@@ -43,9 +43,7 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
-For a fork build, **Copy update command** instead copies the release page for
-that version; download the matching server archive from there and switch to
-it by hand.
+For the hyprws build, see [Install and update the hyprws build](../fork/user/install-and-update.md).
 
 If you run the server with `npx` rather than an installed `t3`, there is
 nothing to update on the host: stop the server and relaunch it as
