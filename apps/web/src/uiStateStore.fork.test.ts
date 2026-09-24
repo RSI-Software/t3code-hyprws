@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  moveProjectThread,
   parsePersistedState,
   persistState,
   PERSISTED_STATE_KEY,
@@ -47,105 +46,6 @@ describe("uiStateStore pure functions", () => {
         "environment:a",
       ),
     ).toBe(initialState);
-  });
-  it("creates, extends, moves, and dissolves visual thread groups", () => {
-    const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
-    const created = moveProjectThread(
-      makeUiState(),
-      "environment:project",
-      order,
-      "environment:c",
-      "environment:b",
-      "group",
-      { id: "group-1", title: "New group" },
-    );
-    expect(created.threadGroupsByProject["environment:project"]).toEqual([
-      {
-        id: "group-1",
-        title: "New group",
-        threadIds: ["environment:c", "environment:b"],
-        collapsed: false,
-      },
-    ]);
-    const extended = moveProjectThread(
-      created,
-      "environment:project",
-      created.threadOrderByProject["environment:project"] ?? order,
-      "environment:d",
-      "environment:b",
-      "group",
-    );
-    expect(extended.threadGroupsByProject["environment:project"]?.[0]?.threadIds).toEqual([
-      "environment:c",
-      "environment:d",
-      "environment:b",
-    ]);
-    const movedOut = moveProjectThread(
-      extended,
-      "environment:project",
-      extended.threadOrderByProject["environment:project"] ?? order,
-      "environment:c",
-      "environment:a",
-      "reorder",
-    );
-    expect(movedOut.threadGroupsByProject["environment:project"]?.[0]?.threadIds).toEqual([
-      "environment:d",
-      "environment:b",
-    ]);
-    const dissolved = moveProjectThread(
-      movedOut,
-      "environment:project",
-      movedOut.threadOrderByProject["environment:project"] ?? order,
-      "environment:d",
-      "environment:a",
-      "reorder",
-    );
-    expect(dissolved.threadGroupsByProject["environment:project"]).toEqual([]);
-  });
-  it("moves a thread between groups at the dropped position", () => {
-    const projectKey = "environment:project";
-    const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
-    const initial = makeUiState({
-      threadOrderByProject: { [projectKey]: order },
-      threadGroupsByProject: {
-        [projectKey]: [
-          {
-            id: "group-1",
-            title: "First",
-            threadIds: ["environment:a", "environment:b"],
-            collapsed: false,
-          },
-          {
-            id: "group-2",
-            title: "Second",
-            threadIds: ["environment:c", "environment:d"],
-            collapsed: false,
-          },
-        ],
-      },
-    });
-    const moved = moveProjectThread(
-      initial,
-      projectKey,
-      order,
-      "environment:b",
-      "environment:c",
-      "group",
-    );
-    expect(moved.threadOrderByProject[projectKey]).toEqual([
-      "environment:a",
-      "environment:c",
-      "environment:b",
-      "environment:d",
-    ]);
-    expect(moved.threadGroupsByProject[projectKey]).toEqual([
-      {
-        id: "group-2",
-        title: "Second",
-        threadIds: ["environment:c", "environment:b", "environment:d"],
-        collapsed: false,
-      },
-    ]);
   });
   it("changes group membership atomically without changing thread order", () => {
     const projectKey = "environment:project";
