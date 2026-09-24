@@ -84,11 +84,14 @@ If dragging is unavailable for one environment, update the T3 Code server runnin
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
-Drop a thread onto the middle of another active thread to group them. Drop more threads onto a
-group member to add them. Drag a member outside its group to remove it; a group disappears when
-fewer than two threads remain. Groups can be collapsed, renamed, regenerated, or dissolved from
-their header. Generated group names use the same title-generation setting as thread titles. Group
-names, membership, collapsed state, and order are stored on that browser or desktop installation.
+While dragging an active thread, move it one step right to nest it under the row above.
+Under a group, it joins that group; under a plain thread, the two start a new group.
+Move a group member left to take it out; a group disappears when fewer than two threads remain.
+The group a drop would join is outlined, and a shadow shows where the thread lands.
+Pinned threads stay out of groups, and a group holds threads from one project.
+Groups can be collapsed, renamed, regenerated, or dissolved from their header.
+Generated group names use the same title-generation setting as thread titles.
+Group names, membership, collapsed state, and order are stored on that browser or desktop installation.
 
 ## Settle finished work
 
