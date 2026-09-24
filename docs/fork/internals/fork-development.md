@@ -155,6 +155,7 @@ Fork-only paths need no granularity curation.
 
 Fold the ahead commits to one intent each, so a rebase conflict is solved once.
 The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
+Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
 
 | Gate        | Detail                                               |
 | ----------- | ---------------------------------------------------- |

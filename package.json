@@ -54,6 +54,7 @@
     "fork:delta": "node scripts/fork-delta.ts",
     "fork:fold": "node scripts/fork-fold.ts",
     "fork:scan": "node scripts/fork-scan.ts",
+    "fork:stale-delete": "node scripts/lib/fork-stale-delete.ts",
     "fork:ci": "node scripts/fork-ci.ts",
     "fork:sync": "node scripts/fork-sync.ts",
     "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
