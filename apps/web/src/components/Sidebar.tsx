@@ -1308,6 +1308,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     getProjectKey: threadProjectOrderKey,
   }); // fork-hook: thread-ordering/group-layout
+  const visibleActiveThreads = activeThreadGroupLayout.flatMap((item) =>
+    item.kind === "thread"
+      ? [item.thread]
+      : // A collapsed group keeps its first member in the list as the
+        // header's anchor: the row is replaced by the header, so the group
+        // holds one stable slot in the drop order either way.
+        item.group.collapsed
+        ? item.threads.slice(0, 1)
+        : item.threads,
+  ); // fork-hook: thread-ordering/visible-active-threads
+  const activeThreadGroupSpans = sidebarThreadGroupSpansFork(activeThreadGroupLayout, (thread) =>
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  ); // fork-hook: thread-ordering/group-spans-layout
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -1950,7 +1963,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   useLayoutEffect(() => {
     listMotionRef.current?.update(listMotionPass.animate);
   }, [listMotionPass]);
+  const threadGroupDragFork = useSidebarThreadGroupDragFork({
+    items: sidebarListItems,
+    spans: activeThreadGroupSpans,
+    threadByKey,
+    projectKeyOf: threadProjectOrderKey,
+    setMembership: setThreadGroupMembership,
+    requestTitle: requestThreadGroupTitle,
+  }); // fork-hook: thread-ordering/group-drag
+  const {
+    over: groupDragOverFork,
+    release: groupDragReleaseFork,
+    isValidTarget: groupSlotValidTargetFork,
+  } = threadGroupDragFork; // fork-hook: thread-ordering/group-drag-callbacks
   const handleThreadDragOver = (event: DragOverEvent) => {
+    groupDragOverFork(event); // fork-hook: thread-ordering/group-drag-over
     const target = event.over
       ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
       : null;
@@ -1993,6 +2020,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
+        const groupSlotValidFork = groupSlotValidTargetFork(draggedThreadKey, id); // fork-hook: thread-ordering/group-drag-valid
+        if (groupSlotValidFork !== undefined) {
+          return groupSlotValidFork;
+        } // fork-hook: thread-ordering/group-drag-valid-branch
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
         if (target === null) return false;
         return (
@@ -2027,6 +2058,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ? null
         : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
     const activeThread = threadByKey.get(activeKey);
+    groupDragReleaseFork(event, target); // fork-hook: thread-ordering/group-drag-release
     if (activeSection === undefined || target === null || activeThread === undefined) return;
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     const plan = planSidebarThreadDrop({
@@ -3242,6 +3274,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 modifiers={dndModifiers}
                 onDragStart={handleThreadDragStart}
                 onDragOver={handleThreadDragOver}
+                {...threadGroupDragFork.dndHandlers} /* fork-hook: thread-ordering/group-drag-handlers */
                 onDragEnd={handleThreadDragEnd}
               >
                 <SortableContext items={sortableIds} strategy={sidebarSortingStrategy}>
@@ -3260,6 +3293,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         section: SidebarSection,
                         // The tree row of the project folder this row sits in.
                         folderRow?: string,
+                        groupState?: { grouped?: boolean }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3419,6 +3453,46 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           }
                           continue;
                         }
+                        const threadGroupMarkerFork = parseSidebarThreadGroupMarker(item.marker); // fork-hook: thread-ordering/group-span-marker-parse
+                        if (threadGroupMarkerFork !== null) {
+                          const span = activeThreadGroupSpans.find(
+                            (candidate) => candidate.groupKey === threadGroupMarkerFork.groupKey,
+                          );
+                          if (span === undefined) continue;
+                          items.push(
+                            <SortableSidebarMarker
+                              key={item.marker}
+                              marker={item.marker}
+                              className="mx-0.5"
+                            >
+                              <SidebarThreadGroupHeader
+                                group={span.group}
+                                memberCount={span.threads.length}
+                                isGenerating={generatingGroupIds.has(span.groupKey)}
+                                isDissolving={
+                                  threadGroupDragFork.dissolvingGroupKey === span.groupKey
+                                }
+                                onCollapsedChange={(collapsed) =>
+                                  setThreadGroupCollapsed(span.projectKey, span.group.id, collapsed)
+                                }
+                                onRename={(title) =>
+                                  renameThreadGroup(span.projectKey, span.group.id, title)
+                                }
+                                onRegenerate={() =>
+                                  void requestThreadGroupTitle({
+                                    projectKey: span.projectKey,
+                                    groupId: span.group.id,
+                                    members: span.threads,
+                                    expectedGroup: span.group,
+                                    previousTitle: span.group.title,
+                                  })
+                                }
+                                onRemove={() => removeThreadGroup(span.projectKey, span.group.id)}
+                              />
+                            </SortableSidebarMarker>,
+                          );
+                          continue;
+                        } // fork-hook: thread-ordering/group-span-marker-render
                         switch (item.marker) {
                           case "pinned-header":
                             items.push(
@@ -3531,6 +3605,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       }
                       return items;
                     })()}
+                    {/* fork-hook: thread-ordering/group-drop-layer */}
+                    <SidebarThreadGroupDropLayerFork {...threadGroupDragFork.layerProps} />
+                    {/* fork-hook-end */}
                     {settledShelfExpanded && hiddenSettledCount > 0 ? (
                       <li className="list-none">
                         <button
