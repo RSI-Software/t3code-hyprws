@@ -72,6 +72,7 @@ export const forkJobStepLines: Readonly<Record<string, string>> = {
   "lib/fork-hook-guard.ts": "// fork job steps 2 and 5: hook guard",
   "lib/fork-supersedes.ts": "// fork job step 5: supersedes declarations",
   "lib/fork-overlap.ts": "// fork job step 5: overlap predicate",
+  "lib/fork-stale-delete.ts": "// fork job step 5: stale-delete check",
 };
 
 it("every kept fork script names its job step in its header", () => {
