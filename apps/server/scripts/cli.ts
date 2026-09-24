@@ -6,63 +6,23 @@ import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
 import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
-import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
-import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
-import serverPackageJson from "../package.json" with { type: "json" };
 import {
   ServerCliBuildAssetMissingError,
   ServerCliCommandExitError,
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
   ServerCliExecutableImportError,
-  ServerCliPackTarballNameMismatchError,
 } from "./cliErrors.ts";
-
-interface PackageJson {
-  name: string;
-  repository: {
-    type: string;
-    url: string;
-    directory: string;
-  };
-  bin: Record<string, string>;
-  type: string;
-  version: string;
-  engines: Record<string, string>;
-  files: string[];
-  dependencies: Record<string, string>;
-  overrides: Record<string, string>;
-}
-
-const PackageJsonPrettyJson = fromJsonStringPretty(Schema.Unknown);
-const encodePackageJson = Schema.encodeEffect(PackageJsonPrettyJson);
-
-const WorkspaceConfig = Schema.Struct({
-  catalog: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-});
-type WorkspaceConfig = typeof WorkspaceConfig.Type;
-const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
 );
-
-const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const repoRoot = yield* RepoRoot;
-  const workspaceYaml = yield* fs.readFileString(path.join(repoRoot, "pnpm-workspace.yaml"));
-  return yield* decodeWorkspaceConfig(workspaceYaml);
-});
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.StandardCommand) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -272,165 +232,12 @@ const publishCmd = Command.make(
 );
 
 // ---------------------------------------------------------------------------
-// pack subcommand
-// ---------------------------------------------------------------------------
-
-/**
- * Shapes apps/server into what an `npm install <tarball>` needs before `vp pm
- * pack` runs: the release version stamped, `catalog:` specifiers resolved, and
- * workspace overrides inlined. The fork publishes no npm package, so this
- * manifest only ever ships inside the release tarball. Every mutation is
- * reverted even when the pack run fails.
- */
-const withReleasePackageMetadata = Effect.fn("withReleasePackageMetadata")(function* (input: {
-  readonly appVersion: Option.Option<string>;
-  readonly verbose: boolean;
-  readonly packDestination: string;
-  readonly resolveArgs: (version: string) => ReadonlyArray<string>;
-}) {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const repoRoot = yield* RepoRoot;
-  const serverDir = path.join(repoRoot, "apps/server");
-  const packageJsonPath = path.join(serverDir, "package.json");
-
-  // Assert build assets exist
-  for (const relPath of [
-    "dist/bin.mjs",
-    "dist/claude-history-worker.mjs",
-    "dist/client/index.html",
-  ]) {
-    const abs = path.join(serverDir, relPath);
-    if (!(yield* fs.exists(abs))) {
-      return yield* new ServerCliBuildAssetMissingError({ assetPath: abs });
-    }
-  }
-
-  yield* Effect.acquireUseRelease(
-    // Acquire: resolve release metadata and read the original before mutation.
-    Effect.gen(function* () {
-      const version = Option.getOrElse(input.appVersion, () => serverPackageJson.version);
-      const workspaceConfig = yield* readWorkspaceConfig();
-      const workspaceCatalog = workspaceConfig.catalog ?? {};
-      const workspaceOverrides = workspaceConfig.overrides ?? {};
-      const pkg: PackageJson = {
-        name: serverPackageJson.name,
-        repository: serverPackageJson.repository,
-        bin: serverPackageJson.bin,
-        type: serverPackageJson.type,
-        version,
-        engines: serverPackageJson.engines,
-        files: serverPackageJson.files,
-        dependencies: resolveCatalogDependencies(
-          serverPackageJson.dependencies,
-          workspaceCatalog,
-          "apps/server",
-        ),
-        overrides: resolveCatalogDependencies(workspaceOverrides, workspaceCatalog, "apps/server"),
-      };
-
-      return {
-        version,
-        packageJsonString: yield* encodePackageJson(pkg),
-        originalPackageJson: yield* fs.readFile(packageJsonPath),
-      };
-    }),
-    // Use: run vp from the workspace root so pnpm-only workspace config is
-    // interpreted correctly.
-    (resource) =>
-      Effect.gen(function* () {
-        yield* fs.writeFileString(packageJsonPath, `${resource.packageJsonString}\n`);
-        yield* Effect.log("[cli] Applied release package metadata");
-
-        const args = input.resolveArgs(resource.version);
-        const spawnCommand = yield* resolveSpawnCommand("vp", ["pm", ...args]);
-
-        yield* Effect.log(`[cli] Running: vp pm ${args.join(" ")}`);
-        yield* runCommand(
-          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-            cwd: repoRoot,
-            stdout: input.verbose ? "inherit" : "ignore",
-            stderr: "inherit",
-            shell: spawnCommand.shell,
-          }),
-        );
-
-        // The pinned-runtime installer resolves the asset by exact name
-        // (forkServerTarballName in src/cloud/forkRuntimeRelease.ts) and the
-        // release workflow globs `release/*.tgz`, so fail rather than trust
-        // the packer's naming convention.
-        const expectedName = `t3-${resource.version}.tgz`;
-        const packedNames = yield* fs
-          .readDirectory(input.packDestination)
-          .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-        if (!packedNames.includes(expectedName)) {
-          return yield* new ServerCliPackTarballNameMismatchError({
-            destination: input.packDestination,
-            expectedName,
-            packedNames: packedNames.filter((name) => name.endsWith(".tgz")),
-          });
-        }
-        yield* Effect.log(`[cli] Packed ${expectedName} into ${input.packDestination}`);
-      }),
-    // Release: restore the original even if stamping or the pack run fails.
-    (resource) =>
-      Effect.gen(function* () {
-        yield* fs.writeFile(packageJsonPath, resource.originalPackageJson);
-        if (input.verbose) yield* Effect.log("[cli] Restored the original package.json");
-      }),
-  );
-});
-
-// The fork ships AppImages and no npm package, so the pinned-runtime installer
-// resolves a fork version to this tarball instead of a registry spec. See
-// src/cloud/forkRuntimeRelease.ts.
-const createVpPmPackArgs = (destination: string): ReadonlyArray<string> => [
-  "pack",
-  "--filter",
-  "t3",
-  "--pack-destination",
-  destination,
-];
-
-const packCmd = Command.make(
-  "pack",
-  {
-    appVersion: Flag.String("app-version").pipe(
-      Flag.withDescription(
-        "Version stamped into the packed package.json; defaults to the workspace version.",
-      ),
-      Flag.optional,
-    ),
-    destination: Flag.String("destination").pipe(
-      Flag.withDescription("Directory the tarball is written to, resolved against the repo root."),
-      Flag.withDefault("release"),
-    ),
-    verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
-  },
-  (config) =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const fs = yield* FileSystem.FileSystem;
-      const repoRoot = yield* RepoRoot;
-      const destination = path.resolve(repoRoot, config.destination);
-
-      yield* fs.makeDirectory(destination, { recursive: true });
-      yield* withReleasePackageMetadata({
-        appVersion: config.appVersion,
-        verbose: config.verbose,
-        packDestination: destination,
-        resolveArgs: () => createVpPmPackArgs(destination),
-      });
-    }),
-).pipe(Command.withDescription("Pack the server package into a release tarball."));
-
-// ---------------------------------------------------------------------------
 // root command
 // ---------------------------------------------------------------------------
 
 const cli = Command.make("cli").pipe(
   Command.withDescription("T3 server build & publish CLI."),
-  Command.withSubcommands([buildCmd, buildExeCmd, publishCmd, packCmd]),
+  Command.withSubcommands([buildCmd, buildExeCmd, publishCmd]),
 );
 
 Command.run(cli, { version: "0.0.0" }).pipe(
