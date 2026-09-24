@@ -932,8 +932,7 @@ export function BranchToolbarBranchSelector({
                 render={
                   <Button
                     variant="ghost"
-                    size="xs"
-                    className="px-1 text-[10px]"
+                    size="micro" // fork-hook: zmux-estate/checkout-move-size
                     disabled={checkoutMoveControlsLocked || undoUnavailable}
                     onClick={retryOrUndoCheckoutMove}
                     aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
