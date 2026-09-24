@@ -6,7 +6,6 @@ import { codeBlockSchema, linkSchema } from "@milkdown/preset-commonmark";
 import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
 
-import { CHAT_FILE_TAG_CHIP_CLASS_NAME } from "~/components/chat/FileTagChip";
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
@@ -16,6 +15,11 @@ import {
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
 import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
+
+// The chat file-mention chip look, owned here because the editor decorates raw DOM and
+// cannot render the React chip component.
+const FILE_LINK_CHIP_CLASS_NAME =
+  "inline-flex h-[1.41em] max-w-full items-center gap-[0.33em] rounded-[0.5em] px-[0.5em] font-medium leading-none align-middle border border-border/70 bg-accent/40 text-foreground text-[12px] border-[color-mix(in_oklab,var(--context-chip-accent)_34%,var(--contrast-border))] bg-[color-mix(in_oklab,var(--context-chip-accent)_11%,transparent)] text-[color-mix(in_oklab,var(--context-chip-accent)_22%,var(--contrast-foreground))] [--context-chip-accent:oklch(0.62_0.11_215)]";
 
 interface MarkdownEditorPresentationOptions {
   readonly cwd: { current: string };
@@ -202,10 +206,13 @@ function linkView(options: MarkdownEditorPresentationOptions) {
       else dom.removeAttribute("title");
 
       dom.className = "";
+      contentDOM.className = "";
       iconSlot.replaceChildren();
       if (!file?.workspaceRelativePath) return;
 
-      dom.className = `${CHAT_FILE_TAG_CHIP_CLASS_NAME} t3-markdown-editor__file-link`;
+      dom.className = `${FILE_LINK_CHIP_CLASS_NAME} t3-markdown-editor__file-link`;
+      // The label truncates to the chip, as the chat chip's label does.
+      contentDOM.className = "min-w-0 truncate";
       dom.dataset["filePath"] = file.workspaceRelativePath;
       dom.title = file.displayPath;
       const icon = iconElement(file.filePath, options.theme.current);
