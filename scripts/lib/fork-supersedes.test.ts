@@ -4,10 +4,12 @@ import { assert, it } from "@effect/vitest";
 
 import {
   assessForkSupersedes,
+  caseSourceLines,
   collectForkSupersedes,
   contradictingTitles,
   enclosedSupersededTitles,
   parseForkSupersedesCalls,
+  siblingCaseOpenerLines,
   testCaseTitles,
 } from "./fork-supersedes.ts";
 
@@ -92,6 +94,59 @@ it("reads case titles across the dotted effect forms", () => {
     `describe("a suite", () => {});`,
   ].join("\n");
   assert.deepStrictEqual(testCaseTitles(text), ["plain", "dotted", "skipped"]);
+});
+
+it("reads a title prettier wrapped onto the line after its opener", () => {
+  const text = [
+    `it.each([1, 2])("table %s", () => {});`,
+    `it.effect(`,
+    `  "wrapped",`,
+    `  () => Effect.void,`,
+    `);`,
+    `it.effect.each(["add", "replace"] as const)(`,
+    `  "refreshes after %s",`,
+    `  (operation) => Effect.void,`,
+    `);`,
+    `it.effect(() => Effect.void);`,
+  ].join("\n");
+  assert.deepStrictEqual(testCaseTitles(text), ["table %s", "wrapped", "refreshes after %s"]);
+  assert.deepStrictEqual(siblingCaseOpenerLines(text), [1, 2, 6]);
+  assert.deepStrictEqual(caseSourceLines(text, "refreshes after %s"), [
+    `it.effect.each(["add", "replace"] as const)(`,
+    `  "refreshes after %s",`,
+    `  (operation) => Effect.void,`,
+    `);`,
+    `it.effect(() => Effect.void);`,
+  ]);
+  assert.deepStrictEqual(caseSourceLines(text, "absent"), []);
+});
+
+it("judges a declaration naming a wrapped each-table title", () => {
+  const upstream = [
+    `it.effect.each(["add", "replace"] as const)(`,
+    `  "refreshes after %s",`,
+    `  (operation) => expect(operation).toBe("upstream"),`,
+    `);`,
+  ].join("\n");
+  const sibling = [
+    `forkSupersedes({ upstream: "thing.test.ts > refreshes after %s", reason: "why", commit: "abc" });`,
+    `it.effect.each(["add", "replace"] as const)(`,
+    `  "prefers origin after %s",`,
+    `  (operation) => expect(operation).toBe("origin"),`,
+    `);`,
+  ].join("\n");
+  const assessed = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling]]),
+    new Map([["thing.test.ts", upstream]]),
+    new Map(),
+  );
+  assert.isEmpty(assessed.refusals);
+  assert.deepStrictEqual(assessed.superseded, [
+    { path: "thing.test.ts", title: "refreshes after %s" },
+  ]);
+  assert.deepStrictEqual(enclosedSupersededTitles(sibling, "thing.test.ts"), [
+    "refreshes after %s",
+  ]);
 });
 
 it("refuses a declaration naming an absent file or title", () => {
