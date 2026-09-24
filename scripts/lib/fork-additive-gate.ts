@@ -214,15 +214,21 @@ const countRestrictive = (modifiers: ReadonlyArray<string>): number =>
 const isTestPath = (path: string): boolean =>
   path.endsWith(".test.ts") || path.endsWith(".test.tsx");
 
-/** Trimmed, without blank and comment-only lines: what is left is assertion, fixture, or wiring. */
+/** A closing `);`, `]);`, or bare `import {`: it names nothing, so it cannot be an upstream assertion. */
+const STRUCTURAL_LINE = /^(?:(?:import|export)\b)?[^\w"'`]*$/;
+
+/** Trimmed, without blank, comment-only, and structural lines: what is left is assertion, fixture, or wiring. */
 const significantLines = (text: string): ReadonlyArray<string> =>
   text
     .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*");
-    })
-    .map((line) => line.trim());
+    .map((line) => line.trim())
+    .filter(
+      (trimmed) =>
+        trimmed !== "" &&
+        !trimmed.startsWith("//") &&
+        !trimmed.startsWith("*") &&
+        !STRUCTURAL_LINE.test(trimmed),
+    );
 
 /**
  * Upstream lines the head tree no longer carries, as a multiset difference so
@@ -329,9 +335,15 @@ const testFindings = (
     // fork case into a `.fork.test.ts` sibling is not refused. The old
     // union with the since tree was dead code — the since tree here IS
     // `target`, so its line set could never reject anything carried.
-    const upstreamLines = new Set(significantLines(upstreamCountText));
+    // Carried is the multiset intersection: of a line's copies in the since
+    // tree, at most the upstream count are upstream's; the rest are fork
+    // duplicates that may leave freely (RSI-Software/t3code-hyprws#1365).
     const headLines = significantLines(headText);
-    const carried = significantLines(upstreamText).filter((line) => upstreamLines.has(line));
+    const forkCopies = lostUpstreamLines(
+      significantLines(upstreamText),
+      significantLines(upstreamCountText),
+    );
+    const carried = lostUpstreamLines(significantLines(upstreamText), forkCopies);
     const lost = lostUpstreamLines(carried, headLines);
     const siblingText = showTree(runner, worktree, head, forkTestSibling(path));
     const siblingLines = new Set(significantLines(siblingText ?? ""));
