@@ -176,7 +176,7 @@ function GitHubIssueFilterRow({
   );
   const count = filter.values.length;
   return (
-    <Group className="max-w-full text-xs">
+    <Group className="max-w-full">
       <GroupText className="h-auto gap-1.5 rounded-md px-2 text-xs sm:text-xs">
         <FieldIcon className="size-3.5" />
         {field}
