@@ -679,6 +679,7 @@ const rewriteFixture = (): {
   root: string;
   base: string;
   bad: string;
+  restored: string;
   old: string;
   newer: string;
   declared: string;
@@ -713,6 +714,11 @@ const rewriteFixture = (): {
   git("add", "-A");
   git("commit", "-m", `fix: rewrite upstream case\n\n${trailers}`);
   const bad = git("rev-parse", "HEAD");
+  // The repair: upstream's case restored byte for byte.
+  write(upstreamPath, upstreamCase);
+  git("add", "-A");
+  git("commit", "-m", `fix: restore upstream case\n\n${trailers}`);
+  const restored = git("rev-parse", "HEAD");
   // Landed history: the same rewrite as an old commit, then a clean tip commit.
   git("checkout", "--quiet", "-b", "landed", base);
   write(upstreamPath, upstreamCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
@@ -735,7 +741,7 @@ const rewriteFixture = (): {
   git("add", "-A");
   git("commit", "-m", `fix: supersede upstream case\n\n${trailers}`);
   const declared = git("rev-parse", "HEAD");
-  return { root, base, bad, old, newer, declared, upstreamPath };
+  return { root, base, bad, restored, old, newer, declared, upstreamPath };
 };
 
 const scanLedger = `# Fork delta
@@ -777,6 +783,32 @@ it("refuses a new in-window rewrite through the additive and authoring checks to
       failures.some((failure) => failure.startsWith(`additive:tests: ${f.upstreamPath}`)),
       `an in-window rewrite must fail the additive tests check: ${JSON.stringify(failures)}`,
     );
+  } finally {
+    NodeFS.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it("passes a repair that restores an upstream test case byte for byte", () => {
+  const f = rewriteFixture();
+  try {
+    const git = new SystemGit(f.root);
+    const commandRunner = new SystemCommandRunner();
+    const failures = scanFailures(
+      readScan(
+        git,
+        {
+          base: f.base,
+          head: f.restored,
+          target: f.base,
+          typecheck: false,
+          since: f.bad,
+          replayOf: null,
+        },
+        scanLedger,
+        { worktree: f.root, run: commandRunner.run.bind(commandRunner) },
+      ),
+    );
+    assert.deepStrictEqual(failures, []);
   } finally {
     NodeFS.rmSync(f.root, { recursive: true, force: true });
   }
