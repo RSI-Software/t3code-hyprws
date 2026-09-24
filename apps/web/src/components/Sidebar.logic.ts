@@ -386,15 +386,6 @@ export type SidebarThreadGroupLayoutItem<T> =
       readonly threads: readonly T[];
     };
 
-export function getSidebarThreadLayoutOrder<T>(input: {
-  readonly layout: readonly SidebarThreadGroupLayoutItem<T>[];
-  readonly getId: (thread: T) => string;
-}): string[] {
-  return input.layout.flatMap((item) =>
-    item.kind === "thread" ? [input.getId(item.thread)] : item.threads.map(input.getId),
-  );
-}
-
 export function buildSidebarThreadGroupLayout<T>(input: {
   readonly threads: readonly T[];
   readonly groupsByProject: Readonly<Record<string, readonly SidebarThreadGroup[]>>;

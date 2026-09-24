@@ -4,7 +4,6 @@ import {
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
-  getSidebarThreadLayoutOrder,
   formatSidebarRelativeTimeLabel,
   isProjectInSidebarScope,
   resolveCompletedTurnTiming,
@@ -85,54 +84,6 @@ describe("sidebar thread groups", () => {
         threads: [threads[2], threads[1]],
       },
       { kind: "thread", thread: threads[0] },
-    ]);
-  });
-
-  it("keeps threads in visual order through an expanded group", () => {
-    const layout = buildSidebarThreadGroupLayout({
-      threads,
-      groupsByProject: {
-        "project-a": [
-          {
-            id: "group-1",
-            title: "Related work",
-            threadIds: ["thread-b", "thread-c"],
-            collapsed: false,
-          },
-        ],
-      },
-      getId: (thread) => thread.id,
-      getProjectKey: (thread) => thread.projectKey,
-    });
-
-    expect(getSidebarThreadLayoutOrder({ layout, getId: (thread) => thread.id })).toEqual([
-      "thread-a",
-      "thread-b",
-      "thread-c",
-    ]);
-  });
-
-  it("keeps a collapsed group's members in visual order", () => {
-    const layout = buildSidebarThreadGroupLayout({
-      threads,
-      groupsByProject: {
-        "project-a": [
-          {
-            id: "group-1",
-            title: "Related work",
-            threadIds: ["thread-b", "thread-c"],
-            collapsed: true,
-          },
-        ],
-      },
-      getId: (thread) => thread.id,
-      getProjectKey: (thread) => thread.projectKey,
-    });
-
-    expect(getSidebarThreadLayoutOrder({ layout, getId: (thread) => thread.id })).toEqual([
-      "thread-a",
-      "thread-b",
-      "thread-c",
     ]);
   });
 
