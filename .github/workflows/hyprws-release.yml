@@ -428,6 +428,42 @@ jobs:
             --destination release \
             --verbose
 
+      # The self-contained CLI archive every runtime installer downloads.
+      # Mirrors the cli_archive steps of upstream release-desktop.yml for
+      # linux-x64; mirror them again on every rebase. The fork publishes no npm
+      # packages, so upstream publish_cli has no counterpart here.
+      - name: Build CLI single-executable
+        shell: bash
+        env:
+          # The exact version, not a major: vp downloads it from nodejs.org/dist on
+          # the runner, and only exact versions have a dist directory. Keep in
+          # step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # The desktop artifact build above compiled the resource monitor for this target.
+      - name: Stage resource monitor for the CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$target_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$target_dir/t3-resource-monitor"
+
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ needs.preflight.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Smoke-test CLI archive
+        shell: bash
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.preflight.outputs.version }}"
+
       - name: Collect release assets
         id: assets
         shell: bash
@@ -436,7 +472,7 @@ jobs:
           mkdir -p release-publish
           assets=()
           shopt -s nullglob
-          for file in release/*.AppImage release/*.yml release/*.tgz; do
+          for file in release/*.AppImage release/*.yml release/*.tgz release-cli/*.tar.gz; do
             cp "$file" release-publish/
             assets+=("$(basename "$file")")
           done
@@ -465,6 +501,22 @@ jobs:
           merge-multiple: true
           path: release-assets
 
+      # Installers verify archives against this file, so it is written from the
+      # bytes that get uploaded, never from an earlier stage.
+      - name: Write CLI archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          archives=(t3-*.tar.gz)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No CLI archives were produced." >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
@@ -483,6 +535,8 @@ jobs:
             release-assets/*.AppImage
             release-assets/*.yml
             release-assets/*.tgz
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS
           fail_on_unmatched_files: true
           token: ${{ github.token }}
 
