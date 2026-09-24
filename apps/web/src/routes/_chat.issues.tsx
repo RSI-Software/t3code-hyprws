@@ -478,7 +478,7 @@ export function GitHubIssuesPage({
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           <WorkspaceBreadcrumb ariaLabel="GitHub issues breadcrumb">

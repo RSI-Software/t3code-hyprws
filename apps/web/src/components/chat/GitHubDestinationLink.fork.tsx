@@ -233,15 +233,9 @@ function GitHubDestinationLink({
           const label = destinationLabel(destination, linkTarget);
           const button = (
             <Button
-              key={destination}
               size="icon-micro"
-              variant="ghost-muted"
-              className={cn(
-                "size-7 rounded-md bg-background/95 shadow-none transition-[color,opacity,transform,background-color] duration-150 [&_svg]:size-3.5",
-                preferred
-                  ? "text-foreground"
-                  : "pointer-events-none translate-x-1 opacity-0 group-hover/github-link:pointer-events-auto group-hover/github-link:translate-x-0 group-hover/github-link:opacity-100 group-focus-within/github-link:pointer-events-auto group-focus-within/github-link:translate-x-0 group-focus-within/github-link:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100",
-              )}
+              variant={preferred ? "ghost" : "ghost-muted"}
+              className="size-7 [&_svg]:size-3.5"
               aria-label={`${label}${preferred ? ", default" : ""}`}
               onClick={(event) => {
                 event.preventDefault();
@@ -253,12 +247,21 @@ function GitHubDestinationLink({
             </Button>
           );
           return (
-            <Tooltip key={destination}>
-              <TooltipTrigger render={button} />
-              <TooltipPopup side="top">
-                {preferred ? `Default: ${defaultName}` : label}
-              </TooltipPopup>
-            </Tooltip>
+            <span
+              key={destination}
+              className={cn(
+                "inline-flex transition-[opacity,transform] duration-150",
+                !preferred &&
+                  "pointer-events-none translate-x-1 opacity-0 group-hover/github-link:pointer-events-auto group-hover/github-link:translate-x-0 group-hover/github-link:opacity-100 group-focus-within/github-link:pointer-events-auto group-focus-within/github-link:translate-x-0 group-focus-within/github-link:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100",
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger render={button} />
+                <TooltipPopup side="top">
+                  {preferred ? `Default: ${defaultName}` : label}
+                </TooltipPopup>
+              </Tooltip>
+            </span>
           );
         })}
       </span>
