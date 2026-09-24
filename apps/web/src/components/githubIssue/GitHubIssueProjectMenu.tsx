@@ -1,5 +1,6 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { ChevronDownIcon, LayersIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -17,11 +18,21 @@ import {
 } from "../ui/menu";
 
 /**
- * The sidebar's project menu lays an icon beside a label by flexing a radio item's single child
- * span. Reused verbatim so this is the same control users already know, not a second take on it.
+ * Lays a project icon beside its label inside a radio item; `muted` greys rows outside the window.
  */
-const PROJECT_ROW =
-  "h-8 min-h-8 py-0 text-sm font-medium [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:items-center [&>span:last-child]:gap-2";
+function ProjectRowLabel({
+  muted,
+  children,
+}: {
+  readonly muted: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <span className={cn("flex min-w-0 items-center gap-2", muted && "text-muted-foreground")}>
+      {children}
+    </span>
+  );
+}
 
 export const ALL_PROJECTS_VALUE = "__all__";
 
@@ -33,13 +44,11 @@ function ProjectRow({
   readonly muted: boolean;
 }) {
   return (
-    <MenuRadioItem
-      value={pullRequestProjectKey(project)}
-      closeOnClick
-      className={cn(PROJECT_ROW, muted && "text-muted-foreground")}
-    >
-      <ProjectFavicon project={project} className="size-4 shrink-0" />
-      <span className="min-w-0 truncate text-sm">{project.title}</span>
+    <MenuRadioItem value={pullRequestProjectKey(project)} closeOnClick>
+      <ProjectRowLabel muted={muted}>
+        <ProjectFavicon project={project} className="size-4 shrink-0" />
+        <span className="min-w-0 truncate">{project.title}</span>
+      </ProjectRowLabel>
     </MenuRadioItem>
   );
 }
@@ -78,20 +87,19 @@ export function GitHubIssueProjectMenu({
             size="sm"
             variant="outline"
             aria-label="Filter GitHub issues by project"
-            className={cn(
-              "min-w-0 max-w-44 justify-between",
-              outside && "border-dashed text-muted-foreground",
-            )}
+            className="min-w-0 max-w-44 justify-between"
           />
         }
       >
-        {selected ? (
-          <ProjectFavicon project={selected} className="size-4 shrink-0" />
-        ) : (
-          <LayersIcon aria-hidden className="size-4 shrink-0" />
-        )}
-        <span className={cn("min-w-0 truncate", ISSUE_CONTROL_LABEL)}>
-          {selected?.title ?? "All projects"}
+        <span className={cn("flex min-w-0 items-center gap-2", outside && "text-muted-foreground")}>
+          {selected ? (
+            <ProjectFavicon project={selected} className="size-4 shrink-0" />
+          ) : (
+            <LayersIcon aria-hidden className="size-4 shrink-0" />
+          )}
+          <span className={cn("min-w-0 truncate", ISSUE_CONTROL_LABEL)}>
+            {selected?.title ?? "All projects"}
+          </span>
         </span>
         <ChevronDownIcon aria-hidden className="-mr-px size-4 shrink-0" />
       </MenuTrigger>
@@ -110,13 +118,11 @@ export function GitHubIssueProjectMenu({
               <MenuGroupLabel>Outside this window</MenuGroupLabel>
             </>
           )}
-          <MenuRadioItem
-            value={ALL_PROJECTS_VALUE}
-            closeOnClick
-            className={cn(PROJECT_ROW, windowProject !== undefined && "text-muted-foreground")}
-          >
-            <LayersIcon aria-hidden className="size-4 shrink-0" />
-            <span className="min-w-0 truncate text-sm">All projects</span>
+          <MenuRadioItem value={ALL_PROJECTS_VALUE} closeOnClick>
+            <ProjectRowLabel muted={windowProject !== undefined}>
+              <LayersIcon aria-hidden className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">All projects</span>
+            </ProjectRowLabel>
           </MenuRadioItem>
           {others.map((project) => (
             <ProjectRow
