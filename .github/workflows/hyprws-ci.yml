@@ -70,6 +70,14 @@ jobs:
           vp run fork:delta --check --head "$HEAD_SHA"
           node scripts/lib/fork-ci-flags.ts ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
+      # Judge only this branch's commits: `since` is the ledger's trunk
+      # merge base, so the stack below it stays out of scope.
+      - name: Fork stale-delete check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
+        run: vp run fork:stale-delete --base "$SINCE" --head "$HEAD_SHA"
+
       # Pin to the fork's own base: the rebase-scan table check judges this
       # head against the upstream base it sits on, not live upstream/main.
       # The argv comes from the shared helper; this step only replays it.
