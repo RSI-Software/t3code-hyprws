@@ -252,11 +252,9 @@ export function GitHubIssueDetailContent({
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
-        {detail.issueType == null ? null : (
-          <GitHubIssueTypeChip issueType={detail.issueType} className="px-2" />
-        )}
+        {detail.issueType == null ? null : <GitHubIssueTypeChip issueType={detail.issueType} />}
         {detail.labels.map((label) => (
-          <GitHubIssueLabelChip key={label.name} label={label} className="px-2" />
+          <GitHubIssueLabelChip key={label.name} label={label} />
         ))}
         {detail.assignees.map((assignee) => (
           <span
