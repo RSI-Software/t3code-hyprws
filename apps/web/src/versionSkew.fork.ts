@@ -4,20 +4,14 @@
 // returns null.
 import { isForkServiceVersion } from "@t3tools/shared/forkVersion";
 
-const FORK_RELEASE_REPOSITORY = "RSI-Software/t3code-hyprws";
-
 /**
  * `manualServerUpdateCommand` is only reached when the connected server
- * reports no self-update capability at all (see
- * `resolveServerSelfUpdateCapability`): a dev checkout, an `npx`-run server,
- * or an older build with nothing on this machine guaranteed to be an
- * installed, launcher-managed `t3`. `t3 update <version>` also resolves
- * releases from `pingdotgg/t3code` by default (see
- * `packages/shared/src/cliRelease.ts`), which never carries a `-hyprws` tag.
- * Neither gap is one this command can paper over, so a fork version gets the
- * release page instead of a command that may not run or may 404.
+ * reports no self-update capability (see `resolveServerSelfUpdateCapability`).
+ * A fork server has no npm package for `npx t3@<version>` to fetch, so a fork
+ * version gets `t3 update <version>`, which installs the fork release on the
+ * host through the `t3` the fork installer put there.
  */
 export function forkManualServerUpdateCommand(targetVersion: string): string | null {
   if (!isForkServiceVersion(targetVersion)) return null;
-  return `https://github.com/${FORK_RELEASE_REPOSITORY}/releases/tag/v${targetVersion}`;
+  return `t3 update ${targetVersion}`;
 }

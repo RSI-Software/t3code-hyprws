@@ -7,11 +7,12 @@ vi.mock("./branding", () => branding);
 import { manualServerUpdateCommand, resolveVersionMismatch } from "./versionSkew";
 
 describe("manualServerUpdateCommand (fork)", () => {
-  it("points a fork version at its GitHub release page", () => {
-    expect(manualServerUpdateCommand("0.0.43-hyprws.2")).toBe(
-      "https://github.com/RSI-Software/t3code-hyprws/releases/tag/v0.0.43-hyprws.2",
-    );
-  });
+  it.each(["0.0.43-hyprws.2", "0.0.43-hyprws-nightly.20260923.688"])(
+    "installs fork version %s with t3 update",
+    (version) => {
+      expect(manualServerUpdateCommand(version)).toBe(`t3 update ${version}`);
+    },
+  );
 
   it("leaves an upstream version on npx", () => {
     expect(manualServerUpdateCommand("0.0.43")).toBe("npx t3@0.0.43");
