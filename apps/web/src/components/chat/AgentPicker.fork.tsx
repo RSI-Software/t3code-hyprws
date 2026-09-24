@@ -13,11 +13,9 @@ import {
 } from "@t3tools/shared/model";
 import { BotIcon } from "lucide-react";
 import { memo, useCallback, useState } from "react";
-import type { VariantProps } from "class-variance-authority";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { buttonVariants } from "../ui/button";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
 import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
@@ -56,7 +54,6 @@ export interface AgentControlProps {
   model: string | null | undefined;
   modelOptions?: ProviderOptions | null | undefined;
   planModeEnabled: boolean;
-  triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
 }
 
@@ -179,7 +176,6 @@ export const AgentPicker = memo(function AgentPicker({
   model,
   modelOptions,
   planModeEnabled,
-  triggerVariant,
   triggerClassName,
   ...persistence
 }: AgentControlProps & TraitsPersistence) {
@@ -202,7 +198,6 @@ export const AgentPicker = memo(function AgentPicker({
       <MenuTrigger
         render={
           <ComposerControl
-            variant={triggerVariant ?? "ghost"}
             className={cn(
               "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap sm:max-w-48",
               triggerClassName,
