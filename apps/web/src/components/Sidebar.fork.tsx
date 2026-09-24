@@ -7,7 +7,6 @@ import { useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { cn } from "~/lib/utils";
 import {
   supportsDesktopProjectWindows,
   type DesktopProjectWindowBridge,
@@ -65,7 +64,7 @@ export function SidebarOpenProjectWindowButtonFork(props: {
       tabIndex={-1}
       aria-hidden="true"
       title={`Open ${props.project.displayName} in new window`}
-      className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+      className="ml-auto"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         props.onOpen(event, props.project);
@@ -79,8 +78,4 @@ export function SidebarOpenProjectWindowButtonFork(props: {
 /** The project-settings button's class name: `ml-auto` only when the open-window button is absent. */
 export const projectSettingsButtonClassNameFork = (
   desktopBridge: DesktopProjectWindowBridge | null,
-): string =>
-  cn(
-    "size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground",
-    desktopBridge ? "" : "ml-auto",
-  );
+): string => (desktopBridge ? "" : "ml-auto");
