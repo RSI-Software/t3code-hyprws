@@ -18,9 +18,7 @@ import {
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
-import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/pinned-runtime-fork-release-import
 import * as ProcessRunner from "../processRunner.ts";
-import { installForkAppImage } from "./forkRuntimeRelease.ts"; // fork-hook: distribution/pinned-runtime-fork-release-install-import
 
 /**
  * A pinned runtime is an exact t3 release archive unpacked into
@@ -330,11 +328,7 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
   };
 
   return yield* Effect.gen(function* () {
-    if (isForkServiceVersion(input.version)) {
-      yield* installForkAppImage(input, stagingDir); // fork-hook: distribution/pinned-runtime-fork-release
-    } else {
-      yield* installFromArchive(input, stagingDir);
-    }
+    yield* installFromArchive(input, stagingDir);
 
     input.onProgress?.({ stage: "validate" });
     yield* input.validate(stagingPaths);
