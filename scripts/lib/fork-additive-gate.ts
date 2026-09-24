@@ -1,18 +1,15 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Additive gate (a fork:scan stage): the finished fork tree must be a pure
-// fork job step 5: additive gate
-// Gate: fork:ci — the additive gate, computed inside the fork:scan range; a finding fails the scan.
-// addition on top of its upstream base. Checks 1-3 of the old four-check walk
-// (RSI-Software/t3code-hyprws#1190): every upstream file still exists, every
-// upstream migration keeps its name with no shared number, and every upstream
-// test file exists, keeps every significant line, is not shrunk, and gains no
-// `.skip`/`.todo`/`.only`. Read-only: git reads only, no repairs, no writers.
+// Additive gate (a fork:scan stage): the fork tree must be a pure addition on its upstream base.
+// Every upstream file still exists, every upstream migration keeps its name with no shared number,
+// and every upstream test file keeps every significant line, is not shrunk, and gains no
+// `.skip`/`.todo`/`.only`. Read-only: git reads only.
 
 import * as NodePath from "node:path";
 
-import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { enclosedSupersededTitles } from "./fork-supersedes.ts";
+import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { readBlobs } from "./fork-git-reader.ts";
+import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -45,17 +42,6 @@ const gitOut = (
   args: ReadonlyArray<string>,
 ): string | null => {
   const result = runner.run("git", args, worktree);
-  if (result.status !== 0 || result.error !== undefined) return null;
-  return result.stdout;
-};
-
-const showTree = (
-  runner: CommandRunner,
-  worktree: string,
-  tree: string,
-  path: string,
-): string | null => {
-  const result = runner.run("git", ["show", `${tree}:${path}`], worktree);
   if (result.status !== 0 || result.error !== undefined) return null;
   return result.stdout;
 };
@@ -214,15 +200,21 @@ const countRestrictive = (modifiers: ReadonlyArray<string>): number =>
 const isTestPath = (path: string): boolean =>
   path.endsWith(".test.ts") || path.endsWith(".test.tsx");
 
-/** Trimmed, without blank and comment-only lines: what is left is assertion, fixture, or wiring. */
+/** A closing `);`, `]);`, or bare `import {`: it names nothing, so it cannot be an upstream assertion. */
+const STRUCTURAL_LINE = /^(?:(?:import|export)\b)?[^\w"'`]*$/;
+
+/** Trimmed, without blank, comment-only, and structural lines: what is left is assertion, fixture, or wiring. */
 const significantLines = (text: string): ReadonlyArray<string> =>
   text
     .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*");
-    })
-    .map((line) => line.trim());
+    .map((line) => line.trim())
+    .filter(
+      (trimmed) =>
+        trimmed !== "" &&
+        !trimmed.startsWith("//") &&
+        !trimmed.startsWith("*") &&
+        !STRUCTURAL_LINE.test(trimmed),
+    );
 
 /**
  * Upstream lines the head tree no longer carries, as a multiset difference so
@@ -248,43 +240,41 @@ const lostUpstreamLines = (
   return lost;
 };
 
+/** The significant lines each backport commit removes, by path: upstream's own removals, never loss. */
+const backportRemovals = (
+  runner: CommandRunner,
+  worktree: string,
+  backports: Iterable<string>,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const removed = new Map<string, Array<string>>();
+  for (const sha of backports) {
+    const patch = gitOut(runner, worktree, [
+      "-c",
+      "core.quotePath=false",
+      "show",
+      "--format=",
+      "--unified=0",
+      "--no-renames",
+      sha,
+    ]);
+    let path = "";
+    for (const line of (patch ?? "").split("\n")) {
+      if (line.startsWith("--- ")) path = line.startsWith("--- a/") ? line.slice(6) : "";
+      else if (line.startsWith("-") && path !== "")
+        removed.set(path, [...(removed.get(path) ?? []), ...significantLines(line.slice(1))]);
+    }
+  }
+  return removed;
+};
+
 /** Enough of the loss to recognise the case it came from, without pasting the file into a report. */
 const LOST_LINE_SAMPLE = 5;
-
-export const forkTestSibling = (path: string): string =>
-  path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
-
-export const upstreamTestPath = (sibling: string): string =>
-  sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
 
 // The significant lines one upstream case carries: the opener line naming
 // the title through the next case opener. Line-based, the way
 // `significantLines` is — a case body is what the lost-line multiset counts.
-const TITLE_OF =
-  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
-
-const caseLines = (text: string, title: string): ReadonlyArray<string> => {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const started: Array<string> = [];
-  let inside = false;
-  for (const line of lines) {
-    const current =
-      TITLE_OF.exec(line)
-        ?.slice(1)
-        .find((part) => part !== undefined) ?? null;
-    if (current !== null) {
-      if (current === title && !inside) {
-        inside = true;
-        started.push(line.trim());
-        continue;
-      }
-      if (inside) break;
-      continue;
-    }
-    if (inside) started.push(line);
-  }
-  return significantLines(started.join("\n"));
-};
+const caseLines = (text: string, title: string): ReadonlyArray<string> =>
+  significantLines(caseSourceLines(text, title).join("\n"));
 
 const testFindings = (
   runner: CommandRunner,
@@ -292,27 +282,37 @@ const testFindings = (
   target: string,
   upstreamTarget: string,
   head = "HEAD",
+  backports: Iterable<string> = [],
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
-  for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
-    const upstreamText = showTree(runner, worktree, target, path);
+  const backported = backportRemovals(runner, worktree, backports);
+  const paths = treeNames(runner, worktree, target).filter(isTestPath);
+  const blobs = readBlobs(
+    worktree,
+    paths.flatMap((path) => [
+      `${target}:${path}`,
+      `${upstreamTarget}:${path}`,
+      `${head}:${path}`,
+      `${head}:${forkTestSibling(path)}`,
+    ]),
+  );
+  const showTree = (tree: string, path: string): string | null =>
+    blobs.get(`${tree}:${path}`) ?? null;
+  for (const path of paths) {
+    const upstreamText = showTree(target, path);
     if (upstreamText === null) continue;
-    // Lost lines and declaration counts are measured against the upstream
-    // target tree, not the since tree: a case the fork added itself (absent
-    // upstream) may leave freely — moving a legacy fork case into a
-    // `.fork.test.ts` sibling must not read as upstream loss. Only an
-    // upstream-carried declaration counts.
-    const upstreamBaseText = showTree(runner, worktree, upstreamTarget, path);
+    // Lost lines and declaration counts are measured against the upstream target tree, not the since
+    // tree: a case the fork added itself may leave freely, so moving it into a `.fork.test.ts`
+    // sibling is not upstream loss. Only an upstream-carried declaration counts.
+    const upstreamBaseText = showTree(upstreamTarget, path);
     const forkOwned = target !== upstreamTarget && upstreamBaseText === null;
-    // A null base text IS the fork-created case: trees.base is the upstream
-    // merge base, so every upstream-carried test is in it by construction.
-    // A fork-created file is exempt from the deletion, lost-line, and
-    // shrink checks below — but NOT from the .skip/.todo/.only marker
-    // check, which has no upstream-ownership premise.
+    // A null base text IS the fork-created case: trees.base is the upstream merge base, so every
+    // upstream-carried test is in it. A fork-created file skips the deletion, lost-line, and shrink
+    // checks, but NOT the .skip/.todo/.only check, which has no upstream-ownership premise.
     const upstreamCountText = target === upstreamTarget ? upstreamText : (upstreamBaseText ?? "");
     const upstreamCountModifiers = declarationModifiers(upstreamCountText);
     const upstreamPresent = countPresent(upstreamCountModifiers);
-    const headText = showTree(runner, worktree, head, path);
+    const headText = showTree(head, path);
     if (headText === null) {
       if (forkOwned) continue;
       findings.push({
@@ -324,31 +324,26 @@ const testFindings = (
       });
       continue;
     }
-    // Lost lines are measured against the upstream target tree only: a
-    // line the fork added itself may leave freely, so moving a legacy
-    // fork case into a `.fork.test.ts` sibling is not refused. The old
-    // union with the since tree was dead code — the since tree here IS
-    // `target`, so its line set could never reject anything carried.
-    const upstreamLines = new Set(significantLines(upstreamCountText));
+    // Lost lines are measured against the upstream target tree only: a line the fork added itself may
+    // leave freely. Carried is the multiset intersection: of a line's copies in the since tree, at
+    // most the upstream count are upstream's; the rest are fork duplicates that may leave freely.
     const headLines = significantLines(headText);
-    const carried = significantLines(upstreamText).filter((line) => upstreamLines.has(line));
-    const lost = lostUpstreamLines(carried, headLines);
-    const siblingText = showTree(runner, worktree, head, forkTestSibling(path));
+    const forkCopies = lostUpstreamLines(
+      significantLines(upstreamText),
+      significantLines(upstreamCountText),
+    );
+    const carried = lostUpstreamLines(significantLines(upstreamText), forkCopies);
+    const lost = lostUpstreamLines(
+      lostUpstreamLines(carried, headLines),
+      backported.get(path) ?? [],
+    );
+    const siblingText = showTree(head, forkTestSibling(path));
     const siblingLines = new Set(significantLines(siblingText ?? ""));
     const unmoved = lost.filter((line) => !siblingLines.has(line));
-    // A live declaration supersedes rather than contradicts: the upstream
-    // case it names may lose its lines and its declarations, because the
-    // sibling carries the fork behaviour beside a record of why. Only a
-    // named case is excused — a sibling case contradicting without one
-    // stays a finding, and the scan's own supersedes findings name it.
-    // The exemption is per declaration, resolved by documentation: each
-    // declaration must sit immediately before a sibling case, and each
-    // documented case excuses exactly one declaration. Five declarations
-    // stacked before one case excuse one deletion, never five
-    // (RSI-Software/t3code-hyprws#1208).
-    // An inversion names a different title than upstream's, so the
-    // exemption keys on the declaration, never on a same-titled sibling
-    // case.
+    // A live declaration supersedes rather than contradicts, so the upstream case it names may lose its
+    // lines and declarations. Each declaration must sit immediately before a sibling case, and each
+    // documented case excuses exactly one. An inversion names a title unlike upstream's, so the
+    // exemption keys on the declaration, never on a same-titled sibling case.
     const named = enclosedSupersededTitles(siblingText ?? "", path);
     const excused =
       named.length === 0
@@ -401,13 +396,15 @@ export const checkAdditive = (
   runner: CommandRunner,
   worktree: string,
   trees: { readonly base: string; readonly since: string | null },
-  options: { head?: string } = {},
+  options: { head?: string; backports?: Iterable<string> } = {},
 ): ReadonlyArray<AdditiveFinding> => {
   const head = options.head ?? "HEAD";
   return [
     ...missingUpstreamFiles(runner, worktree, trees.base, head),
     ...migrationFindings(runner, worktree, trees.base, head),
-    ...(trees.since === null ? [] : testFindings(runner, worktree, trees.since, trees.base, head)),
+    ...(trees.since === null
+      ? []
+      : testFindings(runner, worktree, trees.since, trees.base, head, options.backports)),
   ];
 };
 
