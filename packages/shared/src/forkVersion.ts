@@ -23,3 +23,40 @@ const FORK_PRERELEASE = /^[^-]+-hyprws(?:-nightly)?\./;
 export function isForkServiceVersion(version: string): boolean {
   return EXACT_SEMVER.test(version) && FORK_PRERELEASE.test(version);
 }
+
+/**
+ * The repository fork releases publish to. `cliRelease.ts` reads it through a
+ * marked hook, so `t3 update`, the pinned runtime, and the SSH runner resolve
+ * the release index and archive downloads here instead of upstream's
+ * repository. `T3CODE_RELEASE_BASE_URL` still overrides the download origin.
+ */
+export const FORK_RELEASE_REPOSITORY = "RSI-Software/t3code-hyprws";
+
+/** The nightly tag the fork release workflow writes: `hyprws-nightly.<date>.<run>`. */
+const FORK_NIGHTLY_VERSION = /^[^-+]+-hyprws-nightly\.\d{8}\.\d+$/;
+
+/**
+ * `"nightly"` for a fork nightly version, otherwise `undefined` so upstream's
+ * channel rule decides. Upstream reads a train from the first prerelease
+ * identifier, which a fork nightly spells `hyprws-nightly`; a fork stable
+ * (`hyprws.<n>`) already falls through to upstream's `"stable"`.
+ */
+export function forkCliReleaseChannelOf(version: string): "nightly" | undefined {
+  return FORK_NIGHTLY_VERSION.test(version) ? "nightly" : undefined;
+}
+
+/**
+ * True when the version-skew check should compare two versions in full rather
+ * than by `major.minor.patch`: both are fork releases on the same channel.
+ * Fork stables share a core across `hyprws.<n>` builds and fork nightlies
+ * never carry upstream's `nightly` identifier, so upstream's core-only rule
+ * would read `0.0.43-hyprws.3` against `0.0.43-hyprws.2` as equal. A fork
+ * stable against a fork nightly keeps upstream's core comparison.
+ */
+export function forkComparesFullVersions(clientVersion: string, serverVersion: string): boolean {
+  return (
+    isForkServiceVersion(clientVersion) &&
+    isForkServiceVersion(serverVersion) &&
+    forkCliReleaseChannelOf(clientVersion) === forkCliReleaseChannelOf(serverVersion)
+  );
+}

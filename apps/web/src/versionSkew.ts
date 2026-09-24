@@ -1,5 +1,6 @@
 import type { EnvironmentId, ServerConfig, ServerSelfUpdateCapability } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import { forkComparesFullVersions } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/version-skew-fork-version-import
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
 import * as Schema from "effect/Schema";
 
@@ -65,8 +66,9 @@ export function resolveVersionMismatch(
   const clientCore = versionCore(normalizedClientVersion);
   const serverCore = versionCore(normalizedServerVersion);
   const compareNightlyBuilds =
-    parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
-    parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly";
+    (parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
+      parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly") ||
+    forkComparesFullVersions(normalizedClientVersion, normalizedServerVersion); // fork-hook: distribution/version-skew-full-compare
   const serverIsBehind =
     parseSemver(clientCore) && parseSemver(serverCore)
       ? compareSemverVersions(
