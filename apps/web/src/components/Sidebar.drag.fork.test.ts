@@ -4,10 +4,13 @@ import { createSidebarCollisionDetection } from "./Sidebar.drag.ts";
 import {
   sidebarListItemId,
   sidebarMarkerId,
-  sidebarThreadGroupHeaderId,
   type SidebarListItem,
   type SidebarSection,
 } from "./Sidebar.logic.ts";
+import {
+  sidebarThreadGroupHeaderMarker,
+  sidebarThreadGroupKey,
+} from "./SidebarThreadGroup.markers.ts";
 
 const thread = (key: string, section: SidebarSection): SidebarListItem => ({
   kind: "thread",
@@ -24,7 +27,8 @@ const rect = (top: number, height: number) => ({
   width: 260,
 });
 
-const HEADER_ID = sidebarThreadGroupHeaderId("project", "group");
+const HEADER_MARKER = sidebarThreadGroupHeaderMarker(sidebarThreadGroupKey("project", "group"));
+const HEADER_ID = sidebarMarkerId(HEADER_MARKER);
 
 /** The divider row renders whether or not Pins holds anything, and its label
     spans the sidebar, so the section branch runs at every ordinary pointer x. */
@@ -35,6 +39,7 @@ function collisionArgs(pointerX: number) {
     { kind: "marker", marker: "pinned-divider" },
     thread("member", "active"),
     thread("source", "active"),
+    { kind: "marker", marker: HEADER_MARKER },
     { kind: "marker", marker: "settled-header" },
   ];
   // The header sits nearest the lifted card; the member row is far above it.
