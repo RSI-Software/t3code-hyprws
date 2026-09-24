@@ -13,10 +13,11 @@
 // and the scripts workspace suite runs whole, the way the Test Scripts job
 // does, so a local green run cannot be greener than CI
 // (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
-// the Fork rebase scan, the `vp check` step, and the Test Scripts job of
-// hyprws-ci.yml; the Body job's squash-body check needs the pull-request
-// body artifact and gates separately, as do knip, typecheck, the desktop
-// build, the product test jobs, and the release and sync workflows.
+// the Fork stale-delete check, the Fork rebase scan, the `vp check` step,
+// and the Test Scripts job of hyprws-ci.yml; the Body job's squash-body
+// check needs the pull-request body artifact and gates separately, as do
+// knip, typecheck, the desktop build, the product test jobs, and the
+// release and sync workflows.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
@@ -28,16 +29,19 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
   1. the ledger flags, derived by scripts/lib/fork-ci-flags.ts
   2. vp run fork:delta --check --head <head>, the same form the workflow's
      Fork ledger step runs (scripts/fork-delta.ts)
-  3. vp run fork:scan with exactly those flags (--no-typecheck included),
+  3. vp run fork:stale-delete --base <since> --head <head>: no branch
+     commit deletes an upstream line a later one restores
+     (scripts/lib/fork-stale-delete.ts); skipped under --since
+  4. vp run fork:scan with exactly those flags (--no-typecheck included),
      which carries the additive gate: files, migrations, tests
      intact (scripts/lib/fork-additive-gate.ts), the hook guard (marked
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  4. vp check, the exact form the workflow's Check step runs
+  5. vp check, the exact form the workflow's Check step runs
      (scripts/fork-ci.ts never passes --fix: the fixer reformats files
      outside branch scope on this trunk)
-  5. the whole @t3tools/scripts test suite
+  6. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -103,6 +107,17 @@ export const run = (
     return 1;
   }
 
+  // The sync battery's --since spans the whole replayed stack, which predates
+  // the check; a branch run judges only its own commits.
+  const staleDelete =
+    sinceOverride === undefined
+      ? step("vp", ["run", "fork:stale-delete", "--base", flags.since, "--head", flags.head], root)
+      : 0;
+  if (staleDelete !== 0) {
+    process.stderr.write("fork:ci: stale-delete check failed; fix above before pushing\n");
+    return 1;
+  }
+
   const scan = step("vp", ["run", "fork:scan", ...forkScanArguments(flags)], root);
   if (scan !== 0) {
     process.stderr.write("fork:ci: rebase scan failed; fix above before pushing\n");
@@ -122,7 +137,7 @@ export const run = (
   }
 
   process.stdout.write(
-    "fork:ci: ok; the delta check, rebase scan, vp check, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, stale-delete check, rebase scan, vp check, and scripts suite are green on this head\n",
   );
   return 0;
 };
