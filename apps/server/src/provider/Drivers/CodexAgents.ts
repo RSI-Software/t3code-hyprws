@@ -3,6 +3,7 @@ import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import type * as Schema from "effect/Schema";
 import { parse as parseToml } from "smol-toml";
 
 import { expandHomePath } from "../../pathExpansion.ts";
@@ -11,7 +12,8 @@ export interface CodexAgentDefinition {
   readonly name: string;
   readonly description: string;
   readonly developerInstructions: string;
-  readonly config: Readonly<Record<string, unknown>>;
+  // Forwarded verbatim as Codex thread config, which the app server types as JSON.
+  readonly config: { readonly [key: string]: Schema.Json };
   readonly sourcePath: string;
 }
 
@@ -27,9 +29,9 @@ export function parseCodexAgentDefinition(
   sourcePath: string,
   contents: string,
 ): CodexAgentDefinition | undefined {
-  let parsed: Record<string, unknown>;
+  let parsed: Record<string, Schema.Json>;
   try {
-    parsed = parseToml(contents) as Record<string, unknown>;
+    parsed = parseToml(contents) as Record<string, Schema.Json>;
   } catch {
     return undefined;
   }

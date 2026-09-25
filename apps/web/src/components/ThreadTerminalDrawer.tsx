@@ -1299,7 +1299,7 @@ export function TerminalCheckoutModeButton({
         layout === "sidebar"
           ? "inline-flex h-full items-center border-l border-border/70 px-1 transition-colors hover:bg-accent/70"
           : "p-1 transition-colors hover:bg-accent",
-        mode === "pin" ? "text-amber-500" : "text-foreground/90",
+        mode === "pin" ? "text-warning" : "text-foreground/90", // fork-hook: zmux-estate/terminal-pin-tone
       )}
       onClick={() => onModeChange?.(terminalId, mode === "pin" ? "follow" : "pin")}
       disabled={disabled}

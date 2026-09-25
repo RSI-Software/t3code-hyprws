@@ -10,3 +10,12 @@
 .wco.wco {
   --workspace-topbar-height: max(env(titlebar-area-height, 2.5rem), 2.5rem);
 }
+
+/* rich-markdown: the editor root, a Tailwind utility so the class-name lint
+   knows it. Its milkdown mount fills the scroll area; the prose rules stay in
+   components/files/markdown-rich-editor.css. */
+@utility t3-markdown-editor {
+  & .milkdown {
+    min-height: 100%;
+  }
+}

@@ -13,7 +13,7 @@ import { buildEnvironmentAuthHeaders, withEnvironmentCredentials } from "./envir
 
 const AUTH_MUTATION_TIMEOUT_MS = 10_000;
 
-class EnvironmentNotConnectedError extends Data.TaggedError(
+export class EnvironmentNotConnectedError extends Data.TaggedError(
   "@t3tools/client-runtime/state/authHttp/EnvironmentNotConnectedError",
 )<{ readonly message: string }> {}
 
