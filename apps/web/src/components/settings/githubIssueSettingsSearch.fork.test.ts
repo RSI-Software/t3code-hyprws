@@ -17,6 +17,7 @@ const NOTHING_AVAILABLE: SettingsSearchAvailability = {
   hasCloudPublicConfig: false,
   hasEnvironment: false,
   hasProviderSettingsEnvironment: false,
+  hasMacProviderSettingsEnvironment: false,
   canManageLocalBackend: false,
   isWslSettingsRowVisible: false,
   hasThreadAutoSettlement: false,
