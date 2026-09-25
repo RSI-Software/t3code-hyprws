@@ -8,6 +8,11 @@
 // blocked, report. There is no state machine, no gates, no lanes, and no modes —
 // a rerun of the same command is always the next move.
 //
+// The sync worktree is the carrier between runs. A run records its tag, target
+// sha, and lease beside it; a rerun on the same three adopts the kept worktree
+// — continuing a resolved rebase, or taking a finished HEAD with any reshape
+// extras committed there — and a different tag or a moved lease recreates it.
+//
 // | Step    | Fails when                                         |
 // | ------- | -------------------------------------------------- |
 // | target  | the named target is not a release tag on upstream  |
@@ -180,6 +185,8 @@ export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 export const DecisionRoute = Schema.Struct({
   /** The detached worktree holding the stopped rebase; `""` when nothing to resume. */
   worktree: Schema.String,
+  /** The rebased tip a red check battery left in the worktree; trunk did not move. */
+  tip: Schema.optionalKey(Schema.String),
   /** The paths resolved by hand there. */
   paths: Schema.Array(Schema.String),
   /** The exact resume commands, verbatim. */
@@ -338,6 +345,41 @@ const REBASE_CONFIG = [
 
 export const worktreePath = (root: string): string => NodePath.join(root, SYNC_DIR, WORKTREE_DIR);
 
+/** What the kept sync worktree was built for; a rerun adopts it only on an exact match. */
+interface WorktreeState {
+  readonly tag: string;
+  readonly targetSha: string;
+  readonly lease: string;
+}
+
+const worktreeStatePath = (root: string): string =>
+  NodePath.join(root, SYNC_DIR, `${WORKTREE_DIR}.json`);
+
+const keptWorktreeMatches = (
+  runner: CommandRunner,
+  root: string,
+  expected: WorktreeState,
+): boolean => {
+  let state: Partial<WorktreeState>;
+  try {
+    state = JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8"));
+  } catch {
+    return false;
+  }
+  return (
+    state.tag === expected.tag &&
+    state.targetSha === expected.targetSha &&
+    state.lease === expected.lease &&
+    gitResult(runner, worktreePath(root), ["rev-parse", "--verify", "HEAD"]).status === 0
+  );
+};
+
+/** Drop the sync worktree and its state once nothing is left to carry. */
+const dropWorktree = (runner: CommandRunner, root: string): void => {
+  gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+  NodeFS.rmSync(worktreeStatePath(root), { force: true });
+};
+
 const stageContent = (
   runner: CommandRunner,
   worktree: string,
@@ -472,6 +514,11 @@ export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<st
  * stack sits on accepts the deletion outright. Any path left standing after
  * those stops the run; its rows name the fork commit, the upstream commit, and
  * the worktree the rebase resumes in.
+ *
+ * A kept worktree built for the same tag, target, and lease is adopted
+ * instead: a rebase in progress re-enters the stop loop, so unresolved paths
+ * block again and resolved ones continue; a finished HEAD is taken as the
+ * rebased tip as long as it contains the target.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
@@ -480,9 +527,14 @@ export const rebaseOnto = (
   oldSha: string,
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
-  gitAllow(runner, root, ["worktree", "remove", "--force", worktree]);
-  git(runner, root, ["worktree", "prune"]);
-  git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
+  const state: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
+  const adopted = keptWorktreeMatches(runner, root, state);
+  if (!adopted) {
+    dropWorktree(runner, root);
+    git(runner, root, ["worktree", "prune"]);
+    git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
+    NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
+  }
   // The fork stack above `target` sits on this upstream commit — for a normal
   // run the previous release tag. Net-zero compares the fork trunk to it from
   // real refs, once per run, never from the worktree.
@@ -495,10 +547,22 @@ export const rebaseOnto = (
   const forkCommitCount = Number(
     git(runner, root, ["rev-list", "--count", `${target.sha}..${oldSha}`]),
   );
-  let status = runner.run("git", [...REBASE_CONFIG, ...rebaseArgs], {
-    cwd: worktree,
-    env: editorEnv,
-  });
+  const rebaseInProgress = (): boolean =>
+    NodeFS.existsSync(
+      git(runner, worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]),
+    );
+  if (adopted && !rebaseInProgress()) {
+    const head = git(runner, worktree, ["rev-parse", "HEAD"]);
+    if (gitResult(runner, root, ["merge-base", "--is-ancestor", target.sha, head]).status !== 0)
+      throw new Error(
+        `the kept sync worktree at ${worktree} holds ${head.slice(0, 7)}, which does not contain ${target.tag}; reset it to a rebased tip and rerun`,
+      );
+    return { status: "applied", newSha: head, conflicts: [] };
+  }
+  // An adopted rebase in progress enters the stop loop as if it had just stopped.
+  let status: CommandResult = adopted
+    ? { status: 1, stdout: "", stderr: "" }
+    : runner.run("git", [...REBASE_CONFIG, ...rebaseArgs], { cwd: worktree, env: editorEnv });
   let stops = 0;
   while (status.status !== 0) {
     stops += 1;
@@ -1173,7 +1237,10 @@ export const renderReport = (report: ForkSyncReport): string => {
           "## Decision route",
           "",
           `Worktree: \`${report.decision.worktree}\``,
-          `Paths: ${report.decision.paths.map((path) => `\`${path}\``).join(", ")}`,
+          ...(report.decision.tip === undefined ? [] : [`Tip: \`${report.decision.tip}\``]),
+          ...(report.decision.paths.length === 0
+            ? []
+            : [`Paths: ${report.decision.paths.map((path) => `\`${path}\``).join(", ")}`]),
           "",
           "```bash",
           report.decision.resume,
@@ -1388,11 +1455,21 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     step = "check";
     const checks = runChecks(runner, root, worktreePath(root), target, expectedOld);
     if (checks.some((check) => check.status === "failed")) {
-      gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+      // The worktree stays: it carries the red tip and any fix committed there.
+      const worktree = worktreePath(root);
       return fail({
         rerere: { ...rerere },
         conflicts: [...rebase.conflicts],
         checks,
+        decision: {
+          worktree,
+          tip: newSha,
+          paths: [],
+          resume: [
+            `# fix the red check in ${worktree} and commit there`,
+            `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
+          ].join("\n"),
+        },
         error: "the check battery is red",
       });
     }
@@ -1400,7 +1477,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     // push — the documented expected-old lease; a dry run reaches applied without it
     step = "push";
     if (dryRun) {
-      gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+      dropWorktree(runner, root);
       return finish(
         frame({
           outcome: "applied",
@@ -1419,7 +1496,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       `--force-with-lease=${HYPRWS_BRANCH}:${expectedOld}`,
     ]);
     const pushRefused = pushed.status !== 0 || pushed.error !== undefined;
-    gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+    dropWorktree(runner, root);
     if (pushRefused)
       return fail({
         rerere: { ...rerere },

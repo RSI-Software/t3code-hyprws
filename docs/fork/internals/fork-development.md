@@ -15,6 +15,10 @@ Goal: a small, durable patch stack on upstream.
 The sync driver's typed report is the only authority for sync state.
 Published issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
 
+The kept sync worktree carries a reshape extra between runs.
+A `fixup!` on trunk cannot: it compiles only against post-sync upstream, so landing it reds `hyprws`.
+A rerun adopts the worktree for the same tag and lease; the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill's Unblock steps give the route.
+
 ## Non-goals
 
 | Never               | Detail                                |
