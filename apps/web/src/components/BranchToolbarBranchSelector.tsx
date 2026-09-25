@@ -920,7 +920,7 @@ export function BranchToolbarBranchSelector({
         {displayedCheckoutMove ? (
           displayedCheckoutMove.action === null ? (
             <span
-              className="px-1 text-[10px] text-muted-foreground"
+              className="px-1 text-3xs text-muted-foreground" // fork-hook: zmux-estate/checkout-move-label-size
               aria-live="polite"
               aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
             >

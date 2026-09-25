@@ -6597,7 +6597,12 @@ export default function ChatView(props: ChatViewProps) {
       actions: (
         <>
           {showViewAgents ? (
-            <Button size="xs" variant="ghost" aria-label="View agents" onClick={addAgentsSurface}>
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="View agents" // fork-hook: custom-agents/banner-view-agents-label
+              onClick={() => addAgentsSurface() /* fork-hook: custom-agents/banner-view-agents */}
+            >
               View
             </Button>
           ) : null}

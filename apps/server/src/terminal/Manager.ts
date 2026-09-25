@@ -3684,6 +3684,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           exitSignal: null,
           updatedAt: current.updatedAt,
           eventSequence: current.eventSequence,
+          inputCount: 0,
           cols: current.cols,
           rows: current.rows,
           process: null,
@@ -4449,11 +4450,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           running,
           (session) =>
             inspector(session.pid).pipe(
-              Effect.flatMap((result) =>
-                result.hasRunningSubprocess ||
-                activityMark(session) !== marks.get(session.terminalId)
-                  ? Effect.void
-                  : closeSession(input.threadId, session.terminalId, false),
+              Effect.flatMap(
+                (result) =>
+                  result.hasRunningSubprocess ||
+                  activityMark(session) !== marks.get(session.terminalId)
+                    ? Effect.void
+                    : closeSession(input.threadId, session.terminalId, session.attachmentId, false), // fork-hook: zmux-estate/close-idle-attachment
               ),
             ),
           { discard: true },

@@ -463,10 +463,9 @@ function SidebarThreadTooltip({
           {completedTiming ? (
             <>
               <div className="flex min-w-0 items-center gap-2">
-                <CircleCheckIcon
-                  aria-hidden
-                  className="size-3 shrink-0 stroke-emerald-600 dark:stroke-emerald-400"
-                />
+                {/* fork-hook: upstream-fixes/completed-timing-icon-tone */}
+                <CircleCheckIcon aria-hidden className="size-3 shrink-0 stroke-success" />
+                {/* fork-hook-end */}
                 <div className="min-w-0 truncate text-foreground/75">
                   Done in {formatWorkingDurationLabel(completedTiming.durationMs)}
                 </div>
