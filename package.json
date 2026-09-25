@@ -15,6 +15,7 @@
     "dev:desktop:agent:url": "node scripts/dev-desktop-agent.ts url",
     "setup:worktree": "node scripts/setup-worktree.ts",
     "hypr:workspace": "node scripts/hyprland-workspace.ts",
+    "thread": "node scripts/thread-cli.ts",
     "migrate-dev-db": "node apps/server/scripts/migrate-dev-db.ts",
     "start": "vp run --filter t3 start",
     "start:desktop": "vp run --filter @t3tools/desktop start",

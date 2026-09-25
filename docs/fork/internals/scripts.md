@@ -95,6 +95,30 @@ Unsigned local builds need no credentials.
 
 The passkey RP domain derives from `T3CODE_CLERK_PUBLISHABLE_KEY` unless `T3CODE_CLERK_PASSKEY_RP_DOMAINS` overrides it.
 
+## Thread CLI
+
+`vp run thread` lets an agent drive a thread on a running server over its WebSocket RPC.
+`--help` owns the commands, output, and exit codes.
+It needs a bearer session token in a file (`--token-file`) or `$T3_TOKEN`.
+
+Issue one on the server host with the product's own auth CLI:
+
+```bash
+# Packaged Linux install
+T3=~/.local/opt/t3-code/current
+ELECTRON_RUN_AS_NODE=1 T3CODE_HOME=~/.t3 "$T3/t3code" \
+  "$T3/resources/app.asar/apps/server/dist/bin.mjs" \
+  auth session issue --label NAME --ttl 1h --json
+```
+
+| Concern    | Detail                                               |
+| ---------- | ---------------------------------------------------- |
+| AppImage   | Same form, run from its `/tmp/.mount_T3-*/` mount    |
+| Output     | JSON after startup log lines: `token`, `sessionId`   |
+| Scopes     | Administrative; keep the file private and gitignored |
+| Revoke     | `... auth session revoke SESSION_ID`                 |
+| Revocation | Rejects new requests at once; open sockets stay up   |
+
 ## Upstream reference guard
 
 `vp run fork:upstream-refs <file>` scans a body file for a live upstream reference; a missing path fails.
