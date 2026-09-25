@@ -236,7 +236,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // rerun: rerere replays the resolution; the dry run reaches applied
+      // rerun: adopts the finished worktree; the dry run reaches applied
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
@@ -275,7 +275,14 @@ it("refuses the push when the check battery is red and records the failing comma
       assert.strictEqual(report.outcome, "failed");
       assert.strictEqual(report.error, "the check battery is red");
       assert.strictEqual(report.trunk.after, null);
+      assert.match(printed.output, /Trunk: [0-9a-f]{7} → unchanged/);
       assert.strictEqual(report.push.pushed, false);
+      // the red tip survives in the kept worktree the report names
+      assert.strictEqual(report.decision.worktree, f.worktree);
+      const tip = report.decision.tip;
+      assert.notStrictEqual(tip, undefined);
+      assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
+      assert.match(printed.output, new RegExp(`Tip: \`${tip}\``));
       const red = report.checks.find((check) => check.status === "failed");
       assert.notStrictEqual(red, undefined);
       assert.strictEqual(red!.command, "vp run fork:ci");
@@ -289,6 +296,123 @@ it("refuses the push when the check battery is red and records the failing comma
         false,
       );
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+    },
+  );
+});
+
+const redThenGreen = (): { readonly red: Recording; readonly green: Recording } => ({
+  red: exec({ vp: (args) => (args[1] === "fork:ci" ? refused("red\n") : ok()) }),
+  green: exec(),
+});
+
+it("carries a reshape extra committed in the kept worktree into the pushed tip", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const { red, green } = redThenGreen();
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "extra.txt"), "reshape\n");
+      f.git(["add", "extra.txt"], f.worktree);
+      f.git(["commit", "--quiet", "-m", "reshape extra"], f.worktree);
+      const tip = f.git(["rev-parse", "HEAD"], f.worktree);
+      const code = capture(() => run(["v1.0.0"], { runner: green.runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.trunk.after, tip);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      // adoption never replays the rebase
+      assert.strictEqual(
+        green.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
+        false,
+      );
+      assert.strictEqual(NodeFS.existsSync(f.worktree), false);
+    },
+  );
+});
+
+it("recreates the kept worktree when the lease moves or the tag changes", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      const extra = (): void => {
+        NodeFS.writeFileSync(NodePath.join(f.worktree, "extra.txt"), "stale\n");
+        f.git(["add", "extra.txt"], f.worktree);
+        f.git(["commit", "--quiet", "-m", "stale extra"], f.worktree);
+      };
+      const hasExtra = (): boolean => NodeFS.existsSync(NodePath.join(f.worktree, "extra.txt"));
+
+      // new tag: the v1.0.0 carrier is not adopted for the nightly
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      extra();
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(hasExtra(), false);
+
+      // moved lease: a new trunk commit on origin discards the carrier
+      extra();
+      NodeFS.writeFileSync(NodePath.join(f.root, "trunk.txt"), "moved\n");
+      f.git(["add", "trunk.txt"], f.root);
+      f.git(["commit", "--quiet", "-m", "trunk moves"], f.root);
+      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(hasExtra(), false);
+      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "trunk.txt")), true);
+    },
+  );
+});
+
+it("refuses to adopt a kept HEAD without the target and keeps the carrier", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      capture(() => run(["v1.0.0", "--dry-run"], { runner: red.runner, root: f.root }));
+      f.git(["reset", "--quiet", "--hard", "origin/hyprws"], f.worktree);
+      const rerun = exec();
+      const code = capture(() =>
+        run(["v1.0.0", "--dry-run"], { runner: rerun.runner, root: f.root }),
+      ).value;
+      assert.strictEqual(code, 1);
+      assert.match(readReport(f.root, "v1.0.0").error ?? "", /does not contain v1\.0\.0/);
+      assert.strictEqual(NodeFS.existsSync(f.worktree), true);
+      assert.strictEqual(
+        NodeFS.existsSync(NodePath.join(f.root, ".t3", "fork-sync", "worktree.json")),
+        true,
+      );
+    },
+  );
+});
+
+it("blocks again on a rerun while the kept rebase still has unresolved paths", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      const first = exec();
+      capture(() => run(["v1.0.0"], { runner: first.runner, root: f.root }));
+      const second = exec();
+      const code = capture(() => run(["v1.0.0"], { runner: second.runner, root: f.root })).value;
+      assert.strictEqual(code, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "blocked");
+      assert.deepEqual(report.decision.paths, ["shared.txt"]);
+      // the stop is re-read, never rebuilt
+      assert.strictEqual(
+        second.calls.some(({ command, args }) => command === "git" && args[0] === "worktree"),
+        false,
+      );
     },
   );
 });
