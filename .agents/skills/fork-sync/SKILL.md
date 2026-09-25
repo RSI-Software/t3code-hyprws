@@ -25,15 +25,16 @@ Any other flag is a defect.
 `.t3/fork-sync/<tag>.json` is the only run authority; the printed Markdown is output.
 Post-push recovery reads this file, never a comment.
 
-| Field         | Meaning                                                    |
-| ------------- | ---------------------------------------------------------- |
-| `outcome`     | `applied`, `already-applied`, `blocked`, or `failed`       |
-| `target`      | The tag and its sha                                        |
-| `lease`       | The `origin/hyprws` sha the push is leased against         |
-| `trunk`       | Trunk before and after the run                             |
-| `conflicts[]` | Path, fork commit, upstream commit, resolution route       |
-| `checks[]`    | `fork:delta --check`, `fork:scan`, typecheck, and results  |
-| `decision`    | A blocked run's worktree, paths, and exact resume commands |
+| Field          | Meaning                                                    |
+| -------------- | ---------------------------------------------------------- |
+| `outcome`      | `applied`, `already-applied`, `blocked`, or `failed`       |
+| `target`       | The tag and its sha                                        |
+| `lease`        | The `origin/hyprws` sha the push is leased against         |
+| `trunk`        | Trunk before and after the run                             |
+| `conflicts[]`  | Path, fork commit, upstream commit, resolution route       |
+| `checks[]`     | `fork:delta --check`, `fork:scan`, typecheck, and results  |
+| `decision`     | A stopped run's worktree, paths, and exact resume commands |
+| `decision.tip` | A red check's rebased tip, kept in the worktree            |
 
 Never edit a report; a rerun supersedes it.
 
@@ -66,9 +67,10 @@ Resolve each seam by verdict, then follow Unblock.
 
 ### Check battery
 
-The battery is red.
+The battery is red; the worktree keeps the rebased tip.
 
-- **Fix**: by pull request
+- **Trunk-green fix**: by pull request
+- **Sync-only fix**: commit in the kept worktree
 - **Never**: weaken a check
 
 ### Lease refusal
@@ -90,17 +92,26 @@ Upstream deleted and the fork edit is net-zero: the deletion stands.
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
 3. Resolve each path by the rule above.
-4. `git add` the resolved paths.
-5. `git rebase --continue`.
+4. `git add` them; `git rebase --continue`.
+5. Commit any reshape extra there.
 6. Rerun `vp run fork:sync <tag>`.
 
-Rerere replays the resolution within the rerun's rebase; the run completes.
+The rerun adopts the kept worktree and checks its HEAD.
+A resolved rebase still in progress continues; an unresolved one blocks again.
+A new tag or a moved lease recreates the worktree.
 
 A blocked run files one block issue (label `ci`) keyed by the blocking upstream sha.
 A rerun on the same sha updates that issue; a clean run closes it.
 
 A failed run files one failure issue the same way, keyed by the failing step and the target tag (the trunk sha before a tag resolves).
 A rerun with the same failure updates it; a clean run closes it.
+
+### Finished tip from elsewhere
+
+1. Open the kept worktree.
+2. `git rebase --abort` if one is in progress.
+3. `git reset --hard <sha>`.
+4. Rerun `vp run fork:sync <tag>`.
 
 ## Never
 
