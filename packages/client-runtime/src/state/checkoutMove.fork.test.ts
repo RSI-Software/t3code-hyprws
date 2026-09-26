@@ -111,6 +111,8 @@ describe("checkout move client policy", () => {
     });
     const { reason: _reason, ...userMove } = recovery;
     expect(presentCheckoutMove(userMove)?.label).not.toMatch(/Worktree removed/);
+    expect(presentCheckoutMove({ ...recovery, status: "failed" })?.action).toBeNull();
+    expect(presentCheckoutMove({ ...userMove, status: "failed" })?.action).toBe("retry");
   });
 
   it("describes a committed dormant move without inventing provider availability", () => {
