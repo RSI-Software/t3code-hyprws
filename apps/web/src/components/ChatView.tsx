@@ -401,6 +401,7 @@ import {
   resolveLocalCheckoutBranchMismatch,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
+  shouldShowGitControls,
 } from "./BranchToolbar.logic";
 import {
   getProviderStatusBannerKey,
@@ -3775,6 +3776,18 @@ export default function ChatView(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
+  const projectGitStatusCwd =
+    activeThread?.worktreePath && gitStatusQuery.data?.isRepo === false
+      ? (activeProject?.workspaceRoot ?? null)
+      : null;
+  const projectGitStatusQuery = useEnvironmentQuery(
+    projectGitStatusCwd === null
+      ? null
+      : vcsEnvironment.status({
+          environmentId,
+          input: { cwd: projectGitStatusCwd },
+        }),
+  );
   useWorkspaceMutationRefresh({
     enabled: gitStatusCwd !== null,
     mutationId: workspaceMutationId,
@@ -3873,18 +3886,24 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  const showGitControls = shouldShowGitControls({
+    activeWorkspaceIsGitRepo: isGitRepo,
+    hasActiveProject: activeProject !== null,
+    hasActiveWorktree: activeThreadWorktreePath !== null,
+    projectCheckoutIsGitRepo: projectGitStatusQuery.data?.isRepo ?? null,
+  });
   // Keep a hidden, off-flow strip mounted for existing threads so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
-    isGitRepo,
+    isGitRepo: showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
-    isGitRepo,
+    isGitRepo: showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -10492,7 +10511,7 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             restingControlsHost={restingComposerControlsHost}
                             restingControlsHaveLeadingContext={
-                              isGitRepo || showComposerEnvironmentIndicator
+                              showGitControls || showComposerEnvironmentIndicator
                             }
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                             getTimelineScrollableNode={getTimelineScrollableNode}
@@ -10549,7 +10568,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo}
+                                showGitControls={showGitControls}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}
