@@ -9,7 +9,11 @@ import {
   resolveLockedWorkspaceLabel,
   shouldShowGitControls,
 } from "./BranchToolbar.logic";
-import { resolveForkEnvModeLabel } from "./BranchToolbar.logic.fork";
+import {
+  applyUnusableWorktreeRebindFork,
+  resolveForkEnvModeLabel,
+  resolveUnusableWorktreeRebindFork,
+} from "./BranchToolbar.logic.fork";
 
 describe("resolveLockedWorkspaceLabel", () => {
   it("names a worktrunk worktree", () => {
@@ -116,5 +120,48 @@ describe("resolveBranchWorkspaceCwd", () => {
         activeWorktreeIsRepo: null,
       }),
     ).toBe("/repo");
+  });
+});
+
+describe("branch pick on a removed worktree", () => {
+  const base = {
+    hasServerThread: true,
+    activeProjectCwd: "/repo",
+    threadWorktreePath: "/repo/.t3/worktrees/deleted",
+    usableActiveWorktreePath: null,
+  };
+  const ref = { name: "origin/feature", isRemote: true, worktreePath: null };
+
+  it("rebinds to the project checkout without a checkout move or ref switch", () => {
+    const rebind = resolveUnusableWorktreeRebindFork({ ...base, refName: ref });
+    expect(rebind).toEqual({ branch: "feature", worktreePath: null });
+    const calls: Array<string> = [];
+    applyUnusableWorktreeRebindFork(rebind!, {
+      environmentId: "env" as never,
+      threadId: "thread" as never,
+      hasSession: true,
+      stopThreadSession: () => calls.push("stop"),
+      updateThreadMetadata: ({ input }) =>
+        calls.push(`rebind ${input.branch} ${input.worktreePath}`),
+      onDone: () => calls.push("done"),
+    });
+    expect(calls).toEqual(["stop", "rebind feature null", "done"]);
+  });
+
+  it("rebinds to the branch's own worktree when it has one", () => {
+    expect(
+      resolveUnusableWorktreeRebindFork({
+        ...base,
+        refName: { name: "other", isRemote: false, worktreePath: "/repo/.t3/worktrees/other" },
+      }),
+    ).toEqual({ branch: "other", worktreePath: "/repo/.t3/worktrees/other" });
+  });
+
+  it("leaves a usable worktree and a draft to the upstream selection", () => {
+    const usable = { ...base, usableActiveWorktreePath: base.threadWorktreePath };
+    expect(resolveUnusableWorktreeRebindFork({ ...usable, refName: ref })).toBeNull();
+    expect(
+      resolveUnusableWorktreeRebindFork({ ...base, hasServerThread: false, refName: ref }),
+    ).toBeNull();
   });
 });
