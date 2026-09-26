@@ -41,7 +41,9 @@ describe("buildTurnStartParams", () => {
       });
       const instructions = params.collaborationMode?.settings.developer_instructions;
       NodeAssert.ok(instructions?.startsWith("Work from first principles.\n\n"));
-      NodeAssert.ok(instructions?.includes("as gpt-5.6-sol with high"));
+      NodeAssert.ok(
+        params.additionalContext?.t3_code_runtime?.value.includes("as gpt-5.6-sol with high"),
+      );
     }),
   );
 });
