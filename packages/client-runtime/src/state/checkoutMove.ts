@@ -137,6 +137,14 @@ export function presentCheckoutMove(
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
       };
     case "committed":
+      if (move.reason === "worktree-recovery") {
+        return {
+          action: null,
+          inFlight: false,
+          label: `Worktree removed · moved to ${requested} on ${move.destination?.branch ?? "a detached HEAD"}`,
+          detail: `The worktree at ${move.sourceThreadWorktreePath} no longer exists, so this thread now runs in ${move.requestedPath}.`,
+        };
+      }
       return {
         action: "undo",
         inFlight: false,

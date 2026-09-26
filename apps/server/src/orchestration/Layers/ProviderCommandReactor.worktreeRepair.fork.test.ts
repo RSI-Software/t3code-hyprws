@@ -10,6 +10,7 @@ import {
   ProjectId,
   ProviderDriverKind,
   ThreadId,
+  TurnId,
   defaultInstanceIdForDriver,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -17,7 +18,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { describe } from "vite-plus/test";
 
-import { makeOrchestrationIntegrationHarness } from "../../../integration/OrchestrationEngineHarness.integration.ts";
+import {
+  makeOrchestrationIntegrationHarness,
+  type OrchestrationIntegrationHarness,
+} from "../../../integration/OrchestrationEngineHarness.integration.ts";
 
 const PROJECT_ID = ProjectId.make("worktree-repair-project");
 const THREAD_ID = ThreadId.make("worktree-repair-thread");
@@ -41,6 +45,26 @@ const turnStart = (tag: string, text: string) => ({
   runtimeMode: "approval-required" as const,
   createdAt: NOW,
 });
+
+const OWNER_ID = ThreadId.make("worktree-repair-owner");
+
+const ownerSession = (harness: OrchestrationIntegrationHarness, activeTurnId: TurnId | null) =>
+  harness.engine.dispatch({
+    type: "thread.session.set",
+    commandId: CommandId.make(`worktree-repair-owner-session-${activeTurnId ?? "idle"}`),
+    threadId: OWNER_ID,
+    session: {
+      threadId: OWNER_ID,
+      status: activeTurnId === null ? "ready" : "running",
+      providerName: ProviderDriverKind.make("codex"),
+      providerInstanceId: MODEL_SELECTION.instanceId,
+      runtimeMode: "approval-required",
+      activeTurnId,
+      lastError: null,
+      updatedAt: NOW,
+    },
+    createdAt: NOW,
+  });
 
 describe("missing worktree repair", () => {
   it.live("stops turn start until a missing worktree is rebound", () =>
@@ -72,6 +96,23 @@ describe("missing worktree repair", () => {
             createdAt: NOW,
           });
 
+          // Another thread's running turn holds the project root, so the
+          // recovery move to the root fails too and the turn must stop.
+          yield* harness.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("worktree-repair-owner-create"),
+            threadId: OWNER_ID,
+            projectId: PROJECT_ID,
+            title: "Root owner",
+            modelSelection: MODEL_SELECTION,
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            branch: "main",
+            worktreePath: null,
+            createdAt: NOW,
+          });
+          yield* ownerSession(harness, TurnId.make("worktree-repair-owner-turn"));
+
           yield* harness.engine.dispatch(turnStart("deleted", "continue"));
           yield* harness.drainProviderCommand;
 
@@ -83,6 +124,7 @@ describe("missing worktree repair", () => {
           assert.equal(failed.value.session?.lastError, expectedDetail);
           assert.equal((yield* harness.providerService.listSessions()).length, 0);
 
+          yield* ownerSession(harness, null);
           yield* harness.engine.dispatch({
             type: "thread.meta.update",
             commandId: CommandId.make("worktree-repair-rebind"),
