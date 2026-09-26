@@ -17,6 +17,7 @@ import {
   type CheckoutPhysicalIdentity,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -322,23 +323,28 @@ describe("checkout move provider reactor", () => {
       git(harness.workspaceDir, ["branch", "-D", GONE_BRANCH]);
     };
 
+    // Stamped with the wall clock recovery reads, so the queued-turn guard the
+    // inline move bypasses is live rather than expired.
     const startTurn = (harness: OrchestrationIntegrationHarness, attempt = "") =>
-      harness.engine
-        .dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.make(`checkout-recovery-turn${attempt}`),
-          threadId: RECOVERY_THREAD_ID,
-          message: {
-            messageId: MessageId.make(`checkout-recovery-message${attempt}`),
-            role: "user",
-            text: "continue",
-            attachments: [],
-          },
-          runtimeMode: "approval-required",
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-          createdAt: attempt === "" ? "2026-09-05T00:00:03.000Z" : "2026-09-05T00:00:05.000Z",
-        })
-        .pipe(Effect.andThen(harness.drainProviderCommand));
+      DateTime.now.pipe(
+        Effect.flatMap((now) =>
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`checkout-recovery-turn${attempt}`),
+            threadId: RECOVERY_THREAD_ID,
+            message: {
+              messageId: MessageId.make(`checkout-recovery-message${attempt}`),
+              role: "user",
+              text: "continue",
+              attachments: [],
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            createdAt: DateTime.formatIso(now),
+          }),
+        ),
+        Effect.andThen(harness.drainProviderCommand),
+      );
 
     const setOtherSession = (
       harness: OrchestrationIntegrationHarness,
