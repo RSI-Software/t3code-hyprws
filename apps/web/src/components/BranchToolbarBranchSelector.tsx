@@ -55,6 +55,10 @@ import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
+  applyUnusableWorktreeRebindFork,
+  resolveUnusableWorktreeRebindFork,
+} from "./BranchToolbar.logic.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-import
+import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
   type EnvMode,
@@ -534,6 +538,27 @@ export function BranchToolbarBranchSelector({
       onComposerFocusRequest?.();
       return;
     }
+
+    const forkRebind = resolveUnusableWorktreeRebindFork({
+      hasServerThread,
+      activeProjectCwd,
+      threadWorktreePath: activeWorktreePath,
+      usableActiveWorktreePath,
+      refName,
+    }); // fork-hook: upstream-fixes/unusable-worktree-rebind-resolve
+    if (forkRebind)
+      return applyUnusableWorktreeRebindFork(forkRebind, {
+        environmentId,
+        threadId: activeThreadId,
+        hasSession: serverSession !== null,
+        stopThreadSession,
+        updateThreadMetadata,
+        onBranchOverride: onActiveThreadBranchOverrideChange,
+        onDone: () => {
+          setIsBranchMenuOpen(false);
+          onComposerFocusRequest?.();
+        },
+      }); // fork-hook: upstream-fixes/unusable-worktree-rebind-apply
 
     const selectionTarget = resolveBranchSelectionTarget({
       activeProjectCwd,
