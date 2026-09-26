@@ -54,10 +54,8 @@ import { cn } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { useComposerMenuProps } from "./chat/composerEventScope";
-import {
-  applyUnusableWorktreeRebindFork,
-  resolveUnusableWorktreeRebindFork,
-} from "./BranchToolbar.logic.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-import
+import { resolveUnusableWorktreeRebindFork } from "./BranchToolbar.logic.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-import
+import { useUnusableWorktreeRebindFork } from "./BranchToolbarBranchSelector.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-hook-import
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
@@ -200,6 +198,17 @@ export function BranchToolbarBranchSelector({
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const rebindUnusableWorktreeFork = useUnusableWorktreeRebindFork({
+    environmentId,
+    threadId: serverThread?.id,
+    projectCwd: activeProjectCwd,
+    hasSession: serverSession !== null,
+    onBranchOverride: onActiveThreadBranchOverrideChange,
+    onStart: () => {
+      setIsBranchMenuOpen(false);
+      onComposerFocusRequest?.();
+    },
+  }); // fork-hook: upstream-fixes/unusable-worktree-rebind-hook
   const branchStatusCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const effectiveEnvMode =
@@ -546,19 +555,7 @@ export function BranchToolbarBranchSelector({
       usableActiveWorktreePath,
       refName,
     }); // fork-hook: upstream-fixes/unusable-worktree-rebind-resolve
-    if (forkRebind)
-      return applyUnusableWorktreeRebindFork(forkRebind, {
-        environmentId,
-        threadId: activeThreadId,
-        hasSession: serverSession !== null,
-        stopThreadSession,
-        updateThreadMetadata,
-        onBranchOverride: onActiveThreadBranchOverrideChange,
-        onDone: () => {
-          setIsBranchMenuOpen(false);
-          onComposerFocusRequest?.();
-        },
-      }); // fork-hook: upstream-fixes/unusable-worktree-rebind-apply
+    if (forkRebind) return rebindUnusableWorktreeFork(forkRebind, runBranchAction); // fork-hook: upstream-fixes/unusable-worktree-rebind-apply
 
     const selectionTarget = resolveBranchSelectionTarget({
       activeProjectCwd,
