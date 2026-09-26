@@ -610,6 +610,7 @@ Resume re-resolves the thread's persisted checkout, so renames follow the verifi
 **Checkout moves.** A thread moves between existing checkouts through a durable requested and effective transition, queued behind active turns and serialized by ordered checkout leases.
 A move relocates a provider only when that thread already has a live runtime; a dormant thread moves metadata and records a null effective checkout.
 Partial failures retain provider availability and the observed effective checkout.
+A turn start on a thread whose worktree is gone runs a recovery move to the project root inline, bypassing only that thread's own pending turn.
 Terminal follow and pin stay client-owned, and move state carries no attachment identities.
 
 **Persistence.** `projection_threads.checkout_move_json` is fork-owned through the idempotent `apps/server/src/persistence/ForkSchema.ts` pass, never a numbered upstream migration whose sequential ids collide on rebase.
