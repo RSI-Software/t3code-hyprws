@@ -124,7 +124,10 @@ export function presentCheckoutMove(
       };
     case "failed":
       return {
-        action: "retry",
+        // A recovery move's source is the root, not the dead worktree the
+        // server checks against, so a retry is always rejected; resending the
+        // message runs recovery again.
+        action: move.reason === "worktree-recovery" ? null : "retry",
         inFlight: false,
         label: `Move failed · Retry`,
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
