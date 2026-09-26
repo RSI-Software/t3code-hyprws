@@ -6,7 +6,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { EnvironmentId, ThreadId, VcsRef } from "@t3tools/contracts";
+import type { ThreadId, VcsRef } from "@t3tools/contracts";
 
 import { deriveLocalBranchNameFromRemoteRef, type EnvMode } from "./BranchToolbar.logic";
 
@@ -34,11 +34,20 @@ export function resolveForkWorkspaceIcon(input: {
   return input.activeWorktreePath ? FolderGitIcon : FolderIcon;
 }
 
+/** Fork: how a branch picked on a removed worktree rebinds the thread. */
+export interface UnusableWorktreeRebindFork {
+  readonly branch: string;
+  readonly worktreePath: string | null;
+  /** The branch has no worktree yet: create one at the server's default path first. */
+  readonly createWorktree: boolean;
+}
+
 /**
- * Fork: the metadata rebind for a branch picked while the thread's worktree is
- * gone, or `null` when the worktree is usable and upstream's selection runs.
- * Such a pick only rebinds: a checkout move would resolve the dead worktree and
- * fail, and switching the project checkout first would leave it mutated.
+ * Fork: the rebind for a branch picked while the thread's worktree is gone, or
+ * `null` when the worktree is usable and upstream's selection runs. Such a pick
+ * never runs a checkout move (it would resolve the dead worktree and fail) and
+ * never switches the project checkout: the branch's own worktree is reused,
+ * the root's branch rebinds to the root, and any other branch gets a worktree.
  */
 export function resolveUnusableWorktreeRebindFork(input: {
   hasServerThread: boolean;
@@ -46,43 +55,45 @@ export function resolveUnusableWorktreeRebindFork(input: {
   threadWorktreePath: string | null;
   usableActiveWorktreePath: string | null;
   refName: Pick<VcsRef, "name" | "isRemote" | "worktreePath">;
-}): { branch: string; worktreePath: string | null } | null {
+}): UnusableWorktreeRebindFork | null {
   const { activeProjectCwd, threadWorktreePath, usableActiveWorktreePath, refName } = input;
   if (!input.hasServerThread || threadWorktreePath === null || usableActiveWorktreePath !== null) {
     return null;
   }
-  const worktreePath =
-    refName.worktreePath && refName.worktreePath !== activeProjectCwd ? refName.worktreePath : null;
+  // A remote-only ref rebinds by its local name; `git worktree add` then
+  // creates that branch tracking the remote.
+  const branch = refName.isRemote ? deriveLocalBranchNameFromRemoteRef(refName.name) : refName.name;
+  if (!refName.worktreePath) return { branch, worktreePath: null, createWorktree: true };
   return {
-    branch: refName.isRemote ? deriveLocalBranchNameFromRemoteRef(refName.name) : refName.name,
-    worktreePath,
+    branch,
+    worktreePath: refName.worktreePath === activeProjectCwd ? null : refName.worktreePath,
+    createWorktree: false,
   };
 }
 
-/** Fork: applies a `resolveUnusableWorktreeRebindFork` result as a plain metadata rebind. */
-export function applyUnusableWorktreeRebindFork(
-  rebind: { branch: string; worktreePath: string | null },
+/**
+ * Fork: applies a `resolveUnusableWorktreeRebindFork` result as a metadata
+ * rebind. `createWorktree` returns the created path, or `null` after it has
+ * reported its own failure, which leaves the thread unchanged.
+ */
+export async function applyUnusableWorktreeRebindFork(
+  rebind: UnusableWorktreeRebindFork,
   deps: {
-    environmentId: EnvironmentId;
-    threadId: ThreadId | null | undefined;
+    threadId: ThreadId;
     hasSession: boolean;
-    stopThreadSession: (command: {
-      environmentId: EnvironmentId;
-      input: { threadId: ThreadId };
+    createWorktree: (branch: string) => Promise<string | null>;
+    stopThreadSession: (threadId: ThreadId) => unknown;
+    updateThreadMetadata: (input: {
+      threadId: ThreadId;
+      branch: string;
+      worktreePath: string | null;
     }) => unknown;
-    updateThreadMetadata: (command: {
-      environmentId: EnvironmentId;
-      input: { threadId: ThreadId; branch: string; worktreePath: string | null };
-    }) => unknown;
-    onBranchOverride?: ((refName: string | null) => void) | undefined;
-    onDone: () => void;
   },
-): void {
-  const { environmentId, threadId } = deps;
-  if (threadId) {
-    if (deps.hasSession) void deps.stopThreadSession({ environmentId, input: { threadId } });
-    void deps.updateThreadMetadata({ environmentId, input: { threadId, ...rebind } });
-    deps.onBranchOverride?.(rebind.branch);
-  }
-  deps.onDone();
+): Promise<void> {
+  const worktreePath = rebind.createWorktree
+    ? await deps.createWorktree(rebind.branch)
+    : rebind.worktreePath;
+  if (rebind.createWorktree && worktreePath === null) return;
+  if (deps.hasSession) void deps.stopThreadSession(deps.threadId);
+  void deps.updateThreadMetadata({ threadId: deps.threadId, branch: rebind.branch, worktreePath });
 }
