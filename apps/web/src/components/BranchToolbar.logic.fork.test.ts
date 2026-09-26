@@ -130,38 +130,51 @@ describe("branch pick on a removed worktree", () => {
     threadWorktreePath: "/repo/.t3/worktrees/deleted",
     usableActiveWorktreePath: null,
   };
-  const ref = { name: "origin/feature", isRemote: true, worktreePath: null };
-
-  it("rebinds to the project checkout without a checkout move or ref switch", () => {
-    const rebind = resolveUnusableWorktreeRebindFork({ ...base, refName: ref });
-    expect(rebind).toEqual({ branch: "feature", worktreePath: null });
+  const pick = (refName: { name: string; isRemote: boolean; worktreePath: string | null }) =>
+    resolveUnusableWorktreeRebindFork({ ...base, refName });
+  const run = async (
+    rebind: NonNullable<ReturnType<typeof pick>>,
+    created: string | null = "/wt/feature",
+  ) => {
     const calls: Array<string> = [];
-    applyUnusableWorktreeRebindFork(rebind!, {
-      environmentId: "env" as never,
+    await applyUnusableWorktreeRebindFork(rebind, {
       threadId: "thread" as never,
       hasSession: true,
+      createWorktree: async (branch) => {
+        calls.push(`create ${branch}`);
+        return created;
+      },
       stopThreadSession: () => calls.push("stop"),
-      updateThreadMetadata: ({ input }) =>
-        calls.push(`rebind ${input.branch} ${input.worktreePath}`),
-      onDone: () => calls.push("done"),
+      updateThreadMetadata: ({ branch, worktreePath }) =>
+        calls.push(`rebind ${branch} ${worktreePath}`),
     });
-    expect(calls).toEqual(["stop", "rebind feature null", "done"]);
+    return calls;
+  };
+
+  it("creates a worktree for a branch without one, then rebinds to it", async () => {
+    const rebind = pick({ name: "origin/feature", isRemote: true, worktreePath: null });
+    expect(rebind).toEqual({ branch: "feature", worktreePath: null, createWorktree: true });
+    expect(await run(rebind!)).toEqual(["create feature", "stop", "rebind feature /wt/feature"]);
   });
 
-  it("rebinds to the branch's own worktree when it has one", () => {
-    expect(
-      resolveUnusableWorktreeRebindFork({
-        ...base,
-        refName: { name: "other", isRemote: false, worktreePath: "/repo/.t3/worktrees/other" },
-      }),
-    ).toEqual({ branch: "other", worktreePath: "/repo/.t3/worktrees/other" });
+  it("leaves the thread unchanged when the worktree cannot be created", async () => {
+    const rebind = pick({ name: "feature", isRemote: false, worktreePath: null });
+    expect(await run(rebind!, null)).toEqual(["create feature"]);
+  });
+
+  it("reuses a branch's own worktree and rebinds the root's branch to the root", async () => {
+    const other = pick({ name: "other", isRemote: false, worktreePath: "/wt/other" });
+    expect(await run(other!)).toEqual(["stop", "rebind other /wt/other"]);
+    const root = pick({ name: "main", isRemote: false, worktreePath: "/repo" });
+    expect(await run(root!)).toEqual(["stop", "rebind main null"]);
   });
 
   it("leaves a usable worktree and a draft to the upstream selection", () => {
+    const refName = { name: "feature", isRemote: false, worktreePath: null };
     const usable = { ...base, usableActiveWorktreePath: base.threadWorktreePath };
-    expect(resolveUnusableWorktreeRebindFork({ ...usable, refName: ref })).toBeNull();
+    expect(resolveUnusableWorktreeRebindFork({ ...usable, refName })).toBeNull();
     expect(
-      resolveUnusableWorktreeRebindFork({ ...base, hasServerThread: false, refName: ref }),
+      resolveUnusableWorktreeRebindFork({ ...base, hasServerThread: false, refName }),
     ).toBeNull();
   });
 });
