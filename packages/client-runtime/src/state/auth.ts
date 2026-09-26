@@ -25,7 +25,7 @@ import {
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
 
-export { EnvironmentNotConnectedError } from "./authHttp.ts"; // fork-hook: upstream-fixes/auth-error-reexport
+/** @public */ export { EnvironmentNotConnectedError } from "./authHttp.ts"; // fork-hook: upstream-fixes/auth-error-reexport
 
 export const EMPTY_AUTH_ACCESS_SNAPSHOT: AuthAccessSnapshot = {
   pairingLinks: [],
