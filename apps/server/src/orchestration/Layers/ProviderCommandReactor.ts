@@ -76,6 +76,7 @@ import {
   resolveCheckoutPhysicalIdentity,
 } from "../CheckoutMoveCoordinator.ts";
 import { threadHasQueuedTurnStart } from "../ThreadSettlementPolicy.ts";
+import { checkoutRecoveryFork } from "./ProviderCommandReactor.checkoutRecovery.fork.ts"; // fork-hook: zmux-estate/recovery-import
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderWorkspaceMissingError = Schema.is(ProviderWorkspaceMissingError);
@@ -256,6 +257,7 @@ const make = Effect.gen(function* () {
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
+  const recovery = checkoutRecoveryFork(orchestrationEngine, projectionSnapshotQuery, crypto); // fork-hook: zmux-estate/recovery-factory
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -496,8 +498,7 @@ const make = Effect.gen(function* () {
   /**
    * Recreates a thread's worktree from its branch when the directory has
    * disappeared. Provider sessions resume into the persisted cwd, so a missing
-   * worktree makes every later turn fail as a bogus "session not found".
-   * Best-effort: on failure the turn proceeds and reports the real error.
+   * worktree must be repaired or rebound before another turn can start.
    */
   const ensureThreadWorktree = Effect.fnUntraced(function* (thread: {
     readonly id: ThreadId;
@@ -507,15 +508,19 @@ const make = Effect.gen(function* () {
   }) {
     const { worktreePath, branch } = thread;
     if (!worktreePath || !branch) {
-      return;
+      return null;
     }
-    const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
-    if (exists) {
-      return;
+    const isDirectory = yield* fileSystem.stat(worktreePath).pipe(
+      Effect.map((worktreeStat) => worktreeStat.type === "Directory"),
+      Effect.catch((statError) => Effect.succeed(statError.reason._tag !== "NotFound")),
+    );
+    if (isDirectory) {
+      return null;
     }
+    const repairFailureDetail = `This thread's worktree no longer exists at ${worktreePath}, and T3 could not recreate branch '${branch}'. Restore that worktree or select another branch for this thread, then retry.`;
     const project = yield* resolveProject(thread.projectId);
     if (!project) {
-      return;
+      return repairFailureDetail;
     }
     const cwd = project.workspaceRoot;
     yield* Effect.logWarning("provider command reactor recreating missing worktree", {
@@ -531,10 +536,11 @@ const make = Effect.gen(function* () {
       Effect.map((settings) => settings.worktreeSubmodules),
       Effect.orElseSucceed(() => null),
     );
-    yield* gitWorkflow.pruneWorktrees({ cwd }).pipe(
+    return yield* gitWorkflow.pruneWorktrees({ cwd }).pipe(
       Effect.andThen(
         gitWorkflow.createWorktree({ cwd, refName: branch, path: worktreePath }, { submodules }),
       ),
+      Effect.as(null as string | null),
       Effect.catchCauseIf(
         (cause) => !Cause.hasInterruptsOnly(cause),
         (cause) =>
@@ -542,7 +548,7 @@ const make = Effect.gen(function* () {
             threadId: thread.id,
             worktreePath,
             cause: Cause.pretty(cause),
-          }),
+          }).pipe(Effect.as(repairFailureDetail)),
       ),
     );
   });
@@ -1406,14 +1412,31 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* ensureThreadWorktree(thread);
+    const worktreeRepairFailure = yield* recovery.repair(
+      thread,
+      ensureThreadWorktree,
+      processCheckoutMove,
+    ); // fork-hook: zmux-estate/recovery-repair
+    if (worktreeRepairFailure !== null) {
+      yield* setThreadSessionErrorOnTurnStartFailure({
+        threadId: event.payload.threadId,
+        detail: worktreeRepairFailure,
+        createdAt: event.payload.createdAt,
+      }).pipe(
+        Effect.flatMap(() =>
+          appendTurnStartFailure("Provider turn start failed", worktreeRepairFailure),
+        ),
+      );
+      return;
+    }
 
+    const forkTurnThread = yield* recovery.turnThread(thread); // fork-hook: zmux-estate/recovery-thread
     const isCompactCommand = isCompactCommandMessage(message);
     if (!hasOtherUserMessages && !isCompactCommand) {
       const project = yield* resolveProject(thread.projectId);
       const generationCwd =
         resolveThreadWorkspaceCwd({
-          thread,
+          thread: forkTurnThread, // fork-hook: zmux-estate/recovery-title-cwd
           projects: project ? [project] : [],
         }) ?? process.cwd();
       const generationInput = {
@@ -1424,8 +1447,8 @@ const make = Effect.gen(function* () {
 
       yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
         threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
+        branch: forkTurnThread.branch, // fork-hook: zmux-estate/recovery-branch
+        worktreePath: forkTurnThread.worktreePath, // fork-hook: zmux-estate/recovery-worktree
         ...generationInput,
       }).pipe(Effect.forkScoped);
 
@@ -1906,6 +1929,7 @@ const make = Effect.gen(function* () {
         ...(move.sourceThreadWorktreePath !== undefined
           ? { sourceThreadWorktreePath: move.sourceThreadWorktreePath }
           : {}),
+        ...(move.reason ? { reason: move.reason } : {}), // fork-hook: zmux-estate/recovery-reason
         destination: move.destination,
         queued: false,
         createdAt,
@@ -1934,7 +1958,7 @@ const make = Effect.gen(function* () {
           }
           if (
             owned.value.session?.activeTurnId != null ||
-            threadHasQueuedTurnStart(owned.value, createdAt)
+            recovery.pendingTurnBlocks(owned.value, createdAt, move.requestId) // fork-hook: zmux-estate/recovery-guard
           ) {
             // A turn can become pending after prepare but before this worker
             // obtains both checkout leases. Return the durable request to queued;
@@ -1951,6 +1975,7 @@ const make = Effect.gen(function* () {
               ...(move.sourceThreadWorktreePath !== undefined
                 ? { sourceThreadWorktreePath: move.sourceThreadWorktreePath }
                 : {}),
+              ...(move.reason ? { reason: move.reason } : {}), // fork-hook: zmux-estate/recovery-reason
               destination: destinationIdentity,
               queued: true,
               createdAt,
@@ -1984,9 +2009,9 @@ const make = Effect.gen(function* () {
                 reason: `active checkout owner ${candidate.id} has no project`,
               });
             }
-            const candidateIdentity = yield* resolveCheckoutPhysicalIdentity(
+            const candidateIdentity = yield* recovery.ownerIdentity(
               candidate.worktreePath ?? project.workspaceRoot,
-            );
+            ); // fork-hook: zmux-estate/recovery-owner
             if (checkoutRoots.includes(candidateIdentity.checkoutRoot)) {
               return yield* new CheckoutMoveValidationError({
                 reason: `checkout is active on thread ${candidate.id}`,
@@ -2059,7 +2084,8 @@ const make = Effect.gen(function* () {
   });
 
   const processCheckoutMoveSafely = (job: CheckoutMoveJob) =>
-    processCheckoutMove(job.threadId, job.move, job.createdAt).pipe(
+    recovery.workerRun(processCheckoutMove, job).pipe(
+      // fork-hook: zmux-estate/recovery-worker
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
         return Effect.logWarning("provider command reactor failed to process checkout move", {

@@ -124,7 +124,10 @@ export function presentCheckoutMove(
       };
     case "failed":
       return {
-        action: "retry",
+        // A recovery move's source is the root, not the dead worktree the
+        // server checks against, so a retry is always rejected; resending the
+        // message runs recovery again.
+        action: move.reason === "worktree-recovery" ? null : "retry",
         inFlight: false,
         label: `Move failed · Retry`,
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
@@ -137,6 +140,14 @@ export function presentCheckoutMove(
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
       };
     case "committed":
+      if (move.reason === "worktree-recovery") {
+        return {
+          action: null,
+          inFlight: false,
+          label: `Worktree removed · moved to ${requested} on ${move.destination?.branch ?? "a detached HEAD"}`,
+          detail: `The worktree at ${move.sourceThreadWorktreePath} no longer exists, so this thread now runs in ${move.requestedPath}.`,
+        };
+      }
       return {
         action: "undo",
         inFlight: false,

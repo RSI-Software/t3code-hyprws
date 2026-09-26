@@ -54,10 +54,13 @@ import { cn } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { useComposerMenuProps } from "./chat/composerEventScope";
+import { resolveUnusableWorktreeRebindFork } from "./BranchToolbar.logic.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-import
+import { useUnusableWorktreeRebindFork } from "./BranchToolbarBranchSelector.fork"; // fork-hook: upstream-fixes/unusable-worktree-rebind-hook-import
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
   type EnvMode,
+  resolveBranchWorkspaceCwd,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
@@ -195,7 +198,18 @@ export function BranchToolbarBranchSelector({
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
-  const branchCwd = activeWorktreePath ?? activeProjectCwd;
+  const rebindUnusableWorktreeFork = useUnusableWorktreeRebindFork({
+    environmentId,
+    threadId: serverThread?.id,
+    projectCwd: activeProjectCwd,
+    hasSession: serverSession !== null,
+    onBranchOverride: onActiveThreadBranchOverrideChange,
+    onStart: () => {
+      setIsBranchMenuOpen(false);
+      onComposerFocusRequest?.();
+    },
+  }); // fork-hook: upstream-fixes/unusable-worktree-rebind-hook
+  const branchStatusCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
@@ -338,13 +352,19 @@ export function BranchToolbarBranchSelector({
   const deferredBranchQuery = useDeferredValue(branchQuery);
 
   const branchStatusQuery = useEnvironmentQuery(
-    branchCwd === null
+    branchStatusCwd === null
       ? null
       : vcsEnvironment.status({
           environmentId,
-          input: { cwd: branchCwd },
+          input: { cwd: branchStatusCwd },
         }),
   );
+  const branchCwd = resolveBranchWorkspaceCwd({
+    activeProjectCwd,
+    activeWorktreePath,
+    activeWorktreeIsRepo: branchStatusQuery.data?.isRepo ?? null,
+  });
+  const usableActiveWorktreePath = branchCwd === activeWorktreePath ? activeWorktreePath : null;
   const trimmedBranchQuery = branchQuery.trim();
   const deferredTrimmedBranchQuery = deferredBranchQuery.trim();
   // The server filters refs by substring, so it has to be given the sanitized
@@ -367,7 +387,9 @@ export function BranchToolbarBranchSelector({
   const isFetchingNextPage = branchRefState.isFetchingNextPage;
   const isInitialBranchesLoadPending = branchRefState.isPending && branchRefState.data === null;
   const currentGitBranch =
-    branchStatusQuery.data?.refName ?? refs.find((refName) => refName.current)?.name ?? null;
+    branchStatusQuery.data?.refName ??
+    (activeWorktreePath === null ? refs.find((refName) => refName.current)?.name : null) ??
+    null;
   const sourceControlPresentation = useMemo(
     () => getSourceControlPresentation(branchStatusQuery.data?.sourceControlProvider),
     [branchStatusQuery.data?.sourceControlProvider],
@@ -526,9 +548,18 @@ export function BranchToolbarBranchSelector({
       return;
     }
 
+    const forkRebind = resolveUnusableWorktreeRebindFork({
+      hasServerThread,
+      activeProjectCwd,
+      threadWorktreePath: activeWorktreePath,
+      usableActiveWorktreePath,
+      refName,
+    }); // fork-hook: upstream-fixes/unusable-worktree-rebind-resolve
+    if (forkRebind) return rebindUnusableWorktreeFork(forkRebind, runBranchAction); // fork-hook: upstream-fixes/unusable-worktree-rebind-apply
+
     const selectionTarget = resolveBranchSelectionTarget({
       activeProjectCwd,
-      activeWorktreePath,
+      activeWorktreePath: usableActiveWorktreePath,
       refName,
     });
 
@@ -612,7 +643,7 @@ export function BranchToolbarBranchSelector({
       });
       if (createBranchResult._tag === "Success") {
         setOptimisticBranch(createBranchResult.value.refName);
-        setThreadBranch(createBranchResult.value.refName, activeWorktreePath);
+        setThreadBranch(createBranchResult.value.refName, usableActiveWorktreePath);
         return;
       }
       setOptimisticBranch(previousBranch);
