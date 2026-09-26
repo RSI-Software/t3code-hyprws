@@ -1,5 +1,5 @@
 import { useCanGoBack, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
 import { useNavigateToMainApp } from "../components/sidebar/mainAppLocation";
 import { readDesktopProjectWindowRef } from "../desktopProjectWindows";
@@ -33,29 +33,4 @@ export function useFullPageBackOut() {
       },
     });
   }, [canGoBack, navigate, navigateToMainApp]);
-}
-
-/** The back-out above, plus the Escape shortcut the settings pages bind to it. */
-export function useLeaveFullPage() {
-  const leave = useFullPageBackOut();
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-
-      const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement) {
-        activeElement.blur();
-      }
-
-      leave();
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [leave]);
-
-  return leave;
 }
