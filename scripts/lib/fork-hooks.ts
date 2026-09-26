@@ -102,6 +102,8 @@ interface LiteralScan {
 const INITIAL_SCAN: LiteralScan = { depth: 0, quote: null, frames: [], lastCode: "" };
 
 const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
+  // A block-comment body line is prose: an apostrophe there opens no string.
+  if (start.quote === null && /^\*(?!\/)/.test(line.trim())) return start;
   let { depth, quote, lastCode } = start;
   const frames = [...start.frames];
   for (let index = 0; index < line.length; index += 1) {
