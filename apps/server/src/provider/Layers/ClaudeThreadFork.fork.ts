@@ -7,7 +7,7 @@
 import {
   ClaudeSettings,
   ProviderDriverKind,
-  ThreadForkNativeForkError,
+  ThreadForkError,
   type ProviderInstanceId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -92,7 +92,12 @@ export const readClaudeForkSourceSessionId = (resumeCursor: unknown): string | u
 };
 
 const forkHistoryError = (threadId: ThreadId, cause: unknown) =>
-  new ThreadForkNativeForkError({ threadId, provider: CLAUDE_DRIVER, cause });
+  new ThreadForkError({
+    threadId,
+    reason: "native-fork-failed",
+    provider: CLAUDE_DRIVER,
+    detail: cause instanceof Error ? cause.message : String(cause),
+  });
 
 /**
  * Resolve the isolated environment (carrying this instance's
@@ -154,12 +159,12 @@ export const forkClaudeSession = Effect.fn("forkClaudeSession")(function* (input
             sessionId,
           ),
         ),
-      catch: (cause): ThreadForkNativeForkError => forkHistoryError(input.threadId, cause),
+      catch: (cause): ThreadForkError => forkHistoryError(input.threadId, cause),
     });
 
   const forked = yield* Effect.tryPromise({
     try: async () => decodeClaudeHistoryFork(await run("forkSession", { dir: input.cwd })),
-    catch: (cause): ThreadForkNativeForkError => forkHistoryError(input.threadId, cause),
+    catch: (cause): ThreadForkError => forkHistoryError(input.threadId, cause),
   });
   const cloneMessages = yield* readHistory(forked.sessionId);
   const boundaries = claudeForkTurnBoundaries(cloneMessages);

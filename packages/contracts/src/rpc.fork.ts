@@ -101,26 +101,10 @@ export const githubIssuesRpcFork = {
 // result, and refusal errors live in `threadFork.fork.ts`; the handler and its
 // guards live in `apps/server/src/project/ThreadFork.fork.ts`.
 import { EnvironmentAuthorizationError as ThreadForkEnvironmentAuthorizationError } from "./auth.ts";
-import {
-  ThreadForkOrchestrationError,
-  ThreadForkInput,
-  ThreadForkInstanceMismatchError,
-  ThreadForkNativeForkError,
-  ThreadForkNotQuiescentError,
-  ThreadForkResult,
-  ThreadForkSourceMissingError,
-  ThreadForkSourceStateError,
-  ThreadForkUnsupportedProviderError,
-} from "./threadFork.fork.ts";
+import { ThreadForkError, ThreadForkInput, ThreadForkResult } from "./threadFork.fork.ts";
 
 const ThreadForkRpcErrorFork = Schema.Union([
-  ThreadForkSourceMissingError,
-  ThreadForkUnsupportedProviderError,
-  ThreadForkInstanceMismatchError,
-  ThreadForkNotQuiescentError,
-  ThreadForkSourceStateError,
-  ThreadForkNativeForkError,
-  ThreadForkOrchestrationError,
+  ThreadForkError,
   ThreadForkEnvironmentAuthorizationError,
 ]);
 
