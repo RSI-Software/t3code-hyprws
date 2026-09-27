@@ -158,6 +158,7 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
+import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
 import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
@@ -555,6 +556,7 @@ export const WS_METHODS = {
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
 
+  ...checkoutMoveRpcFork.methodNames, // fork-hook: zmux-estate/checkout-move-rpc-methods
   ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -2072,6 +2074,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerReportClientActivityRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
+  ...checkoutMoveRpcFork.rpcs, // fork-hook: zmux-estate/checkout-move-rpc-group
   ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
