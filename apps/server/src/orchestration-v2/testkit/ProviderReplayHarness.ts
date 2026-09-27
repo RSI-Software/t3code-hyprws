@@ -59,6 +59,7 @@ import {
   type OrchestratorV2ScenarioResult,
 } from "./OrchestratorScenario.ts";
 import { makeProviderReplayGate, type ProviderReplayGate } from "./ProviderReplayGate.testkit.ts";
+import type { ReplayTurnStartWrapperFork } from "./ProviderReplayHarness.fork.ts"; // fork-hook: zmux-estate/replay-turn-start-wrapper-import
 
 export function makeReplayServerConfig(
   scenario: string,
@@ -262,6 +263,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
     // as server startup does after a crash or restart.
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
+    readonly wrapTurnStartFork?: ReplayTurnStartWrapperFork; // fork-hook: zmux-estate/replay-turn-start-wrapper-option
   } = {},
 ): Layer.Layer<
   Orchestrator.OrchestratorV2 | EffectWorker.OrchestrationEffectWorkerV2 | EventSink.EventSinkV2,
@@ -454,6 +456,14 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         providerSessionManagerProvided,
         providerTurnControlServiceProvided,
         providerTurnStartServiceProvided,
+        options.wrapTurnStartFork?.(
+          Layer.mergeAll(
+            providerTurnStartServiceProvided,
+            storesLayer,
+            providerSessionManagerProvided,
+            orchestratorProvided,
+          ),
+        ) ?? Layer.empty, // fork-hook: zmux-estate/replay-turn-start-wrapper
         runtimeRequestServiceProvided,
         threadTitleRegenerationTestLayer,
         serverSettingsLayer,
