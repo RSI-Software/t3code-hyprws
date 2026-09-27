@@ -1,7 +1,7 @@
 import { zmuxAutoSessionsEnabled } from "@t3tools/contracts";
 import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Context from "effect/Context";
 import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
@@ -269,7 +269,7 @@ const make = Effect.gen(function* () {
   }
   const path = yield* Path.Path;
   const fileSystem = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const digest = yield* Digest.Digest;
   const env = stripInheritedTmuxEnv(hostEnvironment);
   const ensureSemaphore = yield* Semaphore.make(1);
 
@@ -614,8 +614,8 @@ const make = Effect.gen(function* () {
         const root = yield* fileSystem.realPath(projectPath).pipe(Effect.result);
         if (root._tag === "Failure")
           return verificationFailure(`Cannot resolve workspace root ${projectPath}`);
-        const hash = yield* crypto
-          .digest("SHA-256", new TextEncoder().encode(root.success))
+        const hash = yield* digest
+          .digest(Digest.sha256, new TextEncoder().encode(root.success))
           .pipe(Effect.result);
         if (hash._tag === "Failure") return verificationFailure("Cannot hash workspace root");
         const suffix = Array.from(hash.success.slice(0, 6), (byte) =>

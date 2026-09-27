@@ -12,6 +12,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 const runningServerDatabase = Layer.unwrap(
   Effect.gen(function* () {
@@ -35,6 +36,7 @@ const runningServerDatabase = Layer.unwrap(
 export const PairEnvironmentAuth = {
   EnvironmentAuth: EnvironmentAuth.EnvironmentAuth,
   layerRuntime: EnvironmentAuth.layer.pipe(
+    Layer.provideMerge(ManagedPolicy.layer),
     Layer.provideMerge(Layer.mergeAll(ServerSecretStore.layer, runningServerDatabase)),
     Layer.provideMerge(ServerEnvironment.layerIdentity),
   ),

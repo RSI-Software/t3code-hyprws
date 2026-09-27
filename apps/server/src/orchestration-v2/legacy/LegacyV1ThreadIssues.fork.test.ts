@@ -2,13 +2,13 @@ import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { listLinkedIssueThreadsFork } from "../../githubIssue/linkedThreads.fork.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";
-import * as ProjectionMaintenance from "../ProjectionMaintenance.ts";
+import * as ProjectionReplay from "../testkit/ProjectionReplay.ts";
 import * as ProjectionStore from "../ProjectionStore.ts";
 import { withThreadIssues } from "../ThreadIssues.fork.ts";
 import * as LegacyV1ThreadImporter from "./LegacyV1ThreadImporter.ts";
@@ -29,7 +29,7 @@ const TestLayer = Layer.mergeAll(
   LegacyV1ThreadImporter.layer.pipe(
     Layer.provide(Layer.mergeAll(storesProvided, eventSinkProvided)),
   ),
-  ProjectionMaintenance.layer.pipe(Layer.provide(storesProvided)),
+  ProjectionReplay.layer.pipe(Layer.provide(storesProvided)),
 );
 
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -53,7 +53,7 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionReplay.ProjectionReplay;
       const eventSink = yield* EventSink.EventSinkV2;
 
       for (const [threadId, deletedAt] of [
@@ -132,7 +132,7 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
         [linked],
       );
 
-      // A V2 unlink survives every later startup and compaction, and a rebuild
+      // A V2 unlink survives every later startup, and a rebuild
       // agrees. Rows imported before `imported_at` existed carry only the event.
       yield* sql`UPDATE projection_thread_issues SET imported_at = NULL`;
       yield* eventSink.write({
@@ -147,9 +147,6 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
           },
         ],
       });
-      yield* importer.reconcileShells;
-      assert.isFalse("issues" in (yield* projections.getThread(linked)));
-      yield* maintenance.compactEventStore();
       yield* importer.reconcileShells;
       assert.isFalse("issues" in (yield* projections.getThread(linked)));
       assert.isTrue((yield* maintenance.rebuild).valid);
