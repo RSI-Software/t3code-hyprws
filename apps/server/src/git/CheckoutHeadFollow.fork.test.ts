@@ -2,6 +2,7 @@
 import * as NodeFS from "node:fs";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { it } from "@effect/vitest";
 import {
   type OrchestrationV2Command,
@@ -29,10 +30,12 @@ import * as CheckoutMutationCoordinator from "./CheckoutMutationCoordinator.ts";
 
 const projectId = ProjectId.make("project-1");
 
-const VcsProcessLayer = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
+const VcsProcessLayer = VcsProcess.layer.pipe(
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const VcsLayer = VcsDriverRegistry.layer.pipe(
   Layer.provideMerge(VcsProcessLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const git = (cwd: string, args: ReadonlyArray<string>) =>
