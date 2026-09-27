@@ -54,6 +54,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { forkDesktopEntryName } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.t3tools.t3code";
@@ -2907,6 +2908,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       desktop: {
         entry: {
           StartupWMClass: "t3code",
+          Name: forkDesktopEntryName(resolveDesktopUpdateChannel(version)), // fork-hook: distribution/desktop-entry-name
         },
       },
     };
