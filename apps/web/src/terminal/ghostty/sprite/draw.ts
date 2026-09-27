@@ -1,41 +1,75 @@
-// Ghostty draws box drawing, blocks, Braille, Powerline, and legacy-computing
-// mosaics itself instead of taking them from the font, so they fill the cell
-// edge to edge at any line height and tile without seams. This module ports
-// that sprite font (ghostty-org/ghostty `src/font/sprite`, MIT) to canvas 2D.
+// Ghostty draws box drawing, blocks, Braille, Powerline, branch, and
+// legacy-computing glyphs itself instead of taking them from the font, so they
+// fill the cell edge to edge at any line height and tile without seams. Its
+// own sprite rasterizer (ghostty-org/ghostty `src/font/sprite`, MIT) ships as
+// ghostty-sprite.wasm; this module draws its coverage masks onto the canvas.
 
-import { GHOSTTY_CELL_WIDE, type GhosttyCell } from "../core";
-import { drawBlock, drawCornerTriangle, drawOctant, drawSextant } from "./block";
-import { drawBox } from "./box";
-import { drawBraille } from "./braille";
-import { SpriteCanvas, type SpriteMetrics } from "./canvas";
-import { drawPowerline } from "./powerline";
+import spriteWasmUrl from "../vendor/ghostty-sprite.wasm?url";
+import { GHOSTTY_CELL_WIDE, type GhosttyCell, type GhosttyColor } from "../core";
 
-type SpriteDraw = (codepoint: number, canvas: SpriteCanvas, metrics: SpriteMetrics) => void;
+interface SpriteExports {
+  readonly memory: WebAssembly.Memory;
+  readonly t3_sprite_has: (codepoint: number) => number;
+  readonly t3_sprite_render: (
+    codepoint: number,
+    cellWidth: number,
+    cellHeight: number,
+    thickness: number,
+    span: number,
+  ) => number;
+}
 
-const SPRITE_RANGES: ReadonlyArray<readonly [number, number, SpriteDraw]> = [
-  [0x2500, 0x257f, drawBox],
-  [0x2580, 0x259f, drawBlock],
-  [0x25e2, 0x25e5, drawCornerTriangle],
-  [0x25f8, 0x25fa, drawCornerTriangle],
-  [0x25ff, 0x25ff, drawCornerTriangle],
-  [0x2800, 0x28ff, drawBraille],
-  [0xe0b0, 0xe0bf, drawPowerline],
-  [0xe0d2, 0xe0d2, drawPowerline],
-  [0xe0d4, 0xe0d4, drawPowerline],
-  [0x1cd00, 0x1cde5, drawOctant],
-  [0x1fb00, 0x1fb3b, drawSextant],
-];
+interface SpriteShape {
+  /** Coverage as one path per distinct alpha, so any colour fills it directly. */
+  readonly paths: ReadonlyArray<readonly [alpha: number, path: Path2D]>;
+  /** Cell-sized coverage, kept only for shapes too intricate to fill quickly. */
+  readonly mask: Uint8Array | null;
+  readonly tints: Map<number, OffscreenCanvas>;
+}
 
 // Ghostty's box stroke is the face's underline thickness, which canvas cannot
 // read; 1/20 em matches the common monospace faces.
 const BOX_THICKNESS_EM = 0.05;
+// Box, block, and Braille shapes are a few rects and fill fastest as paths;
+// antialiased diagonals and curves blit faster as a tinted image.
+const MAX_PATH_RECTS = 8;
+// Truecolor makes the colour axis unbounded, so past this budget intricate
+// shapes fill their paths instead of tinting another image.
+const MAX_TINTED_SPRITES = 1024;
+// Font size and display scale changes add shapes; the cache starts over past this.
+const MAX_SHAPES = 4096;
 
-function spriteDrawFor(codepoint: number): SpriteDraw | null {
-  if (codepoint < 0x2500) return null;
-  for (const [start, end, draw] of SPRITE_RANGES) {
-    if (codepoint >= start && codepoint <= end) return draw;
+let face: SpriteExports | null = null;
+let loading: Promise<void> | null = null;
+const shapes = new Map<number, SpriteShape | null>();
+let tintedSprites = 0;
+
+/**
+ * Loads the sprite rasterizer. Never rejects: until it resolves, or when it
+ * fails, sprite codepoints fall back to the font.
+ */
+export function loadGhosttySprites(): Promise<void> {
+  if (typeof OffscreenCanvas !== "function" || typeof Path2D !== "function") {
+    return Promise.resolve();
   }
-  return null;
+  loading ??= (async () => {
+    const response = await fetch(spriteWasmUrl);
+    if (!response.ok) throw new Error(`Unable to load ghostty-sprite.wasm (${response.status})`);
+    const { instance } = await WebAssembly.instantiate(await response.arrayBuffer());
+    const exports = instance.exports as Partial<SpriteExports>;
+    if (
+      !(exports.memory instanceof WebAssembly.Memory) ||
+      typeof exports.t3_sprite_has !== "function" ||
+      typeof exports.t3_sprite_render !== "function"
+    ) {
+      throw new Error("ghostty-sprite.wasm is missing its exports");
+    }
+    face = exports as SpriteExports;
+  })().catch((error: unknown) => {
+    loading = null;
+    console.warn("[ghostty-sprite] drawing sprite glyphs from the font instead", error);
+  });
+  return loading;
 }
 
 /**
@@ -46,7 +80,8 @@ export function ghosttySpriteCodepoint(text: string): number | null {
   const codepoint = text.codePointAt(0);
   // Exactly one codepoint; anything longer carries combining marks.
   if (codepoint === undefined || text.length !== (codepoint > 0xffff ? 2 : 1)) return null;
-  return spriteDrawFor(codepoint) ? codepoint : null;
+  // Every sprite sits at or above U+2500, so plain text never crosses into wasm.
+  return codepoint >= 0x2500 && face?.t3_sprite_has(codepoint) ? codepoint : null;
 }
 
 /** Columns a cell covers: two when a wide spacer tail follows it. */
@@ -94,6 +129,140 @@ export function fillGhosttyCellRect(
   context.restore();
 }
 
+// Ghostty renders into a padded canvas, and a few diagonals antialias a pixel
+// into it. Rows here redraw independently, so only the cell itself is kept.
+function renderMask(
+  sprites: SpriteExports,
+  codepoint: number,
+  width: number,
+  height: number,
+  thickness: number,
+): Uint8Array | null {
+  const pointer = sprites.t3_sprite_render(codepoint, width, height, thickness, 1);
+  if (pointer === 0) return null;
+  const padX = Math.floor(width / 4);
+  const padY = Math.floor(height / 4);
+  const stride = width + 2 * padX;
+  const padded = new Uint8Array(sprites.memory.buffer, pointer, stride * (height + 2 * padY));
+  const mask = new Uint8Array(width * height);
+  for (let row = 0; row < height; row += 1) {
+    const start = (padY + row) * stride + padX;
+    mask.set(padded.subarray(start, start + width), row * width);
+  }
+  return mask;
+}
+
+function tintMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  color: GhosttyColor,
+): OffscreenCanvas | null {
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const image = context.createImageData(width, height);
+  for (let index = 0; index < mask.length; index += 1) {
+    image.data[index * 4] = color.r;
+    image.data[index * 4 + 1] = color.g;
+    image.data[index * 4 + 2] = color.b;
+    image.data[index * 4 + 3] = mask[index]!;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+/**
+ * Coverage as rects: runs of equal alpha along each row, extended downward
+ * while the next row repeats them. Flat [x, y, width, height, alpha] tuples.
+ */
+function coverageRects(mask: Uint8Array, width: number, height: number): number[] {
+  const rects: number[] = [];
+  let above: number[] = [];
+  for (let row = 0; row < height; row += 1) {
+    const current: number[] = [];
+    let column = 0;
+    while (column < width) {
+      const alpha = mask[row * width + column]!;
+      let end = column + 1;
+      while (end < width && mask[row * width + end] === alpha) end += 1;
+      if (alpha !== 0) {
+        const run = above.find(
+          (index) =>
+            rects[index] === column &&
+            rects[index + 2] === end - column &&
+            rects[index + 4] === alpha,
+        );
+        if (run === undefined) {
+          current.push(rects.length);
+          rects.push(column, row, end - column, 1, alpha);
+        } else {
+          rects[run + 3]! += 1;
+          current.push(run);
+        }
+      }
+      column = end;
+    }
+    above = current;
+  }
+  return rects;
+}
+
+function spriteShape(
+  sprites: SpriteExports,
+  codepoint: number,
+  width: number,
+  height: number,
+  thickness: number,
+): SpriteShape | null {
+  // The numeric key packs 12 bits per dimension; no real cell comes close.
+  if (width >= 4096 || height >= 4096) return null;
+  const key = ((codepoint * 4096 + width) * 4096 + height) * 64 + Math.min(thickness, 63);
+  const cached = shapes.get(key);
+  if (cached !== undefined) return cached;
+  if (shapes.size >= MAX_SHAPES) {
+    shapes.clear();
+    tintedSprites = 0;
+  }
+  const mask = renderMask(sprites, codepoint, width, height, thickness);
+  let shape: SpriteShape | null = null;
+  if (mask) {
+    const rects = coverageRects(mask, width, height);
+    const paths = new Map<number, Path2D>();
+    for (let index = 0; index < rects.length; index += 5) {
+      const alpha = rects[index + 4]!;
+      let path = paths.get(alpha);
+      if (!path) paths.set(alpha, (path = new Path2D()));
+      path.rect(rects[index]!, rects[index + 1]!, rects[index + 2]!, rects[index + 3]!);
+    }
+    shape = {
+      paths: [...paths],
+      mask: rects.length > MAX_PATH_RECTS * 5 ? mask : null,
+      tints: new Map(),
+    };
+  }
+  shapes.set(key, shape);
+  return shape;
+}
+
+function tintedImage(
+  shape: SpriteShape,
+  width: number,
+  height: number,
+  color: GhosttyColor,
+): OffscreenCanvas | null {
+  if (!shape.mask) return null;
+  const rgb = (color.r << 16) | (color.g << 8) | color.b;
+  const cached = shape.tints.get(rgb);
+  if (cached || tintedSprites >= MAX_TINTED_SPRITES) return cached ?? null;
+  const image = tintMask(shape.mask, width, height, color);
+  if (image) {
+    shape.tints.set(rgb, image);
+    tintedSprites += 1;
+  }
+  return image;
+}
+
 /**
  * Draw a sprite glyph into a cell rect given in the context's current user
  * space. The cell is snapped to whole device pixels so each glyph is drawn on
@@ -106,25 +275,26 @@ export function drawGhosttySprite(
   top: number,
   cellWidth: number,
   cellHeight: number,
-  color: string,
+  color: GhosttyColor,
   fontSize: number,
 ): void {
-  const draw = spriteDrawFor(codepoint);
-  const snapped = draw ? snapToDevice(context, left, top, cellWidth, cellHeight) : null;
-  if (!draw || !snapped) return;
+  const snapped = face ? snapToDevice(context, left, top, cellWidth, cellHeight) : null;
+  if (!face || !snapped) return;
   const { x, y, width, height, scaleY } = snapped;
-
+  const thickness = Math.max(1, Math.ceil(fontSize * scaleY * BOX_THICKNESS_EM));
+  const shape = spriteShape(face, codepoint, width, height, thickness);
+  if (!shape) return;
+  const image = tintedImage(shape, width, height, color);
   context.save();
   context.setTransform(1, 0, 0, 1, x, y);
-  context.beginPath();
-  context.rect(0, 0, width, height);
-  context.clip();
-  context.fillStyle = color;
-  context.strokeStyle = color;
-  draw(codepoint, new SpriteCanvas(context, width, height), {
-    cellWidth: width,
-    cellHeight: height,
-    boxThickness: Math.max(1, Math.ceil(fontSize * scaleY * BOX_THICKNESS_EM)),
-  });
+  if (image) {
+    context.drawImage(image, 0, 0);
+  } else {
+    context.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+    for (const [alpha, path] of shape.paths) {
+      context.globalAlpha = alpha / 255;
+      context.fill(path);
+    }
+  }
   context.restore();
 }

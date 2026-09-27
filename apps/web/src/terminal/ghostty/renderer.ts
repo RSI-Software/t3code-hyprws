@@ -209,7 +209,7 @@ export function renderGhosttySnapshot(options: {
             top,
             ghosttyCellSpan(row.cells, runStart) * metrics.width,
             metrics.height,
-            cssColor(first.foreground),
+            first.foreground,
             fontSize,
           );
         }
@@ -298,7 +298,7 @@ export function renderGhosttySnapshot(options: {
           top,
           metrics.width,
           metrics.height,
-          cssColor(snapshot.background),
+          snapshot.background,
           fontSize,
         );
       } else if (cell?.text) {
