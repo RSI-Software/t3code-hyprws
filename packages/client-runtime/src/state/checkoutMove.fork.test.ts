@@ -1,12 +1,11 @@
-import { EnvironmentId, ThreadId, type ThreadCheckoutMove } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadShell, ThreadCheckoutMove } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
 import {
   boundedTerminalAttachmentId,
   checkoutMoveExpectedRoot,
+  checkoutMoveShellFieldsFork,
   isCheckoutMoveInFlight,
   isStaleCheckoutMoveRejection,
-  mergeEnvironmentThreadWithCheckoutMove,
   presentCheckoutMove,
   shouldFollowCommittedCheckout,
 } from "./checkoutMove.ts";
@@ -85,6 +84,36 @@ describe("checkout move client policy", () => {
     });
   });
 
+  it("offers no undo for a recovery move off a removed worktree", () => {
+    // The record the server's worktree recovery commits: source and
+    // destination are both the project root, marked with its reason.
+    const root = { ...identity("/repo/main"), repositoryRoot: "/repo/main", branch: "main" };
+    const recovery: ThreadCheckoutMove = {
+      requestId: "server:worktree-checkout-recovery:1" as never,
+      source: root,
+      sourceThreadBranch: "t3code/gone",
+      sourceThreadWorktreePath: "/repo/.t3/worktrees/gone",
+      reason: "worktree-recovery",
+      requestedPath: "/repo/main",
+      destination: root,
+      expectedCheckoutRoot: "/repo/main",
+      status: "committed",
+      completedSteps: ["provider", "metadata"],
+      effectiveProvider: root,
+      providerAvailable: true,
+      requestedAt: "2026-09-05T00:00:00.000Z",
+      updatedAt: "2026-09-05T00:00:00.000Z",
+    };
+    expect(presentCheckoutMove(recovery)).toMatchObject({
+      action: null,
+      label: "Worktree removed · moved to main on main",
+    });
+    const { reason: _reason, ...userMove } = recovery;
+    expect(presentCheckoutMove(userMove)?.label).not.toMatch(/Worktree removed/);
+    expect(presentCheckoutMove({ ...recovery, status: "failed" })?.action).toBeNull();
+    expect(presentCheckoutMove({ ...userMove, status: "failed" })?.action).toBe("retry");
+  });
+
   it("describes a committed dormant move without inventing provider availability", () => {
     const dormant = {
       ...move("committed", { dormant: true }),
@@ -97,27 +126,12 @@ describe("checkout move client policy", () => {
     expect(checkoutMoveExpectedRoot(dormant)).toBe("/repo/feature");
   });
 
-  it("takes checkout movement from the authoritative shell projection", () => {
-    const environmentId = EnvironmentId.make("environment-1");
-    const id = ThreadId.make("thread-1");
-    const detail = {
-      environmentId,
-      id,
-      checkoutMove: move("queued"),
-    } as EnvironmentThread;
-    const shellMove = move("committed", { dormant: true });
-    const shell = {
-      environmentId,
-      id,
-      branch: "feature",
-      worktreePath: "/repo/feature",
-      checkoutMove: shellMove,
-    } as EnvironmentThreadShell;
-
-    expect(mergeEnvironmentThreadWithCheckoutMove(detail, shell)).toMatchObject({
-      branch: "feature",
-      worktreePath: "/repo/feature",
-      checkoutMove: shellMove,
+  it("carries the checkout move on the presented thread shell", () => {
+    const committed = move("committed", { dormant: true });
+    const thread = { checkoutMove: committed } as Partial<OrchestrationV2ThreadShell>;
+    expect(checkoutMoveShellFieldsFork(thread as OrchestrationV2ThreadShell)).toEqual({
+      checkoutMove: committed,
     });
+    expect(checkoutMoveShellFieldsFork({} as OrchestrationV2ThreadShell)).toEqual({});
   });
 });
