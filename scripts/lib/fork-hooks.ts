@@ -97,14 +97,29 @@ interface LiteralScan {
   readonly frames: ReadonlyArray<number>;
   /** The last significant code character seen outside strings and comments. */
   readonly lastCode: string;
+  /** Whether the scan sits inside a block comment, whose prose opens no literal. */
+  readonly comment: boolean;
 }
 
-const INITIAL_SCAN: LiteralScan = { depth: 0, quote: null, frames: [], lastCode: "" };
+const INITIAL_SCAN: LiteralScan = {
+  depth: 0,
+  quote: null,
+  frames: [],
+  lastCode: "",
+  comment: false,
+};
 
 const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
-  let { depth, quote, lastCode } = start;
+  let { depth, quote, lastCode, comment } = start;
   const frames = [...start.frames];
   for (let index = 0; index < line.length; index += 1) {
+    if (comment) {
+      const end = line.indexOf("*/", index);
+      if (end === -1) break;
+      comment = false;
+      index = end + 1;
+      continue;
+    }
     const char = line[index] ?? "";
     if (quote !== null) {
       if (char === "\\") {
@@ -121,9 +136,8 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
     }
     if (char === "/" && line[index + 1] === "/") break;
     if (char === "/" && line[index + 1] === "*") {
-      const end = line.indexOf("*/", index + 2);
-      if (end === -1) break;
-      index = end + 1;
+      comment = true;
+      index += 1;
       continue;
     }
     if (char === '"' || char === "'" || char === "`") {
@@ -156,7 +170,7 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
     }
     if (char !== " " && char !== "\t") lastCode = char;
   }
-  return { depth, quote, frames, lastCode };
+  return { depth, quote, frames, lastCode, comment };
 };
 
 const COMMENT_ONLY = /^(?:\/\/|\/\*|\*(?:\/|$))/;
