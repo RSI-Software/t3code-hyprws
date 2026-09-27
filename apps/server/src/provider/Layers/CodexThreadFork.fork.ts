@@ -2,8 +2,9 @@
 // `thread.fork` handler captures the source's latest completed turn id at
 // click and installs a child binding cursor
 // `{ threadId: <parent native id>, forkFrom: { lastTurnId } }`; this module
-// reads that cursor back and sends `thread/fork` when the child's session
-// starts. Fails closed: unlike `thread/resume`, a fork error never falls back
+// reads that cursor back and sends `thread/fork` over the client's raw
+// request when the child's session starts — metadata-only decode, same as
+// resume. Fails closed: unlike `thread/resume`, a fork error never falls back
 // to `thread/start`, so a broken fork cannot silently blank the child.
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -18,12 +19,6 @@ const CodexThreadForkMetadata = Schema.Struct({
   thread: Schema.Struct({ id: Schema.String }),
 });
 const decodeCodexThreadForkMetadata = Schema.decodeUnknownEffect(CodexThreadForkMetadata);
-
-/** One fork-capable request call; the live client's generic `request` satisfies it. */
-export type CodexThreadForkOpenRequest = <M extends "thread/fork">(
-  method: M,
-  payload: CodexRpc.ClientRequestParamsByMethod[M],
-) => Effect.Effect<CodexRpc.ClientRequestResponsesByMethod[M], CodexErrors.CodexAppServerError>;
 
 /** The fork cursor a child binding carries while its fork has not run yet. */
 export interface CodexForkCursor {
@@ -54,23 +49,36 @@ export const readCodexForkSourceThreadId = (resumeCursor: unknown): string | und
   return typeof threadId === "string" && threadId.length > 0 ? threadId : undefined;
 };
 
+/**
+ * The cutoff a cursor already carries: forking a fresh lazy fork reuses the
+ * parent cutoff instead of needing a completed turn of its own.
+ */
+export const readCodexForkCutoffFork = (resumeCursor: unknown): string | undefined =>
+  isCodexForkCursor(resumeCursor) ? resumeCursor.forkFrom.lastTurnId : undefined;
+
 /** Fields the runtime's `start` spreads into `openCodexThread`'s input. */
 export const codexThreadForkOpenField = (
   resumeCursor: unknown,
-  forkRequest: CodexThreadForkOpenRequest,
-):
-  | { readonly forkFromLastTurnId: string; readonly forkRequest: CodexThreadForkOpenRequest }
-  | {} => {
+): { readonly forkFromLastTurnId: string } | {} => {
   if (!isCodexForkCursor(resumeCursor)) return {};
-  const lastTurnId = resumeCursor.forkFrom.lastTurnId;
-  return { forkFromLastTurnId: lastTurnId, forkRequest };
+  return { forkFromLastTurnId: resumeCursor.forkFrom.lastTurnId };
 };
 
 /** Structural slice of `openCodexThread`'s input the fork branch needs. */
 export interface CodexThreadForkOpenInput {
   readonly threadId: ThreadId;
   readonly forkFromLastTurnId?: string | undefined;
-  readonly forkRequest?: CodexThreadForkOpenRequest | undefined;
+  /** The same raw request channel the resume path uses. */
+  readonly client: {
+    readonly raw: {
+      readonly request: (
+        method: "thread/resume",
+        payload: CodexRpc.ClientRequestParamsByMethod["thread/resume"] & {
+          readonly excludeTurns?: boolean;
+        },
+      ) => Effect.Effect<unknown, CodexErrors.CodexAppServerError>;
+    };
+  };
 }
 
 /** The start-param fields a fork request can carry (same `| null` optionality). */
@@ -88,16 +96,17 @@ type CodexThreadForkStartParams = Pick<
 
 /**
  * Fork the parent thread at `lastTurnId` for the child's first start. Sends
- * `thread/fork` (with `excludeTurns`, like the resume path) and decodes only
- * the session metadata; every failure mode fails closed.
+ * `thread/fork` (with `excludeTurns`, like the resume path) over the client's
+ * raw request and decodes only the session metadata; every failure mode fails
+ * closed.
  */
 export const forkCodexThreadOnOpen = (
   input: CodexThreadForkOpenInput,
   parentThreadId: string,
   startParams: CodexThreadForkStartParams,
 ): Effect.Effect<typeof CodexThreadForkMetadata.Type, CodexErrors.CodexAppServerError> => {
-  const { forkRequest, forkFromLastTurnId } = input;
-  if (forkRequest === undefined || forkFromLastTurnId === undefined) {
+  const { forkFromLastTurnId } = input;
+  if (forkFromLastTurnId === undefined) {
     return Effect.fail(CodexErrors.CodexAppServerRequestError.methodNotFound("thread/fork"));
   }
   // Built field-by-field: fork params drop a few start-only fields, and the
@@ -121,17 +130,20 @@ export const forkCodexThreadOnOpen = (
     lastTurnId: forkFromLastTurnId,
     excludeTurns: true,
   };
-  return forkRequest("thread/fork", payload).pipe(
-    Effect.flatMap((response) =>
-      decodeCodexThreadForkMetadata(response).pipe(
-        Effect.mapError((error) =>
-          CodexErrors.CodexAppServerRequestError.invalidPayload(
-            "thread/fork",
-            "decode-payload",
-            error,
+  // The raw channel is typed for resume; a fork rides the same method-passthrough.
+  return input.client.raw
+    .request("thread/fork" as "thread/resume", payload as never)
+    .pipe(
+      Effect.flatMap((response) =>
+        decodeCodexThreadForkMetadata(response).pipe(
+          Effect.mapError((error) =>
+            CodexErrors.CodexAppServerRequestError.invalidPayload(
+              "thread/fork",
+              "decode-payload",
+              error,
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
 };

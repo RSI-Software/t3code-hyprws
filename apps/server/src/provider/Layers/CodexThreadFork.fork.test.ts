@@ -1,27 +1,18 @@
 // Fork-only: the lazy Codex fork — the runtime reads the handler-written
-// cursor and sends `thread/fork` on the child's first start, failing closed
-// with no `thread/start` fallback.
+// cursor and sends `thread/fork` on the client's raw request channel at the
+// child's first start, failing closed with no `thread/start` fallback.
 import * as NodeAssert from "node:assert/strict";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as CodexErrors from "effect-codex-app-server/errors";
-import * as CodexRpc from "effect-codex-app-server/rpc";
 import { ThreadId } from "@t3tools/contracts";
 
 import { openCodexThread } from "./CodexSessionRuntime.ts";
 import {
   codexThreadForkOpenField,
+  readCodexForkCutoffFork,
   readCodexForkSourceThreadId,
-  type CodexThreadForkOpenRequest,
 } from "./CodexThreadFork.fork.ts";
-
-function makeForkResponse(threadId: string) {
-  return {
-    cwd: "/tmp/project",
-    model: "gpt-5.3-codex",
-    thread: { id: threadId },
-  } as unknown as CodexRpc.ClientRequestResponsesByMethod["thread/fork"];
-}
 
 const startParamsResponse = {
   cwd: "/tmp/project",
@@ -37,7 +28,7 @@ const startParamsResponse = {
     turns: [],
     status: { state: "idle", activeFlags: [] },
   },
-} as unknown as CodexRpc.ClientRequestResponsesByMethod["thread/start"];
+};
 
 const forkCursor = {
   threadId: "parent-native-thread",
@@ -53,21 +44,27 @@ const openForkedThread = (client: unknown) =>
     requestedModel: undefined,
     serviceTier: undefined,
     resumeThreadId: "parent-native-thread",
-    ...codexThreadForkOpenField(
-      forkCursor,
-      (client as { request: CodexThreadForkOpenRequest }).request,
-    ),
+    ...codexThreadForkOpenField(forkCursor),
   });
+
+/**
+ * The fork branch must ride the raw channel only; the shaped `request`
+ * (thread/start's home) fails the test if it is ever touched.
+ */
+const rawClient = (
+  onCall: (method: string, payload: unknown) => Effect.Effect<unknown, unknown>,
+) => ({
+  raw: { request: onCall },
+  request: () => Effect.die("thread/start must not be called on the fork path") as never,
+});
 
 describe("codexThreadForkOpenField", () => {
   it("reads the cutoff from a fork cursor", () => {
-    expect(codexThreadForkOpenField(forkCursor, undefined as never)).toEqual({
-      forkFromLastTurnId: "turn-9",
-    } as never);
+    expect(codexThreadForkOpenField(forkCursor)).toEqual({ forkFromLastTurnId: "turn-9" });
   });
 
   it("ignores a plain resume cursor", () => {
-    expect(codexThreadForkOpenField({ threadId: "native-1" }, undefined as never)).toEqual({});
+    expect(codexThreadForkOpenField({ threadId: "native-1" })).toEqual({});
   });
 
   it("reads the source thread id and rejects junk", () => {
@@ -75,28 +72,26 @@ describe("codexThreadForkOpenField", () => {
     expect(readCodexForkSourceThreadId({})).toBeUndefined();
     expect(readCodexForkSourceThreadId("native-1")).toBeUndefined();
   });
+
+  it("reads a fork cursor's own cutoff and rejects junk", () => {
+    expect(readCodexForkCutoffFork(forkCursor)).toBe("turn-9");
+    expect(readCodexForkCutoffFork({ threadId: "native-1" })).toBeUndefined();
+    expect(readCodexForkCutoffFork({ threadId: "p", forkFrom: {} })).toBeUndefined();
+    expect(readCodexForkCutoffFork(null)).toBeUndefined();
+  });
 });
 
 describe("openCodexThread fork branch", () => {
   it.effect("sends thread/fork from the parent at the captured turn, with no thread/start", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly method: string; readonly payload: unknown }> = [];
-      const client = {
-        request: (method: "thread/start" | "thread/fork", payload: unknown) => {
-          calls.push({ method, payload });
-          return Effect.succeed(
-            method === "thread/fork"
-              ? makeForkResponse("forked-native-thread")
-              : startParamsResponse,
-          ) as never;
-        },
-        raw: {
-          request: (method: string, payload: unknown) => {
-            calls.push({ method, payload });
-            return Effect.succeed(startParamsResponse as unknown);
-          },
-        },
-      };
+      const client = rawClient((method, payload) => {
+        calls.push({ method, payload });
+        return Effect.succeed({
+          ...startParamsResponse,
+          thread: { ...startParamsResponse.thread, id: "forked-native-thread" },
+        });
+      });
       const opened = yield* openForkedThread(client);
       expect(opened.thread.id).toBe("forked-native-thread");
       expect(calls.map((call) => call.method)).toEqual(["thread/fork"]);
@@ -116,62 +111,13 @@ describe("openCodexThread fork branch", () => {
   it.effect("fails closed when the fork request errors — no thread/start fallback", () =>
     Effect.gen(function* () {
       const calls: string[] = [];
-      const client = {
-        request: (method: "thread/start" | "thread/fork", _payload: unknown) => {
-          calls.push(method);
-          return method === "thread/fork"
-            ? (Effect.fail(
-                CodexErrors.CodexAppServerRequestError.methodNotFound("thread/fork"),
-              ) as never)
-            : (Effect.succeed(startParamsResponse) as never);
-        },
-        raw: {
-          request: (method: string, _payload: unknown) => {
-            calls.push(method);
-            return Effect.succeed(startParamsResponse as unknown);
-          },
-        },
-      };
+      const client = rawClient((method) => {
+        calls.push(method);
+        return Effect.fail(CodexErrors.CodexAppServerRequestError.methodNotFound("thread/fork"));
+      });
       const exit = yield* Effect.exit(openForkedThread(client));
       NodeAssert.ok(exit._tag === "Failure");
       expect(calls).toEqual(["thread/fork"]);
-    }),
-  );
-
-  it.effect("fails closed when no fork request is installed", () =>
-    Effect.gen(function* () {
-      const calls: string[] = [];
-      const client = {
-        request: (method: "thread/start" | "thread/fork", _payload: unknown) => {
-          calls.push(method);
-          return Effect.succeed(
-            method === "thread/fork"
-              ? makeForkResponse("forked-native-thread")
-              : startParamsResponse,
-          ) as never;
-        },
-        raw: {
-          request: (method: string, _payload: unknown) => {
-            calls.push(method);
-            return Effect.succeed(startParamsResponse as unknown);
-          },
-        },
-      };
-      const exit = yield* Effect.exit(
-        openCodexThread({
-          client: client as Parameters<typeof openCodexThread>[0]["client"],
-          threadId: ThreadId.make("child-thread"),
-          runtimeMode: "full-access",
-          cwd: "/tmp/project",
-          requestedModel: undefined,
-          serviceTier: undefined,
-          resumeThreadId: "parent-native-thread",
-          forkFromLastTurnId: "turn-9",
-          // forkRequest deliberately absent.
-        }),
-      );
-      NodeAssert.ok(exit._tag === "Failure");
-      expect(calls).toEqual([]);
     }),
   );
 });
