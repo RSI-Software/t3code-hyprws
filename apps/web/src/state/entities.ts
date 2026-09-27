@@ -183,7 +183,7 @@ export function readThreadShell(ref: ScopedThreadRef): EnvironmentThreadShell | 
 
 /** The thread as `useThread` returns it, read outside React. */
 export function readThread(ref: ScopedThreadRef): EnvironmentThread | null {
-  return mergeEnvironmentThread(
+  return mergeEnvironmentThreadWithCheckoutMove(
     appAtomRegistry.get(environmentThreadDetails.detailAtom(ref)),
     readThreadShell(ref),
   );
