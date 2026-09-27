@@ -297,6 +297,7 @@ import {
   resolveLocalCheckoutBranchMismatch,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
+  shouldShowGitControls,
 } from "./BranchToolbar.logic";
 import {
   getProviderStatusBannerKey,
@@ -1542,6 +1543,18 @@ export default function ChatView(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
+  const projectGitStatusCwd =
+    activeThread?.worktreePath && gitStatusQuery.data?.isRepo === false
+      ? (activeProject?.workspaceRoot ?? null)
+      : null;
+  const projectGitStatusQuery = useEnvironmentQuery(
+    projectGitStatusCwd === null
+      ? null
+      : vcsEnvironment.status({
+          environmentId,
+          input: { cwd: projectGitStatusCwd },
+        }),
+  );
   useWorkspaceMutationRefresh({
     enabled: gitStatusCwd !== null,
     mutationId: workspaceMutationId,
@@ -1625,6 +1638,12 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  const showGitControls = shouldShowGitControls({
+    activeWorkspaceIsGitRepo: isGitRepo,
+    hasActiveProject: activeProject !== null,
+    hasActiveWorktree: activeThreadWorktreePath !== null,
+    projectCheckoutIsGitRepo: projectGitStatusQuery.data?.isRepo ?? null,
+  });
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
   const showProviderSubagentBar = isProviderSubagent;
   const composerMounted = !showProviderSubagentBar;
@@ -1655,7 +1674,7 @@ export default function ChatView(props: ChatViewProps) {
     isDraftHeroState,
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo,
+    isGitRepo: showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
@@ -1663,7 +1682,7 @@ export default function ChatView(props: ChatViewProps) {
     isDraftHeroState,
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo,
+    isGitRepo: showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -3541,7 +3560,7 @@ export default function ChatView(props: ChatViewProps) {
                               restingControlsHost={restingComposerControlsHost}
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
-                                (isGitRepo || showComposerEnvironmentIndicator)
+                                (showGitControls || showComposerEnvironmentIndicator)
                               }
                               onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
@@ -3626,7 +3645,7 @@ export default function ChatView(props: ChatViewProps) {
                                 projectId={activeThread.projectId}
                                 worktreePath={activeThread.worktreePath}
                                 isServerThread={isServerThread}
-                                showGitControls={isGitRepo}
+                                showGitControls={showGitControls}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChangeStable}
                                 startFromOrigin={startFromOrigin}

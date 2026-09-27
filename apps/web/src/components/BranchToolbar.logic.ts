@@ -82,6 +82,18 @@ export function shouldShowComposerContextStrip(input: {
   );
 }
 
+export function shouldShowGitControls(input: {
+  activeWorkspaceIsGitRepo: boolean;
+  hasActiveProject: boolean;
+  hasActiveWorktree: boolean;
+  projectCheckoutIsGitRepo: boolean | null;
+}): boolean {
+  if (input.activeWorkspaceIsGitRepo) return true;
+  return (
+    input.hasActiveProject && input.hasActiveWorktree && input.projectCheckoutIsGitRepo !== false
+  );
+}
+
 // Hysteresis prevents labels and icons from flapping at the width boundary.
 const CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX = 16;
 
@@ -284,6 +296,17 @@ export function resolveBranchSelectionTarget(input: {
     nextWorktreePath,
     reuseExistingWorktree: false,
   };
+}
+
+export function resolveBranchWorkspaceCwd(input: {
+  activeProjectCwd: string | null;
+  activeWorktreePath: string | null;
+  activeWorktreeIsRepo: boolean | null;
+}): string | null {
+  const { activeProjectCwd, activeWorktreePath, activeWorktreeIsRepo } = input;
+  return activeWorktreePath !== null && activeWorktreeIsRepo !== false
+    ? activeWorktreePath
+    : activeProjectCwd;
 }
 
 export function shouldIncludeBranchPickerItem(input: {
