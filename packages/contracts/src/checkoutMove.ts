@@ -18,11 +18,16 @@ export const CheckoutMoveStatus = Schema.Literals([
 ]);
 export type CheckoutMoveStatus = typeof CheckoutMoveStatus.Type;
 
+/** Why the server, not the user, started a move; absent for a user move. */
+export const CheckoutMoveReason = Schema.Literal("worktree-recovery");
+export type CheckoutMoveReason = typeof CheckoutMoveReason.Type;
+
 export const ThreadCheckoutMove = Schema.Struct({
   requestId: CommandId,
   source: CheckoutPhysicalIdentity,
   sourceThreadBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   sourceThreadWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  reason: Schema.optional(CheckoutMoveReason),
   requestedPath: TrimmedNonEmptyString,
   destination: Schema.NullOr(CheckoutPhysicalIdentity),
   expectedCheckoutRoot: TrimmedNonEmptyString,
@@ -37,51 +42,36 @@ export const ThreadCheckoutMove = Schema.Struct({
 });
 export type ThreadCheckoutMove = typeof ThreadCheckoutMove.Type;
 
-export const ThreadCheckoutMoveRequestCommand = Schema.Struct({
-  type: Schema.Literal("thread.checkout-move.request"),
-  commandId: CommandId,
+/**
+ * Asks the server to move a thread to another checkout of the same repository.
+ * `expectedCheckoutRoot` is the checkout the client last saw the thread in;
+ * the server refuses when it no longer matches. `requestId` makes a retried
+ * request idempotent; the server mints one when it is absent.
+ */
+export const ThreadCheckoutMoveRequestInput = Schema.Struct({
   threadId: ThreadId,
   requestedPath: TrimmedNonEmptyString,
   expectedCheckoutRoot: TrimmedNonEmptyString,
   reverseOfRequestId: Schema.optional(CommandId),
-  createdAt: IsoDateTime,
+  requestId: Schema.optional(CommandId),
 });
-export type ThreadCheckoutMoveRequestCommand = typeof ThreadCheckoutMoveRequestCommand.Type;
+export type ThreadCheckoutMoveRequestInput = typeof ThreadCheckoutMoveRequestInput.Type;
 
-export const ThreadCheckoutMovePrepareCommand = Schema.Struct({
-  type: Schema.Literal("thread.checkout-move.prepare"),
-  commandId: CommandId,
-  threadId: ThreadId,
+export const ThreadCheckoutMoveRequestResult = Schema.Struct({
   requestId: CommandId,
-  source: CheckoutPhysicalIdentity,
-  sourceThreadBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  sourceThreadWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  destination: CheckoutPhysicalIdentity,
-  reverseOfRequestId: Schema.optional(CommandId),
-  queued: Schema.Boolean,
-  createdAt: IsoDateTime,
+  status: CheckoutMoveStatus,
 });
-export type ThreadCheckoutMovePrepareCommand = typeof ThreadCheckoutMovePrepareCommand.Type;
+export type ThreadCheckoutMoveRequestResult = typeof ThreadCheckoutMoveRequestResult.Type;
 
-export const ThreadCheckoutMoveCompleteCommand = Schema.Struct({
-  type: Schema.Literal("thread.checkout-move.complete"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  requestId: CommandId,
-  source: CheckoutPhysicalIdentity,
-  destination: CheckoutPhysicalIdentity,
-  status: Schema.Literals(["committed", "partial", "failed"]),
-  completedSteps: Schema.Array(Schema.Literals(["provider", "metadata"])),
-  effectiveProvider: Schema.NullOr(CheckoutPhysicalIdentity),
-  providerAvailable: Schema.optional(Schema.Boolean),
-  detail: Schema.optional(TrimmedNonEmptyString),
-  createdAt: IsoDateTime,
-});
-export type ThreadCheckoutMoveCompleteCommand = typeof ThreadCheckoutMoveCompleteCommand.Type;
-
-export const ThreadCheckoutMoveEvent = Schema.Struct({
-  type: Schema.Literal("thread.checkout-move-updated"),
-  threadId: ThreadId,
-  move: ThreadCheckoutMove,
-});
-export type ThreadCheckoutMoveEvent = typeof ThreadCheckoutMoveEvent.Type;
+export class ThreadCheckoutMoveError extends Schema.TaggedError<ThreadCheckoutMoveError>()(
+  "ThreadCheckoutMoveError",
+  {
+    threadId: ThreadId,
+    detail: Schema.String,
+    cause: Schema.optionalKey(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}

@@ -252,6 +252,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
+import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
+import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/ws-checkout-move-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
 import * as TextGenerators from "./textGeneration/TextGenerators.ts";
@@ -1567,6 +1569,7 @@ export const layerWsRpc = (
       // The panel's reads for a pull request the user opened go out during a rate-limit pause.
       const openedPullRequestRead = Effect.provideService(SourceControlRateLimit.Interactive, true);
       const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
+      const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork; // fork-hook: zmux-estate/ws-checkout-move-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -2815,6 +2818,7 @@ export const layerWsRpc = (
         [WS_METHODS.pullRequestsSetLabels]: (input) =>
           withPullRequestViewer(input, pullRequests.setLabels(input)),
         ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
+        ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves, observeRpcEffect), // fork-hook: zmux-estate/ws-checkout-move-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           sourceControlRepositories.lookupRepository(input),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>
@@ -3580,6 +3584,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
+              Layer.provide(sharedCheckoutWsLayerFork), // fork-hook: zmux-estate/ws-shared-checkout-lease
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
