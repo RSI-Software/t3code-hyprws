@@ -8,8 +8,8 @@ import {
 import { verifyDpopProof } from "@t3tools/shared/dpop";
 import { encodeOAuthScope, parseAllowedOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
-import * as Data from "effect/Data";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -17,10 +17,10 @@ import * as Encoding from "effect/encoding/Base64Url";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as UrlParams from "effect/unstable/http/UrlParams";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as UrlParams from "effect/http/UrlParams";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ExternalMcpGrant from "./ExternalMcpGrant.fork.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -66,29 +66,27 @@ export const escapeForTerminal = (value: unknown) =>
     (char) => `\\u${char.codePointAt(0)!.toString(16).padStart(4, "0")}`,
   );
 
-export class DeviceAuthorizationStoreError extends Data.TaggedError(
+export class DeviceAuthorizationStoreError extends Schema.TaggedError<DeviceAuthorizationStoreError>()(
   "DeviceAuthorizationStoreError",
-)<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+const isDeviceAuthorizationStoreError = Schema.is(DeviceAuthorizationStoreError);
 
 /** The owner tried to grant a scope the client did not request. */
-export class DeviceAuthorizationScopeError extends Data.TaggedError(
+export class DeviceAuthorizationScopeError extends Schema.TaggedError<DeviceAuthorizationScopeError>()(
   "DeviceAuthorizationScopeError",
-)<{
-  readonly allowedScopes: ReadonlyArray<AuthEnvironmentScope>;
-}> {}
+  { allowedScopes: AuthEnvironmentScopes },
+) {}
 
 /**
  * An external MCP policy needs a key-bound request: the endpoint only accepts
  * DPoP, so a bearer grant would be unusable, and scopes would widen it.
  */
-export class DeviceAuthorizationMcpPolicyError extends Data.TaggedError(
+export class DeviceAuthorizationMcpPolicyError extends Schema.TaggedError<DeviceAuthorizationMcpPolicyError>()(
   "DeviceAuthorizationMcpPolicyError",
-)<{
-  readonly reason: "unbound-request" | "scopes-with-policy";
-}> {}
+  { reason: Schema.Literals(["unbound-request", "scopes-with-policy"]) },
+) {}
 
 export interface DeviceAuthorizationStart {
   readonly deviceCode: string;
@@ -217,7 +215,8 @@ const isoNow = DateTime.now.pipe(Effect.map((now) => DateTime.formatIso(DateTime
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
   const sessions = yield* SessionStore.SessionStore;
   const columns = sql.literal(ROW_COLUMNS);
 
@@ -227,8 +226,8 @@ const make = Effect.gen(function* () {
   // The table stores only a digest, so a database read cannot recover a
   // device code that is still waiting for approval.
   const hashDeviceCode = (deviceCode: string) =>
-    crypto
-      .digest("SHA-256", new TextEncoder().encode(deviceCode))
+    digest
+      .digest(Digest.sha256, new TextEncoder().encode(deviceCode))
       .pipe(Effect.map(Encoding.encode), Effect.mapError(fail("hash-device-code")));
 
   const generateUserCode = Effect.gen(function* () {
@@ -287,7 +286,7 @@ const make = Effect.gen(function* () {
       });
     },
     Effect.mapError((cause) =>
-      cause instanceof DeviceAuthorizationStoreError ? cause : fail("start")(cause),
+      isDeviceAuthorizationStoreError(cause) ? cause : fail("start")(cause),
     ),
     Effect.withSpan("DeviceAuthorizationStore.start"),
   );
@@ -453,7 +452,7 @@ const make = Effect.gen(function* () {
       }).pipe(sql.withTransaction);
     },
     Effect.mapError((cause) =>
-      cause instanceof DeviceAuthorizationStoreError ? cause : fail("poll")(cause),
+      isDeviceAuthorizationStoreError(cause) ? cause : fail("poll")(cause),
     ),
     Effect.withSpan("DeviceAuthorizationStore.poll"),
   );
