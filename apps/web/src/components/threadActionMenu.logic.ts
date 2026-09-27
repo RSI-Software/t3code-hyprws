@@ -5,6 +5,8 @@ import { msg } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
 
 import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import
+import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-state-type-import
+import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
 
 export type ThreadActionMenuId =
   | "find"
@@ -15,6 +17,7 @@ export type ThreadActionMenuId =
   | "pin"
   | "unpin"
   | "reset-order" // fork-hook: thread-ordering/reset-order-id
+  | "fork" // fork-hook: thread-fork/menu-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -108,6 +111,7 @@ export interface ThreadActionMenuState {
   } | null;
   readonly isPinned: boolean;
   readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
+  readonly fork?: ForkableThreadProviderState | null; // fork-hook: thread-fork/menu-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -172,6 +176,7 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
+    ...forkThreadMenuItems(state), // fork-hook: thread-fork/menu-items
     ...(state.supports.settlement
       ? [
           state.isSettled
