@@ -202,6 +202,7 @@ const STATUS_DOT: Record<SidebarThreadStatus | "done", { label: string; classNam
   failed: { label: "Failed", className: "bg-error" },
   limited: { label: "Limited", className: "bg-warning" },
   done: { label: "Done", className: "bg-success" },
+  preparing: { label: "Setting up", className: "bg-info" },
   working: { label: "Working", className: "bg-info" },
   waiting: { label: "Waiting", className: "bg-muted-foreground/60" },
   ready: { label: "Read", className: "border border-muted-foreground/50" },

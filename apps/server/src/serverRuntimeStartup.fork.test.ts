@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { type OrchestrationProjectShell, ProjectId, type ProjectScript } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -53,7 +54,10 @@ it.effect("persists only an unmodified imported fork setup command", () => {
 
   return reconcile({ projects: [stale, custom], updates }).pipe(
     Effect.provide(
-      Layer.merge(ServerSettings.ServerSettingsService.layerTest(), NodeServices.layer),
+      Layer.merge(
+        ServerSettings.ServerSettingsService.layerTest(),
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+      ),
     ),
     Effect.tap(() =>
       Effect.sync(() => {
@@ -93,7 +97,7 @@ it.effect("refreshes a legacy generated setup command in project settings overri
             [custom]: { defaultProjectScripts: customScripts },
           },
         }),
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
       ),
     ),
   );
