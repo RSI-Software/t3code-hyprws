@@ -8,6 +8,7 @@ export const FORK_DOMAINS = [
   "markdown-editing",
   "project-windows",
   "thread-ordering",
+  "thread-fork",
   "upstream-fixes",
   "workspace-files",
   "worktrunk-hooks",
