@@ -103,6 +103,19 @@
     },
     {
       "bundles": ["assets", "web"],
+      "license": "MPL-2.0",
+      "name": "z2d",
+      "sourceUrl": "https://github.com/vancluever/z2d",
+      "version": "0.10.0",
+      "generatedNotices": [
+        {
+          "licenseId": "MPL-2.0",
+          "copyrights": ["Copyright © 2024-2025 Chris Marchesi"]
+        }
+      ]
+    },
+    {
+      "bundles": ["assets", "web"],
       "license": "MIT",
       "name": "Symbols Nerd Font Mono",
       "noticeFile": "apps/web/src/terminal/ghostty/fonts/LICENSE",
