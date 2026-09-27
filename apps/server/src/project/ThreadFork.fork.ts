@@ -13,15 +13,10 @@ import {
   ProviderDriverKind,
   ThreadId,
   WS_METHODS,
-  ThreadForkInstanceMismatchError,
-  ThreadForkNotQuiescentError,
-  ThreadForkOrchestrationError,
-  ThreadForkResult,
-  ThreadForkSourceMissingError,
-  ThreadForkSourceStateError,
-  ThreadForkUnsupportedProviderError,
+  ThreadForkError,
   isImportedAgentSessionMessageId,
   type ThreadForkInput,
+  type ThreadForkResult,
   type ProviderInstanceId,
   type EnvironmentAuthorizationError,
 } from "@t3tools/contracts";
@@ -30,7 +25,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type { OrchestrationThread } from "@t3tools/contracts";
+import type { OrchestrationThread, OrchestrationThreadActivity } from "@t3tools/contracts";
 
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -40,7 +35,10 @@ import {
   readClaudeForkSourceSessionId,
   resolveClaudeForkInstanceEnvironment,
 } from "../provider/Layers/ClaudeThreadFork.fork.ts";
-import { readCodexForkSourceThreadId } from "../provider/Layers/CodexThreadFork.fork.ts";
+import {
+  readCodexForkCutoffFork,
+  readCodexForkSourceThreadId,
+} from "../provider/Layers/CodexThreadFork.fork.ts";
 import * as ProviderSessionDirectory from "../provider/Services/ProviderSessionDirectory.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -53,9 +51,28 @@ const FORKABLE_PROVIDERS: ReadonlyArray<ProviderDriverKind> = [
 const threadInstanceId = (thread: OrchestrationThread): ProviderInstanceId | undefined =>
   thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
 
+// Mirrors the decider's private `openRequests` + `isStaleRequestFailureDetail`
+// (decider.ts): the handlers are not exported upstream, so the fork keeps a
+// local copy instead of widening the decider's surface.
+const isStaleRequestFailureDetailFork = (payload: Record<string, unknown> | null): boolean => {
+  const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
+  if (detail === null) return false;
+  return (
+    detail.includes("stale pending approval request") ||
+    detail.includes("unknown pending approval request") ||
+    detail.includes("unknown pending permission request") ||
+    detail.includes("stale pending user-input request") ||
+    detail.includes("unknown pending user-input request") ||
+    detail.includes("unknown pending user input request") ||
+    detail.includes("unknown pending codex user input request")
+  );
+};
+
 /** Mirror of the decider's `openRequests`: pending approval/user-input asks. */
-const hasPendingRequestFork = (thread: OrchestrationThread): boolean => {
-  const requests = new Set<string>();
+const openRequestsFork = (
+  thread: Pick<OrchestrationThread, "activities">,
+): ReadonlyMap<string, OrchestrationThreadActivity> => {
+  const requests = new Map<string, OrchestrationThreadActivity>();
   for (const activity of thread.activities) {
     const payload =
       typeof activity.payload === "object" && activity.payload !== null
@@ -64,12 +81,18 @@ const hasPendingRequestFork = (thread: OrchestrationThread): boolean => {
     const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
     if (requestId === null) continue;
     if (activity.kind === "approval.requested" || activity.kind === "user-input.requested") {
-      requests.add(requestId);
+      requests.set(requestId, activity);
     } else if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
+      requests.delete(requestId);
+    } else if (
+      (activity.kind === "provider.approval.respond.failed" ||
+        activity.kind === "provider.user-input.respond.failed") &&
+      isStaleRequestFailureDetailFork(payload)
+    ) {
       requests.delete(requestId);
     }
   }
-  return requests.size > 0;
+  return requests;
 };
 
 /** A queued turn start: a user message no turn has adopted yet. */
@@ -107,6 +130,37 @@ const codexForkLastTurnId = (thread: OrchestrationThread): string | undefined =>
     ? thread.latestTurn.turnId
     : undefined;
 
+/** Forking an already-forked title must not stack the suffix. */
+const forkTitle = (title: string): string => `${title.replace(/ \(fork\)$/, "")} (fork)`;
+
+/** What quiescence looked like when the fork started; the race check compares. */
+interface SourceQuiescenceSnapshot {
+  readonly latestTurnId: string | null;
+  readonly messageCount: number;
+}
+
+const quiescenceSnapshotOf = (thread: OrchestrationThread): SourceQuiescenceSnapshot => ({
+  latestTurnId: thread.latestTurn?.turnId ?? null,
+  messageCount: thread.messages.length,
+});
+
+/**
+ * Re-read the source after any native side effect and refuse if it moved on:
+ * a new turn, a running turn, or a fresh pending request means the clone (or
+ * cursor cutoff) no longer matches what the user saw.
+ */
+const sourceRacedSinceFork = (
+  thread: OrchestrationThread,
+  before: SourceQuiescenceSnapshot,
+): boolean =>
+  (thread.latestTurn?.turnId ?? null) !== before.latestTurnId ||
+  thread.messages.length !== before.messageCount ||
+  thread.latestTurn?.state === "running" ||
+  thread.session?.activeTurnId != null ||
+  thread.session?.status === "running" ||
+  thread.session?.status === "starting" ||
+  openRequestsFork(thread).size > 0;
+
 /** Install the child's cursor and thread, then unsettle what import settled. */
 export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: ThreadForkInput) {
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -117,23 +171,24 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
   const threadOption = yield* snapshots.getThreadDetailById(input.threadId).pipe(
     Effect.mapError(
       (cause) =>
-        new ThreadForkOrchestrationError({
+        new ThreadForkError({
           threadId: input.threadId,
-          childThreadId: null,
-          cause,
+          reason: "orchestration-failed",
+          detail: String(cause),
         }),
     ),
   );
   if (Option.isNone(threadOption)) {
-    return yield* new ThreadForkSourceMissingError({ threadId: input.threadId });
+    return yield* new ThreadForkError({ threadId: input.threadId, reason: "source-missing" });
   }
   const thread = threadOption.value;
+  const quiescenceBefore = quiescenceSnapshotOf(thread);
 
   if (thread.deletedAt !== null) {
-    return yield* new ThreadForkSourceStateError({ threadId: thread.id, reason: "deleted" });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "source-deleted" });
   }
   if (thread.archivedAt !== null) {
-    return yield* new ThreadForkSourceStateError({ threadId: thread.id, reason: "archived" });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "source-archived" });
   }
 
   const nowIso = DateTime.formatIso(yield* DateTime.now);
@@ -144,35 +199,39 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
     thread.session?.status === "starting" ||
     hasQueuedTurnStartFork(thread, nowIso)
   ) {
-    return yield* new ThreadForkNotQuiescentError({ threadId: thread.id, reason: "turn" });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "turn-running" });
   }
-  if (hasPendingRequestFork(thread)) {
-    return yield* new ThreadForkNotQuiescentError({ threadId: thread.id, reason: "requests" });
+  if (openRequestsFork(thread).size > 0) {
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "pending-requests" });
   }
 
   const instanceId = threadInstanceId(thread);
-  const bindingOption = yield* directory
-    .getBinding(thread.id)
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new ThreadForkOrchestrationError({ threadId: thread.id, childThreadId: null, cause }),
-      ),
-    );
+  const bindingOption = yield* directory.getBinding(thread.id).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ThreadForkError({
+          threadId: thread.id,
+          reason: "orchestration-failed",
+          detail: String(cause),
+        }),
+    ),
+  );
   if (instanceId === undefined || Option.isNone(bindingOption)) {
-    return yield* new ThreadForkSourceStateError({ threadId: thread.id, reason: "no-cursor" });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "no-cursor" });
   }
   const binding = bindingOption.value;
   if (binding.providerInstanceId !== undefined && binding.providerInstanceId !== instanceId) {
-    return yield* new ThreadForkInstanceMismatchError({
-      threadId: thread.id,
-      threadInstanceId: instanceId,
-      bindingInstanceId: binding.providerInstanceId,
-    });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "instance-mismatch" });
+  }
+  // The child copies `modelSelection`; a session bound to another instance
+  // would fork a conversation the child cannot route to.
+  if (thread.modelSelection.instanceId !== instanceId) {
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "instance-mismatch" });
   }
   if (!(FORKABLE_PROVIDERS as ReadonlyArray<string>).includes(binding.provider)) {
-    return yield* new ThreadForkUnsupportedProviderError({
+    return yield* new ThreadForkError({
       threadId: thread.id,
+      reason: "unsupported-provider",
       provider: binding.provider,
     });
   }
@@ -181,7 +240,11 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
     crypto.randomUUIDv4.pipe(
       Effect.mapError(
         (cause) =>
-          new ThreadForkOrchestrationError({ threadId: thread.id, childThreadId: null, cause }),
+          new ThreadForkError({
+            threadId: thread.id,
+            reason: "orchestration-failed",
+            detail: String(cause),
+          }),
       ),
       Effect.map(CommandId.make),
     );
@@ -190,14 +253,16 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
 
   // The child shares the source's checkout; the binding's cwd follows the
   // same runtimePayload → worktree → project-root precedence the importer uses.
-  const projectOption = yield* snapshots
-    .getProjectShellById(thread.projectId)
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new ThreadForkOrchestrationError({ threadId: thread.id, childThreadId: null, cause }),
-      ),
-    );
+  const projectOption = yield* snapshots.getProjectShellById(thread.projectId).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ThreadForkError({
+          threadId: thread.id,
+          reason: "orchestration-failed",
+          detail: String(cause),
+        }),
+    ),
+  );
   const cwd =
     (typeof binding.runtimePayload === "object" &&
     binding.runtimePayload !== null &&
@@ -212,14 +277,14 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
   // orphan clone (Claude forks eagerly below).
   const messages = forkableMessages(thread);
   if (messages.length === 0) {
-    return yield* new ThreadForkSourceStateError({ threadId: thread.id, reason: "no-history" });
+    return yield* new ThreadForkError({ threadId: thread.id, reason: "no-history" });
   }
 
   let childCursor: unknown;
   if (binding.provider === "claudeAgent") {
     const sourceSessionId = readClaudeForkSourceSessionId(binding.resumeCursor);
     if (sourceSessionId === undefined) {
-      return yield* new ThreadForkSourceStateError({ threadId: thread.id, reason: "no-cursor" });
+      return yield* new ThreadForkError({ threadId: thread.id, reason: "no-cursor" });
     }
     const environment = yield* resolveClaudeForkInstanceEnvironment(thread.id, instanceId);
     childCursor = yield* forkClaudeSession({
@@ -230,9 +295,11 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
     });
   } else {
     const source = readCodexForkSourceThreadId(binding.resumeCursor);
-    const lastTurnId = codexForkLastTurnId(thread);
+    // A fresh lazy fork has no completed turn of its own; reusing the cutoff
+    // its own cursor already carries forks the same native history again.
+    const lastTurnId = codexForkLastTurnId(thread) ?? readCodexForkCutoffFork(binding.resumeCursor);
     if (source === undefined || lastTurnId === undefined) {
-      return yield* new ThreadForkSourceStateError({
+      return yield* new ThreadForkError({
         threadId: thread.id,
         reason: source === undefined ? "no-cursor" : "no-fork-point",
       });
@@ -240,6 +307,30 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
     // Lazy fork: the child's first session start sends thread/fork from the
     // parent's native thread, cut at the turn captured at click time.
     childCursor = { threadId: source, forkFrom: { lastTurnId } };
+  }
+
+  // The source must not have moved on while the native fork ran; anything
+  // dispatched past this point creates a child that would diverge silently.
+  const threadAfterForkOption = yield* snapshots.getThreadDetailById(input.threadId).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ThreadForkError({
+          threadId: thread.id,
+          reason: "orchestration-failed",
+          childThreadId,
+          detail: String(cause),
+        }),
+    ),
+  );
+  if (
+    Option.isNone(threadAfterForkOption) ||
+    sourceRacedSinceFork(threadAfterForkOption.value, quiescenceBefore)
+  ) {
+    return yield* new ThreadForkError({
+      threadId: thread.id,
+      reason: "source-race",
+      childThreadId: Option.isSome(threadAfterForkOption) ? childThreadId : null,
+    });
   }
 
   // Insert-ignore: a lost RPC response can retry the fork, and an existing
@@ -259,26 +350,35 @@ export const forkThreadSource = Effect.fn("forkThreadSource")(function* (input: 
     )
     .pipe(
       Effect.mapError(
-        (cause) => new ThreadForkOrchestrationError({ threadId: thread.id, childThreadId, cause }),
+        (cause) =>
+          new ThreadForkError({
+            threadId: thread.id,
+            reason: "orchestration-failed",
+            childThreadId,
+            detail: String(cause),
+          }),
       ),
     );
 
   const dispatch = (command: Parameters<typeof engine.dispatch>[0]) =>
-    engine
-      .dispatch(command)
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ThreadForkOrchestrationError({ threadId: thread.id, childThreadId, cause }),
-        ),
-      );
+    engine.dispatch(command).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ThreadForkError({
+            threadId: thread.id,
+            reason: "orchestration-failed",
+            childThreadId,
+            detail: String(cause),
+          }),
+      ),
+    );
 
   yield* dispatch({
     type: "thread.create",
     commandId: yield* nextCommandId(),
     threadId: childThreadId,
     projectId: thread.projectId,
-    title: `${thread.title} (fork)`,
+    title: forkTitle(thread.title),
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,

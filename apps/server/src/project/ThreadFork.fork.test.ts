@@ -1,7 +1,7 @@
 // Fork-only: `thread.fork` handler tests. Happy paths assert the dispatch
 // order per provider (binding insert-ignore → thread.create →
 // thread.history.import → thread.unsettle) and that the parent binding is
-// never rewritten; guard cases cover every tagged refusal.
+// never rewritten; the guard table covers every refusal reason.
 import {
   EventId,
   MessageId,
@@ -40,6 +40,7 @@ const PROJECT_ID = ProjectId.make("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
 const INSTANCE_ID = ProviderInstanceId.make("codex");
 const CLAUDE_INSTANCE_ID = ProviderInstanceId.make("claude-1");
+const CLAUDE_DEFAULT_INSTANCE_ID = ProviderInstanceId.make("claudeAgent");
 
 // Counter-fed bytes so every generated uuid is distinct within a test.
 let cryptoByte = 0;
@@ -163,8 +164,6 @@ const defaultClaudeSettingsLayer = Layer.mock(ServerSettingsService)({
   }) as Effect.Effect<ServerSettings, never, never>,
 });
 
-const CLAUDE_DEFAULT_INSTANCE_ID = ProviderInstanceId.make("claudeAgent");
-
 const silentSpawnerLayer = Layer.succeed(
   ChildProcessSpawner.ChildProcessSpawner,
   ChildProcessSpawner.make(() => Effect.die("unexpected spawn")),
@@ -204,6 +203,28 @@ const historySpawnerLayer = (responses: {
     ),
   );
 
+const CLONE_FORK_RESPONSE = JSON.stringify({
+  sessionId: "e5f6a7b8-5555-4666-8777-888899990000",
+});
+
+const cloneHistory = (turnIds: ReadonlyArray<string>) =>
+  JSON.stringify([
+    { type: "user", uuid: turnIds[0], parent_tool_use_id: null, message: { content: "hi" } },
+    {
+      type: "assistant",
+      uuid: "c3d4e5f6-3333-4444-8555-666677778888",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "text", text: "hello" }] },
+    },
+    {
+      type: "user",
+      uuid: "d4e5f6a7-4444-4555-8666-777788889999",
+      parent_tool_use_id: "tool-1",
+      message: { content: [{ type: "tool_result" }] },
+    },
+    { type: "user", uuid: turnIds[1], parent_tool_use_id: null, message: { content: "go" } },
+  ]);
+
 interface Harness {
   readonly commands: Ref.Ref<OrchestrationCommand[]>;
   readonly upserts: Ref.Ref<ProviderSessionDirectory.ProviderRuntimeBinding[]>;
@@ -212,10 +233,17 @@ interface Harness {
 
 const makeHarness = Effect.fn("makeThreadForkHarness")(function* (input: {
   readonly thread: OrchestrationThread;
+  /** Threads returned by successive source reads; the last one repeats. */
+  readonly threadRereads?: ReadonlyArray<OrchestrationThread>;
   readonly binding?:
     | typeof CODEX_BINDING
     | typeof CLAUDE_BINDING
-    | (typeof CODEX_BINDING & { readonly provider: string })
+    | (typeof CODEX_BINDING & {
+        readonly provider: string;
+        readonly resumeCursor:
+          | { readonly threadId: string }
+          | { readonly threadId: string; readonly forkFrom: { readonly lastTurnId: string } };
+      })
     | null;
   readonly spawnerLayer?: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
   readonly settingsLayer?: Layer.Layer<ServerSettingsService>;
@@ -223,10 +251,19 @@ const makeHarness = Effect.fn("makeThreadForkHarness")(function* (input: {
   const commands = yield* Ref.make<OrchestrationCommand[]>([]);
   const upserts = yield* Ref.make<ProviderSessionDirectory.ProviderRuntimeBinding[]>([]);
   const options = yield* Ref.make<Array<string | undefined>>([]);
+  const reads = yield* Ref.make(0);
+  const rereads = input.threadRereads ?? [input.thread];
 
   const layer = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
-      getThreadDetailById: () => Effect.succeed(Option.some(input.thread)),
+      getThreadDetailById: () =>
+        Effect.gen(function* () {
+          const read = yield* Ref.get(reads);
+          yield* Ref.update(reads, (count) => count + 1);
+          return Option.some(
+            (read < rereads.length ? rereads[read] : rereads[rereads.length - 1]!) as never,
+          );
+        }),
       getProjectShellById: () =>
         Effect.succeed(
           Option.some({ id: PROJECT_ID, workspaceRoot: "/workspace/project" }) as never,
@@ -261,7 +298,7 @@ const makeHarness = Effect.fn("makeThreadForkHarness")(function* (input: {
   const fork = () =>
     forkThreadSource({ threadId: THREAD_ID }).pipe(Effect.provide(layer)) as Effect.Effect<
       { readonly childThreadId: ThreadId },
-      { readonly _tag: string; readonly reason?: string },
+      ThreadForkErrorLike,
       never
     >;
 
@@ -270,27 +307,11 @@ const makeHarness = Effect.fn("makeThreadForkHarness")(function* (input: {
   };
 });
 
-const CLONE_FORK_RESPONSE = JSON.stringify({
-  sessionId: "e5f6a7b8-5555-4666-8777-888899990000",
-});
-
-const cloneHistory = (turnIds: ReadonlyArray<string>) =>
-  JSON.stringify([
-    { type: "user", uuid: turnIds[0], parent_tool_use_id: null, message: { content: "hi" } },
-    {
-      type: "assistant",
-      uuid: "c3d4e5f6-3333-4444-8555-666677778888",
-      parent_tool_use_id: null,
-      message: { content: [{ type: "text", text: "hello" }] },
-    },
-    {
-      type: "user",
-      uuid: "d4e5f6a7-4444-4555-8666-777788889999",
-      parent_tool_use_id: "tool-1",
-      message: { content: [{ type: "tool_result" }] },
-    },
-    { type: "user", uuid: turnIds[1], parent_tool_use_id: null, message: { content: "go" } },
-  ]);
+interface ThreadForkErrorLike {
+  readonly _tag: string;
+  readonly reason?: string;
+  readonly message?: string;
+}
 
 describe("forkThreadSource", () => {
   it.effect(
@@ -419,45 +440,205 @@ describe("forkThreadSource", () => {
     }),
   );
 
-  it.effect("refuses a non-forkable provider", () =>
+  it.effect("codex: a fresh lazy fork reuses its own cursor's cutoff", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
-        thread: makeThread(),
-        binding: { ...CODEX_BINDING, provider: "opencode" as never },
+        thread: makeThread({ latestTurn: null }),
+        binding: {
+          ...CODEX_BINDING,
+          resumeCursor: { threadId: "fork-parent-native", forkFrom: { lastTurnId: "turn-5" } },
+        },
       });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error._tag).toBe("ThreadForkUnsupportedProviderError");
-      expect(yield* Ref.get(harness.commands)).toEqual([]);
+      const { childThreadId } = yield* harness.fork();
+      const upserts = yield* Ref.get(harness.upserts);
+      expect(upserts).toHaveLength(1);
+      expect(upserts[0]?.resumeCursor).toEqual({
+        threadId: "fork-parent-native",
+        forkFrom: { lastTurnId: "turn-5" },
+      });
+      expect(childThreadId).toBeDefined();
     }),
   );
 
-  it.effect("refuses when the binding routes through another instance", () =>
+  it.effect("for an already-forked title the suffix does not stack", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
-        thread: makeThread(),
-        binding: { ...CODEX_BINDING, providerInstanceId: ProviderInstanceId.make("other") },
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error._tag).toBe("ThreadForkInstanceMismatchError");
-    }),
-  );
-
-  it.effect("refuses while a turn is running", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({ latestTurn: { ...COMPLETED_TURN, state: "running" } }),
+        thread: makeThread({ title: "Thread (fork)" }),
         binding: CODEX_BINDING,
       });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({
-        _tag: "ThreadForkNotQuiescentError",
-        reason: "turn",
+      const { childThreadId } = yield* harness.fork();
+      const commands = yield* Ref.get(harness.commands);
+      expect(commands[0]).toMatchObject({ threadId: childThreadId, title: "Thread (fork)" });
+    }),
+  );
+
+  it.effect("a stale pending request does not block the fork", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread({
+          activities: [
+            makeActivity("approval.requested", { requestId: "req-1" }),
+            makeActivity("provider.approval.respond.failed", {
+              requestId: "req-1",
+              detail: "Stale pending approval request: the turn already finished.",
+            }),
+          ],
+        }),
+        binding: CODEX_BINDING,
       });
+      const { childThreadId } = yield* harness.fork();
+      expect(childThreadId).toBeDefined();
+      expect(yield* Ref.get(harness.upserts)).toHaveLength(1);
+    }),
+  );
+
+  it.effect("refuses when the source moves on during the native fork", () =>
+    Effect.gen(function* () {
+      const raced = makeThread({
+        latestTurn: { ...COMPLETED_TURN, turnId: TurnId.make("turn-10") },
+        messages: [
+          makeMessage("thread-1:000001", "user", "hello"),
+          makeMessage("thread-1:000002", "assistant", "hi there"),
+          makeMessage("thread-1:000003", "user", "and now this"),
+        ],
+      });
+      const harness = yield* makeHarness({
+        thread: makeThread({
+          modelSelection: { instanceId: CLAUDE_INSTANCE_ID, model: "claude-sonnet" },
+        }),
+        threadRereads: [
+          makeThread({
+            modelSelection: { instanceId: CLAUDE_INSTANCE_ID, model: "claude-sonnet" },
+          }),
+          raced,
+        ],
+        binding: {
+          ...CLAUDE_BINDING,
+          providerInstanceId: CLAUDE_INSTANCE_ID,
+        },
+        spawnerLayer: historySpawnerLayer({
+          forkSession: CLONE_FORK_RESPONSE,
+          getSessionMessages: cloneHistory([
+            "a1b2c3d4-1111-4222-8333-444455556666",
+            "b2c3d4e5-2222-4333-8444-555566667777",
+          ]),
+        }),
+      });
+      const error = yield* Effect.flip(harness.fork());
+      expect(error).toMatchObject({ _tag: "ThreadForkError", reason: "source-race" });
+      // No child commands, no binding: the clone is orphaned, the model is not.
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+      expect(yield* Ref.get(harness.upserts)).toEqual([]);
+    }),
+  );
+
+  interface GuardCase {
+    readonly name: string;
+    readonly thread: Partial<OrchestrationThread>;
+    readonly binding: unknown;
+    readonly reason: string;
+  }
+
+  const guardCases: ReadonlyArray<GuardCase> = [
+    {
+      name: "a non-forkable provider",
+      thread: {},
+      binding: { ...CODEX_BINDING, provider: "opencode" as never },
+      reason: "unsupported-provider",
+    },
+    {
+      name: "a binding routed through another instance",
+      thread: {},
+      binding: { ...CODEX_BINDING, providerInstanceId: ProviderInstanceId.make("other") },
+      reason: "instance-mismatch",
+    },
+    {
+      name: "a model selection pointing at another instance",
+      thread: { modelSelection: { instanceId: ProviderInstanceId.make("other"), model: "m" } },
+      binding: CODEX_BINDING,
+      reason: "instance-mismatch",
+    },
+    {
+      name: "a running turn",
+      thread: { latestTurn: { ...COMPLETED_TURN, state: "running" } },
+      binding: CODEX_BINDING,
+      reason: "turn-running",
+    },
+    {
+      name: "a starting session with an active turn",
+      thread: {
+        session: {
+          threadId: THREAD_ID,
+          status: "starting",
+          providerName: "codex",
+          providerInstanceId: INSTANCE_ID,
+          runtimeMode: "full-access",
+          activeTurnId: TurnId.make("turn-9"),
+          lastError: null,
+          updatedAt: "2026-08-20T00:00:00.000Z",
+        },
+      },
+      binding: CODEX_BINDING,
+      reason: "turn-running",
+    },
+    {
+      name: "an open approval request",
+      thread: { activities: [makeActivity("approval.requested", { requestId: "req-1" })] },
+      binding: CODEX_BINDING,
+      reason: "pending-requests",
+    },
+    {
+      name: "a deleted thread",
+      thread: { deletedAt: "2026-08-21T00:00:00.000Z" },
+      binding: CODEX_BINDING,
+      reason: "source-deleted",
+    },
+    {
+      name: "an archived thread",
+      thread: { archivedAt: "2026-08-21T00:00:00.000Z" },
+      binding: CODEX_BINDING,
+      reason: "source-archived",
+    },
+    {
+      name: "a thread without a binding",
+      thread: {},
+      binding: null,
+      reason: "no-cursor",
+    },
+    {
+      name: "a Codex cursor without a native thread id",
+      thread: {},
+      binding: { ...CODEX_BINDING, resumeCursor: {} },
+      reason: "no-cursor",
+    },
+    {
+      name: "a Codex thread whose latest turn never completed",
+      thread: { latestTurn: null },
+      binding: CODEX_BINDING,
+      reason: "no-fork-point",
+    },
+    {
+      name: "a thread with nothing importable",
+      thread: { messages: [] },
+      binding: CODEX_BINDING,
+      reason: "no-history",
+    },
+  ];
+
+  // it.effect.each, not it.each: the plain Vitest table never runs Effects.
+  it.effect.each(guardCases)("refuses $name", ({ thread, binding, reason }) =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread(thread),
+        binding: binding as never,
+      });
+      const error = yield* Effect.flip(harness.fork());
+      expect(error).toMatchObject({ _tag: "ThreadForkError", reason });
     }),
   );
 
   // Live clock: the queued-turn grace window compares the message against
-  // `DateTime.now`, which TestClock would freeze in the far past.
+  // DateTime.now, which TestClock would freeze in the far past.
   it.live("refuses while a user message waits for its turn", () =>
     Effect.gen(function* () {
       const fresh = DateTime.formatIso(yield* DateTime.now);
@@ -469,89 +650,7 @@ describe("forkThreadSource", () => {
         binding: CODEX_BINDING,
       });
       const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkNotQuiescentError", reason: "turn" });
-    }),
-  );
-
-  it.effect("refuses while an approval request is open", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({
-          activities: [makeActivity("approval.requested", { requestId: "req-1" })],
-        }),
-        binding: CODEX_BINDING,
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkNotQuiescentError", reason: "requests" });
-    }),
-  );
-
-  it.effect("refuses a deleted thread", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({ deletedAt: "2026-08-21T00:00:00.000Z" }),
-        binding: CODEX_BINDING,
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "deleted" });
-    }),
-  );
-
-  it.effect("refuses an archived thread", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({ archivedAt: "2026-08-21T00:00:00.000Z" }),
-        binding: CODEX_BINDING,
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "archived" });
-    }),
-  );
-
-  it.effect("refuses a thread without a binding", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({ thread: makeThread(), binding: null });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "no-cursor" });
-    }),
-  );
-
-  it.effect("refuses a Claude binding whose cursor has no native session id", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({
-          modelSelection: { instanceId: CLAUDE_INSTANCE_ID, model: "claude-sonnet" },
-        }),
-        binding: {
-          ...CLAUDE_BINDING,
-          resumeCursor: { resume: "not-a-uuid" } as unknown as typeof CLAUDE_BINDING.resumeCursor,
-        },
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "no-cursor" });
-    }),
-  );
-
-  it.effect("refuses a Codex thread whose latest turn never completed", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({ latestTurn: null }),
-        binding: CODEX_BINDING,
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "no-fork-point" });
-    }),
-  );
-
-  it.effect("refuses a thread with nothing importable", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: makeThread({ messages: [] }),
-        binding: CODEX_BINDING,
-      });
-      const error = yield* Effect.flip(harness.fork());
-      expect(error).toMatchObject({ _tag: "ThreadForkSourceStateError", reason: "no-history" });
-      expect(yield* Ref.get(harness.upserts)).toEqual([]);
+      expect(error).toMatchObject({ _tag: "ThreadForkError", reason: "turn-running" });
     }),
   );
 });
