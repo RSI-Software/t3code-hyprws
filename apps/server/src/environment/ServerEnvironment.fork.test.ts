@@ -3,6 +3,7 @@
 // scoped to project windows) advertises through the marked hook
 // `github-issues/server-environment-capability` in `ServerEnvironment.ts`.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,7 +13,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
 
-it.layer(NodeServices.layer)("ServerEnvironment fork", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironment fork", (it) => {
   const makeServerEnvironmentLayer = (baseDir: string) =>
     ServerEnvironment.layer.pipe(
       Layer.provide(ServerSecretStore.layer),

@@ -1154,10 +1154,11 @@ function TerminalSessionViewport({
           input: {
             threadId,
             terminalId,
+            attachmentId, // fork-hook: zmux-estate/terminal-attachment-write
             data,
             ...(kind === undefined ? {} : { [kind]: true }),
             ...options,
-          },
+          }, // fork-hook: zmux-estate/terminal-attachment-write
         });
       const sendTerminalInput = (
         data: string,
@@ -1428,6 +1429,7 @@ function TerminalSessionViewport({
         mount.focus({ preventScroll: true });
       }
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A checkout move swaps the session atom but keeps this mounted terminal. // fork-hook: zmux-estate/checkout-move-mount-lint
   }, [environmentId]); // fork-hook: zmux-estate/checkout-move-mount
 
   const attachContainer = (mount: HTMLDivElement) => {
