@@ -64,7 +64,10 @@ import {
   GitHubIssueListResult,
   GitHubIssueOperationError,
   GitHubIssueRef,
+  GitHubIssueSetStateInput,
 } from "./githubIssue.ts";
+import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
+import { ThreadIssueKey, ThreadIssueSyncInput } from "./threadIssues.fork.ts";
 
 const GitHubIssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
@@ -85,6 +88,27 @@ const WsGitHubIssuesDetailRpcFork = Rpc.make("githubIssues.detail", {
   error: GitHubIssueRpcErrorFork,
 });
 
+/** Threads linked to one issue, by host-qualified key (RSI-Software/t3code-hyprws#1431). */
+const WsGitHubIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads", {
+  payload: ThreadIssueKey,
+  success: PullRequestLinkedThreadsResult,
+  error: GitHubIssueRpcErrorFork,
+});
+
+const WsGitHubIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
+  payload: GitHubIssueSetStateInput,
+  error: GitHubIssueRpcErrorFork,
+});
+
+/**
+ * Rereads a thread's linked issues from GitHub (RSI-Software/t3code-hyprws#1434). Answers once
+ * the reads are queued; the snapshots arrive on the thread shell stream.
+ */
+const WsGitHubIssuesSyncThreadLinksRpcFork = Rpc.make("githubIssues.syncThreadLinks", {
+  payload: ThreadIssueSyncInput,
+  error: GitHubIssueRpcErrorFork,
+});
+
 /**
  * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
  * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
@@ -93,8 +117,17 @@ export const githubIssuesRpcFork = {
   methodNames: {
     githubIssuesList: "githubIssues.list",
     githubIssuesDetail: "githubIssues.detail",
+    githubIssuesLinkedThreads: "githubIssues.linkedThreads",
+    githubIssuesSetState: "githubIssues.setState",
+    githubIssuesSyncThreadLinks: "githubIssues.syncThreadLinks",
   } as const,
-  rpcs: [WsGitHubIssuesListRpcFork, WsGitHubIssuesDetailRpcFork] as const,
+  rpcs: [
+    WsGitHubIssuesListRpcFork,
+    WsGitHubIssuesDetailRpcFork,
+    WsGitHubIssuesLinkedThreadsRpcFork,
+    WsGitHubIssuesSetStateRpcFork,
+    WsGitHubIssuesSyncThreadLinksRpcFork,
+  ] as const,
 };
 
 // Thread checkout move (zmux-estate): the request, result, and refusal live in
