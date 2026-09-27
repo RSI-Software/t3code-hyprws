@@ -86,6 +86,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { ThreadCheckoutMove } from "./checkoutMove.ts"; // fork-hook: zmux-estate/orchestration-v2-checkout-move-import
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -474,6 +475,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/app-thread-checkout-move
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -2187,6 +2189,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/thread-shell-checkout-move
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -3217,6 +3220,7 @@ export const OrchestrationV2Command = Schema.Union([
     branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     expectedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/metadata-update-checkout-move
     expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     /** A message queued in the same commit, so a workspace change cannot settle the thread first. */
     continuation: Schema.optional(Schema.Struct({ messageId: MessageId, text: Schema.String })),
