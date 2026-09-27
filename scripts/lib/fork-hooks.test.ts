@@ -145,6 +145,16 @@ it("rejects malformed keys", () => {
     assert.isFalse(isWellFormedForkHookKey(key), `${key} must be rejected`);
 });
 
+it("accepts the multi-window and workspaces domains for markers (RSI-Software/t3code-hyprws#1339)", () => {
+  for (const key of ["multi-window/window-id", "workspaces/filter"])
+    assert.isTrue(isWellFormedForkHookKey(key), `${key} must be accepted`);
+  for (const key of ["multi-window/window-id", "workspaces/filter"]) {
+    const hooks = parseForkHookMarkers(`const stale = 1;\nforkRegister(); // fork-hook: ${key}\nb`);
+    assert.strictEqual(hooks.length, 1);
+    assert.deepInclude(hooks[0], { key, kind: "line", startLine: 2, endLine: 2 });
+  }
+});
+
 it("parses a trailing line marker and strips it without touching the code", () => {
   const line =
     'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target';
