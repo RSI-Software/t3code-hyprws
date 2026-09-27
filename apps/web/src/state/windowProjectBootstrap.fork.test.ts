@@ -4,7 +4,7 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { environmentShellBootstrappedAtom } from "./windowProjectBootstrap.fork";
@@ -15,7 +15,7 @@ const sources = vi.hoisted(() => ({
 }));
 
 vi.mock("./shell", async () => {
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   const Option = await import("effect/Option");
   return {
     environmentShell: {
@@ -29,7 +29,7 @@ vi.mock("./shell", async () => {
 });
 
 vi.mock("../connection/catalog", async () => {
-  const { Atom, AsyncResult } = await import("effect/unstable/reactivity");
+  const { Atom, AsyncResult } = await import("effect/reactivity");
   const { AVAILABLE_CONNECTION_STATE } = await import("@t3tools/client-runtime/connection");
   return {
     environmentCatalog: {
