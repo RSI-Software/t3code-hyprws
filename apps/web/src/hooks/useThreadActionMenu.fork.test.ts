@@ -101,6 +101,7 @@ describe("forkThreadActionFork failure surfaces", () => {
       routeFamily,
       navigate,
       forkThread: forkThread as never,
+      waitForShell: async () => true,
     });
     expect(add).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith({
@@ -129,6 +130,63 @@ describe("forkThreadActionFork failure surfaces", () => {
     // failed fork.
     expect(add).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds navigation until the child shell reaches the store", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-toast");
+    const order: string[] = [];
+    let releaseShell: (landed: boolean) => void = () => {};
+    const shellGate = new Promise<boolean>((resolve) => {
+      releaseShell = resolve;
+    });
+    const navigate = vi.fn(async () => {
+      order.push("navigate");
+    });
+    const done = forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: (() => {
+        order.push("rpc");
+        return Promise.resolve(
+          AsyncResult.success({
+            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
+          }) as unknown as AtomCommandResult<unknown, unknown>,
+        );
+      }) as never,
+      waitForShell: () => {
+        order.push("wait");
+        return shellGate;
+      },
+    });
+    // Flush microtasks: the RPC settled, but navigation must still be held.
+    await Promise.resolve();
+    expect(order).toEqual(["rpc", "wait"]);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    releaseShell(true);
+    await done;
+    expect(order).toEqual(["rpc", "wait", "navigate"]);
+  });
+
+  it("navigates anyway when the child shell never lands", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-toast");
+    const navigate = vi.fn(async () => undefined);
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: (() =>
+        Promise.resolve(
+          AsyncResult.success({
+            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
+          }) as unknown as AtomCommandResult<unknown, unknown>,
+        )) as never,
+      waitForShell: async () => false,
+    });
+    // Timeout is never a stuck spinner or a false error toast.
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(add).not.toHaveBeenCalled();
   });
 
   it("clears the in-flight flag after a failure so a retry can run", async () => {

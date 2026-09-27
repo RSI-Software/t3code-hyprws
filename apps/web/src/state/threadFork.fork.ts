@@ -9,6 +9,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentThreadShells } from "./threads";
 import { environmentServerConfigsAtom } from "./server";
 
 export const threadForkCommand = createEnvironmentRpcCommand(connectionAtomRuntime, {
@@ -26,6 +27,34 @@ export const setForkInFlight = (threadKey: string, inFlight: boolean): void => {
   } else {
     inFlightForks.delete(threadKey);
   }
+};
+
+/**
+ * Resolves `true` once the thread's shell reaches the client store, `false`
+ * on timeout. A fork's RPC reply races the child's shell projection: the
+ * thread route reads a missing shell as a dead thread and bounces to the
+ * index, so the fork dispatch must land only after the store has the child.
+ */
+export const waitForChildShellFork = (
+  ref: ScopedThreadRef,
+  timeoutMs = 5_000,
+): Promise<boolean> => {
+  const shellAtom = environmentThreadShells.threadShellAtom(ref);
+  if (appAtomRegistry.get(shellAtom) !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let unsubscribe: (() => void) | null = null;
+    const timeout = setTimeout(() => {
+      unsubscribe?.();
+      resolve(false);
+    }, timeoutMs);
+    const check = () => {
+      if (appAtomRegistry.get(shellAtom) === null) return;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(true);
+    };
+    unsubscribe = appAtomRegistry.subscribe(shellAtom, check);
+  });
 };
 
 /**

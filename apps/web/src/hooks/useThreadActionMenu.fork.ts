@@ -10,7 +10,12 @@ import { useRouter } from "@tanstack/react-router";
 
 import type { ThreadRouteFamily } from "../threadRoutes";
 import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
-import { forkInFlight, setForkInFlight, threadForkCommand } from "../state/threadFork.fork";
+import {
+  forkInFlight,
+  setForkInFlight,
+  threadForkCommand,
+  waitForChildShellFork,
+} from "../state/threadFork.fork";
 
 export { forkInFlight, readForkProviderFork } from "../state/threadFork.fork";
 export {
@@ -58,8 +63,11 @@ export async function forkThreadActionFork(input: {
   readonly routeFamily: ThreadRouteFamily;
   readonly navigate: (options: ThreadRouteTarget) => Promise<void> | void;
   readonly forkThread: ThreadForkCommandRun;
+  /** Defaults to the real store wait; tests substitute a gate. */
+  readonly waitForShell?: (ref: ScopedThreadRef) => Promise<boolean>;
 }): Promise<void> {
   const { threadRef, routeFamily, navigate, forkThread } = input;
+  const waitForShell = input.waitForShell ?? waitForChildShellFork;
   const threadKey = scopedThreadKey(threadRef);
   if (forkInFlight(threadKey)) return;
   const toastFailure = (cause: unknown) =>
@@ -85,11 +93,19 @@ export async function forkThreadActionFork(input: {
       if (isAtomCommandInterrupted(result)) return;
       throw squashAtomCommandFailure(result);
     }
+    // The child's shell can lag the RPC reply; landing first would read as
+    // a missing thread and bounce to the index. Hold the in-flight flag and
+    // wait for the store, but never hang: on timeout navigate anyway.
+    const childRef: ScopedThreadRef = {
+      environmentId: threadRef.environmentId,
+      threadId: result.value.childThreadId,
+    };
+    await waitForShell(childRef);
     try {
       await navigate(
         routeFamily.thread({
-          environmentId: threadRef.environmentId,
-          threadId: result.value.childThreadId,
+          environmentId: childRef.environmentId,
+          threadId: childRef.threadId,
         }),
       );
     } catch {
