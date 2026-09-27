@@ -131,6 +131,7 @@ import {
   type SelectTimelinePageResult,
   type ThreadHistoryPrefix,
 } from "./threadHistoryPaging.ts";
+import { checkoutMoveShellFieldsFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 import { routineSpan } from "@t3tools/shared/observability";
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
@@ -1961,6 +1962,7 @@ export function threadShellFromProjection(
     interactionMode: projection.thread.interactionMode,
     branch: projection.thread.branch,
     worktreePath: projection.thread.worktreePath,
+    ...checkoutMoveShellFieldsFork(projection.thread), // fork-hook: zmux-estate/shell-checkout-move
     pullRequests: threadPullRequestsOf(projection.thread),
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
@@ -2282,6 +2284,7 @@ function shellFromState(input: {
     interactionMode: input.state.thread.interactionMode,
     branch: input.state.thread.branch,
     worktreePath: input.state.thread.worktreePath,
+    ...checkoutMoveShellFieldsFork(input.state.thread), // fork-hook: zmux-estate/state-shell-checkout-move
     pullRequests: threadPullRequestsOf(input.state.thread),
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}
