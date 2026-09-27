@@ -48,10 +48,12 @@ we may close it without merging it, or never review it.
        fork-meta
        github-issues
        markdown-editing
+       multi-window
        project-windows
        thread-ordering
        upstream-fixes
        workspace-files
+       workspaces
        worktrunk-hooks
        zmux-estate
 
