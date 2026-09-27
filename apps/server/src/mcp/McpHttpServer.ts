@@ -1355,12 +1355,17 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
     registrations,
   }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
-export const layerMcpTransportAtFork = (name: string, path: HttpRouter.PathInput) =>
+export const layerMcpTransportAtFork = <RA, RE, RR>(
+  name: string,
+  path: HttpRouter.PathInput,
+  registrations: Layer.Layer<RA, RE, RR>,
+) =>
   McpServer.layerHttp({
     name,
     version: packageJson.version,
     path,
     protocols: [McpProtocol.v2025_06_18],
+    registrations,
   }); // fork-hook: device-auth/external-mcp-transport
 
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
