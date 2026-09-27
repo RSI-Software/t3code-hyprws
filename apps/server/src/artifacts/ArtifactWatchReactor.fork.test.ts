@@ -8,7 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -53,10 +53,7 @@ interface FakeWatch {
   readonly fail: () => void;
 }
 
-const testCrypto = Crypto.make({
-  randomBytes: (size) => new Uint8Array(size).fill(1),
-  digest: (_algorithm, data) => Effect.succeed(data),
-});
+const testCrypto = SecureRandom.make((size) => new Uint8Array(size).fill(1));
 
 const link = (path: string, fields: Partial<ThreadArtifactLink> = {}): ThreadArtifactLink => ({
   path,
@@ -165,7 +162,7 @@ const makeHarness = Effect.fn("makeArtifactWatchHarness")(function* (options: {
     }),
     Path.layer,
     Layer.succeed(ServerActivation, Deferred.await(activation)),
-    Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.succeed(SecureRandom.SecureRandom, testCrypto),
     Layer.succeed(ArtifactDirectoryWatch, watchDirectory),
   );
 

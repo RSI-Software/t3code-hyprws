@@ -7,7 +7,8 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import * as Schema from "effect/Schema";
+import { AsyncResult } from "effect/reactivity";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { readThreadShells } from "../state/entities";
@@ -63,12 +64,14 @@ export interface ThreadGroupTitleDeps<T extends TitleThread> {
  * The toast description for a failed group title request, or null when the
  * request was only interrupted: a cancellation is the caller's own doing.
  */
+const isRemoteEnvironmentAuthTimeoutError = Schema.is(RemoteEnvironmentAuthTimeoutError);
+
 export function threadGroupTitleFailureDescription(
   result: AtomCommandResult<unknown, unknown>,
 ): string | null {
   if (result._tag === "Success" || isAtomCommandInterrupted(result)) return null;
   const error = squashAtomCommandFailure(result);
-  if (error instanceof RemoteEnvironmentAuthTimeoutError) {
+  if (isRemoteEnvironmentAuthTimeoutError(error)) {
     return `The text generation model did not answer within ${Math.round(error.timeoutMs / 1000)} seconds.`;
   }
   return error instanceof Error && error.message.length > 0 ? error.message : "An error occurred.";
