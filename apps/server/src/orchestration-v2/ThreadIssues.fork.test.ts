@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { assert, it } from "@effect/vitest";
 import {
@@ -14,7 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -29,12 +30,14 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as Orchestrator from "./Orchestrator.ts";
-import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
+import * as EventStore from "./EventStore.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProjectionReplay from "./testkit/ProjectionReplay.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import type { ThreadIssueCommandFork } from "./ThreadIssues.fork.ts";
 
 const PlatformTestLayer = Layer.merge(
-  NodeServices.layer,
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
@@ -55,8 +58,7 @@ const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
 const EmptyProviderInstanceRegistry = Layer.succeed(
   ProviderInstanceRegistry.ProviderInstanceRegistry,
   {
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-    getInstance: () => Effect.succeed(undefined),
+    getInstance: () => Effect.undefined,
     listInstances: Effect.succeed([]),
     listUnavailable: Effect.succeed([]),
     streamChanges: Stream.empty,
@@ -64,7 +66,18 @@ const EmptyProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-const TestLayer = RuntimeLayer.layer.pipe(
+const ProjectionReplayTestLayer = ProjectionReplay.layer.pipe(
+  Layer.provide(
+    Layer.merge(
+      EventStore.layerFromOrchestrationEventStore.pipe(
+        Layer.provide(RuntimeLayer.layerEventInfrastructure),
+      ),
+      ProjectionStore.layer,
+    ),
+  ),
+);
+
+const TestLayer = Layer.merge(RuntimeLayer.layer, ProjectionReplayTestLayer).pipe(
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(McpSessionRegistryTestkit.layer),
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -146,7 +159,7 @@ it.layer(TestLayer)("thread issue links on Orchestrator V2", (it) => {
     Effect.gen(function* () {
       yield* TestClock.setTime(DateTime.toEpochMillis(start));
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionReplay.ProjectionReplay;
       const thread = (threadId: ThreadId) =>
         orchestrator.getThreadProjection(threadId).pipe(Effect.map((p) => p.thread));
       const issuesOf = (threadId: ThreadId) =>

@@ -7,7 +7,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -40,6 +41,11 @@ export class CheckoutHeadFollowFork extends Context.Service<
 
 /** How many projects or checkouts a sweep over all threads resolves at once. */
 const RESOLVE_CONCURRENCY = 4;
+
+class CheckoutHeadWatchError extends Schema.TaggedError<CheckoutHeadWatchError>()(
+  "CheckoutHeadWatchError",
+  { gitDir: Schema.String, cause: Schema.Defect() },
+) {}
 
 interface WatchedCheckout {
   readonly cwd: string;
@@ -69,8 +75,8 @@ const make = Effect.gen(function* () {
   const zmux = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
   const watchDirectory = yield* CheckoutDirectoryWatch;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
-  const newUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const crypto = yield* SecureRandom.SecureRandom;
+  const newUuid = crypto.uuidV4().pipe(Effect.orDie);
   const watched = new Map<string, WatchedCheckout>();
   const markHeadChanged = (root: string, headChanged: boolean) => {
     const entry = watched.get(root);
@@ -308,14 +314,16 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const changes = yield* Queue.unbounded<void, Cause.Done>();
         const watcher = yield* Effect.acquireRelease(
-          Effect.try(() =>
-            watchDirectory(gitDir, (_event, filename) => {
-              if (filename === null || path.basename(filename.toString()) === "HEAD") {
-                entry.headChanged = true;
-                Queue.offerUnsafe(changes, undefined);
-              }
-            }),
-          ),
+          Effect.try({
+            try: () =>
+              watchDirectory(gitDir, (_event, filename) => {
+                if (filename === null || path.basename(filename.toString()) === "HEAD") {
+                  entry.headChanged = true;
+                  Queue.offerUnsafe(changes, undefined);
+                }
+              }),
+            catch: (cause) => new CheckoutHeadWatchError({ gitDir, cause }),
+          }),
           (watcher) => Effect.sync(() => watcher.close()),
         );
         // A watcher error ends the stream and frees the checkout for the next sync.
