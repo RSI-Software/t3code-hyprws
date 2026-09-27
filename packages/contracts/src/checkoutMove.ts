@@ -18,11 +18,16 @@ export const CheckoutMoveStatus = Schema.Literals([
 ]);
 export type CheckoutMoveStatus = typeof CheckoutMoveStatus.Type;
 
+/** Why the server, not the user, started a move; absent for a user move. */
+export const CheckoutMoveReason = Schema.Literal("worktree-recovery");
+export type CheckoutMoveReason = typeof CheckoutMoveReason.Type;
+
 export const ThreadCheckoutMove = Schema.Struct({
   requestId: CommandId,
   source: CheckoutPhysicalIdentity,
   sourceThreadBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   sourceThreadWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  reason: Schema.optional(CheckoutMoveReason),
   requestedPath: TrimmedNonEmptyString,
   destination: Schema.NullOr(CheckoutPhysicalIdentity),
   expectedCheckoutRoot: TrimmedNonEmptyString,
@@ -56,6 +61,7 @@ export const ThreadCheckoutMovePrepareCommand = Schema.Struct({
   source: CheckoutPhysicalIdentity,
   sourceThreadBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   sourceThreadWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  reason: Schema.optional(CheckoutMoveReason),
   destination: CheckoutPhysicalIdentity,
   reverseOfRequestId: Schema.optional(CommandId),
   queued: Schema.Boolean,
