@@ -5,6 +5,12 @@ import {
   type GhosttyColor,
   type GhosttySnapshot,
 } from "./core";
+import {
+  drawGhosttySprite,
+  fillGhosttyCellRect,
+  ghosttyCellSpan,
+  ghosttySpriteCodepoint,
+} from "./sprite/draw";
 
 export interface GhosttyCellMetrics {
   readonly width: number;
@@ -152,7 +158,7 @@ export function renderGhosttySnapshot(options: {
     const top = originY + rowIndex * metrics.height;
 
     context.fillStyle = cssColor(snapshot.background);
-    context.fillRect(padding, top, snapshot.cols * metrics.width, metrics.height);
+    fillGhosttyCellRect(context, padding, top, snapshot.cols * metrics.width, metrics.height);
 
     let backgroundStart = 0;
     while (backgroundStart < row.cells.length) {
@@ -175,11 +181,11 @@ export function renderGhosttySnapshot(options: {
         const width = (backgroundEnd - backgroundStart) * metrics.width;
         if (!ghosttyColorsEqual(first.background, snapshot.background)) {
           context.fillStyle = cssColor(first.background);
-          context.fillRect(left, top, width, metrics.height);
+          fillGhosttyCellRect(context, left, top, width, metrics.height);
         }
         if (first.selected) {
           context.fillStyle = selectionBackground;
-          context.fillRect(left, top, width, metrics.height);
+          fillGhosttyCellRect(context, left, top, width, metrics.height);
         }
       }
       backgroundStart = backgroundEnd;
@@ -193,7 +199,28 @@ export function renderGhosttySnapshot(options: {
         runStart += 1;
         continue;
       }
-      const runEnd = ghosttyTextRunEnd(row.cells, runStart, (cell) => sameTextStyle(cell, first));
+      const spriteCodepoint = ghosttySpriteCodepoint(first.text);
+      if (spriteCodepoint !== null) {
+        if (!first.invisible) {
+          drawGhosttySprite(
+            context,
+            spriteCodepoint,
+            padding + runStart * metrics.width,
+            top,
+            ghosttyCellSpan(row.cells, runStart) * metrics.width,
+            metrics.height,
+            first.foreground,
+            fontSize,
+          );
+        }
+        runStart += 1;
+        continue;
+      }
+      const runEnd = ghosttyTextRunEnd(
+        row.cells,
+        runStart,
+        (cell) => sameTextStyle(cell, first) && ghosttySpriteCodepoint(cell.text) === null,
+      );
       const text = row.cells
         .slice(runStart, runEnd)
         .map((cell) => cell.text)
@@ -260,9 +287,21 @@ export function renderGhosttySnapshot(options: {
       context.strokeStyle = cssColor(snapshot.cursor);
       context.strokeRect(left + 0.5, top + 0.5, metrics.width - 1, metrics.height - 1);
     } else {
-      context.fillRect(left, top, metrics.width, metrics.height);
+      fillGhosttyCellRect(context, left, top, metrics.width, metrics.height);
       const cell = snapshot.rowData[snapshot.cursorY]?.cells[snapshot.cursorX];
-      if (cell?.text) {
+      const cursorSprite = cell ? ghosttySpriteCodepoint(cell.text) : null;
+      if (cursorSprite !== null) {
+        drawGhosttySprite(
+          context,
+          cursorSprite,
+          left,
+          top,
+          metrics.width,
+          metrics.height,
+          snapshot.background,
+          fontSize,
+        );
+      } else if (cell?.text) {
         context.font = fontForCell(cell, fontSize, fontFamily);
         context.fillStyle = cssColor(snapshot.background);
         context.fillText(cell.text, left, top + metrics.baseline, metrics.width);
