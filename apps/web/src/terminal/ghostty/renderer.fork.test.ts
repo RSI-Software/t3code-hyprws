@@ -1,10 +1,24 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import type { GhosttyCell, GhosttySnapshot } from "./core";
 import { type GhosttyCellMetrics, renderGhosttySnapshot } from "./renderer";
+import { loadGhosttySprites } from "./sprite/draw";
+import { TestSpriteCanvas, TestSpritePath } from "./sprite/testCanvas";
 
-const WHITE = "rgb(255, 255, 255)";
-const BLACK = "rgb(0, 0, 0)";
+vi.mock("./vendor/ghostty-sprite.wasm?url", async () => ({
+  default: (await import("./vendor/ghostty-sprite.wasm?inline")).default,
+}));
+
+beforeAll(async () => {
+  vi.stubGlobal("OffscreenCanvas", TestSpriteCanvas);
+  vi.stubGlobal("Path2D", TestSpritePath);
+  await loadGhosttySprites();
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
 const CURSOR = "rgb(200, 200, 200)";
 
 const cell = (text: string, overrides: Partial<GhosttyCell> = {}): GhosttyCell => ({
@@ -37,15 +51,7 @@ interface AxisTransform {
   readonly f: number;
 }
 
-/** Style of the last fill that touches device pixel (x, y), even partly. */
-function paintAt(fills: readonly Fill[], x: number, y: number): string | undefined {
-  return fills.findLast(
-    (fill) =>
-      x + 1 > fill.x && x < fill.x + fill.width && y + 1 > fill.y && y < fill.y + fill.height,
-  )?.style;
-}
-
-/** Renders one frame and records every fill in device pixels. */
+/** Renders one frame and records every rect fill and sprite path fill in device pixels. */
 function render(
   rows: GhosttyCell[][],
   options: {
@@ -58,28 +64,33 @@ function render(
   const scale = options.scale ?? 1;
   const cursorX = options.cursorX ?? -1;
   const fills: Fill[] = [];
+  const sprites: Fill[] = [];
   const texts: string[] = [];
   let fillStyle = "";
   let current: AxisTransform = { a: scale, d: scale, e: 0, f: 0 };
-  const stack: AxisTransform[] = [];
+  const stack: Array<[AxisTransform, string]> = [];
+  const device = (x: number, y: number, width: number, height: number): Fill => ({
+    style: fillStyle,
+    x: current.a * x + current.e,
+    y: current.d * y + current.f,
+    width: current.a * width,
+    height: current.d * height,
+  });
   const context = {
     canvas: { width: 400, height: 200 },
     getTransform: () => current,
     setTransform: (a: number, _b: number, _c: number, d: number, e: number, f: number) => {
       current = { a, d, e, f };
     },
-    save: () => stack.push(current),
+    save: () => stack.push([current, fillStyle]),
     restore: () => {
-      current = stack.pop() ?? current;
+      [current, fillStyle] = stack.pop() ?? [current, fillStyle];
     },
     fillRect: (x: number, y: number, width: number, height: number) =>
-      fills.push({
-        style: fillStyle,
-        x: current.a * x + current.e,
-        y: current.d * y + current.f,
-        width: current.a * width,
-        height: current.d * height,
-      }),
+      fills.push(device(x, y, width, height)),
+    fill: (path: TestSpritePath) => {
+      for (const rect of path.rects) sprites.push(device(...rect));
+    },
     fillText: (text: string) => texts.push(text),
     beginPath: () => {},
     clip: () => {},
@@ -92,6 +103,7 @@ function render(
       fillStyle = value;
     },
     set strokeStyle(_value: string) {},
+    set globalAlpha(_value: number) {},
     set font(_value: string) {},
     set textBaseline(_value: string) {},
   } as unknown as CanvasRenderingContext2D;
@@ -125,49 +137,44 @@ function render(
     forceFull: false,
     cursorOn: true,
   });
-  return { fills, texts };
+  return { fills, sprites, texts };
 }
 
 describe("renderGhosttySnapshot sprite glyphs", () => {
   it("draws box and block glyphs as sprites and keeps text runs around them", () => {
-    const { fills, texts } = render([["a", "b", "─", "█", "c"].map((text) => cell(text))]);
+    const { sprites, texts } = render([["a", "b", "─", "█", "c"].map((text) => cell(text))]);
     expect(texts).toEqual(["ab", "c"]);
-    for (let x = 16; x < 24; x += 1) expect(paintAt(fills, x, 12)).toBe(WHITE);
-    expect(paintAt(fills, 16, 0)).toBe(BLACK);
-    for (let y = 0; y < 26; y += 1) expect(paintAt(fills, 24, y)).toBe(WHITE);
+    const [line, block] = sprites as [Fill, Fill];
+    expect([line.x, line.width]).toEqual([16, 8]);
+    expect(block).toEqual({ style: "rgb(255, 255, 255)", x: 24, y: 0, width: 8, height: 26 });
   });
 
   it("draws a sprite under a block cursor in the background colour", () => {
-    const { fills, texts } = render([[cell("█")]], { cursorX: 0 });
+    const { fills, sprites, texts } = render([[cell("█")]], { cursorX: 0 });
     expect(texts).toEqual([]);
-    expect(fills.slice(-2)).toEqual([
-      { style: CURSOR, x: 0, y: 0, width: 8, height: 26 },
-      { style: BLACK, x: 0, y: 0, width: 8, height: 26 },
-    ]);
+    expect(fills.at(-1)).toEqual({ style: CURSOR, x: 0, y: 0, width: 8, height: 26 });
+    expect(sprites.at(-1)).toEqual({ style: "rgb(0, 0, 0)", x: 0, y: 0, width: 8, height: 26 });
   });
 
-  it("keeps every fill on whole device pixels at a fractional scale", () => {
+  it("keeps every fill and sprite on whole device pixels at a fractional scale", () => {
     // Cell edges land between device pixels: 7.8 × 1.5 and (0.2 + 19) × 1.5.
     const row = () => [
       cell(" ", { background: { r: 0, g: 0, b: 255 } }),
       cell("│"),
       cell("x", { selected: true }),
     ];
-    const { fills } = render([row(), row()], {
+    const { fills, sprites } = render([row(), row()], {
       cursorX: 2,
       scale: 1.5,
       metrics: { width: 7.8, height: 19, baseline: 14 },
       originY: 0.2,
     });
-    for (const { x, y, width, height } of fills) {
+    for (const { x, y, width, height } of [...fills, ...sprites]) {
       expect([x, y, width, height].every(Number.isInteger)).toBe(true);
     }
-    // The second row's clear must not cut into the line drawn in the first.
-    const line = fills.filter((fill) => fill.style === WHITE);
-    const lineX = line[0]!.x;
-    const top = Math.min(...line.map((fill) => fill.y));
-    const bottom = Math.max(...line.map((fill) => fill.y + fill.height));
-    expect(bottom - top).toBe(57);
-    for (let y = top; y < bottom; y += 1) expect(paintAt(fills, lineX, y)).toBe(WHITE);
+    // The two rows' line segments meet with no gap or overlap.
+    const [upper, lower] = sprites as [Fill, Fill];
+    expect(lower.x).toBe(upper.x);
+    expect([upper.y, lower.y, lower.y + lower.height]).toEqual([0, 29, 57]);
   });
 });
