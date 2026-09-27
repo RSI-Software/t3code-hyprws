@@ -6,8 +6,8 @@ import type {
   GitHubIssueListResult,
   GitHubIssueRef,
 } from "@t3tools/contracts";
-import type * as Crypto from "effect/Crypto";
-import type { Atom } from "effect/unstable/reactivity";
+import type * as SecureRandom from "effect/crypto/SecureRandom";
+import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { linkThreadIssue, unlinkThreadIssue } from "../operations/threadIssues.fork.ts";
@@ -72,7 +72,7 @@ export function mergeGitHubIssueLists(
 }
 
 export function createGitHubIssueEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | SecureRandom.SecureRandom | R, E>,
 ) {
   return {
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
