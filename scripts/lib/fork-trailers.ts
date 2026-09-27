@@ -6,11 +6,12 @@ export const FORK_DOMAINS = [
   "fork-meta",
   "github-issues",
   "markdown-editing",
-  "project-windows",
+  "multi-window",
   "thread-ordering",
   "thread-fork",
   "upstream-fixes",
   "workspace-files",
+  "workspaces",
   "worktrunk-hooks",
   "zmux-estate",
 ] as const;

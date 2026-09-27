@@ -48,10 +48,12 @@ the change. Upload evidence to GitHub and embed or link it here. Never commit PR
        fork-meta
        github-issues
        markdown-editing
-       project-windows
+       multi-window
        thread-ordering
+       thread-fork
        upstream-fixes
        workspace-files
+       workspaces
        worktrunk-hooks
        zmux-estate
 
