@@ -98,6 +98,7 @@ import {
 import { KeybindingsConfigError } from "./keybindings.ts";
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
+import { threadForkRpcFork } from "./rpc.fork.ts"; // fork-hook: thread-fork/rpc-import
 import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
@@ -411,6 +412,7 @@ export const WS_METHODS = {
   cloudInstallRelayClient: "cloud.installRelayClient",
 
   ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
+  ...threadForkRpcFork.methodNames, // fork-hook: thread-fork/rpc-methods
   // Pull request methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1496,6 +1498,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
+  ...threadForkRpcFork.rpcs, // fork-hook: thread-fork/rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsSummaryRpc,
