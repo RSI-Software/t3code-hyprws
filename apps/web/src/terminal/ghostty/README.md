@@ -7,6 +7,8 @@ It is intentionally not an xterm compatibility layer.
 - `ghostty-write-pty.wasm` is a 112-byte callback trampoline for terminal-generated PTY replies.
 - `core.ts` owns per-terminal Ghostty handles and translates the C ABI into render snapshots.
 - `renderer.ts` batches backgrounds and style runs into a Canvas 2D frame.
+- `sprite/` draws box drawing, block, Powerline, and other cell-filling glyphs from
+  `ghostty-sprite.wasm`, Ghostty's own sprite rasterizer, so they tile at any line height.
 - `surface.ts` owns browser input, IME, selection, scrolling, sizing, links, and cursor blinking.
 - `fonts/` vendors the symbols-only Nerd Font (MIT) the surface registers lazily, so
   prompt glyphs render without a locally installed Nerd Font.
@@ -16,4 +18,4 @@ It is intentionally not an xterm compatibility layer.
   in its build info and the ABI test verifies it against mobile's `VERSION`.
 
 Keep browser behavior here and terminal transport in the existing client runtime. Do not add React
-state to the render loop. Both WASM artifacts are ordinary read-only assets, not executables.
+state to the render loop. The WASM artifacts are ordinary read-only assets, not executables.

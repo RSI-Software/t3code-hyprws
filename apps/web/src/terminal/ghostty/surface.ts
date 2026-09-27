@@ -15,6 +15,7 @@ import {
   type GhosttyCellMetrics,
 } from "./renderer";
 import symbolsFontUrl from "./fonts/SymbolsNerdFontMono-Regular.woff2?url";
+import { loadGhosttySprites } from "./sprite/draw";
 import { isMonospaceFamily } from "../../appearanceFonts";
 
 export const DEFAULT_TERMINAL_FONT_SIZE = 12;
@@ -723,6 +724,8 @@ export class GhosttyTerminalSurface {
     const fontFamily = await loadTerminalFontFamily(options.font?.family, fontSize);
     const metrics = measureGhosttyCell(context, fontSize, fontFamily);
     const grid = terminalGridSize(mount.clientWidth, mount.clientHeight, metrics, CONTENT_PADDING);
+    // Sprite glyphs load beside the core so the first frame already draws them.
+    const spritesLoaded = loadGhosttySprites();
     const core = await GhosttyTerminalCore.create(
       grid.cols,
       grid.rows,
@@ -731,6 +734,7 @@ export class GhosttyTerminalSurface {
       options.theme,
       options.onData,
     );
+    await spritesLoaded;
     const surface = new GhosttyTerminalSurface(
       mount,
       canvas,
