@@ -1,4 +1,6 @@
+import * as Config from "effect/Config";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -14,6 +16,8 @@ import {
   ProviderInstanceId,
   MessageId,
   ProviderSessionId,
+  ProviderThreadId,
+  RunAttemptId,
   RunId,
   RuntimeRequestId,
   ThreadId,
@@ -24,11 +28,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { McpSchema } from "effect/unstable/ai";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
+import { McpSchema } from "effect/ai";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as HttpRouter from "effect/http/HttpRouter";
 
 import { DEVICE_AUTHORIZATION_SUBJECT } from "../../auth/DeviceAuthorization.fork.ts";
 import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
@@ -37,7 +41,8 @@ import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/Cod
 import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
-import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -158,7 +163,7 @@ const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]
             ),
           ),
         ),
-      ).pipe(Layer.provide(NodeServices.layer)),
+      ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
     const service = Context.get(services, ExternalMcpService.ExternalMcpServiceFork);
     const orchestrator = Context.get(services, Orchestrator.OrchestratorV2);
@@ -218,13 +223,33 @@ const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]
         providerThreadId: null,
         userMessageId: MessageId.make("fixture:message"),
         rootNodeId: null,
-        activeAttemptId: null,
+        activeAttemptId: RunAttemptId.make("fixture:attempt"),
         status: "completed",
         requestedAt: now,
         startedAt: now,
         completedAt: now,
         checkpointId: null,
         contextHandoffId: null,
+      },
+    });
+    yield* projections.apply({
+      id: EventId.make("fixture:attempt"),
+      type: "run-attempt.updated",
+      threadId,
+      occurredAt: now,
+      payload: {
+        id: RunAttemptId.make("fixture:attempt"),
+        runId,
+        attemptOrdinal: 1,
+        rootNodeId: NodeId.make("fixture:root"),
+        providerInstanceId: instanceId,
+        providerThreadId: ProviderThreadId.make("fixture:provider-thread"),
+        providerTurnId: null,
+        reason: "initial",
+        status: "completed",
+        startedAt: now,
+        completedAt: now,
+        startedModes: { runtimeMode: "approval-required", interactionMode: "default" },
       },
     });
     let ordinal = 0;
@@ -279,6 +304,29 @@ const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]
     }) =>
       Effect.gen(function* () {
         yield* seedRequest({ ...input, kind: "user_input" });
+        yield* projections.apply({
+          id: EventId.make(`fixture:node:${input.id}`),
+          type: "node.updated",
+          threadId: input.thread ?? threadId,
+          occurredAt: now,
+          payload: {
+            id: NodeId.make(`fixture:node:${input.id}`),
+            threadId: input.thread ?? threadId,
+            runId: input.runless ? null : runId,
+            parentNodeId: null,
+            rootNodeId: NodeId.make("fixture:root"),
+            kind: "user_input_request",
+            status: "waiting",
+            countsForRun: true,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            runtimeRequestId: RuntimeRequestId.make(input.id),
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: null,
+          },
+        });
         yield* projections.apply({
           id: EventId.make(`fixture:question:${input.id}`),
           type: "turn-item.updated",
@@ -519,7 +567,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
                       : Effect.fail(new EnvironmentAuth.ServerAuthInvalidCredentialError({})),
                 }),
                 HttpPlatform.layer.pipe(
-                  Layer.provideMerge(NodeServices.layer),
+                  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
                   Layer.provide(Etag.layerWeak),
                 ),
               ),
@@ -582,7 +630,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
         );
         assert.isDefined(body);
         // T3_REQUEST_EVIDENCE=1 prints the JSON-RPC transcript for PR evidence.
-        if (process.env.T3_REQUEST_EVIDENCE === "1") {
+        if ((yield* Config.String("T3_REQUEST_EVIDENCE").pipe(Config.withDefault(""))) === "1") {
           const line = yield* encodeJson({
             request: { jsonrpc: "2.0", id, method, params },
             response: body,
