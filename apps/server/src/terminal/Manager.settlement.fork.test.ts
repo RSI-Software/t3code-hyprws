@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import { expect } from "vite-plus/test";
 
@@ -13,7 +15,7 @@ import {
   resolvedZmuxProcessRunner,
 } from "./Manager.fork-test-harness.ts";
 
-it.layer(NodeServices.layer, { excludeTestServices: true })(
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), { excludeTestServices: true })(
   "settlement attachment release",
   (it) => {
     it.effect("detaches managed viewers despite demand while preserving plain shells", () =>

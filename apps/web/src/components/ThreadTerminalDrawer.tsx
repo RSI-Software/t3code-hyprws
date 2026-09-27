@@ -655,7 +655,6 @@ function TerminalSessionViewport({
   const metadataThreadRef = useContext(FileMetadataThreadContext);
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const hostname = serverConfig?.hostname;
-  const readHostname = useEffectEvent(() => hostname);
   const linkMetadataQuery =
     linkPath !== null && canOpenHostEditor && canReadFilesystem
       ? getFileMetadataQueryAtom(
@@ -1127,8 +1126,8 @@ function TerminalSessionViewport({
         retainedTerminalWrite.current({
           environmentId,
           input: kind
-            ? { threadId, terminalId, data, [kind]: true }
-            : { threadId, terminalId, data },
+            ? { threadId, terminalId, attachmentId, data, [kind]: true } // fork-hook: zmux-estate/terminal-attachment-write
+            : { threadId, terminalId, attachmentId, data }, // fork-hook: zmux-estate/terminal-attachment-write
         });
       const sendTerminalInput = (
         data: string,
@@ -1361,6 +1360,7 @@ function TerminalSessionViewport({
         mount.focus({ preventScroll: true });
       }
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A checkout move swaps the session atom but keeps this mounted terminal. // fork-hook: zmux-estate/checkout-move-mount-lint
   }, [environmentId]); // fork-hook: zmux-estate/checkout-move-mount
 
   const attachContainer = (mount: HTMLDivElement) => {

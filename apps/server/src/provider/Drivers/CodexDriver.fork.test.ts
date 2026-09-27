@@ -1,7 +1,7 @@
 import type { ServerProviderModel } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -17,7 +17,9 @@ type CodexSnapshot = {
   readonly models: ReadonlyArray<ServerProviderModel>;
 };
 
-class CodexProbeError extends Data.TaggedError("CodexProbeError")<{ readonly detail: string }> {}
+class CodexProbeError extends Schema.TaggedError<CodexProbeError>()("CodexProbeError", {
+  detail: Schema.String,
+}) {}
 
 const AGENT_TOML = [
   'name = "reviewer"',

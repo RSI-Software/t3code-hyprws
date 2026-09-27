@@ -457,8 +457,6 @@ it("diverges per-commit and per-domain overlap when a domain's commits share a f
   );
 });
 
-// -- Inventory CLI -------------------------------------------------------------
-
 /**
  * A repo whose stack carries two fork-meta commits, one of them on a file upstream also changes.
  */
