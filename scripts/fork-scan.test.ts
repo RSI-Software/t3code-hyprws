@@ -1,9 +1,11 @@
 import { assert, it } from "@effect/vitest";
 
+import { SystemGit } from "./lib/fork-command.ts";
 import {
   buildScanResult,
   commitFilesArguments,
   findForkOwnedTypecheckGaps,
+  LEDGER_PATH,
   matchesScanPattern,
   parseArgs,
   parseCommitFiles,
@@ -88,6 +90,30 @@ it("reads one pattern per code span from every domain's rebase scan", () => {
     "package.json",
   ]);
   assert.deepStrictEqual(scans.get("upstream-fixes"), ["**"]);
+});
+
+it("reads the multi-window and workspaces rebase scans from the ledger (RSI-Software/t3code-hyprws#1339)", () => {
+  const git = new SystemGit(import.meta.dirname);
+  const root = git.run(["rev-parse", "--show-toplevel"]).trim();
+  const markdown = git.run(["show", `HEAD:${LEDGER_PATH}`]);
+  assert.isAbove(root.length, 0, "the scan test runs inside a git checkout");
+  const scans = parseRebaseScans(markdown);
+  const projectWindows = scans.get("project-windows") ?? [];
+  const workspaces = scans.get("workspaces") ?? [];
+  assert.strictEqual(projectWindows.length, 105);
+  assert.include(projectWindows, "apps/desktop/src/window/DesktopWindow.ts");
+  assert.isTrue(
+    workspaces.some((pattern) =>
+      matchesScanPattern(pattern, "apps/web/src/components/Sidebar.tsx"),
+    ),
+    "a Sidebar path must match the workspaces scan",
+  );
+  assert.isFalse(
+    workspaces.some((pattern) =>
+      matchesScanPattern(pattern, "apps/desktop/src/window/DesktopWindow.ts"),
+    ),
+    "a project-windows-only path must not match the workspaces scan",
+  );
 });
 
 it("matches a segment with * and a subtree with **", () => {
