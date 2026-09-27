@@ -186,6 +186,13 @@ import {
 } from "./threadActionMenu.logic";
 import { useAttemptResetThreadOrder } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
 import {
+  forkInFlight,
+  forkThreadMenuStateFork,
+  forkThreadStateTailFork, // fork-hook: thread-fork/sidebar-state-import
+  readForkProviderFork,
+  useThreadForkDispatchFork,
+} from "../hooks/useThreadActionMenu.fork"; // fork-hook: thread-fork/sidebar-import
+import {
   applySidebarThreadDrop,
   buildSidebarThreadGroupLayout,
   filterSidebarV2VisibleThreads,
@@ -1716,6 +1723,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
   const attemptResetOrder = useAttemptResetThreadOrder(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
+  const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/sidebar-dispatch-hook
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const result = await unsnoozeThread(threadRef);
@@ -2763,6 +2771,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              fork: forkThreadMenuStateFork(
+                readForkProviderFork(threadRef, thread),
+                forkInFlight(threadKey),
+                ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
+              ),
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2882,6 +2895,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           }
+          case "fork":
+            return forkThreadDispatch(threadRef); // fork-hook: thread-fork/sidebar-dispatch
           case "reset-order":
             return attemptResetOrder(threadRef); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":
