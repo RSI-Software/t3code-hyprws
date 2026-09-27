@@ -53,6 +53,8 @@ import { ThreadDetailsThreadPrRows } from "./chat/ThreadDetailsPrRows";
 import { parsePullRequestReference } from "@t3tools/client-runtime/pull-request-link-input";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { useComposerMenuProps } from "./chat/composerEventScope";
+import { resolveUnusableWorktreeRebindFork } from "./BranchToolbar.logic.fork"; // fork-hook: zmux-estate/unusable-worktree-rebind-import
+import { useUnusableWorktreeRebindFork } from "./BranchToolbarBranchSelector.fork"; // fork-hook: zmux-estate/unusable-worktree-rebind-hook-import
 import {
   type BranchHold,
   deriveLocalBranchNameFromRemoteRef,
@@ -199,6 +201,17 @@ export function BranchToolbarBranchSelector({
       ? serverThread.worktreePath
       : (draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const rebindUnusableWorktreeFork = useUnusableWorktreeRebindFork({
+    environmentId,
+    threadId: serverThread?.id,
+    projectCwd: activeProjectCwd,
+    hasSession: serverSession !== null,
+    onBranchOverride: onActiveThreadBranchOverrideChange,
+    onStart: () => {
+      setIsBranchMenuOpen(false);
+      onComposerFocusRequest?.();
+    },
+  }); // fork-hook: zmux-estate/unusable-worktree-rebind-hook
   const branchStatusCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const canUpdateThreadBranch = !hasServerThread || canOperateThread;
@@ -553,6 +566,15 @@ export function BranchToolbarBranchSelector({
     // A later pick made while this one was confirming its worktree wins.
     if (selectionId !== latestSelectionIdRef.current) return;
     latest = readLatestThreadState();
+    const forkRebind = resolveUnusableWorktreeRebindFork({
+      hasServerThread,
+      activeProjectCwd,
+      threadWorktreePath: activeWorktreePath,
+      usableActiveWorktreePath,
+      refName,
+    }); // fork-hook: zmux-estate/unusable-worktree-rebind-resolve
+    if (forkRebind) return rebindUnusableWorktreeFork(forkRebind, runBranchAction); // fork-hook: zmux-estate/unusable-worktree-rebind-apply
+
     const selectionTarget = resolveBranchSelectionTarget({
       activeProjectCwd,
       activeProjectCheckoutRoot,
