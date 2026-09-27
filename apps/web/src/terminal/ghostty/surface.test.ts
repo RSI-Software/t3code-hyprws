@@ -103,6 +103,9 @@ describe("GhosttyTerminalSurface visibility", () => {
       clip() {},
       rect() {},
       resetTransform() {},
+      getTransform() {
+        return { a: 1, d: 1, e: 0, f: 0 };
+      },
       restore() {},
       save() {},
       setTransform() {},
