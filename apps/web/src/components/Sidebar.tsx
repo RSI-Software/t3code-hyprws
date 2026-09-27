@@ -175,6 +175,7 @@ import { useAttemptResetThreadOrder } from "../hooks/useThreadActions.fork"; // 
 import {
   forkInFlight,
   forkThreadMenuStateFork,
+  forkThreadStateTailFork, // fork-hook: thread-fork/sidebar-state-import
   readForkProviderFork,
   useThreadForkDispatchFork,
 } from "../hooks/useThreadActionMenu.fork"; // fork-hook: thread-fork/sidebar-import
@@ -4424,7 +4425,8 @@ export default function Sidebar() {
           fork: forkThreadMenuStateFork(
             readForkProviderFork(threadRef, thread),
             forkInFlight(threadKey),
-          ), // fork-hook: thread-fork/sidebar-state
+            ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
+          ),
           supports: {
             settlement: supportsSettlement,
             autoSettleOptOut: supportsAutoSettleOptOut,

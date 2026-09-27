@@ -20,6 +20,7 @@ import { reportResetOrderThreadAction } from "./useThreadActionMenu.fork"; // fo
 import {
   forkInFlight,
   forkThreadMenuStateFork,
+  forkThreadStateTailFork, // fork-hook: thread-fork/header-state-import
   readForkProviderFork,
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
@@ -166,7 +167,8 @@ export function useThreadActionMenu(input: {
           fork: forkThreadMenuStateFork(
             readForkProviderFork(threadRef, thread),
             forkInFlight(scopedThreadKey(threadRef)),
-          ), // fork-hook: thread-fork/header-state
+            ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
+          ),
           supports,
           snoozePresets,
         });

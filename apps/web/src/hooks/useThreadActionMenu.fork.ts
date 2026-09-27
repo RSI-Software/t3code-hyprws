@@ -2,7 +2,6 @@ import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import type { AtomCommand, AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   isAtomCommandInterrupted,
-  settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -14,7 +13,10 @@ import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
 import { forkInFlight, setForkInFlight, threadForkCommand } from "../state/threadFork.fork";
 
 export { forkInFlight, readForkProviderFork } from "../state/threadFork.fork";
-export { forkThreadMenuStateFork } from "../components/threadActionMenu.logic.fork";
+export {
+  forkThreadMenuStateFork,
+  forkThreadStateTailFork,
+} from "../components/threadActionMenu.logic.fork";
 import { useAtomCommand } from "../state/use-atom-command";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 
@@ -24,12 +26,6 @@ type ThreadForkCommandRun =
   ThreadForkCommand extends AtomCommand<infer W, infer A, infer E>
     ? (target: W) => Promise<AtomCommandResult<A, E>>
     : never;
-
-/** One settled fork run: ok, a readable refusal, or a user cancellation. */
-type ForkOutcome =
-  | { readonly ok: true; readonly childThreadId: ThreadId }
-  | { readonly ok: false; readonly interrupted: true }
-  | { readonly ok: false; readonly interrupted: false; readonly cause: unknown };
 
 /** The route options a thread navigation needs, straight from the family. */
 type ThreadRouteTarget = ReturnType<ThreadRouteFamily["thread"]>;
@@ -66,7 +62,6 @@ export async function forkThreadActionFork(input: {
   const { threadRef, routeFamily, navigate, forkThread } = input;
   const threadKey = scopedThreadKey(threadRef);
   if (forkInFlight(threadKey)) return;
-  setForkInFlight(threadKey, true);
   const toastFailure = (cause: unknown) =>
     toastManager.add(
       stackedThreadToast({
@@ -77,37 +72,34 @@ export async function forkThreadActionFork(input: {
     );
   // The command target splits environment routing from the RPC payload; the
   // payload itself is only {threadId}. Refusals surface as a Failure result,
-  // and defects (wire/schema crashes) as a rejected run — both must toast.
-  const outcome = await settlePromise(async (): Promise<ForkOutcome> => {
+  // defects (wire/schema crashes) as a rejected run, and interruption as an
+  // interrupts-only cause — all paths clear the in-flight flag, and only
+  // interruption stays silent.
+  setForkInFlight(threadKey, true);
+  try {
     const result = await forkThread({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId },
     });
     if (result._tag === "Failure") {
-      if (isAtomCommandInterrupted(result)) return { ok: false, interrupted: true };
-      return { ok: false, interrupted: false, cause: squashAtomCommandFailure(result) };
+      if (isAtomCommandInterrupted(result)) return;
+      throw squashAtomCommandFailure(result);
     }
-    return { ok: true, childThreadId: result.value.childThreadId };
-  });
-  setForkInFlight(threadKey, false);
-  if (outcome._tag === "Failure") {
-    toastFailure(outcome.cause);
-    return;
-  }
-  if (!outcome.value.ok) {
-    if (!outcome.value.interrupted) toastFailure(outcome.value.cause);
-    return;
-  }
-  try {
-    await navigate(
-      routeFamily.thread({
-        environmentId: threadRef.environmentId,
-        threadId: outcome.value.childThreadId,
-      }),
-    );
-  } catch {
-    // The child exists server-side; a navigation failure must not read as a
-    // failed fork, so no error toast here.
+    try {
+      await navigate(
+        routeFamily.thread({
+          environmentId: threadRef.environmentId,
+          threadId: result.value.childThreadId,
+        }),
+      );
+    } catch {
+      // The child exists server-side; a navigation failure must not read as
+      // a failed fork, so no error toast here.
+    }
+  } catch (cause) {
+    toastFailure(cause);
+  } finally {
+    setForkInFlight(threadKey, false);
   }
 }
 

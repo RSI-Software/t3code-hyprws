@@ -4,7 +4,7 @@ import { Cause } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderDriverKind, ThreadForkError, ThreadId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
@@ -36,10 +36,13 @@ describe("forkThreadActionFork failure surfaces", () => {
   it("toasts a refused fork with the server's reason", async () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
     const navigate = vi.fn(async () => undefined);
-    const refusal = Object.assign(
-      new Error("Provider instance 'claudeAgent' is not an available Claude instance."),
-      { _tag: "ThreadForkNativeForkError" },
-    );
+    // A real coded refusal: the toast copies the server's reason message.
+    const refusal = new ThreadForkError({
+      threadId: THREAD_REF.threadId,
+      reason: "instance-mismatch",
+      provider: ProviderDriverKind.make("claudeAgent"),
+      detail: "Provider instance 'claudeAgent' is not an available Claude instance.",
+    });
     await forkThreadActionFork({
       threadRef: THREAD_REF,
       routeFamily,
@@ -104,6 +107,28 @@ describe("forkThreadActionFork failure surfaces", () => {
       to: "/$environmentId/$threadId",
       params: { environmentId: "environment-1", threadId: "import:claudeAgent:fork-child" },
     });
+  });
+
+  it("stays silent when only the navigation to the child fails", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    const navigate = vi.fn(async () => {
+      throw new Error("router gone");
+    });
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: (() =>
+        Promise.resolve(
+          AsyncResult.success({
+            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
+          }) as unknown as AtomCommandResult<unknown, unknown>,
+        )) as never,
+    });
+    // The child exists server-side; a navigation failure must not read as a
+    // failed fork.
+    expect(add).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it("clears the in-flight flag after a failure so a retry can run", async () => {
