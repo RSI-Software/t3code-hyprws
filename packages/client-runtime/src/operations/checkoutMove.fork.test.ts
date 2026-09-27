@@ -1,9 +1,9 @@
 import {
   CommandId,
   EnvironmentId,
-  ORCHESTRATION_WS_METHODS,
   ThreadId,
-  type ClientOrchestrationCommand,
+  WS_METHODS,
+  type ThreadCheckoutMoveRequestInput,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
@@ -38,13 +38,13 @@ const TARGET = new PrimaryConnectionTarget({
 });
 
 const makeSupervisor = Effect.fn("TestCheckoutMoveCommand.makeSupervisor")(function* (
-  dispatched: ClientOrchestrationCommand[],
+  dispatched: ThreadCheckoutMoveRequestInput[],
 ) {
   const client = {
-    [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command: ClientOrchestrationCommand) =>
+    [WS_METHODS.threadCheckoutMoveRequest]: (input: ThreadCheckoutMoveRequestInput) =>
       Effect.sync(() => {
-        dispatched.push(command);
-        return { sequence: dispatched.length };
+        dispatched.push(input);
+        return { requestId: input.requestId, status: "preparing" };
       }),
   } as unknown as WsRpcProtocolClient;
   const session: RpcSession.RpcSession = {
@@ -67,9 +67,9 @@ const makeSupervisor = Effect.fn("TestCheckoutMoveCommand.makeSupervisor")(funct
 });
 
 describe("checkout move command", () => {
-  it.effect("adds generated command metadata", () =>
+  it.effect("mints a request id for a fresh move", () =>
     Effect.gen(function* () {
-      const dispatched: ClientOrchestrationCommand[] = [];
+      const dispatched: ThreadCheckoutMoveRequestInput[] = [];
       const supervisor = yield* makeSupervisor(dispatched);
 
       yield* requestThreadCheckoutMove({
@@ -80,38 +80,35 @@ describe("checkout move command", () => {
 
       expect(dispatched).toEqual([
         {
-          type: "thread.checkout-move.request",
-          commandId: "00000000-0000-4000-8000-000000000000",
+          requestId: "00000000-0000-4000-8000-000000000000",
           threadId: "thread-1",
           requestedPath: "/workspace/feature",
           expectedCheckoutRoot: "/workspace/main",
-          createdAt: expect.any(String),
         },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
   );
 
-  it.effect("preserves caller metadata for idempotent queued moves", () =>
+  it.effect("keeps the caller's request id so a retry replays idempotently", () =>
     Effect.gen(function* () {
-      const dispatched: ClientOrchestrationCommand[] = [];
+      const dispatched: ThreadCheckoutMoveRequestInput[] = [];
       const supervisor = yield* makeSupervisor(dispatched);
 
       yield* requestThreadCheckoutMove({
-        commandId: CommandId.make("queued-move"),
+        requestId: CommandId.make("queued-move"),
         threadId: ThreadId.make("thread-1"),
         requestedPath: "/workspace/feature",
         expectedCheckoutRoot: "/workspace/main",
-        createdAt: "2026-06-06T00:01:00.000Z",
+        reverseOfRequestId: CommandId.make("committed-move"),
       }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
 
       expect(dispatched).toEqual([
         {
-          type: "thread.checkout-move.request",
-          commandId: "queued-move",
+          requestId: "queued-move",
           threadId: "thread-1",
           requestedPath: "/workspace/feature",
           expectedCheckoutRoot: "/workspace/main",
-          createdAt: "2026-06-06T00:01:00.000Z",
+          reverseOfRequestId: "committed-move",
         },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
