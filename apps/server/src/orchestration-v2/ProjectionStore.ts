@@ -89,6 +89,7 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
   OLDER_THREAD_USER_TURN_LIMIT,
 } from "./threadHistoryPaging.ts";
+import { checkoutMoveShellFieldsFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
   "ProjectionStoreApplyEventError",
@@ -1459,6 +1460,7 @@ export function threadShellFromProjection(
     interactionMode: projection.thread.interactionMode,
     branch: projection.thread.branch,
     worktreePath: projection.thread.worktreePath,
+    ...checkoutMoveShellFieldsFork(projection.thread), // fork-hook: zmux-estate/shell-checkout-move
     pullRequests: threadPullRequestsOf(projection.thread),
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
@@ -1727,6 +1729,7 @@ function shellFromState(input: {
     interactionMode: input.state.thread.interactionMode,
     branch: input.state.thread.branch,
     worktreePath: input.state.thread.worktreePath,
+    ...checkoutMoveShellFieldsFork(input.state.thread), // fork-hook: zmux-estate/state-shell-checkout-move
     pullRequests: threadPullRequestsOf(input.state.thread),
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}

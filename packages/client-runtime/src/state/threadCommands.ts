@@ -32,7 +32,6 @@ import {
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
   type LinkThreadPullRequestInput,
-  type MoveThreadCheckoutInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type DismissThreadUserInputInput,
@@ -69,7 +68,6 @@ import {
   resumeThreadQueue,
   retryWorkspacePreparation,
   linkThreadPullRequest,
-  moveThreadCheckout,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -96,6 +94,7 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ThreadHistoryController from "./threadHistoryController.ts";
+import { checkoutMoveThreadCommandsFork } from "./checkoutMoveCommand.fork.ts"; // fork-hook: zmux-estate/thread-checkout-move-command-import
 
 export type LoadEarlierThreadHistoryInput = {
   readonly threadId: ThreadId;
@@ -265,12 +264,7 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
-    moveCheckout: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:move-checkout",
-      execute: (input: MoveThreadCheckoutInput) => moveThreadCheckout(input),
-      scheduler,
-      concurrency,
-    }),
+    ...checkoutMoveThreadCommandsFork(runtime, scheduler, concurrency), // fork-hook: zmux-estate/thread-checkout-move-command
     setRuntimeMode: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-runtime-mode",
       execute: (input: SetThreadRuntimeModeInput) => setThreadRuntimeMode(input),

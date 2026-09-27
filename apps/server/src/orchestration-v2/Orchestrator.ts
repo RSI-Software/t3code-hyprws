@@ -128,6 +128,13 @@ import {
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
+import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
+import {
+  checkoutMoveMetadataFork,
+  detachesCheckoutRecoveryInlineFork,
+  refuseCheckoutMoveDuringRunFork,
+} from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
+import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
@@ -2483,6 +2490,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
+    yield* refuseCheckoutMoveDuringRunFork(
+      command,
+      projectionStore.getThreadRecords(command.threadId, ["runs"]).pipe(mapDispatchError(command)),
+      (cause) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        }),
+    ); // fork-hook: zmux-estate/decider-checkout-move-run-guard
+    yield* refuseStaleBranchFork(
+      command,
+      thread.branch,
+      (cause) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        }),
+    ); // fork-hook: zmux-estate/decider-expected-branch
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -2987,6 +3014,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ? { titleRegeneration: null }
                 : {}),
             updatedAt: now,
+            ...checkoutMoveMetadataFork(command, thread), // fork-hook: zmux-estate/decider-checkout-move
           };
         }
         case "thread.pull-request.link":
@@ -3252,6 +3280,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: updatedThread,
     });
+    yield* recordCheckoutRecoveryFork({
+      command,
+      thread: updatedThread,
+      readRuns: projectionStore.getThreadRecords(command.threadId, ["runs"]),
+      runtimePolicy,
+      checkpointService,
+      emit: emit(events, command),
+      now,
+    }).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-record
 
     if (command.type === "thread.metadata.update" && command.regenerateTitle === true) {
       yield* Ref.update(effects, (existing) => [
@@ -3405,6 +3442,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               },
             } satisfies PendingOrchestrationEffectV2;
             yield* Ref.update(effects, (existing) => [...existing, pendingEffect]);
+            yield* detachesCheckoutRecoveryInlineFork(
+              command,
+              projectionStore.getThreadRecords(command.threadId, ["runs"]),
+              effects,
+              pendingEffect,
+            ).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-inline-detach
           }),
         { concurrency: 1, discard: true },
       );
