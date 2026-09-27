@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
-import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 
 import * as DeviceAuthorization from "../auth/DeviceAuthorization.fork.ts";
 import type * as ExternalMcpGrant from "../auth/ExternalMcpGrant.fork.ts";

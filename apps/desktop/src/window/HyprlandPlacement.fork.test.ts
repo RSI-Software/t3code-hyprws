@@ -47,6 +47,18 @@ const options = {
   claimIntervalMs: 0,
 };
 
+// The live layer reads the real process environment, so the test must set it.
+const setProcessEnv = (values: Readonly<Record<string, string>>) => {
+  const saved = Object.keys(values).map((key) => [key, process.env[key]] as const);
+  Object.assign(process.env, values);
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+};
+
 describe("HyprlandPlacement", () => {
   it.effect("records its own workspace for each of three windows opened together", () =>
     Effect.gen(function* () {
@@ -227,21 +239,11 @@ describe("HyprlandPlacement", () => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "placement-layer-" });
-      const keys = ["HYPRLAND_INSTANCE_SIGNATURE", "XDG_RUNTIME_DIR"] as const;
       yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          const saved = keys.map((key) => [key, process.env[key]] as const);
-          process.env.HYPRLAND_INSTANCE_SIGNATURE = "test";
-          process.env.XDG_RUNTIME_DIR = root;
-          return saved;
-        }),
-        (saved) =>
-          Effect.sync(() => {
-            for (const [key, value] of saved) {
-              if (value === undefined) delete process.env[key];
-              else process.env[key] = value;
-            }
-          }),
+        Effect.sync(() =>
+          setProcessEnv({ HYPRLAND_INSTANCE_SIGNATURE: "test", XDG_RUNTIME_DIR: root }),
+        ),
+        (restore) => Effect.sync(restore),
       );
       const path = windowProjectManifestPath(root, process.pid)!;
 

@@ -10,14 +10,17 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import * as IdAllocator from "./IdAllocator.ts";
-import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { makeThreadWorktreeIntegrationsFork } from "./ThreadLaunchService.fork.ts";
+import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
@@ -174,7 +177,11 @@ const persistedLayers = (options: Parameters<typeof integrationLayers>[0]) => {
   return Layer.mergeAll(
     integrationLayers(options),
     orchestrator,
-    ThreadManagement.layer.pipe(Layer.provide(orchestrator)),
+    ThreadManagement.layer.pipe(
+      Layer.provide(orchestrator),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory))),
+    ),
   );
 };
 
