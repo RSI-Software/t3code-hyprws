@@ -5,7 +5,7 @@ import type { GitHubSubIssue } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import type * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import { decodeGitHubSubIssueReasons } from "./gitHubIssueJson.ts";
 
 // GitHub caps the `subIssues` connection at `first: 100`; asking for more fails the whole query.
@@ -15,7 +15,7 @@ export const SUB_ISSUE_REASONS_QUERY =
 /** Children with their real close reasons, or unchanged children when the read has nothing to
  * add: an unknown reason must degrade the glyph, never the whole detail. */
 export const attachSubIssueCloseReasons = Effect.fn("attachSubIssueCloseReasons")(function* (
-  api: GitHubApi.GitHubApi["Service"],
+  api: GitHubIssueGraphQl.GitHubIssueGraphQl["Service"],
   input: {
     readonly host: string;
     readonly repository: string;

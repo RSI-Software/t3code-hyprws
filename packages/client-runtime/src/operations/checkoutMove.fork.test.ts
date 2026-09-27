@@ -6,7 +6,7 @@ import {
   type ThreadCheckoutMoveRequestInput,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -23,11 +23,8 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { requestThreadCheckoutMove } from "./checkoutMove.fork.ts";
 
 const TEST_CRYPTO_LAYER = Layer.succeed(
-  Crypto.Crypto,
-  Crypto.make({
-    randomBytes: (size) => new Uint8Array(size),
-    digest: (_algorithm, data) => Effect.succeed(data),
-  }),
+  SecureRandom.SecureRandom,
+  SecureRandom.make((size) => new Uint8Array(size)),
 );
 
 const TARGET = new PrimaryConnectionTarget({
@@ -50,7 +47,7 @@ const makeSupervisor = Effect.fn("TestCheckoutMoveCommand.makeSupervisor")(funct
   const session: RpcSession.RpcSession = {
     client,
     initialConfig: Effect.never,
-    subscribeServerConfig: (input) => client.subscribeServerConfig(input),
+    subscribeServerConfig: (input = {}) => client.subscribeServerConfig(input),
     inboundFrames: Effect.succeed(0),
     ready: Effect.void,
     probe: Effect.void,
