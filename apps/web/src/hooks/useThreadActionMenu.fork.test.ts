@@ -1,7 +1,7 @@
 // Fork-only: the fork dispatch's failure surfaces. A refused or defected
 // fork must produce a toast call — silence reads as a dead click.
 import { Cause } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";

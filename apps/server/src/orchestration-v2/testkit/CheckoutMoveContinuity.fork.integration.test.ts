@@ -13,6 +13,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Ref from "effect/Ref";
 import * as CodexReplay from "effect-codex-app-server/replay";
 
 import { ClaudeOrchestratorReplayHarness } from "../Adapters/ClaudeAdapterV2.testkit.ts";
@@ -20,7 +21,7 @@ import {
   CodexOrchestratorReplayHarness,
   layer as codexReplayRegistryLayer,
 } from "../Adapters/CodexAdapterV2.testkit.ts";
-import * as IdAllocator from "../IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type { OrchestratorV2ScenarioStep } from "./OrchestratorScenario.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import {
@@ -36,11 +37,11 @@ import {
   projectionFor,
 } from "./fixtures/shared.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
-import { checkpointWorkspace } from "./ReplayFixtureWorkspace.ts";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import {
   materializeReplayTranscriptWorkspace,
   readProviderReplayTranscript,
-} from "./ReplayTranscriptNdjson.ts";
+} from "@t3tools/provider-testing/replayTranscript";
 
 /**
  * Two turns on a thread that starts in `source`, with the checkout move's
@@ -101,6 +102,10 @@ function codexTranscriptAcrossMove(
   const resume = transcript.entries.findIndex(
     (entry) => entry.type === "expect_outbound" && entry.label === "thread/resume",
   );
+  const resumeConfig = transcript.entries.findLastIndex(
+    (entry, index) =>
+      index < resume && entry.type === "expect_outbound" && entry.label === "config/read",
+  );
   const before = transcript.entries.slice(0, exit);
   const lastId = Math.max(
     ...before.map((entry) =>
@@ -113,12 +118,26 @@ function codexTranscriptAcrossMove(
   const resumeId = (transcript.entries[resume] as { readonly frame: { readonly id: number } }).frame
     .id;
   // Requests after the move continue this connection's id sequence.
-  const shift = unsubscribeId + 1 - resumeId;
+  const configId = (transcript.entries[resumeConfig] as { readonly frame: { readonly id: number } })
+    .frame.id;
+  const shift = unsubscribeId + 1 - configId;
   const after = transcript.entries
-    .slice(resume)
+    .slice(resumeConfig)
+    // The live connection already named this thread; only a fresh runtime repeats it.
+    .filter(
+      (entry) =>
+        !("label" in entry) ||
+        (entry.label !== "thread/name/set" && entry.label !== "thread/name/updated"),
+    )
     .map((entry) =>
       "frame" in entry && isRecord(entry.frame) && typeof entry.frame.id === "number"
-        ? { ...entry, frame: { ...entry.frame, id: entry.frame.id + shift } }
+        ? {
+            ...entry,
+            frame: {
+              ...entry.frame,
+              id: entry.frame.id + shift - (entry.frame.id > resumeId + 1 ? 1 : 0),
+            },
+          }
         : entry,
     );
   const nativeThreadId = (
@@ -187,6 +206,7 @@ describe("checkout move session continuity", () => {
           },
         );
         const projection = projectionFor(result, transcript.scenario);
+        assert.isNull((yield* Ref.get(driver.state)).failure);
         assert.deepEqual(
           projection.runs.map((run) => run.status),
           ["completed", "completed"],
