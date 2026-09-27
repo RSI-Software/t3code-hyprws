@@ -458,6 +458,8 @@ jobs:
           name: desktop-linux-x64
           path: release-publish/*
           if-no-files-found: error
+          # Build-to-release handoff only; the Release keeps the bytes (same as the upstream js-bundle handoff).
+          retention-days: 1
 
   release:
     name: Publish GitHub Release
