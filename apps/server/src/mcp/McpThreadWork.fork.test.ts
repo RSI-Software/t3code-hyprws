@@ -3,6 +3,7 @@
 // no runs. Shells come from the real shell projection, so the view and the sidebar's "Waiting
 // on N subagents" read the same derivation.
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -443,7 +444,7 @@ const makeHarness = () => {
         }),
       ),
     ),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   const withService = <A, E>(
     body: (service: ExternalMcpService.ExternalMcpServiceShape) => Effect.Effect<A, E>,
@@ -663,7 +664,7 @@ const inThread = (harness: ReturnType<typeof makeHarness>) =>
     OrchestratorMcpService.layer.pipe(
       Layer.provideMerge(
         Layer.mergeAll(
-          NodeServices.layer,
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
           harness.threadManagement,
           ServerSettings.layerTest(),
           Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
