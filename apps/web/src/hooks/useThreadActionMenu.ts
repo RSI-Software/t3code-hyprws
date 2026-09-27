@@ -17,6 +17,13 @@ import {
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
 import { reportResetOrderThreadAction } from "./useThreadActionMenu.fork"; // fork-hook: thread-ordering/reset-order-dispatch-import
+import {
+  forkRefInFlightFork, // fork-hook: thread-fork/header-in-flight-import
+  forkThreadMenuStateFork,
+  forkThreadStateTailFork, // fork-hook: thread-fork/header-state-import
+  readForkProviderFork,
+  useThreadForkDispatchFork,
+} from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -99,6 +106,7 @@ export function useThreadActionMenu(input: {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/header-dispatch-hook
   const handleNewThread = useNewThreadHandler();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -154,6 +162,11 @@ export function useThreadActionMenu(input: {
           isRegeneratingTitle,
           isRunning: !threadRuntimeCanArchive(thread.runtime),
           hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
+          fork: forkThreadMenuStateFork(
+            readForkProviderFork(threadRef, thread),
+            forkRefInFlightFork(threadRef), // fork-hook: thread-fork/header-in-flight
+            ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
+          ),
           supports,
           snoozePresets,
         });
@@ -236,6 +249,8 @@ export function useThreadActionMenu(input: {
               setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
             );
             return;
+          case "fork":
+            return forkThreadDispatch(threadRef); // fork-hook: thread-fork/header-dispatch
           case "reset-order":
             return reportResetOrderThreadAction({
               threadRef,
