@@ -142,6 +142,9 @@ describe("GhosttyTerminalSurface visibility", () => {
         actualBoundingBoxDescent: 3,
       }),
     };
+    Object.assign(context, {
+      getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }),
+    }); // fork-hook: upstream-fixes/ghostty-sprite-test-transform
     vi.stubGlobal("document", {
       createElement: (tag: string) => (tag === "canvas" ? canvas : new TerminalTestElement()),
       fonts: Object.assign(new EventTarget(), { load: async () => [], add() {} }),
