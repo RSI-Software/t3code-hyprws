@@ -153,6 +153,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
+import { threadForkRpcHandlersFork } from "./project/ThreadFork.fork.ts"; // fork-hook: thread-fork/ws-wiring-import
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -3527,6 +3528,16 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        ...threadForkRpcHandlersFork(
+          {
+            snapshots: projectionSnapshotQuery,
+            directory: providerSessionDirectory,
+            engine: orchestrationEngine,
+            crypto,
+            settings: serverSettings,
+          },
+          observeRpcEffect,
+        ), // fork-hook: thread-fork/ws-rpc-handlers
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,
