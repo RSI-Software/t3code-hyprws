@@ -158,6 +158,16 @@ it("validates Fork-Domain and Fork-Upstreamable values", () => {
   );
 });
 
+it("accepts the multi-window and workspaces domains (RSI-Software/t3code-hyprws#1339)", () => {
+  const commitments = collectFindings(
+    parseForkLog(
+      record("hhhhhhhhh", "feat: x", "Fork-Domain: multi-window\nFork-Tier: core\n") +
+        record("iiiiiiiii", "feat: y", "Fork-Domain: workspaces\nFork-Tier: core\n"),
+    ),
+  );
+  assert.deepStrictEqual(commitments, []);
+});
+
 it("reads trailers a GitHub UI squash left above the co-author paragraph", () => {
   const [commit] = parseForkLog(
     record(
