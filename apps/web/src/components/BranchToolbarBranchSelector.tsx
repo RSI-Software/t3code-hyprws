@@ -56,6 +56,7 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   isWorktreeChangeBlocked,
   resolveBranchTriggerLabel,
+  resolveBranchWorkspaceCwd,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
@@ -191,7 +192,7 @@ export function BranchToolbarBranchSelector({
       ? serverThread.worktreePath
       : (draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
-  const branchCwd = activeWorktreePath ?? activeProjectCwd;
+  const branchStatusCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const canUpdateThreadBranch = !hasServerThread || canOperateThread;
   const canChangeThreadBranch = canWriteSourceControl && canUpdateThreadBranch;
@@ -323,11 +324,11 @@ export function BranchToolbarBranchSelector({
   const [branchQuery, setBranchQuery] = useState("");
 
   const branchStatusQuery = useEnvironmentQuery(
-    branchCwd === null
+    branchStatusCwd === null
       ? null
       : vcsEnvironment.status({
           environmentId,
-          input: { cwd: branchCwd },
+          input: { cwd: branchStatusCwd },
         }),
   );
   const projectStatusQuery = useEnvironmentQuery(
@@ -337,6 +338,12 @@ export function BranchToolbarBranchSelector({
   );
   const activeProjectCheckoutRoot = projectStatusQuery.data?.workingTree.rootPath;
   const trimmedBranchQuery = branchQuery.trim();
+  const branchCwd = resolveBranchWorkspaceCwd({
+    activeProjectCwd,
+    activeWorktreePath,
+    activeWorktreeIsRepo: branchStatusQuery.data?.isRepo ?? null,
+  });
+  const usableActiveWorktreePath = branchCwd === activeWorktreePath ? activeWorktreePath : null;
   const branchRefState = usePaginatedBranches({
     environmentId,
     cwd: branchCwd,
@@ -397,7 +404,9 @@ export function BranchToolbarBranchSelector({
   const isFetchingNextPage = branchRefState.isFetchingNextPage;
   const isInitialBranchesLoadPending = branchRefState.isPending && branchRefState.data === null;
   const currentGitBranch =
-    branchStatusQuery.data?.refName ?? refs.find((refName) => refName.current)?.name ?? null;
+    branchStatusQuery.data?.refName ??
+    (activeWorktreePath === null ? refs.find((refName) => refName.current)?.name : null) ??
+    null;
   const sourceControlPresentation = getSourceControlPresentation(
     branchStatusQuery.data?.sourceControlProvider,
   );
