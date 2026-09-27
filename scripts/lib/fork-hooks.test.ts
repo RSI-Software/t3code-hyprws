@@ -236,6 +236,38 @@ it("walks a line marker back to the whole multi-line statement it closes", () =>
   assert.strictEqual(statementStartLine(multilineImport.split("\n"), 3), 3);
 });
 
+it("reads past an apostrophe in a block comment body", () => {
+  const source = [
+    "/**",
+    " * Recreates a thread's worktree.",
+    " */",
+    "const a = forkThing(); // fork-hook: fork-meta/name",
+  ].join("\n");
+  assert.deepInclude(parseForkHookMarkers(source)[0], { startLine: 4, endLine: 4 });
+});
+
+it("reads past an apostrophe in a block comment without leading stars", () => {
+  const source = [
+    "/*",
+    "  Recreates a thread's worktree.",
+    "*/",
+    "const a = forkThing(); // fork-hook: fork-meta/name",
+  ].join("\n");
+  assert.deepInclude(parseForkHookMarkers(source)[0], { startLine: 4, endLine: 4 });
+});
+
+it("counts the braces of a multi-line generator method", () => {
+  const source = [
+    "const source = {",
+    "  *items() {",
+    "    yield 1;",
+    "  },",
+    "};",
+    "const a = forkThing(); // fork-hook: fork-meta/name",
+  ].join("\n");
+  assert.deepInclude(parseForkHookMarkers(source)[0], { startLine: 6, endLine: 6 });
+});
+
 it("bounds a branch statement and template literals behind a trailing marker", () => {
   const branch = [
     "const ready = true;",
