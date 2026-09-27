@@ -579,9 +579,10 @@ The domain retires when it is empty.
 
 ### Rebase scan
 
-| Path | Why it matters     |
-| ---- | ------------------ |
-| `**` | Other shared paths |
+| Path                           | Why it matters                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `native/libghostty-vt/VERSION` | Moved: rebuild `ghostty-sprite.wasm`; Ghostty `76e568b` or later needs a `global.zig` stub and Zig 0.16 |
+| `**`                           | Other shared paths                                                                                      |
 
 ## zmux-estate
 
