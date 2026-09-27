@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -11,7 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
@@ -21,11 +22,12 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as CheckpointService from "./CheckpointService.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
@@ -60,7 +62,7 @@ const checkpointLayer = CheckpointService.layer.pipe(
     ),
   ),
   Layer.provideMerge(VcsProcess.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const identity = (checkoutRoot: string, branch: string) => ({
@@ -246,7 +248,7 @@ it.effect("re-scopes the checkpoint of a run its worktree recovery is committed 
     assert.ok(run && scope);
     // The baseline the turn start captures from that scope.
     const ordinalWithinScope = Math.max(0, run.ordinal - 1);
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* SecureRandom.SecureRandom;
     yield* checkpoints.captureBaseline({ scope, ordinalWithinScope });
     assert.isTrue(
       yield* checkpointStore.hasCheckpointRef({
@@ -254,7 +256,7 @@ it.effect("re-scopes the checkpoint of a run its worktree recovery is committed 
         checkpointRef: yield* CheckpointService.checkpointRefForScopeOrdinal({
           scopeId: scope.id,
           ordinalWithinScope,
-        }).pipe(Effect.provideService(Crypto.Crypto, crypto)),
+        }).pipe(Effect.provideService(SecureRandom.SecureRandom, crypto)),
       }),
     );
   }).pipe(Effect.provide(Layer.mergeAll(testLayer, checkpointLayer))),

@@ -1,9 +1,9 @@
 import { type ThreadGroupTitleGenerationInput, WS_METHODS } from "@t3tools/contracts";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
@@ -17,9 +17,10 @@ import { ThreadGroupTitleLoader } from "./threadGroupTitleHttp.ts";
 export { ThreadGroupTitleLoader, threadGroupTitleLoaderLayer } from "./threadGroupTitleHttp.ts";
 
 /** @public Required to name the error in consumers' inferred environment results. */
-export class ThreadGroupTitleConnectionNotReadyError extends Data.TaggedError(
+export class ThreadGroupTitleConnectionNotReadyError extends Schema.TaggedError<ThreadGroupTitleConnectionNotReadyError>()(
   "ThreadGroupTitleConnectionNotReadyError",
-)<{ readonly message: string }> {}
+  { message: Schema.String },
+) {}
 
 export function createThreadGroupEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | ThreadGroupTitleLoader | R, E>,

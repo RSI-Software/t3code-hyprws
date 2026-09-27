@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { ThreadId } from "@t3tools/contracts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import { expect, it } from "@effect/vitest";
@@ -14,6 +15,7 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { ASSET_ROUTE_PREFIX, issueAssetUrl, resolveAsset } from "./AssetAccess.ts";
+import * as AssetSigner from "./AssetSigner.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 
 const layerConfig = ServerConfig.ServerConfig.layerTest(process.cwd(), {
@@ -25,9 +27,11 @@ const layerTest = Layer.mergeAll(
   Layer.mock(NativeAppIconResolver.NativeAppIconResolver)({}),
   WorkspacePaths.layer,
   ServerSettings.layerTest(),
-  ServerSecretStore.layer.pipe(Layer.provide(layerConfig)),
+  AssetSigner.layer.pipe(
+    Layer.provideMerge(ServerSecretStore.layer.pipe(Layer.provide(layerConfig))),
+  ),
   layerConfig,
-).pipe(Layer.provideMerge(NodeServices.layer));
+).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 it.effect.skipIf(!symlinksSupported)(
   "previews workspace files behind external symlinks only while the setting allows it",
