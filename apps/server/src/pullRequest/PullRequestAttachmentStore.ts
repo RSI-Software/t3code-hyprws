@@ -14,7 +14,7 @@ import {
   resolveAttachmentPathById,
 } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as AssetSigner from "../assets/AssetSigner.ts";
 
 export class PullRequestAttachmentStore extends Context.Service<
   PullRequestAttachmentStore,
@@ -32,13 +32,13 @@ export class PullRequestAttachmentStore extends Context.Service<
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
-  const secretStore = yield* ServerSecretStore.ServerSecretStore;
+  const signer = yield* AssetSigner.AssetSigner;
 
   return PullRequestAttachmentStore.of({
     createUploadUrl: Effect.fn("PullRequestAttachmentStore.createUploadUrl")(function (input) {
       return issueAttachmentUploadUrl({ ...input, type: "file" }).pipe(
         Effect.provideService(ServerConfig.ServerConfig, config),
-        Effect.provideService(ServerSecretStore.ServerSecretStore, secretStore),
+        Effect.provideService(AssetSigner.AssetSigner, signer),
       );
     }),
     resolvePendingPath: (attachmentId) => {

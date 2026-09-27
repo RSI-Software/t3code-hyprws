@@ -2,6 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCryptoLayer from "@effect/platform-node/NodeCrypto";
 import { AuthStandardClientScopes, EnvironmentId } from "@t3tools/contracts";
 import {
   computeDpopAccessTokenHash,
@@ -11,17 +12,17 @@ import {
 import { expect, it } from "@effect/vitest";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -46,181 +47,185 @@ const storeLayer = DeviceAuthorization.layer.pipe(
 
 const client = { label: "dot cloud", deviceType: "bot" } as const;
 
-it.layer(NodeServices.layer)("DeviceAuthorizationStore", (it) => {
-  it.effect("issues the approved scopes and lifetime once, to the bound key only", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      const sessions = yield* SessionStore.SessionStore;
-      const started = Option.getOrThrow(
-        yield* store.start({
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))(
+  "DeviceAuthorizationStore",
+  (it) => {
+    it.effect("issues the approved scopes and lifetime once, to the bound key only", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        const sessions = yield* SessionStore.SessionStore;
+        const started = Option.getOrThrow(
+          yield* store.start({
+            client,
+            requestedScopes: ["orchestration:read", "orchestration:operate"],
+            proofKeyThumbprint: "client-key",
+          }),
+        );
+        expect(started.userCode).toMatch(/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/);
+
+        const pending = yield* store.listOpen();
+        expect(pending).toHaveLength(1);
+        expect(pending[0]).toMatchObject({
+          userCode: started.userCode,
+          status: "pending",
           client,
-          requestedScopes: ["orchestration:read", "orchestration:operate"],
           proofKeyThumbprint: "client-key",
-        }),
-      );
-      expect(started.userCode).toMatch(/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/);
+        });
+        expect(Object.values(pending[0]!)).not.toContain(started.deviceCode);
 
-      const pending = yield* store.listOpen();
-      expect(pending).toHaveLength(1);
-      expect(pending[0]).toMatchObject({
-        userCode: started.userCode,
-        status: "pending",
-        client,
-        proofKeyThumbprint: "client-key",
-      });
-      expect(Object.values(pending[0]!)).not.toContain(started.deviceCode);
-
-      let issuedAt = 0;
-      const poll = () => ({
-        deviceCode: started.deviceCode,
-        proof: { thumbprint: "client-key", issuedAt: ++issuedAt },
-      });
-      expect((yield* store.poll(poll()))._tag).toBe("Pending");
-
-      const approved = yield* store.approve({
-        userCode: started.userCode.toLowerCase().replace("-", " "),
-        ttl: Duration.days(7),
-      });
-      expect(Option.getOrThrow(approved).scopes).toEqual([
-        "orchestration:read",
-        "orchestration:operate",
-      ]);
-      expect(Option.isNone(yield* store.approve({ userCode: started.userCode }))).toBe(true);
-
-      expect((yield* store.poll({ deviceCode: started.deviceCode }))._tag).toBe("Invalid");
-      expect(
-        (yield* store.poll({
+        let issuedAt = 0;
+        const poll = () => ({
           deviceCode: started.deviceCode,
-          proof: { thumbprint: "other-key", issuedAt: 100 },
-        }))._tag,
-      ).toBe("Invalid");
+          proof: { thumbprint: "client-key", issuedAt: ++issuedAt },
+        });
+        expect((yield* store.poll(poll()))._tag).toBe("Pending");
 
-      // A proof no later than the last accepted one is a replay.
-      expect(
-        (yield* store.poll({
-          deviceCode: started.deviceCode,
-          proof: { thumbprint: "client-key", issuedAt },
-        }))._tag,
-      ).toBe("ReplayedProof");
+        const approved = yield* store.approve({
+          userCode: started.userCode.toLowerCase().replace("-", " "),
+          ttl: Duration.days(7),
+        });
+        expect(Option.getOrThrow(approved).scopes).toEqual([
+          "orchestration:read",
+          "orchestration:operate",
+        ]);
+        expect(Option.isNone(yield* store.approve({ userCode: started.userCode }))).toBe(true);
 
-      const issued = yield* store.poll(poll());
-      if (issued._tag !== "Issued") throw new Error(`expected Issued, got ${issued._tag}`);
-      const verified = yield* sessions.verify(issued.session.token);
-      expect(verified).toMatchObject({
-        method: "dpop-access-token",
-        subject: DeviceAuthorization.DEVICE_AUTHORIZATION_SUBJECT,
-        scopes: ["orchestration:read", "orchestration:operate"],
-        proofKeyThumbprint: "client-key",
-        client,
-      });
-      expect(issued.session.expiresAt.epochMilliseconds - (yield* Clock.currentTimeMillis)).toBe(
-        Duration.toMillis(Duration.days(7)),
-      );
+        expect((yield* store.poll({ deviceCode: started.deviceCode }))._tag).toBe("Invalid");
+        expect(
+          (yield* store.poll({
+            deviceCode: started.deviceCode,
+            proof: { thumbprint: "other-key", issuedAt: 100 },
+          }))._tag,
+        ).toBe("Invalid");
 
-      expect((yield* store.poll(poll()))._tag).toBe("Invalid");
-      expect(yield* store.listOpen()).toHaveLength(0);
-    }).pipe(Effect.provide(storeLayer)),
-  );
+        // A proof no later than the last accepted one is a replay.
+        expect(
+          (yield* store.poll({
+            deviceCode: started.deviceCode,
+            proof: { thumbprint: "client-key", issuedAt },
+          }))._tag,
+        ).toBe("ReplayedProof");
 
-  it.effect("lets the owner narrow a request but never widen it", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      const requested = Option.getOrThrow(
-        yield* store.start({ client, requestedScopes: ["orchestration:read", "access:write"] }),
-      );
-      const widened = yield* store
-        .approve({ userCode: requested.userCode, scopes: ["relay:write"] })
-        .pipe(Effect.flip);
-      expect(widened._tag).toBe("DeviceAuthorizationScopeError");
-      const narrowed = yield* store.approve({
-        userCode: requested.userCode,
-        scopes: ["orchestration:read"],
-      });
-      expect(Option.getOrThrow(narrowed).scopes).toEqual(["orchestration:read"]);
+        const issued = yield* store.poll(poll());
+        if (issued._tag !== "Issued") throw new Error(`expected Issued, got ${issued._tag}`);
+        const verified = yield* sessions.verify(issued.session.token);
+        expect(verified).toMatchObject({
+          method: "dpop-access-token",
+          subject: DeviceAuthorization.DEVICE_AUTHORIZATION_SUBJECT,
+          scopes: ["orchestration:read", "orchestration:operate"],
+          proofKeyThumbprint: "client-key",
+          client,
+        });
+        expect(issued.session.expiresAt.epochMilliseconds - (yield* Clock.currentTimeMillis)).toBe(
+          Duration.toMillis(Duration.days(7)),
+        );
 
-      const unscoped = Option.getOrThrow(yield* store.start({ client }));
-      const granted = yield* store.approve({
-        userCode: unscoped.userCode,
-        scopes: AuthStandardClientScopes,
-      });
-      expect(Option.getOrThrow(granted).scopes).toEqual(AuthStandardClientScopes);
-    }).pipe(Effect.provide(storeLayer)),
-  );
+        expect((yield* store.poll(poll()))._tag).toBe("Invalid");
+        expect(yield* store.listOpen()).toHaveLength(0);
+      }).pipe(Effect.provide(storeLayer)),
+    );
 
-  it.effect("defaults to the standard client scopes when none are requested", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      const started = Option.getOrThrow(yield* store.start({ client }));
-      const approved = Option.getOrThrow(yield* store.approve({ userCode: started.userCode }));
-      expect(approved.scopes).toEqual(AuthStandardClientScopes);
-      const issued = yield* store.poll({ deviceCode: started.deviceCode });
-      if (issued._tag !== "Issued") throw new Error(`expected Issued, got ${issued._tag}`);
-      expect(issued.session.method).toBe("bearer-access-token");
-    }).pipe(Effect.provide(storeLayer)),
-  );
+    it.effect("lets the owner narrow a request but never widen it", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        const requested = Option.getOrThrow(
+          yield* store.start({ client, requestedScopes: ["orchestration:read", "access:write"] }),
+        );
+        const widened = yield* store
+          .approve({ userCode: requested.userCode, scopes: ["relay:write"] })
+          .pipe(Effect.flip);
+        expect(widened._tag).toBe("DeviceAuthorizationScopeError");
+        const narrowed = yield* store.approve({
+          userCode: requested.userCode,
+          scopes: ["orchestration:read"],
+        });
+        expect(Option.getOrThrow(narrowed).scopes).toEqual(["orchestration:read"]);
 
-  it.effect("tells a fast poller to slow down, and a denied or expired one to stop", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      const first = Option.getOrThrow(yield* store.start({ client }));
-      expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Pending");
-      expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("SlowDown");
-      yield* TestClock.adjust(Duration.seconds(5));
-      expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Pending");
+        const unscoped = Option.getOrThrow(yield* store.start({ client }));
+        const granted = yield* store.approve({
+          userCode: unscoped.userCode,
+          scopes: AuthStandardClientScopes,
+        });
+        expect(Option.getOrThrow(granted).scopes).toEqual(AuthStandardClientScopes);
+      }).pipe(Effect.provide(storeLayer)),
+    );
 
-      expect(yield* store.deny(first.userCode)).toBe(true);
-      expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Denied");
-      expect(Option.isNone(yield* store.approve({ userCode: first.userCode }))).toBe(true);
+    it.effect("defaults to the standard client scopes when none are requested", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        const started = Option.getOrThrow(yield* store.start({ client }));
+        const approved = Option.getOrThrow(yield* store.approve({ userCode: started.userCode }));
+        expect(approved.scopes).toEqual(AuthStandardClientScopes);
+        const issued = yield* store.poll({ deviceCode: started.deviceCode });
+        if (issued._tag !== "Issued") throw new Error(`expected Issued, got ${issued._tag}`);
+        expect(issued.session.method).toBe("bearer-access-token");
+      }).pipe(Effect.provide(storeLayer)),
+    );
 
-      const second = Option.getOrThrow(yield* store.start({ client }));
-      yield* TestClock.adjust(Duration.minutes(10));
-      expect(Option.isNone(yield* store.approve({ userCode: second.userCode }))).toBe(true);
-      expect((yield* store.poll({ deviceCode: second.deviceCode }))._tag).toBe("Expired");
-      expect((yield* store.poll({ deviceCode: "unknown" }))._tag).toBe("Invalid");
-    }).pipe(Effect.provide(storeLayer)),
-  );
+    it.effect("tells a fast poller to slow down, and a denied or expired one to stop", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        const first = Option.getOrThrow(yield* store.start({ client }));
+        expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Pending");
+        expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("SlowDown");
+        yield* TestClock.adjust(Duration.seconds(5));
+        expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Pending");
 
-  it.effect("caps open requests so an unauthenticated caller cannot fill the table", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      for (let index = 0; index < 20; index++) {
+        expect(yield* store.deny(first.userCode)).toBe(true);
+        expect((yield* store.poll({ deviceCode: first.deviceCode }))._tag).toBe("Denied");
+        expect(Option.isNone(yield* store.approve({ userCode: first.userCode }))).toBe(true);
+
+        const second = Option.getOrThrow(yield* store.start({ client }));
+        yield* TestClock.adjust(Duration.minutes(10));
+        expect(Option.isNone(yield* store.approve({ userCode: second.userCode }))).toBe(true);
+        expect((yield* store.poll({ deviceCode: second.deviceCode }))._tag).toBe("Expired");
+        expect((yield* store.poll({ deviceCode: "unknown" }))._tag).toBe("Invalid");
+      }).pipe(Effect.provide(storeLayer)),
+    );
+
+    it.effect("caps open requests so an unauthenticated caller cannot fill the table", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        for (let index = 0; index < 20; index++) {
+          expect(Option.isSome(yield* store.start({ client }))).toBe(true);
+        }
+        expect(Option.isNone(yield* store.start({ client }))).toBe(true);
+        yield* TestClock.adjust(Duration.minutes(10));
         expect(Option.isSome(yield* store.start({ client }))).toBe(true);
-      }
-      expect(Option.isNone(yield* store.start({ client }))).toBe(true);
-      yield* TestClock.adjust(Duration.minutes(10));
-      expect(Option.isSome(yield* store.start({ client }))).toBe(true);
-    }).pipe(Effect.provide(storeLayer)),
-  );
+      }).pipe(Effect.provide(storeLayer)),
+    );
 
-  it.effect("holds the cap when starts race each other", () =>
-    Effect.gen(function* () {
-      const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
-      const started = yield* Effect.all(
-        Array.from({ length: 40 }, () => store.start({ client })),
-        { concurrency: "unbounded" },
-      );
-      expect(started.filter(Option.isSome)).toHaveLength(20);
-      expect(yield* store.listOpen()).toHaveLength(20);
-    }).pipe(
-      Effect.provide(
-        storeLayer.pipe(
-          // Yielding inside every start lets the racing starts interleave there.
-          Layer.provide(
-            Layer.effect(
-              Crypto.Crypto,
-              Effect.map(Crypto.Crypto, (crypto) =>
-                Crypto.Crypto.of({
-                  ...crypto,
-                  randomBytes: (size) => Effect.andThen(Effect.yieldNow, crypto.randomBytes(size)),
-                }),
+    it.effect("holds the cap when starts race each other", () =>
+      Effect.gen(function* () {
+        const store = yield* DeviceAuthorization.DeviceAuthorizationStore;
+        const started = yield* Effect.all(
+          Array.from({ length: 40 }, () => store.start({ client })),
+          { concurrency: "unbounded" },
+        );
+        expect(started.filter(Option.isSome)).toHaveLength(20);
+        expect(yield* store.listOpen()).toHaveLength(20);
+      }).pipe(
+        Effect.provide(
+          storeLayer.pipe(
+            // Yielding inside every start lets the racing starts interleave there.
+            Layer.provide(
+              Layer.effect(
+                SecureRandom.SecureRandom,
+                Effect.map(SecureRandom.SecureRandom, (crypto) =>
+                  SecureRandom.SecureRandom.of({
+                    ...crypto,
+                    randomBytes: (size) =>
+                      Effect.andThen(Effect.yieldNow, crypto.randomBytes(size)),
+                  }),
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
-});
+    );
+  },
+);
 
 const makeKey = (issuedAtSeconds: number) => {
   const { privateKey, publicKey } = NodeCrypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -256,12 +261,12 @@ const form = (path: string, fields: Record<string, string>, headers?: Record<str
   });
 
 const makeHarness = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const services = yield* Layer.build(
     storeLayer.pipe(
       Layer.provideMerge(
         HttpPlatform.layer.pipe(
-          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer)),
           Layer.provideMerge(Etag.layerWeak),
         ),
       ),
@@ -271,7 +276,7 @@ const makeHarness = Effect.gen(function* () {
   const sessions = Context.get(services, SessionStore.SessionStore);
   // The secret store stays reachable, so a route that wrote DPoP replay
   // markers again would show up in `markerCount`.
-  const requestContext = Context.make(Crypto.Crypto, crypto).pipe(
+  const requestContext = Context.make(SecureRandom.SecureRandom, crypto).pipe(
     Context.add(
       ServerSecretStore.ServerSecretStore,
       Context.get(services, ServerSecretStore.ServerSecretStore),
@@ -415,7 +420,7 @@ it.live("delivers a DPoP-bound token over the HTTP routes after owner approval",
     expect((yield* poll({ dpop: key.proof("POST", tokenUrl) })).body).toEqual({
       error: "invalid_grant",
     });
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))),
 );
 
 it.live("delivers an external MCP grant's scopeless token without a scope field", () =>
@@ -455,7 +460,7 @@ it.live("delivers an external MCP grant's scopeless token without a scope field"
     expect(issued.body.token_type).toBe("DPoP");
     expect(issued.body).not.toHaveProperty("scope");
     expect((yield* sessions.verify(issued.body.access_token as string)).scopes).toEqual([]);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))),
 );
 
 it.live("keeps unauthenticated callers from growing state past the request cap", () =>
@@ -493,7 +498,7 @@ it.live("keeps unauthenticated callers from growing state past the request cap",
     expect(statuses.filter((status) => status === 429)).toHaveLength(20);
     expect(yield* rowCount).toBe(20);
     expect(yield* markerCount).toBe(0);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))),
 );
 
 it.live("refuses terminal control characters in client-supplied labels", () =>
@@ -511,7 +516,7 @@ it.live("refuses terminal control characters in client-supplied labels", () =>
       ).toEqual({ error: "invalid_request" });
     }
     expect(yield* rowCount).toBe(0);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCryptoLayer.layer))),
 );
 
 it("escapes control, C1, and bidi characters for the owner's terminal", () => {

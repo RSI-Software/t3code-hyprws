@@ -1,4 +1,6 @@
+import * as Config from "effect/Config";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
@@ -23,11 +25,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { McpSchema } from "effect/unstable/ai";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
+import { McpSchema } from "effect/ai";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as HttpRouter from "effect/http/HttpRouter";
 
 import { DEVICE_AUTHORIZATION_SUBJECT } from "../../auth/DeviceAuthorization.fork.ts";
 import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
@@ -37,7 +39,8 @@ import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/Cod
 import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import * as EffectOutbox from "../../orchestration-v2/EffectOutbox.ts";
-import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
@@ -155,7 +158,7 @@ const setup = Effect.gen(function* () {
           ),
         ),
       ),
-    ).pipe(Layer.provide(NodeServices.layer)),
+    ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
   const service = Context.get(services, ExternalMcpService.ExternalMcpServiceFork);
   const orchestrator = Context.get(services, Orchestrator.OrchestratorV2);
@@ -234,7 +237,7 @@ describe("external MCP settlement on the real orchestrator", () => {
           yield* Layer.build(
             Layer.fresh(ExternalMcpService.layer).pipe(
               Layer.provide(Layer.succeedContext(h.services)),
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
           ExternalMcpService.ExternalMcpServiceFork,
@@ -723,7 +726,7 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
                       : Effect.fail(new EnvironmentAuth.ServerAuthInvalidCredentialError({})),
                 }),
                 HttpPlatform.layer.pipe(
-                  Layer.provideMerge(NodeServices.layer),
+                  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
                   Layer.provide(Etag.layerWeak),
                 ),
               ),
@@ -763,7 +766,7 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
         session ??= response.headers.get("mcp-session-id");
         assert.equal(response.status, 200);
         const body: unknown = yield* Effect.promise(() => response.json());
-        if (process.env.T3_SETTLEMENT_EVIDENCE === "1")
+        if ((yield* Config.String("T3_SETTLEMENT_EVIDENCE").pipe(Config.withDefault(""))) === "1")
           yield* Effect.log(
             yield* encodeJson({
               request: { jsonrpc: "2.0", id, method, params },

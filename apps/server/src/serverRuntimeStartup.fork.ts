@@ -1,6 +1,6 @@
 import { CommandId, type ProjectSettingsOverrides } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -14,7 +14,7 @@ import * as ServerSettings from "./serverSettings.ts";
  * Project settings overrides win over `project.scripts`, so both are refreshed.
  */
 export const reconcileSetupScriptsFork = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const projectService = yield* ProjectService.ProjectService;
   const projects = yield* (yield* ProjectStore.ProjectStoreV2).listShells();
 
@@ -24,7 +24,7 @@ export const reconcileSetupScriptsFork = Effect.gen(function* () {
       continue;
     }
     yield* projectService.update({
-      commandId: CommandId.make(`server:setup-script-refresh:${yield* crypto.randomUUIDv4}`),
+      commandId: CommandId.make(`server:setup-script-refresh:${yield* crypto.uuidV4()}`),
       projectId: project.id,
       scripts,
     });

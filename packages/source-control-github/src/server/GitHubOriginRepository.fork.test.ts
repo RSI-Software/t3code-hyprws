@@ -6,16 +6,26 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
+import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
+import * as GitHubQuota from "@t3tools/source-control-github/server/GitHubQuota";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 import * as GitHubSourceControlProvider from "@t3tools/source-control-github/server/GitHubSourceControlProvider";
 
 it.effect.each(["github.com", "enterprise.test"])(
   "keeps PR reads and writes on the selected origin at %s",
   (host) => {
-    const restCalls: GitHubApi.GitHubRestInput[] = [];
-    const graphqlCalls: GitHubApi.GitHubGraphQlInput[] = [];
+    const restCalls: GitHubRest.GitHubRestInput[] = [];
+    const graphqlCalls: Array<{
+      readonly url: string;
+      readonly variables: Readonly<Record<string, unknown>>;
+    }> = [];
     const context = {
       provider: {
         kind: SourceControlProviderKind.make("github"),
@@ -33,14 +43,23 @@ it.effect.each(["github.com", "enterprise.test"])(
       baseRefName: "hyprws",
       headRefName: "feature/origin-pr",
       state: "OPEN",
+      isDraft: false,
+      mergedAt: null,
+      closedAt: null,
       isCrossRepository: false,
       updatedAt: "2026-01-01T00:00:00Z",
       headRefOid: "a".repeat(40),
       headRepository: { name: "t3code-hyprws", nameWithOwner: "rsi-software/t3code-hyprws" },
-      headRepositoryOwner: { login: "rsi-software" },
+      headRepositoryOwner: { __typename: "Organization", login: "rsi-software" },
     };
+    const signedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
+      enabled: false,
+      token: () => Effect.succeedNone,
+      invalidate: () => Effect.void,
+    });
     const layer = Layer.mergeAll(
-      Layer.mock(GitHubApi.GitHubApi)({
+      signedOut,
+      Layer.mock(GitHubRest.GitHubRest)({
         rest: (input) =>
           Effect.sync(() => {
             restCalls.push(input);
@@ -61,19 +80,61 @@ it.effect.each(["github.com", "enterprise.test"])(
               ),
             };
           }),
-        graphql: (input) =>
-          Effect.sync(() => {
-            graphqlCalls.push(input);
-            return JSON.stringify({
-              data: {
-                repository:
-                  input.operation === "listPullRequestsByHead"
-                    ? { h0: { nodes: [node] }, h1: { nodes: [] } }
-                    : { pullRequest: node },
-              },
-            });
-          }),
       }),
+      // GraphQL goes over HTTP through the real request policy; each answer is keyed by the
+      // aliased `repository` a lookup reads, `_N_repository` when batched.
+      GitHubRequestPolicy.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            signedOut,
+            Layer.succeed(GitHubCredentials.GitHubCredentials, {
+              get: (credentialHost) =>
+                Effect.succeed({
+                  host: credentialHost,
+                  token: Redacted.make("token"),
+                  source: "gh" as const,
+                  fingerprint: `${credentialHost}:token`,
+                }),
+              saved: () => Effect.succeedNone,
+              fingerprint: (credentialHost) => Effect.succeed(`${credentialHost}:token`),
+              invalidate: () => Effect.void,
+            }),
+            GitHubQuota.layer,
+            SourceControlRateLimit.layer,
+          ),
+        ),
+      ),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() => {
+            const sent =
+              request.body._tag === "Uint8Array"
+                ? (JSON.parse(new TextDecoder().decode(request.body.body)) as {
+                    readonly variables: Readonly<Record<string, unknown>>;
+                  })
+                : { variables: {} };
+            graphqlCalls.push({ url: request.url, variables: sent.variables });
+            const prefixes = [
+              ...new Set(Object.keys(sent.variables).flatMap((key) => /^_\d+_/.exec(key) ?? [""])),
+            ];
+            const data = Object.fromEntries(
+              prefixes.map((prefix) => [
+                `${prefix}repository`,
+                `${prefix}head` in sent.variables
+                  ? { pullRequests: { nodes: [node] } }
+                  : { pullRequest: node },
+              ]),
+            );
+            return HttpClientResponse.fromWeb(
+              request,
+              new Response(JSON.stringify({ data }), {
+                headers: { "content-type": "application/json" },
+              }),
+            );
+          }),
+        ),
+      ),
       TestSourceControlHost.layer({
         process: { run: () => Effect.die("unexpected git read") },
       }),
@@ -121,10 +182,13 @@ it.effect.each(["github.com", "enterprise.test"])(
         body: "PR body",
         maintainer_can_modify: true,
       });
+      assert.isNotEmpty(graphqlCalls);
       for (const request of graphqlCalls) {
-        assert.strictEqual(request.host, host);
-        assert.strictEqual(request.variables?.owner, "rsi-software");
-        assert.strictEqual(request.variables?.name, "t3code-hyprws");
+        assert.include(new URL(request.url).hostname, host);
+        for (const [key, value] of Object.entries(request.variables)) {
+          if (key.endsWith("owner")) assert.strictEqual(value, "rsi-software");
+          if (key.endsWith("name")) assert.strictEqual(value, "t3code-hyprws");
+        }
       }
     }).pipe(
       Effect.provide(layer),

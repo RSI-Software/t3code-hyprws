@@ -21,8 +21,11 @@ import * as MobilePreferences from "./mobile-preferences";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 
 const openStore = MobilePreferences.MobilePreferencesStore.pipe(
-  Effect.provide(MobilePreferences.layer),
-  Effect.provide(Layer.mergeAll(MobileDatabase.layer, MobileSecureStorage.layer)),
+  Effect.provide(
+    MobilePreferences.layer.pipe(
+      Layer.provide(Layer.mergeAll(MobileDatabase.layer, MobileSecureStorage.layer)),
+    ),
+  ),
 );
 
 const ref = (environmentId: string, projectId: string) => ({

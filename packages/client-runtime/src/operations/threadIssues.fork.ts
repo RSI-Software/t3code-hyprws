@@ -3,7 +3,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import { request } from "../rpc/client.ts";
@@ -23,8 +23,8 @@ type LinkThreadIssueInput = ThreadIssueCommandInput<"thread.issue.link">;
 type UnlinkThreadIssueInput = ThreadIssueCommandInput<"thread.issue.unlink">;
 
 const newCommandId = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
-  return yield* crypto.randomUUIDv4.pipe(Effect.orDie, Effect.map(CommandId.make));
+  const crypto = yield* SecureRandom.SecureRandom;
+  return yield* crypto.uuidV4().pipe(Effect.orDie, Effect.map(CommandId.make));
 });
 
 export const linkThreadIssue = Effect.fn("EnvironmentCommands.linkThreadIssue")(function* (
