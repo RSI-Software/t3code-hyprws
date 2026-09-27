@@ -1,7 +1,10 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ProviderDriverKind } from "@t3tools/contracts"; // fork-hook: thread-fork/driver-kind-type-import
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import
+import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-state-type-import
+import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
 
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
@@ -15,6 +18,7 @@ export type ThreadActionMenuId =
   | "pin"
   | "unpin"
   | "reset-order" // fork-hook: thread-ordering/reset-order-id
+  | "fork" // fork-hook: thread-fork/menu-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -85,6 +89,7 @@ export interface ThreadActionMenuState {
   } | null;
   readonly isPinned: boolean;
   readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
+  readonly fork?: ForkableThreadProviderState | null; // fork-hook: thread-fork/menu-state
   readonly isSettled: boolean;
   /** False while the user has turned automatic settlement off for this thread. */
   readonly autoSettleEnabled: boolean;
@@ -133,6 +138,7 @@ export function buildThreadActionMenuItems(
     // clears the pin ("done" beats "keep on top"), and snoozing hides the
     // card until wake with the pin intact.
     ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
+    ...forkThreadMenuItems(state), // fork-hook: thread-fork/menu-items
     ...(state.supports.settlement
       ? [
           state.isSettled
