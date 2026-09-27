@@ -22,6 +22,7 @@ import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
 
 import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
+import { checkoutMoveShellFieldsFork } from "./checkoutMove.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 import type { EnvironmentConnectionPhase } from "../connection/presentation.ts";
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
@@ -236,6 +237,7 @@ export interface EnvironmentThreadShell {
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
+  readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /** Absent from rows built before issue linking; the server sends an empty list. */
   readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
   /**
@@ -347,6 +349,7 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
+    ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
     issues: thread.issues ?? [],
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
