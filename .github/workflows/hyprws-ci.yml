@@ -180,6 +180,9 @@ jobs:
 
   # Everything except `t3` (apps/server), `web`, and the fork's own
   # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
+  # Four pooled suites share a GitHub-hosted runner, so the fork widens the
+  # per-test budget as it does for `web`: generation-heavy Schema tests pass
+  # upstream's 5 s default on Blacksmith but not here.
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -207,7 +210,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test --testTimeout=60000
 
   # `web` runs alone: its editable-file highlighting tests sit close to
   # upstream's 15 s per-test budget on a GitHub-hosted runner, and time
