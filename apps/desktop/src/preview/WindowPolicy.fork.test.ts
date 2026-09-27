@@ -7,12 +7,12 @@ import {
   type ScopedProjectRef,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -71,9 +71,10 @@ const idleState = (tabId: string): PreviewTabState => ({
   updatedAt: "2026-09-03T00:00:00.000Z",
 });
 
-class TestAuthorizationError extends Data.TaggedError("PreviewIpcSenderNotAuthorizedError")<{
-  readonly reason: "missing-sender" | "unregistered-window";
-}> {}
+class TestAuthorizationError extends Schema.TaggedError<TestAuthorizationError>()(
+  "PreviewIpcSenderNotAuthorizedError",
+  { reason: Schema.Literals(["missing-sender", "unregistered-window"]) },
+) {}
 
 const ownershipError = (tabId: string, requestingWindow: string) =>
   new WindowPolicy.PreviewTabOwnershipError({ tabId, requestingWindow });
