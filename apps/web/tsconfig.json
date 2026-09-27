@@ -31,6 +31,7 @@
     "vite.config.ts",
     "vercel.ts",
     "test",
+    "scripts/check-ghostty-sprite-goldens.ts",
     "scripts/warm-dep-cache.ts",
     "../../scripts/lib/fork-supersedes.ts",
     "../../scripts/lib/public-config.ts",
