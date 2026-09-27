@@ -11,7 +11,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -76,7 +76,7 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const watchDirectory = yield* ArtifactDirectoryWatch;
 
   const threadPaths = new Map<ThreadId, Set<string>>();
@@ -141,7 +141,7 @@ const make = Effect.gen(function* () {
             : DateTime.formatIso(
                 DateTime.makeUnsafe(replaced && mtimeMs === linkedMs ? mtimeMs + 1 : mtimeMs),
               );
-        return crypto.randomUUIDv4().pipe(
+        return crypto.uuidV4().pipe(
           Effect.flatMap((uuid) =>
             engine.dispatch({
               type: "thread.artifact.observe",
