@@ -29,6 +29,13 @@ describe("terminal output selection", () => {
       },
       () => {},
     );
+    const terminal = {
+      write: (data: string) => core.write(data),
+      resetAndWrite: (data: string) => core.resetAndWrite(data),
+      clearSelection: () => core.clearSelection(),
+      getSelection: () => core.selectionText(),
+      getSelectionCellCount: () => core.selectionText().length,
+    };
     try {
       const identity = { threadId: "selection-test", terminalId: "term-1" };
       let state = applyTerminalAttachStreamEvent(nextTerminalAttachSeedState(), {
@@ -36,7 +43,7 @@ describe("terminal output selection", () => {
         ...identity,
         data: "copy this\x1b[?1002h\x1b[?1006h",
       });
-      const cursor = synchronizeTerminalOutput(core, state, INITIAL_TERMINAL_OUTPUT_CURSOR);
+      const cursor = synchronizeTerminalOutput(terminal, state, INITIAL_TERMINAL_OUTPUT_CURSOR);
       core.setSelection({ x: 0, y: 0 }, { x: 8, y: 0 });
       expect(core.selectionText()).toBe("copy this");
 
@@ -45,11 +52,11 @@ describe("terminal output selection", () => {
         ...identity,
         data: "\x1b7\x1b[3;1Hstatus\x1b8",
       });
-      const next = synchronizeTerminalOutput(core, state, cursor);
+      const next = synchronizeTerminalOutput(terminal, state, cursor);
       expect(core.selectionText()).toBe("copy this");
 
       state = applyTerminalAttachStreamEvent(state, { type: "cleared", ...identity });
-      synchronizeTerminalOutput(core, state, next);
+      synchronizeTerminalOutput(terminal, state, next);
       expect(core.selectionText()).toBe("");
     } finally {
       core.dispose();
