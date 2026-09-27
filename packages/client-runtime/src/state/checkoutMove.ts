@@ -1,9 +1,6 @@
-import type { ThreadCheckoutMove } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadShell, ThreadCheckoutMove } from "@t3tools/contracts";
 
-import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
-import { mergeEnvironmentThread } from "./threadDetail.ts";
-
-export type { ThreadCheckoutMoveRequestInput } from "../operations/checkoutMove.fork.ts";
+export type { ThreadCheckoutMoveRequestInput } from "@t3tools/contracts";
 
 export type TerminalCheckoutMode = "follow" | "pin";
 
@@ -58,21 +55,11 @@ export function checkoutMoveExpectedRoot(move: ThreadCheckoutMove): string {
   return move.source.checkoutRoot;
 }
 
-/**
- * Environment merges must take the checkout move from the fresher shell
- * projection. The re-attachment lives in this fork module so upstream
- * `threadDetail.ts` keeps its upstream shape.
- */
-export function mergeEnvironmentThreadWithCheckoutMove(
-  detail: EnvironmentThread | null,
-  shell: EnvironmentThreadShell | null,
-): EnvironmentThread | null {
-  const merged = mergeEnvironmentThread(detail, shell);
-  if (merged === null || Object.is(merged, detail)) return merged;
-  return {
-    ...merged,
-    ...(shell?.checkoutMove === undefined ? {} : { checkoutMove: shell.checkoutMove }),
-  };
+/** Spread into `presentThreadShell` so every client reads the move from the shell. */
+export function checkoutMoveShellFieldsFork(thread: OrchestrationV2ThreadShell): {
+  readonly checkoutMove?: ThreadCheckoutMove;
+} {
+  return thread.checkoutMove === undefined ? {} : { checkoutMove: thread.checkoutMove };
 }
 
 function checkoutName(path: string): string {
@@ -124,7 +111,10 @@ export function presentCheckoutMove(
       };
     case "failed":
       return {
-        action: "retry",
+        // A recovery move's source is the root, not the dead worktree the
+        // server checks against, so a retry is always rejected; resending the
+        // message runs recovery again.
+        action: move.reason === "worktree-recovery" ? null : "retry",
         inFlight: false,
         label: `Move failed · Retry`,
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
@@ -137,6 +127,14 @@ export function presentCheckoutMove(
         detail: `Requested ${requested}; completed steps: ${completedSteps(move)}. ${providerState(move)}${failure}`,
       };
     case "committed":
+      if (move.reason === "worktree-recovery") {
+        return {
+          action: null,
+          inFlight: false,
+          label: `Worktree removed · moved to ${requested} on ${move.destination?.branch ?? "a detached HEAD"}`,
+          detail: `The worktree at ${move.sourceThreadWorktreePath} no longer exists, so this thread now runs in ${move.requestedPath}.`,
+        };
+      }
       return {
         action: "undo",
         inFlight: false,
