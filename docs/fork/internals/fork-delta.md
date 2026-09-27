@@ -153,6 +153,8 @@ A per-file diff says nothing about seam growth until `git cat-file -e origin/mai
 | Domain                                  | Status | Tiers present     | Retires when                              |
 | --------------------------------------- | ------ | ----------------- | ----------------------------------------- |
 | [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or multi-window       |
+| [multi-window](#multi-window)           | Active | core              | Upstream ships multi-window support       |
+| [workspaces](#workspaces)               | Active | core              | Upstream ships per-window project filters |
 | [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable bookmarks          |
 | [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach             |
 | [github-issues](#github-issues)         | Active | core, bugfix      | Upstream ships multi-environment Issues   |
@@ -218,6 +220,10 @@ Each upstream file spends one boundary call per distinct upstream navigation eve
 
 The first is the likely one, and `previewBridge.ts` returning non-`null` on web is the signal to re-open it.
 
+`project-windows` retires by reshape once no producer needs project identity:
+`multi-window` takes identity, windows, and restore; `workspaces` takes the filter.
+Each new domain drops alone, and neither may keep the project route subtree.
+
 ### Rebase scan
 
 | Path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Why it matters                                     |
@@ -229,6 +235,63 @@ The first is the likely one, and `previewBridge.ts` returning non-`null` on web 
 | `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/app/DesktopConfig.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/src/app/DesktopAppIdentity.ts`, `apps/desktop/src/backend/DesktopBackendPool.test.ts`, `apps/desktop/src/updates/DesktopUpdates.ts`, `apps/desktop/src/app/DesktopClerk.ts`, `apps/desktop/src/preview/Manager.ts`, `apps/desktop/src/preview/Manager.test.ts`, `apps/desktop/src/preview/WindowPolicy*.ts`, `apps/desktop/src/preview/WindowPolicy.fork.test.ts`, `apps/desktop/src/preview/Manager.fork.test.ts`, `apps/desktop/src/ipc/methods/preview.fork.test.ts`, `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`, `apps/desktop/src/ipc/methods/snapShot.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/app/DesktopLifecycle.test.ts`, `apps/desktop/src/main.ts`, `apps/desktop/src/updates/DesktopUpdates.test.ts`, `apps/desktop/src/window/DesktopApplicationMenu.test.ts`, `apps/desktop/src/window/DesktopWindow.test.ts`, `apps/desktop/src/electron/ElectronWindow.ts`, `apps/desktop/src/app/DesktopEnvironment.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Shared desktop and Electron seams                  |
 | `packages/shared/src/keybindings.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Shared packages                                    |
 | `package.json`, `t3.json`, `scripts/dev-app*.ts`, `scripts/lib/dev-app*.ts`, `scripts/dev-desktop-agent.ts`, `scripts/lib/dev-desktop-agent.ts`, `.agents/skills/test-t3-app/**`, `docs/fork/internals/scripts.md`, `docs/user/thread-sidebar.md`, `docs/user/keybindings.md`, `.agents/skills/test-t3-mobile/SKILL.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Shared tooling, workflows, and docs                |
+
+## multi-window
+
+### Need
+
+- **Windows:** many windows, one shared backend
+- **Identity:** one opaque window id, stable across restore
+
+### Shape
+
+A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a manifest restore with one entry per window.
+
+| Seam     | Fork boundary                                                           |
+| -------- | ----------------------------------------------------------------------- |
+| Identity | `WindowId` minted in main at create, carried as a preload argument      |
+| Dispatch | `main`-window consumers resolve to the sender or most recent window     |
+| Startup  | A bounded intent queue drained once the renderer can load               |
+| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace |
+
+### Retirement condition
+
+Upstream ships its own multi-window support.
+
+### Rebase scan
+
+| Path                                                                                                                                                                   | Why it matters                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/ipc/methods/window.ts`, `apps/desktop/src/window/hyprland.ts`      | Registry, dispatch, startup, restore      |
+| `apps/desktop/src/window/WindowIdentity.ts`, `apps/desktop/src/window/DesktopWindowSession.ts`, `apps/desktop/src/preview/WindowPolicy*.ts`, `apps/desktop/src/ipc/**` | Identity, session manifest, previews, IPC |
+
+## workspaces
+
+### Need
+
+- **Filter:** each window shows its own project set
+- **Chooser:** one chooser picks the window's projects
+
+### Shape
+
+A fork-owned per-window project filter projecting selected refs into upstream's `scopedProjectKeys`.
+
+| Seam    | Fork boundary                                                                 |
+| ------- | ----------------------------------------------------------------------------- |
+| Filter  | `useWindowProjectFilter()`, client-local, keyed by `WindowId`; no wire change |
+| Adapter | A small fork-owned adapter around the single-select scope combobox            |
+| Chooser | Sidebar header Projects chooser, project rows, palette, scope labels          |
+
+### Retirement condition
+
+Upstream ships per-window project filters with equivalent chooser controls.
+
+### Rebase scan
+
+| Path                                                                                                                                                                                                                                    | Why it matters                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `apps/web/src/windowProjectScope.ts`, `apps/web/src/components/WindowProjectScopeToggle.tsx`, `apps/web/src/components/sidebar/SidebarPhysicalScope*.ts`, `apps/web/src/components/Sidebar*.tsx`, `apps/web/src/components/Sidebar.tsx` | Scope seams and chooser       |
+| `apps/web/src/state/pullRequests.ts`, `apps/web/src/components/pullRequest/PullRequestProjectScope*.ts`, `apps/web/src/components/CommandPalette.tsx`, `apps/web/src/composerDraftStore.ts`                                             | Scoped lists, palette, drafts |
 
 ## browser-bookmarks
 
