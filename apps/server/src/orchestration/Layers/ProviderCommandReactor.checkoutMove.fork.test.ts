@@ -17,6 +17,7 @@ import {
   type CheckoutPhysicalIdentity,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -289,4 +290,253 @@ describe("checkout move provider reactor", () => {
       }),
     ),
   );
+
+  describe("worktree checkout recovery", () => {
+    const GONE_BRANCH = "checkout-recovery-gone";
+    const RECOVERY_THREAD_ID = ThreadId.make("checkout-recovery-thread");
+
+    const seedStrandedThread = (harness: OrchestrationIntegrationHarness) =>
+      Effect.gen(function* () {
+        const root = checkoutIdentity(harness.workspaceDir);
+        yield* seedProjectAndThreads(harness, root, true);
+        const worktreePath = NodePath.join(harness.rootDir, "gone-worktree");
+        git(harness.workspaceDir, ["worktree", "add", "-b", GONE_BRANCH, worktreePath]);
+        const deadPath = checkoutIdentity(worktreePath).checkoutRoot;
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("checkout-recovery-thread-create"),
+          threadId: RECOVERY_THREAD_ID,
+          projectId: PROJECT_ID,
+          title: "Stranded thread",
+          modelSelection: MODEL_SELECTION,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: GONE_BRANCH,
+          worktreePath: deadPath,
+          createdAt: NOW,
+        });
+        return { root, deadPath };
+      });
+
+    const strand = (harness: OrchestrationIntegrationHarness, deadPath: string) => {
+      git(harness.workspaceDir, ["worktree", "remove", "--force", deadPath]);
+      git(harness.workspaceDir, ["branch", "-D", GONE_BRANCH]);
+    };
+
+    // Stamped with the wall clock recovery reads, so the queued-turn guard the
+    // inline move bypasses is live rather than expired.
+    const startTurn = (harness: OrchestrationIntegrationHarness, attempt = "") =>
+      DateTime.now.pipe(
+        Effect.flatMap((now) =>
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`checkout-recovery-turn${attempt}`),
+            threadId: RECOVERY_THREAD_ID,
+            message: {
+              messageId: MessageId.make(`checkout-recovery-message${attempt}`),
+              role: "user",
+              text: "continue",
+              attachments: [],
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            createdAt: DateTime.formatIso(now),
+          }),
+        ),
+        Effect.andThen(harness.drainProviderCommand),
+      );
+
+    const setOtherSession = (
+      harness: OrchestrationIntegrationHarness,
+      activeTurnId: TurnId | null,
+      at: string,
+    ) =>
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make(`checkout-recovery-other-session-${at}`),
+        threadId: OTHER_THREAD_ID,
+        session: {
+          threadId: OTHER_THREAD_ID,
+          status: activeTurnId === null ? "ready" : "running",
+          providerName: PROVIDER,
+          providerInstanceId: INSTANCE_ID,
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: at,
+        },
+        createdAt: at,
+      });
+
+    const assertRecovered = (
+      harness: OrchestrationIntegrationHarness,
+      root: CheckoutPhysicalIdentity,
+    ) =>
+      Effect.gen(function* () {
+        const thread = yield* harness.snapshotQuery.getThreadShellById(RECOVERY_THREAD_ID);
+        assert(Option.isSome(thread));
+        assert.equal(thread.value.worktreePath, null);
+        assert.equal(thread.value.branch, root.branch);
+        assert.equal(thread.value.checkoutMove?.status, "committed");
+        assert.equal(thread.value.checkoutMove?.reason, "worktree-recovery");
+      });
+
+    const recoveryActivities = (harness: OrchestrationIntegrationHarness) =>
+      harness.snapshotQuery
+        .getThreadDetailById(RECOVERY_THREAD_ID)
+        .pipe(Effect.map((thread) => Option.getOrThrow(thread).activities));
+
+    it.live("moves a thread whose worktree and branch are gone to the project root", () =>
+      withHarness((harness) =>
+        Effect.gen(function* () {
+          const { root, deadPath } = yield* seedStrandedThread(harness);
+          const session = yield* harness.providerService.startSession(RECOVERY_THREAD_ID, {
+            threadId: RECOVERY_THREAD_ID,
+            projectId: PROJECT_ID,
+            provider: PROVIDER,
+            providerInstanceId: INSTANCE_ID,
+            cwd: deadPath,
+            modelSelection: MODEL_SELECTION,
+            runtimeMode: "approval-required",
+          });
+          yield* harness.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make("checkout-recovery-session-set"),
+            threadId: RECOVERY_THREAD_ID,
+            session: {
+              threadId: RECOVERY_THREAD_ID,
+              status: "ready",
+              providerName: session.provider,
+              providerInstanceId: ProviderInstanceId.make(
+                session.providerInstanceId ?? INSTANCE_ID,
+              ),
+              runtimeMode: "approval-required",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: session.updatedAt,
+            },
+            createdAt: session.updatedAt,
+          });
+          strand(harness, deadPath);
+          // The move restarts the warm session at the root; the turn lands there.
+          yield* harness.adapterHarness!.queueTurnResponseForNextSession({ events: [] });
+
+          yield* startTurn(harness);
+
+          const thread = yield* harness.snapshotQuery.getThreadShellById(RECOVERY_THREAD_ID);
+          assert(Option.isSome(thread));
+          assert.equal(thread.value.worktreePath, null);
+          assert.equal(thread.value.branch, root.branch);
+          assert.equal(thread.value.checkoutMove?.status, "committed");
+          const runtime = (yield* harness.providerService.listSessions()).find(
+            (candidate) => candidate.threadId === RECOVERY_THREAD_ID,
+          );
+          assert.equal(runtime?.cwd, root.checkoutRoot);
+          const activities = yield* recoveryActivities(harness);
+          const recovery = activities.find(
+            (activity) => activity.kind === "worktree.checkout-recovery",
+          );
+          assert.equal(
+            recovery?.summary,
+            `Worktree ${deadPath} no longer exists; moved this thread to ${root.checkoutRoot} on ${root.branch}`,
+          );
+          assert.isFalse(
+            activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+          );
+        }),
+      ),
+    );
+
+    it.live("stops the turn when another thread owns the project root", () =>
+      withHarness((harness) =>
+        Effect.gen(function* () {
+          const { deadPath } = yield* seedStrandedThread(harness);
+          yield* harness.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make("checkout-recovery-other-active-session"),
+            threadId: OTHER_THREAD_ID,
+            session: {
+              threadId: OTHER_THREAD_ID,
+              status: "running",
+              providerName: PROVIDER,
+              providerInstanceId: INSTANCE_ID,
+              runtimeMode: "approval-required",
+              activeTurnId: TurnId.make("checkout-recovery-other-active-turn"),
+              lastError: null,
+              updatedAt: "2026-09-05T00:00:02.000Z",
+            },
+            createdAt: "2026-09-05T00:00:02.000Z",
+          });
+          strand(harness, deadPath);
+
+          yield* startTurn(harness);
+
+          const thread = yield* harness.snapshotQuery.getThreadShellById(RECOVERY_THREAD_ID);
+          assert(Option.isSome(thread));
+          assert.equal(thread.value.worktreePath, deadPath);
+          assert.equal(thread.value.checkoutMove?.status, "failed");
+          assert.match(thread.value.checkoutMove?.detail ?? "", /active on thread/);
+          const activities = yield* recoveryActivities(harness);
+          assert.isTrue(
+            activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+          );
+          assert.isFalse(
+            activities.some((activity) => activity.kind === "worktree.checkout-recovery"),
+          );
+        }),
+      ),
+    );
+
+    it.live("recovers on a resend once the owning thread settles", () =>
+      withHarness((harness) =>
+        Effect.gen(function* () {
+          const { root, deadPath } = yield* seedStrandedThread(harness);
+          yield* setOtherSession(
+            harness,
+            TurnId.make("checkout-recovery-other-active-turn"),
+            "2026-09-05T00:00:02.000Z",
+          );
+          strand(harness, deadPath);
+          yield* startTurn(harness);
+          const blocked = yield* harness.snapshotQuery.getThreadShellById(RECOVERY_THREAD_ID);
+          assert.equal(Option.getOrThrow(blocked).checkoutMove?.status, "failed");
+
+          yield* setOtherSession(harness, null, "2026-09-05T00:00:04.000Z");
+          yield* harness.adapterHarness!.queueTurnResponseForNextSession({ events: [] });
+          yield* startTurn(harness, "-resend");
+
+          yield* assertRecovered(harness, root);
+        }),
+      ),
+    );
+
+    it.live("recovers while another stranded thread is running", () =>
+      withHarness((harness) =>
+        Effect.gen(function* () {
+          const { root, deadPath } = yield* seedStrandedThread(harness);
+          const otherPath = NodePath.join(harness.rootDir, "other-gone-worktree");
+          git(harness.workspaceDir, ["worktree", "add", "-b", "other-gone", otherPath]);
+          yield* harness.engine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.make("checkout-recovery-other-worktree"),
+            threadId: OTHER_THREAD_ID,
+            branch: "other-gone",
+            worktreePath: checkoutIdentity(otherPath).checkoutRoot,
+          });
+          yield* setOtherSession(
+            harness,
+            TurnId.make("checkout-recovery-other-active-turn"),
+            "2026-09-05T00:00:02.000Z",
+          );
+          git(harness.workspaceDir, ["worktree", "remove", "--force", otherPath]);
+          strand(harness, deadPath);
+          yield* harness.adapterHarness!.queueTurnResponseForNextSession({ events: [] });
+
+          yield* startTurn(harness);
+
+          yield* assertRecovered(harness, root);
+        }),
+      ),
+    );
+  });
 });

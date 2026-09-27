@@ -186,6 +186,7 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { resolveTurnCheckoutFork } from "./git/turnStartCheckoutLease.fork.ts"; // fork-hook: zmux-estate/turn-lease-import
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -552,7 +553,7 @@ const makeWsRpcLayer = (
                 .pipe(Effect.map(Option.getOrUndefined), Effect.orDie);
           const cwd = bootstrapPath ?? existing?.worktreePath;
           if (!cwd) return yield* dispatchRaw(command);
-          const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.orDie);
+          const checkout = yield* resolveTurnCheckoutFork(vcsDriverRegistry, cwd); // fork-hook: zmux-estate/turn-lease-resolve
           return yield* checkoutMutationCoordinator.withLease(
             checkout.repository.rootPath,
             dispatchRaw(command),
