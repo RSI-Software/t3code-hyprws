@@ -51,6 +51,7 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import { providerTurnStartCheckoutGateFork } from "./ProviderTurnStartCheckoutGate.fork.ts"; // fork-hook: zmux-estate/turn-start-checkout-gate-import
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -298,6 +299,17 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       layerProviderSessionManagerProvided,
       layerProviderTurnControlServiceProvided,
       layerProviderTurnStartServiceProvided,
+      providerTurnStartCheckoutGateFork.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            providerTurnStartServiceProvided,
+            projectionStoreLayer,
+            ProjectStore.layer,
+            providerSessionManagerProvided,
+            threadManagementProvided,
+          ),
+        ),
+      ), // fork-hook: zmux-estate/turn-start-checkout-gate
       layerRuntimeRequestServiceProvided,
       layerThreadTitleRegenerationProvided,
       layerThreadManagementProvided,
