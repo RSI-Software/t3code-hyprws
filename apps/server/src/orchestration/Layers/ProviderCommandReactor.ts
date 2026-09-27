@@ -1699,6 +1699,16 @@ const make = Effect.gen(function* () {
           return;
         }
 
+        // Record the failure before the stop, so a reader that sees the
+        // stopped session also sees why it stopped.
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.interrupt.failed",
+          summary: "Provider turn interrupt failed",
+          detail,
+          turnId: event.payload.turnId ?? null,
+          createdAt: event.payload.createdAt,
+        });
         yield* setThreadSession({
           threadId: event.payload.threadId,
           session: {
@@ -1708,14 +1718,6 @@ const make = Effect.gen(function* () {
             lastError: detail,
             updatedAt: event.payload.createdAt,
           },
-          createdAt: event.payload.createdAt,
-        });
-        yield* appendProviderFailureActivity({
-          threadId: event.payload.threadId,
-          kind: "provider.turn.interrupt.failed",
-          summary: "Provider turn interrupt failed",
-          detail,
-          turnId: event.payload.turnId ?? null,
           createdAt: event.payload.createdAt,
         });
       });
