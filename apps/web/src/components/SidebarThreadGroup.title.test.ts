@@ -5,7 +5,7 @@ import {
 import { RemoteEnvironmentAuthTimeoutError } from "@t3tools/client-runtime/rpc";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { SidebarThreadGroup } from "../state/threadGroups";
@@ -18,10 +18,10 @@ import {
 const timeout = (): TitleResult =>
   AsyncResult.failure(
     Cause.fail(
-      new RemoteEnvironmentAuthTimeoutError(
-        "https://environment.example.test/api/orchestration/thread-group-title",
-        THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
-      ),
+      new RemoteEnvironmentAuthTimeoutError({
+        requestUrl: "https://environment.example.test/api/orchestration/thread-group-title",
+        timeoutMs: THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
+      }),
     ),
   );
 

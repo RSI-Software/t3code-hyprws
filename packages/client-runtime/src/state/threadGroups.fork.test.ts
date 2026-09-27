@@ -15,7 +15,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
-import { AVAILABLE_CONNECTION_STATE } from "../connection/model.ts";
+import { AVAILABLE_CONNECTION_STATE, BearerConnectionTarget } from "../connection/model.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import type { RpcSession } from "../rpc/session.ts";
@@ -37,7 +37,11 @@ describe("thread group edits", () => {
       const firstSent = yield* Deferred.make<void>();
       const replies = [yield* Deferred.make<void>(), yield* Deferred.make<void>()];
       const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
-        target: { environmentId: ENVIRONMENT_ID },
+        target: new BearerConnectionTarget({
+          environmentId: ENVIRONMENT_ID,
+          label: "Test",
+          connectionId: "test",
+        }),
         session: yield* SubscriptionRef.make(
           Option.some({
             client: {

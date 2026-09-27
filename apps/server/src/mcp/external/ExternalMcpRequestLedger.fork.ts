@@ -5,11 +5,11 @@
 import { type AuthSessionId, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export type ExternalMcpOperation = "create" | "send" | "interrupt" | "settle";
 
@@ -21,19 +21,15 @@ export interface ExternalMcpPin {
 
 /** A stable digest of the fields that define a request, in a fixed order. */
 export const requestFingerprint = (
-  crypto: Crypto.Crypto,
+  digest: Digest.Digest["Service"],
   fields: ReadonlyArray<readonly [string, unknown]>,
 ) =>
-  crypto
+  digest
     .digest(
-      "SHA-256",
+      Digest.sha256,
       new TextEncoder().encode(JSON.stringify(fields.filter(([, value]) => value !== undefined))),
     )
-    .pipe(
-      Effect.map(Hex.encode),
-      // Losing the platform digest implementation cannot be a handled failure.
-      Effect.orDie,
-    );
+    .pipe(Effect.map(Hex.encode));
 
 const storeFailure = (error: unknown) =>
   new OrchestratorMcpFailure({
