@@ -54,10 +54,12 @@ the change. Upload evidence to GitHub and embed or link it here. Never commit PR
        fork-meta
        github-issues
        markdown-editing
+       multi-window
        project-windows
        thread-ordering
        upstream-fixes
        workspace-files
+       workspaces
        worktrunk-hooks
        zmux-estate
 
