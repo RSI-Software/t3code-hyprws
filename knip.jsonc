@@ -57,7 +57,8 @@
       // Vitest loads this through the per-file @vitest-environment directive.
       "ignoreDependencies": ["jsdom"],
       // Worktree setup (scripts/setup-worktree.ts) runs this directly.
-      "entry": ["scripts/warm-dep-cache.ts"],
+      // scripts/build-libghostty-wasm.sh runs the sprite golden check directly.
+      "entry": ["scripts/warm-dep-cache.ts", "scripts/check-ghostty-sprite-goldens.ts"],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
