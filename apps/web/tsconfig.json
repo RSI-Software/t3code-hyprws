@@ -33,6 +33,7 @@
     "gt.config.json",
     "test",
     "scripts/verify-built-boot.ts",
+    "scripts/check-ghostty-sprite-goldens.ts",
     "scripts/warm-dep-cache.ts",
     "../../scripts/lib/fork-supersedes.ts",
     "../../scripts/lib/public-config.ts",
