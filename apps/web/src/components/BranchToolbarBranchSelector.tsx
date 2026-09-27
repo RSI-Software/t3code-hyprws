@@ -58,6 +58,7 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
   type EnvMode,
+  resolveBranchWorkspaceCwd,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
@@ -195,7 +196,7 @@ export function BranchToolbarBranchSelector({
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
-  const branchCwd = activeWorktreePath ?? activeProjectCwd;
+  const branchStatusCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const effectiveEnvMode =
     effectiveEnvModeOverride ??
@@ -338,13 +339,19 @@ export function BranchToolbarBranchSelector({
   const deferredBranchQuery = useDeferredValue(branchQuery);
 
   const branchStatusQuery = useEnvironmentQuery(
-    branchCwd === null
+    branchStatusCwd === null
       ? null
       : vcsEnvironment.status({
           environmentId,
-          input: { cwd: branchCwd },
+          input: { cwd: branchStatusCwd },
         }),
   );
+  const branchCwd = resolveBranchWorkspaceCwd({
+    activeProjectCwd,
+    activeWorktreePath,
+    activeWorktreeIsRepo: branchStatusQuery.data?.isRepo ?? null,
+  });
+  const usableActiveWorktreePath = branchCwd === activeWorktreePath ? activeWorktreePath : null;
   const trimmedBranchQuery = branchQuery.trim();
   const deferredTrimmedBranchQuery = deferredBranchQuery.trim();
   // The server filters refs by substring, so it has to be given the sanitized
@@ -367,7 +374,9 @@ export function BranchToolbarBranchSelector({
   const isFetchingNextPage = branchRefState.isFetchingNextPage;
   const isInitialBranchesLoadPending = branchRefState.isPending && branchRefState.data === null;
   const currentGitBranch =
-    branchStatusQuery.data?.refName ?? refs.find((refName) => refName.current)?.name ?? null;
+    branchStatusQuery.data?.refName ??
+    (activeWorktreePath === null ? refs.find((refName) => refName.current)?.name : null) ??
+    null;
   const sourceControlPresentation = useMemo(
     () => getSourceControlPresentation(branchStatusQuery.data?.sourceControlProvider),
     [branchStatusQuery.data?.sourceControlProvider],
@@ -528,7 +537,7 @@ export function BranchToolbarBranchSelector({
 
     const selectionTarget = resolveBranchSelectionTarget({
       activeProjectCwd,
-      activeWorktreePath,
+      activeWorktreePath: usableActiveWorktreePath,
       refName,
     });
 
@@ -612,7 +621,7 @@ export function BranchToolbarBranchSelector({
       });
       if (createBranchResult._tag === "Success") {
         setOptimisticBranch(createBranchResult.value.refName);
-        setThreadBranch(createBranchResult.value.refName, activeWorktreePath);
+        setThreadBranch(createBranchResult.value.refName, usableActiveWorktreePath);
         return;
       }
       setOptimisticBranch(previousBranch);
