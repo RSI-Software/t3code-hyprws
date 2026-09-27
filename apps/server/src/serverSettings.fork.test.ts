@@ -1,14 +1,16 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ProjectId, type ServerSettings } from "@t3tools/contracts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfig from "./config.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
+import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 const makeServerSettingsLayer = () =>
   ServerSettingsModule.layer.pipe(
     Layer.provide(ServerSecretStore.layer),
@@ -21,15 +23,17 @@ const makeServerSettingsLayer = () =>
       ),
     ),
   );
-it.layer(NodeServices.layer)("server settings", (it) => {
-  it.effect("folds a legacy zmuxSessions opt-in into the terminal session mode on load", () =>
-    Effect.gen(function* () {
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* fileSystem.writeFileString(
-        serverConfig.settingsPath,
-        `{
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ManagedPolicy.layerTest()))(
+  "server settings",
+  (it) => {
+    it.effect("folds a legacy zmuxSessions opt-in into the terminal session mode on load", () =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          `{
           // Legacy settings still accept comments and trailing commas.
           "zmuxSessions": true,
           "responseStreamingMode": "token",
@@ -37,47 +41,50 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             "project-a": { "responseStreamingMode": "token", "addedByNewerServer": 3 },
           },
         }`,
-      );
-      const settings = yield* serverSettings.getSettings;
-      assert.strictEqual(settings.terminalSessionMode, "zmux");
-      assert.strictEqual(settings.responseStreamingMode, "paragraph");
-      const projectId = ProjectId.make("project-a");
-      yield* serverSettings.updateSettings({
-        projectSettingsOverrides: {
-          [projectId]: { ...settings.projectSettingsOverrides[projectId], defaultAutoPull: false },
-        },
-      });
-      const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
-      assert.deepEqual(persisted.projectSettingsOverrides, {
-        [projectId]: {
-          responseStreamingMode: "paragraph",
-          defaultAutoPull: false,
-          addedByNewerServer: 3,
-        },
-      });
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
-  );
-  it.effect("keeps an explicit terminal session mode over the legacy zmuxSessions flag", () =>
-    Effect.gen(function* () {
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* fileSystem.writeFileString(
-        serverConfig.settingsPath,
-        '{"zmuxSessions":true,"terminalSessionMode":"shell"}',
-      );
-      const settings = yield* serverSettings.getSettings;
-      assert.strictEqual(settings.terminalSessionMode, "shell");
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
-  );
-  it.effect("folds a legacy worktrunk project row as the wire env-mode pair", () =>
-    Effect.gen(function* () {
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const sql = yield* SqlClient.SqlClient;
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      const worktrunkProject = ProjectId.make("project-worktrunk");
-      yield* sql`
+        );
+        const settings = yield* serverSettings.getSettings;
+        assert.strictEqual(settings.terminalSessionMode, "zmux");
+        assert.strictEqual(settings.responseStreamingMode, "paragraph");
+        const projectId = ProjectId.make("project-a");
+        yield* serverSettings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: {
+              ...settings.projectSettingsOverrides[projectId],
+              defaultAutoPull: false,
+            },
+          },
+        });
+        const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
+        assert.deepEqual(persisted.projectSettingsOverrides, {
+          [projectId]: {
+            responseStreamingMode: "paragraph",
+            defaultAutoPull: false,
+            addedByNewerServer: 3,
+          },
+        });
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+    );
+    it.effect("keeps an explicit terminal session mode over the legacy zmuxSessions flag", () =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          '{"zmuxSessions":true,"terminalSessionMode":"shell"}',
+        );
+        const settings = yield* serverSettings.getSettings;
+        assert.strictEqual(settings.terminalSessionMode, "shell");
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+    );
+    it.effect("folds a legacy worktrunk project row as the wire env-mode pair", () =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const sql = yield* SqlClient.SqlClient;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const worktrunkProject = ProjectId.make("project-worktrunk");
+        yield* sql`
         INSERT INTO projection_projects (
           project_id, title, workspace_root, default_model_selection_json,
           default_thread_env_mode, auto_pull, scripts_json, created_at, updated_at
@@ -88,18 +95,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           ${"2026-08-25T00:00:00.000Z"}, ${"2026-08-25T00:00:00.000Z"}
         )
       `;
-      yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
+        yield* fileSystem.writeFileString(serverConfig.settingsPath, "{}");
 
-      const settings = yield* serverSettings.getSettings;
-      assert.deepEqual<ServerSettings["projectSettingsOverrides"]>(
-        settings.projectSettingsOverrides,
-        {
-          [worktrunkProject]: {
-            defaultThreadEnvMode: "worktree",
-            defaultThreadEnvModeFork: "worktrunk",
+        const settings = yield* serverSettings.getSettings;
+        assert.deepEqual<ServerSettings["projectSettingsOverrides"]>(
+          settings.projectSettingsOverrides,
+          {
+            [worktrunkProject]: {
+              defaultThreadEnvMode: "worktree",
+              defaultThreadEnvModeFork: "worktrunk",
+            },
           },
-        },
-      );
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
-  );
-});
+        );
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+    );
+  },
+);

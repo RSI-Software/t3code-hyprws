@@ -9108,7 +9108,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         return yield* dispatchDelegatedRoundFork({
           command: { ...command, continueTaskId: command.continueTaskId },
           parentRunId: parentRun.id,
-          subagents: parentProjection.subagents,
+          subagents: yield* projectionStore
+            .getThreadRecords(command.parentThreadId, ["subagents"])
+            .pipe(
+              Effect.map((records) => records.subagents),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestratorProjectionError({ threadId: command.parentThreadId, cause }),
+              ),
+            ),
           loadChild: (threadId) =>
             projectionStore
               .getThreadRecords(threadId, ["runs"])

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
-import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
