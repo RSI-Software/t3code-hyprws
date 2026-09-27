@@ -38,6 +38,7 @@ import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { buildCodexInitializeParams } from "./CodexProvider.ts";
+import { codexThreadForkOpenField, forkCodexThreadOnOpen } from "./CodexThreadFork.fork.ts"; // fork-hook: thread-fork/codex-runtime-import
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
@@ -773,6 +774,7 @@ export const openCodexThread = (input: {
   readonly requestedModel: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
   readonly resumeThreadId: string | undefined;
+  readonly forkFromLastTurnId?: string | undefined; // fork-hook: thread-fork/codex-open-input
   readonly agent?: CodexAgentDefinition;
 }): Effect.Effect<typeof CodexThreadResumeMetadata.Type, CodexErrors.CodexAppServerError> => {
   const resumeThreadId = input.resumeThreadId;
@@ -787,6 +789,10 @@ export const openCodexThread = (input: {
   if (resumeThreadId === undefined) {
     return input.client.request("thread/start", startParams);
   }
+
+  if (input.forkFromLastTurnId !== undefined) {
+    return forkCodexThreadOnOpen(input, resumeThreadId, startParams);
+  } // fork-hook: thread-fork/codex-open-fork
 
   // Older providers may still return history despite excludeTurns. Only the
   // session metadata is needed here, so unrelated historical items cannot
@@ -2582,6 +2588,7 @@ export const makeCodexSessionRuntime = (
         requestedModel,
         serviceTier: options.serviceTier,
         resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        ...codexThreadForkOpenField(options.resumeCursor), // fork-hook: thread-fork/codex-start-fork
         ...(options.agent ? { agent: options.agent } : {}),
       });
 

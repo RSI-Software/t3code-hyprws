@@ -163,6 +163,7 @@ A per-file diff says nothing about seam growth until `git cat-file -e origin/mai
 | [distribution](#distribution)           | Active | core              | Never, while the fork ships builds        |
 | [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Per commit, on the upstream fix           |
 | [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named groups               |
+| [thread-fork](#thread-fork)             | Active | core              | Upstream ships same-provider thread fork  |
 | [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach externally      |
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
 
@@ -542,6 +543,49 @@ Upstream ships named thread groups with persistent membership, plus a control th
 | `apps/web/src/components/Sidebar.logic.ts`, `apps/web/src/components/Sidebar.logic.test.ts`, `apps/web/src/components/Sidebar.logic.fork.test.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/SidebarThreadGroup.tsx`, `apps/web/src/components/SidebarRenameInput.tsx`, `apps/web/src/state/threadGroups.ts`, `apps/web/src/uiStateStore.ts`, `apps/web/src/uiStateStore.test.ts`, `apps/web/src/connection/runtime.ts` | Shared web surfaces                   |
 | `packages/client-runtime/src/state/threadGroups.ts`, `packages/client-runtime/src/state/threadGroupTitleHttp.ts`, `packages/client-runtime/package.json`                                                                                                                                                                                                                                                                                      | Shared packages                       |
 | `docs/user/thread-sidebar.md`                                                                                                                                                                                                                                                                                                                                                                                                                 | Shared tooling, workflows, and docs   |
+
+## thread-fork
+
+### Need
+
+- **Fork:** a thread continues as a copy, same provider
+- **Same:** the child rides the same provider instance and native session
+
+### Shape
+
+Right-click a thread → Fork thread. The server handler guards the source
+(quiescent, no pending requests, Claude or Codex, usable cursor, not
+deleted or archived), then drives the import pipeline's own commands:
+binding insert-ignore, `thread.create` with `historyImport: true`,
+`thread.history.import` with fresh `import:` ids, and `thread.unsettle`.
+The web client's sidebar and header menus share one dispatch that fires
+`thread.fork` and navigates to the child.
+
+| Aspect    | Rule                                                                                                        |
+| --------- | ----------------------------------------------------------------------------------------------------------- |
+| Claude    | Eager native fork at click; child cursor seeded from the clone's human-prompt UUIDs                         |
+| Codex     | Lazy fork at the child's first start (`thread/fork` from the source's latest completed turn)                |
+| Cursor    | Handler writes it, runtime reads it; the runtime's fork branch fails closed with no `thread/start` fallback |
+| Parent    | Binding and cursor are read-only during a fork; the source thread is never rewritten                        |
+| Providers | Claude and Codex only; every other driver refuses with `ThreadForkUnsupportedProviderError`                 |
+
+Tracked by `RSI-Software/t3code-hyprws#1310`. `ClaudeHistoryCommand.fork.ts` mirrors
+`runScopedHistoryCommand` in `ClaudeAdapter.ts`; rebase-time dedupe is refused on purpose —
+rebase safety beats DRY.
+
+### Retirement condition
+
+A tagged upstream release ships same-provider thread fork for Claude and Codex.
+
+### Rebase scan
+
+| Path                                                                                                                                                                                                                                                                                                                                     | Why it matters                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `packages/contracts/src/threadFork.fork.ts`, `packages/contracts/src/rpc.fork.ts`, `packages/contracts/src/rpc.ts`                                                                                                                                                                                                                       | Shared contracts and wire schemas |
+| `apps/server/src/project/ThreadFork.fork.ts`, `apps/server/src/ws.ts`, `apps/server/src/auth/RpcAuthorization.ts`                                                                                                                                                                                                                        | Handler, wiring, and auth scope   |
+| `apps/server/src/provider/Layers/ClaudeHistoryCommand.fork.ts`, `apps/server/src/provider/Layers/ClaudeThreadFork.fork.ts`                                                                                                                                                                                                               | Claude fork path                  |
+| `apps/server/src/provider/Layers/CodexThreadFork.fork.ts`, `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                                                                                                                                                      | Codex fork-on-open path           |
+| `apps/web/src/state/threadFork.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`, `apps/web/src/hooks/useThreadActionMenu.fork.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/contextMenuFallback.fork.ts` | Shared web surfaces               |
 
 ## upstream-fixes
 
