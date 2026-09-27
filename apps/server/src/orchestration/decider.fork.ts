@@ -158,6 +158,7 @@ export const decideCheckoutMoveFork = Effect.fn("decideCheckoutMoveFork")(functi
             source: command.source,
             sourceThreadBranch: command.sourceThreadBranch,
             sourceThreadWorktreePath: command.sourceThreadWorktreePath,
+            ...(command.reason ? { reason: command.reason } : {}),
             requestedPath: command.destination.checkoutRoot,
             destination: command.destination,
             expectedCheckoutRoot: command.source.checkoutRoot,
