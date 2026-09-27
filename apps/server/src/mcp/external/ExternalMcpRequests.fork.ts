@@ -54,7 +54,7 @@ export type ExternalMcpRequestRespondResult = typeof ExternalMcpRequestRespondRe
 export interface ExternalMcpRespondInput {
   readonly threadId: ThreadId;
   readonly requestId: RuntimeRequestId;
-  readonly answers: typeof ProviderUserInputAnswers.Type;
+  readonly answers: ProviderUserInputAnswers;
 }
 
 /** What the external service lends this module: the same checks its other tools run. */

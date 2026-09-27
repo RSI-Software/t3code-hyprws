@@ -1,4 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentId,
@@ -26,6 +27,7 @@ const hubWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
 const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as PreviewIpc from "./preview.ts";
+import { SYNC_HTML_FULLSCREEN_CHANNEL } from "../channels.ts";
 
 const { fromWebContents, fromId, fromPartition, exposeBridge, invoke } = vi.hoisted(() => ({
   fromWebContents: vi.fn<(_sender: Electron.WebContents) => Electron.BrowserWindow | null>(
@@ -124,6 +126,7 @@ describe("fork preview IPC ownership", () => {
         () => Effect.succeed(true),
       );
       invoke.mockImplementation((channel, payload) => {
+        if (channel === SYNC_HTML_FULLSCREEN_CHANNEL) return Promise.resolve();
         const handler = handlers.get(channel);
         if (handler === undefined)
           return Promise.reject(new Error(`unregistered fixture channel: ${channel}`));
@@ -131,6 +134,10 @@ describe("fork preview IPC ownership", () => {
       });
       const loadBridge = async (argv: string[]) => {
         const original = process.argv;
+        vi.stubGlobal("document", {
+          fullscreenElement: null,
+          addEventListener: vi.fn(),
+        });
         process.argv = argv;
         try {
           vi.resetModules();
@@ -140,14 +147,16 @@ describe("fork preview IPC ownership", () => {
           if (exposed === undefined) throw new Error("preload did not expose its bridge");
           return exposed[1];
         } finally {
+          vi.unstubAllGlobals();
           process.argv = original;
         }
       };
       const managerLayer = previewManagerFixtureLayer(
         BrowserSession.layer.pipe(
           Layer.provide(
-            Layer.merge(
+            Layer.mergeAll(
               NodeServices.layer,
+              NodeCrypto.layer,
               Layer.succeed(ElectronDialog.ElectronDialog, {
                 pickFolder: () => Effect.die("unused"),
                 pickFiles: () => Effect.die("unused"),
