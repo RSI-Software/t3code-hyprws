@@ -7,7 +7,6 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
-import { McpServer } from "effect/ai";
 
 import * as ThreadGroups from "../../../orchestration-v2/ThreadGroupsService.fork.ts";
 import { ensureForkSchema } from "../../../persistence/ForkSchema.ts";
@@ -130,7 +129,10 @@ it.effect("registers with an MCP server", () =>
       McpHttpServer.toolkitRegistration(
         ThreadGroupsToolkitFork,
         ThreadGroupsToolkitHandlersLiveFork,
-      ).pipe(Layer.provideMerge(McpServer.McpServer.layer), Layer.provideMerge(services)),
+      ).pipe(
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+        Layer.provideMerge(services),
+      ),
     ),
   ),
 );

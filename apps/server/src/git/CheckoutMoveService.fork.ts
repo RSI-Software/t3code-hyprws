@@ -14,7 +14,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -76,7 +76,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const eventSink = yield* EventSink.EventSinkV2;
   const fileSystem = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const { workspaceRootOf, activeOnCheckout, recoverRemovedWorktree } =
     yield* makeCheckoutRecoveryFork;
   // The identity helpers resolve these per call; capture them once so the
@@ -89,7 +89,7 @@ const make = Effect.gen(function* () {
   >();
 
   const pending = new Set<ThreadId>();
-  const newUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const newUuid = crypto.uuidV4().pipe(Effect.orDie);
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const realPath = (path: string) =>
     fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));

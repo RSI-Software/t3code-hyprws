@@ -17,7 +17,7 @@ import {
   type ThreadLaunchGroupFork,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -106,13 +106,13 @@ const rowToGroup = (row: ThreadGroupRow): ThreadGroupFork => {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const rows = yield* sql<ThreadGroupRow>`
     SELECT group_id, title, thread_ids_json, parent_thread_id
     FROM fork_thread_groups ORDER BY position
   `.pipe(Effect.orDie);
   const ref = yield* SubscriptionRef.make<ThreadGroupsSnapshotFork>({
-    epoch: yield* crypto.randomUUIDv4().pipe(Effect.orDie),
+    epoch: yield* crypto.uuidV4().pipe(Effect.orDie),
     revision: 0,
     groups: rows.map(rowToGroup),
   });
@@ -166,7 +166,7 @@ const make = Effect.gen(function* () {
     requested: ThreadGroupMutationFork,
   ) {
     const mutation = yield* checkThreads(requested);
-    const freshGroupId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+    const freshGroupId = yield* crypto.uuidV4().pipe(Effect.orDie);
     const current = yield* SubscriptionRef.get(ref);
     const result = applyThreadGroupMutationFork(current.groups, mutation, () => freshGroupId);
     if ("error" in result) return yield* result.error;

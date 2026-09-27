@@ -159,6 +159,7 @@ const testLayer = (
     Layer.provideMerge(
       Layer.mock(TerminalManager.TerminalManager)({
         ...terminal,
+        getShell: () => Effect.succeed("/bin/zsh"),
         subscribe: () => Effect.succeed(() => {}),
       }),
     ),
@@ -184,6 +185,7 @@ describe("fork setup outcome marker", () => {
       expect(open).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-default-setup",
+        stopOnSettle: false,
         cwd: "/repo/worktrees/a",
         worktreePath: "/repo/worktrees/a",
         env: {
@@ -254,6 +256,7 @@ describe("fork setup outcome marker", () => {
       expect(open).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-setup",
+        stopOnSettle: false,
         cwd: "/repo/worktrees/a",
         worktreePath: "/repo/worktrees/a",
         env: {

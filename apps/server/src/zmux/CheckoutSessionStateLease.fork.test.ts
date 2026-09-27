@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   EventId,
@@ -17,15 +18,18 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as ServerConfig from "../config.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
-import * as IdAllocator from "../orchestration-v2/IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderEventIngestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectEnrichment from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -62,7 +66,20 @@ const dependencies = Layer.merge(core, LegacyImporter.layer.pipe(Layer.provide(c
 const testLayer = Layer.mergeAll(
   dependencies,
   ProjectService.layer.pipe(Layer.provide(dependencies)),
-  ProviderEventIngestor.layer.pipe(Layer.provide(dependencies)),
+  ProviderEventIngestor.layer.pipe(
+    Layer.provide(dependencies),
+    Layer.provide(
+      Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+        getInstance: () => Effect.undefined,
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveBranchName: () => Effect.succeed(null) }),
+    ),
+  ),
+).pipe(
+  Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "checkout-session-lease-test-" })),
+  Layer.provide(NodeServices.layer),
 );
 
 it.effect("ordinary mutations remain concurrent; pending cleanup excludes later mutations", () =>

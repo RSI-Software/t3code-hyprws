@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -54,7 +55,7 @@ const withStore = <A, E, R>(
       prefix: "t3-desktop-connection-catalog-fork-test-",
     });
     return yield* effect.pipe(Effect.provide(makeLayer(baseDir)));
-  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)), Effect.scoped);
 
 describe("DesktopConnectionCatalogStore file mode", () => {
   it.effect("writes the catalog private to the user", () =>

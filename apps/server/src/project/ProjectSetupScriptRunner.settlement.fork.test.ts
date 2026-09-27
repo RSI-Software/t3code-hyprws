@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { it } from "@effect/vitest";
 import {
   ProjectId,
@@ -220,7 +221,7 @@ const harness = Effect.gen(function* () {
   };
 });
 
-it.layer(NodeServices.layer, { excludeTestServices: true })(
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), { excludeTestServices: true })(
   "settle-hook session teardown",
   (it) => {
     it.effect(

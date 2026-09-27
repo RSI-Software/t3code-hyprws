@@ -1,5 +1,5 @@
 import { CommandId, type ThreadCheckoutMoveRequestInput, WS_METHODS } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import type { EnvironmentSupervisor } from "../connection/supervisor.ts";
@@ -24,12 +24,12 @@ export const requestThreadCheckoutMove: (
 ) => Effect.Effect<
   EnvironmentRpcSuccess<CheckoutMoveTag>,
   EnvironmentRpcFailure<CheckoutMoveTag> | EnvironmentRpcUnavailableError,
-  Crypto.Crypto | EnvironmentSupervisor
+  SecureRandom.SecureRandom | EnvironmentSupervisor
 > = Effect.fn("EnvironmentCommands.moveThreadCheckout")(function* (input) {
   const requestId =
     input.requestId ??
-    (yield* Crypto.Crypto.pipe(
-      Effect.flatMap((crypto) => crypto.randomUUIDv4),
+    (yield* SecureRandom.SecureRandom.pipe(
+      Effect.flatMap((crypto) => crypto.uuidV4()),
       Effect.orDie,
       Effect.map(CommandId.make),
     ));
