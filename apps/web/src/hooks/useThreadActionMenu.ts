@@ -17,6 +17,12 @@ import {
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
 import { reportResetOrderThreadAction } from "./useThreadActionMenu.fork"; // fork-hook: thread-ordering/reset-order-dispatch-import
+import {
+  forkInFlight,
+  forkThreadMenuStateFork,
+  readForkProviderFork,
+  useThreadForkDispatchFork,
+} from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -98,6 +104,7 @@ export function useThreadActionMenu(input: {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/header-dispatch-hook
   const handleNewThread = useNewThreadHandler();
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
@@ -156,6 +163,10 @@ export function useThreadActionMenu(input: {
           isRegeneratingTitle,
           isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
           hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
+          fork: forkThreadMenuStateFork(
+            readForkProviderFork(threadRef, thread),
+            forkInFlight(scopedThreadKey(threadRef)),
+          ), // fork-hook: thread-fork/header-state
           supports,
           snoozePresets,
         });
@@ -238,6 +249,8 @@ export function useThreadActionMenu(input: {
               setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
             );
             return;
+          case "fork":
+            return forkThreadDispatch(threadRef); // fork-hook: thread-fork/header-dispatch
           case "reset-order":
             return reportResetOrderThreadAction({
               threadRef,

@@ -1,48 +1,56 @@
+// Fork-only: the Fork menu item is built only for Claude and Codex threads
+// and disables while a fork RPC is in flight.
+import { ProviderDriverKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
+import {
+  forkThreadMenuItems,
+  forkThreadMenuStateFork,
+  type ForkableThreadProviderState,
+} from "./threadActionMenu.logic.fork.ts";
 
-const baseState: ThreadActionMenuState = {
-  branch: null,
-  projectFilter: null,
-  isPinned: false,
-  isSettled: false,
-  autoSettleEnabled: true,
-  isSnoozed: false,
-  canSnoozeNow: true,
-  isRegeneratingTitle: false,
-  isRunning: false,
-  hasManualOrder: false,
-  supports: {
-    settlement: true,
-    autoSettleOptOut: true,
-    snooze: true,
-    pinning: true,
-    titleRegeneration: true,
-  },
-  snoozePresets: [
-    { id: "hour", label: "In 1 hour", whenLabel: "3:00 PM", snoozedUntil: "2026-08-07T15:00:00Z" },
-  ],
-};
+const state = (
+  fork: ForkableThreadProviderState | null | undefined,
+): Parameters<typeof forkThreadMenuItems>[0] =>
+  fork === undefined ? {} : ({ fork } as Parameters<typeof forkThreadMenuItems>[0]);
 
-function ids(state: ThreadActionMenuState): string[] {
-  return buildThreadActionMenuItems(state).map((item) => item.id);
-}
-
-describe("buildThreadActionMenuItems reset order (fork)", () => {
-  it("offers reset order only while the thread carries a manual order key", () => {
-    expect(ids(baseState)).not.toContain("reset-order");
-    const item = buildThreadActionMenuItems({ ...baseState, hasManualOrder: true }).find(
-      (candidate) => candidate.id === "reset-order",
-    );
-    expect(item).toMatchObject({ label: "Reset order", icon: "arrow-down-up" });
+describe("forkThreadMenuStateFork", () => {
+  it("accepts Claude and Codex", () => {
+    expect(forkThreadMenuStateFork(ProviderDriverKind.make("claudeAgent"), false)).toEqual({
+      provider: ProviderDriverKind.make("claudeAgent"),
+      inFlight: false,
+    });
+    expect(forkThreadMenuStateFork(ProviderDriverKind.make("codex"), true)).toEqual({
+      provider: ProviderDriverKind.make("codex"),
+      inFlight: true,
+    });
   });
 
-  it("orders reset before the lifecycle actions", () => {
-    const items = buildThreadActionMenuItems({ ...baseState, hasManualOrder: true });
-    const resetIndex = items.findIndex((item) => item.id === "reset-order");
-    const settleIndex = items.findIndex((item) => item.id === "settle");
-    expect(resetIndex).toBeGreaterThanOrEqual(0);
-    expect(resetIndex).toBeLessThan(settleIndex);
+  it("rejects every other provider and a missing one", () => {
+    expect(forkThreadMenuStateFork(ProviderDriverKind.make("opencode"), false)).toBeNull();
+    expect(forkThreadMenuStateFork(ProviderDriverKind.make("gemini"), false)).toBeNull();
+    expect(forkThreadMenuStateFork(null, false)).toBeNull();
+    expect(forkThreadMenuStateFork(undefined, false)).toBeNull();
+  });
+});
+
+describe("forkThreadMenuItems", () => {
+  it("builds a disabled entry while a fork is in flight", () => {
+    expect(
+      forkThreadMenuItems(state({ provider: ProviderDriverKind.make("codex"), inFlight: true })),
+    ).toEqual([{ id: "fork", label: "Fork thread", icon: "git-fork", disabled: true }]);
+  });
+
+  it("builds an enabled entry when idle", () => {
+    expect(
+      forkThreadMenuItems(
+        state({ provider: ProviderDriverKind.make("claudeAgent"), inFlight: false }),
+      ),
+    ).toEqual([{ id: "fork", label: "Fork thread", icon: "git-fork", disabled: false }]);
+  });
+
+  it("builds nothing for non-forkable providers", () => {
+    expect(forkThreadMenuItems(state(null))).toEqual([]);
+    expect(forkThreadMenuItems(state(undefined))).toEqual([]);
   });
 });

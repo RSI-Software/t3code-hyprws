@@ -1,0 +1,126 @@
+// Fork-only: the fork dispatch's failure surfaces. A refused or defected
+// fork must produce a toast call — silence reads as a dead click.
+import { Cause } from "effect";
+import { AsyncResult } from "effect/unstable/reactivity";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+
+import { toastManager } from "../components/ui/toast";
+import type { ThreadRouteFamily } from "../threadRoutes";
+import { forkThreadActionFork } from "./useThreadActionMenu.fork";
+
+const THREAD_REF: ScopedThreadRef = {
+  environmentId: EnvironmentId.make("environment-1"),
+  threadId: ThreadId.make("thread-1"),
+};
+
+const routeFamily = {
+  kind: "hub",
+  thread: (ref: ScopedThreadRef) => ({
+    to: "/$environmentId/$threadId" as const,
+    params: { environmentId: ref.environmentId, threadId: ref.threadId },
+  }),
+} as unknown as ThreadRouteFamily;
+
+const failureResult = (cause: Cause.Cause<unknown>): AtomCommandResult<never, unknown> =>
+  AsyncResult.failure(cause) as AtomCommandResult<never, unknown>;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("forkThreadActionFork failure surfaces", () => {
+  it("toasts a refused fork with the server's reason", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    const navigate = vi.fn(async () => undefined);
+    const refusal = Object.assign(
+      new Error("Provider instance 'claudeAgent' is not an available Claude instance."),
+      { _tag: "ThreadForkNativeForkError" },
+    );
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: (() => Promise.resolve(failureResult(Cause.fail(refusal)))) as never,
+    });
+    expect(add).toHaveBeenCalledTimes(1);
+    const toast = add.mock.calls[0]?.[0];
+    expect(toast?.title).toBe("Could not fork thread");
+    expect(toast?.description).toContain("not an available Claude instance");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("toasts a defected fork (the run rejects)", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    const navigate = vi.fn(async () => undefined);
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: (() => Promise.reject(new Error("Schema validation failed"))) as never,
+    });
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(add.mock.calls[0]?.[0]?.title).toBe("Could not fork thread");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("stays silent for an interrupted run", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate: vi.fn(async () => undefined),
+      forkThread: (() => Promise.resolve(failureResult(Cause.interrupt()))) as never,
+    });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it("navigates to the child on success without toasting", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    const navigate = vi.fn(async () => undefined);
+    const forkThread = vi.fn((target: { environmentId: string; input: { threadId: string } }) => {
+      // The command target splits environment routing from the payload.
+      expect(target).toEqual({
+        environmentId: "environment-1",
+        input: { threadId: "thread-1" },
+      });
+      return Promise.resolve(
+        AsyncResult.success({
+          childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
+        }) as unknown as AtomCommandResult<unknown, unknown>,
+      );
+    });
+    await forkThreadActionFork({
+      threadRef: THREAD_REF,
+      routeFamily,
+      navigate,
+      forkThread: forkThread as never,
+    });
+    expect(add).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: "environment-1", threadId: "import:claudeAgent:fork-child" },
+    });
+  });
+
+  it("clears the in-flight flag after a failure so a retry can run", async () => {
+    vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
+    const forkThread = vi.fn(() =>
+      Promise.resolve(failureResult(Cause.fail(new Error("refused")))),
+    );
+    const run = () =>
+      forkThreadActionFork({
+        threadRef: THREAD_REF,
+        routeFamily,
+        navigate: vi.fn(async () => undefined),
+        forkThread: forkThread as never,
+      });
+    await run();
+    await run();
+    // Both runs reached the command: no in-flight guard swallowed the retry.
+    expect(forkThread).toHaveBeenCalledTimes(2);
+  });
+});
