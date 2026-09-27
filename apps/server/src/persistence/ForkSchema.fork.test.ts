@@ -11,21 +11,25 @@ import { runMigrations } from "./Migrations.ts";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("ForkSchema", (it) => {
-  it.effect("adds the checkout move column once after the upstream migrations", () =>
+  it.effect("creates the thread issue link table and its issue index idempotently", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-
-      const first = yield* ensureForkSchema();
-      assert.deepStrictEqual(first, ["projection_threads.checkout_move_json"]);
-
-      const columns = yield* sql<{ readonly name: string }>`
-        PRAGMA table_info(projection_threads)
+      yield* ensureForkSchema();
+      yield* sql`
+        INSERT INTO projection_thread_issues (thread_id, host, repository, number, url, source, linked_at)
+        VALUES ('thread-1', 'github.com', 'acme/web', 7, 'https://github.com/acme/web/issues/7', 'manual', '2026-09-01T00:00:00.000Z')
       `;
-      assert.ok(columns.some((column) => column.name === "checkout_move_json"));
-
-      const second = yield* ensureForkSchema();
-      assert.deepStrictEqual(second, []);
+      // A rerun keeps the rows: the pass never rebuilds a table it already made.
+      yield* ensureForkSchema();
+      const rows = yield* sql<{ readonly threadId: string }>`
+        SELECT thread_id AS "threadId" FROM projection_thread_issues
+      `;
+      assert.deepStrictEqual(rows, [{ threadId: "thread-1" }]);
+      const indexes = yield* sql<{ readonly name: string }>`
+        PRAGMA index_list(projection_thread_issues)
+      `;
+      assert.ok(indexes.some((index) => index.name === "idx_projection_thread_issues_issue"));
     }),
   );
 });
