@@ -90,10 +90,10 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
+import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
-import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
+import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
 import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
 import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
@@ -2368,7 +2368,7 @@ export default function Sidebar() {
       );
     },
   });
-  const desktopBridge = useDesktopProjectWindowBridgeFork(); // fork-hook: project-windows/sidebar-desktop-bridge
+  const desktopBridge = useDesktopProjectWindowBridgeFork(); // fork-hook: multi-window/sidebar-desktop-bridge
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2620,7 +2620,7 @@ export default function Sidebar() {
 
   const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
     dispatchProjectScopeMenu({ type: "open-changed", open: false }),
-  ); // fork-hook: project-windows/sidebar-open-window
+  ); // fork-hook: multi-window/sidebar-open-window
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
@@ -5062,7 +5062,7 @@ export default function Sidebar() {
                               />
                             ) : null}
                             {/* fork-hook-end */}
-                            {/* fork-hook: project-windows/sidebar-open-window-button */}
+                            {/* fork-hook: multi-window/sidebar-open-window-button */}
                             {project ? (
                               <SidebarOpenProjectWindowButtonFork
                                 desktopBridge={desktopBridge}
@@ -5078,7 +5078,7 @@ export default function Sidebar() {
                                 tabIndex={-1}
                                 aria-hidden="true"
                                 title={`Project settings for ${project.displayName}`}
-                                className={desktopBridge ? undefined : "ml-auto"} // fork-hook: project-windows/sidebar-settings-classname
+                                className={desktopBridge ? undefined : "ml-auto"} // fork-hook: multi-window/sidebar-settings-classname
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
