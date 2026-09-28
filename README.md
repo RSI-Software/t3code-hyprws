@@ -41,19 +41,69 @@ The fork encodes none of that policy.
 Every fork commit belongs to one domain, and each domain retires when upstream covers it.
 The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and boundaries.
 
-| Domain           | Adds                                          |
-| ---------------- | --------------------------------------------- |
-| Custom agents    | A provider-native agent as the main thread    |
-| Markdown editing | Rich editing that still saves Markdown        |
-| `zmux` estate    | Thread terminals and worktrees in `zmux`      |
-| Worktrunk hooks  | `wt` hooks on worktree create and remove      |
-| Backend attach   | Desktop attaches to a running backend service |
-| Workspace files  | Gitignored agent artifacts, shown on demand   |
-| GitHub issues    | Browse issues and hand one to a thread        |
-| Browser          | Durable bookmarks per project and profile     |
-| Threads          | Manual grouping and same-provider forking     |
-| Distribution     | Linux AppImage releases and an update feed    |
-| Upstream fixes   | Focused fixes that drop once upstream lands   |
+### Custom agents
+
+- **Discover:** native Claude and Codex agents
+- **Select:** one as the main thread
+- **Persist:** across new and resumed sessions
+
+### Rich Markdown editing
+
+- **Modes:** Rich and Source for Markdown files
+- **Save:** CommonMark, GFM, frontmatter intact
+- **MDX:** stays a read-only preview
+- [Guide](docs/fork/user/markdown-editing.md)
+
+### Managed `zmux` terminals
+
+- **Attach:** terminals join the checkout session
+- **Worktrees:** new ones join the same session
+- **Shared:** visible from T3 Code and the CLI
+- [Guide](docs/fork/user/managed-terminals.md)
+
+### Worktrunk worktrees
+
+- **Mode:** **New worktrunk** for a thread
+- **Hooks:** `wt` hooks on create and remove
+- **Fallback:** plain worktrees without `wt`
+
+### GitHub issues
+
+- **Browse:** issues on web and desktop
+- **Detail:** filters, comments, and tabs
+- **Hand off:** one issue to a new thread as a draft
+
+### Threads
+
+- **Group:** related active threads in the sidebar
+- **Fork:** continue a copy on the same provider
+
+### Browser bookmarks
+
+- **Collections:** global and per project
+- **Star:** save, move, or remove a page
+- **New tab:** bookmarks listed first
+- [Guide](docs/fork/user/browser.md)
+
+### Workspace files
+
+- **Reveal:** gitignored agent artifacts on demand
+- **Default:** hidden, remembered per device
+- **Safety:** containment holds unless trusted
+- [Guide](docs/fork/user/workspace-files.md)
+
+### Backend attach
+
+- **Attach:** desktop joins a running backend
+- **Pair:** automatically, once per launch
+- **State:** one writer on `state.sqlite`, not two
+
+### Releases and upstream fixes
+
+- **Builds:** Linux AppImage releases
+- **Nightly:** cut on every trunk push
+- **Fixes:** focused, dropped once upstream lands
+- [Guide](docs/fork/user/install-and-update.md)
 
 ## Why a fork?
 
