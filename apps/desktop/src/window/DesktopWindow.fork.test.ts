@@ -43,6 +43,7 @@ type Listener = (...args: readonly unknown[]) => void;
 
 function makeWindow(
   bounds: () => Electron.Rectangle = () => ({ x: 0, y: 0, width: 1100, height: 780 }),
+  title: () => string = () => "T3 Code",
 ) {
   const webContentsListeners = new Map<string, Listener>();
   const windowListeners = new Map<string, Listener>();
@@ -65,7 +66,7 @@ function makeWindow(
   const window = {
     getBounds: bounds,
     getNormalBounds: bounds,
-    getTitle: () => "T3 Code",
+    getTitle: title,
     isDestroyed: () => false,
     isFocused: () => true,
     isFullScreen: () => false,
@@ -518,5 +519,65 @@ describe("DesktopWindow (fork)", () => {
           ),
         );
       }),
+  );
+
+  it.effect("maps windows opened together under their own claim titles until each is claimed", () =>
+    Effect.gen(function* () {
+      const options: Electron.BrowserWindowConstructorOptions[] = [];
+      // Each fake window reports the title it was built with, as Electron does.
+      const at = (index: number) => makeWindow(undefined, () => options[index]?.title ?? "");
+      const [hub, first, second, third, later] = [at(0), at(1), at(2), at(3), at(4)];
+      const claims: { key: string; title: string }[] = [];
+      const flush = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        hub.windowListeners.get("ready-to-show")?.();
+        yield* flush;
+        const normalTitle = options[0]?.title ?? "";
+        assert.isNotEmpty(normalTitle);
+
+        yield* Effect.all(
+          [
+            desktopWindow.requestWindow({ kind: "new-window" }),
+            desktopWindow.requestWindow({ kind: "new-window" }),
+            desktopWindow.requestWindow({ kind: "new-window" }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        // The first keeps the normal title; the rest could not be told from it.
+        assert.deepEqual(
+          options.slice(1).map((created) => created.title),
+          [normalTitle, windowClaimTitle(testWindowId(3)), windowClaimTitle(testWindowId(4))],
+        );
+
+        // A document title arriving before the claim does not reach the compositor.
+        second.window.setTitle("Renderer title");
+        assert.deepEqual(second.setTitle.mock.calls, []);
+
+        for (const opened of [first, second, third])
+          opened.windowListeners.get("ready-to-show")?.();
+        yield* flush;
+        assert.deepEqual(claims.slice(1), [
+          { key: testWindowId(2), title: normalTitle },
+          { key: testWindowId(3), title: windowClaimTitle(testWindowId(3)) },
+          { key: testWindowId(4), title: windowClaimTitle(testWindowId(4)) },
+        ]);
+        // Claimed, each takes its normal title or the last one asked for.
+        assert.deepEqual(second.setTitle.mock.calls, [["Renderer title"]]);
+        assert.deepEqual(third.setTitle.mock.calls, [[normalTitle]]);
+
+        // With every claim done, the next window maps under its normal title again.
+        yield* desktopWindow.requestWindow({ kind: "new-window" });
+        assert.equal(options[4]?.title, normalTitle);
+      }).pipe(
+        Effect.provide(
+          makeLayer(hub.window, options, undefined, {
+            nextWindows: [first.window, second.window, third.window, later.window],
+            claims,
+          }),
+        ),
+      );
+    }),
   );
 });
