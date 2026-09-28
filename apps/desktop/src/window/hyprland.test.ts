@@ -122,11 +122,11 @@ describe("hyprland", () => {
   it("gives repeated Lua rules unique names and disables only the current workspace rule", () => {
     assert.equal(
       formatWorkspaceWindowRule({ id: 8, name: "8" }, "t3code-dev-agent-a", "lua"),
-      '/eval local key="t3code.desktop-agent.workspace.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-workspace-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},workspace="8 silent"})',
+      '/eval local key="t3code.desktop-agent.workspace.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey="t3code.rule.sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-workspace-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},workspace="8 silent"})',
     );
     assert.equal(
       formatSuppressActivationWindowRule("t3code-dev-agent-a", "lua"),
-      '/eval local key="t3code.desktop-agent.suppression.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-suppression-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},suppress_event="activate activate_focus"})',
+      '/eval local key="t3code.desktop-agent.suppression.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey="t3code.rule.sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-suppression-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},suppress_event="activate activate_focus"})',
     );
     assert.equal(
       formatClearWorkspaceWindowRule("t3code-dev-agent-a", "lua"),
@@ -134,7 +134,7 @@ describe("hyprland", () => {
     );
   });
 
-  it("matches a window by title before falling back to a lone candidate", () => {
+  it("matches a window by its exact title and never guesses a lone candidate", () => {
     const clients = [
       client({ address: "0x1", title: "hub" }),
       client({ address: "0x2", title: "project" }),
@@ -152,8 +152,41 @@ describe("hyprland", () => {
         pid: 42,
         title: "no such title",
         claimedAddresses: new Set(["0x1"]),
-      })?.address,
-      "0x2",
+      }),
+      null,
+    );
+  });
+
+  it("claims a retitled window only as the one new client since it was shown", () => {
+    const known = new Set(["0x1"]);
+    const select = (clients: HyprlandClient[], reserved: string[] = []) =>
+      selectClientForWindow({
+        clients,
+        pid: 42,
+        title: "project-1",
+        claimedAddresses: new Set(),
+        knownAddresses: known,
+        reservedTitles: new Set(reserved),
+      })?.address ?? null;
+    const before = client({ address: "0x1" });
+    // The renderer retitled the window before the claim read the compositor.
+    assert.equal(select([before, client({ address: "0x2", title: "Project One" })]), "0x2");
+    // Two windows mapped at once: neither new client is guessed at.
+    assert.equal(
+      select([before, client({ address: "0x2" }), client({ address: "0x3", title: "Other" })]),
+      null,
+    );
+    // A client under a title another window claims exactly is never taken.
+    assert.equal(select([before, client({ address: "0x2", title: "token" })], ["token"]), null);
+    // Without a baseline there is no fallback at all.
+    assert.equal(
+      selectClientForWindow({
+        clients: [client({ address: "0x2", title: "Project One" })],
+        pid: 42,
+        title: "project-1",
+        claimedAddresses: new Set(),
+      }),
+      null,
     );
   });
 
