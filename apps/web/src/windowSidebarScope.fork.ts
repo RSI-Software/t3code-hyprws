@@ -5,8 +5,9 @@
 // so the last window to change it wins and every window reopens on that value.
 // Each window instead keeps its own `ProjectFilter` record under
 // `<prefix><WindowId>`, read at startup over the shared value. The upstream key
-// stays the single-select chooser's value: picking an entry makes a one-entry
-// filter, and a one-entry filter shows as that entry.
+// mirrors a one-entry filter's key, else `null`; upstream writing a key (a
+// thread's Filter by project) makes a one-entry filter. The multi-select
+// chooser writes the filter itself (`projectChooser.fork.ts`).
 //
 // Desktop keeps the record in localStorage, because an update relaunch
 // restores a window's WindowId and must find its filter:
@@ -47,8 +48,6 @@ export interface WindowSidebarScopeEnv {
 
 interface ScopeState {
   readonly sidebarProjectScopeKey: string | null;
-  /** The single-select chooser's action; every pick goes through it. */
-  readonly setSidebarProjectScopeKey?: (projectKey: string | null) => void;
 }
 
 /** The slice of the UI-state store this module reads and writes. */
@@ -214,7 +213,7 @@ export function createWindowSidebarScope(
   };
 }
 
-/** This window's filter, kept in step with the store's single-select key. */
+/** This window's filter, kept in step with the store's scope key. */
 export interface WindowProjectFilterState {
   readonly get: () => ProjectFilter;
   readonly set: (filter: ProjectFilter) => void;
@@ -224,7 +223,8 @@ export interface WindowProjectFilterState {
 /**
  * Puts `store` on this window's filter and records every later change. A new
  * store key becomes a one-entry filter; a filter shows in the store as its one
- * entry's key, else `null`.
+ * entry's key, else `null`. Upstream's stale-scope reset writes `null` only
+ * over a one-entry filter, so it never clears a filter of several entries.
  */
 export function bindWindowSidebarScope(
   store: ScopeStore,
@@ -256,20 +256,6 @@ export function bindWindowSidebarScope(
     if (scopeKey === projectFilterScopeKey(filter)) return;
     set(projectFilterFromKey(scopeKey));
   });
-  // Several entries show as no key, so the chooser's "All projects" changes
-  // nothing in the store; the pick itself still clears or replaces them.
-  const choose = store.getState().setSidebarProjectScopeKey;
-  if (choose !== undefined) {
-    store.setState({
-      setSidebarProjectScopeKey: (projectKey) => {
-        choose(projectKey);
-        const picked = store.getState().sidebarProjectScopeKey;
-        if (filter.entries.length > 1 || projectFilterScopeKey(filter) !== picked) {
-          set(projectFilterFromKey(picked));
-        }
-      },
-    });
-  }
   return {
     get: () => filter,
     set,
