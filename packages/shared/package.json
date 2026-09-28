@@ -155,6 +155,10 @@
       "types": "./src/threadEnvMode.fork.ts",
       "import": "./src/threadEnvMode.fork.ts"
     },
+    "./windowTitle.fork": {
+      "types": "./src/windowTitle.fork.ts",
+      "import": "./src/windowTitle.fork.ts"
+    },
     "./t3ProjectFile": {
       "types": "./src/t3ProjectFile.ts",
       "import": "./src/t3ProjectFile.ts"
