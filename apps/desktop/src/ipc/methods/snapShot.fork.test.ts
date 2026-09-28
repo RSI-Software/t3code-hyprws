@@ -1,5 +1,4 @@
 import { assert, describe, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -10,7 +9,7 @@ import { vi } from "vite-plus/test";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
-import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
+import type { WindowId } from "../../window/WindowId.fork.ts";
 import { listPendingSnapShots } from "./snapShot.ts";
 
 const { fromWebContents, fromId } = vi.hoisted(() => ({
@@ -29,10 +28,7 @@ const PROJECT_WEB_CONTENTS_ID = 11;
 const hubWindow = { webContents: { id: HUB_WEB_CONTENTS_ID } } as Electron.BrowserWindow;
 const projectWindow = { webContents: { id: PROJECT_WEB_CONTENTS_ID } } as Electron.BrowserWindow;
 
-const projectIdentity = projectWindowIdentity(
-  EnvironmentId.make("env-1"),
-  ProjectId.make("project-1"),
-);
+const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
 
 /** Registers `projectWindow` only, so an unregistered sender resolves to None. */
 const windowLayer = (registered: Electron.BrowserWindow | null) =>
@@ -40,8 +36,8 @@ const windowLayer = (registered: Electron.BrowserWindow | null) =>
     ElectronWindow.ElectronWindow,
     ElectronWindow.ElectronWindow.of({
       main: Effect.succeed(Option.some(hubWindow)),
-      identityFor: (window: Electron.BrowserWindow) =>
-        Effect.succeed(window === registered ? Option.some(projectIdentity) : Option.none()),
+      windowIdFor: (window: Electron.BrowserWindow) =>
+        Effect.succeed(window === registered ? Option.some(projectWindowId) : Option.none()),
     } as ElectronWindow.ElectronWindow["Service"]),
   );
 
