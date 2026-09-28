@@ -112,12 +112,13 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
+import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
-import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
+import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
-import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { useWindowProjectFilter, useWindowProjectFilterChange } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import {
   ProjectChooserRowCheckFork,
   ProjectChooserShowOnlyButtonFork,
@@ -2839,7 +2840,7 @@ export default function Sidebar() {
       );
     },
   });
-  const desktopBridge = useDesktopProjectWindowBridgeFork(); // fork-hook: multi-window/sidebar-desktop-bridge
+  const desktopBridge = desktopProjectWindowBridgeFork(); // fork-hook: multi-window/sidebar-desktop-bridge
   const newThreadContext = useHandleNewThread();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
@@ -3028,9 +3029,7 @@ export default function Sidebar() {
     },
   );
 
-  const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
-    dispatchProjectScopeMenu({ type: "open-changed", open: false }),
-  ); // fork-hook: multi-window/sidebar-open-window
+  const handleOpenProjectWindow = openProjectWindowFork(desktopBridge, dispatchProjectScopeMenu); // fork-hook: multi-window/sidebar-open-window
 
   const {
     threads,
@@ -4811,6 +4810,20 @@ export default function Sidebar() {
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
+    if (
+      startFilteredNewThreadFork(
+        {
+          activeDraftThread: newThreadContext.activeDraftThread,
+          activeThread: newThreadContext.activeThread ?? undefined,
+          defaultProjectRef: newThreadContext.defaultProjectRef,
+          handleNewThread: newThreadContext.handleNewThread,
+        },
+        event?.shiftKey ?? false,
+      )
+    ) {
+      if (isMobile) setOpenMobile(false);
+      return;
+    } // fork-hook: workspaces/filtered-new-thread
     if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
       if (isMobile) setOpenMobile(false);
       void startNewThreadFromContext({
