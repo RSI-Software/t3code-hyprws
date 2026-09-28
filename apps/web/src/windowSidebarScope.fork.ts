@@ -1,9 +1,15 @@
-// Per-window sidebar project scope (RSI-Software/t3code-hyprws#1344).
+// Per-window sidebar project filter (RSI-Software/t3code-hyprws#1344,
+// RSI-Software/t3code-hyprws#1351).
 //
-// Upstream persists `sidebarProjectScopeKey` in the one shared UI-state blob,
+// Upstream persists one `sidebarProjectScopeKey` in the shared UI-state blob,
 // so the last window to change it wins and every window reopens on that value.
-// On desktop each window instead keeps its own record under
-// `<prefix><WindowId>`, read at startup over the shared value:
+// Each window instead keeps its own `ProjectFilter` record under
+// `<prefix><WindowId>`, read at startup over the shared value. The upstream key
+// stays the single-select chooser's value: picking an entry makes a one-entry
+// filter, and a one-entry filter shows as that entry.
+//
+// Desktop keeps the record in localStorage, because an update relaunch
+// restores a window's WindowId and must find its filter:
 //
 // - a window with a record reopens on it (reload, crash reload, update restore);
 // - a window without one starts on its seed project, or all projects when
@@ -12,7 +18,15 @@
 //   horizon, and still free after one grace re-check, belongs to a closed
 //   window and is dropped.
 //
-// Plain web has no WindowId and keeps upstream's shared scope unchanged.
+// Plain web has no WindowId; each tab keeps its record in sessionStorage,
+// which the browser already scopes to the tab and drops when it closes.
+import {
+  ALL_PROJECTS_FILTER,
+  decodeProjectFilter,
+  projectFilterFromKey,
+  projectFilterScopeKey,
+  type ProjectFilter,
+} from "@t3tools/client-runtime/state/project-filter";
 import type { ScopedProjectRef, WindowScopeSeed } from "@t3tools/contracts";
 import { useEffect } from "react";
 
@@ -31,16 +45,17 @@ export interface WindowSidebarScopeEnv {
   readonly setTimer?: (callback: () => unknown, ms: number) => unknown;
 }
 
+interface ScopeState {
+  readonly sidebarProjectScopeKey: string | null;
+  /** The single-select chooser's action; every pick goes through it. */
+  readonly setSidebarProjectScopeKey?: (projectKey: string | null) => void;
+}
+
 /** The slice of the UI-state store this module reads and writes. */
 export interface ScopeStore {
-  readonly getState: () => { readonly sidebarProjectScopeKey: string | null };
-  readonly setState: (partial: { readonly sidebarProjectScopeKey: string | null }) => void;
-  readonly subscribe: (
-    listener: (
-      state: { readonly sidebarProjectScopeKey: string | null },
-      previous: { readonly sidebarProjectScopeKey: string | null },
-    ) => void,
-  ) => () => void;
+  readonly getState: () => ScopeState;
+  readonly setState: (partial: Partial<ScopeState>) => void;
+  readonly subscribe: (listener: (state: ScopeState, previous: ScopeState) => void) => () => void;
 }
 
 export const WINDOW_SIDEBAR_SCOPE_PREFIX = "t3code:window-sidebar-scope:v1:";
@@ -55,8 +70,11 @@ export const WINDOW_SIDEBAR_SCOPE_RESTORE_HORIZON_MS = 30 * 60 * 1_000;
 // sweep re-checks the lock once after this long before dropping a record.
 export const WINDOW_SIDEBAR_SCOPE_GRACE_MS = 60 * 1_000;
 
+// The plain-web tab's record key; sessionStorage already scopes it to the tab.
+export const WEB_TAB_WINDOW_ID = "tab";
+
 interface ScopeRecord {
-  readonly scopeKey: string | null;
+  readonly filter: ProjectFilter;
   readonly touchedAt: number;
 }
 
@@ -66,9 +84,12 @@ function readRecord(storage: StringStorage, key: string): ScopeRecord | null {
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
-    const { scopeKey, touchedAt } = parsed as Record<string, unknown>;
+    const { filter, scopeKey, touchedAt } = parsed as Record<string, unknown>;
     return {
-      scopeKey: typeof scopeKey === "string" && scopeKey.length > 0 ? scopeKey : null,
+      // A single-scope record from before the filter becomes a one-entry filter.
+      filter:
+        decodeProjectFilter(filter) ??
+        projectFilterFromKey(typeof scopeKey === "string" && scopeKey.length > 0 ? scopeKey : null),
       touchedAt: typeof touchedAt === "number" ? touchedAt : 0,
     };
   } catch {
@@ -81,12 +102,12 @@ const sameRef = (a: ScopedProjectRef, b: ScopedProjectRef) =>
 
 export interface WindowSidebarScope {
   /**
-   * The scope this window opens on: its own record, else all projects while a
+   * The filter this window opens on: its own record, else all projects while a
    * seed is pending or when seeded so; `undefined` keeps the shared value.
    */
-  readonly initialScopeKey: string | null | undefined;
-  /** Records this window's scope. */
-  readonly write: (scopeKey: string | null) => void;
+  readonly initialFilter: ProjectFilter | undefined;
+  /** Records this window's filter. */
+  readonly write: (filter: ProjectFilter) => void;
   /** Re-stamps this window's record so a restore within the horizon finds it. */
   readonly stamp: () => void;
   /** Resolves the seed against the loaded project groups, once. */
@@ -115,18 +136,18 @@ export function createWindowSidebarScope(
   // A record wins over the seed: the window already chose a scope.
   let pendingSeed = own === null && seed !== "all-projects" ? seed : null;
 
-  const write = (scopeKey: string | null) => {
+  const write = (filter: ProjectFilter) => {
     // A choice made before the seed resolved outranks the seed.
     pendingSeed = null;
     try {
-      env.local.setItem(ownKey, JSON.stringify({ scopeKey, touchedAt: now() }));
+      env.local.setItem(ownKey, JSON.stringify({ filter, touchedAt: now() }));
     } catch {
       // Denied storage: the scope still holds for this page.
     }
   };
 
   // An all-projects seed is a choice: keep it across reloads and restores.
-  if (own === null && seed === "all-projects") write(null);
+  if (own === null && seed === "all-projects") write(ALL_PROJECTS_FILTER);
 
   // Held for this page's lifetime; the browser releases it when the window closes.
   const lockHeld = env.locks
@@ -139,7 +160,7 @@ export function createWindowSidebarScope(
     : Promise.resolve();
 
   return {
-    initialScopeKey: own !== null ? own.scopeKey : seed === null ? undefined : null,
+    initialFilter: own !== null ? own.filter : seed === null ? undefined : ALL_PROJECTS_FILTER,
     write,
     stamp: () => {
       const current = readRecord(env.local, ownKey);
@@ -193,47 +214,131 @@ export function createWindowSidebarScope(
   };
 }
 
-/** Puts `store` on this window's scope and records every later change. */
-export function bindWindowSidebarScope(store: ScopeStore, scope: WindowSidebarScope): () => void {
-  if (
-    scope.initialScopeKey !== undefined &&
-    store.getState().sidebarProjectScopeKey !== scope.initialScopeKey
-  ) {
-    store.setState({ sidebarProjectScopeKey: scope.initialScopeKey });
-  }
-  // An inherited scope becomes this window's own, so a restore finds it even
-  // after another window changes the shared value.
-  if (scope.initialScopeKey === undefined) scope.write(store.getState().sidebarProjectScopeKey);
-  return store.subscribe((state, previous) => {
-    if (state.sidebarProjectScopeKey !== previous.sidebarProjectScopeKey) {
-      scope.write(state.sidebarProjectScopeKey);
-    }
-  });
+/** This window's filter, kept in step with the store's single-select key. */
+export interface WindowProjectFilterState {
+  readonly get: () => ProjectFilter;
+  readonly set: (filter: ProjectFilter) => void;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 
-let active: { readonly store: ScopeStore; readonly scope: WindowSidebarScope } | null = null;
+/**
+ * Puts `store` on this window's filter and records every later change. A new
+ * store key becomes a one-entry filter; a filter shows in the store as its one
+ * entry's key, else `null`.
+ */
+export function bindWindowSidebarScope(
+  store: ScopeStore,
+  scope: WindowSidebarScope,
+): WindowProjectFilterState {
+  let filter = scope.initialFilter ?? projectFilterFromKey(store.getState().sidebarProjectScopeKey);
+  const listeners = new Set<() => void>();
+  const mirror = () => {
+    const scopeKey = projectFilterScopeKey(filter);
+    if (store.getState().sidebarProjectScopeKey !== scopeKey) {
+      store.setState({ sidebarProjectScopeKey: scopeKey });
+    }
+  };
+  const set = (next: ProjectFilter) => {
+    if (next === filter) return;
+    filter = next;
+    scope.write(next);
+    mirror();
+    for (const listener of listeners) listener();
+  };
+  mirror();
+  // An inherited scope becomes this window's own, so a restore finds it even
+  // after another window changes the shared value.
+  if (scope.initialFilter === undefined) scope.write(filter);
+  store.subscribe((state, previous) => {
+    const scopeKey = state.sidebarProjectScopeKey;
+    // The filter's own mirror is not a new pick.
+    if (scopeKey === previous.sidebarProjectScopeKey) return;
+    if (scopeKey === projectFilterScopeKey(filter)) return;
+    set(projectFilterFromKey(scopeKey));
+  });
+  // Several entries show as no key, so the chooser's "All projects" changes
+  // nothing in the store; the pick itself still clears or replaces them.
+  const choose = store.getState().setSidebarProjectScopeKey;
+  if (choose !== undefined) {
+    store.setState({
+      setSidebarProjectScopeKey: (projectKey) => {
+        choose(projectKey);
+        const picked = store.getState().sidebarProjectScopeKey;
+        if (filter.entries.length > 1 || projectFilterScopeKey(filter) !== picked) {
+          set(projectFilterFromKey(picked));
+        }
+      },
+    });
+  }
+  return {
+    get: () => filter,
+    set,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
 
-/** Scopes the UI-state store to this desktop window; a no-op on plain web. */
+let active: {
+  readonly store: ScopeStore;
+  readonly scope: WindowSidebarScope;
+  readonly filter: WindowProjectFilterState;
+} | null = null;
+
+const NO_STORAGE: StringStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+  key: () => null,
+  length: 0,
+};
+
+function readStorage(name: "localStorage" | "sessionStorage"): StringStorage {
+  try {
+    return window[name] ?? NO_STORAGE;
+  } catch {
+    // Denied storage: the filter still holds for this page.
+    return NO_STORAGE;
+  }
+}
+
+/** Scopes the UI-state store's project filter to this window or tab. */
 export function install(store: ScopeStore): void {
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
   const windowId = bridge?.windowId;
-  if (windowId === undefined || windowId.length === 0) return;
-  let local: Storage;
-  try {
-    local = window.localStorage;
-  } catch {
+  if (windowId === undefined || windowId.length === 0) {
+    const scope = createWindowSidebarScope(
+      { local: readStorage("sessionStorage") },
+      WEB_TAB_WINDOW_ID,
+      null,
+    );
+    active = { store, scope, filter: bindWindowSidebarScope(store, scope) };
     return;
   }
   const scope = createWindowSidebarScope(
-    { local, locks: typeof navigator !== "undefined" ? navigator.locks : undefined },
+    {
+      local: readStorage("localStorage"),
+      locks: typeof navigator !== "undefined" ? navigator.locks : undefined,
+    },
     windowId,
     bridge?.windowScopeSeed ?? null,
   );
-  bindWindowSidebarScope(store, scope);
-  active = { store, scope };
+  active = { store, scope, filter: bindWindowSidebarScope(store, scope) };
   window.addEventListener("pagehide", scope.stamp);
   void scope.sweep();
+}
+
+const detachedFilter: WindowProjectFilterState = {
+  get: () => ALL_PROJECTS_FILTER,
+  set: () => {},
+  subscribe: () => () => {},
+};
+
+/** The installed window's filter; a fixed all-projects filter where none is installed. */
+export function windowProjectFilterState(): WindowProjectFilterState {
+  return active?.filter ?? detachedFilter;
 }
 
 type SeedGroups = Parameters<WindowSidebarScope["takeSeed"]>[0];
