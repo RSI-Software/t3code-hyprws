@@ -1,4 +1,5 @@
 import type { DesktopUpdateChannel } from "@t3tools/contracts";
+import { forkCliReleaseChannelOf } from "@t3tools/shared/forkVersion";
 
 /**
  * electron-updater's GitHub provider matches a release to the updater channel
@@ -14,4 +15,15 @@ export const FORK_NIGHTLY_UPDATE_CHANNEL = "hyprws-nightly";
 
 export function resolveForkUpdaterChannel(channel: DesktopUpdateChannel): string {
   return channel === "nightly" ? FORK_NIGHTLY_UPDATE_CHANNEL : channel;
+}
+
+/**
+ * True for a fork nightly version (`X.Y.Z-hyprws-nightly.YYYYMMDD.N`).
+ * Upstream's patterns read the train from a bare `-nightly.` identifier, so
+ * without this a fork nightly defaults to `latest`, rejects every nightly the
+ * updater offers, and brands itself Alpha. A fork stable (`-hyprws.N`) stays
+ * `latest`. See RSI-Software/t3code-hyprws#1389.
+ */
+export function isForkNightlyDesktopVersion(version: string): boolean {
+  return forkCliReleaseChannelOf(version) === "nightly";
 }
