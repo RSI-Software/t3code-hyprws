@@ -9,6 +9,7 @@ import {
   mergeAdoptedDrafts,
   type LockManagerLike,
   type PersistedDraftsShape,
+  WINDOW_DRAFT_RESTORE_GRACE_MS,
   WINDOW_DRAFT_TOKEN_KEY,
 } from "./windowDraftScope.fork";
 
@@ -31,6 +32,8 @@ const persisted = (overrides: Partial<Persisted> = {}): Persisted => ({
 interface FakeLocks extends LockManagerLike {
   /** Releases every lock a closed window held. */
   readonly close: (session: Storage) => void;
+  /** Releases a desktop window's WindowId lock, as quit destroying it does. */
+  readonly destroy: (windowId: string) => void;
 }
 
 // Exclusive and FIFO per name, with `query()` reporting held names: the Web Locks
@@ -61,6 +64,7 @@ function createLocks(): FakeLocks {
     close: (session) => {
       releases.get(`t3code:composer-drafts:window:${session.getItem(WINDOW_DRAFT_TOKEN_KEY)}`)?.();
     },
+    destroy: (windowId) => releases.get(`t3code:composer-drafts:window:${windowId}`)?.(),
   };
 }
 
@@ -92,6 +96,15 @@ function openWindow(local: Storage, session = new Storage(), locks: FakeLocks = 
     (state) => state,
   );
   return { scope, session, locks };
+}
+
+// A desktop window: a fresh page (empty sessionStorage) carrying its WindowId.
+function openDesktopWindow(local: Storage, windowId: string, locks: FakeLocks) {
+  const scope = createWindowDraftScope<Persisted, Persisted>(
+    { local, session: new Storage(), locks, windowId, now: clock.now, setTimer: clock.setTimer },
+    (state) => state,
+  );
+  return { scope, session: new Storage(), locks };
 }
 
 const hydrate = (window: ReturnType<typeof openWindow>) =>
@@ -467,5 +480,87 @@ describe("window draft scope", () => {
       images: ["pasted-blob"],
     });
     expect(state.logicalProjectDraftThreadKeyByLogicalProjectKey).toEqual({ p1: "draft:mine" });
+  });
+});
+
+describe("window draft scope across an update-relaunch restore", () => {
+  beforeEach(() => {
+    clock = createClock();
+  });
+
+  const WINDOWS = ["w0", "w1", "w2"] as const;
+
+  // Three desktop windows each hold one unsent draft, then quit destroys them unflushed.
+  async function previousRun(local: Storage) {
+    const run = createLocks();
+    for (const windowId of WINDOWS) {
+      const window = openDesktopWindow(local, windowId, run);
+      hydrate(window);
+      save(
+        window,
+        persisted({
+          draftsByThreadKey: { [`draft:${windowId}`]: { prompt: `typed in ${windowId}` } },
+          draftThreadsByThreadKey: { [`draft:${windowId}`]: { projectId: "p1" } },
+          logicalProjectDraftThreadKeyByLogicalProjectKey: { p1: `draft:${windowId}` },
+        }),
+      );
+      window.scope.flush();
+      run.destroy(windowId);
+    }
+    await clock.advance(10 * 60 * 1_000);
+  }
+
+  it("reopens each restored window on its own draft, even when a peer adopts first", async () => {
+    const local = new Storage();
+    await previousRun(local);
+
+    const relaunch = createLocks();
+    const restored = new Map<string, ReturnType<typeof openDesktopWindow>>();
+    for (const windowId of WINDOWS) {
+      const window = openDesktopWindow(local, windowId, relaunch);
+      restored.set(windowId, window);
+      expect(hydrate(window)?.state.draftsByThreadKey).toEqual({
+        [`draft:${windowId}`]: { prompt: `typed in ${windowId}` },
+      });
+      // Peers not yet loaded hold no lock; adoption must still leave their drafts.
+      expect(await window.scope.adopt(KEY)).toBe(false);
+    }
+    await clock.advance(WINDOW_DRAFT_RESTORE_GRACE_MS);
+    for (const [windowId, window] of restored) {
+      expect(Object.keys(hydrate(window)?.state.draftThreadsByThreadKey ?? {})).toEqual([
+        `draft:${windowId}`,
+      ]);
+    }
+  });
+
+  it("resolves a restored `/draft/<id>` route to that draft session", async () => {
+    const local = new Storage();
+    await previousRun(local);
+    // The window whose manifest route is `/draft/draft:w1` loads last.
+    const relaunch = createLocks();
+    const first = openDesktopWindow(local, "w0", relaunch);
+    hydrate(first);
+    await first.scope.adopt(KEY);
+
+    const routed = openDesktopWindow(local, "w1", relaunch);
+    // `getDraftSession(draftId)` reads `draftThreadsByThreadKey[draftId]` at hydration.
+    const state = hydrate(routed)?.state;
+    expect(state?.draftThreadsByThreadKey["draft:w1"]).toEqual({ projectId: "p1" });
+    expect(state?.draftsByThreadKey["draft:w1"]).toEqual({ prompt: "typed in w1" });
+  });
+
+  it("adopts a desktop window's draft once it stays closed past the restore grace", async () => {
+    const local = new Storage();
+    await previousRun(local);
+
+    const fresh = openDesktopWindow(local, "w-new", createLocks());
+    hydrate(fresh);
+    expect(await fresh.scope.adopt(KEY)).toBe(false);
+    await clock.advance(WINDOW_DRAFT_RESTORE_GRACE_MS);
+    expect(Object.keys(hydrate(fresh)?.state.draftThreadsByThreadKey ?? {}).toSorted()).toEqual([
+      "draft:w0",
+      "draft:w1",
+      "draft:w2",
+    ]);
   });
 });
