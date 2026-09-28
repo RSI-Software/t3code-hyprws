@@ -59,11 +59,7 @@ import * as DesktopWindow from "./DesktopWindow.ts";
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import * as PreviewManager from "../preview/Manager.ts";
-import {
-  PROJECT_WINDOW_PRELOAD_ARGUMENT,
-  projectWindowIdentity,
-  windowIdentityKey,
-} from "./WindowIdentity.ts";
+import { windowIdentityKey } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-key-import
 import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import { makeTestWindowIds, testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
@@ -855,61 +851,6 @@ describe("DesktopWindow", () => {
     );
   });
 
-  it("builds and guards project-scoped renderer URLs", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment:remote"),
-      ProjectId.make("project one"),
-    );
-
-    assert.equal(
-      DesktopWindow.getWindowApplicationUrl(true, identity),
-      "t3code-dev://app/#/project/environment%3Aremote/project%20one",
-    );
-    assert.isTrue(
-      DesktopWindow.isRendererUrlForWindowIdentity(
-        true,
-        identity,
-        "t3code-dev://app/#/project/environment%3Aremote/project%20one/thread/thread-1",
-      ),
-    );
-    assert.isFalse(
-      DesktopWindow.isRendererUrlForWindowIdentity(
-        true,
-        identity,
-        "t3code-dev://app/#/project/environment%3Aremote/another-project",
-      ),
-    );
-    assert.isFalse(
-      DesktopWindow.isRendererUrlForWindowIdentity(true, identity, "t3code-dev://app/"),
-    );
-    // Whole-app pages stay in the project window: bouncing them to the hub
-    // would close the window as soon as the user opened settings.
-    assert.isTrue(
-      DesktopWindow.isRendererUrlForWindowIdentity(
-        true,
-        identity,
-        "t3code-dev://app/#/settings/general",
-      ),
-    );
-    assert.isTrue(
-      DesktopWindow.isRendererUrlForWindowIdentity(
-        true,
-        identity,
-        "t3code-dev://app/#/projects/environment%3Aremote%3Aproject%20one",
-      ),
-    );
-    for (const sharedRoute of ["/usage", "/pull-requests", "/connect", "/pair"]) {
-      assert.isTrue(
-        DesktopWindow.isRendererUrlForWindowIdentity(
-          true,
-          identity,
-          `t3code-dev://app/#${sharedRoute}`,
-        ),
-        sharedRoute,
-      );
-    }
-  });
-
   it.effect("opens a pending project intent once and uses its renderer title", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
@@ -942,15 +883,12 @@ describe("DesktopWindow", () => {
         assert.equal(createdWindowOptions[0]?.title, "project-1");
         assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(testWindowId(1)), // fork-hook: multi-window/window-id-intent-preload
-          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
           "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/dispatch-seed-deep-link
         ]);
         assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
         assert.deepEqual(previewOwners, [testWindowId(1)]); // fork-hook: multi-window/window-id-intent-preview-owner
         assert.deepEqual(previewBrowserSessionRequests, []);
-        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
-          "t3code-dev://app/#/project/environment-1/project-1",
-        ]);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]); // fork-hook: multi-window/intent-root-url
         assert.isFalse(fakeWindow.windowListeners.has("resize"));
 
         fakeWindow.windowListeners.get("ready-to-show")?.(); // fork-hook: multi-window/window-id-intent-show
@@ -970,9 +908,8 @@ describe("DesktopWindow", () => {
 
         fakeWindow.webContentsListeners.get("did-navigate-in-page")?.({}, "t3code-dev://app/");
         yield* Effect.yieldNow;
-        assert.equal(yield* Ref.get(createCount), 2);
-        assert.equal(fakeWindow.close.mock.calls.length, 1);
-        assert.deepEqual(fakeWindow.loadURL.mock.calls[1], ["t3code-dev://app/"]);
+        assert.equal(yield* Ref.get(createCount), 1); // fork-hook: multi-window/intent-no-scope-guard
+        assert.equal(fakeWindow.close.mock.calls.length, 0); // fork-hook: multi-window/intent-no-scope-guard-close
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -1030,7 +967,6 @@ describe("DesktopWindow", () => {
         ]); // fork-hook: multi-window/window-id-restore-hub-preload
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(projectWindowId), // fork-hook: multi-window/window-id-restore-project-preload
-          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
           "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/restore-project-seed-arg
         ]);
 
@@ -1107,7 +1043,6 @@ describe("DesktopWindow", () => {
         assert.equal(yield* Ref.get(createCount), 2);
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(testWindowId(2)), // fork-hook: multi-window/window-id-intent-restore-preload
-          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-2/project-2`,
           "--t3code-window-scope-seed=environment-2/project-2", // fork-hook: multi-window/dispatch-seed-deep-link
         ]);
         assert.deepEqual(
