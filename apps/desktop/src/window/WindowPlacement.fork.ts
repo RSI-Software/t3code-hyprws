@@ -6,10 +6,12 @@
 // all-projects windows are both "T3 Code"). So a window restored onto a
 // captured workspace maps under a title carrying its WindowId and keeps it
 // until claimed; only then does it take its normal title. Every other window
-// maps under its normal title, so the user's own rules on it still fire. The
-// workspace is still the user's choice: a restore replays the one captured,
-// dev:desktop:agent names one explicitly, and anything else maps wherever
-// Hyprland puts it.
+// maps under its normal title, so the user's own rules on it still fire,
+// unless another window is still unclaimed under its normal title: windows
+// opened together could not be told apart, so the later ones map under their
+// claim title too (RSI-Software/t3code-hyprws#1380). The workspace is still
+// the user's choice: a restore replays the one captured, dev:desktop:agent
+// names one explicitly, and anything else maps wherever Hyprland puts it.
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type * as Electron from "electron";
@@ -51,6 +53,37 @@ export const resolveMapPlacementFork = (input: {
     transient: true,
   };
 };
+
+/** The windows still unclaimed under their normal title, one app-wide set. */
+export const makeTitleClaimsFork = () => {
+  const pending = new Set<WindowId>();
+  return {
+    /** Takes the normal-title slot for `windowId`; false while another window holds it. */
+    reserve: (windowId: WindowId): boolean => {
+      if (pending.size > 0 && !pending.has(windowId)) return false;
+      pending.add(windowId);
+      return true;
+    },
+    release: (windowId: WindowId): void => void pending.delete(windowId),
+  };
+};
+
+export type TitleClaims = ReturnType<typeof makeTitleClaimsFork>;
+
+/**
+ * The claim title a window without a placement maps under, or null for its
+ * normal title: null off Hyprland, and null when no other window is still
+ * unclaimed under its normal title.
+ */
+export const reserveClaimTitleFork = (input: {
+  readonly hyprlandAvailable: boolean;
+  readonly windowId: WindowId;
+  readonly placement: MapPlacement | null;
+  readonly titleClaims: TitleClaims;
+}): string | null =>
+  !input.hyprlandAvailable || input.placement !== null || input.titleClaims.reserve(input.windowId)
+    ? null
+    : windowClaimTitle(input.windowId);
 
 export interface TitleHold {
   /** Shows the held title again, over anything set since the window was built. */
@@ -101,6 +134,12 @@ export const placeAtMapFork = (input: {
   readonly windowId: WindowId;
   readonly placement: MapPlacement;
   readonly titleHold: TitleHold;
+  /**
+   * Maximized only once shown inactive: Electron's maximize() shows a hidden
+   * window, which would map it before the rule and give it focus. The caller
+   * therefore runs this placement before its own maximize-and-reveal path.
+   */
+  readonly maximize: boolean;
   readonly dismissSplash: Effect.Effect<void>;
 }): Effect.Effect<void> => {
   const { hyprlandPlacement, window, windowId, placement, titleHold } = input;
@@ -111,6 +150,7 @@ export const placeAtMapFork = (input: {
     yield* hyprlandPlacement.stageWorkspaceRule(placement.title, workspace, { transient });
     yield* pin;
     if (!window.isDestroyed()) window.showInactive();
+    if (input.maximize && !window.isDestroyed()) window.maximize();
     yield* input.dismissSplash;
     yield* hyprlandPlacement.claim(windowId, placement.title);
     yield* release;
@@ -123,18 +163,27 @@ export const placeAtMapFork = (input: {
 };
 
 /**
- * Claims a window shown under its normal title. `knownAddresses` was read
- * before the show, so a renderer retitle before the claim still finds the
- * window as the one new client that appeared.
+ * Claims a window shown without a placement, under its normal or claim title.
+ * `knownAddresses` was read before the show, so a renderer retitle before the
+ * claim still finds the window as the one new client that appeared. The claim
+ * title's hold and the normal-title slot both end with the claim.
  */
 export const claimShownFork = (input: {
   readonly hyprlandPlacement: HyprlandPlacement["Service"];
   readonly windowId: WindowId;
   readonly title: string;
   readonly knownAddresses: Promise<ReadonlySet<string>>;
+  readonly titleHold: TitleHold | null;
+  readonly titleClaims: TitleClaims;
 }): Effect.Effect<void> =>
   Effect.promise(() => input.knownAddresses).pipe(
     Effect.flatMap((knownAddresses) =>
       input.hyprlandPlacement.claim(input.windowId, input.title, { knownAddresses }),
+    ),
+    Effect.ensuring(
+      Effect.sync(() => {
+        input.titleHold?.release();
+        input.titleClaims.release(input.windowId);
+      }),
     ),
   );
