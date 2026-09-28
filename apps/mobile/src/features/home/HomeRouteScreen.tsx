@@ -23,6 +23,7 @@ import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
+import { mobileProjectFilterPick, useMobileProjectFilter } from "./useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
@@ -117,6 +118,7 @@ export function HomeRouteScreen() {
       setSelectedProjectKey(null);
     }
   }, [projectFilterOptions, selectedProjectKey]);
+  useMobileProjectFilter(projects, listOptions, selectedProjectKey, setSelectedProjectKey); // fork-hook: workspaces/mobile-filter
 
   // In split layouts the persistent sidebar IS the thread list — Home becomes
   // an empty detail pane so selecting a thread never transitions layouts.
@@ -190,6 +192,7 @@ export function HomeRouteScreen() {
           selectedProjectKey={selectedProjectKey}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
+          {...mobileProjectFilterPick} // fork-hook: workspaces/mobile-filter-pick
           onOpenEnvironments={() =>
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
@@ -229,6 +232,7 @@ export function HomeRouteScreen() {
           onRegenerateThreadTitle={regenerateThreadTitle}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
+          {...mobileProjectFilterPick} // fork-hook: workspaces/mobile-filter-pick
           onOpenSettings={() =>
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
