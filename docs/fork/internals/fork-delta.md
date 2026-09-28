@@ -38,13 +38,13 @@ A key present upstream and absent in the fork sibling is stale even when both su
 ## Why the fork exists
 
 The fork carries independent domains upstream does not provide, each with its own need, patch boundary, and retirement condition.
-Project-scoped windows were the first: upstream's desktop app is single-window by construction, and a second launch forwards to the first window.
+Multiple desktop windows were the first: upstream's desktop app is single-window by construction, and a second launch forwards to the first window.
 
 ### The upstream-supported alternative
 
-Point a browser at a self-hosted backend and open one project per window, sharing sessions, auth, providers, and state.
+Point a browser at a self-hosted backend and open one tab per window, sharing sessions, auth, providers, and state.
 Browser mode still trails Electron for terminals and nested in-app browser windows: `apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
-At parity, plain browser windows or a small Electron shell suffice, which retires `project-windows`, not the fork.
+At parity, plain browser windows or a small Electron shell suffice, which retires `multi-window`, not the fork.
 
 ## Tiers
 
@@ -152,7 +152,7 @@ A per-file diff says nothing about seam growth until `git cat-file -e origin/mai
 
 | Domain                                  | Status | Tiers present     | Retires when                              |
 | --------------------------------------- | ------ | ----------------- | ----------------------------------------- |
-| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or multi-window       |
+| [project-windows](#project-windows)     | Legacy | core, qol, bugfix | Its history trailers are retagged         |
 | [multi-window](#multi-window)           | Active | core              | Upstream ships multi-window support       |
 | [workspaces](#workspaces)               | Active | core              | Upstream ships per-window project filters |
 | [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable bookmarks          |
@@ -173,39 +173,17 @@ A domain is a reason the fork exists, not a feature area.
 
 ## project-windows
 
-### Need
+Legacy: windows are equal and interchangeable, with no project window or hub.
+`multi-window` owns identity, windows, and restore; `workspaces` owns the per-window filter.
 
-- **Window:** one per project, own workspace
-- **Hub:** one view, not the only view
+No live `project-windows/*` hook marker remains.
+The domain stays in `FORK_DOMAINS`, with this scan, while history trailers carry it.
+Retagging those commits needs a `fork-fold` pass; then the domain, this section, and its template entry go.
 
-### Shape
-
-A desktop window registry keyed by identity; the project route subtree is retired (RSI-Software/t3code-hyprws#1347).
-
-| Seam             | Fork boundary                                                           |
-| ---------------- | ----------------------------------------------------------------------- |
-| Legacy links     | `apps/web/src/legacyProjectLink.fork.ts`, behind the `/project/$` route |
-| Windows and IPC  | Single-instance lock, hash routes, per-window preview namespaces        |
-| Update relaunch  | `window/DesktopWindowSession.ts` manifest, `window/hyprland.ts` restore |
-| Project identity | `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID` per provider subprocess      |
-
-Old `#/project/<env>/<project>/…` links, deep links, and restored manifest routes decode to ordinary routes.
-Drafts saved under project routes fold into route-free buckets once, in `apps/web/src/projectDraftMigration.fork.ts`.
-Neither relaunch file decides where a window belongs, so the rule against compositor policy holds; off Hyprland both are no-ops.
+Old `#/project/<env>/<project>/…` links, deep links, and restored manifest routes decode to ordinary routes (`apps/web/src/legacyProjectLink.fork.ts`).
+Drafts saved under project routes fold into route-free buckets once (`apps/web/src/projectDraftMigration.fork.ts`).
+`T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID` still reach each provider subprocess; they name the work, not a window.
 `dev:app` is development-only operator tooling, never shipped window policy; [Scripts](./scripts.md#dev-app-surfaces) owns it.
-
-### Retirement condition
-
-| Condition                                                                   |
-| --------------------------------------------------------------------------- |
-| Browser mode reaches Electron parity, terminals and nested windows included |
-| Upstream ships its own multi-window or project-scoped window support        |
-
-The first is the likely one, and `previewBridge.ts` returning non-`null` on web is the signal to re-open it.
-
-`project-windows` retires by reshape once no producer needs project identity:
-`multi-window` takes identity, windows, and restore; `workspaces` takes the filter.
-The route subtree is gone; the remaining `project-windows/*` hook markers and history trailers still block the domain.
 
 ### Rebase scan
 
@@ -238,6 +216,8 @@ A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a ma
 | Startup  | A bounded intent queue drained once the renderer can load                                 |
 | Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace                   |
 | Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it                         |
+
+Hyprland places windows; update restore only puts each back on its recorded workspace, and is a no-op off Hyprland.
 
 ### Retirement condition
 
@@ -333,10 +313,10 @@ The `github-issue-settings-search` guard rejects adding that item back into the 
 
 ### Retirement condition
 
-| Upstream ships                    | Action                                         |
-| --------------------------------- | ---------------------------------------------- |
-| Issues list, detail, and hand-off | Delete the service and UI                      |
-| The core service only             | Keep the scope adapter under `project-windows` |
+| Upstream ships                    | Action                                    |
+| --------------------------------- | ----------------------------------------- |
+| Issues list, detail, and hand-off | Delete the service and UI                 |
+| The core service only             | Keep the scope adapter under `workspaces` |
 
 ### Rebase scan
 
@@ -456,7 +436,7 @@ Retired with the fork.
 | `apps/web/src/components/RightPanelTabs.test.tsx`, `apps/web/src/keybindings.test.ts`, `apps/web/src/rightPanelStore.test.ts`, `apps/web/src/uiStateStore.test.ts`, `apps/web/src/components/CommandPalette.tsx`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/routes/_chat.pull-requests.tsx`, `apps/web/src/routes/__root.tsx`, `apps/web/src/components/LegacySidebar.tsx`, `apps/web/src/components/Sidebar.logic.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Shared web surfaces                   |
 | `apps/desktop/src/preview/Manager.test.ts`, `apps/desktop/src/updates/DesktopUpdates.test.ts`, `apps/desktop/src/preview/Manager.ts`, `apps/desktop/src/app/DesktopEnvironment.test.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Shared desktop and Electron seams     |
 | `packages/client-runtime/src/state/threadReducer.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Shared packages                       |
-| `README.md`, `AGENTS.md`, `docs/README.md`, `package.json`, `docs/fork/internals/scripts.md`, `docs/internals/ci.md`, `docs/internals/glossary.md`, `scripts/*.ts`, `.github/workflows/hyprws-upstream-sync.yml`, `.github/pull_request_template.md`, `docs/operations/release.md`, `docs/user/source-control.md`, `docs/user/thread-sidebar.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Shared tooling, workflows, and docs   |
+| `README.md`, `AGENTS.md`, `docs/README.md`, `package.json`, `docs/fork/internals/scripts.md`, `docs/internals/ci.md`, `docs/internals/glossary.md`, `scripts/*.ts`, `.github/workflows/hyprws-upstream-sync.yml`, `.github/pull_request_template.md`, `docs/operations/release.md`, `docs/user/source-control.md`, `docs/user/thread-sidebar.md`, `docs/user/keybindings.md`, `apps/web/src/index.css`, `apps/desktop/src/ssh/DesktopSshPasswordPrompts.test.ts`, `apps/desktop/src/updates/updatesTestHarness.ts`                                                                                                                                                                                                                                                                                                                                                                                   | Shared tooling, workflows, and docs   |
 | `pnpm-lock.yaml`, `third-party-licenses.config.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Other shared paths                    |
 
 ## distribution
