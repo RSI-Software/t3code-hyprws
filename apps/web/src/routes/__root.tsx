@@ -56,6 +56,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { configureClientTracing } from "../observability/clientTracing";
 import {
   isDesktopClientOnlyMode,
+  readOptionalPrimaryEnvironmentTarget, // fork-hook: backend-attach/route-import
   resolveInitialServerAuthGateState,
 } from "../environments/primary";
 import { GUEST_PAGE_PATH } from "../guestPage";
@@ -92,7 +93,7 @@ export const Route = createRootRoute({
     if (
       isLocalEnvironmentDisabled() ||
       isHostedStaticApp(new URL(window.location.href)) ||
-      isDesktopClientOnlyMode()
+      (isDesktopClientOnlyMode() && !readOptionalPrimaryEnvironmentTarget()) // fork-hook: backend-attach/route-gate
     ) {
       return {
         authGateState: {
