@@ -120,6 +120,7 @@ export class ElectronWindow extends Context.Service<
     readonly get: WindowRegistry.WindowRegistryService["get"]; // fork-hook: multi-window/window-registry-get
     readonly getById: WindowRegistry.WindowRegistryService["getById"]; // fork-hook: multi-window/window-id-get-by-id
     readonly getOrCreate: WindowRegistry.WindowRegistryService["getOrCreate"]; // fork-hook: multi-window/window-id-get-or-create
+    readonly createNew: WindowRegistry.WindowRegistryService["createNew"]; // fork-hook: multi-window/dispatch-create-new
     readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
     readonly windowIdFor: WindowRegistry.WindowRegistryService["windowIdFor"]; // fork-hook: multi-window/window-id-for
     readonly listWindows: WindowRegistry.WindowRegistryService["listWindows"]; // fork-hook: multi-window/window-id-list
