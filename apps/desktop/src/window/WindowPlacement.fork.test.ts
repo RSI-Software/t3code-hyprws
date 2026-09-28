@@ -105,6 +105,7 @@ const place = (compositor: ReturnType<typeof makeCompositor>, outcome: ClaimOutc
         windowId,
         placement,
         titleHold: holdWindowTitleFork(window, placement.title, "T3 Code"),
+        maximize: false,
         dismissSplash: Effect.void,
       }),
     );
@@ -140,6 +141,54 @@ describe("placeAtMapFork", () => {
       yield* place(compositor, "claimed");
       assert.lengthOf(compositor.names, 4);
       assert.lengthOf(new Set(compositor.names), 4, "no rule name is reused");
+    }),
+  );
+
+  it.live("maps a maximized window inactive under its staged rule, then maximizes it", () =>
+    Effect.gen(function* () {
+      const compositor = makeCompositor("lua", "claimed");
+      const order: string[] = [];
+      const request = compositor.request;
+      const hyprlandPlacement = yield* HyprlandPlacement.make({
+        environment: { instanceSignature: "test", runtimeDirectory: "/run/user/1000" },
+        pid: PID,
+        claimAttempts: 1,
+        claimIntervalMs: 0,
+        requestHyprland: async (environment, payload) => {
+          const reply = await request(environment, payload);
+          // A placement stages several rules; the order only needs the first.
+          if (payload.includes("hl.window_rule(") && !order.includes("stage-rule"))
+            order.push("stage-rule");
+          return reply;
+        },
+      });
+      const placement = resolveMapPlacementFork({
+        hyprlandAvailable: true,
+        windowId,
+        devAgent: Option.none(),
+        restoredWorkspace: { id: 4, name: "4" },
+      });
+      assert.isNotNull(placement);
+      if (placement === null) return;
+      const record = (step: string) => () => void order.push(step);
+      const window = {
+        isDestroyed: () => false,
+        setTitle: () => {},
+        show: record("show"),
+        focus: record("focus"),
+        showInactive: record("show-inactive"),
+        maximize: record("maximize"),
+      } as unknown as Electron.BrowserWindow;
+      yield* placeAtMapFork({
+        hyprlandPlacement,
+        window,
+        windowId,
+        placement,
+        titleHold: holdWindowTitleFork(window, placement.title, "T3 Code"),
+        maximize: true,
+        dismissSplash: Effect.void,
+      });
+      assert.deepEqual(order, ["stage-rule", "show-inactive", "maximize"]);
     }),
   );
 });
