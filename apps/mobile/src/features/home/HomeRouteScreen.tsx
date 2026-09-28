@@ -32,6 +32,7 @@ import { useHomeThreadRouteSelection, useHomeThreadSelection } from "./home-thre
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
+import { mobileProjectFilterPick, useMobileProjectFilter } from "./useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 
@@ -156,6 +157,7 @@ export function HomeRouteScreen() {
   )
     ? resolvedProjectKey
     : null;
+  useMobileProjectFilter(projects, listOptions, selectedProjectKey, setSelectedProjectKey); // fork-hook: workspaces/mobile-filter
 
   if (layout.usesSplitView && !nativePrimaryColumn) {
     return (
@@ -235,6 +237,7 @@ export function HomeRouteScreen() {
           selectedProjectKey={selectedProjectKey}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
+          {...mobileProjectFilterPick} // fork-hook: workspaces/mobile-filter-pick
           onOpenEnvironments={() =>
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
@@ -274,6 +277,7 @@ export function HomeRouteScreen() {
           onRegenerateThreadTitle={regenerateThreadTitle}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
+          {...mobileProjectFilterPick} // fork-hook: workspaces/mobile-filter-pick
           onOpenSettings={() =>
             navigation.navigate("SettingsSheet", {
               screen: "SettingsContent",
