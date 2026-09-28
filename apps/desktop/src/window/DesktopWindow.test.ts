@@ -365,7 +365,17 @@ function layerTest(input: {
             onSome: windowIds.existing, // fork-hook: multi-window/window-id-existing
           }),
         ),
-      ), // fork-hook: multi-window/restore-create-new
+      ),
+    createNew: (identity, create) =>
+      windowIds.create(create).pipe(
+        Effect.tap((window) =>
+          Effect.sync(() => {
+            if (identity.kind === "project")
+              projectWindows.set(windowIdentityKey(identity), window);
+          }),
+        ),
+        Effect.map(windowIds.created),
+      ), // fork-hook: multi-window/dispatch-create-new
     close: (identity) =>
       identity.kind === "hub"
         ? Ref.set(input.mainWindow, Option.none())
@@ -540,6 +550,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             }),
           ),
         ), // fork-hook: multi-window/splash-identity-window-get-or-create
+      createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
       close: () => Ref.set(mainWindow, Option.none()), // fork-hook: multi-window/splash-identity-window-close
       windowIdFor: splashWindowIds.windowIdFor, // fork-hook: multi-window/window-id-splash-for
       listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-splash-list
