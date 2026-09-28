@@ -102,6 +102,13 @@ import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
 import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import {
+  ProjectChooserRowCheckFork,
+  ProjectChooserShowOnlyButtonFork,
+  ProjectChooserTriggerIconFork,
+  ProjectChooserUnavailableFork,
+  useSidebarProjectChooserFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -2566,6 +2573,13 @@ export default function Sidebar() {
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
   );
+  const projectChooser = useSidebarProjectChooserFork({
+    filter: windowFilter.filter,
+    setFilter: windowFilter.setFilter,
+    projectGroups,
+    enabled: forcedProjectRef === null && projectGroups.length > 0,
+    setMenuOpen: (open) => dispatchProjectScopeMenu({ type: "open-changed", open }),
+  }); // fork-hook: workspaces/chooser
   const projectScopeFilter = useComboboxFilter();
   // Filtering derives from the same React state that controls the input, so
   // the visible query and the visible list can never desync — the peer wiring
@@ -2576,12 +2590,17 @@ export default function Sidebar() {
   const filteredProjectScopeItems = useMemo(
     () =>
       filterSidebarProjectScopeItems({
-        items: projectScopeItems,
+        items: projectChooser.items, // fork-hook: workspaces/chooser-items
         query: projectScopeMenuState.query,
         matches: (item, query) =>
           projectScopeFilter.contains(item, query, (candidate) => candidate.label),
       }),
-    [effectiveProjectScopeKey, projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
+    [
+      effectiveProjectScopeKey,
+      projectScopeFilter,
+      projectChooser.items,
+      projectScopeMenuState.query,
+    ], // fork-hook: workspaces/chooser-items-dep
   );
   // A persisted scope whose project is gone falls back to all projects, but
   // only after every catalog environment has a live project snapshot. Cached
@@ -2634,7 +2653,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, forcedProjectRef, projectScopeKey]);
+  }, [clearSelection, forcedProjectRef, projectScopeKey, windowFilter.filter]); // fork-hook: workspaces/chooser-clear-selection
 
   const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
     dispatchProjectScopeMenu({ type: "open-changed", open: false }),
@@ -3010,7 +3029,7 @@ export default function Sidebar() {
   // filter context changes so a scope/search flip never inherits a deep
   // page state.
   const [settledVisibleCount, setSettledVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
-  const settledResetKey = projectScopeKey ?? "all";
+  const settledResetKey = projectChooser.label; // fork-hook: workspaces/chooser-settled-reset
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -4949,7 +4968,8 @@ export default function Sidebar() {
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
-                  items={projectScopeItems}
+                  multiple // fork-hook: workspaces/chooser-multiple
+                  items={projectChooser.items} // fork-hook: workspaces/chooser-items
                   filteredItems={filteredProjectScopeItems}
                   autoHighlight
                   itemToStringLabel={(item) => item.label}
@@ -4963,28 +4983,20 @@ export default function Sidebar() {
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
+                  value={projectChooser.value} // fork-hook: workspaces/chooser-value
                   onValueChange={(item) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item || forcedProjectRef !== null) return;
-                    setSidebarLogicalScope(
-                      forcedProjectRef,
-                      item.value === "all" ? null : item.value,
-                      setProjectScopeKey,
-                    );
+                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
+                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
-                        }
+                        label={projectChooser.label} // fork-hook: workspaces/chooser-label
                         disabled={forcedProjectRef !== null}
                       />
                     }
@@ -4996,7 +5008,7 @@ export default function Sidebar() {
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
                     ) : (
-                      <FolderIcon className="size-4" />
+                      <ProjectChooserTriggerIconFork count={projectChooser.count} /> // fork-hook: workspaces/chooser-trigger-icon
                     )}
                   </ComboboxTrigger>
                   <ComboboxPopup
@@ -5049,12 +5061,22 @@ export default function Sidebar() {
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
+                            {/* fork-hook: workspaces/chooser-row-check */}
+                            <ProjectChooserRowCheckFork
+                              selected={projectChooser.selectedValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-row-unavailable */}
+                            <ProjectChooserUnavailableFork
+                              unavailable={projectChooser.unavailableValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -5062,6 +5084,14 @@ export default function Sidebar() {
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
+                            {/* fork-hook: workspaces/chooser-row-show-only */}
+                            {project ? (
+                              <ProjectChooserShowOnlyButtonFork
+                                project={project}
+                                onShowOnly={projectChooser.showOnly}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {/* fork-hook: project-windows/sidebar-open-window-button */}
                             {project ? (
                               <SidebarOpenProjectWindowButtonFork
