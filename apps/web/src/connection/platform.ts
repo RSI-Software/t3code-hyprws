@@ -43,6 +43,11 @@ import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/unstable/http";
 
 import { APP_VERSION } from "../branding";
+import {
+  invalidateAttachedPrimaryBearer,
+  hasAttachBridge,
+  refreshAttachedPrimary,
+} from "../environments/primary/attachedPrimary.fork"; // fork-hook: backend-attach/platform-import
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
 import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import {
@@ -217,6 +222,8 @@ const capabilitiesLayer = Layer.effectContext(
       deviceId: Effect.succeedNone,
     });
     const primaryAuth = PrimaryEnvironmentAuth.of({
+      invalidateBearerToken: invalidateAttachedPrimaryBearer, // fork-hook: backend-attach/platform-invalidate
+      savedConnectionsOutrankPrimary: isDesktopClientOnlyMode(), // fork-hook: backend-attach/platform-saved-precedence
       bearerToken: Effect.tryPromise({
         try: readDesktopPrimaryBearerToken,
         catch: (cause) =>
@@ -466,7 +473,11 @@ export function secondaryRegistrationsToRetainAfterTopologyRead(
 const platformConnectionSourceLayer = Layer.effect(
   PlatformConnectionSource,
   Effect.gen(function* () {
-    if (isHostedStaticApp() || isLocalEnvironmentDisabled() || isDesktopClientOnlyMode()) {
+    if (
+      isHostedStaticApp() ||
+      isLocalEnvironmentDisabled() ||
+      (isDesktopClientOnlyMode() && !hasAttachBridge()) // fork-hook: backend-attach/platform-gate
+    ) {
       return PlatformConnectionSource.of({
         registrations: Stream.empty,
       });
@@ -483,6 +494,7 @@ const platformConnectionSourceLayer = Layer.effect(
       const next = new Map<string, CachedPlatformRegistration>();
       const registrations: Array<PlatformConnectionRegistration> = [];
 
+      if (isDesktopClientOnlyMode()) yield* Effect.promise(refreshAttachedPrimary); // fork-hook: backend-attach/platform-refresh
       const primaryTopologyRead = readPrimaryEnvironmentTargetResult();
       const retainedPrimary = primaryRegistrationToRetainAfterTopologyRead(
         previous,

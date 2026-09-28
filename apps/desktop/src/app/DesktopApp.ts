@@ -26,6 +26,7 @@ import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
+import * as DesktopAttachedPrimary from "./DesktopAttachedPrimary.ts"; // fork-hook: backend-attach/startup-import
 import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 import * as DesktopRunningLocalServers from "./DesktopRunningLocalServers.ts";
@@ -243,6 +244,7 @@ const bootstrap = Effect.gen(function* () {
     yield* installDesktopIpcHandlers();
     yield* logBootstrapInfo("bootstrap ipc handlers registered");
     yield* snapShot.initialize; // fork-hook: multi-window/client-only-snapshot-init
+    yield* DesktopAttachedPrimary.attachAtStartup(); // fork-hook: backend-attach/startup-attach
     if (!(yield* Ref.get(state.quitting))) {
       yield* appActivation.start.pipe(
         Effect.tap(() => logBootstrapInfo("desktop app control socket ready")),
