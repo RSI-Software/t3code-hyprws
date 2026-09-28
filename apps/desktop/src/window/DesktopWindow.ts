@@ -37,6 +37,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import { HyprlandPlacement } from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
+import type { WindowId } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import {
   HUB_WINDOW_IDENTITY,
   type WindowIdentity,
@@ -354,9 +355,9 @@ export const make = Effect.gen(function* () {
     direction: MainWindowZoomDirection,
   ) {
     const webContents = window.webContents;
-    const identity = yield* electronWindow.identityFor(window);
-    const windowPreviewManager = Option.isSome(identity)
-      ? yield* previewManager.forWindow(identity.value)
+    const windowId = yield* electronWindow.windowIdFor(window); // fork-hook: multi-window/window-id-zoom
+    const windowPreviewManager = Option.isSome(windowId) // fork-hook: multi-window/window-id-zoom-owner
+      ? yield* previewManager.forWindow(windowId.value) // fork-hook: multi-window/window-id-zoom-manager
       : previewManager;
     // Chromium pushes the new level down to embedded guests, which would zoom
     // the previewed page along with the app UI. The preview browser keeps its
@@ -533,7 +534,7 @@ export const make = Effect.gen(function* () {
     );
     flushMainWindowBounds = flushBoundsPersist;
 
-    yield* previewManager.setMainWindow(window);
+    yield* previewManager.setWindow(windowId, window); // fork-hook: multi-window/window-id-preview-owner
     if (yield* Ref.get(desktopState.quitting)) {
       yield* electronWindow.destroyAll;
       return Option.none();
@@ -884,6 +885,7 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
+      void runPromise(hyprlandPlacement.forget(windowId)); // fork-hook: multi-window/window-id-forget
       void runPromise(electronWindow.clearMain(Option.some(window)));
     });
 
