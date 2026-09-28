@@ -49,8 +49,14 @@ import {
 } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
 import { bindWindowDemandStateFork } from "./WindowDemandState.fork.ts"; // fork-hook: zmux-estate/window-demand-state-import
 import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
+import {
+  resolveLaunchRequest,
+  type WindowCreateRequest,
+  type WindowRequest,
+} from "./WindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-type-import
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -111,6 +117,7 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly requestWindow: (request: WindowRequest) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/dispatch-request
     readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/open-arguments-type
     readonly restoreWindowSession: Effect.Effect<void>; // fork-hook: multi-window/restore-window-session-type
     readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>; // fork-hook: multi-window/close-identity-type
@@ -392,6 +399,7 @@ export const make = Effect.gen(function* () {
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
     if (identity.kind === "hub") yield* previewManager.getBrowserSession(); // fork-hook: multi-window/hub-preview-session
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const dispatchedUrlFork = WindowDispatch.dispatchedWindowUrlFork(applicationUrl, dispatched); // fork-hook: multi-window/dispatch-url
     const normalWindowTitle =
       identity.kind === "hub" ? environment.displayName : identity.ref.projectId; // fork-hook: multi-window/placement-title
     const devAgentPlacement =
@@ -768,6 +776,8 @@ export const make = Effect.gen(function* () {
       if (window.isDestroyed()) {
         return;
       }
+      if (dispatchedUrlFork !== applicationUrl)
+        return void window.loadURL(dispatchedUrlFork).catch(() => undefined); // fork-hook: multi-window/dispatch-url
       void window.loadURL(applicationUrl).catch(() => undefined);
     };
     const scheduleDevelopmentLoadRetry = () => {
@@ -1070,6 +1080,13 @@ export const make = Effect.gen(function* () {
     dispatchRendererEvent(SNAP_SHOT_EVENT_CHANNEL, event, { reveal: event.type === "started" }),
   ); // fork-hook: multi-window/window-targets-snap-shot-dispatch
 
+  const requestWindow = WindowDispatch.makeDesktopWindowRequestFork({
+    electronWindow,
+    createWindow: createWindowOrInterrupt,
+    openPrimary: revealOrCreateMain,
+    createPrimary: createMainIfBackendReady,
+  }); // fork-hook: multi-window/dispatch-request-def
+
   const drainServices = { windowSession }; // fork-hook: multi-window/startup-drain-services
   const resolveDrainOpeners = makeStartupDrainOpeners(
     () => restoreWindow, // fork-hook: multi-window/restore-opener
@@ -1107,6 +1124,7 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.prepareReveal(existingWindow.value);
       }
     }),
+    requestWindow, // fork-hook: multi-window/dispatch-request
     restoreWindowSession: startupDrainRestore, // fork-hook: multi-window/startup-drain-stage-restore
     openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
     closeIdentity: electronWindow.close, // fork-hook: multi-window/close-identity
