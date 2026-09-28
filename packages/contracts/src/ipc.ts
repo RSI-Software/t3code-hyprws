@@ -1266,6 +1266,7 @@ export interface DesktopBridge {
    * instead of falling back to the hub route.
    */
   projectWindowRef?: ScopedProjectRef | null;
+  windowId?: string; // fork-hook: multi-window/window-id-bridge
   /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
