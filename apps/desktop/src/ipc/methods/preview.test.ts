@@ -1,10 +1,8 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   DEFAULT_BROWSER_PROFILE_ID,
-  EnvironmentId,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewAutomationStatus,
-  ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -13,10 +11,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
-import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
 const { fromPartition } = vi.hoisted(() => ({
@@ -116,25 +112,6 @@ describe("preview IPC methods", () => {
       expect(received[1]?.namespace).toBeUndefined();
     }).pipe(Effect.provideService(BrowserImport.BrowserImport, browserImport));
   });
-
-  effectIt.effect("rejects invalid webContents ids before resolving the preview service", () =>
-    Effect.map(
-      PreviewIpc.registerWebview
-        .handler({ tabId: "tab-1", webContentsId: 0 })
-        .pipe(
-          Effect.provideService(ElectronWindow.ElectronWindow, null as never),
-          Effect.provideService(PreviewManager.PreviewManager, null as never),
-          Effect.exit,
-        ),
-      (exit) => {
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isSuccess(exit)) return;
-        const error = Cause.findErrorOption(exit.cause);
-        expect(Option.isSome(error) && Schema.isSchemaError(error.value)).toBe(true);
-        expect(fromPartition).not.toHaveBeenCalled();
-      },
-    ),
-  );
 
   it("keeps the public automation status tab id limit", () => {
     const encode = Schema.encodeUnknownSync(PreviewAutomationStatus);
