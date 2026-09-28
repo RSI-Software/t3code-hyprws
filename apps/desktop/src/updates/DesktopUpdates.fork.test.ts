@@ -3,6 +3,7 @@ import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
+import type { WindowId } from "../window/WindowId.fork.ts";
 import { HUB_WINDOW_IDENTITY, projectWindowIdentity } from "../window/WindowIdentity.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { FORK_NIGHTLY_UPDATE_CHANNEL, resolveForkUpdaterChannel } from "./updateChannels.fork.ts";
@@ -14,9 +15,14 @@ describe("DesktopUpdates", () => {
       EnvironmentId.make("environment-1"),
       ProjectId.make("project-1"),
     );
-    const harness = makeHarness({
-      openWindowIdentities: [HUB_WINDOW_IDENTITY, projectIdentity],
-    });
+    const openWindows = [
+      {
+        windowId: "00000000-0000-4000-8000-000000000001" as WindowId,
+        identity: HUB_WINDOW_IDENTITY,
+      },
+      { windowId: "00000000-0000-4000-8000-000000000002" as WindowId, identity: projectIdentity },
+    ];
+    const harness = makeHarness({ openWindows });
     return Effect.scoped(
       Effect.gen(function* () {
         const updates = yield* DesktopUpdates.DesktopUpdates;
@@ -25,9 +31,7 @@ describe("DesktopUpdates", () => {
         yield* flushCallbacks;
         const result = yield* updates.install;
         assert.isTrue(result.accepted);
-        assert.deepEqual(harness.capturedSessions, [
-          { identities: [HUB_WINDOW_IDENTITY, projectIdentity], reason: "update" },
-        ]);
+        assert.deepEqual(harness.capturedSessions, [{ windows: openWindows, reason: "update" }]);
         // The windows have to still exist when their workspaces are read.
         assert.deepEqual(harness.installSteps, ["capture", "quitAndInstall"]);
       }),
