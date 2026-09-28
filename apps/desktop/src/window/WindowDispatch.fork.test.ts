@@ -1,5 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  windowCommandRequest,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -32,6 +37,8 @@ const makeOps = (windows: FakeWindows) => {
       Effect.sync(() => {
         created.push(request);
         calls.push("create");
+        const showing = request.seed === "all-projects" ? null : request.seed;
+        windows.open.push({ id: `created-${created.length}`, showing });
       }),
     openPrimary: Effect.sync(() => void calls.push("open-primary")),
     createPrimary: Effect.sync(() => void calls.push("create-primary")),
@@ -109,6 +116,27 @@ describe("window dispatch table", () => {
       assert.deepEqual(other.created, [
         { route: "/project/environment-one/project-one", seed: ref },
       ]);
+    }),
+  );
+
+  it.effect("mod+alt+o reuses the project's window; Open in New Window always creates", () =>
+    Effect.gen(function* () {
+      const ref = projectRef("one");
+      const fake = makeOps({ open: [{ id: WINDOW_A, showing: null }] });
+      const dispatch = dispatchWindowRequest(fake.ops);
+
+      const press = windowCommandRequest("window.openProject", ref);
+      assert.isNotNull(press);
+      if (press === null) return;
+      yield* dispatch(press);
+      yield* dispatch(press);
+      assert.equal(fake.created.length, 1);
+      assert.deepEqual(fake.calls, ["create", "reveal:created-1"]);
+
+      const route = "/project/environment-one/project-one";
+      yield* dispatch({ kind: "open-in-new-window", route, seed: ref });
+      yield* dispatch({ kind: "open-in-new-window", route, seed: ref });
+      assert.equal(fake.created.length, 3);
     }),
   );
 

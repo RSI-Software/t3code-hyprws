@@ -125,8 +125,8 @@ through the pages you have visited, like a browser's back and forward buttons.
 [new-thread defaults](./thread-sidebar.md#start-a-thread).
 
 `window.new` opens a new desktop window on all projects and defaults to `mod+shift+w`.
-`window.openInNew` opens the active project in a new desktop window and defaults to `mod+alt+o`.
-It was named `project.openWindow`; a saved binding with the old name keeps working.
+`window.openProject` focuses the active project's desktop window, or opens one when it has none, and defaults to `mod+alt+o`.
+It was named `project.openWindow`, then `window.openInNew`; a saved binding with either old name keeps working.
 Both window commands and their keybindings are shown only in the desktop app.
 
 `terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
