@@ -64,7 +64,7 @@ describe("DesktopSecondInstanceBuffer", () => {
           identity.kind === "hub" ? "hub" : identity.ref.projectId,
         ]).pipe(Effect.as(fakeWindow));
       const openers: WindowOpeners = {
-        ensureIdentity: () => record,
+        ensureIdentity: () => () => Effect.die("no restore is staged"),
         revealOrCreateIdentity: () => record,
         createMainIfBackendReady: () => Effect.void,
       };
