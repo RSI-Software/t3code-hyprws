@@ -328,6 +328,7 @@ export const make = Effect.gen(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
   const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
+  const titleClaimsFork = WindowPlacement.makeTitleClaimsFork(); // fork-hook: multi-window/claim-title-gate
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false);
   const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
@@ -410,6 +411,13 @@ export const make = Effect.gen(function* () {
       devAgent: devAgentPlacement,
       restoredWorkspace: dispatched?.restored?.workspace,
     }); // fork-hook: multi-window/placement-resolve
+    const claimTitleFork = WindowPlacement.reserveClaimTitleFork({
+      hyprlandAvailable: hyprlandPlacement.isAvailable,
+      windowId,
+      placement: mapPlacementFork,
+      titleClaims: titleClaimsFork,
+    }); // fork-hook: multi-window/claim-title
+    const initialWindowTitle = mapPlacementFork?.title ?? claimTitleFork ?? normalWindowTitle; // fork-hook: multi-window/placement-title
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -949,6 +957,7 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
       void runPromise(hyprlandPlacement.forget(windowId)); // fork-hook: multi-window/window-id-forget
+      titleClaimsFork.release(windowId); // fork-hook: multi-window/claim-title-closed
       currentMainBoundsFork.untrack(window); // fork-hook: multi-window/bounds-current-main
       void runPromise(electronWindow.clearMain(Option.some(window)));
     });
