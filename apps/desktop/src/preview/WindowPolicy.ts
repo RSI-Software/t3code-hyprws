@@ -14,11 +14,7 @@ import * as Scope from "effect/Scope";
 
 import type * as ElectronWindow from "../electron/ElectronWindow.ts";
 import type * as DesktopIpc from "../ipc/DesktopIpc.ts";
-import {
-  HUB_WINDOW_IDENTITY,
-  type WindowIdentity,
-  windowIdentityKey,
-} from "../window/WindowIdentity.ts";
+import type { WindowId } from "../window/WindowId.fork.ts";
 import type {
   PreviewManager,
   PreviewManagerError,
@@ -26,36 +22,36 @@ import type {
   PreviewWindowManager,
 } from "./Manager.ts";
 
-export { HUB_WINDOW_IDENTITY };
-export type { WindowIdentity };
-
 /**
  * Fork-owned preview policy for desktop windows.
  *
  * The upstream preview manager still owns Chromium behavior. This module owns
  * which desktop window gets an instance, which sender may reach it, and where
- * its events are delivered.
+ * its events are delivered. Every instance is owned by one `WindowId`, except
+ * the app instance behind upstream's window-less `PreviewManager` surface.
  */
+export const APP_PREVIEW_OWNER = "app";
+export type PreviewOwner = WindowId | typeof APP_PREVIEW_OWNER;
 
 type StateListener = (tabId: string, state: PreviewTabState) => Effect.Effect<void>;
 type PointerEventListener = (event: DesktopPreviewPointerEvent) => Effect.Effect<void>;
 type RecordingFrameListener = (frame: DesktopPreviewRecordingFrame) => Effect.Effect<void>;
 type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
 type OwnedStateListener = (
-  identity: WindowIdentity,
+  owner: PreviewOwner,
   tabId: string,
   state: PreviewTabState,
 ) => Effect.Effect<void>;
 type OwnedPointerEventListener = (
-  identity: WindowIdentity,
+  owner: PreviewOwner,
   event: DesktopPreviewPointerEvent,
 ) => Effect.Effect<void>;
 type OwnedRecordingFrameListener = (
-  identity: WindowIdentity,
+  owner: PreviewOwner,
   frame: DesktopPreviewRecordingFrame,
 ) => Effect.Effect<void>;
 type OwnedRecordingInputListener = (
-  identity: WindowIdentity,
+  owner: PreviewOwner,
   input: DesktopPreviewRecordingInputEvent,
 ) => Effect.Effect<void>;
 
@@ -77,7 +73,7 @@ export interface OwnedPreviewOperations extends PreviewWindowManager {
 }
 
 interface WindowOperationsEntry {
-  readonly identity: WindowIdentity;
+  readonly owner: PreviewOwner;
   readonly operations: OwnedPreviewOperations;
   readonly scope: Scope.Closeable;
   window?: BrowserWindow;
@@ -122,7 +118,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   const parentScope = yield* Scope.Scope;
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
-  const entries = new Map<string, WindowOperationsEntry>();
+  const entries = new Map<PreviewOwner, WindowOperationsEntry>();
   const entriesSemaphore = yield* Semaphore.make(1);
   const ownedStateListenersRef = yield* Ref.make<ReadonlySet<OwnedStateListener>>(new Set());
   const ownedPointerListenersRef = yield* Ref.make<ReadonlySet<OwnedPointerEventListener>>(
@@ -136,7 +132,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   );
 
   const createEntry = Effect.fn("PreviewWindowPolicy.createWindowOperations")(function* (
-    identity: WindowIdentity,
+    owner: PreviewOwner,
   ): Effect.fn.Return<WindowOperationsEntry> {
     const scope = yield* Scope.fork(parentScope, "sequential");
     const operations = yield* createOperations(scope);
@@ -147,7 +143,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
             Ref.get(ownedStateListenersRef).pipe(
               Effect.flatMap((listeners) =>
                 deliverOwned("state-change", listeners, (listener) =>
-                  listener(identity, tabId, state),
+                  listener(owner, tabId, state),
                 ),
               ),
             ),
@@ -157,7 +153,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
           .subscribePointerEvents((event) =>
             Ref.get(ownedPointerListenersRef).pipe(
               Effect.flatMap((listeners) =>
-                deliverOwned("pointer-event", listeners, (listener) => listener(identity, event)),
+                deliverOwned("pointer-event", listeners, (listener) => listener(owner, event)),
               ),
             ),
           )
@@ -166,7 +162,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
           .subscribeRecordingFrames((frame) =>
             Ref.get(ownedRecordingListenersRef).pipe(
               Effect.flatMap((listeners) =>
-                deliverOwned("recording-frame", listeners, (listener) => listener(identity, frame)),
+                deliverOwned("recording-frame", listeners, (listener) => listener(owner, frame)),
               ),
             ),
           )
@@ -175,7 +171,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
           .subscribeRecordingInputs((input) =>
             Ref.get(ownedRecordingInputListenersRef).pipe(
               Effect.flatMap((listeners) =>
-                deliverOwned("recording-input", listeners, (listener) => listener(identity, input)),
+                deliverOwned("recording-input", listeners, (listener) => listener(owner, input)),
               ),
             ),
           )
@@ -183,23 +179,22 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       ],
       { discard: true },
     ).pipe(Effect.onError(() => Scope.close(scope, Exit.void).pipe(Effect.ignore)));
-    return { identity, operations, scope } satisfies WindowOperationsEntry;
+    return { owner, operations, scope } satisfies WindowOperationsEntry;
   });
 
   // Caller must hold entriesSemaphore. Keeping this helper lock-free lets
   // setWindow publish a replacement on the entry before a stale close can inspect it.
   const getOrCreateEntryLocked = Effect.fn("PreviewWindowPolicy.getOrCreateEntryLocked")(function* (
-    identity: WindowIdentity,
+    owner: PreviewOwner,
   ) {
-    const key = windowIdentityKey(identity);
-    const existing = entries.get(key);
+    const existing = entries.get(owner);
     if (existing) return existing;
-    const created = yield* createEntry(identity);
-    entries.set(key, created);
+    const created = yield* createEntry(owner);
+    entries.set(owner, created);
     return created;
   });
-  const getEntry = (identity: WindowIdentity) =>
-    entriesSemaphore.withPermits(1)(getOrCreateEntryLocked(identity));
+  const getEntry = (owner: PreviewOwner) =>
+    entriesSemaphore.withPermits(1)(getOrCreateEntryLocked(owner));
 
   const authorizeTab = Effect.fn("PreviewWindowPolicy.authorizeTab")(function* (
     entry: WindowOperationsEntry,
@@ -208,7 +203,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     if (yield* entry.operations.hasTab(tabId)) return;
     for (const other of entries.values()) {
       if (other !== entry && (yield* other.operations.hasTab(tabId))) {
-        return yield* ownershipError(tabId, windowIdentityKey(entry.identity));
+        return yield* ownershipError(tabId, entry.owner);
       }
     }
   });
@@ -266,19 +261,16 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     };
   };
 
-  const forWindow = Effect.fn("PreviewWindowPolicy.forWindow")(function* (
-    identity: WindowIdentity,
-  ) {
-    return scopedManager(yield* getEntry(identity));
+  const forWindow = Effect.fn("PreviewWindowPolicy.forWindow")(function* (owner: PreviewOwner) {
+    return scopedManager(yield* getEntry(owner));
   });
   const disposeEntry = Effect.fn("PreviewWindowPolicy.disposeWindow")(function* (
-    identity: WindowIdentity,
+    owner: PreviewOwner,
     expected?: { readonly entry: WindowOperationsEntry; readonly window: BrowserWindow },
   ) {
     yield* entriesSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const key = windowIdentityKey(identity);
-        const entry = entries.get(key);
+        const entry = entries.get(owner);
         if (
           !entry ||
           (expected !== undefined && (entry !== expected.entry || entry.window !== expected.window))
@@ -286,17 +278,17 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
           return;
         }
         yield* Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
-        if (entries.get(key) === entry) entries.delete(key);
+        if (entries.get(owner) === entry) entries.delete(owner);
       }),
     );
   });
-  const disposeWindow = (identity: WindowIdentity) => disposeEntry(identity);
+  const disposeWindow = (owner: PreviewOwner) => disposeEntry(owner);
   const setWindow = Effect.fn("PreviewWindowPolicy.setWindow")(function* (
-    identity: WindowIdentity,
+    owner: PreviewOwner,
     window: BrowserWindow,
   ) {
     const entry = yield* entriesSemaphore.withPermits(1)(
-      getOrCreateEntryLocked(identity).pipe(
+      getOrCreateEntryLocked(owner).pipe(
         Effect.tap((current) =>
           Effect.sync(() => {
             current.window = window;
@@ -306,11 +298,34 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     );
     yield* entry.operations.setMainWindow(window);
     window.once("closed", () => {
-      runFork(disposeEntry(identity, { entry, window }));
+      runFork(disposeEntry(owner, { entry, window }));
     });
   });
 
-  const hub = yield* forWindow(HUB_WINDOW_IDENTITY);
+  // Upstream prepares every attached guest through its window-less manager, but
+  // a guest belongs to the window whose renderer hosts it. That window's
+  // operations must open the guest's control session: one opened by the app
+  // instance would leave the window's own registerWebview facing an attached
+  // debugger it does not own.
+  const prepareWebview = Effect.fn("PreviewWindowPolicy.prepareWebview")(function* (
+    guest: Electron.WebContents,
+  ) {
+    const host: Electron.WebContents | null = guest.hostWebContents;
+    const owned =
+      host === null
+        ? undefined
+        : Array.from(entries.values()).find(
+            (entry) =>
+              entry.owner !== APP_PREVIEW_OWNER &&
+              entry.window !== undefined &&
+              !entry.window.isDestroyed() &&
+              entry.window.webContents === host,
+          );
+    const entry = owned ?? (yield* getEntry(APP_PREVIEW_OWNER));
+    yield* entry.operations.prepareWebview(guest);
+  });
+
+  const app = yield* forWindow(APP_PREVIEW_OWNER);
   yield* Effect.addFinalizer(() =>
     Effect.forEach(Array.from(entries.values()), (entry) => Scope.close(entry.scope, Exit.void), {
       discard: true,
@@ -318,10 +333,11 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   );
 
   return {
-    hub,
+    app,
     setWindow,
     disposeWindow,
     forWindow,
+    prepareWebview,
     subscribeOwnedStateChanges: (listener: OwnedStateListener) =>
       subscribe(ownedStateListenersRef, listener),
     subscribeOwnedPointerEvents: (listener: OwnedPointerEventListener) =>
@@ -331,20 +347,20 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     subscribeOwnedRecordingInputs: (listener: OwnedRecordingInputListener) =>
       subscribe(ownedRecordingInputListenersRef, listener),
     subscribeStateChanges: (listener: StateListener) =>
-      subscribe(ownedStateListenersRef, (identity, tabId, state) =>
-        identity.kind === "hub" ? listener(tabId, state) : Effect.void,
+      subscribe(ownedStateListenersRef, (owner, tabId, state) =>
+        owner === APP_PREVIEW_OWNER ? listener(tabId, state) : Effect.void,
       ),
     subscribePointerEvents: (listener: PointerEventListener) =>
-      subscribe(ownedPointerListenersRef, (identity, event) =>
-        identity.kind === "hub" ? listener(event) : Effect.void,
+      subscribe(ownedPointerListenersRef, (owner, event) =>
+        owner === APP_PREVIEW_OWNER ? listener(event) : Effect.void,
       ),
     subscribeRecordingFrames: (listener: RecordingFrameListener) =>
-      subscribe(ownedRecordingListenersRef, (identity, frame) =>
-        identity.kind === "hub" ? listener(frame) : Effect.void,
+      subscribe(ownedRecordingListenersRef, (owner, frame) =>
+        owner === APP_PREVIEW_OWNER ? listener(frame) : Effect.void,
       ),
     subscribeRecordingInputs: (listener: RecordingInputListener) =>
-      subscribe(ownedRecordingInputListenersRef, (identity, input) =>
-        identity.kind === "hub" ? listener(input) : Effect.void,
+      subscribe(ownedRecordingInputListenersRef, (owner, input) =>
+        owner === APP_PREVIEW_OWNER ? listener(input) : Effect.void,
       ),
   };
 });
@@ -363,13 +379,13 @@ export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSen
   // the webContents registry, then back to its owning window.
   const senderWebContents = webContents.fromId(event.sender.id);
   const senderWindow = senderWebContents ? BrowserWindow.fromWebContents(senderWebContents) : null;
-  const identity =
-    senderWindow === null ? Option.none() : yield* electronWindow.identityFor(senderWindow);
-  if (Option.isNone(identity)) {
+  const windowId =
+    senderWindow === null ? Option.none() : yield* electronWindow.windowIdFor(senderWindow);
+  if (Option.isNone(windowId)) {
     return yield* authorizationError("unregistered-window");
   }
-  const windowManager = yield* previewManager.forWindow(identity.value);
-  return { identity: identity.value, previewManager, windowManager };
+  const windowManager = yield* previewManager.forWindow(windowId.value);
+  return { windowId: windowId.value, previewManager, windowManager };
 });
 
 export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEventForwarding")(
@@ -383,8 +399,9 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
       readonly pointerEvent: string;
     },
   ) {
-    const send = (identity: WindowIdentity, channel: string, ...args: readonly unknown[]) =>
-      electronWindow.get(identity).pipe(
+    // The app instance has no window of its own, so its events reach no renderer.
+    const send = (owner: PreviewOwner, channel: string, ...args: readonly unknown[]) =>
+      (owner === APP_PREVIEW_OWNER ? Effect.succeedNone : electronWindow.getById(owner)).pipe(
         Effect.flatMap(
           Option.match({
             onNone: () => Effect.void,
@@ -392,17 +409,17 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
           }),
         ),
       );
-    yield* manager.subscribeOwnedStateChanges((identity, tabId, state) =>
-      send(identity, channels.stateChange, tabId, state),
+    yield* manager.subscribeOwnedStateChanges((owner, tabId, state) =>
+      send(owner, channels.stateChange, tabId, state),
     );
-    yield* manager.subscribeOwnedRecordingFrames((identity, frame) =>
-      send(identity, channels.recordingFrame, frame),
+    yield* manager.subscribeOwnedRecordingFrames((owner, frame) =>
+      send(owner, channels.recordingFrame, frame),
     );
-    yield* manager.subscribeOwnedRecordingInputs((identity, input) =>
-      send(identity, channels.recordingInput, input),
+    yield* manager.subscribeOwnedRecordingInputs((owner, input) =>
+      send(owner, channels.recordingInput, input),
     );
-    yield* manager.subscribeOwnedPointerEvents((identity, event) =>
-      send(identity, channels.pointerEvent, event),
+    yield* manager.subscribeOwnedPointerEvents((owner, event) =>
+      send(owner, channels.pointerEvent, event),
     );
   },
 );
