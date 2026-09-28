@@ -11,7 +11,8 @@ import type { HyprlandPlacement as HyprlandPlacementKey } from "./HyprlandPlacem
 import type * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import type { DesktopWindowError } from "./DesktopWindow.ts";
 import type { WindowId } from "./WindowId.fork.ts";
-import { HUB_WINDOW_IDENTITY, windowIdentityKey, type WindowIdentity } from "./WindowIdentity.ts";
+import { isExplicitLaunchRequest, type WindowRequest } from "./WindowDispatch.fork.ts";
+import { windowIdentityKey, type WindowIdentity } from "./WindowIdentity.ts";
 
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
   makeComponentLogger("desktop-window");
@@ -32,9 +33,8 @@ export interface WindowOpeners {
     { readonly window: Electron.BrowserWindow; readonly windowId: WindowId },
     DesktopWindowError
   >;
-  readonly revealOrCreateIdentity: () => (
-    identity: WindowIdentity,
-  ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+  /** The window dispatch table; every queued launch takes its row once drained. */
+  readonly dispatch: () => (request: WindowRequest) => Effect.Effect<void, DesktopWindowError>;
   readonly createMainIfBackendReady: () => Effect.Effect<void, DesktopWindowError>;
 }
 
@@ -58,7 +58,7 @@ const makeStartupDrainImpl = Effect.gen(function* () {
   // NOTE: Queue/Ref constructors below MUST stay interruptible. Wrapping
   // this generator in Effect.uninterruptible breaks every downstream
   // consumer (33 test failures: windows never open) — see review round 2.
-  const pendingIntentQueue = yield* Queue.dropping<WindowIdentity>(STARTUP_INTENT_QUEUE_CAPACITY);
+  const pendingIntentQueue = yield* Queue.dropping<WindowRequest>(STARTUP_INTENT_QUEUE_CAPACITY);
   // One-time update-relaunch restore: consumed by the first drain only, so a
   // later backend restart never replays it.
   const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
@@ -80,34 +80,33 @@ const makeStartupDrainImpl = Effect.gen(function* () {
   const drainWaiters = yield* Ref.make<Deferred.Deferred<void> | undefined>(undefined);
 
   const queueStartupIntent = Effect.fn("desktop.startupDrain.queue")(function* (
-    identity: WindowIdentity,
+    request: WindowRequest,
   ) {
-    const accepted = yield* Queue.offer(pendingIntentQueue, identity);
+    const accepted = yield* Queue.offer(pendingIntentQueue, request);
     if (!accepted) {
       yield* logWindowWarning("startup intent queue full, dropped newest", {
-        identity: windowIdentityKey(identity),
+        request: request.kind,
         capacity: STARTUP_INTENT_QUEUE_CAPACITY,
       });
     }
   });
 
-  const openIntent = (openers: WindowOpeners, intent: WindowIdentity) =>
-    Effect.gen(function* () {
-      // A launch intent is always a project window. The hub default is a plain
-      // cold start, and taking the foreground back from whatever the user
-      // moved on to while the backend booted is upstream's bug to not have:
-      // ready-to-show reveals the window on its own.
-      if (intent.kind === "hub") {
-        yield* openers.createMainIfBackendReady();
-      } else {
-        yield* openers.revealOrCreateIdentity()(intent);
-      }
-      return true as const;
-    }).pipe(
+  // A queued launch takes the same dispatch row it would take once ready
+  // (RSI-Software/t3code-hyprws#1343), except a plain second launch: drained,
+  // it only creates the primary window when none is open and never reveals
+  // one. The table never reveals a window it creates either, so a cold start
+  // does not take the foreground back from whatever the user moved on to
+  // while the backend booted: ready-to-show reveals it.
+  const openIntent = (openers: WindowOpeners, intent: WindowRequest) =>
+    (intent.kind === "activate"
+      ? openers.createMainIfBackendReady()
+      : openers.dispatch()(intent)
+    ).pipe(
+      Effect.as(true as const),
       Effect.catch(() =>
-        logWindowWarning("failed to open startup intent", {
-          identity: windowIdentityKey(intent),
-        }).pipe(Effect.as(false as const)),
+        logWindowWarning("failed to open startup intent", { request: intent.kind }).pipe(
+          Effect.as(false as const),
+        ),
       ),
     );
 
@@ -175,7 +174,7 @@ const makeStartupDrainImpl = Effect.gen(function* () {
       let failed = false;
       let drainedAny = restored;
       for (;;) {
-        const intents: Array<WindowIdentity> = [];
+        const intents: Array<WindowRequest> = [];
         let next = yield* Queue.poll(pendingIntentQueue);
         while (Option.isSome(next)) {
           intents.push(next.value);
@@ -271,26 +270,25 @@ const makeStartupDrainImpl = Effect.gen(function* () {
 
   /**
    * Stages an argv launch for the drain. While the drain has not finished,
-   * every intent queues — including ones arriving mid-restore. A launch with
-   * no intent queues the hub default unless a restore is pending, or an
-   * update relaunch would lose every project window to the hub.
+   * every explicit request (a deep link) queues — including ones arriving
+   * mid-restore. A plain launch or callback queues too unless a restore is
+   * pending, or an update relaunch would lose every project window to the hub.
    */
   const stageArguments = (
     services: StartupDrainServices,
-    resolveIdentity: (argv: readonly string[]) => WindowIdentity | null,
+    resolveRequest: (argv: readonly string[]) => WindowRequest,
     argv: readonly string[],
   ): Effect.Effect<
-    { readonly queued: true } | { readonly queued: false; readonly identity: WindowIdentity }
+    { readonly queued: true } | { readonly queued: false; readonly request: WindowRequest }
   > =>
     Effect.gen(function* () {
-      const explicitIdentity = resolveIdentity(argv);
+      const request = resolveRequest(argv);
       if (yield* Ref.get(readyToDispatchRef)) {
-        return { queued: false, identity: explicitIdentity ?? HUB_WINDOW_IDENTITY } as const;
+        return { queued: false, request } as const;
       }
       const hasPendingRestore = (yield* Ref.get(pendingRestoreRef)).length > 0;
-      const queued = explicitIdentity ?? (hasPendingRestore ? null : HUB_WINDOW_IDENTITY);
-      if (queued !== null) {
-        yield* queueStartupIntent(queued);
+      if (isExplicitLaunchRequest(request) || !hasPendingRestore) {
+        yield* queueStartupIntent(request);
       }
       return { queued: true } as const;
     });
@@ -323,12 +321,12 @@ export const makeStartupDrain = makeStartupDrainImpl;
 export const makeStartupDrainOpeners =
   (
     ensureIdentity: WindowOpeners["ensureIdentity"],
-    revealOrCreateIdentity: WindowOpeners["revealOrCreateIdentity"],
+    dispatch: WindowOpeners["dispatch"],
     createMainIfBackendReady: WindowOpeners["createMainIfBackendReady"],
   ): (() => WindowOpeners) =>
   () => ({
     ensureIdentity,
-    revealOrCreateIdentity,
+    dispatch,
     createMainIfBackendReady,
   });
 

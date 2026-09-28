@@ -76,7 +76,7 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
     createMain: Effect.die("unexpected createMain"),
     ensureMain: Effect.die("unexpected ensureMain"),
     revealOrCreateMain: Effect.die("unexpected revealOrCreateMain"),
-    openIdentity: () => Effect.die("unexpected identity window open"),
+    requestWindow: () => Effect.die("unexpected window request"), // fork-hook: multi-window/dispatch-request
     restoreWindowSession: Effect.void,
     openArguments: () => Effect.void,
     closeIdentity: () => Effect.void,

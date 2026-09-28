@@ -6,7 +6,7 @@ import type { ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
-import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
+import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes";
 
 import { findProjectOnChangeRequestHost } from "./openPullRequestLink";
 
@@ -157,9 +157,7 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
     repository,
     number: parsedIssue.number,
   };
-  const windowProjectRef = resolveProjectRefFromPathname(
-    typeof window === "undefined" ? "/" : window.location.pathname,
-  );
+  const windowProjectRef = currentWindowProjectRef();
   void navigate({
     ...listRouteTarget("issues", windowProjectRef),
     search: {

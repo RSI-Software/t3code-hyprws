@@ -8,6 +8,7 @@ import type { ThreadActionMenuState } from "./threadActionMenu.logic.ts";
 import {
   forkThreadMenuItems,
   forkThreadMenuStateFork,
+  openInNewWindowMenuItems,
   type ForkableThreadProviderState,
   type ForkThreadShell,
 } from "./threadActionMenu.logic.fork.ts";
@@ -95,5 +96,15 @@ describe("forkThreadMenuItems", () => {
   it("omits the item entirely for other providers", () => {
     expect(forkThreadMenuItems({ fork: null })).toEqual([]);
     expect(forkThreadMenuItems({})).toEqual([]);
+  });
+});
+
+describe("openInNewWindowMenuItems", () => {
+  it("offers Open in New Window only where desktop windows can open", () => {
+    expect(openInNewWindowMenuItems({ openInNewWindow: true }).map((item) => item.id)).toEqual([
+      "open-in-new-window",
+    ]);
+    expect(openInNewWindowMenuItems({ openInNewWindow: false })).toEqual([]);
+    expect(openInNewWindowMenuItems({})).toEqual([]);
   });
 });

@@ -10,11 +10,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import {
-  HUB_WINDOW_IDENTITY,
-  projectWindowIdentity,
-  type WindowIdentity,
-} from "./WindowIdentity.ts";
+import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
 import {
   makeStartupDrain,
   type StartupDrainServices,
@@ -22,6 +18,7 @@ import {
 } from "./DesktopStartupDrain.fork.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { WindowId } from "./WindowId.fork.ts";
+import type { WindowRequest } from "./WindowDispatch.fork.ts";
 
 const fakeWindow = {} as Electron.BrowserWindow;
 const fakeWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
@@ -33,11 +30,16 @@ const asEnsure =
   (identity: WindowIdentity) =>
     open()(identity).pipe(Effect.map((window) => ({ window, windowId: fakeWindowId })));
 
-const projectIdentity = (name: string): WindowIdentity =>
-  projectWindowIdentity(
-    EnvironmentId.make(`environment-${name}`),
-    ProjectId.make(`project-${name}`),
-  );
+const projectLink = (name: string): WindowRequest => ({
+  kind: "project-link",
+  ref: {
+    environmentId: EnvironmentId.make(`environment-${name}`),
+    projectId: ProjectId.make(`project-${name}`),
+  },
+});
+
+const requestKey = (request: WindowRequest): string =>
+  request.kind === "project-link" ? `project:${request.ref.projectId}` : request.kind;
 
 const noopServices: StartupDrainServices = {
   hyprlandPlacement: {
@@ -58,7 +60,6 @@ const noopServices: StartupDrainServices = {
 interface FakeOpeners {
   readonly openers: WindowOpeners;
   readonly opened: Ref.Ref<ReadonlyArray<string>>;
-  readonly keyOf: (identity: WindowIdentity) => string;
   /** Release gate each open awaits: the test pauses the drain mid-open. */
   readonly gate: Deferred.Deferred<void>;
   /** Set when an open is parked inside the gate. */
@@ -76,20 +77,20 @@ const makeRecordingOpeners = Effect.gen(function* () {
   const entered = yield* Deferred.make<void>();
   const keyOf = (identity: WindowIdentity): string =>
     identity.kind === "hub" ? "hub" : `project:${identity.ref.projectId}`;
-  const record = (identity: WindowIdentity) =>
-    Ref.update(opened, (keys) => [...keys, keyOf(identity)]).pipe(
+  const record = (key: string) =>
+    Ref.update(opened, (keys) => [...keys, key]).pipe(
       Effect.andThen(Deferred.succeed(entered, undefined)),
       Effect.andThen(Deferred.await(gate)),
       Effect.as(fakeWindow),
     );
   yield* Deferred.succeed(gate, undefined);
   const openers: WindowOpeners = {
-    ensureIdentity: asEnsure(() => record),
-    revealOrCreateIdentity: () => record,
+    ensureIdentity: asEnsure(() => (identity) => record(keyOf(identity))),
+    dispatch: () => (request) => record(requestKey(request)).pipe(Effect.asVoid),
     createMainIfBackendReady: () =>
       Ref.update(opened, (keys) => [...keys, "hub"]).pipe(Effect.asVoid),
   };
-  return { openers, opened, keyOf, gate, entered } as const;
+  return { openers, opened, gate, entered } as const;
 });
 
 describe("DesktopStartupDrain", () => {
@@ -102,7 +103,7 @@ describe("DesktopStartupDrain", () => {
       const releaseRestore = yield* Deferred.make<void>();
       const opened = yield* Ref.make<ReadonlyArray<string>>([]);
       let restoreCalls = 0;
-      const pausingEnsure = () => (identity: WindowIdentity) =>
+      const pausingEnsure = () => (_identity: WindowIdentity) =>
         Effect.gen(function* () {
           restoreCalls += 1;
           yield* Ref.update(opened, (keys) => [...keys, "restore"]);
@@ -110,15 +111,12 @@ describe("DesktopStartupDrain", () => {
           yield* Deferred.await(releaseRestore);
           return fakeWindow;
         });
-      const keyOf = (identity: WindowIdentity): string =>
-        identity.kind === "hub" ? "hub" : `project:${identity.ref.projectId}`;
       const openers: WindowOpeners = {
         ensureIdentity: asEnsure(pausingEnsure),
-        revealOrCreateIdentity: () => (identity: WindowIdentity) =>
-          Ref.update(opened, (keys) => [...keys, keyOf(identity)]).pipe(Effect.as(fakeWindow)),
+        dispatch: () => (request) => Ref.update(opened, (keys) => [...keys, requestKey(request)]),
         createMainIfBackendReady: () => Effect.void,
       };
-      const identityOf = () => projectIdentity("straggler");
+      const requestOf = () => projectLink("straggler");
       yield* drain.stageRestore({
         ...noopServices,
         windowSession: {
@@ -130,7 +128,7 @@ describe("DesktopStartupDrain", () => {
       // Park inside the paused restore open: readiness stays false until the
       // drain finishes, so the intent below stages through the queue.
       yield* Deferred.await(restoreEntered);
-      const staged = yield* drain.stageArguments(noopServices, identityOf, ["t3code"]);
+      const staged = yield* drain.stageArguments(noopServices, requestOf, ["t3code"]);
       assert.deepEqual(staged, { queued: true });
       yield* Deferred.succeed(releaseRestore, undefined);
       yield* Fiber.join(drainFiber);
@@ -145,28 +143,25 @@ describe("DesktopStartupDrain", () => {
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const opened = yield* Ref.make<ReadonlyArray<string>>([]);
-      const keyOf = (identity: WindowIdentity): string =>
-        identity.kind === "hub" ? "hub" : `project:${identity.ref.projectId}`;
-      const pausingReveal = () => (identity: WindowIdentity) =>
+      const pausingDispatch = () => (request: WindowRequest) =>
         Effect.gen(function* () {
-          const key = keyOf(identity);
+          const key = requestKey(request);
           yield* Ref.update(opened, (keys) => [...keys, key]);
           if (key === "project:project-first") {
             yield* Deferred.succeed(entered, undefined);
             yield* Deferred.await(release);
           }
-          return fakeWindow;
         });
       const openers: WindowOpeners = {
-        ensureIdentity: asEnsure(pausingReveal),
-        revealOrCreateIdentity: pausingReveal,
+        ensureIdentity: asEnsure(() => () => Effect.succeed(fakeWindow)),
+        dispatch: pausingDispatch,
         createMainIfBackendReady: () => Effect.void,
       };
-      yield* drain.queueStartupIntent(projectIdentity("first"));
+      yield* drain.queueStartupIntent(projectLink("first"));
       const drainFiber = yield* drain.drain(noopServices, () => openers).pipe(Effect.forkDetach);
       // Paused after the first queue poll, inside the queued intent's open.
       yield* Deferred.await(entered);
-      const staged = yield* drain.stageArguments(noopServices, () => projectIdentity("straggler"), [
+      const staged = yield* drain.stageArguments(noopServices, () => projectLink("straggler"), [
         "t3code",
       ]);
       assert.deepEqual(staged, { queued: true });
@@ -185,22 +180,18 @@ describe("DesktopStartupDrain", () => {
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const opened = yield* Ref.make<ReadonlyArray<string>>([]);
-      const pausingReveal = () => (identity: WindowIdentity) =>
+      const pausingDispatch = () => (request: WindowRequest) =>
         Effect.gen(function* () {
-          yield* Ref.update(opened, (keys) => [
-            ...keys,
-            identity.kind === "hub" ? "hub" : `project:${identity.ref.projectId}`,
-          ]);
+          yield* Ref.update(opened, (keys) => [...keys, requestKey(request)]);
           yield* Deferred.succeed(entered, undefined);
           yield* Deferred.await(release);
-          return fakeWindow;
         });
       const openers: WindowOpeners = {
-        ensureIdentity: asEnsure(pausingReveal),
-        revealOrCreateIdentity: pausingReveal,
+        ensureIdentity: asEnsure(() => () => Effect.succeed(fakeWindow)),
+        dispatch: pausingDispatch,
         createMainIfBackendReady: () => Effect.void,
       };
-      yield* drain.queueStartupIntent(projectIdentity("one"));
+      yield* drain.queueStartupIntent(projectLink("one"));
       const owner = yield* drain.drain(noopServices, () => openers).pipe(Effect.forkDetach);
       yield* Deferred.await(entered);
       const firstFollower = yield* drain.drain(noopServices, () => openers).pipe(Effect.forkDetach);
@@ -224,8 +215,8 @@ describe("DesktopStartupDrain", () => {
       const fakes = yield* makeRecordingOpeners;
       const failing: WindowOpeners = {
         ...fakes.openers,
-        revealOrCreateIdentity: () => (identity: WindowIdentity) =>
-          fakes.keyOf(identity) === "project:project-bad"
+        dispatch: () => (request: WindowRequest) =>
+          requestKey(request) === "project:project-bad"
             ? Effect.fail(
                 new ElectronWindow.ElectronWindowCreateError({
                   options: {
@@ -252,13 +243,11 @@ describe("DesktopStartupDrain", () => {
                   cause: new Error("simulated window-open failure"),
                 }),
               )
-            : Ref.update(fakes.opened, (keys) => [...keys, fakes.keyOf(identity)]).pipe(
-                Effect.as(fakeWindow),
-              ),
+            : Ref.update(fakes.opened, (keys) => [...keys, requestKey(request)]),
       };
-      yield* drain.queueStartupIntent(projectIdentity("bad"));
-      yield* drain.queueStartupIntent(projectIdentity("second"));
-      yield* drain.queueStartupIntent(projectIdentity("third"));
+      yield* drain.queueStartupIntent(projectLink("bad"));
+      yield* drain.queueStartupIntent(projectLink("second"));
+      yield* drain.queueStartupIntent(projectLink("third"));
       const exit = yield* Effect.exit(drain.drain(noopServices, () => failing));
       // Typed Fail, never a Die defect: the backend pool logs-and-swallows
       // typed failures from handleBackendReady, but a defect would bypass
@@ -281,11 +270,23 @@ describe("DesktopStartupDrain", () => {
     }),
   );
 
+  it.effect("never reveals a window for a second launch queued during boot", () =>
+    Effect.gen(function* () {
+      const drain = yield* makeStartupDrain;
+      const fakes = yield* makeRecordingOpeners;
+      yield* drain.queueStartupIntent({ kind: "activate" });
+      yield* drain.queueStartupIntent({ kind: "activate" });
+      yield* drain.drain(noopServices, () => fakes.openers);
+      // Only create-if-missing ("hub"); the dispatch row would reveal the most recent window.
+      assert.deepEqual(yield* Ref.get(fakes.opened), ["hub", "hub"]);
+    }),
+  );
+
   it.effect("re-arms after a restart: new intents queue and drain", () =>
     Effect.gen(function* () {
       const drain = yield* makeStartupDrain;
       const fakes = yield* makeRecordingOpeners;
-      yield* drain.queueStartupIntent(projectIdentity("first"));
+      yield* drain.queueStartupIntent(projectLink("first"));
       yield* drain.drain(noopServices, () => fakes.openers);
       assert.deepEqual(yield* Ref.get(fakes.opened), ["project:project-first"]);
       // A backend restart clears readiness; an intent arriving while down
@@ -294,7 +295,7 @@ describe("DesktopStartupDrain", () => {
       // the intent for direct dispatch — bypassing the queue — so assert
       // the staged result queues and the drain opens it.
       yield* drain.markNotReady;
-      const staged = yield* drain.stageArguments(noopServices, () => projectIdentity("second"), [
+      const staged = yield* drain.stageArguments(noopServices, () => projectLink("second"), [
         "t3code",
       ]);
       assert.deepEqual(staged, { queued: true });
