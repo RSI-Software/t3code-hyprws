@@ -52,6 +52,7 @@ import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
 import * as WindowPlacement from "./WindowPlacement.fork.ts"; // fork-hook: multi-window/placement-import
+import { hubFilterTitleFork } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
 import {
   resolveLaunchRequest,
   type WindowCreateRequest,
@@ -787,8 +788,12 @@ export const make = Effect.gen(function* () {
       runFork(zoomWindow(window, direction));
     });
 
+    let pageTitle = ""; // fork-hook: workspaces/window-title
     window.on("page-title-updated", (event, title) => {
       event.preventDefault();
+      pageTitle = title; // fork-hook: workspaces/window-title
+      const filterTitle = hubFilterTitleFork(identity.kind, environment.displayName, title); // fork-hook: workspaces/window-title
+      if (filterTitle !== null) return void window.setTitle(filterTitle); // fork-hook: workspaces/window-title
       window.setTitle(
         identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
       );
@@ -887,6 +892,8 @@ export const make = Effect.gen(function* () {
       publishWindowDemandState();
       if (identity.kind === "hub") {
         window.setTitle(environment.displayName);
+        const filterTitle = hubFilterTitleFork(identity.kind, environment.displayName, pageTitle); // fork-hook: workspaces/window-title
+        if (filterTitle !== null) window.setTitle(filterTitle); // fork-hook: workspaces/window-title
       }
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
