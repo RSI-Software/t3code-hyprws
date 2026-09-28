@@ -1164,6 +1164,7 @@ export interface DesktopBridge {
    * instead of falling back to the hub route.
    */
   projectWindowRef?: ScopedProjectRef | null;
+  windowId?: string; // fork-hook: multi-window/window-id-bridge
   /**
    * Optional: older desktop builds lack it; callers fall back to VS Code only.
    */
