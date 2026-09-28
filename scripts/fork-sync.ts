@@ -42,6 +42,7 @@ import * as NodePath from "node:path";
 
 import * as Schema from "effect/Schema";
 
+import { FIXUP_PREFIX } from "./fork-delta.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
   commandText,
@@ -469,9 +470,6 @@ export type RebaseOutcome =
       readonly conflicts: ReadonlyArray<ConflictRow>;
     }
   | { readonly status: "blocked"; readonly conflicts: ReadonlyArray<ConflictRow> };
-
-/** The subject prefix marking a fork landing that amends the commit it names. */
-export const FIXUP_PREFIX = "fixup! ";
 
 /** Subjects of the fork commits above `target` that a `fixup!` commit may name. */
 export const forkSubjects = (
