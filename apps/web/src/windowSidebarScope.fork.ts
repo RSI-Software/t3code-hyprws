@@ -109,6 +109,8 @@ export interface WindowSidebarScope {
   readonly write: (filter: ProjectFilter) => void;
   /** Re-stamps this window's record so a restore within the horizon finds it. */
   readonly stamp: () => void;
+  /** The seed project still waiting for its group to load; `null` once resolved or unseeded. */
+  readonly pendingSeed: () => ScopedProjectRef | null;
   /** Resolves the seed against the loaded project groups, once. */
   readonly takeSeed: (
     groups: ReadonlyArray<{
@@ -170,6 +172,7 @@ export function createWindowSidebarScope(
         // Denied storage: nothing to keep.
       }
     },
+    pendingSeed: () => pendingSeed,
     takeSeed: (groups, settled) => {
       if (pendingSeed === null) return null;
       const target = pendingSeed;
@@ -325,6 +328,11 @@ const detachedFilter: WindowProjectFilterState = {
 /** The installed window's filter; a fixed all-projects filter where none is installed. */
 export function windowProjectFilterState(): WindowProjectFilterState {
   return active?.filter ?? detachedFilter;
+}
+
+/** The installed window's seed project while the sidebar has not applied it yet. */
+export function pendingWindowScopeSeed(): ScopedProjectRef | null {
+  return active?.scope.pendingSeed() ?? null;
 }
 
 type SeedGroups = Parameters<WindowSidebarScope["takeSeed"]>[0];

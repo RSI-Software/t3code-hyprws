@@ -415,7 +415,6 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId,
   unavailable,
   onProject,
-  showProjectFilter = true,
 }: {
   onOpenChange?: (open: boolean) => void;
   state: PullRequestListState;
@@ -459,8 +458,6 @@ export function PullRequestFiltersMenu({
   unavailable: ReadonlyMap<string, string>;
   /** The environment comes with the project id, since picking a row picks a specific server's copy of it. */
   onProject: (projectId: ProjectId | undefined, environmentId: EnvironmentId | undefined) => void;
-  /** Project windows own this choice in their project/all-project toggle. */
-  showProjectFilter?: boolean;
 }) {
   const selectedLabels = (filters.labels ?? []).flatMap((group) => group);
   const filterCount = [
@@ -588,25 +585,17 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
-        {/* fork-hook: project-windows/pull-request-filter-visibility */}
-        {showProjectFilter ? (
-          <>
-            <MenuSeparator />
-            <PullRequestFilterRadioSubmenu
-              label="Project"
-              value={projectValue}
-              options={projectOptions}
-              onChange={(next) => {
-                const project = projects.find(
-                  (candidate) => pullRequestProjectKey(candidate) === next,
-                );
-                if (project) onProject(project.id, project.environmentId);
-                else if (projectId !== undefined) onProject(undefined, undefined);
-              }}
-            />
-          </>
-        ) : null}
-        {/* fork-hook-end */}
+        <MenuSeparator />
+        <PullRequestFilterRadioSubmenu
+          label="Project"
+          value={projectValue}
+          options={projectOptions}
+          onChange={(next) => {
+            const project = projects.find((candidate) => pullRequestProjectKey(candidate) === next);
+            if (project) onProject(project.id, project.environmentId);
+            else if (projectId !== undefined) onProject(undefined, undefined);
+          }}
+        />
       </MenuPopup>
     </Menu>
   );
