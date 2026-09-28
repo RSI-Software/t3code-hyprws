@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */
+@import "./index.fork.css"; /* fork-hook: fork-meta/index-fork-css */
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
