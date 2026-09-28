@@ -33,6 +33,7 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
+import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import { HyprlandPlacement } from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import {
@@ -317,6 +318,7 @@ export const make = Effect.gen(function* () {
   const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false);
+  const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
   const pendingDevAgentPlacementRef = yield* Ref.make(
     // One map-time placement for dev:desktop:agent. The launcher environment survives
     // main-process watch restarts; each fresh process consumes its own copy once.
@@ -1055,6 +1057,24 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const drainServices = { windowSession }; // fork-hook: multi-window/startup-drain-services
+  const resolveDrainOpeners = makeStartupDrainOpeners(
+    () => restoreWindow, // fork-hook: multi-window/restore-opener
+    () => requestWindow, // fork-hook: multi-window/dispatch-drain-opener
+    () => createMainIfBackendReady,
+  ); // fork-hook: multi-window/startup-drain-openers
+
+  const startupDrainRestore = startupDrain
+    .stageRestore(drainServices)
+    .pipe(Effect.withSpan("desktop.window.restoreWindowSession")); // fork-hook: multi-window/startup-drain-stage-restore-def
+  const startupDrainOpenArguments = Effect.fn("desktop.window.openArguments")(
+    (argv: readonly string[]) =>
+      startupDrain
+        .stageArguments(drainServices, resolveLaunchRequest, argv) // fork-hook: multi-window/dispatch-drain-arguments
+        .pipe(
+          Effect.flatMap((staged) => (staged.queued ? Effect.void : requestWindow(staged.request))), // fork-hook: multi-window/dispatch-drain-arguments
+        ),
+  ); // fork-hook: multi-window/startup-drain-stage-arguments-def
   const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
     // The packaged or Vite renderer is loadable whether or not this desktop
     // process owns a backend.
@@ -1072,6 +1092,8 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.prepareReveal(existingWindow.value);
       }
     }),
+    restoreWindowSession: startupDrainRestore, // fork-hook: multi-window/startup-drain-stage-restore
+    openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
     closeIdentity: electronWindow.close, // fork-hook: multi-window/close-identity
     activate: Effect.gen(function* () {
       if (yield* Ref.get(desktopState.quitting)) return;
@@ -1096,10 +1118,15 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      const createMainIfBackendReady = Effect.suspend(() =>
+        // The drain opens the restore and queued intents, and the main window only on a cold start.
+        startupDrain.drain(drainServices, resolveDrainOpeners),
+      ); // fork-hook: multi-window/startup-drain-backend-ready
       yield* createMainIfBackendReady;
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
       Effect.withSpan("desktop.window.handleBackendNotReady"),
+      Effect.andThen(startupDrain.markNotReady), // fork-hook: multi-window/startup-drain-not-ready
     ),
     flushMainWindowBounds: Effect.suspend(() => flushMainWindowBounds).pipe(
       Effect.withSpan("desktop.window.flushMainWindowBounds"),
