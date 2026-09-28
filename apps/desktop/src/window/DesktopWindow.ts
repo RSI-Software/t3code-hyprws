@@ -947,12 +947,6 @@ export const make = Effect.gen(function* () {
       if (!window.isDestroyed()) {
         window.webContents.setBackgroundThrottling(true);
       }
-      // Reveal the real window, then close the connecting splash (if any) so the
-      // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
-        window.maximize();
-      }
-
       const mapFork =
         mapPlacementFork === null || titleHoldFork === null
           ? null
@@ -962,6 +956,7 @@ export const make = Effect.gen(function* () {
               windowId,
               placement: mapPlacementFork,
               titleHold: titleHoldFork,
+              maximize: persistedSettings.mainWindowMaximized, // fork-hook: multi-window/placement-maximize
               dismissSplash: dismissConnectingSplash,
             }).pipe(
               Effect.ensuring(
@@ -971,6 +966,12 @@ export const make = Effect.gen(function* () {
               ),
             ); // fork-hook: multi-window/placement-map-effect
       if (mapFork !== null) return void runPromise(mapFork); // fork-hook: multi-window/placement-map
+
+      // Reveal the real window, then close the connecting splash (if any) so the
+      // two don't overlap and there's no blank gap between them.
+      if (persistedSettings.mainWindowMaximized) {
+        window.maximize();
+      }
 
       // Normal launches reveal and focus. Agent launches above deliberately do
       // neither, even when the Electron main process restarts under the watcher.
