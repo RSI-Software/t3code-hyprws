@@ -149,6 +149,9 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
 
+/** The subject prefix marking a fork landing that amends the commit it names. */
+export const FIXUP_PREFIX = "fixup! ";
+
 /**
  * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
  * design, and the sync rebase autosquashes them into their owners immediately
@@ -157,7 +160,8 @@ const isForkTier = (value: string | undefined): value is ForkTier =>
  */
 export const dropTransientFixups = (
   commits: ReadonlyArray<ForkCommit>,
-): ReadonlyArray<ForkCommit> => commits.filter((commit) => !commit.subject.startsWith("fixup! "));
+): ReadonlyArray<ForkCommit> =>
+  commits.filter((commit) => !commit.subject.startsWith(FIXUP_PREFIX));
 
 export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArray<ForkFinding> =>
   commits.flatMap((commit) => {
