@@ -86,6 +86,8 @@ import {
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { useProjectChooserHostValue } from "../projectChooser.fork"; // fork-hook: workspaces/window-title-import
+import { composeFilteredWindowTitle } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -351,9 +353,12 @@ function DocumentTitleSync() {
     primaryServerVersion,
   });
 
+  const filterTitleLabel = useProjectChooserHostValue()?.titleLabel ?? null; // fork-hook: workspaces/window-title
+  const windowTitle = composeFilteredWindowTitle(title, filterTitleLabel); // fork-hook: workspaces/window-title
+
   useEffect(() => {
-    document.title = title;
-  }, [title]);
+    document.title = windowTitle; // fork-hook: workspaces/window-title
+  }, [windowTitle]); // fork-hook: workspaces/window-title
 
   return null;
 }
