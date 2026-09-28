@@ -121,6 +121,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     get: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-get
     getById: () => Effect.succeedNone, // fork-hook: multi-window/window-id-get-by-id
     getOrCreate: () => Effect.die("unexpected identity window creation"), // fork-hook: multi-window/updates-harness-window-get-or-create
+    createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
     close: () => Effect.void, // fork-hook: multi-window/updates-harness-window-close
     windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-identity
     listWindows: Effect.succeed(openWindows), // fork-hook: multi-window/window-id-list
