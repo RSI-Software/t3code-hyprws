@@ -62,6 +62,19 @@ describe("project chooser", () => {
     expect(both.value.map((item) => item.value)).toEqual([api.projectKey, web.projectKey]);
   });
 
+  it("Title: names the selected projects, counting past three; none for all projects", () => {
+    expect(projectChooserState(ALL_PROJECTS_FILTER, groups).titleLabel).toBeNull();
+    expect(projectChooserState(filterOf(web), groups).titleLabel).toBe("web");
+    expect(projectChooserState(filterOf(api, web), groups).titleLabel).toBe("api, web");
+
+    const more = [1, 2, 3, 4].map((index) => ({
+      projectKey: `github.com/acme/p${index}`,
+      displayName: `p${index}`,
+      memberProjectRefs: [ref("local", `p${index}`)],
+    }));
+    expect(projectChooserState(filterOf(...more), more).titleLabel).toBe("p1, p2, p3 +1");
+  });
+
   it("Toggle: picking a project adds its entry, unpicking removes it", () => {
     const added = projectFilterFromChooser(filterOf(api), [api.projectKey, web.projectKey], groups);
     expect(added).toEqual(filterOf(api, web));
