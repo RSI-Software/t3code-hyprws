@@ -27,6 +27,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import { HyprlandPlacement } from "./HyprlandPlacement.ts";
 import type { HyprlandWorkspaceRef } from "./hyprland.ts";
+import { isWindowId, type WindowId } from "./WindowId.fork.ts";
 import {
   HUB_WINDOW_IDENTITY,
   projectWindowIdentity,
@@ -44,8 +45,19 @@ const { logInfo: logSessionInfo, logWarning: logSessionWarning } =
 export const WINDOW_SESSION_MAX_AGE_MS = 30 * 60 * 1_000;
 
 export type WindowRestoreEntry = {
+  /**
+   * The id the window had before the relaunch, reused so it keeps one id
+   * across the update. Absent for a manifest written before ids existed.
+   */
+  readonly windowId?: WindowId;
   readonly identity: WindowIdentity;
   readonly workspace: HyprlandWorkspaceRef | null;
+};
+
+/** A live window as the install path captures it. */
+export type CapturedWindow = {
+  readonly windowId: WindowId;
+  readonly identity: WindowIdentity;
 };
 
 const WorkspaceDocument = Schema.Struct({
@@ -54,6 +66,7 @@ const WorkspaceDocument = Schema.Struct({
 });
 
 const WindowDocument = Schema.Struct({
+  windowId: Schema.optionalKey(Schema.String),
   kind: Schema.Literals(["hub", "project"]),
   environmentId: Schema.optionalKey(Schema.String),
   projectId: Schema.optionalKey(Schema.String),
@@ -77,9 +90,11 @@ const CURRENT_VERSION = 1;
 
 function toWindowDocument(entry: WindowRestoreEntry): typeof WindowDocument.Type {
   const workspace = entry.workspace;
+  const windowId = entry.windowId === undefined ? {} : { windowId: entry.windowId };
   return entry.identity.kind === "hub"
-    ? { kind: "hub", workspace }
+    ? { ...windowId, kind: "hub", workspace }
     : {
+        ...windowId,
         kind: "project",
         environmentId: entry.identity.ref.environmentId,
         projectId: entry.identity.ref.projectId,
@@ -89,13 +104,15 @@ function toWindowDocument(entry: WindowRestoreEntry): typeof WindowDocument.Type
 
 function fromWindowDocument(document: typeof WindowDocument.Type): WindowRestoreEntry | null {
   const workspace = document.workspace ?? null;
+  const windowId = isWindowId(document.windowId) ? { windowId: document.windowId } : {};
   if (document.kind === "hub") {
-    return { identity: HUB_WINDOW_IDENTITY, workspace };
+    return { ...windowId, identity: HUB_WINDOW_IDENTITY, workspace };
   }
   const environmentId = document.environmentId?.trim() ?? "";
   const projectId = document.projectId?.trim() ?? "";
   if (environmentId.length === 0 || projectId.length === 0) return null;
   return {
+    ...windowId,
     identity: projectWindowIdentity(EnvironmentId.make(environmentId), ProjectId.make(projectId)),
     workspace,
   };
@@ -131,10 +148,7 @@ export class DesktopWindowSession extends Context.Service<
      * Records the open windows and the workspace each one occupies. Called on
      * the install path only, while the windows are still alive.
      */
-    readonly capture: (
-      identities: readonly WindowIdentity[],
-      reason: string,
-    ) => Effect.Effect<void>;
+    readonly capture: (windows: readonly CapturedWindow[], reason: string) => Effect.Effect<void>;
     /** Reads and deletes the manifest. Returns nothing when there is none. */
     readonly consume: Effect.Effect<readonly WindowRestoreEntry[]>;
   }
@@ -148,16 +162,16 @@ const make = Effect.gen(function* () {
 
   const remove = fileSystem.remove(sessionPath).pipe(Effect.ignore);
 
-  const capture = (identities: readonly WindowIdentity[], reason: string) =>
+  const capture = (windows: readonly CapturedWindow[], reason: string) =>
     Effect.gen(function* () {
-      if (identities.length === 0) {
+      if (windows.length === 0) {
         yield* remove;
         return;
       }
       const entries: WindowRestoreEntry[] = [];
-      for (const identity of identities) {
-        const workspace = yield* placement.workspaceOf(windowIdentityKey(identity));
-        entries.push({ identity, workspace: Option.getOrNull(workspace) });
+      for (const { windowId, identity } of windows) {
+        const workspace = yield* placement.workspaceOf(windowId);
+        entries.push({ windowId, identity, workspace: Option.getOrNull(workspace) });
       }
       const capturedAtMs = yield* Clock.currentTimeMillis;
       const payload = yield* encodeWindowSessionJson({
