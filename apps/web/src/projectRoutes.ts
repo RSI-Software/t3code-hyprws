@@ -23,18 +23,41 @@ type PullRequestListRouteTarget = Extract<
 >;
 type IssueListRouteTarget = Exclude<ProjectListRouteTarget, PullRequestListRouteTarget>;
 
+/**
+ * The project owning this window, or null everywhere else (hub window, web,
+ * mobile). Shared pages such as settings read it to return to the project this
+ * window is scoped to instead of the hub route.
+ */
+export function readDesktopProjectWindowRef(): ScopedProjectRef | null {
+  if (typeof window === "undefined") return null;
+  return window.desktopBridge?.projectWindowRef ?? null;
+}
+
+/** The project this window shows: its route's, else a desktop project window's own. */
+export function currentWindowProjectRef(): ScopedProjectRef | null {
+  if (typeof window === "undefined") return null;
+  return resolveProjectRefFromPathname(window.location.pathname) ?? readDesktopProjectWindowRef();
+}
+
+/**
+ * A list page's route. A desktop project window stays in its own project even
+ * from a shared page such as settings, where the pathname names no project:
+ * the hub list would carry it out of its scope, and the desktop closes a
+ * project window that leaves its project.
+ */
 export function listRouteTarget(
   kind: "pull-requests",
-  windowProjectRef: ScopedProjectRef | null,
+  pathnameProjectRef: ScopedProjectRef | null,
 ): PullRequestListRouteTarget;
 export function listRouteTarget(
   kind: "issues",
-  windowProjectRef: ScopedProjectRef | null,
+  pathnameProjectRef: ScopedProjectRef | null,
 ): IssueListRouteTarget;
 export function listRouteTarget(
   kind: ProjectListRouteKind,
-  windowProjectRef: ScopedProjectRef | null,
+  pathnameProjectRef: ScopedProjectRef | null,
 ): ProjectListRouteTarget {
+  const windowProjectRef = pathnameProjectRef ?? readDesktopProjectWindowRef();
   if (kind === "pull-requests") {
     return windowProjectRef === null
       ? { to: "/pull-requests" as const }

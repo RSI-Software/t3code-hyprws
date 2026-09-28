@@ -10,10 +10,8 @@ import {
   type StartupDrainServices,
   type WindowOpeners,
 } from "../window/DesktopStartupDrain.fork.ts";
-import { projectWindowIdentity, type WindowIdentity } from "../window/WindowIdentity.ts";
+import type { WindowRequest } from "../window/WindowDispatch.fork.ts";
 import { makeSecondInstanceBuffer } from "./DesktopSecondInstanceBuffer.fork.ts";
-
-const fakeWindow = {} as Electron.BrowserWindow;
 
 const noopServices: StartupDrainServices = {
   hyprlandPlacement: {
@@ -42,14 +40,17 @@ const makeFakeApp = () => {
   return { electronApp, emit } as const;
 };
 
-// argv is ["t3code", <name>]; the resolver maps the name to a project window.
-const identityOf = (argv: readonly string[]): WindowIdentity | null =>
+// argv is ["t3code", <name>]; the resolver maps the name to a project deep link.
+const requestOf = (argv: readonly string[]): WindowRequest =>
   argv[1] === undefined
-    ? null
-    : projectWindowIdentity(
-        EnvironmentId.make(`environment-${argv[1]}`),
-        ProjectId.make(`project-${argv[1]}`),
-      );
+    ? { kind: "activate" }
+    : {
+        kind: "project-link",
+        ref: {
+          environmentId: EnvironmentId.make(`environment-${argv[1]}`),
+          projectId: ProjectId.make(`project-${argv[1]}`),
+        },
+      };
 
 describe("DesktopSecondInstanceBuffer", () => {
   it.effect("opens a launch emitted before configure after the first intent, once", () =>
@@ -58,18 +59,18 @@ describe("DesktopSecondInstanceBuffer", () => {
       const buffer = makeSecondInstanceBuffer();
       const app = makeFakeApp();
       const opened = yield* Ref.make<ReadonlyArray<string>>([]);
-      const record = (identity: WindowIdentity) =>
+      const record = (request: WindowRequest) =>
         Ref.update(opened, (keys) => [
           ...keys,
-          identity.kind === "hub" ? "hub" : identity.ref.projectId,
-        ]).pipe(Effect.as(fakeWindow));
+          request.kind === "project-link" ? request.ref.projectId : request.kind,
+        ]);
       const openers: WindowOpeners = {
         ensureIdentity: () => () => Effect.die("no restore is staged"),
-        revealOrCreateIdentity: () => record,
+        dispatch: () => record,
         createMainIfBackendReady: () => Effect.void,
       };
       const stage = (argv: readonly string[]) =>
-        drain.stageArguments(noopServices, identityOf, argv).pipe(Effect.asVoid);
+        drain.stageArguments(noopServices, requestOf, argv).pipe(Effect.asVoid);
 
       yield* buffer.listen(app.electronApp);
       // Emitted in the gap before configure registers the real listener.
