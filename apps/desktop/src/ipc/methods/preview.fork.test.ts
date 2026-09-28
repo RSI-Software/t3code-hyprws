@@ -18,13 +18,11 @@ import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts"
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
-import {
-  projectWindowIdentity,
-  windowIdentityKey,
-  HUB_WINDOW_IDENTITY,
-  type WindowIdentity,
-} from "../../window/WindowIdentity.ts";
+import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
 import { projectWindowPreloadArgument } from "../../window/projectWindowArgument.ts";
+
+const hubWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
+const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as PreviewIpc from "./preview.ts";
 
@@ -96,12 +94,12 @@ describe("fork preview IPC ownership", () => {
         sender === hubSender ? hubWindow : sender === projectSender ? projectWindow : null,
       );
       const windows = {
-        identityFor: (window: Electron.BrowserWindow) =>
+        windowIdFor: (window: Electron.BrowserWindow) =>
           Effect.succeed(
             window === hubWindow
-              ? Option.some(HUB_WINDOW_IDENTITY)
+              ? Option.some(hubWindowId)
               : window === projectWindow
-                ? Option.some(projectWindowIdentity(projectRef.environmentId, projectRef.projectId))
+                ? Option.some(projectWindowId)
                 : Option.none(),
           ),
       } as ElectronWindow.ElectronWindow["Service"];
@@ -152,10 +150,20 @@ describe("fork preview IPC ownership", () => {
           yield* ipc.handle(method);
         }
         yield* Effect.promise(async () => {
-          const hub = await loadBridge(["electron"]);
-          const project = await loadBridge(["electron", projectWindowPreloadArgument(projectRef)]);
+          const hubArgv = ["electron", windowIdPreloadArgument(hubWindowId)];
+          const hub = await loadBridge(hubArgv);
+          const project = await loadBridge([
+            "electron",
+            windowIdPreloadArgument(projectWindowId),
+            projectWindowPreloadArgument(projectRef),
+          ]);
           expect(hub.projectWindowRef).toBeNull();
           expect(project.projectWindowRef).toEqual(projectRef);
+          expect(hub.windowId).toBe(hubWindowId);
+          expect(project.windowId).toBe(projectWindowId);
+          // A reload runs the preload again over the arguments main gave the
+          // window at creation, so the renderer reads the same id back.
+          expect((await loadBridge(hubArgv)).windowId).toBe(hubWindowId);
           const hubPreview = hub.preview!;
           const projectPreview = project.preview!;
           expect(hubPreview).toBeDefined();
@@ -234,10 +242,6 @@ describe("fork preview IPC ownership", () => {
   );
 
   effectIt.effect("routes preview events only to their owning window", () => {
-    const firstIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
     const firstSend = vi.fn();
     const secondSend = vi.fn();
     let stateListener: Parameters<
@@ -246,20 +250,17 @@ describe("fork preview IPC ownership", () => {
 
     return Effect.gen(function* () {
       yield* PreviewIpc.installPreviewEventForwarding();
-      yield* stateListener(firstIdentity, "tab-1", { tabId: "tab-1" } as never);
+      yield* stateListener(projectWindowId, "tab-1", { tabId: "tab-1" } as never);
 
       expect(firstSend).toHaveBeenCalledOnce();
       expect(secondSend).not.toHaveBeenCalled();
     }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        get: (identity: typeof firstIdentity) =>
+        getById: (windowId: WindowId) =>
           Effect.succeed(
             Option.some({
               webContents: {
-                send:
-                  windowIdentityKey(identity) === windowIdentityKey(firstIdentity)
-                    ? firstSend
-                    : secondSend,
+                send: windowId === projectWindowId ? firstSend : secondSend,
               },
             } as never),
           ),
@@ -277,10 +278,6 @@ describe("fork preview IPC ownership", () => {
   });
 
   effectIt.effect("starts recording on the sender's window manager, not the hub", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
     const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
     const projectStartRecording = vi.fn(() => Effect.void);
@@ -290,7 +287,7 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.startRecording.handler({ tabId: "owned-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        identityFor: () => Effect.succeed(Option.some(identity)),
+        windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
       } as never),
       Effect.provideService(DesktopClientSettings.DesktopClientSettings, {
         get: Effect.succeed(
@@ -301,12 +298,10 @@ describe("fork preview IPC ownership", () => {
         ),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, {
-        forWindow: (requested: WindowIdentity) =>
+        forWindow: (requested: WindowId) =>
           Effect.succeed({
             startRecording:
-              windowIdentityKey(requested) === windowIdentityKey(HUB_WINDOW_IDENTITY)
-                ? hubStartRecording
-                : projectStartRecording,
+              requested === projectWindowId ? projectStartRecording : hubStartRecording,
           } as never),
       } as never),
       Effect.tap(() =>
@@ -321,11 +316,7 @@ describe("fork preview IPC ownership", () => {
     );
   });
 
-  effectIt.effect("resolves the sender identity before invoking its window manager", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
+  effectIt.effect("resolves the sender window before invoking its window manager", () => {
     const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
     const closeTab = vi.fn(() => Effect.void);
@@ -334,7 +325,7 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.closeTab.handler({ tabId: "owned-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        identityFor: () => Effect.succeed(Option.some(identity)),
+        windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, {
         forWindow: () => Effect.succeed({ closeTab } as never),
@@ -355,7 +346,7 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.closeTab.handler({ tabId: "other-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        identityFor: () => Effect.succeed(Option.none()),
+        windowIdFor: () => Effect.succeed(Option.none()),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, null as never),
       Effect.exit,
