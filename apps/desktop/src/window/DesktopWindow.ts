@@ -360,6 +360,7 @@ export const make = Effect.gen(function* () {
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
   const hyprlandPlacement = yield* HyprlandPlacement;
+  const titleClaimsFork = WindowPlacement.makeTitleClaimsFork(); // fork-hook: multi-window/claim-title-gate
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
   const backendReadyRef = yield* Ref.make(false); // fork-hook: multi-window/startup-drain-latch
   const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
@@ -435,7 +436,13 @@ export const make = Effect.gen(function* () {
       devAgent: devAgentPlacement,
       restoredWorkspace: dispatched?.restored?.workspace,
     }); // fork-hook: multi-window/placement-resolve
-    const initialWindowTitle = mapPlacementFork?.title ?? normalWindowTitle; // fork-hook: multi-window/placement-title
+    const claimTitleFork = WindowPlacement.reserveClaimTitleFork({
+      hyprlandAvailable: hyprlandPlacement.isAvailable,
+      windowId,
+      placement: mapPlacementFork,
+      titleClaims: titleClaimsFork,
+    }); // fork-hook: multi-window/claim-title
+    const initialWindowTitle = mapPlacementFork?.title ?? claimTitleFork ?? normalWindowTitle; // fork-hook: multi-window/placement-title
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -499,9 +506,9 @@ export const make = Effect.gen(function* () {
       window.setAutoHideCursor(false);
     }
     const titleHoldFork =
-      mapPlacementFork === null
+      mapPlacementFork === null && claimTitleFork === null
         ? null
-        : WindowPlacement.holdWindowTitleFork(window, mapPlacementFork.title, normalWindowTitle); // fork-hook: multi-window/placement-title-hold
+        : WindowPlacement.holdWindowTitleFork(window, initialWindowTitle, normalWindowTitle); // fork-hook: multi-window/placement-title-hold
     const knownAddressesFork = runPromise(hyprlandPlacement.snapshotAddresses); // fork-hook: multi-window/claim-baseline
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
@@ -948,12 +955,6 @@ export const make = Effect.gen(function* () {
       if (!window.isDestroyed()) {
         window.webContents.setBackgroundThrottling(true);
       }
-      // Reveal the real window, then close the connecting splash (if any) so the
-      // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
-        window.maximize();
-      }
-
       const mapFork =
         mapPlacementFork === null || titleHoldFork === null
           ? null
@@ -963,6 +964,7 @@ export const make = Effect.gen(function* () {
               windowId,
               placement: mapPlacementFork,
               titleHold: titleHoldFork,
+              maximize: persistedSettings.mainWindowMaximized, // fork-hook: multi-window/placement-maximize
               dismissSplash: dismissConnectingSplash,
             }).pipe(
               Effect.ensuring(
@@ -972,6 +974,12 @@ export const make = Effect.gen(function* () {
               ),
             ); // fork-hook: multi-window/placement-map-effect
       if (mapFork !== null) return void runPromise(mapFork); // fork-hook: multi-window/placement-map
+
+      // Reveal the real window, then close the connecting splash (if any) so the
+      // two don't overlap and there's no blank gap between them.
+      if (persistedSettings.mainWindowMaximized) {
+        window.maximize();
+      }
 
       // Normal launches reveal and focus. Agent launches above deliberately do
       // neither, even when the Electron main process restarts under the watcher.
@@ -984,6 +992,8 @@ export const make = Effect.gen(function* () {
           windowId,
           title: window.getTitle(),
           knownAddresses: knownAddressesFork,
+          titleHold: titleHoldFork, // fork-hook: multi-window/claim-title-hold
+          titleClaims: titleClaimsFork, // fork-hook: multi-window/claim-title-release
         }),
       ); // fork-hook: multi-window/window-id-claim
     });
@@ -997,6 +1007,7 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
       void runPromise(hyprlandPlacement.forget(windowId)); // fork-hook: multi-window/window-id-forget
+      titleClaimsFork.release(windowId); // fork-hook: multi-window/claim-title-closed
       currentMainBoundsFork.untrack(window); // fork-hook: multi-window/bounds-current-main
       if (flushMainWindowBounds === flushBoundsPersist) {
         flushMainWindowBounds = currentMainBoundsFork.flush;
