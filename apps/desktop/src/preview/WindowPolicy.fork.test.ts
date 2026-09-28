@@ -11,7 +11,7 @@ import * as Scope from "effect/Scope";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import * as IpcChannels from "../ipc/channels.ts";
-import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
+import { type WindowId, windowIdPreloadArgument } from "../window/WindowId.fork.ts";
 import { projectWindowPreloadArgument } from "../window/projectWindowArgument.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import {
@@ -46,6 +46,9 @@ const emit = (channel: string, ...args: ReadonlyArray<unknown>) => {
     if (subscribed === channel) listener({}, ...(args as never[]));
 };
 
+const firstWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
+const secondWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
+
 const idleState = (tabId: string): PreviewTabState => ({
   tabId,
   webContentsId: null,
@@ -75,13 +78,15 @@ const makeOperationsFactory = (
   setMainWindow: (window: Electron.BrowserWindow) => Effect.Effect<void> = () => Effect.void,
 ) => {
   const tabSets: Set<string>[] = [];
+  // Which operations instance (by creation order) prepared each guest.
+  const prepared: Array<{ readonly instance: number; readonly guest: Electron.WebContents }> = [];
   const stateListeners: Array<(tabId: string, state: PreviewTabState) => Effect.Effect<void>> = [];
   let stateListenerRemovals = 0;
 
   const create = (scope: Scope.Closeable) =>
     Effect.gen(function* () {
       const tabs = new Set<string>();
-      tabSets.push(tabs);
+      const instance = tabSets.push(tabs) - 1;
       yield* Scope.addFinalizer(
         scope,
         Effect.sync(() => tabs.clear()),
@@ -98,6 +103,8 @@ const makeOperationsFactory = (
             return state;
           }),
         closeTab: (tabId: string) => Effect.sync(() => void tabs.delete(tabId)),
+        prepareWebview: (guest: Electron.WebContents) =>
+          Effect.sync(() => void prepared.push({ instance, guest })),
         setMainWindow,
         subscribeStateChanges: (listener: typeof stateListener) =>
           Effect.acquireRelease(
@@ -118,6 +125,7 @@ const makeOperationsFactory = (
 
   return {
     create,
+    prepared,
     stateListeners,
     tabSets,
     get stateListenerRemovals() {
@@ -153,11 +161,14 @@ describe("desktop preview window policy", () => {
     const originalArgv = process.argv;
     process.argv = [
       "electron",
+      windowIdPreloadArgument(firstWindowId),
       projectWindowPreloadArgument({ environmentId: "environment 1", projectId: "project/1" }),
     ];
     try {
       const exposed = exposePreviewCapability({} as PreviewCapableDesktopBridge);
 
+      // Main's id comes back verbatim, apart from the project the window shows.
+      expect(exposed.windowId).toBe(firstWindowId);
       expect(exposed.projectWindowRef).toStrictEqual({
         environmentId: "environment 1",
         projectId: "project/1",
@@ -170,6 +181,26 @@ describe("desktop preview window policy", () => {
         environmentId: "environment-2",
         projectId: "project-2",
       });
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it("reads the window id main passed, and none from a window main did not create", () => {
+    const originalArgv = process.argv;
+    try {
+      process.argv = ["electron", windowIdPreloadArgument(secondWindowId)];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowId).toBe(
+        secondWindowId,
+      );
+      process.argv = ["electron", "--t3code-window-id=project:environment-1:project-1"];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge)).not.toHaveProperty(
+        "windowId",
+      );
+      process.argv = ["electron"];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge)).not.toHaveProperty(
+        "windowId",
+      );
     } finally {
       process.argv = originalArgv;
     }
@@ -214,19 +245,15 @@ describe("desktop preview window policy", () => {
 
   effectIt.effect("keeps project preview events out of hub compatibility listeners", () => {
     const operations = makeOperationsFactory();
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
 
     return Effect.gen(function* () {
       const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
       const hubDeliveries: string[] = [];
       yield* policy.subscribeStateChanges((tabId) => Effect.sync(() => hubDeliveries.push(tabId)));
-      const project = yield* policy.forWindow(identity);
+      const project = yield* policy.forWindow(firstWindowId);
 
       yield* project.createTab("project-tab");
-      yield* policy.hub.createTab("hub-tab");
+      yield* policy.app.createTab("hub-tab");
 
       expect(operations.tabSets[1]?.has("project-tab")).toBe(true);
       expect(hubDeliveries).toEqual(["hub-tab"]);
@@ -234,37 +261,24 @@ describe("desktop preview window policy", () => {
   });
 
   effectIt.effect("forwards an event only to its owning window", () => {
-    const firstIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const secondIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-2"),
-    );
     const firstSend = vi.fn();
     const secondSend = vi.fn();
-    const get = vi.fn((identity: WindowPolicy.WindowIdentity) =>
+    const getById = vi.fn((windowId: WindowId) =>
       Effect.succeed(
         Option.some({
-          webContents: {
-            send:
-              windowIdentityKey(identity) === windowIdentityKey(firstIdentity)
-                ? firstSend
-                : secondSend,
-          },
+          webContents: { send: windowId === firstWindowId ? firstSend : secondSend },
         } as never),
       ),
     );
     let stateListener: (
-      identity: WindowPolicy.WindowIdentity,
+      owner: WindowPolicy.PreviewOwner,
       tabId: string,
       state: PreviewTabState,
     ) => Effect.Effect<void> = () => Effect.void;
 
     return Effect.gen(function* () {
       yield* WindowPolicy.installEventForwarding(
-        { get } as never,
+        { getById } as never,
         {
           subscribeOwnedStateChanges: (listener: typeof stateListener) =>
             Effect.sync(() => {
@@ -282,35 +296,28 @@ describe("desktop preview window policy", () => {
         },
       );
 
-      yield* stateListener(firstIdentity, "tab-1", idleState("tab-1"));
+      yield* stateListener(firstWindowId, "tab-1", idleState("tab-1"));
+      // The app owner has no renderer of its own; its events stay in main.
+      yield* stateListener(WindowPolicy.APP_PREVIEW_OWNER, "app-tab", idleState("app-tab"));
 
-      expect(get).toHaveBeenCalledOnce();
-      expect(get).toHaveBeenCalledWith(firstIdentity);
+      expect(getById).toHaveBeenCalledOnce();
+      expect(getById).toHaveBeenCalledWith(firstWindowId);
       expect(firstSend).toHaveBeenCalledOnce();
       expect(firstSend).toHaveBeenCalledWith("preview-state", "tab-1", idleState("tab-1"));
       expect(secondSend).not.toHaveBeenCalled();
-      expect(get).not.toHaveBeenCalledWith(secondIdentity);
     }).pipe(Effect.scoped);
   });
 
   effectIt.effect("namespaces tabs and reports cross-window ownership", () => {
     const operations = makeOperationsFactory();
-    const firstIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const secondIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-2"),
-    );
 
     return Effect.gen(function* () {
       const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
-      const first = yield* policy.forWindow(firstIdentity);
-      const second = yield* policy.forWindow(secondIdentity);
+      const first = yield* policy.forWindow(firstWindowId);
+      const second = yield* policy.forWindow(secondWindowId);
       const deliveries: string[] = [];
-      yield* policy.subscribeOwnedStateChanges((identity, tabId) =>
-        Effect.sync(() => deliveries.push(`${identity.kind}:${tabId}`)),
+      yield* policy.subscribeOwnedStateChanges((owner, tabId) =>
+        Effect.sync(() => deliveries.push(`${owner}:${tabId}`)),
       );
 
       yield* first.createTab("shared-tab");
@@ -320,9 +327,9 @@ describe("desktop preview window policy", () => {
 
       expect(operations.tabSets).toHaveLength(3); // eager hub plus two project windows
       expect(deliveries).toEqual([
-        "project:shared-tab",
-        "project:shared-tab",
-        "project:first-only",
+        `${firstWindowId}:shared-tab`,
+        `${secondWindowId}:shared-tab`,
+        `${firstWindowId}:first-only`,
       ]);
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -336,23 +343,19 @@ describe("desktop preview window policy", () => {
 
   effectIt.effect("recreates disposed window state without disturbing other windows", () => {
     const operations = makeOperationsFactory();
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
 
     return Effect.gen(function* () {
       const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
       const deliveries: string[] = [];
-      yield* policy.subscribeOwnedStateChanges((_identity, tabId) =>
+      yield* policy.subscribeOwnedStateChanges((_owner, tabId) =>
         Effect.sync(() => deliveries.push(tabId)),
       );
-      yield* (yield* policy.forWindow(identity)).createTab("old-tab");
-      yield* policy.disposeWindow(identity);
+      yield* (yield* policy.forWindow(firstWindowId)).createTab("old-tab");
+      yield* policy.disposeWindow(firstWindowId);
       const staleListener = operations.stateListeners[1];
       if (staleListener === undefined) return yield* Effect.die("missing project listener");
       yield* staleListener("stale-tab", idleState("stale-tab"));
-      yield* (yield* policy.forWindow(identity)).createTab("new-tab");
+      yield* (yield* policy.forWindow(firstWindowId)).createTab("new-tab");
 
       expect(operations.tabSets).toHaveLength(3);
       expect(operations.tabSets[1]?.has("old-tab")).toBe(false);
@@ -365,10 +368,6 @@ describe("desktop preview window policy", () => {
   effectIt.effect("keeps a replacement window registered when the old close races it", () => {
     const first = makeWindow();
     const replacement = makeWindow();
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
 
     return Effect.gen(function* () {
       const replacementStarted = yield* Deferred.make<void>();
@@ -381,9 +380,9 @@ describe("desktop preview window policy", () => {
           : Effect.void,
       );
       const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
-      yield* policy.setWindow(identity, first.window);
+      yield* policy.setWindow(firstWindowId, first.window);
       const replacing = yield* policy
-        .setWindow(identity, replacement.window)
+        .setWindow(firstWindowId, replacement.window)
         .pipe(Effect.forkChild({ startImmediately: true }));
       yield* Deferred.await(replacementStarted);
 
@@ -392,7 +391,7 @@ describe("desktop preview window policy", () => {
       yield* Deferred.succeed(replacementReleased, undefined);
       yield* Fiber.join(replacing);
       yield* Effect.yieldNow;
-      yield* (yield* policy.forWindow(identity)).createTab("replacement-tab");
+      yield* (yield* policy.forWindow(firstWindowId)).createTab("replacement-tab");
 
       expect(operations.tabSets).toHaveLength(2); // eager hub plus the retained project window
       expect(operations.tabSets[1]?.has("replacement-tab")).toBe(true);
@@ -400,26 +399,58 @@ describe("desktop preview window policy", () => {
     }).pipe(Effect.scoped);
   });
 
+  effectIt.effect("prepares an attached guest in the window that hosts it", () => {
+    const operations = makeOperationsFactory();
+    const hostedWindow = (webContents: Electron.WebContents) =>
+      ({
+        webContents,
+        isDestroyed: () => false,
+        once: vi.fn(),
+      }) as unknown as Electron.BrowserWindow;
+    const firstRenderer = { id: 11 } as Electron.WebContents;
+    const secondRenderer = { id: 12 } as Electron.WebContents;
+    const guestOf = (hostWebContents: Electron.WebContents | null) =>
+      ({ hostWebContents }) as unknown as Electron.WebContents;
+
+    return Effect.gen(function* () {
+      const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
+      yield* policy.setWindow(firstWindowId, hostedWindow(firstRenderer));
+      yield* policy.setWindow(secondWindowId, hostedWindow(secondRenderer));
+      const secondGuest = guestOf(secondRenderer);
+      const firstGuest = guestOf(firstRenderer);
+      const orphanGuest = guestOf(null);
+
+      yield* policy.prepareWebview(secondGuest);
+      yield* policy.prepareWebview(firstGuest);
+      yield* policy.prepareWebview(orphanGuest);
+
+      // Instance 0 is the eager app instance; windows follow in setWindow order.
+      expect(operations.prepared).toEqual([
+        { instance: 2, guest: secondGuest },
+        { instance: 1, guest: firstGuest },
+        { instance: 0, guest: orphanGuest },
+      ]);
+    }).pipe(Effect.scoped);
+  });
+
   effectIt.effect("authorizes a registered sender and selects its window manager", () => {
     const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
     const windowManager = { closeTab: vi.fn() };
+    const forWindow = vi.fn(() => Effect.succeed(windowManager));
     fromId.mockReturnValue(sender);
     fromWebContents.mockReturnValue(senderWindow);
 
     return Effect.gen(function* () {
       const resolved = yield* WindowPolicy.resolvePreviewForSender(
         { sender },
-        { identityFor: () => Effect.succeed(Option.some(identity)) } as never,
-        { forWindow: () => Effect.succeed(windowManager) } as never,
+        { windowIdFor: () => Effect.succeed(Option.some(firstWindowId)) } as never,
+        { forWindow } as never,
         authorizationError,
       );
 
-      expect(resolved.identity).toEqual(identity);
+      expect(resolved.windowId).toBe(firstWindowId);
+      expect(forWindow).toHaveBeenCalledWith(firstWindowId);
       expect(resolved.windowManager).toBe(windowManager);
     });
   });
@@ -431,7 +462,7 @@ describe("desktop preview window policy", () => {
 
     return WindowPolicy.resolvePreviewForSender(
       { sender },
-      { identityFor: () => Effect.succeed(Option.none()) } as never,
+      { windowIdFor: () => Effect.succeed(Option.none()) } as never,
       null as never,
       authorizationError,
     ).pipe(
