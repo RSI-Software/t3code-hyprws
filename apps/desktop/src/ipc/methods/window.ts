@@ -25,6 +25,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
+import * as DesktopAttachedPrimary from "../../app/DesktopAttachedPrimary.ts"; // fork-hook: backend-attach/window-import
 import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
@@ -174,6 +175,8 @@ export const getLocalEnvironmentBearerToken = DesktopIpc.makeIpcMethod({
   payload: Schema.Void,
   result: Schema.String,
   handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBearerToken")(function* () {
+    const attachedToken = yield* DesktopAttachedPrimary.attachedBearerToken; // fork-hook: backend-attach/window-bearer
+    if (Option.isSome(attachedToken)) return attachedToken.value; // fork-hook: backend-attach/window-bearer-use
     const localAuth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
     return yield* localAuth.getBearerToken;
   }),
@@ -191,7 +194,10 @@ export const pickFolder = DesktopIpc.makeIpcMethod({
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
     const settings = yield* appSettings.get;
     // A picked path only means something to a backend on this machine.
-    if (!settings.localEnvironmentEnabled) {
+    if (
+      !settings.localEnvironmentEnabled &&
+      !(yield* DesktopAttachedPrimary.isAttached) // fork-hook: backend-attach/window-pick-folder
+    ) {
       return null;
     }
     // Three picker modes:
@@ -258,7 +264,10 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
     const dialog = yield* ElectronDialog.ElectronDialog;
     const electronWindow = yield* ElectronWindow.ElectronWindow;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    if (!(yield* appSettings.get).localEnvironmentEnabled) {
+    if (
+      !(yield* appSettings.get).localEnvironmentEnabled &&
+      !(yield* DesktopAttachedPrimary.isAttached) // fork-hook: backend-attach/window-pick-favicon
+    ) {
       return null;
     }
     const paths = yield* dialog.pickFiles({
