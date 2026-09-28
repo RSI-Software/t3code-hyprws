@@ -121,6 +121,7 @@ import {
 import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
+import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -2803,6 +2804,7 @@ export default function Sidebar() {
     projectGroupingSettings,
     setProjectScopeKey,
   ]);
+  useWindowSidebarScopeSeed(projectGroups, allProjectSnapshotsReady); // fork-hook: multi-window/window-sidebar-scope-seed
   // Count-only subscription: the parent needs "are there draft rows" for the
   // empty state, while SidebarDraftBlock owns the per-keystroke content
   // subscription. Selecting a number keeps typing in a draft composer from
