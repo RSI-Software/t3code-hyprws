@@ -90,12 +90,12 @@ import {
   toComposerContextId,
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
-import { resolveProjectRefFromPathname } from "./projectRoutes";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 
 const isElementContextDetails = Schema.is(ElementContextDetails);
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 import * as forkDraftScope from "./windowDraftScope.fork"; // fork-hook: multi-window/draft-scope-import
+import { migrateProjectDraftBucketsInBrowser } from "./projectDraftMigration.fork"; // fork-hook: multi-window/project-draft-migration-import
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -105,19 +105,6 @@ const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
-
-export function resolveComposerDraftStorageKey(pathname: string): string {
-  const projectRef = resolveProjectRefFromPathname(pathname);
-  if (projectRef === null) {
-    return COMPOSER_DRAFT_STORAGE_KEY;
-  }
-  return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(projectRef.environmentId)}:${encodeURIComponent(projectRef.projectId)}`;
-}
-
-// Test doubles stub `window` without `location`; treat that like a server render.
-const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
-  typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
-);
 const DraftThreadEnvModeSchema = ForkThreadEnvMode; // fork-hook: worktrunk-hooks/draft-thread-env-mode-schema
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -154,6 +141,7 @@ const composerPersistStorage: PersistStorage<ComposerPersistState> = {
   setItem: (name, value) => composerDebouncedStorage.setItem(name, value),
   removeItem: (name) => composerDebouncedStorage.removeItem(name),
 };
+migrateProjectDraftBucketsInBrowser(COMPOSER_DRAFT_STORAGE_KEY); // fork-hook: multi-window/project-draft-migration
 forkDraftScope.install(composerDebouncedStorage, partializeComposerDraftStoreState); // fork-hook: multi-window/draft-scope-install
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
@@ -2218,7 +2206,7 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   } // fork-hook: multi-window/draft-scope-attachments
   try {
     const persisted = getLocalStorageItem(
-      activeComposerDraftStorageKey,
+      COMPOSER_DRAFT_STORAGE_KEY,
       PersistedComposerDraftStoreStorage,
     );
     if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
@@ -4133,7 +4121,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
       };
     },
     {
-      name: activeComposerDraftStorageKey,
+      name: COMPOSER_DRAFT_STORAGE_KEY,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,
