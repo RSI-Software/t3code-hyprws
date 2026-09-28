@@ -1186,7 +1186,6 @@ export interface DesktopBridge {
   /** Reads http(s) media in the main process, outside renderer CORS and CSP; null on network failure. */
   readMedia: (url: string) => Promise<DesktopMediaRead | null>;
   requestWindow?: (request: DesktopWindowRequest) => Promise<void>; // fork-hook: multi-window/request-window-bridge
-  projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
   windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
