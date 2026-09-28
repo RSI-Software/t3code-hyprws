@@ -1,9 +1,10 @@
-import type { DesktopBridge, ScopedProjectRef } from "@t3tools/contracts";
+import type { DesktopBridge, ScopedProjectRef, WindowScopeSeed } from "@t3tools/contracts";
 import { ipcRenderer } from "electron";
 
 import * as IpcChannels from "../ipc/channels.ts";
 import { readProjectWindowPreloadParts } from "../window/projectWindowArgument.ts";
 import { readWindowIdPreloadArgument } from "../window/WindowId.fork.ts";
+import { readWindowScopeSeedPreloadArgument } from "../window/WindowScopeSeed.fork.ts";
 
 export type PreviewCapableDesktopBridge = DesktopBridge & {
   readonly preview: NonNullable<DesktopBridge["preview"]>;
@@ -22,7 +23,7 @@ export type ProjectWindowCapabilities = Required<
     "openProjectWindow" | "projectWindowRef" | "getWindowDemandState" | "onWindowDemandStateChange"
   >
 > &
-  Pick<DesktopBridge, "windowId">;
+  Pick<DesktopBridge, "windowId" | "windowScopeSeed">;
 
 const windowIdCapability = (): Pick<DesktopBridge, "windowId"> => {
   const windowId = readWindowIdPreloadArgument(process.argv);
@@ -51,6 +52,8 @@ const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   projectWindowRef: readProjectWindowPreloadParts(process.argv) as ScopedProjectRef | null,
   // Main passes every app window its id; a window main did not create has none.
   ...windowIdCapability(),
+  // Branded like `projectWindowRef`: plain strings at runtime.
+  windowScopeSeed: readWindowScopeSeedPreloadArgument(process.argv) as WindowScopeSeed | null,
   getWindowDemandState: () => windowDemandState,
   onWindowDemandStateChange: (listener) => {
     windowDemandStateListeners.add(listener);
