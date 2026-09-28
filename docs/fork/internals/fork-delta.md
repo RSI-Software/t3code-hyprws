@@ -175,7 +175,7 @@ A domain is a reason the fork exists, not a feature area.
 ### Need
 
 - **Windows:** many windows, one shared backend
-- **Identity:** one opaque window id, stable across restore
+- **Identity:** an opaque id, stable across restore
 
 ### Shape
 
@@ -218,7 +218,7 @@ Upstream ships its own multi-window support.
 ### Need
 
 - **Filter:** each window shows its own project set
-- **Chooser:** one chooser picks the window's projects
+- **Chooser:** picks the window's projects
 - **Scope:** narrows lists, never hides work
 
 ### Shape
@@ -567,18 +567,21 @@ Upstream ships named thread groups with persistent membership, plus a control th
 
 ### Need
 
-- **Fork:** a thread continues as a copy, same provider
-- **Same:** the child rides the same provider instance and native session
+- **Fork:** a thread continues as a copy
+- **Same:** provider instance and native session
 
 ### Shape
 
-Right-click a thread → Fork thread. The server handler guards the source
-(quiescent, no pending requests, Claude or Codex, usable cursor, not
-deleted or archived), then drives the import pipeline's own commands:
-binding insert-ignore, `thread.create` with `historyImport: true`,
-`thread.history.import` with fresh `import:` ids, and `thread.unsettle`.
-The web client's sidebar and header menus share one dispatch that fires
-`thread.fork` and navigates to the child.
+**Fork thread** in a thread's menu fires `thread.fork`; the sidebar and header menus share one dispatch that navigates to the child.
+
+The server handler drives the import pipeline's own commands:
+
+1. Guard: quiescent, no pending requests
+2. Guard: usable cursor, not deleted or archived
+3. Binding insert-ignore
+4. `thread.create` with `historyImport: true`
+5. `thread.history.import`, fresh `import:` ids
+6. `thread.unsettle`
 
 | Aspect    | Rule                                                                                                        |
 | --------- | ----------------------------------------------------------------------------------------------------------- |
@@ -588,9 +591,8 @@ The web client's sidebar and header menus share one dispatch that fires
 | Parent    | Binding and cursor are read-only during a fork; the source thread is never rewritten                        |
 | Providers | Claude and Codex only; every other driver refuses with `ThreadForkUnsupportedProviderError`                 |
 
-Tracked by `RSI-Software/t3code-hyprws#1310`. `ClaudeHistoryCommand.fork.ts` mirrors
-`runScopedHistoryCommand` in `ClaudeAdapter.ts`; rebase-time dedupe is refused on purpose —
-rebase safety beats DRY.
+Tracked by RSI-Software/t3code-hyprws#1310.
+`ClaudeHistoryCommand.fork.ts` mirrors `runScopedHistoryCommand` in `ClaudeAdapter.ts` on purpose: rebase safety beats DRY.
 
 ### Retirement condition
 
@@ -666,7 +668,7 @@ The domain retires when it is empty.
 | Legacy    | `zmuxSessions` folds into `terminalSessionMode` on load                                                |
 | Binder    | `apps/server/src/zmux/`, called through `ProcessRunner` with tmux variables stripped                   |
 
-**Demand leases.** Visible terminal surfaces hold them: web on document visibility, Electron on shown, non-minimized project windows, deliberately excluding focus.
+**Demand leases.** Visible terminal surfaces hold them: web on document visibility, Electron on each shown, non-minimized window, deliberately excluding focus.
 Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand.
 Client streams release immediately, then a server-owned grace timer detaches only the `zmux open` PTY.
 Resume re-resolves the thread's persisted checkout, so renames follow the verified target.
