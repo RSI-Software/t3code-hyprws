@@ -75,11 +75,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import {
-  openInNewWindowRequest,
-  requestDesktopWindow,
-  supportsDesktopProjectWindows,
-} from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-palette-import
+import { requestDesktopWindow, supportsDesktopProjectWindows } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-palette-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -2097,12 +2093,12 @@ function OpenCommandPaletteDialog(props: {
       kind: "action",
       value: "action:open-project-window",
       searchTerms: ["open", "project", "window", "desktop", "separate"],
-      title: "Open project in new window",
+      title: "Open project window", // fork-hook: multi-window/dispatch-palette-open-project
       description: contextualProjectGroup?.displayName,
       icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "window.openInNew", // fork-hook: multi-window/dispatch-palette-open-in-new
+      shortcutCommand: "window.openProject", // fork-hook: multi-window/dispatch-palette-open-project
       run: async () => {
-        requestDesktopWindow(desktopBridge, openInNewWindowRequest(contextualProjectRef)); // fork-hook: multi-window/dispatch-palette-open-in-new
+        requestDesktopWindow(desktopBridge, { kind: "project-link", ref: contextualProjectRef }); // fork-hook: multi-window/dispatch-palette-open-project
       },
     });
   }
