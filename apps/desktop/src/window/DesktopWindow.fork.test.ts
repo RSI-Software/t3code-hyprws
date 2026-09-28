@@ -33,14 +33,18 @@ import * as DesktopWindow from "./DesktopWindow.ts";
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import { dispatchedWindowUrlFork } from "./DesktopWindowDispatch.fork.ts";
-import { windowIdPreloadArgument } from "./WindowId.fork.ts";
+import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts";
+import { windowClaimTitle } from "./WindowPlacement.fork.ts";
 import { windowScopeSeedPreloadArgument } from "./WindowScopeSeed.fork.ts";
 import { makeTestWindowIds, testWindowId } from "./testWindowIds.fork.ts";
 
 type Listener = (...args: readonly unknown[]) => void;
 
-function makeWindow() {
+function makeWindow(
+  bounds: () => Electron.Rectangle = () => ({ x: 0, y: 0, width: 1100, height: 780 }),
+) {
   const webContentsListeners = new Map<string, Listener>();
+  const windowListeners = new Map<string, Listener>();
   const webContents = {
     isDestroyed: () => false,
     getURL: () => "t3code-dev://app/",
@@ -55,8 +59,8 @@ function makeWindow() {
     setBackgroundThrottling: vi.fn(),
     setWindowOpenHandler: vi.fn(),
   };
-  const bounds = () => ({ x: 0, y: 0, width: 1100, height: 780 });
   const loadURL = vi.fn(() => Promise.resolve());
+  const setTitle = vi.fn();
   const window = {
     getBounds: bounds,
     getNormalBounds: bounds,
@@ -69,16 +73,17 @@ function makeWindow() {
     isVisible: () => true,
     close: vi.fn(),
     loadURL,
-    on: vi.fn(),
-    once: vi.fn(),
+    on: vi.fn((event: string, listener: Listener) => void windowListeners.set(event, listener)),
+    once: vi.fn((event: string, listener: Listener) => void windowListeners.set(event, listener)),
+    showInactive: vi.fn(),
     setAutoHideCursor: vi.fn(),
     setBackgroundColor: vi.fn(),
-    setTitle: vi.fn(),
+    setTitle,
     setTitleBarOverlay: vi.fn(),
     setWindowButtonPosition: vi.fn(),
     webContents,
   } as unknown as Electron.BrowserWindow;
-  return { window, loadURL, webContentsListeners };
+  return { window, loadURL, setTitle, webContentsListeners, windowListeners };
 }
 
 function makeLayer(
@@ -88,9 +93,19 @@ function makeLayer(
     byRecency: [],
     revealed: [],
   },
+  extra: {
+    /** Later windows, in creation order; `window` is always the first. */
+    readonly nextWindows?: Electron.BrowserWindow[];
+    readonly mainWindow?: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
+    readonly savedBounds?: DesktopAppSettings.DesktopWindowBounds[];
+    readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
+    readonly claims?: { key: string; title: string }[];
+  } = {},
 ) {
   const windowIds = makeTestWindowIds();
-  const mainWindow = Ref.makeUnsafe(Option.none<Electron.BrowserWindow>());
+  const mainWindow = extra.mainWindow ?? Ref.makeUnsafe(Option.none<Electron.BrowserWindow>());
+  let created = 0;
+  const nextWindow = () => (created++ === 0 ? window : (extra.nextWindows?.shift() ?? window));
   const settings = DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   return DesktopWindow.layer.pipe(
     Layer.provideMerge(
@@ -129,16 +144,25 @@ function makeLayer(
         Layer.mock(DesktopAppSettings.DesktopAppSettings)({
           get: Effect.succeed(settings),
           load: Effect.succeed(settings),
-          setMainWindowBounds: () => Effect.succeed({ settings, changed: false }),
+          setMainWindowBounds: (bounds) =>
+            Effect.sync(() => void extra.savedBounds?.push(bounds)).pipe(
+              Effect.as({ settings, changed: false }),
+            ),
         }),
         Layer.mock(DesktopClientSettings.DesktopClientSettings)({ get: Effect.succeedNone }),
         Layer.mock(DesktopServerExposure.DesktopServerExposure)({}),
         Layer.mock(HyprlandPlacement.HyprlandPlacement)({
-          isAvailable: false,
-          claim: () => Effect.void,
+          isAvailable: extra.claims !== undefined,
+          claim: (key, title) => Effect.sync(() => void extra.claims?.push({ key, title })),
           forget: () => Effect.void,
+          snapshotAddresses: Effect.succeed(new Set<string>()),
+          stageWorkspaceRule: () => Effect.succeed(true),
+          clearWorkspaceRule: () => Effect.void,
+          moveToWorkspace: () => Effect.void,
         }),
-        Layer.mock(DesktopWindowSession.DesktopWindowSession)({ consume: Effect.succeed([]) }),
+        Layer.mock(DesktopWindowSession.DesktopWindowSession)({
+          consume: Effect.succeed(extra.restoreEntries ?? []),
+        }),
         Layer.mock(ElectronApp.ElectronApp)({ quit: Effect.void }),
         Layer.mock(ElectronMenu.ElectronMenu)({ setApplicationMenu: () => Effect.void }),
         Layer.mock(ElectronShell.ElectronShell)({}),
@@ -148,7 +172,7 @@ function makeLayer(
         }),
         Layer.mock(ElectronWindow.ElectronWindow)({
           create: (created) =>
-            Effect.sync(() => void options.push(created)).pipe(Effect.as(window)),
+            Effect.sync(() => void options.push(created)).pipe(Effect.map(nextWindow)),
           main: Ref.get(mainWindow),
           get: () => Ref.get(mainWindow),
           currentMainOrFirst: Ref.get(mainWindow),
@@ -158,8 +182,9 @@ function makeLayer(
               Effect.tap((created) => Ref.set(mainWindow, Option.some(created))),
               Effect.map(windowIds.created),
             ),
-          createNew: (_identity, create) =>
-            windowIds.create(create).pipe(Effect.map(windowIds.created)),
+          createNew: (_identity, create, requestedId) =>
+            windowIds.create(create, requestedId).pipe(Effect.map(windowIds.created)),
+          clearMain: () => Effect.void,
           windowIdFor: windowIds.windowIdFor,
           windowsByRecency: Effect.sync(() => recency.byRecency),
           prepareReveal: () => Effect.succeed(false),
@@ -239,8 +264,8 @@ describe("DesktopWindow (fork)", () => {
           options[3]?.webPreferences?.additionalArguments ?? [],
           windowIdPreloadArgument(testWindowId(4)),
         );
-        // Only the primary window persists bounds into the one saved slot.
-        assert.equal(resizeListeners(), 1);
+        // Every all-projects window tracks its bounds (see the current-main test).
+        assert.equal(resizeListeners(), 3);
       }).pipe(Effect.provide(makeLayer(window, options)));
     }),
   );
@@ -381,9 +406,170 @@ describe("DesktopWindow (fork)", () => {
       }),
       "t3code-dev://app/#/project/e/p/thread/t",
     );
+    // `/` is the window's home, so a restored project window reopens on its project.
     assert.equal(
       dispatchedWindowUrlFork(projectUrl, { route: "/", seed: "all-projects" }),
-      "t3code-dev://app/",
+      projectUrl,
     );
   });
+
+  it.effect(
+    "persists bounds from the current main window only, and hands over when it closes",
+    () =>
+      Effect.gen(function* () {
+        const main = makeWindow(() => ({ x: 0, y: 0, width: 1100, height: 780 }));
+        const extraWindow = makeWindow(() => ({ x: 40, y: 50, width: 1000, height: 700 }));
+        const mainWindow = Ref.makeUnsafe(Option.none<Electron.BrowserWindow>());
+        const savedBounds: DesktopAppSettings.DesktopWindowBounds[] = [];
+        const options: Electron.BrowserWindowConstructorOptions[] = [];
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          yield* desktopWindow.requestWindow({ kind: "new-window" });
+
+          extraWindow.windowListeners.get("resize")?.();
+          yield* TestClock.adjust("1 second");
+          assert.deepEqual(savedBounds, []);
+
+          // Main closes; the registry now answers the New Window as main.
+          yield* Ref.set(mainWindow, Option.some(extraWindow.window));
+          main.windowListeners.get("closed")?.();
+          extraWindow.windowListeners.get("resize")?.();
+          yield* TestClock.adjust("1 second");
+          assert.deepEqual(savedBounds, [{ x: 40, y: 50, width: 1000, height: 700 }]);
+
+          yield* desktopWindow.flushMainWindowBounds;
+          assert.deepEqual(savedBounds.at(-1), { x: 40, y: 50, width: 1000, height: 700 });
+          assert.lengthOf(savedBounds, 2);
+        }).pipe(
+          Effect.provide(
+            makeLayer(main.window, options, undefined, {
+              nextWindows: [extraWindow.window],
+              mainWindow,
+              savedBounds,
+            }),
+          ),
+        );
+      }),
+  );
+
+  it.effect(
+    "restores each window under its id, at its route, on bounds a display still shows",
+    () =>
+      Effect.gen(function* () {
+        const { window, loadURL } = makeWindow();
+        const options: Electron.BrowserWindowConstructorOptions[] = [];
+        const onDisplay = { x: 10, y: 20, width: 1000, height: 700 };
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          const electronWindow = yield* ElectronWindow.ElectronWindow;
+          yield* desktopWindow.restoreWindowSession;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+          // Two all-projects windows and a project window, each its own window.
+          assert.lengthOf(options, 3);
+          assert.deepEqual(
+            options.map((created) =>
+              created.webPreferences?.additionalArguments?.find((argument) =>
+                argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+              ),
+            ),
+            [testWindowId(11), testWindowId(12), testWindowId(13)].map(windowIdPreloadArgument),
+          );
+          assert.deepEqual(loadURL.mock.calls, [
+            ["t3code-dev://app/#/settings/general"],
+            ["t3code-dev://app/"],
+            ["t3code-dev://app/#/project/environment-1/project-1/thread/thread-1"],
+          ]);
+          assert.deepInclude(options[0], onDisplay);
+          // Off every display: the window opens at the default size instead.
+          assert.equal(options[1]?.x, undefined);
+          assert.equal(options[1]?.width, DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.width);
+          assert.deepEqual(
+            yield* electronWindow.windowIdFor(window),
+            Option.some(testWindowId(13)),
+          );
+        }).pipe(
+          Effect.provide(
+            makeLayer(window, options, undefined, {
+              restoreEntries: [
+                {
+                  windowId: testWindowId(11),
+                  route: "/settings/general",
+                  seed: "all-projects",
+                  bounds: onDisplay,
+                  workspace: null,
+                },
+                {
+                  windowId: testWindowId(12),
+                  route: "/",
+                  seed: "all-projects",
+                  bounds: { x: 5000, y: 5000, width: 1000, height: 700 },
+                  workspace: null,
+                },
+                {
+                  windowId: testWindowId(13),
+                  route: "/project/environment-1/project-1/thread/thread-1",
+                  seed: projectRef,
+                  bounds: null,
+                  workspace: null,
+                },
+              ],
+            }),
+          ),
+        );
+      }),
+  );
+
+  it.effect(
+    "maps only a window restored onto a workspace under its WindowId, held until claimed",
+    () =>
+      Effect.gen(function* () {
+        const restored = makeWindow();
+        const created = makeWindow();
+        const options: Electron.BrowserWindowConstructorOptions[] = [];
+        const claims: { key: string; title: string }[] = [];
+        const token = windowClaimTitle(testWindowId(21));
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.restoreWindowSession;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          yield* desktopWindow.requestWindow({ kind: "new-window" });
+
+          // Both are all-projects windows; only the restored one maps as a token.
+          assert.lengthOf(options, 2);
+          assert.equal(options[0]?.title, token);
+          assert.notEqual(options[1]?.title, token);
+          assert.isFalse(options[1]?.title?.startsWith("t3code-window-"));
+
+          // A document title arriving before the claim does not reach the compositor.
+          restored.window.setTitle("Renderer title");
+          assert.deepEqual(restored.setTitle.mock.calls, []);
+          // A normally created window's titles pass straight through.
+          created.window.setTitle("Renderer title");
+          assert.deepEqual(created.setTitle.mock.calls, [["Renderer title"]]);
+
+          restored.windowListeners.get("ready-to-show")?.();
+          yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+          assert.deepEqual(claims, [{ key: testWindowId(21), title: token }]);
+          assert.deepEqual(restored.setTitle.mock.calls, [[token], ["Renderer title"]]);
+        }).pipe(
+          Effect.provide(
+            makeLayer(restored.window, options, undefined, {
+              nextWindows: [created.window],
+              claims,
+              restoreEntries: [
+                {
+                  windowId: testWindowId(21),
+                  route: "/",
+                  seed: "all-projects",
+                  bounds: null,
+                  workspace: { id: 4, name: "4" },
+                },
+              ],
+            }),
+          ),
+        );
+      }),
+  );
 });
