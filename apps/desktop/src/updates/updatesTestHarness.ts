@@ -124,6 +124,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     close: () => Effect.void, // fork-hook: multi-window/updates-harness-window-close
     windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-identity
     listWindows: Effect.succeed(openWindows), // fork-hook: multi-window/window-id-list
+    windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
     currentMainOrFirst: Effect.succeedNone,
     focusedMainOrFirst: Effect.succeedNone,
     setMain: () => Effect.void,
