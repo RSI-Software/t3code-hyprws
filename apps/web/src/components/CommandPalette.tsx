@@ -46,6 +46,8 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
+import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
+import { useProjectChooserLabel } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-palette
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -478,6 +480,7 @@ function OpenCommandPaletteDialog(props: {
   const pathname = useLocation({ select: (location) => location.pathname });
   const routeFamily = useThreadRouteFamily();
   const { clearOpenIntent, openIntent, openChildSearch, setOpen } = props;
+  const projectChooserLabel = useProjectChooserLabel(); // fork-hook: workspaces/chooser-palette
   const initialSearch = props.initialContext ?? {
     query: openIntent?.kind === "search" ? openIntent.query : "",
     linkedThreadSearch: openIntent?.kind === "search" ? openIntent : null,
@@ -1558,6 +1561,8 @@ function OpenCommandPaletteDialog(props: {
     navigate,
   }); // fork-hook: github-issues/command-palette-entry
   if (githubIssuesActionItem) actionItems.push(githubIssuesActionItem); // fork-hook: github-issues/command-palette-entry-push
+  const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
+  if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
 
   actionItems.push({
     kind: "action",
