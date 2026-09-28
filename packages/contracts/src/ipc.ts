@@ -1058,6 +1058,8 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export type WindowScopeSeed = ScopedProjectRef | "all-projects"; // fork-hook: multi-window/window-scope-seed-type
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled?: () => boolean;
@@ -1167,6 +1169,7 @@ export interface DesktopBridge {
    */
   projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
+  windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   /**
    * Optional: older desktop builds lack it; callers fall back to VS Code only.
    */
