@@ -14,6 +14,7 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { runDesktopWindowCommandFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
 import { runProjectChooserCommandFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -100,6 +101,19 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
+        if (
+          startFilteredNewThreadFork(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            true,
+          )
+        ) {
+          return;
+        } // fork-hook: workspaces/filtered-new-thread
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
@@ -123,6 +137,19 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
+        if (
+          startFilteredNewThreadFork(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            false,
+          )
+        ) {
+          return;
+        } // fork-hook: workspaces/filtered-new-thread
         // The default sidebar routes creation through the command palette
         // whenever there is a real choice to make; the legacy sidebar (and
         // single-project setups) keep the immediate contextual create.
