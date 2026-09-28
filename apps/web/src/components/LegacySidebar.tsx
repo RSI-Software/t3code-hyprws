@@ -78,7 +78,11 @@ import {
 } from "@t3tools/contracts/settings";
 import { isDesktopLocalConnectionTarget, isWslConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
+import {
+  openInNewWindowRequest,
+  requestDesktopWindow,
+  supportsDesktopProjectWindows,
+} from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-legacy-import
 import { isElectron } from "../env";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -1713,9 +1717,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           actionHandlers.set(id, () => {
             switch (action) {
               case "open-window":
-                return desktopBridge?.openProjectWindow(
-                  scopeProjectRef(member.environmentId, member.id),
-                );
+                if (desktopBridge) {
+                  requestDesktopWindow(
+                    desktopBridge,
+                    openInNewWindowRequest(scopeProjectRef(member.environmentId, member.id)),
+                  );
+                } // fork-hook: multi-window/dispatch-legacy-row
+                return;
               case "rename":
                 openProjectRenameDialog(member);
                 return;
