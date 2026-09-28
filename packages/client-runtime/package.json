@@ -227,6 +227,10 @@
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"
     },
+    "./state/project-filter": {
+      "types": "./src/state/projectFilter.fork.ts",
+      "default": "./src/state/projectFilter.fork.ts"
+    },
     "./state/relay": {
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"
