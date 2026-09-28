@@ -16,6 +16,7 @@ import {
   resolveGuardedCommits,
   scanFailures,
   squashedMembers,
+  withFixupOwnerTrailers,
   type ScanInput,
 } from "./fork-scan.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
@@ -246,6 +247,44 @@ it("matches every squashed member by sha prefix and leaves the subject ordinal a
       ["squash", ["aaaa1111111", "bbbb2222222"]],
       ["plain", ["aaaa1111111"]],
       ["unlisted", ["cccc3333333"]],
+    ],
+  );
+});
+
+it("adds the fixups the sync folds into an owner to its replay match", () => {
+  const matches = matchReplayCounterparts(
+    [
+      { sha: "replayed-owner", subject: "fix: owner" },
+      { sha: "replayed-squash", subject: "fix: squash", squashes: ["aaaa111"] },
+    ],
+    new Map([
+      ["fix: owner", ["original-owner"]],
+      ["fixup! fix: owner", ["original-fixup-1", "original-fixup-2"]],
+      ["fix: squash", ["aaaa1111111"]],
+      ["fixup! fix: squash", ["original-squash-fixup"]],
+    ]),
+    ["aaaa1111111"],
+  );
+  assert.deepStrictEqual(
+    [...matches],
+    [
+      ["replayed-owner", ["original-owner", "original-fixup-1", "original-fixup-2"]],
+      ["replayed-squash", ["aaaa1111111", "original-squash-fixup"]],
+    ],
+  );
+});
+
+it("scans a trailer-free fixup as the commit it names", () => {
+  assert.deepStrictEqual(
+    withFixupOwnerTrailers([
+      { sha: "owner", short: "owner", subject: "fix: owner", domain: "example", tier: "core" },
+      { sha: "fixup", short: "fixup", subject: "fixup! fix: owner" },
+      { sha: "orphan", short: "orphan", subject: "fixup! fix: missing" },
+    ]).map(({ sha, domain, tier }) => ({ sha, domain, tier })),
+    [
+      { sha: "owner", domain: "example", tier: "core" },
+      { sha: "fixup", domain: "example", tier: "core" },
+      { sha: "orphan", domain: undefined, tier: undefined },
     ],
   );
 });
