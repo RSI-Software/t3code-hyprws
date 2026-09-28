@@ -3730,12 +3730,12 @@ export class PreviewManager extends Context.Service<
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
     ) => Effect.Effect<void>;
     readonly setWindow: (
-      identity: PreviewWindowPolicy.WindowIdentity,
+      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
       window: BrowserWindow,
     ) => Effect.Effect<void, PreviewManagerError>;
-    readonly disposeWindow: (identity: PreviewWindowPolicy.WindowIdentity) => Effect.Effect<void>;
+    readonly disposeWindow: (owner: PreviewWindowPolicy.PreviewOwner) => Effect.Effect<void>; // fork-hook: multi-window/preview-owner-dispose
     readonly forWindow: (
-      identity: PreviewWindowPolicy.WindowIdentity,
+      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
     ) => Effect.Effect<PreviewWindowManager>;
     readonly getBrowserSession: (
       scope?: string,
@@ -3845,20 +3845,20 @@ export class PreviewManager extends Context.Service<
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
 
 type OwnedStateListener = (
-  identity: PreviewWindowPolicy.WindowIdentity,
+  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
   tabId: string,
   state: PreviewTabState,
 ) => Effect.Effect<void>;
 type OwnedRecordingFrameListener = (
-  identity: PreviewWindowPolicy.WindowIdentity,
+  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
   frame: DesktopPreviewRecordingFrame,
 ) => Effect.Effect<void>;
 type OwnedPointerEventListener = (
-  identity: PreviewWindowPolicy.WindowIdentity,
+  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
   event: DesktopPreviewPointerEvent,
 ) => Effect.Effect<void>;
 type OwnedRecordingInputListener = (
-  identity: PreviewWindowPolicy.WindowIdentity,
+  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
   input: DesktopPreviewRecordingInputEvent,
 ) => Effect.Effect<void>;
 
@@ -3997,8 +3997,9 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   }); // fork-hook: multi-window/browser-partition-getter
 
   return PreviewManager.of({
-    ...ownership.hub,
-    setMainWindow: (window) => ownership.setWindow(PreviewWindowPolicy.HUB_WINDOW_IDENTITY, window),
+    ...ownership.app, // fork-hook: multi-window/preview-app-owner
+    prepareWebview: ownership.prepareWebview, // fork-hook: multi-window/preview-prepare-host-window
+    setMainWindow: (window) => ownership.setWindow(PreviewWindowPolicy.APP_PREVIEW_OWNER, window), // fork-hook: multi-window/preview-app-owner-main
     setWindow: ownership.setWindow,
     disposeWindow: ownership.disposeWindow,
     forWindow: ownership.forWindow,
