@@ -56,6 +56,7 @@ import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { environmentProjects } from "./state/projects";
 import { primaryServerConfigAtom } from "./state/server";
+import { startFilteredDocumentTitleFork } from "./windowTitle.fork"; // fork-hook: workspaces/window-title-import
 import { environmentShell } from "./state/shell";
 import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
 import { startWorkspaceFocus } from "./lib/workspaceFocus";
@@ -262,6 +263,7 @@ export function startAppServices(): AppRouter {
   startClientAppearance();
   startI18n();
   startDocumentTitle(router);
+  startFilteredDocumentTitleFork(); // fork-hook: workspaces/window-title
   startHostEnvironmentLookup();
   startEnvironmentThemeRepaint();
   startBrowserChromeThemeSync(router);
