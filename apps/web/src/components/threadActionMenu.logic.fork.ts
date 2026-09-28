@@ -18,6 +18,18 @@ export function resetOrderMenuItems(
     : [];
 }
 
+/**
+ * Fork: Open in New Window for a thread (RSI-Software/t3code-hyprws#1343).
+ * Present only where the client can open desktop windows.
+ */
+export function openInNewWindowMenuItems(
+  state: Pick<ThreadActionMenuState, "openInNewWindow">,
+): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  return state.openInNewWindow === true
+    ? [{ id: "open-in-new-window" as const, label: "Open in New Window", icon: "external-link" }]
+    : [];
+}
+
 /** Providers whose native sessions the server can fork. */
 const FORKABLE_THREAD_PROVIDERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
 
