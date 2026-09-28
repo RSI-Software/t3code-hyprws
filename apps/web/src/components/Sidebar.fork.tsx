@@ -12,7 +12,7 @@ import {
   requestDesktopWindow,
   supportsDesktopProjectWindows,
   type DesktopProjectWindowBridge,
-} from "../desktopProjectWindows";
+} from "../desktopWindows.fork";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import { Button } from "./ui/button";
 

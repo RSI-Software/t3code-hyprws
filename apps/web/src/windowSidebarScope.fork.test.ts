@@ -187,8 +187,11 @@ describe("per-window sidebar project scope", () => {
 
     // Groups load after startup; the seed resolves to its logical project once.
     expect(seeded.scope.takeSeed([], false)).toBeNull();
+    // The landing draft reads the seed while it waits.
+    expect(seeded.scope.pendingSeed()).toEqual(ref("vm", "web"));
     const scopeKey = seeded.scope.takeSeed(groups, false);
     expect(scopeKey).toBe("github.com/acme/web");
+    expect(seeded.scope.pendingSeed()).toBeNull();
     seeded.store.setState({ sidebarProjectScopeKey: scopeKey });
     expect(seeded.scope.takeSeed(groups, true)).toBeNull();
 
