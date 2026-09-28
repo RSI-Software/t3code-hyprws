@@ -4,6 +4,7 @@ import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { type ReactNode, useState } from "react";
 import {
+  AuthStandardClientScopes, // fork-hook: backend-attach/connections-standard-scopes
   AuthAccessReadScope,
   AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
@@ -27,6 +28,7 @@ import {
 import * as Cause from "effect/Cause";
 
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
+import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork"; // fork-hook: backend-attach/connections-session-scopes-import
 import {
   applyWslEnableSelection,
   isWslSettingsRowVisible,
