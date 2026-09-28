@@ -1,18 +1,11 @@
 #!/usr/bin/env node
 
-// @effect-diagnostics nodeBuiltinImport:off - This release helper runs before an Effect runtime exists.
+// The release gate: cut only the current origin/hyprws tip (what the lease push landed), and only
+// when that sha carries a green `hyprws CI` conclusion. A green non-tip or a tip without a green
+// run cuts nothing.
+// Preflight runs this before any install, so it imports only node builtins.
 
-// The release gate: a cut happens only for what the lease push landed, proven
-// fork job step 3: release gate
-// Gate: release — the hyprws-release.yml cut; refuses unless the sha is the tip with a green hyprws CI conclusion.
-// green. The release sha must be the current tip of origin/hyprws (so it is
-// what the lease push moved the trunk to) AND that sha must carry a green
-// `hyprws CI` conclusion. A green sha that is no longer the tip, or a tip
-// whose battery never ran green, cuts nothing. Missing or red means no cut.
-
-import * as NodeFS from "node:fs";
-
-import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import * as NodeUtil from "node:util";
 
 export interface ReleaseGateInput {
   readonly releaseSha: string;
@@ -64,49 +57,41 @@ interface Options {
   readonly releaseSha: string;
   readonly trunkTip: string;
   readonly ciConclusion: string | null;
-  readonly githubOutput: boolean;
 }
 
 const usage =
-  "Usage: node scripts/fork-release-gate.ts --release-sha <sha> --trunk-tip <sha> [--ci-conclusion <conclusion>] [--github-output]";
+  "Usage: node scripts/fork-release-gate.ts --release-sha <sha> --trunk-tip <sha> [--ci-conclusion <conclusion>]";
 
 export const parseReleaseGateOptions = (argv: ReadonlyArray<string>): Options => {
-  const parsed = parseArgs(argv, {
-    values: ["--release-sha", "--trunk-tip", "--ci-conclusion"],
-    flags: ["--github-output", "--help", "-h"],
+  const { values } = NodeUtil.parseArgs({
+    args: [...argv],
+    options: {
+      "release-sha": { type: "string" },
+      "trunk-tip": { type: "string" },
+      "ci-conclusion": { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
   });
-  if (parsed.flags.has("--help") || parsed.flags.has("-h")) {
+  if (values.help) {
     process.stdout.write(`${usage}\n`);
     process.exit(0);
   }
-  const releaseSha = parsed.values.get("--release-sha") ?? "";
-  const trunkTip = parsed.values.get("--trunk-tip") ?? "";
-  if (releaseSha.length === 0) throw new UsageError("--release-sha requires a sha");
-  if (trunkTip.length === 0) throw new UsageError("--trunk-tip requires a sha");
+  const releaseSha = values["release-sha"] ?? "";
+  const trunkTip = values["trunk-tip"] ?? "";
+  if (releaseSha.length === 0) throw new Error("--release-sha requires a sha");
+  if (trunkTip.length === 0) throw new Error("--trunk-tip requires a sha");
   return {
     releaseSha,
     trunkTip,
-    ciConclusion: parsed.values.get("--ci-conclusion") ?? null,
-    githubOutput: parsed.flags.has("--github-output"),
+    ciConclusion: values["ci-conclusion"] ?? null,
   };
 };
-
-export const renderGateOutput = (decision: ReleaseGateDecision): string =>
-  `gate_proceed=${decision.proceed ? "true" : "false"}\ngate_reason=${decision.reason}\n`;
 
 if (import.meta.main) {
   try {
     const options = parseReleaseGateOptions(process.argv.slice(2));
     const decision = decideReleaseGate(options);
-    if (options.githubOutput) {
-      const outputPath = process.env.GITHUB_OUTPUT;
-      if (outputPath === undefined || outputPath.length === 0) {
-        throw new Error("GITHUB_OUTPUT is required with --github-output");
-      }
-      NodeFS.appendFileSync(outputPath, renderGateOutput(decision));
-    } else {
-      process.stdout.write(`${decision.proceed ? "proceed" : "skip"}: ${decision.reason}\n`);
-    }
+    process.stdout.write(`${decision.proceed ? "proceed" : "skip"}: ${decision.reason}\n`);
     if (!decision.proceed) process.stdout.write("missing or red means no cut\n");
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
