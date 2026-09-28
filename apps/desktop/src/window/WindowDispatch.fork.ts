@@ -19,14 +19,14 @@ import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
  * | `focus`                   | Focus if open; never resurrect                  |
  * | `callback`                | Unchanged: reveal or create the primary window  |
  *
- * Clients send the first three (see `DesktopWindowRequest`); argv produces
- * the launch rows. The startup drain queues these same requests, so a launch
- * that lands before the backend is ready takes the same row once it drains.
+ * Clients send `DesktopWindowRequest`, `mod+alt+o` as `project-link`; argv
+ * produces the launch rows, a deep link as `project-link` too. The startup
+ * drain queues these same requests, so a launch that lands before the
+ * backend is ready takes the same row once it drains.
  */
 export type WindowRequest =
   | DesktopWindowRequest
   | { readonly kind: "activate" }
-  | { readonly kind: "project-link"; readonly ref: ScopedProjectRef }
   | { readonly kind: "callback" };
 
 /**

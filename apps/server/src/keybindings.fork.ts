@@ -5,7 +5,8 @@
  * startup sync of new defaults.
  */
 const RENAMED_KEYBINDING_COMMANDS: ReadonlyArray<readonly [from: string, to: string]> = [
-  ["project.openWindow", "window.openInNew"],
+  ["project.openWindow", "window.openProject"],
+  ["window.openInNew", "window.openProject"],
 ];
 
 /**
