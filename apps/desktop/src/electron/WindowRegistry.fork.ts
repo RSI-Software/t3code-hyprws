@@ -165,6 +165,14 @@ export interface WindowRegistryService {
     },
     E
   >;
+  /**
+   * Always creates a window, even when one already shows `identity`: a New
+   * Window request asks for another window, never for the existing one.
+   */
+  readonly createNew: <E>(
+    identity: WindowIdentity,
+    create: (windowId: WindowId) => Effect.Effect<Electron.BrowserWindow, E>,
+  ) => Effect.Effect<{ readonly window: Electron.BrowserWindow; readonly windowId: WindowId }, E>;
   readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
   readonly windowIdFor: (window: Electron.BrowserWindow) => Effect.Effect<Option.Option<WindowId>>;
   /** Every live registered window, in registration order. */
@@ -201,6 +209,15 @@ export const makeWindowRegistryService = (
           yield* Ref.set(mainWindowRef, Option.some(window));
         }
         return { window, windowId, created: true } as const;
+      }),
+    ),
+  createNew: (identity, create) =>
+    semaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const windowId = registry.reserveId();
+        const window = yield* create(windowId);
+        registry.register(windowId, identity, window);
+        return { window, windowId } as const;
       }),
     ),
   close: (identity) =>

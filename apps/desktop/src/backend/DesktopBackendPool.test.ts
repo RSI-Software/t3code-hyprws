@@ -90,7 +90,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           createMain: Effect.die("unexpected window create"),
           ensureMain: Effect.die("unexpected window ensure"),
           revealOrCreateMain: Effect.die("unexpected window reveal"),
-          openIdentity: () => Effect.die("unexpected identity window open"),
+          requestWindow: () => Effect.die("unexpected window request"), // fork-hook: multi-window/dispatch-request
           openArguments: () => Effect.void,
           restoreWindowSession: Effect.void,
           closeIdentity: () => Effect.void,

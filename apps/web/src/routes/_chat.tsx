@@ -16,7 +16,7 @@ import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
-import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
+import { runDesktopWindowCommandFork } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -149,33 +149,6 @@ export function ChatRouteGlobalShortcuts({
         return;
       }
 
-      if (command === "project.openWindow") {
-        const bridge = window.desktopBridge;
-        if (!supportsDesktopProjectWindows(bridge)) return;
-        const projectRef =
-          forcedProjectRef ??
-          resolveThreadActionProjectRef({
-            activeDraftThread,
-            activeThread: activeThread ?? undefined,
-            defaultProjectRef,
-            handleNewThread,
-          });
-        if (!projectRef) return;
-
-        event.preventDefault();
-        event.stopPropagation();
-        void bridge.openProjectWindow(projectRef).catch((error: unknown) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to open project window",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-        return;
-      }
-
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -193,6 +166,23 @@ export function ChatRouteGlobalShortcuts({
         dispatchPreviewAction("toggle-panel");
         return;
       }
+
+      if (
+        runDesktopWindowCommandFork(
+          command,
+          event,
+          () =>
+            forcedProjectRef ??
+            resolveThreadActionProjectRef({
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            }),
+        )
+      ) {
+        return;
+      } // fork-hook: multi-window/dispatch-keybinding
 
       // The remaining preview commands only fire when the panel is the
       // currently-focused tenant. The `when: previewFocus` rule already
