@@ -1,17 +1,8 @@
 /**
- * The opaque id main mints for each desktop window it creates.
- *
- * Everything that keys a window (the registry, preview ownership, Hyprland
- * claims, the update-restore manifest) keys it by this id. Which project a
- * window shows is data about the window, never its key, so two windows may
- * show the same thing and one window may change what it shows.
- *
- * The id rides into the renderer as a preload argument. Electron replays a
- * window's `additionalArguments` into every renderer process it starts, so a
- * reload or crash recovery reads the same id back.
- *
- * Kept free of package imports so the sandboxed preload can use it; see
- * `projectWindowArgument.ts` for why. Main mints ids in `WindowRegistry.fork.ts`.
+ * The opaque key for each desktop window; what it shows is data, never the key.
+ * It rides in as a preload argument Electron replays on reload. No package
+ * imports: a preload pulling in `@t3tools/*` leaves a runtime `require()` that
+ * fails to load and drops the whole desktop bridge.
  */
 export type WindowId = string & { readonly __windowIdBrand: unique symbol };
 
