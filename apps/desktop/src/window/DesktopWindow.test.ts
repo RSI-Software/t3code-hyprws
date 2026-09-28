@@ -381,6 +381,7 @@ function layerTest(input: {
           }),
     windowIdFor: windowIds.windowIdFor, // fork-hook: multi-window/window-id-for
     listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
+    windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst:
       input.focusedWindow === undefined
@@ -552,6 +553,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       close: () => Ref.set(mainWindow, Option.none()),
       windowIdFor: splashWindowIds.windowIdFor, // fork-hook: multi-window/window-id-splash-for
       listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-splash-list
+      windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-splash-by-recency
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),

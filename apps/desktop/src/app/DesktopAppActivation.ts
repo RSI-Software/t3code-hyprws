@@ -27,6 +27,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { DESKTOP_APP_ACTIVATION_REQUEST_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import { DesktopAppActivationBroker } from "./DesktopAppActivationBroker.ts";
+import { makeActivationRenderers } from "./DesktopAppActivationRenderers.fork.ts"; // fork-hook: multi-window/window-targets-activation-import
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 
@@ -338,6 +339,7 @@ export const make = Effect.gen(function* () {
     },
   });
 
+  const forkRenderers = makeActivationRenderers({ broker, electronWindow }); // fork-hook: multi-window/window-targets-activation
   const clearRegisteredRenderer = () => {
     detachRendererListeners?.();
     detachRendererListeners = null;
@@ -370,6 +372,7 @@ export const make = Effect.gen(function* () {
         ),
     ).pipe(Effect.asVoid),
     setRendererReady: Effect.fn("DesktopAppActivation.setRendererReady")(function* (ready) {
+      if (yield* forkRenderers.setReady(ready)) return; // fork-hook: multi-window/window-targets-activation-ready
       if (!ready) {
         clearRegisteredRenderer();
         return;
