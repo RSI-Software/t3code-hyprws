@@ -7,12 +7,9 @@ import * as Ref from "effect/Ref";
 
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
-import type { HyprlandPlacement as HyprlandPlacementKey } from "./HyprlandPlacement.ts";
 import type * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import type { DesktopWindowError } from "./DesktopWindow.ts";
-import type { WindowId } from "./WindowId.fork.ts";
 import { isExplicitLaunchRequest, type WindowRequest } from "./WindowDispatch.fork.ts";
-import { windowIdentityKey, type WindowIdentity } from "./WindowIdentity.ts";
 
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
   makeComponentLogger("desktop-window");
@@ -25,21 +22,19 @@ const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
 export const STARTUP_INTENT_QUEUE_CAPACITY = 8;
 
 export interface WindowOpeners {
-  /** Opens a window, reusing `windowId` when the restore carried one. */
-  readonly ensureIdentity: () => (
-    identity: WindowIdentity,
-    windowId?: WindowId,
-  ) => Effect.Effect<
-    { readonly window: Electron.BrowserWindow; readonly windowId: WindowId },
-    DesktopWindowError
-  >;
+  /**
+   * Opens one restored window: always a new window, under its previous id when
+   * the manifest carried one, placed at map time by its own title token.
+   */
+  readonly restore: () => (
+    entry: DesktopWindowSession.WindowRestoreEntry,
+  ) => Effect.Effect<unknown, DesktopWindowError>;
   /** The window dispatch table; every queued launch takes its row once drained. */
   readonly dispatch: () => (request: WindowRequest) => Effect.Effect<void, DesktopWindowError>;
   readonly createMainIfBackendReady: () => Effect.Effect<void, DesktopWindowError>;
 }
 
 export interface StartupDrainServices {
-  readonly hyprlandPlacement: HyprlandPlacementKey["Service"];
   readonly windowSession: DesktopWindowSession.DesktopWindowSession["Service"];
 }
 
@@ -110,30 +105,25 @@ const makeStartupDrainImpl = Effect.gen(function* () {
       ),
     );
 
-  const drainPendingRestore = (services: StartupDrainServices, openers: WindowOpeners) =>
+  // Whether any restored window opened: when none did, the cold-start
+  // fallback below still opens one window.
+  const drainPendingRestore = (openers: WindowOpeners) =>
     Effect.gen(function* () {
       const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
       if (entries.length === 0) return false;
+      let opened = 0;
       for (const entry of entries) {
-        const opened = yield* Effect.exit(openers.ensureIdentity()(entry.identity, entry.windowId));
-        if (Exit.isFailure(opened)) {
+        const exit = yield* Effect.exit(openers.restore()(entry));
+        if (Exit.isFailure(exit)) {
           yield* logWindowWarning("failed to restore window", {
-            identity: windowIdentityKey(entry.identity),
+            seeded: entry.seed !== "all-projects",
           });
           continue;
         }
-        const workspace = entry.workspace;
-        if (workspace === null) continue;
-        const { window, windowId } = opened.value;
-        yield* services.hyprlandPlacement
-          .claim(windowId, window.getTitle())
-          .pipe(
-            Effect.andThen(services.hyprlandPlacement.moveToWorkspace(windowId, workspace)),
-            Effect.ignore,
-          );
+        opened += 1;
       }
-      yield* logWindowInfo("window session reopened", { windows: entries.length });
-      return true;
+      yield* logWindowInfo("window session reopened", { windows: opened, of: entries.length });
+      return opened > 0;
     });
 
   /**
@@ -163,7 +153,7 @@ const makeStartupDrainImpl = Effect.gen(function* () {
       // markNotReady clears the flag, so a genuinely windowless restart still
       // recreates main through the same fallback.
       const coldStart = !(yield* Ref.get(readyToDispatchRef));
-      const restored = yield* drainPendingRestore(services, openers);
+      const restored = yield* drainPendingRestore(openers);
       // Poll, never take: takeAll would block forever on an empty queue and
       // hang readiness when nothing was queued. Loop until a full pass polls
       // empty: an intent staged while the last opens ran joins this drain
@@ -320,12 +310,12 @@ export const makeStartupDrain = makeStartupDrainImpl;
  */
 export const makeStartupDrainOpeners =
   (
-    ensureIdentity: WindowOpeners["ensureIdentity"],
+    restore: WindowOpeners["restore"],
     dispatch: WindowOpeners["dispatch"],
     createMainIfBackendReady: WindowOpeners["createMainIfBackendReady"],
   ): (() => WindowOpeners) =>
   () => ({
-    ensureIdentity,
+    restore,
     dispatch,
     createMainIfBackendReady,
   });
