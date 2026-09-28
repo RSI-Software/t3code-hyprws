@@ -19,6 +19,7 @@ import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopBackendMode from "./DesktopBackendMode.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import { desktopSecondInstanceBuffer } from "./DesktopSecondInstanceBuffer.fork.ts"; // fork-hook: multi-window/second-instance-buffer
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
@@ -243,6 +244,7 @@ const bootstrap = Effect.gen(function* () {
 
     yield* installDesktopIpcHandlers();
     yield* logBootstrapInfo("bootstrap ipc handlers registered");
+    yield* snapShot.initialize; // fork-hook: multi-window/client-only-snapshot-init
     if (!(yield* Ref.get(state.quitting))) {
       yield* appActivation.start.pipe(
         Effect.tap(() => logBootstrapInfo("desktop app control socket ready")),
@@ -432,6 +434,7 @@ const startup = Effect.gen(function* () {
   yield* desktopWindow.restoreWindowSession;
   yield* clerk.configure((argv) => desktopWindow.openArguments(argv));
   yield* desktopWindow.openArguments(process.argv);
+  yield* desktopSecondInstanceBuffer.flush((argv) => desktopWindow.openArguments(argv)); // fork-hook: multi-window/second-instance-buffer
 
   yield* electronApp.whenReady.pipe(
     Effect.withSpan("desktop.electron.whenReady"),
