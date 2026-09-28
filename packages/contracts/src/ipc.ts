@@ -19,6 +19,7 @@ import { ExecutionEnvironmentDescriptor, type ScopedProjectRef } from "./environ
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
+import type { DesktopWindowRequest } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/request-window-import
 import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
@@ -1152,7 +1153,7 @@ export interface DesktopBridge {
   receiveProviderAuthCallback?: (authorizationUrl: string) => Promise<string>;
   cancelProviderAuthCallback?: (authorizationUrl: string) => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;
-  openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
+  requestWindow?: (request: DesktopWindowRequest) => Promise<void>; // fork-hook: multi-window/request-window-bridge
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
   /**

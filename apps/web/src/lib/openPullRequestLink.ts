@@ -18,7 +18,7 @@ import { useProjects } from "../state/entities";
 import { readThreadShell } from "../state/entities"; // fork-hook: github-issues/open-pull-request-link-thread-shell-import
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
+import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes"; // fork-hook: multi-window/window-project-ref
 import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export {
@@ -220,9 +220,7 @@ export function useOpenChangeRequestLink(
       }
       return true;
     }
-    const windowProjectRef = resolveProjectRefFromPathname(
-      typeof window === "undefined" ? "/" : window.location.pathname,
-    );
+      const windowProjectRef = currentWindowProjectRef(); // fork-hook: multi-window/window-project-ref
     void navigate({
       ...listRouteTarget("pull-requests", windowProjectRef),
       search: {
