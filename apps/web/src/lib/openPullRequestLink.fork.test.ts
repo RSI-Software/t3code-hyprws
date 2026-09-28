@@ -143,11 +143,8 @@ describe("openGitHubIssueLinkFork", () => {
     expect(calls).toEqual(["preventDefault", "stopPropagation"]);
   });
 
-  it("widens to all projects for another project's issue in a desktop project window", () => {
-    vi.stubGlobal("window", {
-      location: { pathname: "/settings" },
-      desktopBridge: { projectWindowRef: { environmentId: "env-1", projectId: "p-window" } },
-    });
+  it("opens the issue on the Issues page with its project selected", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
     const navigate = vi.fn();
     openGitHubIssueLinkFork({
       event: claimEvent().event,
@@ -169,12 +166,11 @@ describe("openGitHubIssueLinkFork", () => {
       primaryEnvironmentId: "env-1" as never,
       navigate: navigate as never,
     });
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        params: { environmentId: "env-1", projectId: "p-window" },
-        search: expect.objectContaining({ selectedProjectId: "p1", scope: "all" }),
-      }),
-    );
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/issues",
+      search: expect.objectContaining({ selectedProjectId: "p1" }),
+    });
+    expect(navigate.mock.calls[0]?.[0].search).not.toHaveProperty("scope");
   });
 
   it("leaves links alone when no project with the issue capability matches", () => {
