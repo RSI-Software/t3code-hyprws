@@ -14,6 +14,8 @@ import {
   type PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
+import { decodeProjectFilter } from "@t3tools/client-runtime/state/project-filter"; // fork-hook: workspaces/mobile-filter-preference-import
+import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter"; // fork-hook: workspaces/mobile-filter-preference-import
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
@@ -82,6 +84,7 @@ export interface Preferences {
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-field
+  readonly projectFilter?: ProjectFilter; // fork-hook: workspaces/mobile-filter-preference
   /** Device-local counterpart of desktop's `planModeEnabled` legacy flag. */
   readonly planModeEnabled?: boolean;
   /** Device-local counterpart of web's `sidebarWorkingShelfEnabled` beta. */
@@ -161,6 +164,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-sanitize-type
+    projectFilter?: ProjectFilter; // fork-hook: workspaces/mobile-filter-preference-type
     planModeEnabled?: boolean;
     workingShelfEnabled?: boolean;
     modelFavorites?: Preferences["modelFavorites"];
@@ -267,6 +271,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.showIgnoredFiles === "boolean") {
     preferences.showIgnoredFiles = parsed.showIgnoredFiles;
   }
+  const projectFilter = decodeProjectFilter(parsed.projectFilter); // fork-hook: workspaces/mobile-filter-preference-sanitize
+  if (projectFilter !== null) preferences.projectFilter = projectFilter; // fork-hook: workspaces/mobile-filter-preference-sanitize
   if (typeof parsed.planModeEnabled === "boolean") {
     preferences.planModeEnabled = parsed.planModeEnabled;
   }
