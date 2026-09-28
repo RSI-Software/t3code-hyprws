@@ -6,6 +6,7 @@ import * as Ref from "effect/Ref";
 import type * as Semaphore from "effect/Semaphore";
 import type * as Electron from "electron";
 
+import { IpcRequester } from "./WindowTargets.fork.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
 import {
   HUB_WINDOW_IDENTITY,
@@ -19,6 +20,9 @@ import {
  * What a window shows (`identity`) is data on its record, never its key; a
  * lookup by identity is a scan. A record leaves the registry when its window
  * closes or is found destroyed, so no caller ever reads a dead window back.
+ *
+ * Only windows main created are registered, so the connecting splash, DevTools
+ * and popups are never a request target.
  */
 export interface RegisteredWindow {
   readonly windowId: WindowId;
@@ -30,6 +34,11 @@ const makeWindowId = (): WindowId => NodeCrypto.randomUUID() as WindowId;
 
 export function makeWindowRegistry() {
   const entries = new Map<WindowId, RegisteredWindow>();
+  // Recency order for app-wide requests: registering or focusing a window
+  // touches it. A window is watched for focus once, however often it re-registers.
+  const touchedAt = new Map<WindowId, number>();
+  const watchedForFocus = new WeakSet<Electron.BrowserWindow>();
+  let clock = 0;
 
   const live = (entry: RegisteredWindow | undefined): RegisteredWindow | undefined => {
     if (entry === undefined) return undefined;
@@ -49,6 +58,27 @@ export function makeWindowRegistry() {
   const findByWindow = (window: Electron.BrowserWindow): RegisteredWindow | undefined =>
     list().find((entry) => entry.window === window);
 
+  const findByWebContentsId = (webContentsId: number): RegisteredWindow | undefined =>
+    list().find((entry) => entry.window.webContents.id === webContentsId);
+
+  const touch = (window: Electron.BrowserWindow) => {
+    const entry = findByWindow(window);
+    if (entry !== undefined) touchedAt.set(entry.windowId, ++clock);
+  };
+
+  /** Live registered windows, most recently focused or registered first. */
+  const byRecency = (): RegisteredWindow[] =>
+    list().toSorted((a, b) => (touchedAt.get(b.windowId) ?? 0) - (touchedAt.get(a.windowId) ?? 0));
+
+  const mostRecent = (): RegisteredWindow | undefined => byRecency()[0];
+
+  /**
+   * The window a request acts on: the requesting renderer's window when it is
+   * one main created, otherwise the most recently focused app window.
+   */
+  const requestTarget = (requester: Option.Option<number>): RegisteredWindow | undefined =>
+    (Option.isSome(requester) ? findByWebContentsId(requester.value) : undefined) ?? mostRecent();
+
   /**
    * The id a new window will be registered under. A requested id (an update
    * restore carrying the previous launch's id) is honoured unless a live
@@ -66,14 +96,22 @@ export function makeWindowRegistry() {
   ): RegisteredWindow => {
     const entry: RegisteredWindow = { windowId, identity, window };
     entries.set(windowId, entry);
+    touchedAt.set(windowId, ++clock);
     window.once("closed", () => {
-      if (entries.get(windowId) === entry) entries.delete(windowId);
+      if (entries.get(windowId) !== entry) return;
+      entries.delete(windowId);
+      touchedAt.delete(windowId);
     });
+    if (!watchedForFocus.has(window)) {
+      watchedForFocus.add(window);
+      window.on("focus", () => touch(window));
+    }
     return entry;
   };
 
   const remove = (windowId: WindowId) => {
     entries.delete(windowId);
+    touchedAt.delete(windowId);
   };
 
   /**
@@ -94,6 +132,9 @@ export function makeWindowRegistry() {
     get: (identity: WindowIdentity) => Option.fromNullishOr(findByIdentity(identity)?.window),
     findByIdentity,
     findByWindow,
+    findByWebContentsId,
+    requestTarget,
+    byRecency,
     list,
     reserveId,
     register,
@@ -130,6 +171,14 @@ export interface WindowRegistryService {
   readonly listWindows: Effect.Effect<
     readonly { readonly windowId: WindowId; readonly identity: WindowIdentity }[]
   >;
+  /**
+   * The registered window the current request targets: the IPC sender's own
+   * window, else the most recently focused one. None only when main has not
+   * registered a window yet.
+   */
+  readonly requestTarget: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+  /** Every live registered window, most recently focused first. */
+  readonly windowsByRecency: Effect.Effect<readonly Electron.BrowserWindow[]>;
 }
 
 export const makeWindowRegistryService = (
@@ -168,4 +217,9 @@ export const makeWindowRegistryService = (
   ),
   windowIdFor: (window) =>
     Effect.sync(() => Option.fromNullishOr(registry.findByWindow(window)?.windowId)),
+  requestTarget: Effect.gen(function* () {
+    const requester = yield* IpcRequester;
+    return Option.fromNullishOr(registry.requestTarget(requester)?.window);
+  }),
+  windowsByRecency: Effect.sync(() => registry.byRecency().map((entry) => entry.window)),
 });
