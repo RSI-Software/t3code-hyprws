@@ -19,6 +19,7 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { useWindowLandingProjects } from "../windowProjectFilter.fork"; // fork-hook: workspaces/landing-window-filter
 
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
@@ -33,7 +34,7 @@ function ChatIndexRouteView() {
 }
 
 function IndexDraftLanding() {
-  const projects = useProjects();
+  const projects = useWindowLandingProjects(useProjects()); // fork-hook: workspaces/landing-window-filter
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
