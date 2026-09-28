@@ -69,6 +69,7 @@ export function useOpenChangeRequestLink(
         serverConfigs,
         primaryEnvironmentId,
         navigate,
+        findProjectOnHost: findProjectOnChangeRequestHost, // fork-hook: github-issues/issue-link-claim-resolver
       })
     ) {
       return true;

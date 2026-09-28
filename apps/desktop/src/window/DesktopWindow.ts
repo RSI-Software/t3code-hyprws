@@ -453,6 +453,7 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
+        additionalArguments: windowPreloadArguments(windowId, dispatched?.seed), // fork-hook: multi-window/window-id-preload-argument
         // Hidden-renderer throttling stalls first paint; re-enable it after the first reveal.
         backgroundThrottling: false,
         contextIsolation: true,
