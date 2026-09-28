@@ -152,11 +152,10 @@ The command palette and `mod+shift+w` do the same.
 
 To open a project in its own window, select the open-in-new-window button beside it in the project switcher.
 The legacy sidebar offers the same action in each project's context menu.
-You can also run **Open project in new window** from the command palette.
 A thread's context menu offers **Open in New Window**, which opens that thread in a new window.
 
 Open in New Window always creates a window, even when the project already has one.
-A project link reuses a window already showing that project.
+**Open project window** in the command palette, `mod+alt+o`, and a project link reuse a window already showing that project, and open one only when none does.
 Work you start from a window, such as an issue's thread, opens in that same window.
 A project window's sidebar stays pinned to that project: the project filter shows its name and
 cannot be changed, and new threads start in it. The hub window still lists every project.
