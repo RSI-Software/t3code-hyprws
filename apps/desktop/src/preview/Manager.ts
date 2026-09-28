@@ -4015,7 +4015,7 @@ export class PreviewManager extends Context.Service<
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
 
 type OwnedRecordingInputListener = (
-  identity: PreviewWindowPolicy.WindowIdentity,
+  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
   input: DesktopPreviewRecordingInputEvent,
 ) => Effect.Effect<void>;
 
@@ -4148,6 +4148,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   );
 
   return PreviewManager.of({
+    ...ownership.app, // fork-hook: multi-window/preview-app-owner
     setMainWindow: operations.setMainWindow,
     setForwardedShortcuts: operations.setForwardedShortcuts,
     getBrowserSession: Effect.fn("PreviewManager.getBrowserSession")(
