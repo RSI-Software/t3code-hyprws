@@ -50,7 +50,6 @@ import {
   openSystemSettings,
   checkSystemPermission,
   pasteAsText,
-  openProjectWindow,
   probeRemoteEditors,
   pickFolder,
   pickProjectFavicon,
@@ -58,6 +57,7 @@ import {
   setTheme,
   showContextMenu,
 } from "./methods/window.ts";
+import { requestWindow } from "./methods/window.fork.ts"; // fork-hook: multi-window/dispatch-request-ipc
 import {
   acknowledgeSnapShot,
   checkSnapShotShortcut,
@@ -148,7 +148,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
-  yield* ipc.handle(openProjectWindow);
+  yield* ipc.handle(requestWindow); // fork-hook: multi-window/dispatch-request-ipc
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
