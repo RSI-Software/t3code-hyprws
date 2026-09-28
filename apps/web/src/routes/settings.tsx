@@ -6,6 +6,7 @@ import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
 import { SettingsBreadcrumb } from "../components/settings/SettingsBreadcrumb";
 import { SidebarInset } from "../components/ui/sidebar";
+import { useNavigateToMainApp } from "../components/sidebar/mainAppLocation";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
 import { useEscapeToGoBack } from "../hooks/useNavigateBack";
@@ -26,7 +27,6 @@ import {
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
 } from "../components/settings/settingsSearch";
-import { useFullPageBackOut } from "../hooks/useLeaveFullPage"; // fork-hook: project-windows/settings-back-out-import
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(onRestored);
@@ -112,7 +112,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
 
 function SettingsContentLayout() {
   const location = useLocation();
-  const navigateToMainApp = useFullPageBackOut(); // fork-hook: project-windows/settings-back-out
+  const navigateToMainApp = useNavigateToMainApp();
   useEscapeToGoBack(navigateToMainApp);
   const { search } = useSettingsScope();
   const [restoreSignal, setRestoreSignal] = useState(0);
