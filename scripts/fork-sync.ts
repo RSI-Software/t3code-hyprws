@@ -816,7 +816,60 @@ export const blockingShaOf = (conflicts: ReadonlyArray<ConflictRow>): string | n
   conflicts[0]?.upstreamCommit ??
   null;
 
-export const blockedIssueBody = (report: ForkSyncReport): string => {
+/** One sync run as the standing issue's recent-runs list records it. */
+export interface StandingRun {
+  readonly date: string;
+  readonly subject: string;
+  readonly detail: string;
+}
+
+const RECENT_RUNS = 5;
+const RECENT_RUNS_HEADING = "## Recent runs";
+const STANDING_PATTERN = /<!-- sync-standing since:(\S+) targets:(\d+) -->/;
+const RUN_LINE_PATTERN = /^- (\S+) · `([^`]+)` · (.+)$/;
+
+const standingRunsOf = (body: string): ReadonlyArray<StandingRun> => {
+  const lines = body.split("\n");
+  const start = lines.indexOf(RECENT_RUNS_HEADING);
+  if (start === -1) return [];
+  const runs: StandingRun[] = [];
+  for (const line of lines.slice(start + 2)) {
+    const match = RUN_LINE_PATTERN.exec(line);
+    if (match === null) break;
+    runs.push({ date: match[1]!, subject: match[2]!, detail: match[3]! });
+  }
+  return runs;
+};
+
+/**
+ * The tail of a standing sync issue: when it opened, how many targets hit it,
+ * and the last few runs. Every blocked or failed run rewrites the one open
+ * issue of its kind, so this carries forward from the body it replaces; a
+ * rerun on the same target and detail changes nothing here.
+ */
+const standingSection = (
+  previous: string | undefined,
+  run: StandingRun,
+  kind: "blocked" | "failed",
+): ReadonlyArray<string> => {
+  const earlier = previous === undefined ? [] : standingRunsOf(previous);
+  const marker = previous === undefined ? null : STANDING_PATTERN.exec(previous);
+  const repeat = earlier[0]?.subject === run.subject && earlier[0]?.detail === run.detail;
+  const runs = repeat ? earlier : [run, ...earlier].slice(0, RECENT_RUNS);
+  const targets = (marker === null ? earlier.length : Number(marker[2])) + (repeat ? 0 : 1);
+  const since = marker?.[1] ?? earlier.at(-1)?.date ?? run.date;
+  return [
+    `Open since ${since} across ${targets} target${targets === 1 ? "" : "s"}; each ${kind} run rewrites this issue and a clean run closes it.`,
+    "",
+    RECENT_RUNS_HEADING,
+    "",
+    ...runs.map((entry) => `- ${entry.date} · \`${entry.subject}\` · ${entry.detail}`),
+    "",
+    `<!-- sync-standing since:${since} targets:${targets} -->`,
+  ];
+};
+
+export const blockedIssueBody = (report: ForkSyncReport, previous?: string): string => {
   const cell = (value: string): string =>
     `\`${value.replaceAll("\\", "\\\\").replaceAll("|", "\\|")}\``;
   const blocked = report.blocked!;
@@ -843,8 +896,17 @@ export const blockedIssueBody = (report: ForkSyncReport): string => {
     report.decision.resume,
     "```",
     "",
-    "A rerun on the same upstream commit updates this issue; a clean run closes it.",
     `Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`,
+    "",
+    ...standingSection(
+      previous,
+      {
+        date: report.startedAt.slice(0, 10),
+        subject: report.target.tag,
+        detail: `upstream ${blocked.blockingSha.slice(0, 7)}`,
+      },
+      "blocked",
+    ),
     "",
     blockingShaMarker(blocked.blockingSha),
   ].join("\n");
@@ -980,15 +1042,6 @@ const withBodyFile = <T>(body: string, effect: (path: string) => T): T => {
 };
 
 /**
- * Upsert the one open issue keyed by `marker`: a matching issue gets its title
- * and body rewritten in place when the normalised body drifted, and a rerun
- * whose normalised body already matches makes no write at all; only a marker
- * with no open issue files a fresh one. Any stray `gh-bot:` attest footer from
- * an older ghb-filed issue is normalised away, so it never triggers a
- * rewrite. The report body is never posted as a comment. The typed report is
- * the authority; this projection happens beside it.
- */
-/**
  * Normalise an issue body for the no-write comparison: strip any stray
  * `gh-bot:` attest footer line (`<!-- gh-bot:attest … -->`,
  * `<!-- gh-bot:edit-attest … -->`) left over on an issue an older ghb-filed
@@ -1002,36 +1055,44 @@ const normalisedBody = (body: string): string =>
     .join("\n")
     .trim();
 
-const upsertMarkerIssue = (
+/**
+ * Upsert the one standing open issue of a kind: the newest open issue under
+ * the title phrase gets its title and body rewritten in place, rendered from
+ * its previous body so the recent-runs tail carries forward. A body whose
+ * normalised form already matches makes no write; only a kind with no open
+ * issue files a fresh one. Older open issues of the same kind close as
+ * superseded, so a new target never leaves a second issue open. The report
+ * body is never posted as a comment; the typed report stays the authority.
+ */
+const upsertStandingIssue = (
   runner: CommandRunner,
   root: string,
   titlePhrase: string,
-  marker: string,
   title: string,
-  body: string,
+  render: (previous?: string) => string,
 ): { readonly issue: number | null; readonly publishedVia: "gh" } => {
   const github = githubClient(runner, root);
-  const existing = github.list(titlePhrase).find((issue) => issue.body.includes(marker));
-  if (existing !== undefined) {
-    // the machine title suffix never matches the render, so the decision is
-    // on the normalised body alone
-    if (normalisedBody(existing.body) === normalisedBody(body))
-      return { issue: existing.number, publishedVia: "gh" };
-    return withBodyFile(body, (bodyPath) => {
-      github.edit(existing.number, title, bodyPath);
-      return { issue: existing.number, publishedVia: "gh" };
-    });
-  }
-  return withBodyFile(body, (bodyPath) => ({
-    issue: github.create(title, bodyPath),
-    publishedVia: "gh",
-  }));
+  const [standing, ...superseded] = [...github.list(titlePhrase)].sort(
+    (left, right) => right.number - left.number,
+  );
+  if (standing === undefined)
+    return withBodyFile(render(), (bodyPath) => ({
+      issue: github.create(title, bodyPath),
+      publishedVia: "gh",
+    }));
+  const body = render(standing.body);
+  // the machine title suffix never matches the render, so the decision is on
+  // the normalised body alone
+  if (normalisedBody(standing.body) !== normalisedBody(body))
+    withBodyFile(body, (bodyPath) => github.edit(standing.number, title, bodyPath));
+  for (const issue of superseded) github.close(issue.number, `Superseded by #${standing.number}.`);
+  return { issue: standing.number, publishedVia: "gh" };
 };
 
 /**
- * Upsert the one open block issue keyed by the blocking sha. A `gh` that
- * refuses is the raw observation printed with the body, and the run exits
- * non-zero with `blocked.publishError` set on the report.
+ * Upsert the one open block issue. A `gh` that refuses is the raw observation
+ * printed with the body, and the run exits non-zero with
+ * `blocked.publishError` set on the report.
  */
 export const publishBlock = (
   runner: CommandRunner,
@@ -1041,13 +1102,12 @@ export const publishBlock = (
   const blocked = report.blocked!;
   const body = blockedIssueBody(report);
   try {
-    const { issue, publishedVia } = upsertMarkerIssue(
+    const { issue, publishedVia } = upsertStandingIssue(
       runner,
       root,
       BLOCK_TITLE_PHRASE,
-      blockingShaMarker(blocked.blockingSha),
       blocked.title,
-      body,
+      (previous) => blockedIssueBody(report, previous),
     );
     return {
       ...report,
@@ -1080,7 +1140,7 @@ const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRAN
  * and closes in one call. Each issue reports its own refusal; one refusal
  * never stops the other closes.
  */
-export const failureIssueBody = (report: ForkSyncReport): string => {
+export const failureIssueBody = (report: ForkSyncReport, previous?: string): string => {
   const failure = report.failure!;
   const command =
     report.target.tag === "" ? "vp run fork:sync" : `vp run fork:sync ${report.target.tag}`;
@@ -1106,20 +1166,23 @@ export const failureIssueBody = (report: ForkSyncReport): string => {
           "| --- | --- |",
           ...report.checks.map((check) => `| \`${check.command}\` | ${check.status} |`),
         ]),
-    "",
-    "A rerun with the same failure updates this issue; a clean run closes it.",
     ...(report.target.tag === ""
       ? []
-      : [`Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`]),
+      : ["", `Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`]),
+    "",
+    ...standingSection(
+      previous,
+      { date: report.startedAt.slice(0, 10), subject: subject, detail: failure.step },
+      "failed",
+    ),
     "",
     failureMarker(failure.step, failure.key),
   ].join("\n");
 };
 
 /**
- * Upsert the one open failure issue keyed by the failing step and the target
- * tag (the trunk sha before a tag resolves), exactly as `publishBlock` does
- * for a block. A refusal prints the body and sets `failure.publishError`.
+ * Upsert the one open failure issue exactly as `publishBlock` does for a
+ * block. A refusal prints the body and sets `failure.publishError`.
  */
 export const publishFailure = (
   runner: CommandRunner,
@@ -1129,13 +1192,12 @@ export const publishFailure = (
   const failure = report.failure!;
   const body = failureIssueBody(report);
   try {
-    const { issue, publishedVia } = upsertMarkerIssue(
+    const { issue, publishedVia } = upsertStandingIssue(
       runner,
       root,
       FAILURE_TITLE_PHRASE,
-      failureMarker(failure.step, failure.key),
       failure.title,
-      body,
+      (previous) => failureIssueBody(report, previous),
     );
     return {
       ...report,
