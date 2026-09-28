@@ -1,5 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
-import { EnvironmentId, ProjectId, type DesktopBridge } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  type DesktopBridge,
+  type ScopedProjectRef,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
@@ -12,6 +17,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import * as IpcChannels from "../ipc/channels.ts";
 import { type WindowId, windowIdPreloadArgument } from "../window/WindowId.fork.ts";
+import { HUB_WINDOW_IDENTITY, windowPreloadArguments } from "../window/WindowIdentity.ts";
 import { projectWindowPreloadArgument } from "../window/projectWindowArgument.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import {
@@ -201,6 +207,33 @@ describe("desktop preview window policy", () => {
       expect(exposePreviewCapability({} as PreviewCapableDesktopBridge)).not.toHaveProperty(
         "windowId",
       );
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it("reads the scope seed main passed a new window, all projects included, and none when unseeded", () => {
+    const originalArgv = process.argv;
+    const seed = { environmentId: "environment 1", projectId: "project/1" };
+    try {
+      process.argv = [
+        "electron",
+        ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId, seed as ScopedProjectRef),
+      ];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toEqual(
+        seed,
+      );
+      process.argv = [
+        "electron",
+        ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId, "all-projects"),
+      ];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBe(
+        "all-projects",
+      );
+      process.argv = ["electron", ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId)];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBeNull();
+      process.argv = ["electron", "--t3code-window-scope-seed=only-one-part"];
+      expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBeNull();
     } finally {
       process.argv = originalArgv;
     }
