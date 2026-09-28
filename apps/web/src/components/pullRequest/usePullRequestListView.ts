@@ -40,6 +40,8 @@ import {
   type PullRequestHostAvailability,
 } from "./pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "@t3tools/client-runtime/pull-request-project-filter";
+import { useWindowListProjects } from "../../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
+import { pullRequestEnvironmentQueriesFork } from "./pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import { pullRequestListEntryId } from "./pullRequestListGroups.logic";
 
 export interface PullRequestsSearch extends PullRequestListPreferences {
@@ -83,12 +85,20 @@ export function usePullRequestScope(
   const projects = allProjects.filter(
     (project) => !project.isScratch && environmentIds.includes(project.environmentId),
   );
+  const windowProjects = useWindowListProjects(projects, {
+    projectId: search.projectId,
+    environmentId: search.environmentId,
+  }); // fork-hook: workspaces/list-page-window-filter
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
   const scopedProjectId = resolveProjectScope(search.projectId, projects, projectsKnown);
   const scopedProject = findScopedProject(projects, scopedEnvironmentId, scopedProjectId);
-  const scopedProjects = pullRequestFilterProjects(projects, environmentLabels, scopedProject);
+  const scopedProjects = pullRequestFilterProjects(
+    windowProjects,
+    environmentLabels,
+    scopedProject,
+  ); // fork-hook: workspaces/list-page-window-filter
 
   const selectedHost = search.selectedHost ?? search.host;
   // A named server still connecting is kept named rather than falling back: falling back while it
@@ -129,6 +139,14 @@ export function usePullRequestScope(
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
+    if (windowProjects !== projects) {
+      return pullRequestEnvironmentQueriesFork({
+        listed: windowProjects,
+        held: projects,
+        environmentIds: queryEnvironmentIds,
+        hostAvailability: availability,
+      });
+    } // fork-hook: workspaces/list-page-window-filter
     return pullRequestProjectQueries(projects, queryEnvironmentIds, availability);
   };
   const environmentQueries = queriesFor(hostAvailability);
