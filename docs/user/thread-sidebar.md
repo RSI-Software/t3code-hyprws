@@ -177,6 +177,15 @@ A window opened on a project starts with its project filter set to that project;
 Links saved from older project windows still open the same thread, draft, or list.
 Web and mobile clients do not show project-window actions.
 
+### Choose a window's projects
+
+Each window keeps its own project filter; an empty filter shows all projects.
+Open the project chooser at the top of the sidebar, **Choose projects** in the command palette, or press `mod+alt+f`.
+The project label on Issues and Pull requests opens it too.
+Select several projects, or **All projects** to clear the filter.
+A project's **Show only** button narrows the window to that project.
+On web the filter belongs to the browser tab, and on mobile to the device.
+
 ## Inspect agent work
 
 On web and desktop, use **Agents** to follow work delegated to subagents.
