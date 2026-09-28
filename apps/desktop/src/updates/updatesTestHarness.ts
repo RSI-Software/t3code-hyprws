@@ -120,12 +120,12 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeedNone,
-    get: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-get
+    get: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-get
     getById: () => Effect.succeedNone, // fork-hook: multi-window/window-id-get-by-id
     getOrCreate: () => Effect.die("unexpected identity window creation"),
     createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
     close: () => Effect.void,
-    windowIdFor: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-identity
+    windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-identity
     listWindows: Effect.succeed(openWindows), // fork-hook: multi-window/window-id-list
     windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
     currentMainOrFirst: Effect.succeedNone,
