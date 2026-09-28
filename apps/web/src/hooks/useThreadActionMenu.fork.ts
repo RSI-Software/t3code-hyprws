@@ -1,4 +1,4 @@
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { AtomCommand, AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   isAtomCommandInterrupted,
@@ -8,8 +8,7 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useCallback } from "react";
 import { useRouter } from "@tanstack/react-router";
 
-import type { ThreadRouteFamily } from "../threadRoutes";
-import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
+import { buildThreadRouteParams } from "../threadRoutes";
 import {
   buildLatestStableForkCommandFork,
   forkInFlight,
@@ -34,8 +33,11 @@ type ThreadForkCommandRun =
     ? (target: W) => Promise<AtomCommandResult<A, E>>
     : never;
 
-/** The route options a thread navigation needs, straight from the family. */
-type ThreadRouteTarget = ReturnType<ThreadRouteFamily["thread"]>;
+/** The route options a thread navigation needs. */
+type ThreadRouteTarget = {
+  readonly to: "/$environmentId/$threadId";
+  readonly params: ReturnType<typeof buildThreadRouteParams>;
+};
 
 const FORK_FAILED_TITLE = "Could not fork thread";
 
@@ -62,7 +64,6 @@ export function reportResetOrderThreadAction(input: {
 /** One V2 `thread.fork` dispatch from click to navigation; both menu surfaces share it. */
 export async function forkThreadActionFork(input: {
   readonly threadRef: ScopedThreadRef;
-  readonly routeFamily: ThreadRouteFamily;
   readonly navigate: (options: ThreadRouteTarget) => Promise<void> | void;
   readonly forkThread: ThreadForkCommandRun;
   /** Defaults to the real store wait; tests substitute a gate. */
@@ -70,7 +71,7 @@ export async function forkThreadActionFork(input: {
   /** Defaults to the shell store's title; tests substitute one. */
   readonly readSourceTitle?: (ref: ScopedThreadRef) => string | null;
 }): Promise<void> {
-  const { threadRef, routeFamily, navigate, forkThread } = input;
+  const { threadRef, navigate, forkThread } = input;
   const waitForShell = input.waitForShell ?? waitForChildShellFork;
   const readSourceTitle = input.readSourceTitle ?? readForkSourceTitleFork;
   const threadKey = scopedThreadKey(threadRef);
@@ -109,12 +110,7 @@ export async function forkThreadActionFork(input: {
     };
     await waitForShell(childRef);
     try {
-      await navigate(
-        routeFamily.thread({
-          environmentId: childRef.environmentId,
-          threadId: childRef.threadId,
-        }),
-      );
+      await navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(childRef) });
     } catch {
       // The child exists server-side; a navigation failure must not read as
       // a failed fork, so no error toast here.
@@ -134,7 +130,6 @@ export async function forkThreadActionFork(input: {
  */
 export function useThreadForkDispatchFork(): (threadRef: ScopedThreadRef) => Promise<void> {
   const router = useRouter();
-  const routeFamily = useThreadRouteFamily();
   // reportFailure keeps the library's console warning (it never toasts);
   // the toast itself belongs to this dispatch.
   const forkThread = useAtomCommand(threadForkCommand);
@@ -142,10 +137,9 @@ export function useThreadForkDispatchFork(): (threadRef: ScopedThreadRef) => Pro
     (threadRef) =>
       forkThreadActionFork({
         threadRef,
-        routeFamily,
         navigate: (options) => router.navigate(options),
         forkThread,
       }),
-    [forkThread, routeFamily, router],
+    [forkThread, router],
   );
 }

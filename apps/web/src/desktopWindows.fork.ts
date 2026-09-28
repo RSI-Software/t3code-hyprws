@@ -20,18 +20,10 @@ export function supportsDesktopProjectWindows(
   return typeof bridge?.requestWindow === "function";
 }
 
-function projectWindowRoute(ref: ScopedProjectRef): string {
-  return `/project/${encodeURIComponent(ref.environmentId)}/${encodeURIComponent(ref.projectId)}`;
-}
-
-export function projectThreadWindowRoute(ref: ScopedProjectRef, threadId: string): string {
-  return `${projectWindowRoute(ref)}/thread/${encodeURIComponent(threadId)}`;
-}
-
 /** Open in New Window: a new window at `route`, its project filter seeded with `ref`. */
 export function openInNewWindowRequest(
   ref: ScopedProjectRef,
-  route: string = projectWindowRoute(ref),
+  route: string = "/",
 ): DesktopWindowRequest {
   return { kind: "open-in-new-window", route, seed: ref };
 }
@@ -94,25 +86,9 @@ export function openThreadInNewWindow(threadRef: ScopedThreadRef, projectId: Pro
   const projectRef: ScopedProjectRef = { environmentId: threadRef.environmentId, projectId };
   requestDesktopWindow(
     window.desktopBridge,
-    openInNewWindowRequest(projectRef, projectThreadWindowRoute(projectRef, threadRef.threadId)),
+    openInNewWindowRequest(
+      projectRef,
+      `/${encodeURIComponent(threadRef.environmentId)}/${encodeURIComponent(threadRef.threadId)}`,
+    ),
   );
-}
-
-// Lives with the route helpers, which read it without this module's toast import.
-export { readDesktopProjectWindowRef } from "./projectRoutes";
-
-export type SidebarBrandTarget =
-  | { readonly kind: "hub"; readonly label: string }
-  | { readonly kind: "project"; readonly label: string; readonly ref: ScopedProjectRef };
-
-/**
- * Where the sidebar brand goes. A project window's brand lands on that
- * window's own project instead of the hub route.
- */
-export function resolveSidebarBrandTarget(
-  projectWindowRef: ScopedProjectRef | null,
-): SidebarBrandTarget {
-  return projectWindowRef === null
-    ? { kind: "hub", label: "Go to threads" }
-    : { kind: "project", label: "Go to project", ref: projectWindowRef };
 }
