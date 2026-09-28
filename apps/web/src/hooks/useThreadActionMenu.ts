@@ -24,6 +24,7 @@ import {
   readForkProviderFork,
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -167,6 +168,7 @@ export function useThreadActionMenu(input: {
             forkRefInFlightFork(threadRef), // fork-hook: thread-fork/header-in-flight
             ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
           ),
+          openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
           supports,
           snoozePresets,
         });
@@ -251,6 +253,8 @@ export function useThreadActionMenu(input: {
             return;
           case "fork":
             return forkThreadDispatch(threadRef); // fork-hook: thread-fork/header-dispatch
+          case "open-in-new-window": // fork-hook: multi-window/dispatch-thread-menu
+            return openThreadInNewWindow(threadRef, thread.projectId); // fork-hook: multi-window/dispatch-thread-menu
           case "reset-order":
             return reportResetOrderThreadAction({
               threadRef,
