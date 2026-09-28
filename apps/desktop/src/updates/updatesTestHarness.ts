@@ -13,8 +13,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
-import * as DesktopWindowSession from "../window/DesktopWindowSession.ts";
-import type { WindowIdentity } from "../window/WindowIdentity.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 
 export const flushCallbacks = Effect.yieldNow;
@@ -33,7 +32,7 @@ export interface UpdatesHarnessOptions {
   readonly startBackend?: Effect.Effect<void>;
   readonly backendDesiredRunning?: boolean;
   readonly backendInstances?: ReadonlyArray<DesktopBackendPool.DesktopBackendInstance>;
-  readonly openWindowIdentities?: readonly WindowIdentity[];
+  readonly openWindows?: readonly DesktopWindowSession.CapturedWindow[]; // fork-hook: multi-window/window-id-open-windows
   readonly env?: Record<string, string | undefined>;
   readonly platform?: NodeJS.Platform;
   readonly packageType?: string | undefined;
@@ -51,8 +50,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
-  const capturedSessions: { identities: WindowIdentity[]; reason: string }[] = [];
-  const openIdentities: readonly WindowIdentity[] = options.openWindowIdentities ?? [];
+  const capturedSessions: { windows: DesktopWindowSession.CapturedWindow[]; reason: string }[] = []; // fork-hook: multi-window/window-id-captured-sessions
+  const openWindows: readonly DesktopWindowSession.CapturedWindow[] = options.openWindows ?? []; // fork-hook: multi-window/window-id-open-windows-default
 
   const addListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
     const eventListeners = listeners.get(eventName) ?? new Set();
@@ -120,10 +119,11 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeedNone,
     get: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-get
-    getOrCreate: () => Effect.die("unexpected identity window creation"),
-    close: () => Effect.void,
-    identityFor: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-identity
-    listIdentities: Effect.succeed(openIdentities),
+    getById: () => Effect.succeedNone, // fork-hook: multi-window/window-id-get-by-id
+    getOrCreate: () => Effect.die("unexpected identity window creation"), // fork-hook: multi-window/updates-harness-window-get-or-create
+    close: () => Effect.void, // fork-hook: multi-window/updates-harness-window-close
+    windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-identity
+    listWindows: Effect.succeed(openWindows), // fork-hook: multi-window/window-id-list
     currentMainOrFirst: Effect.succeedNone,
     focusedMainOrFirst: Effect.succeedNone,
     setMain: () => Effect.void,
@@ -264,12 +264,13 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       }),
   });
 
+  const installStepsBeforeCapture: number[] = []; // fork-hook: multi-window/updates-capture-order
   const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
     capture: (identities, reason) =>
       Effect.sync(() => {
-        capturedSessions.push({ identities: [...identities], reason });
-        installSteps.push("capture");
-      }).pipe(Effect.ensuring(Effect.sync(() => installSteps.pop()))), // fork-hook: multi-window/route-nav-capture-bridge
+        capturedSessions.push({ windows: [...identities], reason }); // fork-hook: multi-window/window-id-capture
+        installStepsBeforeCapture.push(installSteps.length); // fork-hook: multi-window/updates-capture-order-step
+      }),
     consume: Effect.succeed([]),
   } satisfies DesktopWindowSession.DesktopWindowSession["Service"]); // fork-hook: multi-window/updates-harness-window-session
   const layer = DesktopUpdates.layer.pipe(
@@ -301,6 +302,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     installRecords,
     previousInstallRecord: () => previousInstallRecord,
     capturedSessions, // fork-hook: multi-window/updates-harness-captured-sessions
+    installStepsBeforeCapture, // fork-hook: multi-window/updates-capture-order-result
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
     channels: () => channels,
