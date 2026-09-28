@@ -8,7 +8,6 @@ export const FORK_DOMAINS = [
   "github-issues",
   "markdown-editing",
   "multi-window",
-  "project-windows",
   "thread-ordering",
   "thread-fork",
   "upstream-fixes",

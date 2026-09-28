@@ -10,7 +10,7 @@ const input = (
   tier?: string,
   upstreamLines?: ReadonlyMap<string, ReadonlySet<string>>,
 ) => ({
-  commit: { short: "abc1234", domain: "project-windows", ...(tier === undefined ? {} : { tier }) },
+  commit: { short: "abc1234", domain: "multi-window", ...(tier === undefined ? {} : { tier }) },
   files: [path],
   changedLines: new Map([[path, { added }]]),
   upstreamFiles: new Set([path]),
@@ -20,7 +20,7 @@ const input = (
 it("passes a marked insertion", () => {
   assert.deepStrictEqual(
     hookGuardWarnings(
-      input(["import { forkThing } from './forkThing.ts'; // fork-hook: project-windows/thing"]),
+      input(["import { forkThing } from './forkThing.ts'; // fork-hook: multi-window/thing"]),
     ),
     [],
   );
@@ -37,7 +37,7 @@ it("refuses an unmarked rewrap with no exemption", () => {
   // rewrapping a landed line is marked by a human, not exempted.
   const path = "apps/web/src/thing.ts";
   const warnings = hookGuardWarnings({
-    commit: { short: "abc1234", domain: "project-windows" },
+    commit: { short: "abc1234", domain: "multi-window" },
     files: [path],
     changedLines: new Map([
       [path, { added: ["const x = foo(", "  1,", ");"], removed: ["const x = foo(1);"] }],
@@ -75,7 +75,7 @@ it("passes a marked hook plus a restored line", () => {
   assert.deepStrictEqual(
     hookGuardWarnings(
       input(
-        ["export const forkThing = 1; // fork-hook: project-windows/thing", restored],
+        ["export const forkThing = 1; // fork-hook: multi-window/thing", restored],
         path,
         undefined,
         new Map([[path, new Set([restored])]]),
@@ -94,7 +94,7 @@ it("behaves as before without the map", () => {
 it("stays silent on package.json, where no marker comment can be written", () => {
   assert.deepStrictEqual(
     hookGuardWarnings({
-      commit: { short: "abc1234", domain: "project-windows" },
+      commit: { short: "abc1234", domain: "multi-window" },
       files: ["package.json"],
       changedLines: new Map([["package.json", { added: ['  "fork": true,'] }]]),
       upstreamFiles: new Set(["package.json"]),
@@ -106,7 +106,7 @@ it("stays silent on package.json, where no marker comment can be written", () =>
 it("exempts an upstreamable bugfix", () => {
   assert.deepStrictEqual(
     hookGuardWarnings({
-      commit: { short: "abc1234", domain: "project-windows", tier: "bugfix", upstreamable: "yes" },
+      commit: { short: "abc1234", domain: "multi-window", tier: "bugfix", upstreamable: "yes" },
       files: ["apps/web/src/thing.ts"],
       changedLines: new Map([["apps/web/src/thing.ts", { added: ["export const x = 1;"] }]]),
       upstreamFiles: new Set(["apps/web/src/thing.ts"]),
