@@ -32,8 +32,8 @@ export const resolveRegisteredSenderWindow = Effect.fn(
   const senderWindow = runtime.BrowserWindow?.fromWebContents(senderWebContents) ?? null;
   if (senderWindow === null) return Option.none<Electron.BrowserWindow>();
 
-  const identity = yield* electronWindow.identityFor(senderWindow);
-  return Option.isNone(identity)
+  const windowId = yield* electronWindow.windowIdFor(senderWindow);
+  return Option.isNone(windowId)
     ? Option.none<Electron.BrowserWindow>()
     : Option.some(senderWindow);
 });

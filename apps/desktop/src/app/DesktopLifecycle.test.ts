@@ -66,10 +66,11 @@ function makeElectronWindowLayer(destroyAll: Effect.Effect<void> = Effect.void) 
     create: () => Effect.die("unexpected window creation"),
     main: Effect.die("unexpected main window read"),
     get: () => Effect.die("unexpected identity window read"),
+    getById: () => Effect.die("unexpected window id read"), // fork-hook: multi-window/window-id-get-by-id
     getOrCreate: () => Effect.die("unexpected identity window creation"),
     close: () => Effect.void,
-    identityFor: () => Effect.succeed(Option.none()),
-    listIdentities: Effect.succeed([]),
+    windowIdFor: () => Effect.succeed(Option.none()), // fork-hook: multi-window/window-id-for
+    listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
     currentMainOrFirst: Effect.die("unexpected current window read"),
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
