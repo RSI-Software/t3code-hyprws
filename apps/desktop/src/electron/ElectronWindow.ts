@@ -15,11 +15,8 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 
-import {
-  HUB_WINDOW_IDENTITY,
-  type WindowIdentity,
-  windowIdentityKey,
-} from "../window/WindowIdentity.ts";
+import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "../window/WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
+import * as WindowRegistry from "./WindowRegistry.fork.ts"; // fork-hook: multi-window/window-registry-import
 import {
   activateWindowsForeground,
   isWindowsShellHostedForeground,
@@ -122,16 +119,12 @@ export class ElectronWindow extends Context.Service<
     readonly get: (
       identity: WindowIdentity,
     ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
-    readonly getOrCreate: <E>(
-      identity: WindowIdentity,
-      create: Effect.Effect<Electron.BrowserWindow, E>,
-    ) => Effect.Effect<{ readonly window: Electron.BrowserWindow; readonly created: boolean }, E>;
+    readonly getById: WindowRegistry.WindowRegistryService["getById"]; // fork-hook: multi-window/window-id-get-by-id
+    readonly getOrCreate: WindowRegistry.WindowRegistryService["getOrCreate"]; // fork-hook: multi-window/window-id-get-or-create
     readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
-    readonly identityFor: (
-      window: Electron.BrowserWindow,
-    ) => Effect.Effect<Option.Option<WindowIdentity>>;
+    readonly windowIdFor: WindowRegistry.WindowRegistryService["windowIdFor"]; // fork-hook: multi-window/window-id-for
     /** Every live registered window, in registration order. */
-    readonly listIdentities: Effect.Effect<readonly WindowIdentity[]>;
+    readonly listWindows: WindowRegistry.WindowRegistryService["listWindows"]; // fork-hook: multi-window/window-id-list
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
@@ -162,10 +155,7 @@ export const make = Effect.gen(function* () {
   const captureRevealWindows = new Set<number>();
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-  const windowsByIdentity = new Map<
-    string,
-    { readonly identity: WindowIdentity; readonly window: Electron.BrowserWindow }
-  >();
+  const registry = WindowRegistry.makeWindowRegistry(); // fork-hook: multi-window/window-registry
   const registrySemaphore = yield* Semaphore.make(1);
 
   const listWindows = Effect.try({
@@ -193,30 +183,7 @@ export const make = Effect.gen(function* () {
         }),
     }).pipe(Effect.orDie);
 
-  const getLiveWindow = Effect.fn("desktop.electron.window.get")(function* (
-    identity: WindowIdentity,
-  ) {
-    const key = windowIdentityKey(identity);
-    const entry = windowsByIdentity.get(key);
-    if (entry === undefined) {
-      return Option.none<Electron.BrowserWindow>();
-    }
-    if (yield* isWindowDestroyed(entry.window)) {
-      windowsByIdentity.delete(key);
-      return Option.none<Electron.BrowserWindow>();
-    }
-    return Option.some(entry.window);
-  });
-
-  const registerWindow = (identity: WindowIdentity, window: Electron.BrowserWindow) => {
-    const key = windowIdentityKey(identity);
-    windowsByIdentity.set(key, { identity, window });
-    window.once("closed", () => {
-      if (windowsByIdentity.get(key)?.window === window) {
-        windowsByIdentity.delete(key);
-      }
-    });
-  };
+  const getLiveWindow = (identity: WindowIdentity) => Effect.sync(() => registry.get(identity)); // fork-hook: multi-window/window-registry-get
 
   const liveMain = Effect.gen(function* () {
     const registered = yield* getLiveWindow(HUB_WINDOW_IDENTITY);
@@ -293,53 +260,18 @@ export const make = Effect.gen(function* () {
     },
     main: liveMain,
     get: getLiveWindow,
-    getOrCreate: (identity, create) =>
-      registrySemaphore.withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* getLiveWindow(identity);
-          if (Option.isSome(existing)) {
-            return { window: existing.value, created: false } as const;
-          }
-          const window = yield* create;
-          registerWindow(identity, window);
-          if (identity.kind === "hub") {
-            yield* Ref.set(mainWindowRef, Option.some(window));
-          }
-          return { window, created: true } as const;
-        }),
-      ),
-    close: (identity) =>
-      registrySemaphore.withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* getLiveWindow(identity);
-          if (Option.isNone(existing)) return;
-          windowsByIdentity.delete(windowIdentityKey(identity));
-          existing.value.close();
-        }),
-      ),
-    listIdentities: Effect.sync(() =>
-      Array.from(windowsByIdentity.values())
-        .filter((entry) => !entry.window.isDestroyed())
-        .map((entry) => entry.identity),
-    ),
-    identityFor: (window) =>
-      Effect.sync(() => {
-        for (const entry of windowsByIdentity.values()) {
-          if (entry.window === window) return Option.some(entry.identity);
-        }
-        return Option.none<WindowIdentity>();
-      }),
+    ...WindowRegistry.makeWindowRegistryService(registry, registrySemaphore, mainWindowRef), // fork-hook: multi-window/window-registry-service
     currentMainOrFirst,
     focusedMainOrFirst,
     setMain: (window) =>
       Effect.sync(() => {
-        registerWindow(HUB_WINDOW_IDENTITY, window);
+        registry.registerMain(window); // fork-hook: multi-window/window-registry-main
       }).pipe(Effect.andThen(Ref.set(mainWindowRef, Option.some(window)))),
     clearMain: (window) =>
       Effect.sync(() => {
-        const hub = windowsByIdentity.get(windowIdentityKey(HUB_WINDOW_IDENTITY));
+        const hub = registry.findByIdentity(HUB_WINDOW_IDENTITY); // fork-hook: multi-window/window-registry-hub
         if (hub !== undefined && (Option.isNone(window) || hub.window === window.value)) {
-          windowsByIdentity.delete(windowIdentityKey(HUB_WINDOW_IDENTITY));
+          registry.remove(hub.windowId); // fork-hook: multi-window/window-registry-hub-remove
         }
       }).pipe(
         Effect.andThen(
