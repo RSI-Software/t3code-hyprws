@@ -96,6 +96,7 @@ import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
 import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import {
   ProjectChooserRowCheckFork,
   ProjectChooserShowOnlyButtonFork,
@@ -4753,6 +4754,20 @@ export default function Sidebar() {
   // for multi-project setups.
   const handleNewThreadClick = useCallback(
     (event?: ReactMouseEvent) => {
+      if (
+        startFilteredNewThreadFork(
+          {
+            activeDraftThread: newThreadContext.activeDraftThread,
+            activeThread: newThreadContext.activeThread ?? undefined,
+            defaultProjectRef: newThreadContext.defaultProjectRef,
+            handleNewThread: newThreadContext.handleNewThread,
+          },
+          event?.shiftKey ?? false,
+        )
+      ) {
+        if (isMobile) setOpenMobile(false);
+        return;
+      } // fork-hook: workspaces/filtered-new-thread
       // One project: nothing to pick, create immediately. Shift+click creates
       // directly in the current project even with several projects, skipping
       // the palette picker.
