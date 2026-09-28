@@ -10,8 +10,10 @@
  * window's `additionalArguments` into every renderer process it starts, so a
  * reload or crash recovery reads the same id back.
  *
- * Kept free of package imports so the sandboxed preload can use it; see
- * `projectWindowArgument.ts` for why. Main mints ids in `WindowRegistry.fork.ts`.
+ * Kept free of package imports so the sandboxed preload can use it: a preload
+ * bundle that pulls in `@t3tools/*` leaves a runtime `require()` behind and fails
+ * to load, which drops the whole desktop bridge. Main mints ids in
+ * `WindowRegistry.fork.ts`.
  */
 export type WindowId = string & { readonly __windowIdBrand: unique symbol };
 
