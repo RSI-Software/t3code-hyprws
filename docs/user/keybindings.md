@@ -142,6 +142,7 @@ through the pages you have visited, like a browser's back and forward buttons.
 `window.openProject` focuses the active project's desktop window, or opens one when it has none, and defaults to `mod+alt+o`.
 It was named `project.openWindow`, then `window.openInNew`; a saved binding with either old name keeps working.
 Both window commands and their keybindings are shown only in the desktop app.
+`projectFilter.choose` opens the window's [project chooser](./thread-sidebar.md#choose-a-windows-projects) and defaults to `mod+alt+f`.
 
 `terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
 `chat.focusComposer` moves focus back to the composer without closing the drawer. Both default to
