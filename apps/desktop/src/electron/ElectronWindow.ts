@@ -125,6 +125,7 @@ export class ElectronWindow extends Context.Service<
     readonly windowIdFor: WindowRegistry.WindowRegistryService["windowIdFor"]; // fork-hook: multi-window/window-id-for
     /** Every live registered window, in registration order. */
     readonly listWindows: WindowRegistry.WindowRegistryService["listWindows"]; // fork-hook: multi-window/window-id-list
+    readonly windowsByRecency: WindowRegistry.WindowRegistryService["windowsByRecency"]; // fork-hook: multi-window/window-targets-by-recency
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
@@ -157,6 +158,11 @@ export const make = Effect.gen(function* () {
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const registry = WindowRegistry.makeWindowRegistry(); // fork-hook: multi-window/window-registry
   const registrySemaphore = yield* Semaphore.make(1);
+  const registryService = WindowRegistry.makeWindowRegistryService(
+    registry,
+    registrySemaphore,
+    mainWindowRef,
+  ); // fork-hook: multi-window/window-targets-registry-service
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -186,6 +192,8 @@ export const make = Effect.gen(function* () {
   const getLiveWindow = (identity: WindowIdentity) => Effect.sync(() => registry.get(identity)); // fork-hook: multi-window/window-registry-get
 
   const liveMain = Effect.gen(function* () {
+    const forkTarget = yield* registryService.requestTarget; // fork-hook: multi-window/window-targets-main
+    if (Option.isSome(forkTarget)) return forkTarget; // fork-hook: multi-window/window-targets-main-return
     const registered = yield* getLiveWindow(HUB_WINDOW_IDENTITY);
     if (Option.isSome(registered)) {
       return registered;
@@ -211,6 +219,8 @@ export const make = Effect.gen(function* () {
   });
 
   const focusedMainOrFirst = Effect.gen(function* () {
+    const forkTarget = yield* registryService.requestTarget; // fork-hook: multi-window/window-targets-focused
+    if (Option.isSome(forkTarget)) return forkTarget; // fork-hook: multi-window/window-targets-focused-return
     const focused = yield* Effect.try({
       try: () => Option.fromNullishOr(Electron.BrowserWindow.getFocusedWindow() ?? null),
       catch: (cause) =>
@@ -260,7 +270,7 @@ export const make = Effect.gen(function* () {
     },
     main: liveMain,
     get: getLiveWindow,
-    ...WindowRegistry.makeWindowRegistryService(registry, registrySemaphore, mainWindowRef), // fork-hook: multi-window/window-registry-service
+    ...registryService, // fork-hook: multi-window/window-registry-service
     currentMainOrFirst,
     focusedMainOrFirst,
     setMain: (window) =>
