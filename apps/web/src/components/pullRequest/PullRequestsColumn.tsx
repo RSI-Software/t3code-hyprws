@@ -76,6 +76,8 @@ function ExpandableSearch({
   );
 }
 
+import { ProjectChooserScopeLabelFork } from "../ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
+
 export function PullRequestsColumn({
   refreshing,
   onRefresh,
@@ -241,6 +243,9 @@ export function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
+              {/* fork-hook: workspaces/chooser-scope-label */}
+              <ProjectChooserScopeLabelFork />
+              {/* fork-hook-end */}
               <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
                 {searchInput}
               </div>
