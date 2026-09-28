@@ -1,8 +1,6 @@
 import type { EnvironmentGitHubIssueRef } from "@t3tools/client-runtime/state/github-issues";
 import type { EnvironmentId, GitHubIssueListState, ProjectId } from "@t3tools/contracts";
 
-import type { WindowProjectScopeParam } from "../../windowProjectScope";
-
 export interface IssuesSearch {
   readonly state: GitHubIssueListState;
   readonly q?: string;
@@ -12,7 +10,6 @@ export interface IssuesSearch {
   readonly selectedProjectId?: ProjectId;
   readonly repository?: string;
   readonly number?: number;
-  readonly scope?: WindowProjectScopeParam;
 }
 
 export function validateGitHubIssueSearch(raw: Record<string, unknown>): IssuesSearch {
@@ -43,7 +40,6 @@ export function validateGitHubIssueSearch(raw: Record<string, unknown>): IssuesS
       ? { environmentId: raw.environmentId as EnvironmentId }
       : {}),
     ...selection,
-    ...(raw.scope === "all" ? { scope: raw.scope } : {}),
   };
 }
 

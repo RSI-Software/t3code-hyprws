@@ -91,7 +91,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import { requestDesktopWindow, supportsDesktopProjectWindows } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-palette-import
+import { requestDesktopWindow, supportsDesktopProjectWindows } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-palette-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { copyThreadReference } from "../lib/copyThreadReference";
@@ -155,9 +155,7 @@ import {
   isWindowsPlatform,
   newProjectId,
 } from "../lib/utils";
-import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
-import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
-import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes"; // fork-hook: project-windows/palette-pr-route-import
+import { buildThreadRouteParams } from "../threadRoutes";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -381,7 +379,6 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const routeFamily = useThreadRouteFamily();
   const { openChildSearch, setOpen } = props;
   const projectChooserLabel = useProjectChooserLabel(); // fork-hook: workspaces/chooser-palette
   // Keyed by palette session: the intent and restored search only seed this
@@ -754,9 +751,10 @@ function OpenCommandPaletteDialog(props: {
           clientSettings.sidebarThreadSortOrder,
         );
     if (latestThread) {
-      await navigate(
-        routeFamily.thread(scopeThreadRef(latestThread.environmentId, latestThread.id)),
-      );
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(latestThread.environmentId, latestThread.id)),
+      });
       return;
     }
 
@@ -1500,10 +1498,7 @@ function OpenCommandPaletteDialog(props: {
       title: "Open pull requests",
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
-        await navigate({
-          ...listRouteTarget("pull-requests", resolveProjectRefFromPathname(pathname)), // fork-hook: project-windows/palette-pr-route
-          search: readPullRequestListPreferences(), // fork-hook: project-windows/palette-pr-route-search
-        });
+        await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
     });
   }
@@ -1535,7 +1530,6 @@ function OpenCommandPaletteDialog(props: {
     });
   }
   const githubIssuesActionItem = buildGitHubIssuesActionItemFork({
-    pathname,
     environments,
     navigate,
   }); // fork-hook: github-issues/command-palette-entry
@@ -1751,9 +1745,12 @@ function OpenCommandPaletteDialog(props: {
         clientSettings.sidebarThreadSortOrder,
       );
       if (latestThread && latestThread.settledOverride !== "settled") {
-        await navigate(
-          routeFamily.thread(scopeThreadRef(latestThread.environmentId, latestThread.id)),
-        );
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(
+            scopeThreadRef(latestThread.environmentId, latestThread.id),
+          ),
+        });
       } else {
         const navigationResult = await settlePromise(() =>
           handleNewThread(scopeProjectRef(existing.environmentId, existing.id)),
