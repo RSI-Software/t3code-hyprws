@@ -79,6 +79,7 @@ import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWi
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
+import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
