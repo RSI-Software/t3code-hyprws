@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   findProjectPreferredFork,
@@ -97,6 +97,10 @@ describe("linkedRepositoryFork", () => {
 });
 
 describe("openGitHubIssueLinkFork", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const capabilities = (githubIssues: boolean) => ({
     environment: { capabilities: { githubIssues } },
   });
@@ -137,6 +141,40 @@ describe("openGitHubIssueLinkFork", () => {
     });
     expect(claimed).toBe(true);
     expect(calls).toEqual(["preventDefault", "stopPropagation"]);
+  });
+
+  it("widens to all projects for another project's issue in a desktop project window", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings" },
+      desktopBridge: { projectWindowRef: { environmentId: "env-1", projectId: "p-window" } },
+    });
+    const navigate = vi.fn();
+    openGitHubIssueLinkFork({
+      event: claimEvent().event,
+      targetUrl: "https://github.com/acme/checked-out/issues/9",
+      resolvedThreadRef: undefined,
+      allProjects: [
+        {
+          id: "p1",
+          environmentId: "env-1",
+          repositoryIdentity: {
+            provider: "github",
+            owner: "acme",
+            name: "checked-out",
+            canonicalKey: "github.com/acme/checked-out",
+          },
+        } as never,
+      ],
+      serverConfigs: new Map([["env-1", capabilities(true)]]) as never,
+      primaryEnvironmentId: "env-1" as never,
+      navigate: navigate as never,
+    });
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { environmentId: "env-1", projectId: "p-window" },
+        search: expect.objectContaining({ selectedProjectId: "p1", scope: "all" }),
+      }),
+    );
   });
 
   it("leaves links alone when no project with the issue capability matches", () => {

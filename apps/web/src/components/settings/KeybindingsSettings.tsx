@@ -37,7 +37,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { supportsDesktopProjectWindows } from "../../desktopProjectWindows";
+import { isDesktopWindowCommand, supportsDesktopProjectWindows } from "../../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding-settings-import
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
@@ -1321,7 +1321,7 @@ export function KeybindingsSettingsPanel() {
     () =>
       showProjectWindowBinding
         ? keybindings
-        : keybindings.filter((binding) => binding.command !== "project.openWindow"),
+        : keybindings.filter((binding) => !isDesktopWindowCommand(binding.command)), // fork-hook: multi-window/dispatch-keybinding-settings
     [keybindings, showProjectWindowBinding],
   );
   const rows = useMemo(
@@ -1353,7 +1353,7 @@ export function KeybindingsSettingsPanel() {
   const commandOptions = useMemo(
     () =>
       buildKeybindingCommandOptions(visibleKeybindings).filter(
-        (command) => showProjectWindowBinding || command !== "project.openWindow",
+        (command) => showProjectWindowBinding || !isDesktopWindowCommand(command), // fork-hook: multi-window/dispatch-keybinding-settings
       ),
     [showProjectWindowBinding, visibleKeybindings],
   );
