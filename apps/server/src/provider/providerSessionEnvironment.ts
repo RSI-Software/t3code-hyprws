@@ -3,9 +3,8 @@ import type { ProviderSessionStartInput } from "@t3tools/contracts";
 /**
  * Environment variables every provider subprocess receives so tooling the
  * agent runs (shells, browser grounders, window resolvers) can name the
- * T3 Code project and thread that own it. A project-scoped desktop window is
- * created with its project id as the window title, so `T3CODE_PROJECT_ID` is
- * the stable key back to the window hosting the agent.
+ * T3 Code project and thread that own it. The ids name the work, not a
+ * window: any desktop window may show that thread.
  */
 const PROVIDER_SESSION_IDENTITY_ENV = {
   projectId: "T3CODE_PROJECT_ID",
