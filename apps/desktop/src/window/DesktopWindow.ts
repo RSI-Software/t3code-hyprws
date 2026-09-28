@@ -33,6 +33,7 @@ import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
+import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import { HyprlandPlacement } from "./HyprlandPlacement.ts";
 import {
@@ -408,21 +409,8 @@ export const make = Effect.gen(function* () {
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
   const hyprlandPlacement = yield* HyprlandPlacement;
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
-  // Window-side latch for the primary backend's readiness. Set by
-  // handleBackendReady (driven by the pool's onReady callback), cleared
-  // by handleBackendNotReady (driven by onShutdown). Only consumed by
-  // createMainIfBackendReady, which gates the post-readiness window
-  // open in development and the macOS "activate without windows" path.
-  const backendReadyRef = yield* Ref.make(false);
-  // Deliberately restore only the hub. Project windows are reopened only from
-  // an explicit launch intent, so stale remote environments never create
-  // speculative windows during startup.
-  const pendingInitialIdentityRef = yield* Ref.make<Option.Option<WindowIdentity>>(
-    Option.some(HUB_WINDOW_IDENTITY),
-  );
-  // Windows carried across an update relaunch. Empty on every other launch, so
-  // the hub-only default above still describes a normal cold start.
-  const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
+  const backendReadyRef = yield* Ref.make(false); // fork-hook: multi-window/startup-drain-latch
+  const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
   // One map-time placement for dev:desktop:agent. The launcher environment survives
   // main-process watch restarts; each fresh process consumes its own copy once.
   const pendingDevAgentPlacementRef = yield* Ref.make(environment.devAgentPlacement);
@@ -1109,36 +1097,6 @@ export const make = Effect.gen(function* () {
     return (yield* desktopSettings.get).localEnvironmentEnabled;
   });
 
-  /**
-   * Reopens the windows an update relaunch recorded, then puts each one back on
-   * the workspace it came from. One window failing is logged and skipped: a
-   * project that has since gone away must not strand the whole restore.
-   */
-  const drainPendingRestore = Effect.gen(function* () {
-    const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
-    if (entries.length === 0) return false;
-    for (const entry of entries) {
-      const key = windowIdentityKey(entry.identity);
-      const opened = yield* Effect.exit(ensureIdentity(entry.identity));
-      if (Exit.isFailure(opened)) {
-        yield* logWindowWarning("failed to restore window", { identity: key });
-        continue;
-      }
-      const workspace = entry.workspace;
-      if (workspace === null) continue;
-      // Fire and forget: claim polls for the compositor client, and the next
-      // window should not wait behind it.
-      runFork(
-        Effect.andThen(
-          hyprlandPlacement.claim(key, opened.value.getTitle()),
-          hyprlandPlacement.moveToWorkspace(key, workspace),
-        ),
-      );
-    }
-    yield* logWindowInfo("window session reopened", { windows: entries.length });
-    return true;
-  }).pipe(Effect.withSpan("desktop.window.drainPendingRestore"));
-
   const createMainIfBackendReady = Effect.gen(function* () {
     if (yield* waitingForBackend) return;
     const existingWindow = yield* currentMainWindow;
@@ -1217,9 +1175,30 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const drainServices = { hyprlandPlacement, windowSession }; // fork-hook: multi-window/startup-drain-services
+  const resolveDrainOpeners = makeStartupDrainOpeners(
+    () => ensureIdentity,
+    () => revealOrCreateIdentity,
+    () => createMainIfBackendReady,
+  ); // fork-hook: multi-window/startup-drain-openers
+
+  const startupDrainRestore = startupDrain
+    .stageRestore(drainServices)
+    .pipe(Effect.withSpan("desktop.window.restoreWindowSession")); // fork-hook: multi-window/startup-drain-stage-restore-def
+  const startupDrainOpenArguments = Effect.fn("desktop.window.openArguments")(
+    (argv: readonly string[]) =>
+      startupDrain
+        .stageArguments(drainServices, resolveWindowIdentityFromArguments, argv)
+        .pipe(
+          Effect.flatMap((staged) =>
+            staged.queued ? Effect.void : revealOrCreateIdentity(staged.identity),
+          ),
+        ),
+  ); // fork-hook: multi-window/startup-drain-stage-arguments-def
   const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
-    Effect.andThen(createMainIfBackendReady),
-    Effect.withSpan("desktop.window.handleRendererReady"),
+    // fork-hook: multi-window/startup-drain-renderer-ready
+    Effect.andThen(Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners))), // fork-hook: multi-window/startup-drain-renderer-ready-drain
+    Effect.withSpan("desktop.window.handleRendererReady"), // fork-hook: multi-window/startup-drain-renderer-ready-span
   );
 
   return DesktopWindow.of({
@@ -1233,30 +1212,8 @@ export const make = Effect.gen(function* () {
       }
     }),
     openIdentity: revealOrCreateIdentity,
-    restoreWindowSession: Effect.gen(function* () {
-      const entries = yield* windowSession.consume;
-      if (entries.length === 0) return;
-      yield* Ref.set(pendingRestoreRef, entries);
-    }).pipe(Effect.withSpan("desktop.window.restoreWindowSession")),
-    openArguments: Effect.fn("desktop.window.openArguments")(function* (argv) {
-      const explicitIdentity = resolveWindowIdentityFromArguments(argv);
-      const backendReady = yield* Ref.get(backendReadyRef);
-      if (!backendReady) {
-        // A launch with no intent must not overwrite a pending restore with the
-        // hub default, or an update relaunch loses every project window.
-        const hasPendingRestore = (yield* Ref.get(pendingRestoreRef)).length > 0;
-        yield* Ref.set(
-          pendingInitialIdentityRef,
-          explicitIdentity === null
-            ? hasPendingRestore
-              ? Option.none()
-              : Option.some(HUB_WINDOW_IDENTITY)
-            : Option.some(explicitIdentity),
-        );
-        return;
-      }
-      yield* revealOrCreateIdentity(explicitIdentity ?? HUB_WINDOW_IDENTITY);
-    }),
+    restoreWindowSession: startupDrainRestore, // fork-hook: multi-window/startup-drain-stage-restore
+    openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
     closeIdentity: electronWindow.close,
     activate: Effect.gen(function* () {
       const existingWindow = yield* currentMainWindow;
@@ -1285,25 +1242,12 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
       yield* Ref.set(backendReadyRef, true);
-      const restored = yield* drainPendingRestore;
-      const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
-      if (Option.isSome(pendingIdentity)) {
-        // A launch intent is always a project window. The hub default is a plain
-        // cold start, and taking the foreground back from whatever the user
-        // moved on to while the backend booted is upstream's bug to not have:
-        // ready-to-show reveals the window on its own.
-        if (pendingIdentity.value.kind === "hub") {
-          yield* createMainIfBackendReady;
-          return;
-        }
-        yield* revealOrCreateIdentity(pendingIdentity.value);
-        return;
-      }
-      if (restored) return;
-      yield* createMainIfBackendReady;
+      yield* Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners)); // fork-hook: multi-window/startup-drain-backend-ready
     }),
-    handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
-      Effect.withSpan("desktop.window.handleBackendNotReady"),
+    handleBackendNotReady: startupDrain.markNotReady.pipe(
+      // fork-hook: multi-window/startup-drain-not-ready
+      Effect.andThen(Ref.set(backendReadyRef, false)), // fork-hook: multi-window/startup-drain-not-ready-latch
+      Effect.withSpan("desktop.window.handleBackendNotReady"), // fork-hook: multi-window/startup-drain-not-ready-span
     ),
     flushMainWindowBounds: Effect.suspend(() => flushMainWindowBounds).pipe(
       Effect.withSpan("desktop.window.flushMainWindowBounds"),
