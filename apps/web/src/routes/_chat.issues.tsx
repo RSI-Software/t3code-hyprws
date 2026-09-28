@@ -47,6 +47,7 @@ import {
 } from "../components/githubIssue/githubIssueRouteSearch";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../components/WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { Spinner } from "../components/ui/spinner";
@@ -435,6 +436,9 @@ export function GitHubIssuesPage({
               state={search.state}
               onState={(next) => updateFilters({ state: next })}
             />
+            {/* fork-hook: workspaces/chooser-scope-label */}
+            <ProjectChooserScopeLabelFork />
+            {/* fork-hook-end */}
             <GitHubIssueProjectMenu
               projects={githubProjects}
               value={projectMenuValue}
