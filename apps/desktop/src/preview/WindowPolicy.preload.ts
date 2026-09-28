@@ -1,8 +1,7 @@
-import type { DesktopBridge, ScopedProjectRef, WindowScopeSeed } from "@t3tools/contracts";
+import type { DesktopBridge, WindowScopeSeed } from "@t3tools/contracts";
 import { ipcRenderer } from "electron";
 
 import * as IpcChannels from "../ipc/channels.ts";
-import { readProjectWindowPreloadParts } from "../window/projectWindowArgument.ts";
 import { readWindowIdPreloadArgument } from "../window/WindowId.fork.ts";
 import { readWindowScopeSeedPreloadArgument } from "../window/WindowScopeSeed.fork.ts";
 
@@ -11,17 +10,14 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
 };
 
 /**
- * The bridge members a project window needs on top of the upstream bridge:
- * which window this is, which project it renders, whether the hub still
- * demands it, and how to open another one. They are optional in the contract, so the upstream
+ * The bridge members a desktop window needs on top of the upstream bridge:
+ * which window this is, the project filter it was seeded with, whether it is
+ * still demanded, and how to open another one. They are optional in the contract, so the upstream
  * bridge literal stays exactly as upstream wrote it and this is the only place
  * the fork adds to it.
  */
 export type ProjectWindowCapabilities = Required<
-  Pick<
-    DesktopBridge,
-    "requestWindow" | "projectWindowRef" | "getWindowDemandState" | "onWindowDemandStateChange"
-  >
+  Pick<DesktopBridge, "requestWindow" | "getWindowDemandState" | "onWindowDemandStateChange">
 > &
   Pick<DesktopBridge, "windowId" | "windowScopeSeed">;
 
@@ -46,12 +42,10 @@ ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unkno
 
 const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   requestWindow: (request) => ipcRenderer.invoke(IpcChannels.REQUEST_WINDOW_CHANNEL, request),
-  // Branded ids are plain strings at runtime; the preload cannot import the
-  // contracts package without breaking its sandboxed bundle.
-  projectWindowRef: readProjectWindowPreloadParts(process.argv) as ScopedProjectRef | null,
   // Main passes every app window its id; a window main did not create has none.
   ...windowIdCapability(),
-  // Branded like `projectWindowRef`: plain strings at runtime.
+  // Branded ids are plain strings at runtime; the preload cannot import the
+  // contracts package without breaking its sandboxed bundle.
   windowScopeSeed: readWindowScopeSeedPreloadArgument(process.argv) as WindowScopeSeed | null,
   getWindowDemandState: () => windowDemandState,
   onWindowDemandStateChange: (listener) => {

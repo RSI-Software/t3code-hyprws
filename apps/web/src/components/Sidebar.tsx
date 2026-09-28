@@ -15,12 +15,6 @@ import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
-import {
-  filterSidebarProjects,
-  resolveSidebarPhysicalScope,
-  setSidebarLogicalScope,
-} from "./sidebar/SidebarPhysicalScope";
-import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
@@ -120,7 +114,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
-import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -197,7 +191,6 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
-  resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
@@ -2480,12 +2473,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
-  const forcedProjectRef = useSidebarPhysicalScope();
-  const allProjects = useProjects();
-  const projects = useMemo(
-    () => filterSidebarProjects(allProjects, forcedProjectRef),
-    [allProjects, forcedProjectRef],
-  );
+  const projects = useProjects();
   const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
   const setThreadGroupMembership = useUiStateStore((store) => store.setThreadGroupMembership);
   const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
@@ -2598,10 +2586,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -2685,20 +2669,6 @@ export default function Sidebar() {
     [persistedProjectScopeKey, projectGroups, projectGroupingSettings],
   );
   const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
-  const {
-    projectGroup: scopedProjectGroup,
-    effectiveScopeKey: effectiveProjectScopeKey,
-    projectKeys: physicalProjectKeys, // fork-hook: workspaces/filter-physical-keys
-  } = useMemo(
-    () =>
-      resolveSidebarPhysicalScope({
-        forcedProjectRef,
-        projectGroups,
-        logicalScopeKey: windowFilter.scopeKey, // fork-hook: workspaces/filter-scope-key
-      }),
-    [forcedProjectRef, projectGroups, windowFilter.scopeKey], // fork-hook: workspaces/filter-scope-key-dep
-  );
-  const scopedProjectKeys = forcedProjectRef ? physicalProjectKeys : windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2737,9 +2707,9 @@ export default function Sidebar() {
   );
   const selectedProjectScopeItem = useMemo(
     () =>
-      projectScopeItems.find((item) => item.value === (effectiveProjectScopeKey ?? "all")) ??
+      projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
       projectScopeItems[0]!,
-    [effectiveProjectScopeKey, projectScopeItems],
+    [projectScopeItems, projectScopeKey],
   );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
@@ -2749,7 +2719,7 @@ export default function Sidebar() {
     filter: windowFilter.filter,
     setFilter: windowFilter.setFilter,
     projectGroups,
-    enabled: forcedProjectRef === null && projectGroups.length > 0,
+    enabled: projectGroups.length > 0, // fork-hook: workspaces/chooser
     setMenuOpen: (open) => dispatchProjectScopeMenu({ type: "open-changed", open }),
   }); // fork-hook: workspaces/chooser
   const projectScopeFilter = useComboboxFilter();
@@ -2767,13 +2737,16 @@ export default function Sidebar() {
         matches: (item, query) =>
           projectScopeFilter.contains(item, query, (candidate) => candidate.label),
       }),
-    [
-      effectiveProjectScopeKey,
-      projectScopeFilter,
-      projectChooser.items,
-      projectScopeMenuState.query,
-    ], // fork-hook: workspaces/chooser-items-dep
+    [projectScopeFilter, projectChooser.items, projectScopeMenuState.query], // fork-hook: workspaces/chooser-items-dep
   );
+  const scopedProjectGroup = useMemo(
+    () =>
+      projectScopeKey === null
+        ? null
+        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
+    [projectGroups, projectScopeKey],
+  );
+  const scopedProjectKeys = windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
   // Configs identify scratch projects, so both they and live project snapshots
   // must arrive before a persisted scope can be considered missing.
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
@@ -2791,7 +2764,6 @@ export default function Sidebar() {
   }, [
     allProjectConfigsReady,
     allProjectSnapshotsReady,
-    forcedProjectRef,
     persistedProjectScopeKey,
     projectGroups,
     projectGroupingSettings,
@@ -2828,7 +2800,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, forcedProjectRef, projectScopeKey, windowFilter.filter]); // fork-hook: workspaces/chooser-clear-selection
+  }, [clearSelection, projectScopeKey, windowFilter.filter]); // fork-hook: workspaces/chooser-clear-selection
 
   const handleOpenProjectWindow = useOpenProjectWindowFork(desktopBridge, () =>
     dispatchProjectScopeMenu({ type: "open-changed", open: false }),
@@ -3392,9 +3364,12 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate(routeFamily.thread(threadRef));
+      return router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      });
     },
-    [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
 
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
@@ -3434,9 +3409,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate(routeFamily.draft(draftId));
+      void router.navigate({ to: "/draft/$draftId", params: { draftId } });
     },
-    [clearSelection, isMobile, routeFamily, router, setOpenMobile],
+    [clearSelection, isMobile, router, setOpenMobile],
   );
 
   const clearThreadSearch = useCallback(() => {
@@ -3579,9 +3554,9 @@ export default function Sidebar() {
         : shell
           ? () =>
               void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
-          : () => void router.navigate(routeFamily.index());
+          : () => void router.navigate({ to: "/" });
     },
-    [navigateToThread, routeFamily, router],
+    [navigateToThread, router],
   );
 
   const attemptSettle = useCallback(
@@ -5295,27 +5270,20 @@ export default function Sidebar() {
       // One project: nothing to pick, create immediately. Shift+click creates
       // directly in the current project even with several projects, skipping
       // the palette picker.
-      if (
-        forcedProjectRef !== null ||
-        shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)
-      ) {
+      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
         if (isMobile) setOpenMobile(false);
-        if (forcedProjectRef) {
-          void newThreadContext.handleNewThread(forcedProjectRef);
-        } else {
-          void startNewThreadFromContext({
-            activeDraftThread: newThreadContext.activeDraftThread,
-            activeThread: newThreadContext.activeThread ?? undefined,
-            defaultProjectRef: newThreadContext.defaultProjectRef,
-            handleNewThread: newThreadContext.handleNewThread,
-          });
-        }
+        void startNewThreadFromContext({
+          activeDraftThread: newThreadContext.activeDraftThread,
+          activeThread: newThreadContext.activeThread ?? undefined,
+          defaultProjectRef: newThreadContext.defaultProjectRef,
+          handleNewThread: newThreadContext.handleNewThread,
+        });
         return;
       }
       if (isMobile) setOpenMobile(false);
       openCommandPalette({ open: "new-thread-in" });
     },
-    [forcedProjectRef, isMobile, newThreadContext, projectGroups.length, setOpenMobile],
+    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
   );
 
   // The button mirrors chat.new: in multi-project setups both route through
@@ -5353,7 +5321,6 @@ export default function Sidebar() {
                   isItemEqualToValue={(a, b) => a.value === b.value}
                   open={projectScopeMenuState.open}
                   onOpenChange={(open) => {
-                    if (forcedProjectRef !== null) return;
                     if (open) suppressNextScopeChangeRef.current = false;
                     dispatchProjectScopeMenu({ type: "open-changed", open });
                   }}
@@ -5366,7 +5333,6 @@ export default function Sidebar() {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
                     projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
@@ -5374,7 +5340,6 @@ export default function Sidebar() {
                     render={
                       <SidebarHeaderIconButton
                         label={projectChooser.label} // fork-hook: workspaces/chooser-label
-                        disabled={forcedProjectRef !== null}
                       />
                     }
                   >
@@ -5500,25 +5465,6 @@ export default function Sidebar() {
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
-              }
-              projectSettingsAction={
-                forcedProjectRef !== null && scopedProjectGroup !== null ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <SidebarHeaderIconButton
-                          label={`Project settings for ${scopedProjectGroup.displayName}`}
-                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-                            void handleProjectSettings(event, scopedProjectGroup);
-                          }}
-                        >
-                          <SettingsIcon />
-                        </SidebarHeaderIconButton>
-                      }
-                    />
-                    <TooltipPopup side="right">Project settings</TooltipPopup>
-                  </Tooltip>
-                ) : undefined
               }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
