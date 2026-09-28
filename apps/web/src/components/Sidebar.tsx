@@ -66,7 +66,7 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import { ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { ChevronDownIcon, FolderIcon, PlusIcon, SettingsIcon } from "lucide-react"; // fork-hook: workspaces/chooser-icons
 import {
   useEffect,
   useLayoutEffect,
@@ -92,6 +92,13 @@ import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
 import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import {
+  ProjectChooserRowCheckFork,
+  ProjectChooserShowOnlyButtonFork,
+  ProjectChooserTriggerIconFork,
+  ProjectChooserUnavailableFork,
+  useSidebarProjectChooserFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -211,7 +218,6 @@ import {
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   useThreadJumpHintsVisible,
-  type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
@@ -936,6 +942,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
   );
+  const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
+  const projectChooser = useSidebarProjectChooserFork({
+    filter: windowFilter.filter,
+    setFilter: windowFilter.setFilter,
+    projectGroups,
+    enabled: projectGroups.length > 0, // fork-hook: workspaces/chooser
+    setMenuOpen: (open) => dispatchProjectScopeMenu({ type: "open-changed", open }),
+  }); // fork-hook: workspaces/chooser
   const projectScopeFilter = useComboboxFilter();
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const allProjectConfigsReady = useAtomValue(environmentProjects.projectConfigsReadyAtom);
@@ -1192,7 +1206,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
+    projectScopeKey: projectChooser.label, // fork-hook: workspaces/chooser-settled-reset
     scopedProjectKeys,
     serverConfigs,
     optimisticDrop,
@@ -2995,7 +3009,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
-                  items={projectScopeItems}
+                  multiple // fork-hook: workspaces/chooser-multiple
+                  items={projectChooser.items} // fork-hook: workspaces/chooser-items
                   filteredItems={filteredProjectScopeItems}
                   autoHighlight
                   itemToStringLabel={(item) => item.label}
@@ -3009,28 +3024,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
+                  value={projectChooser.value} // fork-hook: workspaces/chooser-value
                   onValueChange={(item) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item || forcedProjectRef !== null) return;
-                    setSidebarLogicalScope(
-                      forcedProjectRef,
-                      item.value === "all" ? null : item.value,
-                      setProjectScopeKey,
-                    );
+                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
+                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
-                        }
+                        label={projectChooser.label} // fork-hook: workspaces/chooser-label
                         disabled={forcedProjectRef !== null}
                       />
                     }
@@ -3040,7 +3047,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
                     ) : (
-                      <ListFilterIcon className="size-4" />
+                      <ProjectChooserTriggerIconFork count={projectChooser.count} /> // fork-hook: workspaces/chooser-trigger-icon
                     )}
                   </ComboboxTrigger>
                   <ComboboxPopup
@@ -3087,12 +3094,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
+                            {/* fork-hook: workspaces/chooser-row-check */}
+                            <ProjectChooserRowCheckFork
+                              selected={projectChooser.selectedValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-row-unavailable */}
+                            <ProjectChooserUnavailableFork
+                              unavailable={projectChooser.unavailableValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -3100,7 +3117,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
-                            {/* fork-hook: project-windows/sidebar-open-window-button */}
+                            {/* fork-hook: workspaces/chooser-row-show-only */}
+                            {project ? (
+                              <ProjectChooserShowOnlyButtonFork
+                                project={project}
+                                onShowOnly={projectChooser.showOnly}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
+                            {/* fork-hook: multi-window/sidebar-open-window-button */}
                             {project ? (
                               <SidebarOpenProjectWindowButtonFork
                                 desktopBridge={desktopBridge}
