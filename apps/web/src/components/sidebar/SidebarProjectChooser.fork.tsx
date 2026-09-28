@@ -22,7 +22,7 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
   readonly filter: ProjectFilter;
   readonly setFilter: (filter: ProjectFilter) => void;
   readonly projectGroups: ReadonlyArray<Group>;
-  /** False where the header shows no chooser: a project window, or no projects. */
+  /** False where the header shows no chooser: no projects yet. */
   readonly enabled: boolean;
   readonly setMenuOpen: (open: boolean) => void;
 }) {
