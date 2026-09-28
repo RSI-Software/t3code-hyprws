@@ -5,8 +5,10 @@
 // other. This module splits each persisted write in two:
 //
 // - the window bucket `<key>:window:<token>` holds draft sessions, their
-//   composer drafts, and the project-to-session map; the token lives in
-//   sessionStorage, so it survives a reload and differs per window;
+//   composer drafts, and the project-to-session map; on desktop the token is
+//   the WindowId, which survives a reload and an update-relaunch restore
+//   (RSI-Software/t3code-hyprws#1374); on plain web it lives in sessionStorage,
+//   which survives a reload; either way it differs per window;
 // - the shared bucket `<key>` keeps thread drafts and sticky model choices.
 //   A window writes only the slices it changed since it last read or wrote,
 //   so another window's edits and deletions are never overwritten.
@@ -17,6 +19,9 @@
 // held (a closed tab, or every window of a previous Electron run) and whose
 // `touchedAt` is older than a grace window. A window mid-reload takes its lock
 // back inside that window; an unlocked fresh bucket is re-checked once after it.
+// A WindowId bucket is held back until one re-check after the restore grace,
+// because quit destroys windows without unloading them and a restored window
+// takes its lock back only once its page loads.
 // The adopter writes its own bucket first and clears the sources second, so no
 // text is lost. Without the Web Locks API ownership is unknowable, so orphan
 // buckets are left alone.
@@ -51,6 +56,8 @@ export interface WindowDraftScopeEnv {
   readonly local: StringStorage;
   readonly session: StringStorage;
   readonly locks?: LockManagerLike | undefined;
+  /** The desktop WindowId; absent on plain web. */
+  readonly windowId?: string | undefined;
   readonly debounceMs?: number;
   /** Clock and timer, injectable so tests need no real waits. */
   readonly now?: () => number;
@@ -60,6 +67,9 @@ export interface WindowDraftScopeEnv {
 // An unlocked bucket touched within this window may belong to a window mid-reload,
 // which takes its token lock back well inside it.
 const ORPHAN_GRACE_MS = 5_000;
+// An update relaunch restores every window, each taking its WindowId lock back
+// once its page loads; a bucket still unlocked after this belongs to a closed window.
+export const WINDOW_DRAFT_RESTORE_GRACE_MS = 60_000;
 
 export const WINDOW_DRAFT_TOKEN_KEY = "t3code:composer-drafts:window-scope";
 const WINDOW_DRAFT_ADOPT_LOCK = "t3code:composer-drafts:adopt";
@@ -71,6 +81,8 @@ interface Bucket {
   readonly state: Record<string, unknown>;
   readonly version: number | undefined;
   readonly touchedAt?: number | undefined;
+  /** Keyed by a WindowId, so an update-relaunch restore reopens it. */
+  readonly restorable?: true | undefined;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -91,6 +103,7 @@ function readBucket(storage: StringStorage, key: string): Bucket | null {
       state: parsed.state,
       version: typeof parsed.version === "number" ? parsed.version : undefined,
       touchedAt: typeof parsed.touchedAt === "number" ? parsed.touchedAt : undefined,
+      restorable: parsed.restorable === true ? true : undefined,
     };
   } catch {
     return null;
@@ -118,7 +131,8 @@ const createdAt = (sessions: Record<string, unknown>, session: unknown): string 
 const pick = (record: DraftRecord, keep: (key: string) => boolean) =>
   Object.fromEntries(Object.entries(record).filter(([key]) => keep(key)));
 
-function readWindowToken(session: StringStorage): string {
+function readWindowToken(session: StringStorage, windowId: string | undefined): string {
+  if (windowId) return windowId;
   try {
     const existing = session.getItem(WINDOW_DRAFT_TOKEN_KEY);
     if (existing) return existing;
@@ -185,14 +199,15 @@ export function createWindowDraftScope<S, P extends PersistedDraftsShape>(
   env: WindowDraftScopeEnv,
   partialize: (state: S) => P,
 ): WindowDraftScope<S, P> {
-  const token = readWindowToken(env.session);
+  const token = readWindowToken(env.session, env.windowId);
+  const restorable = env.windowId ? true : undefined;
   const windowKey = (name: string) => windowDraftBucketKey(name, token);
   // The shared slices as this window last read or wrote them.
   let baseline = new Map<string, string>();
   const now = env.now ?? Date.now;
   let lastName: string | null = null;
   const writeOwn = (name: string, bucket: Bucket) =>
-    writeBucket(env.local, windowKey(name), { ...bucket, touchedAt: now() });
+    writeBucket(env.local, windowKey(name), { ...bucket, touchedAt: now(), restorable });
 
   const write = (name: string, value: PersistValue<S, P>) => {
     const persisted =
@@ -231,19 +246,27 @@ export function createWindowDraftScope<S, P extends PersistedDraftsShape>(
     if (own && lastName !== null) writeOwn(lastName, own);
   };
 
-  // Unlocked buckets, split by whether their grace window has passed.
-  const unlockedBuckets = (name: string, heldLocks: ReadonlySet<string>) => {
+  // Unlocked buckets, split by whether their grace window has passed. A
+  // restorable bucket always waits for the re-check, and passes only there.
+  const unlockedBuckets = (name: string, heldLocks: ReadonlySet<string>, recheck: boolean) => {
     const prefix = windowDraftBucketKey(name, "");
     const stale: string[] = [];
     const fresh: string[] = [];
+    let holdsRestorable = false;
     for (let index = 0; index < env.local.length; index += 1) {
       const key = env.local.key(index);
       if (key === null || !key.startsWith(prefix) || key === windowKey(name)) continue;
       if (heldLocks.has(windowTokenLock(key.slice(prefix.length)))) continue;
-      const touchedAt = readBucket(env.local, key)?.touchedAt ?? 0;
+      const bucket = readBucket(env.local, key);
+      if (bucket?.restorable && !recheck) {
+        holdsRestorable = true;
+        fresh.push(key);
+        continue;
+      }
+      const touchedAt = bucket?.touchedAt ?? 0;
       (now() - touchedAt >= ORPHAN_GRACE_MS ? stale : fresh).push(key);
     }
-    return { stale: stale.toSorted(), fresh };
+    return { stale: stale.toSorted(), fresh, holdsRestorable };
   };
 
   const adoptNow = (name: string, orphans: ReadonlyArray<string>): AdoptedDrafts | null => {
@@ -384,20 +407,23 @@ export function createWindowDraftScope<S, P extends PersistedDraftsShape>(
         if (adopted) afterAdopt?.(adopted);
         return adopted !== null;
       }
-      const adoptLocked = () =>
+      const adoptLocked = (recheck: boolean) =>
         locks.request(WINDOW_DRAFT_ADOPT_LOCK, async () => {
           const { held = [] } = await locks.query();
           const heldNames = new Set(held.flatMap((lock) => (lock.name ? [lock.name] : [])));
-          const { stale, fresh } = unlockedBuckets(name, heldNames);
+          const { stale, fresh, holdsRestorable } = unlockedBuckets(name, heldNames, recheck);
           const adopted = adoptNow(name, stale);
           if (adopted) afterAdopt?.(adopted);
-          return { moved: adopted !== null, fresh };
+          return { moved: adopted !== null, fresh, holdsRestorable };
         });
       await tokenHeld;
-      const first = await adoptLocked();
+      const first = await adoptLocked(false);
       // One re-check: a fresh bucket still unlocked after the grace window was closed.
       if (first.fresh.length > 0) {
-        (env.setTimer ?? setTimeout)(() => adoptLocked(), ORPHAN_GRACE_MS);
+        (env.setTimer ?? setTimeout)(
+          () => adoptLocked(true),
+          first.holdsRestorable ? WINDOW_DRAFT_RESTORE_GRACE_MS : ORPHAN_GRACE_MS,
+        );
       }
       return first.moved;
     },
@@ -425,6 +451,7 @@ function browserEnv(): WindowDraftScopeEnv | null {
       local: window.localStorage,
       session: window.sessionStorage,
       locks: typeof navigator !== "undefined" ? navigator.locks : undefined,
+      windowId: window.desktopBridge?.windowId,
     };
   } catch {
     return null;
