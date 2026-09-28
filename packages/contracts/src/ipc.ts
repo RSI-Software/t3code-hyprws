@@ -1110,6 +1110,8 @@ export const DesktopAppleSpeechTranscribeInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export type WindowScopeSeed = ScopedProjectRef | "all-projects"; // fork-hook: multi-window/window-scope-seed-type
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   getDatabaseMigrationProgress?: () => Promise<DatabaseMigrationProgress | null>;
@@ -1214,6 +1216,7 @@ export interface DesktopBridge {
   openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
+  windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission: (pane: SystemSettingsPane) => Promise<boolean>;
   probeRemoteEditors: () => Promise<readonly EditorId[]>;
