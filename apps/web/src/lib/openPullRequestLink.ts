@@ -18,7 +18,6 @@ import { useProjects } from "../state/entities";
 import { readThreadShell } from "../state/entities"; // fork-hook: github-issues/open-pull-request-link-thread-shell-import
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes"; // fork-hook: multi-window/window-project-ref
 import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export {
@@ -138,6 +137,7 @@ export function useOpenChangeRequestLink(
         serverConfigs,
         primaryEnvironmentId,
         navigate,
+        findProjectOnHost: findProjectOnChangeRequestHost, // fork-hook: github-issues/issue-link-claim-resolver
       })
     ) {
       return true;
@@ -177,7 +177,12 @@ export function useOpenChangeRequestLink(
             parsed,
           )
         : undefined) ??
-      findProjectPreferredFork(projects, parsed, preferredProjectId); // fork-hook: github-issues/change-request-preferred-project
+      findProjectPreferredFork(
+        findProjectOnChangeRequestHost,
+        projects,
+        parsed,
+        preferredProjectId,
+      ); // fork-hook: github-issues/change-request-preferred-project
     if (project === undefined || !reads(project.environmentId)) return false;
     const repository =
       serverConfigs.get(project.environmentId)?.environment.capabilities.threadPullRequests === true
@@ -220,9 +225,8 @@ export function useOpenChangeRequestLink(
       }
       return true;
     }
-      const windowProjectRef = currentWindowProjectRef(); // fork-hook: multi-window/window-project-ref
     void navigate({
-      ...listRouteTarget("pull-requests", windowProjectRef),
+      to: "/pull-requests",
       search: {
         involvement: "all",
         state: "all",
@@ -231,11 +235,6 @@ export function useOpenChangeRequestLink(
         selectedHost: parsed.authority ?? parsed.host,
         selectedProjectId: project.id,
         selectedEnvironmentId: project.environmentId,
-        ...(windowProjectRef !== null &&
-        (windowProjectRef.environmentId !== project.environmentId ||
-          windowProjectRef.projectId !== project.id)
-          ? { scope: "all" as const }
-          : {}),
       },
     });
     return true;
