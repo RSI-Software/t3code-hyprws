@@ -1057,6 +1057,8 @@ export type DesktopMediaRead = typeof DesktopMediaReadSchema.Type;
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export type WindowScopeSeed = ScopedProjectRef | "all-projects"; // fork-hook: multi-window/window-scope-seed-type
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** `null` until the desktop host has read the login shell's environment; ask again later. */
@@ -1160,6 +1162,7 @@ export interface DesktopBridge {
   openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
+  windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission: (pane: SystemSettingsPane) => Promise<boolean>;
   probeRemoteEditors: () => Promise<readonly EditorId[]>;
