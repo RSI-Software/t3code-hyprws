@@ -41,6 +41,7 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
       Effect.sync(() => {
         events.push(`setPath:${name}:${value}`);
       }),
+    on: () => Effect.void,
   } as unknown as ElectronApp.ElectronApp["Service"];
   return DesktopClerk.layer.pipe(
     Layer.provide(
