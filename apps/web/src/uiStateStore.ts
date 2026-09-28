@@ -2,6 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import * as forkWindowSidebarScope from "./windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-import
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 // Version 1 stored card visibility, not folder expansion.
@@ -760,6 +761,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
+forkWindowSidebarScope.install(useUiStateStore); // fork-hook: multi-window/window-sidebar-scope
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("beforeunload", () => {

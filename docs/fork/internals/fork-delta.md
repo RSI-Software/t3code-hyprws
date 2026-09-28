@@ -253,6 +253,7 @@ A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a ma
 | Dispatch | `main`-window consumers resolve to the sender or most recent window     |
 | Startup  | A bounded intent queue drained once the renderer can load               |
 | Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace |
+| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it       |
 
 ### Retirement condition
 
@@ -260,10 +261,11 @@ Upstream ships its own multi-window support.
 
 ### Rebase scan
 
-| Path                                                                                                                                                                   | Why it matters                            |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/ipc/methods/window.ts`, `apps/desktop/src/window/hyprland.ts`      | Registry, dispatch, startup, restore      |
-| `apps/desktop/src/window/WindowIdentity.ts`, `apps/desktop/src/window/DesktopWindowSession.ts`, `apps/desktop/src/preview/WindowPolicy*.ts`, `apps/desktop/src/ipc/**` | Identity, session manifest, previews, IPC |
+| Path                                                                                                                                                                                                    | Why it matters                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/ipc/methods/window.ts`, `apps/desktop/src/window/hyprland.ts`                                       | Registry, dispatch, startup, restore      |
+| `apps/desktop/src/window/WindowIdentity.ts`, `apps/desktop/src/window/DesktopWindowSession.ts`, `apps/desktop/src/preview/WindowPolicy*.ts`, `apps/desktop/src/ipc/**`, `packages/contracts/src/ipc.ts` | Identity, session manifest, previews, IPC |
+| `apps/web/src/uiStateStore.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/windowSidebarScope.fork.ts`, `apps/desktop/src/window/WindowScopeSeed.fork.ts`                                     | Per-window sidebar scope                  |
 
 ## workspaces
 
