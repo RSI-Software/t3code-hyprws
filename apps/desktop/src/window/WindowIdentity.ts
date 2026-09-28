@@ -1,10 +1,16 @@
-import { EnvironmentId, ProjectId, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  type ScopedProjectRef,
+  type WindowScopeSeed,
+} from "@t3tools/contracts";
 
 import {
   projectWindowPreloadArgument,
   readProjectWindowPreloadParts,
 } from "./projectWindowArgument.ts";
 import { type WindowId, windowIdPreloadArgument } from "./WindowId.fork.ts";
+import { windowScopeSeedPreloadArgument } from "./WindowScopeSeed.fork.ts";
 
 export {
   PROJECT_WINDOW_PRELOAD_ARGUMENT,
@@ -30,11 +36,19 @@ export function windowIdentityKey(identity: WindowIdentity): string {
     : `project:${encodeURIComponent(identity.ref.environmentId)}:${encodeURIComponent(identity.ref.projectId)}`;
 }
 
-/** The preload arguments main gives a window: its id, and the project it shows, if any. */
-export function windowPreloadArguments(identity: WindowIdentity, windowId: WindowId): string[] {
+/**
+ * The preload arguments main gives a window: its id, the project it shows, if
+ * any, and the scope its sidebar starts on, if seeded (a project, or all projects).
+ */
+export function windowPreloadArguments(
+  identity: WindowIdentity,
+  windowId: WindowId,
+  scopeSeed?: WindowScopeSeed,
+): string[] {
   return [
     windowIdPreloadArgument(windowId),
     ...(identity.kind === "project" ? [projectWindowPreloadArgument(identity.ref)] : []),
+    ...(scopeSeed === undefined ? [] : [windowScopeSeedPreloadArgument(scopeSeed)]),
   ];
 }
 
