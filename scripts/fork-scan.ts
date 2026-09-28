@@ -14,7 +14,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
+import { FIXUP_PREFIX, forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import {
   type AuthoringGuardCommit,
   collectAuthoringWarnings,
@@ -749,7 +749,9 @@ export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
 }
 
 // A squash resolves every listed member by sha prefix and consumes no subject
-// ordinal; anything else matches its subject, oldest first.
+// ordinal; anything else matches its subject, oldest first. The sync
+// autosquashes each `fixup! <subject>` into the one commit it names, so those
+// fixups join that owner's first match.
 export const matchReplayCounterparts = (
   commits: ReadonlyArray<ReplayedCommit>,
   counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
@@ -758,17 +760,18 @@ export const matchReplayCounterparts = (
   const ordinalBySubject = new Map<string, number>();
   const matched = new Map<string, ReadonlyArray<string>>();
   for (const commit of commits) {
+    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
+    const fixups = ordinal === 0 ? (counterparts.get(FIXUP_PREFIX + commit.subject) ?? []) : [];
     const squashed = (commit.squashes ?? []).flatMap((member) =>
       replayShas.filter((sha) => sha.startsWith(member)),
     );
     if (squashed.length > 0) {
-      matched.set(commit.sha, squashed);
+      matched.set(commit.sha, [...squashed, ...fixups]);
       continue;
     }
-    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
     ordinalBySubject.set(commit.subject, ordinal + 1);
     const counterpart = counterparts.get(commit.subject)?.[ordinal];
-    if (counterpart !== undefined) matched.set(commit.sha, [counterpart]);
+    if (counterpart !== undefined) matched.set(commit.sha, [counterpart, ...fixups]);
   }
   return matched;
 };
@@ -776,6 +779,25 @@ export const matchReplayCounterparts = (
 // `--since` is the outer guard bound. Replay-specific suppression happens at
 // line level in the hook guard, so one changed resolution cannot expose the
 // same commit's unchanged historical insertions.
+
+// A trailer-free `fixup! <subject>` is scanned as the commit it names, so its
+// lines face the same seam rules before the sync folds them in.
+export const withFixupOwnerTrailers = (
+  commits: ReadonlyArray<ForkCommit>,
+): ReadonlyArray<ForkCommit> => {
+  const ownerBySubject = new Map(commits.map((commit) => [commit.subject, commit]));
+  return commits.map((commit) => {
+    if (commit.domain !== undefined || !commit.subject.startsWith(FIXUP_PREFIX)) return commit;
+    const owner = ownerBySubject.get(commit.subject.slice(FIXUP_PREFIX.length));
+    if (owner?.domain === undefined) return commit;
+    return {
+      ...commit,
+      domain: owner.domain,
+      ...(owner.tier === undefined ? {} : { tier: owner.tier }),
+      ...(owner.upstreamable === undefined ? {} : { upstreamable: owner.upstreamable }),
+    };
+  });
+};
 
 export const resolveGuardedCommits = (
   git: GitReader,
@@ -1110,7 +1132,9 @@ export const readScan = (
   additiveRunner?: AdditiveRunner,
 ): ScanResult => {
   const range = resolveRange(git, options);
-  const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
+  const commits = withFixupOwnerTrailers(
+    parseForkLog(git.run(forkLogArguments(range.base, range.head))),
+  );
   const shas = commits.flatMap((commit) => (commit.domain === undefined ? [] : [commit.sha]));
   const filesBySha: ReadonlyMap<string, ReadonlyArray<string>> = shas.length === 0
     ? new Map()
