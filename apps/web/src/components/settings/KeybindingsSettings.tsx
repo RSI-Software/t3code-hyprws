@@ -37,7 +37,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { isDesktopWindowCommand, supportsDesktopProjectWindows } from "../../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding-settings-import
+import { isDesktopWindowCommand, supportsDesktopProjectWindows } from "../../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding-settings-import
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";

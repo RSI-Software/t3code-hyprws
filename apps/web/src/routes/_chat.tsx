@@ -1,7 +1,6 @@
 import { AuthPreviewOperateScope } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -16,7 +15,7 @@ import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
-import { runDesktopWindowCommandFork } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding
+import { runDesktopWindowCommandFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
 import { runProjectChooserCommandFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
@@ -33,11 +32,7 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
-export function ChatRouteGlobalShortcuts({
-  forcedProjectRef = null,
-}: {
-  forcedProjectRef?: ScopedProjectRef | null;
-}) {
+function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
@@ -114,7 +109,7 @@ export function ChatRouteGlobalShortcuts({
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
+          defaultProjectRef,
           handleNewThread,
         });
         return;
@@ -137,14 +132,14 @@ export function ChatRouteGlobalShortcuts({
         // The default sidebar routes creation through the command palette
         // whenever there is a real choice to make; the legacy sidebar (and
         // single-project setups) keep the immediate contextual create.
-        if (forcedProjectRef === null && !legacySidebarEnabled && projectGroupCount > 1) {
+        if (!legacySidebarEnabled && projectGroupCount > 1) {
           openCommandPalette({ open: "new-thread-in" });
           return;
         }
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
+          defaultProjectRef,
           handleNewThread,
         });
         return;
@@ -169,21 +164,17 @@ export function ChatRouteGlobalShortcuts({
       }
 
       if (
-        runDesktopWindowCommandFork(
-          command,
-          event,
-          () =>
-            forcedProjectRef ??
-            resolveThreadActionProjectRef({
-              activeDraftThread,
-              activeThread: activeThread ?? undefined,
-              defaultProjectRef,
-              handleNewThread,
-            }),
+        runDesktopWindowCommandFork(command, event, () =>
+          resolveThreadActionProjectRef({
+            activeDraftThread,
+            activeThread: activeThread ?? undefined,
+            defaultProjectRef,
+            handleNewThread,
+          }),
         )
       ) {
         return;
-      } // fork-hook: multi-window/dispatch-keybinding
+      } // fork-hook: multi-window/dispatch-keybinding-run
       if (runProjectChooserCommandFork(command, event)) return; // fork-hook: workspaces/chooser-keybinding
 
       // The remaining preview commands only fire when the panel is the
@@ -223,7 +214,6 @@ export function ChatRouteGlobalShortcuts({
     clearSelection,
     canOperatePreview,
     handleNewThread,
-    forcedProjectRef,
     keybindings,
     defaultProjectRef,
     previewOpen,
