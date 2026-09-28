@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import type { WindowId } from "../../window/WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
@@ -148,6 +149,7 @@ describe("preview IPC methods", () => {
       EnvironmentId.make("environment-1"),
       ProjectId.make("project-1"),
     );
+    const windowId = "00000000-0000-4000-8000-000000000001" as WindowId; // fork-hook: multi-window/window-id-sender
     const sender = { id: 7 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
     fromId.mockReturnValue(sender);
@@ -166,20 +168,25 @@ describe("preview IPC methods", () => {
         loading: false,
       };
 
+      const owners: unknown[] = []; // fork-hook: multi-window/window-id-preview-owners
+      const recordOwner = (owner: unknown) => Effect.sync(() => owners.push(owner)); // fork-hook: multi-window/window-id-preview-record-owner
+      const automation = Effect.succeed({
+        automationStatus: () => Effect.succeed(status),
+      } as never); // fork-hook: multi-window/window-id-preview-automation
+
       expect(tabId.length).toBeGreaterThan(128);
       expect(
         yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
           Effect.provideService(ElectronWindow.ElectronWindow, {
-            identityFor: () => Effect.succeed(Option.some(identity)),
+            windowIdFor: () => Effect.succeed(Option.some(windowId)), // fork-hook: multi-window/window-id-sender-lookup
           } as never),
           Effect.provideService(PreviewManager.PreviewManager, {
-            forWindow: () =>
-              Effect.succeed({
-                automationStatus: () => Effect.succeed(status),
-              } as never),
+            forWindow: (owner: unknown) => Effect.andThen(recordOwner(owner), automation), // fork-hook: multi-window/window-id-preview-owner
           } as never),
         ),
       ).toEqual(status);
+      expect(owners).toEqual([windowId]); // fork-hook: multi-window/window-id-preview-owner-assert
+      expect(owners).not.toContainEqual(identity); // fork-hook: multi-window/window-id-preview-not-project
     });
   });
 
