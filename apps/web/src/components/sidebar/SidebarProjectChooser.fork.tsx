@@ -70,11 +70,12 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
     () => ({
       open,
       label: state.label,
+      titleLabel: state.titleLabel,
       filter,
       setFilter,
       groups: projectGroups,
     }),
-    [filter, open, projectGroups, setFilter, state.label],
+    [filter, open, projectGroups, setFilter, state.label, state.titleLabel],
   );
   useProjectChooserHost(registered, enabled);
   return { ...state, selectedValues, unavailableValues, onValueChange, showOnly };

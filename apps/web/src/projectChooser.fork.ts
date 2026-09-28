@@ -35,6 +35,8 @@ export interface ProjectChooserState<Group extends ProjectChooserGroup> {
   readonly value: ProjectChooserItem[];
   /** The header's name for the filter: "Projects: All", one name, or "N selected". */
   readonly label: string;
+  /** The window title's name for the filter: selected names, or `null` for all projects. */
+  readonly titleLabel: string | null;
   /** The one selected group, when exactly one available entry is selected. */
   readonly single: Group | null;
   readonly count: number;
@@ -45,6 +47,16 @@ const ALL_ITEM: ProjectChooserItem = {
   label: "All projects",
   unavailable: false,
 };
+
+// The window title names at most this many projects, then counts the rest.
+const TITLE_LABEL_NAMES = 3;
+
+function titleLabelOf(items: ReadonlyArray<ProjectChooserItem>): string | null {
+  if (items.length === 0) return null;
+  const names = items.slice(0, TITLE_LABEL_NAMES).map((item) => item.label);
+  const rest = items.length - names.length;
+  return rest > 0 ? `${names.join(", ")} +${rest}` : names.join(", ");
+}
 
 // Grouped keys read as a path (`github.com/acme/web`); a physical key is an
 // opaque id, so it gets a generic name.
@@ -90,6 +102,7 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
         : only !== undefined
           ? `Projects: ${only.label}`
           : `Projects: ${count} selected`,
+    titleLabel: count === 0 ? null : titleLabelOf(value),
     single: only === undefined ? null : (groupByKey.get(only.value) ?? null),
     count,
   };
@@ -137,6 +150,7 @@ export function showOnlyProjectFilter(group: ProjectChooserGroup): ProjectFilter
 export interface ProjectChooserHost {
   readonly open: () => void;
   readonly label: string;
+  readonly titleLabel: string | null;
   readonly filter: ProjectFilter;
   readonly setFilter: (filter: ProjectFilter) => void;
   readonly groups: ReadonlyArray<ProjectChooserGroup>;

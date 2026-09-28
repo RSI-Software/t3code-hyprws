@@ -258,6 +258,7 @@ Upstream ships its own multi-window support.
 
 - **Filter:** each window shows its own project set
 - **Chooser:** one chooser picks the window's projects
+- **Scope:** narrows lists, never hides work
 
 ### Shape
 
@@ -269,6 +270,7 @@ A fork-owned per-window project filter projecting selected refs into upstream's 
 | Storage | Desktop per `WindowId`, web tab `sessionStorage`, mobile device preference |
 | Adapter | A small fork-owned adapter around the single-select scope combobox         |
 | Chooser | Sidebar header Projects chooser, project rows, palette, scope labels       |
+| Scope   | Palette search, new-thread target, outside-thread add, window title        |
 
 ### Retirement condition
 
@@ -282,6 +284,7 @@ Upstream ships per-window project filters with equivalent chooser controls.
 | `apps/web/src/state/pullRequests.ts`, `apps/web/src/components/CommandPalette.tsx`, `apps/web/src/composerDraftStore.ts`                                                                                         | Scoped lists, palette, drafts    |
 | `apps/web/src/routes/_chat.tsx`, `apps/web/src/routes/_chat.issues.tsx`, `apps/web/src/routes/_chat.pull-requests.tsx`, `packages/contracts/src/keybindings.ts`, `packages/shared/src/keybindings.ts`            | Chooser keybinding, scope labels |
 | `apps/mobile/src/features/home/HomeRouteScreen.tsx`, `apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx`, `apps/mobile/src/persistence/mobile-preferences.ts`, `packages/client-runtime/package.json` | Mobile filter, shared model      |
+| `apps/web/src/components/chat/ChatHeader.tsx`, `apps/web/src/routes/__root.tsx`, `packages/shared/package.json`                                                                                                  | Outside-thread add, window title |
 
 ## browser-bookmarks
 
