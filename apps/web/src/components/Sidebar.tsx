@@ -114,10 +114,11 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
 import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
-import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
-import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
+import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
-import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { useWindowProjectFilter, useWindowProjectFilterChange } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import {
   ProjectChooserRowCheckFork,
   ProjectChooserShowOnlyButtonFork,
@@ -4809,6 +4810,20 @@ export default function Sidebar() {
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
+    if (
+      startFilteredNewThreadFork(
+        {
+          activeDraftThread: newThreadContext.activeDraftThread,
+          activeThread: newThreadContext.activeThread ?? undefined,
+          defaultProjectRef: newThreadContext.defaultProjectRef,
+          handleNewThread: newThreadContext.handleNewThread,
+        },
+        event?.shiftKey ?? false,
+      )
+    ) {
+      if (isMobile) setOpenMobile(false);
+      return;
+    } // fork-hook: workspaces/filtered-new-thread
     if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
       if (isMobile) setOpenMobile(false);
       void startNewThreadFromContext({
