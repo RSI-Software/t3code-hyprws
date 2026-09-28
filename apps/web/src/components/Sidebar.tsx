@@ -87,8 +87,8 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
-import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -1174,7 +1174,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
@@ -1182,6 +1182,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  useWindowProjectFilterChange(clearSelection); // fork-hook: workspaces/chooser-clear-selection
   const threadSearch = useThreadSearch(
     connectedEnvironmentIds,
     threadSearchQuery,
@@ -3071,7 +3072,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     } else {
                       setProjectScopeKeys([item.value]);
                     }
-                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
                     projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
