@@ -23,6 +23,10 @@ import {
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionProfileStore from "./profileStore.ts";
+import {
+  keepsSavedConnection,
+  savedConnectionsOutrankPrimary,
+} from "./savedConnectionPrecedence.fork.ts"; // fork-hook: backend-attach/registry-import
 import * as Connectivity from "./connectivity.ts";
 import type {
   ConnectionAttemptError,
@@ -162,6 +166,7 @@ export const make = Effect.gen(function* () {
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
   const ssh = yield* ClientCapabilities.SshEnvironmentGateway;
+  const keepSaved = yield* savedConnectionsOutrankPrimary; // fork-hook: backend-attach/registry-precedence
   const persistedTargets = yield* storage.list;
   const disabledEnvironmentIds = new Set(yield* storage.listDisabled);
   const initialEntries = new Map(
@@ -499,6 +504,7 @@ export const make = Effect.gen(function* () {
           const persistedTarget = (yield* Ref.get(persistedTargetsByEnvironment)).get(
             target.environmentId,
           );
+          if (keepsSavedConnection(keepSaved, registration, persistedTarget)) return; // fork-hook: backend-attach/registry-keep-saved
           if (
             persistedTarget !== undefined ||
             (previous !== undefined &&
