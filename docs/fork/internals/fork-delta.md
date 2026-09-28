@@ -280,11 +280,12 @@ Upstream ships its own multi-window support.
 
 A fork-owned per-window project filter projecting selected refs into upstream's `scopedProjectKeys`.
 
-| Seam    | Fork boundary                                                                 |
-| ------- | ----------------------------------------------------------------------------- |
-| Filter  | `useWindowProjectFilter()`, client-local, keyed by `WindowId`; no wire change |
-| Adapter | A small fork-owned adapter around the single-select scope combobox            |
-| Chooser | Sidebar header Projects chooser, project rows, palette, scope labels          |
+| Seam    | Fork boundary                                                              |
+| ------- | -------------------------------------------------------------------------- |
+| Filter  | `useWindowProjectFilter()`, client-local; no wire change                   |
+| Storage | Desktop per `WindowId`, web tab `sessionStorage`, mobile device preference |
+| Adapter | A small fork-owned adapter around the single-select scope combobox         |
+| Chooser | Sidebar header Projects chooser, project rows, palette, scope labels       |
 
 ### Retirement condition
 
@@ -296,6 +297,7 @@ Upstream ships per-window project filters with equivalent chooser controls.
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `apps/web/src/windowProjectScope.ts`, `apps/web/src/components/WindowProjectScopeToggle.tsx`, `apps/web/src/components/sidebar/SidebarPhysicalScope*.ts`, `apps/web/src/components/Sidebar*.tsx`, `apps/web/src/components/Sidebar.tsx` | Scope seams and chooser       |
 | `apps/web/src/state/pullRequests.ts`, `apps/web/src/components/pullRequest/PullRequestProjectScope*.ts`, `apps/web/src/components/CommandPalette.tsx`, `apps/web/src/composerDraftStore.ts`                                             | Scoped lists, palette, drafts |
+| `apps/mobile/src/features/home/HomeRouteScreen.tsx`, `apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx`, `apps/mobile/src/persistence/mobile-preferences.ts`, `packages/client-runtime/package.json`                        | Mobile filter, shared model   |
 
 ## browser-bookmarks
 
