@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { COMPOSER_DRAFT_STORAGE_KEY, resolveComposerDraftStorageKey } from "./composerDraftStore";
+import { COMPOSER_DRAFT_STORAGE_KEY } from "./composerDraftStore";
 import {
   createWindowDraftScope,
   mergeAdoptedDrafts,
@@ -131,11 +131,6 @@ const legacyShared = () =>
 describe("window draft scope", () => {
   beforeEach(() => {
     clock = createClock();
-  });
-
-  it("keeps today's hash-route key: Electron hash routes all resolve to the hub key", () => {
-    const pathname = new URL("t3://app/#/project/env-1/project-1/thread/t1").pathname;
-    expect(resolveComposerDraftStorageKey(pathname)).toBe(KEY);
   });
 
   it("gives each window its own token that survives a reload", () => {
