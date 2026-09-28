@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import { DesktopSnapShotId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -59,13 +58,8 @@ import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook:
 import * as HyprlandPlacement from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
-import {
-  PROJECT_WINDOW_PRELOAD_ARGUMENT,
-  projectWindowIdentity,
-  windowIdentityKey,
-} from "./WindowIdentity.ts";
-import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
-import { makeTestWindowIds, testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
+import { windowIdentityKey } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-key-import
+import { makeTestWindowIds } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
