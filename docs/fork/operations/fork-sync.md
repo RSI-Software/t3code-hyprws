@@ -8,22 +8,24 @@ Discipline lives in [Fork development](../internals/fork-development.md); the pr
 ## Model
 
 `hyprws` is the single fork trunk.
-The sync driver runs one upstream release tag end to end; it never merges upstream in, nor drops, squashes, reorders, or rewords a commit.
-There is no state machine, no gates, no lanes, no modes: one run, one exit code, one report.
+The sync driver runs one upstream release tag end to end: one run, one exit code, one report.
+It never merges upstream in, nor drops, reorders, or rewords a commit.
+It folds each `fixup! <subject>` landing into the one fork commit it names, and refuses a fixup naming none or several.
 
-| Step    | Does                                                              | Fails when                                         |
-| ------- | ----------------------------------------------------------------- | -------------------------------------------------- |
-| target  | the named tag, or the newest release tag on `upstream`            | the target is not a release tag                    |
-| fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`            | fetch error                                        |
-| rebase  | detached worktree, `git rebase --rerere-autoupdate <tag>`         | a conflict rerere and hook re-apply cannot resolve |
-| check   | `fork:delta --check`, `fork:ci`, `vpr typecheck`, in the worktree | any red                                            |
-| push    | `--force-with-lease=hyprws:<fetched sha>`                         | lease refused                                      |
-| blocked | one standing block issue, rewritten per run, through `gh`         | `gh` refuses the write                             |
-| report  | `.t3/fork-sync/<tag>.json`, typed, written before any post        |                                                    |
+| Step    | Does                                                                      | Fails when                                         |
+| ------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
+| target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
+| fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`                    | fetch error                                        |
+| rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
+| check   | `fork:delta --check`, `fork:ci`, `vpr typecheck`, in the worktree         | any red                                            |
+| push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
+| blocked | one standing block issue, rewritten per run, through `gh`                 | `gh` refuses the write                             |
+| report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
 
-A tag the fork already sits on reports `already applied` — after closing the block issues a previous run left open.
+A tag the fork already sits on reports `already applied`, after closing any open block or failure issue.
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
-Every push runs `hyprws-ci.yml`, whose completion triggers `hyprws-release.yml` (a `workflow_run` trigger, not the push itself, so the gate always finds a finished CI run), so an applied run cuts the nightly by itself — once the release gate opens: the release sha is the current `origin/hyprws` tip and that sha carries a green `hyprws CI` conclusion. A red battery cuts no release (RSI-Software/t3code-hyprws#1181).
+An applied run cuts the nightly by itself: `hyprws-ci.yml` completion triggers `hyprws-release.yml` through `workflow_run`.
+The release gate needs the current `origin/hyprws` tip with a green `hyprws CI`; a red battery cuts no release (RSI-Software/t3code-hyprws#1181).
 
 ## Local trunk
 
@@ -41,6 +43,7 @@ Worktree setup refuses a branch cut from the stale history.
 ## The report
 
 The typed report is the only run authority; the Markdown a run prints is output and never read back.
+Issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
 
 | Field         | Meaning                                                    |
 | ------------- | ---------------------------------------------------------- |
@@ -77,7 +80,7 @@ The body carries the conflict table (path, fork commit, upstream commit), the re
 
 | Rule     | Detail                                                                                                                                                                                               |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity | Title phrase `hyprws sync blocked` and label `ci`; the newest open issue is the standing one                                                                                                         |
+| Identity | Title phrase `hyprws sync blocked` and the governed `ci` label, no sync-specific label; the newest open issue is the standing one                                                                    |
 | Standing | Each blocked run rewrites its title and body; older open block issues close as superseded                                                                                                            |
 | Close    | A clean run (applied or already-applied) closes each open block issue with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`; a refusal lands in the report and fails the run |
 | Route    | Plain `gh` only                                                                                                                                                                                      |
@@ -95,6 +98,9 @@ Never post a block to `pingdotgg/t3code`.
 6. Rerun `vp run fork:sync <tag>`.
 
 Rerere replays content resolutions but records nothing for a delete/modify: the fix is a driver rule or a pre-adopt commit on `hyprws` (precedent `72666ffe19`, RSI-Software/t3code-hyprws#1227).
+
+**Reshape extras.** The kept sync worktree carries them between runs; a rerun on the same tag and lease adopts it.
+A trunk `fixup!` cannot carry one: it compiles only against post-sync upstream, so landing it reds `hyprws`.
 
 ## Failure lifecycle
 
@@ -133,11 +139,6 @@ Conflict tables live in the block issue.
 Create a fine-grained token owned by the automation actor, scoped to this repository, with read-and-write **Contents** and **Workflows**.
 Store it as the `HYPRWS_MIRROR_TOKEN` Actions secret.
 The workflow uses its own `GITHUB_TOKEN` with `issues: write`; never widen the token.
-
-### Labels
-
-Block issues carry the governed `ci` label; nothing creates a sync-specific label.
-They are found by the title phrase `hyprws sync blocked`.
 
 ### Which events run the fork matrix
 
