@@ -170,6 +170,7 @@ import {
   usePullRequestProjectWindowScope,
   type ScopedProjectRef,
 } from "./pullRequestProjectScope.fork"; // fork-hook: project-windows/pull-request-page-scope-import
+import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 
 function getShortcutContext() {
   return {
@@ -2716,6 +2717,9 @@ function PullRequestsColumn({
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
               {/* fork-hook: project-windows/pull-request-scope-toggle */}
               {projectScopeToggle}
+              {/* fork-hook-end */}
+              {/* fork-hook: workspaces/chooser-scope-label */}
+              <ProjectChooserScopeLabelFork />
               {/* fork-hook-end */}
               <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
                 {searchInput}
