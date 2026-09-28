@@ -939,8 +939,6 @@ export function shouldCreateNewThreadInCurrentProject(
   return shiftKey || projectGroupCount <= 1;
 }
 
-export { isProjectInSidebarScope } from "./sidebar/SidebarPhysicalScope";
-
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];

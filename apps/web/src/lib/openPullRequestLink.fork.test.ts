@@ -6,6 +6,7 @@ import {
   openGitHubIssueLinkFork,
   parseGitHubIssueUrl,
 } from "./openPullRequestLink.fork";
+import { findProjectOnChangeRequestHost } from "./openPullRequestLink";
 
 describe("parseGitHubIssueUrl", () => {
   it("reads public and Enterprise GitHub issue URLs", () => {
@@ -54,10 +55,14 @@ describe("findProjectPreferredFork", () => {
   const issue = { host: "github.com", repository: "acme/unchecked-out", number: 9 };
 
   it("resolves the active project first on the link's host when nothing is checked out", () => {
-    expect(findProjectPreferredFork([other, active], issue, "p-active")).toMatchObject({
+    expect(
+      findProjectPreferredFork(findProjectOnChangeRequestHost, [other, active], issue, "p-active"),
+    ).toMatchObject({
       id: "p-active",
     });
-    expect(findProjectPreferredFork([active, other], issue, "p-other")).toMatchObject({
+    expect(
+      findProjectPreferredFork(findProjectOnChangeRequestHost, [active, other], issue, "p-other"),
+    ).toMatchObject({
       id: "p-other",
     });
   });
@@ -69,10 +74,19 @@ describe("findProjectPreferredFork", () => {
       owner: "acme",
       name: "unchecked-out",
     });
-    expect(findProjectPreferredFork([other, active, exact], issue, "p-other")).toMatchObject({
+    expect(
+      findProjectPreferredFork(
+        findProjectOnChangeRequestHost,
+        [other, active, exact],
+        issue,
+        "p-other",
+      ),
+    ).toMatchObject({
       id: "p-exact",
     });
-    expect(findProjectPreferredFork([other, active], issue)).toMatchObject({ id: "p-other" });
+    expect(
+      findProjectPreferredFork(findProjectOnChangeRequestHost, [other, active], issue),
+    ).toMatchObject({ id: "p-other" });
   });
 
   it("matches nothing when no project shares the link's host", () => {
@@ -82,7 +96,9 @@ describe("findProjectPreferredFork", () => {
       owner: "acme",
       name: "repo",
     });
-    expect(findProjectPreferredFork([gitlab], issue, "p-gitlab")).toBeUndefined();
+    expect(
+      findProjectPreferredFork(findProjectOnChangeRequestHost, [gitlab], issue, "p-gitlab"),
+    ).toBeUndefined();
   });
 });
 
@@ -138,16 +154,14 @@ describe("openGitHubIssueLinkFork", () => {
       serverConfigs: new Map([["env-1", capabilities(true)]]) as never,
       primaryEnvironmentId: "env-1" as never,
       navigate: (() => undefined) as never,
+      findProjectOnHost: findProjectOnChangeRequestHost,
     });
     expect(claimed).toBe(true);
     expect(calls).toEqual(["preventDefault", "stopPropagation"]);
   });
 
-  it("widens to all projects for another project's issue in a desktop project window", () => {
-    vi.stubGlobal("window", {
-      location: { pathname: "/settings" },
-      desktopBridge: { projectWindowRef: { environmentId: "env-1", projectId: "p-window" } },
-    });
+  it("opens the issue on the Issues page with its project selected", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
     const navigate = vi.fn();
     openGitHubIssueLinkFork({
       event: claimEvent().event,
@@ -168,13 +182,13 @@ describe("openGitHubIssueLinkFork", () => {
       serverConfigs: new Map([["env-1", capabilities(true)]]) as never,
       primaryEnvironmentId: "env-1" as never,
       navigate: navigate as never,
+      findProjectOnHost: findProjectOnChangeRequestHost,
     });
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        params: { environmentId: "env-1", projectId: "p-window" },
-        search: expect.objectContaining({ selectedProjectId: "p1", scope: "all" }),
-      }),
-    );
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/issues",
+      search: expect.objectContaining({ selectedProjectId: "p1" }),
+    });
+    expect(navigate.mock.calls[0]?.[0].search).not.toHaveProperty("scope");
   });
 
   it("leaves links alone when no project with the issue capability matches", () => {
@@ -188,6 +202,7 @@ describe("openGitHubIssueLinkFork", () => {
         serverConfigs: new Map(),
         primaryEnvironmentId: "env-1" as never,
         navigate: (() => undefined) as never,
+        findProjectOnHost: findProjectOnChangeRequestHost,
       }),
     ).toBe(false);
   });
