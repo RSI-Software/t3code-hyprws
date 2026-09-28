@@ -46,6 +46,7 @@ export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
 export * from "./threadTitle.ts";
 export * from "./threadFork.fork.ts"; // fork-hook: thread-fork/contracts-reexport
+export * from "./attachedPrimary.fork.ts"; // fork-hook: backend-attach/contracts-reexport
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
 export * from "./project.ts";

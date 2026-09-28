@@ -45,6 +45,7 @@ import {
   orchestrationProtocolCompatibilityError,
 } from "./compatibility.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
+import { invalidatePrimaryBearerOnFailure } from "./primaryBearerInvalidation.fork.ts"; // fork-hook: backend-attach/ticket-import
 
 export class ConnectionResolver extends Context.Service<
   ConnectionResolver,
@@ -113,7 +114,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
       ...authorized,
       target,
     } satisfies PreparedConnection;
-  });
+  }, invalidatePrimaryBearerOnFailure(auth)); // fork-hook: backend-attach/ticket-invalidate
 });
 
 const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")(function* () {
