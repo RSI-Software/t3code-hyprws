@@ -6,6 +6,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { m } from "~/i18n/messages";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { projectChooserCommandsFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
 import { useComposerDraftStore } from "../composerDraftStore";
 import { desktopWindowCommandsFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
 import { dispatchPreviewAction, type PreviewAction } from "../components/preview/previewActionBus";
@@ -188,6 +189,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       "preview.zoomIn": zoomCommand("zoom-in"),
       "preview.zoomOut": zoomCommand("zoom-out"),
       "preview.resetZoom": zoomCommand("reset-zoom"),
+      ...projectChooserCommandsFork, // fork-hook: workspaces/chooser-keybinding
       // Unclaimed, the browser's own find runs when no thread handles panel find.
       "preview.find": (event) => {
         const environmentId = readRouteEnvironmentId();
