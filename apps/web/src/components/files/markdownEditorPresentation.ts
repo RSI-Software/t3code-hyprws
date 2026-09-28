@@ -206,10 +206,13 @@ function linkView(options: MarkdownEditorPresentationOptions) {
       else dom.removeAttribute("title");
 
       dom.className = "";
+      contentDOM.className = "";
       iconSlot.replaceChildren();
       if (!file?.workspaceRelativePath) return;
 
       dom.className = `${FILE_LINK_CHIP_CLASS_NAME} t3-markdown-editor__file-link`;
+      // The label truncates to the chip, as the chat chip's label does.
+      contentDOM.className = "min-w-0 truncate";
       dom.dataset["filePath"] = file.workspaceRelativePath;
       dom.title = file.displayPath;
       const icon = iconElement(file.filePath, options.theme.current);
