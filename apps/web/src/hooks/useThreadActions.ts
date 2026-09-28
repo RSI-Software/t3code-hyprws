@@ -53,7 +53,6 @@ import { clearThreadPreviewState } from "../previewStateStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";
 import {
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
