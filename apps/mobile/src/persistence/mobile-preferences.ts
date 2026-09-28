@@ -14,6 +14,8 @@ import {
   type PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
+import { decodeProjectFilter } from "@t3tools/client-runtime/state/project-filter"; // fork-hook: workspaces/mobile-filter-preference-import
+import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter"; // fork-hook: workspaces/mobile-filter-preference-import
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -116,6 +118,7 @@ export interface Preferences {
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
+  readonly projectFilter?: ProjectFilter; // fork-hook: workspaces/mobile-filter-preference
   readonly showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-field
   readonly planModeEnabled?: boolean;
   readonly toolCallVisibility?: ToolCallVisibility;
@@ -203,6 +206,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     microphones?: ReadonlyArray<MicrophoneEntry>;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
+    projectFilter?: ProjectFilter; // fork-hook: workspaces/mobile-filter-preference-type
     showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-sanitize-type
     planModeEnabled?: boolean;
     toolCallVisibility?: ToolCallVisibility;
@@ -334,6 +338,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.showIgnoredFiles === "boolean") {
     preferences.showIgnoredFiles = parsed.showIgnoredFiles;
   }
+  const projectFilter = decodeProjectFilter(parsed.projectFilter); // fork-hook: workspaces/mobile-filter-preference-sanitize
+  if (projectFilter !== null) preferences.projectFilter = projectFilter; // fork-hook: workspaces/mobile-filter-preference-sanitize
   if (typeof parsed.planModeEnabled === "boolean") {
     preferences.planModeEnabled = parsed.planModeEnabled;
   }
