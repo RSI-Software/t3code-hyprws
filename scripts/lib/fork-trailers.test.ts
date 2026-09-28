@@ -11,12 +11,9 @@ import {
   splitTrailerBlock,
 } from "./fork-trailers.ts";
 
-const trailerBlock = [
-  "Fork-Domain: fork-meta",
-  "Fork-Tier: bugfix",
-  "Fork-Upstreamable: no",
-  "Fork-Repair: none",
-].join("\n");
+const trailerBlock = ["Fork-Domain: fork-meta", "Fork-Tier: bugfix", "Fork-Upstreamable: no"].join(
+  "\n",
+);
 
 it("one trailer per key parses unchanged", () => {
   const parsed = parseForkTrailers(trailerBlock);
@@ -24,7 +21,6 @@ it("one trailer per key parses unchanged", () => {
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    repair: "none",
   });
 });
 
@@ -63,7 +59,6 @@ it.each([
   { key: "Fork-Domain", first: "fork-meta", second: "worktrunk-hooks" },
   { key: "Fork-Tier", first: "bugfix", second: "feature" },
   { key: "Fork-Upstreamable", first: "no", second: "yes" },
-  { key: "Fork-Repair", first: "none", second: "replayed" },
 ] as const)("disagreement in $key throws naming both values", ({ key, first, second }) => {
   const body = `${trailerBlock}\n${key}: ${first}\n${key}: ${second}`;
   NodeAssert.throws(
@@ -182,7 +177,6 @@ it("a trailing comment paragraph and co-author line do not hide the real block (
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    repair: "none",
   });
 });
 
