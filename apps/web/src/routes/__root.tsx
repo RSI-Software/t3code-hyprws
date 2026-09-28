@@ -74,6 +74,7 @@ import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
 import {
   isDesktopClientOnlyMode,
+  readOptionalPrimaryEnvironmentTarget, // fork-hook: backend-attach/route-import
   resolveInitialServerAuthGateState,
 } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
@@ -114,7 +115,7 @@ export const Route = createRootRoute({
     if (
       isLocalEnvironmentDisabled() ||
       isHostedStaticApp(new URL(window.location.href)) ||
-      isDesktopClientOnlyMode()
+      (isDesktopClientOnlyMode() && !readOptionalPrimaryEnvironmentTarget()) // fork-hook: backend-attach/route-gate
     ) {
       return {
         authGateState: {
