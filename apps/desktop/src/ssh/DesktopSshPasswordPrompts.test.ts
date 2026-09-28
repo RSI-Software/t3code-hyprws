@@ -98,6 +98,7 @@ function makeElectronWindowLayer(window: ReturnType<typeof makeTestWindow>["wind
       close: () => Effect.void,
       windowIdFor: () => Effect.succeedNone, // fork-hook: project-windows/ssh-prompts-window-identity
       listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
+      windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
       currentMainOrFirst: Effect.succeedSome(window as Electron.BrowserWindow),
       focusedMainOrFirst: Effect.succeedSome(window as Electron.BrowserWindow),
       setMain: () => Effect.void,
