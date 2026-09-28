@@ -28,6 +28,11 @@ import {
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import {
+  makePinnedSnapShotDispatch,
+  endSnapShotReveal,
+  withSnapShotRevealTarget,
+} from "../snapShot/SnapShotTarget.fork.ts"; // fork-hook: multi-window/window-targets-snap-shot-import
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
@@ -449,6 +454,8 @@ export const make = Effect.gen(function* () {
     .get(HUB_WINDOW_IDENTITY)
     .pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const requestTargetWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash)); // fork-hook: multi-window/window-targets-request-target
+  const captureRevealWindow = withSnapShotRevealTarget(requestTargetWindow); // fork-hook: multi-window/window-targets-capture-reveal-target
 
   let revealOrCreateIdentity: (
     identity: WindowIdentity,
@@ -1177,6 +1184,9 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const forkSnapShotDispatch = makePinnedSnapShotDispatch(requestTargetWindow, (event) =>
+    dispatchRendererEvent(SNAP_SHOT_EVENT_CHANNEL, event, { reveal: event.type === "started" }),
+  ); // fork-hook: multi-window/window-targets-snap-shot-dispatch
   const drainServices = { hyprlandPlacement, windowSession }; // fork-hook: multi-window/startup-drain-services
   const resolveDrainOpeners = makeStartupDrainOpeners(
     () => ensureIdentity,
@@ -1208,6 +1218,8 @@ export const make = Effect.gen(function* () {
     ensureMain,
     revealOrCreateMain,
     prepareCaptureReveal: Effect.gen(function* () {
+      const forkTarget = yield* captureRevealWindow; // fork-hook: multi-window/window-targets-capture-reveal
+      if (Option.isSome(forkTarget)) return yield* electronWindow.prepareReveal(forkTarget.value); // fork-hook: multi-window/window-targets-capture-reveal-return
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
         yield* electronWindow.prepareReveal(existingWindow.value);
@@ -1218,6 +1230,9 @@ export const make = Effect.gen(function* () {
     openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
     closeIdentity: electronWindow.close,
     activate: Effect.gen(function* () {
+      const forkTarget = yield* captureRevealWindow; // fork-hook: multi-window/window-targets-activate
+      yield* endSnapShotReveal; // fork-hook: multi-window/window-targets-activate-end-reveal
+      if (Option.isSome(forkTarget)) return yield* electronWindow.reveal(forkTarget.value); // fork-hook: multi-window/window-targets-activate-return
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
         yield* electronWindow.reveal(existingWindow.value);
@@ -1263,6 +1278,7 @@ export const make = Effect.gen(function* () {
         event: event.type,
         captureId: "id" in event ? (event.id ?? null) : null,
       });
+      if (yield* forkSnapShotDispatch(event)) return; // fork-hook: multi-window/window-targets-snap-shot
       yield* dispatchRendererEvent(SNAP_SHOT_EVENT_CHANNEL, event, {
         reveal: event.type === "started",
       });
