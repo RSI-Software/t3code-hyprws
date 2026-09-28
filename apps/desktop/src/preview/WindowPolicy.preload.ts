@@ -3,6 +3,7 @@ import { ipcRenderer } from "electron";
 
 import * as IpcChannels from "../ipc/channels.ts";
 import { readProjectWindowPreloadParts } from "../window/projectWindowArgument.ts";
+import { readWindowIdPreloadArgument } from "../window/WindowId.fork.ts";
 
 export type PreviewCapableDesktopBridge = DesktopBridge & {
   readonly preview: NonNullable<DesktopBridge["preview"]>;
@@ -10,8 +11,8 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
 
 /**
  * The bridge members a project window needs on top of the upstream bridge:
- * which project the window renders, whether the hub still demands it, and how
- * to open another one. They are optional in the contract, so the upstream
+ * which window this is, which project it renders, whether the hub still
+ * demands it, and how to open another one. They are optional in the contract, so the upstream
  * bridge literal stays exactly as upstream wrote it and this is the only place
  * the fork adds to it.
  */
@@ -20,7 +21,13 @@ export type ProjectWindowCapabilities = Required<
     DesktopBridge,
     "openProjectWindow" | "projectWindowRef" | "getWindowDemandState" | "onWindowDemandStateChange"
   >
->;
+> &
+  Pick<DesktopBridge, "windowId">;
+
+const windowIdCapability = (): Pick<DesktopBridge, "windowId"> => {
+  const windowId = readWindowIdPreloadArgument(process.argv);
+  return windowId === null ? {} : { windowId };
+};
 
 let windowDemandState = true;
 const windowDemandStateListeners = new Set<(demanded: boolean) => void>();
@@ -42,6 +49,8 @@ const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   // Branded ids are plain strings at runtime; the preload cannot import the
   // contracts package without breaking its sandboxed bundle.
   projectWindowRef: readProjectWindowPreloadParts(process.argv) as ScopedProjectRef | null,
+  // Main passes every app window its id; a window main did not create has none.
+  ...windowIdCapability(),
   getWindowDemandState: () => windowDemandState,
   onWindowDemandStateChange: (listener) => {
     windowDemandStateListeners.add(listener);

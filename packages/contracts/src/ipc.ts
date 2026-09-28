@@ -1139,6 +1139,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   projectWindowRef?: ScopedProjectRef | null;
+  windowId?: string; // fork-hook: multi-window/window-id-bridge
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission: (pane: SystemSettingsPane) => Promise<boolean>;
   probeRemoteEditors: () => Promise<readonly EditorId[]>;
