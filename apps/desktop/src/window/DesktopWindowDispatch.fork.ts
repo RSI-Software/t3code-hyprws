@@ -49,17 +49,13 @@ export const initialWindowBoundsFork = (
   return isPrimaryWindowFork(identity, dispatched) ? saved : null;
 };
 
-/**
- * The renderer URL a dispatched window opens at: its requested route on the
- * same origin, or the identity's own URL when the window was not dispatched or
- * asked for `/`, its home (a project window's home is its project).
- */
+/** The renderer URL a new window opens at: the app root, or its dispatched route as the hash. */
 export const dispatchedWindowUrlFork = (
-  identityUrl: string,
+  rootUrl: string,
   dispatched: WindowCreateRequest | undefined,
 ): string => {
-  if (dispatched === undefined || dispatched.route === NEW_WINDOW_ROUTE) return identityUrl;
-  const url = new URL(identityUrl);
+  if (dispatched === undefined || dispatched.route === NEW_WINDOW_ROUTE) return rootUrl;
+  const url = new URL(rootUrl);
   url.hash = dispatched.route;
   return url.href;
 };
