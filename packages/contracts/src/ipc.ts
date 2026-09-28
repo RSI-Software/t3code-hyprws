@@ -1184,6 +1184,7 @@ export interface DesktopBridge {
   readMedia: (url: string) => Promise<DesktopMediaRead | null>;
   openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   projectWindowRef?: ScopedProjectRef | null;
+  windowId?: string; // fork-hook: multi-window/window-id-bridge
   openSystemSettings: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission: (pane: SystemSettingsPane) => Promise<boolean>;
   probeRemoteEditors: () => Promise<readonly EditorId[]>;
