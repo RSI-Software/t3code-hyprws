@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { selectedGitHubIssueRef, validateGitHubIssueSearch } from "./githubIssueRouteSearch";
 
 describe("GitHub issue route search", () => {
-  it("validates bounded filters and scope", () => {
+  it("validates bounded filters and drops the retired window scope", () => {
     expect(
       validateGitHubIssueSearch({
         state: "closed",
@@ -12,12 +12,11 @@ describe("GitHub issue route search", () => {
         environmentId: "environment-1",
         scope: "all",
       }),
-    ).toMatchObject({
+    ).toStrictEqual({
       state: "closed",
       q: "x".repeat(200),
       projectId: "project-1",
       environmentId: "environment-1",
-      scope: "all",
     });
   });
 
