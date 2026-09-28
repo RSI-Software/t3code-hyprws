@@ -20,7 +20,7 @@ describe("fork keybinding defaults", () => {
 
   it("ships the window bindings", () => {
     assert.equal(defaultsByCommand.get("window.new"), "mod+shift+w");
-    assert.equal(defaultsByCommand.get("window.openInNew"), "mod+alt+o");
+    assert.equal(defaultsByCommand.get("window.openProject"), "mod+alt+o");
   });
 
   it("gives New Window a chord no other default uses", () => {
@@ -34,13 +34,16 @@ describe("fork keybinding defaults", () => {
 describe("fork keybinding command renames", () => {
   it("rewrites a renamed command and leaves the rest of the file as written", () => {
     const raw = `[
-  // opens the project in a new window
+  // opens the project's window
   { "key": "mod+alt+p", "command" : "project.openWindow", "when": "!terminalFocus" },
+  { "key": "mod+alt+o", "command": "window.openInNew", "when": "!terminalFocus" },
   { "key": "mod+j", "command": "terminal.toggle" },
 ]`;
     assert.equal(
       migrateRenamedKeybindingCommands(raw),
-      raw.replace('"project.openWindow"', '"window.openInNew"'),
+      raw
+        .replace('"project.openWindow"', '"window.openProject"')
+        .replace('"window.openInNew"', '"window.openProject"'),
     );
   });
 
@@ -68,7 +71,7 @@ it.layer(NodeServices.layer)("fork keybinding config migration", (it) => {
       assert.deepEqual(configState.issues, []);
       assert.isTrue(
         configState.keybindings.some(
-          (entry) => entry.command === "window.openInNew" && entry.shortcut.key === "p",
+          (entry) => entry.command === "window.openProject" && entry.shortcut.key === "p",
         ),
       );
     }).pipe(

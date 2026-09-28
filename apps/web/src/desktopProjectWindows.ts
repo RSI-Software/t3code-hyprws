@@ -1,9 +1,10 @@
-import type {
-  DesktopBridge,
-  DesktopWindowRequest,
-  ProjectId,
-  ScopedProjectRef,
-  ScopedThreadRef,
+import {
+  windowCommandRequest,
+  type DesktopBridge,
+  type DesktopWindowRequest,
+  type ProjectId,
+  type ScopedProjectRef,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 
 import { stackedThreadToast, toastManager } from "./components/ui/toast";
@@ -52,13 +53,16 @@ export function requestDesktopWindow(
 }
 
 /** The window commands, hidden from keybinding settings where no desktop window can open. */
-export function isDesktopWindowCommand(command: string): boolean {
-  return command === "window.new" || command === "window.openInNew";
+export function isDesktopWindowCommand(
+  command: string,
+): command is "window.new" | "window.openProject" {
+  return command === "window.new" || command === "window.openProject";
 }
 
 /**
  * Runs a window keybinding. Returns whether `command` was one, so the caller
- * stops matching; `resolveProjectRef` names the Open in New Window target.
+ * stops matching; `resolveProjectRef` names the project `window.openProject`
+ * focuses or opens.
  */
 export function runDesktopWindowCommandFork(
   command: string | null,
@@ -68,12 +72,11 @@ export function runDesktopWindowCommandFork(
   if (command === null || !isDesktopWindowCommand(command)) return false;
   const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;
   if (!supportsDesktopProjectWindows(bridge)) return true;
-  let request: DesktopWindowRequest = { kind: "new-window" };
-  if (command === "window.openInNew") {
-    const projectRef = resolveProjectRef();
-    if (!projectRef) return true;
-    request = openInNewWindowRequest(projectRef);
-  }
+  const request = windowCommandRequest(
+    command,
+    command === "window.new" ? null : resolveProjectRef(),
+  );
+  if (!request) return true;
   event.preventDefault();
   event.stopPropagation();
   requestDesktopWindow(bridge, request);
