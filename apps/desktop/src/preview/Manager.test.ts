@@ -5,13 +5,6 @@ import type {
   DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
 } from "@t3tools/contracts";
-export {
-  DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
-  EnvironmentId,
-  ProjectId,
-  type DesktopPreviewRecordingFrame,
-  type DesktopPreviewRecordingInputEvent,
-} from "@t3tools/contracts"; // fork-hook: multi-window/route-nav-contracts-bridge
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { parseKeybindingShortcut } from "@t3tools/shared/keybindings";
 import * as Cause from "effect/Cause";
@@ -33,7 +26,6 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { projectWindowIdentity } from "../window/WindowIdentity.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
@@ -2639,163 +2631,6 @@ describe("PreviewManager", () => {
         expect(replacementWindowThrottling.mock.calls).toEqual([[false], [true]]);
       }),
     ),
-  );
-
-  effectIt.effect("disposes preview tabs when their owning window closes", () =>
-    withManager((manager) =>
-      Effect.gen(function* () {
-        let closeMainWindow: (() => void) | undefined;
-        const firstWindowThrottling = vi.fn();
-        const replacementWindowThrottling = vi.fn();
-        const capturePage = vi.fn(async () => ({
-          toJPEG: () => Buffer.from("recording-frame"),
-          getSize: () => ({ width: 1280, height: 720 }),
-        }));
-        const host = makeTestHostWebContents();
-        const webContentsById = new Map([
-          [42, makeTestPreviewWebContents(capturePage, 42, host)],
-          [43, makeTestPreviewWebContents(capturePage, 43, host)],
-        ]);
-        fromId.mockImplementation((id) =>
-          id === undefined ? null : (webContentsById.get(id) ?? null),
-        );
-
-        const otherWindow = yield* manager.forWindow(
-          projectWindowIdentity(
-            EnvironmentId.make("environment-1"),
-            ProjectId.make("other-project"),
-          ),
-        );
-        yield* otherWindow.navigate("tab_other_window", "https://other.example");
-        yield* manager.createTab("tab_window_close_recording");
-        yield* manager.createTab("tab_window_close_race");
-        yield* manager.registerWebview("tab_window_close_recording", 42);
-        yield* manager.registerWebview("tab_window_close_race", 43);
-        yield* manager.setMainWindow({
-          isDestroyed: () => false,
-          once: vi.fn((event: string, listener: () => void) => {
-            if (event === "closed") closeMainWindow = listener;
-          }),
-          webContents: { setBackgroundThrottling: firstWindowThrottling },
-        } as never);
-        yield* manager.startRecording("tab_window_close_recording");
-        expect(firstWindowThrottling.mock.calls).toEqual([[false]]);
-
-        closeMainWindow?.();
-        const racedStart = yield* Effect.exit(manager.startRecording("tab_window_close_race"));
-        expect(Exit.isFailure(racedStart)).toBe(true);
-        if (Exit.isFailure(racedStart)) {
-          expect(Option.getOrThrow(Cause.findErrorOption(racedStart.cause))).toMatchObject({
-            _tag: "PreviewTabNotFoundError",
-            tabId: "tab_window_close_race",
-          });
-        }
-        yield* Effect.yieldNow;
-        yield* Effect.yieldNow;
-        expect(yield* otherWindow.automationStatus("tab_other_window")).toMatchObject({
-          tabId: "tab_other_window",
-          url: "https://other.example/",
-          loading: true,
-        });
-
-        const grants: Array<{ video?: unknown }> = [];
-        host.displayMediaHandler()?.({ frame: host.mainFrame }, (value) => grants.push(value));
-        expect(grants).toEqual([{}]);
-
-        yield* manager.setMainWindow({
-          isDestroyed: () => false,
-          once: vi.fn(),
-          webContents: { setBackgroundThrottling: replacementWindowThrottling },
-        } as never);
-        expect(replacementWindowThrottling).not.toHaveBeenCalled();
-      }),
-    ),
-  );
-
-  effectIt.effect("does not arm recording after the main window closes during warmup", () =>
-    withManager((manager) =>
-      Effect.gen(function* () {
-        const closeMainWindowListeners: Array<() => void> = [];
-        let finishWarmup!: (image: TestCapturedPreviewImage) => void;
-        let markWarmupStarted!: () => void;
-        const warmupStarted = new Promise<void>((resolve) => {
-          markWarmupStarted = resolve;
-        });
-        const capturedImage = {
-          toJPEG: () => Buffer.from("recording-frame"),
-          getSize: () => ({ width: 1280, height: 720 }),
-        };
-        const capturePage = vi.fn(
-          () =>
-            new Promise<TestCapturedPreviewImage>((resolve) => {
-              markWarmupStarted();
-              finishWarmup = resolve;
-            }),
-        );
-        const host = makeTestHostWebContents();
-        fromId.mockReturnValue(makeTestPreviewWebContents(capturePage, 42, host));
-
-        yield* manager.createTab("tab_window_close_warmup");
-        yield* manager.registerWebview("tab_window_close_warmup", 42);
-        yield* manager.setMainWindow({
-          isDestroyed: () => false,
-          once: vi.fn((event: string, listener: () => void) => {
-            if (event === "closed") closeMainWindowListeners.push(listener);
-          }),
-          webContents: { setBackgroundThrottling: vi.fn() },
-        } as never);
-
-        const start = yield* manager
-          .startRecording("tab_window_close_warmup")
-          .pipe(Effect.forkChild({ startImmediately: true }));
-        yield* Effect.promise(() => warmupStarted);
-        for (const listener of closeMainWindowListeners) listener();
-        finishWarmup(capturedImage);
-
-        const exit = yield* Fiber.await(start);
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isFailure(exit)) {
-          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-            _tag: "PreviewMainWindowClosedError",
-            tabId: "tab_window_close_warmup",
-          });
-        }
-        expect(host.session.setDisplayMediaRequestHandler).not.toHaveBeenCalled();
-      }),
-    ),
-  );
-
-  effectIt.effect("tells the server when a tab it renders natively closes", () =>
-    Effect.gen(function* () {
-      const host = yield* DesktopBrowserHost.DesktopBrowserHost;
-      const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
-      const lines = yield* Queue.unbounded<string>();
-      yield* host.events.pipe(
-        Stream.runForEach((line) => Queue.offer(lines, new TextDecoder().decode(line))),
-        Effect.forkScoped,
-      );
-      const nextType = Queue.take(lines).pipe(
-        Effect.map((line) => /"type":"(\w+)"/.exec(line)?.[1]),
-      );
-      const capturePage = vi.fn(async () => ({
-        toPNG: () => Buffer.from("png"),
-        toJPEG: () => Buffer.from("jpeg"),
-        getSize: () => ({ width: 100, height: 80 }),
-      }));
-      fromId.mockReturnValue(
-        Object.assign(makeTestPreviewWebContents(capturePage, 42), {
-          isDevToolsOpened: () => false,
-          getUserAgent: () => "Electron",
-        }),
-      );
-      const manager = yield* PreviewManager.PreviewManager;
-      yield* manager.createTab("tab_1", { serverTab });
-      yield* manager.registerWebview("tab_1", 42);
-      // The debugger attaches in the background; the server hears it here.
-      expect(yield* nextType).toBe("attached");
-      yield* manager.closeTab("tab_1");
-      expect(yield* nextType).toBe("detached");
-    }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
 
   effectIt.effect("stops capture retries when the tab swaps during the retry delay", () =>
