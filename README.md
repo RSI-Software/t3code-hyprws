@@ -8,8 +8,9 @@ I am also particular about how my workstation is laid out.
 One app window holding every project feels like opening VS Code at `/`.
 Visual workspaces already solve that separation.
 
-`hyprws` lets the desktop app open as many windows as I want.
-Each window picks its own projects, and Hyprland decides where it lives.
+Upstream T3 Code is one window.
+`hyprws` allows for multiple windows, and you can set them up however you like!
+Select one (or more) projects in each window; Hyprland decides where it lives.
 They are not separate instances: every window shares one Electron process, backend, auth, providers, and state.
 
 ```text
@@ -23,7 +24,7 @@ They are not separate instances: every window shares one Electron process, backe
 My setup around it is opinionated: Hyprland, dual-monitor virtual desktops, `zmux`, and Worktrunk.
 The fork encodes none of that policy.
 
-## Windows
+## Multiple windows
 
 | Key           | Does                                           |
 | ------------- | ---------------------------------------------- |
@@ -32,7 +33,7 @@ The fork encodes none of that policy.
 | `mod+alt+o`   | Reuse a window showing this project, else open |
 
 - **Filter:** narrows lists, never hides live work
-- **Update:** windows return to their workspaces
+- **Update:** back on their Hyprland workspaces
 - **Old links:** `#/project/...` links still open
 
 ## What else the fork adds
@@ -56,7 +57,7 @@ The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and bound
 
 ## Why a fork?
 
-Upstream's desktop app is single-window by construction.
+Upstream has no multi-window concept at all.
 A browser on a self-hosted backend comes close, but still trails Electron for terminals and nested browser windows.
 At parity, the window domains retire; the others stand on their own.
 

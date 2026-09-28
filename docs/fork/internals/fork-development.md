@@ -19,7 +19,7 @@ Goal: a small, durable patch stack on upstream.
 | Per-window backend  | No separate server, database, or auth |
 | Second frontend     | No desktop-only copy of the web app   |
 | Compositor policy   | No workspace policy inside T3 Code    |
-| Window kinds        | Every window is generic               |
+| Window kinds        | Every window can show any project     |
 | Removal             | Keep remote, web, mobile              |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
