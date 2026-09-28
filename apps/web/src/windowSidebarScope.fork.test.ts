@@ -320,13 +320,13 @@ describe("per-window project filter", () => {
     expect(a.filter.get().entries).toEqual([]);
   });
 
-  it("with several entries, the chooser's All projects clears them and one pick replaces them", () => {
+  it("stale keys: upstream's reset keeps several entries, and a thread-menu pick replaces them", () => {
     const a = openWindow(new Storage(), WINDOW_A);
     a.filter.set(bothProjects);
+    // Upstream's stale-scope reset writes null; only a one-entry filter mirrors a key.
     a.choose(null);
-    expect(a.filter.get().entries).toEqual([]);
+    expect(a.filter.get()).toEqual(bothProjects);
 
-    a.filter.set(bothProjects);
     a.choose("github.com/acme/api");
     expect(a.filter.get().entries.map((entry) => entry.key)).toEqual(["github.com/acme/api"]);
     expect(a.scopeKey()).toBe("github.com/acme/api");
