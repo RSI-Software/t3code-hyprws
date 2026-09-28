@@ -100,11 +100,9 @@ The rerun adopts the kept worktree and checks its HEAD.
 A resolved rebase still in progress continues; an unresolved one blocks again.
 A new tag or a moved lease recreates the worktree.
 
-A blocked run files one block issue (label `ci`) keyed by the blocking upstream sha.
-A rerun on the same sha updates that issue; a clean run closes it.
-
-A failed run files one failure issue the same way, keyed by the failing step and the target tag (the trunk sha before a tag resolves).
-A rerun with the same failure updates it; a clean run closes it.
+A blocked run rewrites the one open block issue (label `ci`), filing it only when none is open.
+A failed run does the same with the one open failure issue.
+Each body ends with its open-since date, target count, and last five runs; a clean run closes both.
 
 ### Finished tip from elsewhere
 
