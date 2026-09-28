@@ -173,8 +173,8 @@ A thread's context menu offers **Open in New Window**, which opens that thread i
 Open in New Window always creates a window, even when the project already has one.
 **Open project window** in the command palette, `mod+alt+o`, and a project link reuse a window already showing that project, and open one only when none does.
 Work you start from a window, such as an issue's thread, opens in that same window.
-A project window's sidebar stays pinned to that project: the project filter shows its name and
-cannot be changed, and new threads start in it. The hub window still lists every project.
+A window opened on a project starts with its project filter set to that project; the filter stays changeable.
+Links saved from older project windows still open the same thread, draft, or list.
 Web and mobile clients do not show project-window actions.
 
 ## Inspect agent work

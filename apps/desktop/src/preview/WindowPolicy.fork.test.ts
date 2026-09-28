@@ -17,8 +17,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import * as IpcChannels from "../ipc/channels.ts";
 import { type WindowId, windowIdPreloadArgument } from "../window/WindowId.fork.ts";
-import { HUB_WINDOW_IDENTITY, windowPreloadArguments } from "../window/WindowIdentity.ts";
-import { projectWindowPreloadArgument } from "../window/projectWindowArgument.ts";
+import { windowPreloadArguments } from "../window/WindowIdentity.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import {
   exposePreviewCapability,
@@ -158,25 +157,17 @@ describe("desktop preview window policy", () => {
     expect(exposed.openExternal).toBe(openExternal);
   });
 
-  it("adds project-window capabilities the upstream bridge literal never declares", () => {
+  it("adds window capabilities the upstream bridge literal never declares", () => {
     const originalArgv = process.argv;
-    process.argv = [
-      "electron",
-      windowIdPreloadArgument(firstWindowId),
-      projectWindowPreloadArgument({ environmentId: "environment 1", projectId: "project/1" }),
-    ];
+    process.argv = ["electron", windowIdPreloadArgument(firstWindowId)];
     try {
       const exposed = exposePreviewCapability({} as PreviewCapableDesktopBridge);
 
-      // Main's id comes back verbatim, apart from the project the window shows.
       expect(exposed.windowId).toBe(firstWindowId);
-      expect(exposed.projectWindowRef).toStrictEqual({
-        environmentId: "environment 1",
-        projectId: "project/1",
-      });
+      expect(exposed).not.toHaveProperty("projectWindowRef");
       const request = {
         kind: "open-in-new-window",
-        route: "/project/environment-2/project-2",
+        route: "/",
         seed: {
           environmentId: EnvironmentId.make("environment-2"),
           projectId: ProjectId.make("project-2"),
@@ -215,19 +206,16 @@ describe("desktop preview window policy", () => {
     try {
       process.argv = [
         "electron",
-        ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId, seed as ScopedProjectRef),
+        ...windowPreloadArguments(firstWindowId, seed as ScopedProjectRef),
       ];
       expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toEqual(
         seed,
       );
-      process.argv = [
-        "electron",
-        ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId, "all-projects"),
-      ];
+      process.argv = ["electron", ...windowPreloadArguments(firstWindowId, "all-projects")];
       expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBe(
         "all-projects",
       );
-      process.argv = ["electron", ...windowPreloadArguments(HUB_WINDOW_IDENTITY, firstWindowId)];
+      process.argv = ["electron", ...windowPreloadArguments(firstWindowId)];
       expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBeNull();
       process.argv = ["electron", "--t3code-window-scope-seed=only-one-part"];
       expect(exposePreviewCapability({} as PreviewCapableDesktopBridge).windowScopeSeed).toBeNull();
