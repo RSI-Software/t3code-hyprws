@@ -14,8 +14,9 @@ import { windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
  * Follows this window's filter onto the sidebar's current project groups and
- * projects it for upstream: `scopeKey` is the single-select chooser's value,
- * `projectKeys` the scoped project keys the list shows (`null` = all).
+ * projects it for upstream: `scopeKey` is the one entry's key, else `null`,
+ * `projectKeys` the scoped project keys the list shows (`null` = all). The
+ * chooser reads `filter` and writes through `setFilter`.
  */
 export function useWindowProjectFilter(
   projectGroups: ReadonlyArray<{
@@ -31,14 +32,20 @@ export function useWindowProjectFilter(
     members: group.memberProjectRefs,
   }));
   const filter = reconcileProjectFilter(stored, groups, settled);
+  // oxlint-disable-next-line t3code/react-effect-budget -- writes the reconciled filter back to the external window filter store.
   useEffect(() => {
     if (filter !== stored) state.set(filter);
   }, [filter, state, stored]);
-  return useMemo(
-    () => ({
+  return {
+    filter,
+    setFilter: state.set,
+    scopeKey: projectFilterScopeKey(filter),
+    projectKeys: projectFilterProjectKeys(
+      filter,
+      setFilter: state.set,
       scopeKey: projectFilterScopeKey(filter),
       projectKeys: projectFilterProjectKeys(filter),
     }),
-    [filter],
+    [filter, state],
   );
 }
