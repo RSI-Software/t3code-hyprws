@@ -86,6 +86,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "appearance.cycle",
   "window.new", // fork-hook: multi-window/dispatch-keybinding
   "window.openProject", // fork-hook: multi-window/dispatch-keybinding
+  "projectFilter.choose", // fork-hook: workspaces/chooser-keybinding
   "themeEditor.toggle",
   "composer.stash",
   "composer.sendAlternate",
