@@ -1142,6 +1142,7 @@ export interface DesktopBridge {
    * instead of falling back to the hub route.
    */
   projectWindowRef?: ScopedProjectRef | null;
+  windowId?: string; // fork-hook: multi-window/window-id-bridge
   /** Older builds lack this; fall back to VS Code only. */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
   pasteAsText?: () => Promise<void>;
