@@ -42,6 +42,7 @@ function makeBrowserWindow(input: { readonly id: number; readonly destroyed: boo
     id: input.id,
     isDestroyed: vi.fn(() => input.destroyed),
     once: vi.fn((event: string, listener: () => void) => listeners.set(event, listener)),
+    on: vi.fn((event: string, listener: () => void) => listeners.set(event, listener)),
     close: vi.fn(() => listeners.get("closed")?.()),
     __emit: (event: string) => listeners.get(event)?.(),
   } as unknown as Electron.BrowserWindow & {
