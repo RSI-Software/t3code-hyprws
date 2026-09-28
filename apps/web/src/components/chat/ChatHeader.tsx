@@ -40,6 +40,7 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
+import { OutsideFilterAddProjectFork } from "./OutsideFilterAddProject.fork"; // fork-hook: workspaces/outside-thread-import
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
 
@@ -427,6 +428,9 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* fork-hook: workspaces/outside-thread */}
+      <OutsideFilterAddProjectFork project={activeProject} />
+      {/* fork-hook-end */}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );
