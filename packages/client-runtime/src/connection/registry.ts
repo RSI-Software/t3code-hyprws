@@ -25,6 +25,7 @@ import {
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionProfileStore from "./profileStore.ts";
+import * as SavedPrecedence from "./savedConnectionPrecedence.fork.ts"; // fork-hook: backend-attach/registry-import
 import * as Connectivity from "./connectivity.ts";
 import type {
   ConnectionAttemptError,
@@ -216,6 +217,7 @@ export const make = Effect.gen(function* () {
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
   const ssh = yield* ClientCapabilities.SshEnvironmentGateway;
+  const keepSaved = yield* SavedPrecedence.savedConnectionsOutrankPrimary; // fork-hook: backend-attach/registry-precedence
   const persistedTargets = yield* storage.list;
   const disabledEnvironmentIds = new Set(yield* storage.listDisabled);
   const loadRoute = Effect.fn("EnvironmentRegistry.loadRoute")(function* (
@@ -515,6 +517,7 @@ export const make = Effect.gen(function* () {
     });
     yield* createServiceScope(entry);
   });
+  const saved = yield* SavedPrecedence.make(keepSaved, platformEnvironmentIds, installEntryLocked); // fork-hook: backend-attach/registry-saved-precedence
 
   const forgetRoutingTrust = (
     environmentId: EnvironmentId,
@@ -625,6 +628,7 @@ export const make = Effect.gen(function* () {
               ? { ...registered, enabled: false, ...unsupportedState(previous) }
               : registered;
           const persisted = (yield* Ref.get(persistedEnvironmentIds)).has(target.environmentId);
+          if (yield* saved.shadow(registration, persisted, previous, entry)) return; // fork-hook: backend-attach/registry-keep-saved
           if (
             persisted ||
             (previous !== undefined &&
@@ -720,6 +724,7 @@ export const make = Effect.gen(function* () {
             next.delete(environmentId);
             return next;
           });
+          if (yield* saved.restore(environmentId)) return; // fork-hook: backend-attach/registry-restore-saved
           yield* closeServiceScope(environmentId);
           yield* SubscriptionRef.update(entries, (current) => {
             const next = new Map(current);

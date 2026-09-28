@@ -37,6 +37,7 @@ import * as DesktopApp from "./app/DesktopApp.ts";
 import * as DesktopAppActivation from "./app/DesktopAppActivation.ts";
 import * as DesktopBackendMode from "./app/DesktopBackendMode.ts";
 import * as DesktopAppIdentity from "./app/DesktopAppIdentity.ts";
+import * as DesktopAttachedPrimary from "./app/DesktopAttachedPrimary.ts"; // fork-hook: backend-attach/layer-import
 import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogStore.ts";
 import * as DesktopRunningLocalServers from "./app/DesktopRunningLocalServers.ts";
 import * as DesktopClerk from "./app/DesktopClerk.ts";
@@ -220,6 +221,11 @@ const desktopLocalEnvironmentAuthLayer = DesktopLocalEnvironmentAuth.layer.pipe(
   Layer.provideMerge(desktopBackendLayer),
 );
 
+const desktopAttachedPrimaryLayer = DesktopAttachedPrimary.layer.pipe(
+  Layer.provideMerge(desktopFoundationLayer),
+  Layer.provideMerge(NodeHttpClient.layerUndici),
+); // fork-hook: backend-attach/layer
+
 const desktopApplicationLayer = Layer.mergeAll(
   DesktopLifecycle.layer,
   desktopAppActivationLayer,
@@ -232,6 +238,7 @@ const desktopApplicationLayer = Layer.mergeAll(
   Layer.provideMerge(DesktopUpdates.layer),
   Layer.provideMerge(desktopWslBackendLayer),
   Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
+  Layer.provideMerge(desktopAttachedPrimaryLayer), // fork-hook: backend-attach/layer-provide
 );
 
 // Clerk resolves userData before Electron is ready, so it gets the synchronous FileSystem.

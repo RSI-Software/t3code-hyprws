@@ -53,6 +53,8 @@ export class PrimaryEnvironmentAuth extends Context.Service<
   PrimaryEnvironmentAuth,
   {
     readonly bearerToken: Effect.Effect<Option.Option<string>, ConnectionAttemptError>;
+    readonly invalidateBearerToken?: () => Effect.Effect<void>; // fork-hook: backend-attach/auth-invalidate
+    readonly savedConnectionsOutrankPrimary?: boolean; // fork-hook: backend-attach/auth-saved-precedence
   }
 >()("@t3tools/client-runtime/platform/capabilities/PrimaryEnvironmentAuth") {}
 
