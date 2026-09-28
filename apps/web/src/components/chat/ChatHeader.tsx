@@ -52,6 +52,7 @@ import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { OutsideFilterAddProjectFork } from "./OutsideFilterAddProject.fork"; // fork-hook: workspaces/outside-thread-import
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -487,6 +488,9 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* fork-hook: workspaces/outside-thread */}
+      <OutsideFilterAddProjectFork project={activeProject} />
+      {/* fork-hook-end */}
       <div
         ref={headerActionsRef}
         data-chat-header-actions

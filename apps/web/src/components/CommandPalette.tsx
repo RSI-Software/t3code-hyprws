@@ -40,6 +40,15 @@ import {
 } from "@t3tools/contracts";
 import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
+import {
+  dropNewThreadHintFork,
+  refreshNewThreadInViewFork,
+  scopePaletteProjectEntriesFork,
+  useCommandPaletteProjectScopeFork,
+  useNewThreadHintFork,
+  useScopedPaletteThreadsFork,
+  withProjectScopeToggleFork,
+} from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-import
 import { useProjectChooserLabel } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-palette
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
@@ -786,6 +795,9 @@ function OpenCommandPaletteDialog(props: {
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const paletteProjectScope = useCommandPaletteProjectScopeFork(); // fork-hook: workspaces/palette-scope
+  const scopedThreads = useScopedPaletteThreadsFork(threads, paletteProjectScope.projectKeys); // fork-hook: workspaces/palette-scope
+  const newThreadHint = useNewThreadHintFork(activeDraftThread, activeThread, defaultProjectRef); // fork-hook: workspaces/palette-new-thread-hint
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     theme,
@@ -955,11 +967,13 @@ function OpenCommandPaletteDialog(props: {
   );
   const pickerProjects = useMemo(
     () =>
-      projectPickerEntries.map(({ group, targetProject }) => ({
-        ...targetProject,
-        displayName: group.displayName,
-      })),
-    [projectPickerEntries],
+      scopePaletteProjectEntriesFork(projectPickerEntries, paletteProjectScope.projectKeys).map(
+        ({ group, targetProject }) => ({
+          ...targetProject,
+          displayName: group.displayName,
+        }),
+      ), // fork-hook: workspaces/palette-scope-projects
+    [projectPickerEntries, paletteProjectScope.projectKeys], // fork-hook: workspaces/palette-scope-projects
   );
   const projectGroupByTargetKey = useMemo(
     () =>
@@ -1344,7 +1358,7 @@ function OpenCommandPaletteDialog(props: {
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
-        threads,
+        threads: scopedThreads, // fork-hook: workspaces/palette-scope-threads
         ...(activeThreadId ? { activeThreadId } : {}),
         projectTitleById,
         sortOrder: clientSettings.sidebarThreadSortOrder,
@@ -1407,7 +1421,7 @@ function OpenCommandPaletteDialog(props: {
       providerEntryByEnvironmentAndInstanceId,
       threadContentMatchByKey,
       threadSearchQuery,
-      threads,
+      scopedThreads, // fork-hook: workspaces/palette-scope-threads
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
@@ -1795,6 +1809,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  dropNewThreadHintFork(actionItems, newThreadHint); // fork-hook: workspaces/palette-new-thread-hint
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -2169,7 +2184,7 @@ function OpenCommandPaletteDialog(props: {
         ? changeThemeItem.groups
         : currentView?.groups[0]?.value === "appearance"
           ? changeAppearanceItem.groups
-          : (currentView?.groups ?? rootGroups);
+          : refreshNewThreadInViewFork(currentView?.groups ?? rootGroups, projectThreadItems); // fork-hook: workspaces/palette-scope-picker
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
@@ -2634,6 +2649,7 @@ function OpenCommandPaletteDialog(props: {
   }, [addProjectCloneFlow]);
 
   let displayedGroups: CommandPaletteView["groups"] = filteredGroups;
+  displayedGroups = withProjectScopeToggleFork(filteredGroups, paletteProjectScope, currentView); // fork-hook: workspaces/palette-scope-toggle
   if (addProjectCloneFlow?.step === "repository") {
     displayedGroups = [];
   } else if (addProjectCloneFlow?.step === "confirm") {
