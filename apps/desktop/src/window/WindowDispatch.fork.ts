@@ -48,10 +48,6 @@ export interface WindowCreateRequest {
 
 export const NEW_WINDOW_ROUTE = "/";
 
-function projectWindowRoute(ref: ScopedProjectRef): string {
-  return `/project/${encodeURIComponent(ref.environmentId)}/${encodeURIComponent(ref.projectId)}`;
-}
-
 /** What a created window records as its identity: its seed project, or the hub for all projects. */
 export function windowIdentityForSeed(seed: WindowScopeSeed): WindowIdentity {
   return seed === "all-projects" ? HUB_WINDOW_IDENTITY : { kind: "project", ref: seed };
@@ -124,9 +120,7 @@ export const dispatchWindowRequest =
           Effect.flatMap((revealed) =>
             revealed
               ? Effect.void
-              : ops
-                  .create({ route: projectWindowRoute(request.ref), seed: request.ref })
-                  .pipe(Effect.asVoid),
+              : ops.create({ route: NEW_WINDOW_ROUTE, seed: request.ref }).pipe(Effect.asVoid),
           ),
         );
       case "focus":
