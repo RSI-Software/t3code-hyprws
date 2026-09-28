@@ -46,6 +46,10 @@ import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
+import {
+  useMobileProjectFilter,
+  mobileProjectFilterPick,
+} from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-selection-import
 import { useFabScroll } from "../home/FabScrollContext";
 import { WorkspaceListHeader } from "../layout/workspace/WorkspaceListHeader";
 import { WORKSPACE_LIST_SCROLL_INSETS } from "../layout/workspace/workspace-list-insets";
@@ -214,6 +218,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   // identity; the hook keeps it stable.
   const threadSearchMatchByKey = useThreadListSearchMatches(threads, threadSearch);
   const selectedProjectKey = selectedProjectScope?.key ?? null;
+  useMobileProjectFilter(projects, options, selectedProjectKey, setSelectedProjectKey); // fork-hook: workspaces/mobile-filter
   const projectByKey = useMemo(() => {
     const map = new Map<string, EnvironmentProject>();
     for (const project of projects) {
@@ -543,6 +548,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
           selectedProjectKey,
           onEnvironmentChange: setSelectedEnvironmentId,
           onProjectChange: setSelectedProjectKey,
+          ...mobileProjectFilterPick, // fork-hook: workspaces/mobile-filter-menu
         }),
       }}
       sidebar={{
