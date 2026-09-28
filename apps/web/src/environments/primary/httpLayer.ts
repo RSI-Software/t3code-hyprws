@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
+import { withAttachedPrimaryRetry } from "./attachedPrimary.fork"; // fork-hook: backend-attach/http-import
 import { readDesktopPrimaryBearerToken } from "./desktopAuth";
 import { resolvePrimaryEnvironmentHttpUrl } from "./target";
 
@@ -27,6 +28,7 @@ function withPrimaryBearerToken(client: HttpClient.HttpClient): HttpClient.HttpC
         ),
       ),
     ),
+    withAttachedPrimaryRetry, // fork-hook: backend-attach/http-retry
   );
 }
 
