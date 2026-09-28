@@ -6,6 +6,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { m } from "~/i18n/messages";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { projectChooserCommandsFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
 import { useComposerDraftStore } from "../composerDraftStore";
 import { desktopWindowCommandsFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
 import { dispatchPreviewAction, type PreviewAction } from "../components/preview/previewActionBus";
@@ -179,6 +180,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       "preview.zoomIn": previewCommand("zoom-in"),
       "preview.zoomOut": previewCommand("zoom-out"),
       "preview.resetZoom": previewCommand("reset-zoom"),
+      ...projectChooserCommandsFork, // fork-hook: workspaces/chooser-keybinding
       "preview.find": previewCommand("find"),
     },
     {
