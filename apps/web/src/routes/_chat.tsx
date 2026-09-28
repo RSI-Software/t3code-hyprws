@@ -14,6 +14,7 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { runDesktopWindowCommandFork } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-keybinding
+import { runProjectChooserCommandFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -164,6 +165,7 @@ export function ChatRouteGlobalShortcuts({
       ) {
         return;
       } // fork-hook: multi-window/dispatch-keybinding
+      if (runProjectChooserCommandFork(command, event)) return; // fork-hook: workspaces/chooser-keybinding
 
       // The remaining preview commands only fire when the panel is the
       // currently-focused tenant. The `when: previewFocus` rule already
