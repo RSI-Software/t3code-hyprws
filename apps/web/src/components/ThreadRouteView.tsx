@@ -1,6 +1,6 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
@@ -13,11 +13,6 @@ import {
   useBackgroundDraftSubmissionPending,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import {
-  isValidProjectRouteId,
-  resolveProjectContentRedirect,
-  resolveProjectRouteRef,
-} from "../projectRoutes";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import {
   useEnvironmentThreadRefs,
@@ -30,7 +25,7 @@ import {
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
 import {
-  resolveThreadRouteFamily,
+  buildThreadRouteParams,
   resolveThreadRouteRenderState,
   type ThreadRouteTarget,
 } from "../threadRoutes";
@@ -51,16 +46,6 @@ import { resolveThreadSyncPhase } from "../threadSync";
  */
 export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const navigate = useNavigate();
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
-  // Under `/project/$environmentId/$projectId` the view is scoped to that
-  // project; content from another project falls back to the project index.
-  const projectRouteRef = useParams({
-    strict: false,
-    select: (params) => resolveProjectRouteRef(params),
-  });
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
@@ -137,42 +122,16 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
-  const contentProjectRef =
-    target.kind === "server"
-      ? serverThreadShell
-        ? { environmentId: serverThreadShell.environmentId, projectId: serverThreadShell.projectId }
-        : null
-      : draftSession
-        ? { environmentId: draftSession.environmentId, projectId: draftSession.projectId }
-        : null;
-  const projectContentRedirect = projectRouteRef
-    ? resolveProjectContentRedirect({
-        routeRef: projectRouteRef,
-        contentRef: contentProjectRef,
-        contentIdValid: isValidProjectRouteId(
-          target.kind === "server" ? target.threadRef.threadId : target.draftId,
-        ),
-      })
-    : null;
-  const redirectingToProjectIndex = projectContentRedirect === "project-index";
-  const indexRoute = routeFamily.index();
 
   useEffect(() => {
-    if (!projectRouteRef || !redirectingToProjectIndex) {
-      return;
-    }
-    void navigate({ ...indexRoute, replace: true });
-  }, [indexRoute, navigate, projectRouteRef, redirectingToProjectIndex]);
-
-  useEffect(() => {
-    if (redirectingToProjectIndex || !inferredThreadRef || draftSession?.promotedTo) {
+    if (!inferredThreadRef || draftSession?.promotedTo) {
       return;
     }
     markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef, redirectingToProjectIndex]);
+  }, [draftSession?.promotedTo, inferredThreadRef]);
 
   useEffect(() => {
-    if (!canonicalThreadRef || redirectingToProjectIndex) {
+    if (!canonicalThreadRef) {
       return;
     }
     let cancelled = false;
@@ -180,34 +139,26 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       if (cancelled) {
         return;
       }
-      void navigate({ ...routeFamily.thread(canonicalThreadRef), replace: true });
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(canonicalThreadRef),
+        replace: true,
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate, redirectingToProjectIndex, routeFamily]);
+  }, [canonicalThreadRef, navigate]);
 
   useEffect(() => {
-    if (
-      target.kind !== "draft" ||
-      draftSession ||
-      canonicalThreadRef ||
-      redirectingToProjectIndex
-    ) {
+    if (target.kind !== "draft" || draftSession || canonicalThreadRef) {
       return;
     }
-    void navigate({ ...indexRoute, replace: true });
-  }, [
-    canonicalThreadRef,
-    draftSession,
-    indexRoute,
-    navigate,
-    redirectingToProjectIndex,
-    target.kind,
-  ]);
+    void navigate({ to: "/", replace: true });
+  }, [canonicalThreadRef, draftSession, navigate, target.kind]);
 
   useEffect(() => {
-    if (target.kind !== "server" || !bootstrapComplete || redirectingToProjectIndex) {
+    if (target.kind !== "server" || !bootstrapComplete) {
       return;
     }
     // Navigation already resolved onto this path, so a drop aimed here
@@ -216,20 +167,11 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
-      if (projectRouteRef !== null || environmentHasAnyThreads) {
-        void navigate({ ...indexRoute, replace: true });
+      if (environmentHasAnyThreads) {
+        void navigate({ to: "/", replace: true });
       }
     }
-  }, [
-    bootstrapComplete,
-    environmentHasAnyThreads,
-    indexRoute,
-    navigate,
-    projectRouteRef,
-    redirectingToProjectIndex,
-    renderState,
-    target,
-  ]);
+  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
@@ -239,9 +181,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   }, [draftThread, serverThreadStarted, target]);
 
   let view: React.ReactNode = null;
-  if (redirectingToProjectIndex) {
-    view = null;
-  } else if (target.kind === "draft") {
+  if (target.kind === "draft") {
     if (draftSession) {
       view = (
         <ChatView

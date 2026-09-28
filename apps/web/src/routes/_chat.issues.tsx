@@ -59,7 +59,7 @@ import { githubIssueEnvironment, useGitHubIssueList } from "../state/githubIssue
 import { useDebouncedValue } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
 import { allEnvironmentShellsBootstrappedAtom } from "../state/shell";
-import { useWindowProjectListScope } from "../windowProjectScope";
+import { useWindowProjectKeys, windowListProjects } from "../windowProjectFilter.fork";
 
 export type IssuesSearchUpdater = (update: (previous: IssuesSearch) => IssuesSearch) => void;
 type IssuesSearchPatch = {
@@ -78,13 +78,13 @@ function GitHubIssuesRoute() {
   const navigate = useNavigate({ from: Route.fullPath });
   return (
     <GitHubIssuesPage
-      forcedProjectRef={null}
       search={search}
       onNavigate={(update) => void navigate({ search: update, replace: true })}
     />
   );
 }
 
+/** A thread's issues panel: it opens on the thread's project and can widen to the window's. */
 export function ProjectGitHubIssuesPanel({
   projectRef,
   onSelectIssue,
@@ -92,10 +92,13 @@ export function ProjectGitHubIssuesPanel({
   readonly projectRef: ScopedProjectRef;
   readonly onSelectIssue: (issue: EnvironmentGitHubIssueListEntry) => void;
 }) {
-  const [search, setSearch] = useState<IssuesSearch>({ state: "open" });
+  const [search, setSearch] = useState<IssuesSearch>({
+    state: "open",
+    projectId: projectRef.projectId,
+    environmentId: projectRef.environmentId,
+  });
   return (
     <GitHubIssuesPage
-      forcedProjectRef={projectRef}
       search={search}
       onNavigate={(update) => setSearch((previous) => update(previous))}
       variant="panel"
@@ -104,14 +107,13 @@ export function ProjectGitHubIssuesPanel({
   );
 }
 
+/** The issue list. With no project picked it lists every project this window's filter shows. */
 export function GitHubIssuesPage({
-  forcedProjectRef,
   search,
   onNavigate,
   variant = "page",
   onSelectIssue,
 }: {
-  readonly forcedProjectRef: ScopedProjectRef | null;
   readonly search: IssuesSearch;
   readonly onNavigate: IssuesSearchUpdater;
   readonly variant?: "page" | "panel";
@@ -127,72 +129,70 @@ export function GitHubIssuesPage({
         .toSorted((left, right) => left.environmentId.localeCompare(right.environmentId)),
     [environments],
   );
-  const { listScope, rememberScope } = useWindowProjectListScope(forcedProjectRef, search.scope);
-  const capabilityKnown =
-    listScope.kind === "project"
-      ? environments.some(
-          (environment) =>
-            environment.environmentId === listScope.projectRef.environmentId &&
-            environment.serverConfig !== null,
-        )
-      : environments.some((environment) => environment.serverConfig !== null);
-  const supported = capableEnvironments.some((environment) =>
-    listScope.kind === "project"
-      ? environment.environmentId === listScope.projectRef.environmentId
-      : true,
-  );
+  const capabilityKnown = environments.some((environment) => environment.serverConfig !== null);
+  const supported = capableEnvironments.length > 0;
 
   const allProjects = useProjects();
+  const windowProjectKeys = useWindowProjectKeys();
   const projectsKnown = useAtomValue(allEnvironmentShellsBootstrappedAtom);
-  // Every capable environment, not just this window's: a project window may filter to another
-  // project, so the menu has to be able to name one.
   const capableEnvironmentIds = useMemo(
     () => new Set(capableEnvironments.map((environment) => environment.environmentId)),
     [capableEnvironments],
   );
   const githubProjects = useMemo(
     () =>
-      allProjects
+      // A linked project outside the window's filter is still an explicit request.
+      windowListProjects(allProjects, windowProjectKeys, {
+        projectId: search.projectId,
+        environmentId: search.environmentId,
+      })
         .filter(
           (project) =>
             capableEnvironmentIds.has(project.environmentId) &&
             project.repositoryIdentity?.provider === "github",
         )
         .toSorted((left, right) => left.title.localeCompare(right.title)),
-    [allProjects, capableEnvironmentIds],
+    [allProjects, capableEnvironmentIds, search.environmentId, search.projectId, windowProjectKeys],
   );
-  // A project window keeps `projectId` out of the URL while it shows its own project, so this only
-  // ever resolves an explicit choice.
   const scopedProject = githubProjects.find(
     (project) => project.id === search.projectId && project.environmentId === search.environmentId,
   );
+  // Kept while projects load, so a linked project is not dropped before it can be named.
   const scopedProjectId =
-    forcedProjectRef !== null && listScope.kind === "project"
-      ? forcedProjectRef.projectId
-      : !projectsKnown || scopedProject !== undefined
-        ? search.projectId
-        : undefined;
-  const queryEnvironmentIds = useMemo(
-    () =>
-      listScope.kind === "all" && scopedProject !== undefined
-        ? [scopedProject.environmentId]
-        : capableEnvironments.map((environment) => environment.environmentId),
-    [capableEnvironments, listScope.kind, scopedProject],
-  );
+    !projectsKnown || scopedProject !== undefined ? search.projectId : undefined;
   const typedQuery = search.q?.trim() ?? "";
   const sentQuery = useDebouncedValue(typedQuery, 250);
   const targets = useMemo(
     () =>
       supported
         ? resolveGitHubIssueQueryTargets({
-            capableEnvironmentIds: queryEnvironmentIds,
-            listScope,
+            capableEnvironmentIds: capableEnvironments.map(
+              (environment) => environment.environmentId,
+            ),
+            windowProjects: windowProjectKeys === null ? null : githubProjects,
             state: search.state,
-            ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+            ...(scopedProjectId
+              ? {
+                  scopedProject: {
+                    projectId: scopedProjectId,
+                    environmentId: scopedProject?.environmentId ?? search.environmentId,
+                  },
+                }
+              : {}),
             ...(sentQuery ? { query: sentQuery } : {}),
           })
         : [],
-    [listScope, queryEnvironmentIds, scopedProjectId, search.state, sentQuery, supported],
+    [
+      capableEnvironments,
+      githubProjects,
+      scopedProject?.environmentId,
+      scopedProjectId,
+      search.environmentId,
+      search.state,
+      sentQuery,
+      supported,
+      windowProjectKeys,
+    ],
   );
   const listQuery = useGitHubIssueList(targets);
   const selectedRef = selectedGitHubIssueRef(search);
@@ -220,24 +220,20 @@ export function GitHubIssuesPage({
     (patch: IssuesSearchPatch) =>
       onNavigate((previous) => {
         const next = { ...previous, ...patch };
-        const keepProject = forcedProjectRef === null || next.scope === "all";
         return {
           state: next.state ?? previous.state,
           ...(next.q ? { q: next.q } : {}),
-          // A project window drops its project filter unless it is deliberately scoped to `all`,
-          // where an explicit project is how it looks at another project's issues.
-          ...(keepProject && next.projectId ? { projectId: next.projectId } : {}),
-          ...(keepProject && next.environmentId ? { environmentId: next.environmentId } : {}),
+          ...(next.projectId ? { projectId: next.projectId } : {}),
+          ...(next.environmentId ? { environmentId: next.environmentId } : {}),
           ...(next.selectedEnvironmentId
             ? { selectedEnvironmentId: next.selectedEnvironmentId }
             : {}),
           ...(next.selectedProjectId ? { selectedProjectId: next.selectedProjectId } : {}),
           ...(next.repository ? { repository: next.repository } : {}),
           ...(next.number ? { number: next.number } : {}),
-          ...(next.scope === "all" ? { scope: next.scope } : {}),
         };
       }),
-    [forcedProjectRef, onNavigate],
+    [onNavigate],
   );
   const clearSelection = {
     selectedEnvironmentId: undefined,
@@ -246,37 +242,12 @@ export function GitHubIssuesPage({
     number: undefined,
   };
   const updateFilters = (patch: IssuesSearchPatch) => updateSearch({ ...patch, ...clearSelection });
-  const windowProjectKey =
-    forcedProjectRef === null
-      ? null
-      : pullRequestProjectKey({
-          id: forcedProjectRef.projectId,
-          environmentId: forcedProjectRef.environmentId,
-        });
-  const projectMenuValue =
-    listScope.kind === "project" && windowProjectKey !== null
-      ? windowProjectKey
-      : scopedProject
-        ? pullRequestProjectKey(scopedProject)
-        : ALL_PROJECTS_VALUE;
-  /**
-   * Outside a project window this is a plain project filter. Inside one, choosing anything other
-   * than the window's own project also widens the window scope, since that is what makes another
-   * project's issues reachable at all.
-   */
+  const projectMenuValue = scopedProject
+    ? pullRequestProjectKey(scopedProject)
+    : ALL_PROJECTS_VALUE;
   const selectProject = (next: string) => {
     const project = githubProjects.find((candidate) => pullRequestProjectKey(candidate) === next);
-    if (windowProjectKey === null) {
-      updateFilters({ projectId: project?.id, environmentId: project?.environmentId });
-      return;
-    }
-    const own = next === windowProjectKey;
-    rememberScope(own ? "project" : "all");
-    updateFilters({
-      scope: own ? undefined : "all",
-      projectId: own ? undefined : project?.id,
-      environmentId: own ? undefined : project?.environmentId,
-    });
+    updateFilters({ projectId: project?.id, environmentId: project?.environmentId });
   };
   const selectIssue = useCallback(
     (issue: EnvironmentGitHubIssueListEntry) => {
@@ -442,7 +413,6 @@ export function GitHubIssuesPage({
             <GitHubIssueProjectMenu
               projects={githubProjects}
               value={projectMenuValue}
-              windowProjectKey={windowProjectKey}
               onValueChange={selectProject}
             />
             <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
