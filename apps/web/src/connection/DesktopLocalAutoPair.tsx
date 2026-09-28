@@ -48,6 +48,7 @@ export function DesktopLocalAutoPair() {
   const attemptedRef = useRef(false);
 
   useEffect(() => {
+    if (window.desktopBridge?.refreshAttachedPrimaryBootstrap) return; // fork-hook: backend-attach/auto-pair-retired
     if (
       !shouldAttemptDesktopAutoPair({
         attempted: attemptedRef.current,
