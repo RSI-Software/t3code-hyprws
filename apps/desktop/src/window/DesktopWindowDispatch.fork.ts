@@ -5,6 +5,8 @@ import type * as Electron from "electron";
 
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import type * as ElectronWindow from "../electron/ElectronWindow.ts";
+import type { DesktopWindowBounds } from "../settings/DesktopAppSettings.ts";
+import type { WindowRestoreEntry } from "./DesktopWindowSession.ts";
 import {
   dispatchWindowRequest,
   NEW_WINDOW_ROUTE,
@@ -31,23 +33,64 @@ export const isPrimaryWindowFork = (
   dispatched: WindowCreateRequest | undefined,
 ): boolean => identity.kind === "hub" && dispatched === undefined;
 
-/** The saved main-window bounds, for the primary window only. */
-export const primaryWindowBoundsFork = <B>(primary: boolean, bounds: B | null): B | null =>
-  primary ? bounds : null;
+/**
+ * The bounds a window opens with, before the display check: a restored
+ * window's own, else the saved main-window slot for the primary window or a
+ * restored all-projects window captured without bounds. Every other window
+ * opens at the default size.
+ */
+export const initialWindowBoundsFork = (
+  identity: WindowIdentity,
+  dispatched: WindowCreateRequest | undefined,
+  saved: DesktopWindowBounds | null,
+): DesktopWindowBounds | null => {
+  const restored = dispatched?.restored;
+  if (restored !== undefined) return restored.bounds ?? (identity.kind === "hub" ? saved : null);
+  return isPrimaryWindowFork(identity, dispatched) ? saved : null;
+};
 
 /**
  * The renderer URL a dispatched window opens at: its requested route on the
- * same origin, or the identity's own URL when the window was not dispatched.
+ * same origin, or the identity's own URL when the window was not dispatched or
+ * asked for `/`, its home (a project window's home is its project).
  */
 export const dispatchedWindowUrlFork = (
   identityUrl: string,
   dispatched: WindowCreateRequest | undefined,
 ): string => {
-  if (dispatched === undefined) return identityUrl;
+  if (dispatched === undefined || dispatched.route === NEW_WINDOW_ROUTE) return identityUrl;
   const url = new URL(identityUrl);
-  url.hash = dispatched.route === NEW_WINDOW_ROUTE ? "" : dispatched.route;
+  url.hash = dispatched.route;
   return url.href;
 };
+
+/**
+ * Builds the startup drain's restore opener. Every manifest entry is its own
+ * new window under its previous id, so extra all-projects or same-project
+ * windows come back too instead of collapsing onto one per identity.
+ */
+export const makeDesktopWindowRestoreFork = <E>(input: {
+  readonly electronWindow: ElectronWindow.ElectronWindow["Service"];
+  readonly createWindow: (
+    identity: WindowIdentity,
+    windowId: WindowId,
+    dispatched: WindowCreateRequest,
+  ) => Effect.Effect<Electron.BrowserWindow, E>;
+}) =>
+  Effect.fn("desktop.window.restoreWindow")(function* (entry: WindowRestoreEntry) {
+    const identity = windowIdentityForSeed(entry.seed);
+    const request: WindowCreateRequest = {
+      route: entry.route,
+      seed: entry.seed,
+      restored: { bounds: entry.bounds, workspace: entry.workspace },
+    };
+    const { window } = yield* input.electronWindow.createNew(
+      identity,
+      (windowId) => input.createWindow(identity, windowId, request),
+      entry.windowId,
+    );
+    return window;
+  });
 
 /**
  * Builds DesktopWindow's `requestWindow` over the window registry. A
@@ -89,4 +132,25 @@ export const makeDesktopWindowRequestFork = <E>(input: {
     byId: electronWindow.getById,
     reveal: electronWindow.reveal,
   });
+};
+
+/**
+ * Every all-projects window tracks its bounds flush; only the current main one
+ * writes the saved slot, so a New Window that outlives main takes it over.
+ */
+export const makeCurrentMainBoundsFork = (
+  readCurrentMain: () => Option.Option<Electron.BrowserWindow>,
+) => {
+  const flushes = new Map<Electron.BrowserWindow, Effect.Effect<void>>();
+  return {
+    track: (window: Electron.BrowserWindow, flush: Effect.Effect<void>) =>
+      void flushes.set(window, flush),
+    untrack: (window: Electron.BrowserWindow) => void flushes.delete(window),
+    isCurrentMain: (window: Electron.BrowserWindow) =>
+      Option.getOrUndefined(readCurrentMain()) === window,
+    flush: Effect.suspend(() => {
+      const main = Option.getOrUndefined(readCurrentMain());
+      return (main === undefined ? undefined : flushes.get(main)) ?? Effect.void;
+    }),
+  };
 };
