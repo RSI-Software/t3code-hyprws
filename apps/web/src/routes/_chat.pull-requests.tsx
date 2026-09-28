@@ -102,7 +102,6 @@ import {
   type PullRequestListSort,
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
@@ -159,9 +158,11 @@ import {
   type PullRequestSurface,
 } from "../rightPanelStore";
 import { useDebouncedValue } from "../state/queries";
-import { useProjects } from "../state/entities";
+import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useEnvironments } from "../state/environments";
+import { useWindowListProjects } from "../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
+import { pullRequestEnvironmentQueriesFork } from "../components/pullRequest/pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import {
   pullRequestEnvironment,
   usePullRequestList,
@@ -175,12 +176,6 @@ import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import {
-  WindowProjectScopeToggle,
-  normalizePullRequestProjectScopePatch,
-  usePullRequestProjectWindowScope,
-  type ScopedProjectRef,
-} from "./pullRequestProjectScope.fork"; // fork-hook: project-windows/pull-request-page-scope-import
 import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 
 function getShortcutContext() {
@@ -204,7 +199,6 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedProjectId?: ProjectId;
   readonly selectedHost?: string;
   readonly selectedEnvironmentId?: EnvironmentId;
-  readonly scope?: "all"; // fork-hook: project-windows/pull-request-scope-search-field
 }
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -292,8 +286,8 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
   return labels.length === 0 ? {} : { labels };
 }
 
-export function validatePullRequestsSearch(raw: Record<string, unknown>): PullRequestsSearch {
-  return {
+export const Route = createFileRoute("/_chat/pull-requests")({
+  validateSearch: (raw: Record<string, unknown>): PullRequestsSearch => ({
     involvement:
       raw.involvement === "reviewing" || raw.involvement === "authored" ? raw.involvement : "all",
     state:
@@ -338,46 +332,20 @@ export function validatePullRequestsSearch(raw: Record<string, unknown>): PullRe
       ? { author: raw.author.trim().slice(0, 200) }
       : {}),
     ...pullRequestSearchLabels(raw.labels),
-    ...(raw.scope === "all" ? { scope: raw.scope } : {}),
-  };
-}
-
-export const Route = createFileRoute("/_chat/pull-requests")({
-  validateSearch: validatePullRequestsSearch,
-  component: HubPullRequestsRouteView,
+  }),
+  component: PullRequestsRouteView,
 });
 
-function HubPullRequestsRouteView() {
+function PullRequestsRouteView() {
   useEscapeToGoBack();
-  const search = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  return (
-    <PullRequestsPage
-      forcedProjectRef={null}
-      search={search}
-      onNavigate={(options) => void navigate(options)}
-    />
-  );
-}
-
-export function PullRequestsPage({
-  forcedProjectRef,
-  search,
-  onNavigate,
-}: {
-  readonly forcedProjectRef: ScopedProjectRef | null;
-  readonly search: PullRequestsSearch;
-  readonly onNavigate: (options: {
-    search: (previous: PullRequestsSearch) => PullRequestsSearch;
-    replace: boolean;
-  }) => void;
-}) {
   const modifiers = useShortcutModifierState(true);
   const speedMode =
     modifiers.shiftKey && !modifiers.metaKey && !modifiers.ctrlKey && !modifiers.altKey;
+  const search = Route.useSearch();
   const sort = search.sort ?? "ready";
   const statsPolicy: PullRequestStatsPolicy =
     sort === "ready" || sort === "largest" || sort === "smallest" ? "eager" : "visible";
+  const navigate = useNavigate({ from: Route.fullPath });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     capableEnvironments,
@@ -1488,17 +1456,6 @@ export function PullRequestsPage({
       onChange={(next) => updateListScope({ sort: next })}
     />
   );
-  const projectScopeToggle = (
-    <WindowProjectScopeToggle
-      forcedProjectRef={forcedProjectRef}
-      listScope={listScope}
-      onNavigate={(urlScope) =>
-        onScopeChange(urlScope, (scopePatch) =>
-          updateListScope({ ...scopePatch, environmentId: undefined }),
-        )
-      }
-    />
-  ); // fork-hook: project-windows/pull-request-scope-toggle
   const filtersMenu = (
     <PullRequestFiltersMenuInSidebarOrder
       onOpenChange={setFiltersOpen}
@@ -1534,12 +1491,11 @@ export function PullRequestsPage({
       hostOptions={hostMenuOptions}
       onHost={(host) => updateListScope({ host })}
       server={scopedEnvironmentId ?? undefined}
-      serverOptions={showHubScopeFilters ? serverMenuOptions : []}
+      serverOptions={serverMenuOptions}
       onServer={(server) => updateListScope({ environmentId: server, projectId: undefined })}
       projects={scopedProjects}
-      projectId={showHubScopeFilters ? scopedProjectId : undefined}
-      projectEnvironmentId={showHubScopeFilters ? scopedProject?.environmentId : undefined}
-      showProjectFilter={showHubScopeFilters} // fork-hook: project-windows/pull-request-filter-visibility
+      projectId={scopedProjectId}
+      projectEnvironmentId={scopedProject?.environmentId}
       unavailable={unavailableProjects}
       onProject={(projectId, environmentId) =>
         updateListScope(environmentId === undefined ? { projectId } : { projectId, environmentId })
@@ -1560,7 +1516,6 @@ export function PullRequestsPage({
     searchInput,
     sortMenu,
     filtersMenu,
-    projectScopeToggle,
     rightPanelControl: !pullRequestsSupported ? null : (
       <span
         aria-hidden
@@ -1840,12 +1795,20 @@ function usePullRequestScope(search: PullRequestsSearch) {
   const projects = allProjects.filter(
     (project) => !project.isScratch && environmentIds.includes(project.environmentId),
   );
+  const windowProjects = useWindowListProjects(projects, {
+    projectId: search.projectId,
+    environmentId: search.environmentId,
+  }); // fork-hook: workspaces/list-page-window-filter
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
   const scopedProjectId = resolveProjectScope(search.projectId, projects, projectsKnown);
   const scopedProject = findScopedProject(projects, scopedEnvironmentId, scopedProjectId);
-  const scopedProjects = pullRequestFilterProjects(projects, environmentLabels, scopedProject);
+  const scopedProjects = pullRequestFilterProjects(
+    windowProjects,
+    environmentLabels,
+    scopedProject,
+  ); // fork-hook: workspaces/list-page-window-filter
 
   const selectedHost = search.selectedHost ?? search.host;
   const projectIdForRepository = (() => {
@@ -1890,21 +1853,11 @@ function usePullRequestScope(search: PullRequestsSearch) {
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
-    const assignment = assignProjectsToEnvironments(
-      projects,
-      queryEnvironmentIds,
-      queryEnvironmentIds[0],
-    );
-    const totals = new Map<EnvironmentId, number>();
-    for (const project of projects) {
-      totals.set(project.environmentId, (totals.get(project.environmentId) ?? 0) + 1);
-    }
-    return queryEnvironmentIds.flatMap((environmentId) => {
-      const projectIds = assignment.get(environmentId);
-      if (projectIds === undefined) return [];
-      if (projectIds.length === (totals.get(environmentId) ?? 0)) return [{ environmentId }];
-      return [{ environmentId, projectIds }];
-    });
+    return pullRequestEnvironmentQueriesFork({
+      listed: windowProjects,
+      held: projects,
+      environmentIds: queryEnvironmentIds,
+    }); // fork-hook: workspaces/list-page-window-filter
   })();
   const assignmentKey = environmentQueries
     .map(({ environmentId, projectIds }) => `${environmentId}#${projectIds?.join("+") ?? "*"}`)
@@ -2353,7 +2306,6 @@ function PullRequestsColumn({
   searchInput,
   sortMenu,
   filtersMenu,
-  projectScopeToggle,
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
@@ -2374,7 +2326,6 @@ function PullRequestsColumn({
   searchInput: ReactNode;
   sortMenu: ReactNode;
   filtersMenu: ReactNode;
-  projectScopeToggle: ReactNode;
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
@@ -2506,9 +2457,6 @@ function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
-              {/* fork-hook: project-windows/pull-request-scope-toggle */}
-              {projectScopeToggle}
-              {/* fork-hook-end */}
               {/* fork-hook: workspaces/chooser-scope-label */}
               <ProjectChooserScopeLabelFork />
               {/* fork-hook-end */}
