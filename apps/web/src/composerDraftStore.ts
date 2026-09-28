@@ -77,6 +77,7 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import { resolveProjectRefFromPathname } from "./projectRoutes";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
+import * as forkDraftScope from "./windowDraftScope.fork"; // fork-hook: multi-window/draft-scope-import
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -138,6 +139,7 @@ const composerPersistStorage: PersistStorage<ComposerPersistState> = {
   setItem: (name, value) => composerDebouncedStorage.setItem(name, value),
   removeItem: (name) => composerDebouncedStorage.removeItem(name),
 };
+forkDraftScope.install(composerDebouncedStorage, partializeComposerDraftStoreState); // fork-hook: multi-window/draft-scope-install
 
 // Flush pending composer draft writes before page unload to prevent data loss.
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
@@ -2309,6 +2311,9 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   if (threadKey.length === 0) {
     return [];
   }
+  if (forkDraftScope.ownsDraft(threadKey)) {
+    return forkDraftScope.attachmentIds(threadKey);
+  } // fork-hook: multi-window/draft-scope-attachments
   try {
     const persisted = getLocalStorageItem(
       activeComposerDraftStorageKey,
@@ -4099,6 +4104,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
 );
 
 export const useComposerDraftStore = composerDraftStore;
+forkDraftScope.adoptInto(composerDraftStore); // fork-hook: multi-window/draft-scope-adopt
 
 export function beginBackgroundDraftSubmissionByRef(threadRef: ScopedThreadRef): void {
   const threadKey = scopedThreadKey(threadRef);
