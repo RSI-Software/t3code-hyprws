@@ -114,6 +114,7 @@ import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWi
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
+import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -2530,19 +2531,21 @@ export default function Sidebar() {
   // app restarts keep it.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
+  const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
   const {
     projectGroup: scopedProjectGroup,
     effectiveScopeKey: effectiveProjectScopeKey,
-    projectKeys: scopedProjectKeys,
+    projectKeys: physicalProjectKeys, // fork-hook: workspaces/filter-physical-keys
   } = useMemo(
     () =>
       resolveSidebarPhysicalScope({
         forcedProjectRef,
         projectGroups,
-        logicalScopeKey: projectScopeKey,
+        logicalScopeKey: windowFilter.scopeKey, // fork-hook: workspaces/filter-scope-key
       }),
-    [forcedProjectRef, projectGroups, projectScopeKey],
+    [forcedProjectRef, projectGroups, windowFilter.scopeKey], // fork-hook: workspaces/filter-scope-key-dep
   );
+  const scopedProjectKeys = forcedProjectRef ? physicalProjectKeys : windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
