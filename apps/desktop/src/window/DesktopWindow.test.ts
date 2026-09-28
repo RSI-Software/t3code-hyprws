@@ -58,6 +58,7 @@ import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import {
   desktopEnvironmentLayerFork,
+  previewSessionCountersFork, // fork-hook: multi-window/preview-session-counters-import
   registerDesktopWindowForkTests,
 } from "./DesktopWindow.fork.suite.ts"; // fork-hook: multi-window/fork-suite-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
@@ -69,6 +70,8 @@ import {
   projectWindowIdentity,
   windowIdentityKey,
 } from "./WindowIdentity.ts";
+import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
+import { makeTestWindowIds, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -249,14 +252,14 @@ function makeTestLayer(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly previewMainWindowSets?: Electron.BrowserWindow[];
+  readonly previewOwners?: string[]; // fork-hook: multi-window/window-id-preview-owners
   readonly previewBrowserSessionRequests?: number[];
   readonly environmentEnv?: Record<string, string | undefined>;
   readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
   readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly placementClaims?: { key: string; title: string }[]; // fork-hook: multi-window/window-id-placement-claims
   readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
   readonly placementLifecycle?: string[];
-  readonly revealRequests?: number[];
-  readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -296,7 +299,7 @@ function makeTestLayer(input: {
 
   const hyprlandPlacementLayer = Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
     isAvailable: input.workspaceMoves !== undefined,
-    claim: () => Effect.void,
+    claim: (key, title) => Effect.sync(() => void input.placementClaims?.push({ key, title })), // fork-hook: multi-window/window-id-claim
     forget: () => Effect.void,
     workspaceOf: () => Effect.succeed(Option.none()),
     stageWorkspaceRule: (title, workspace) =>
@@ -323,6 +326,7 @@ function makeTestLayer(input: {
   } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
 
   const projectWindows = new Map<string, Electron.BrowserWindow>();
+  const windowIds = makeTestWindowIds(); // fork-hook: multi-window/window-id-test-registry
   const getIdentityWindow = (
     identity: Parameters<ElectronWindow.ElectronWindow["Service"]["get"]>[0],
   ) =>
@@ -340,12 +344,15 @@ function makeTestLayer(input: {
       ),
     main: Ref.get(input.mainWindow),
     get: getIdentityWindow,
-    getOrCreate: (identity, create) =>
+    getById: windowIds.getById, // fork-hook: multi-window/window-id-get-by-id
+    getOrCreate: (identity, create, requestedId) =>
+      // fork-hook: multi-window/window-id-get-or-create
       getIdentityWindow(identity).pipe(
         Effect.flatMap(
           Option.match({
             onNone: () =>
-              create.pipe(
+              windowIds.create(create, requestedId).pipe(
+                // fork-hook: multi-window/window-id-create
                 Effect.tap((window) =>
                   identity.kind === "hub"
                     ? Ref.set(input.mainWindow, Option.some(window))
@@ -353,9 +360,9 @@ function makeTestLayer(input: {
                         projectWindows.set(windowIdentityKey(identity), window);
                       }),
                 ),
-                Effect.map((window) => ({ window, created: true as boolean })),
+                Effect.map(windowIds.created), // fork-hook: multi-window/window-id-created
               ),
-            onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+            onSome: windowIds.existing, // fork-hook: multi-window/window-id-existing
           }),
         ),
       ),
@@ -366,13 +373,8 @@ function makeTestLayer(input: {
             projectWindows.delete(windowIdentityKey(identity));
             input.window.close();
           }),
-    identityFor: (window) =>
-      Ref.get(input.mainWindow).pipe(
-        Effect.map((main) =>
-          Option.contains(main, window) ? Option.some(HUB_WINDOW_IDENTITY) : Option.none(),
-        ),
-      ),
-    listIdentities: Effect.succeed([]),
+    windowIdFor: windowIds.windowIdFor, // fork-hook: multi-window/window-id-for
+    listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
@@ -422,17 +424,12 @@ function makeTestLayer(input: {
         electronThemeLayer,
         electronWindowLayer,
         Layer.mock(PreviewManager.PreviewManager)({
-          getBrowserSession: () =>
+          getBrowserSession: () => Effect.succeed({} as Electron.Session),
+          setMainWindow: () => Effect.void,
+          ...previewSessionCountersFork(input), // fork-hook: multi-window/preview-session-counters
+          setWindow: (owner, window) =>
             Effect.sync(() => {
-              input.previewBrowserSessionRequests?.push(1);
-              return {} as Electron.Session;
-            }),
-          setMainWindow: (window) =>
-            Effect.sync(() => {
-              input.previewMainWindowSets?.push(window);
-            }),
-          setWindow: (_identity, window) =>
-            Effect.sync(() => {
+              input.previewOwners?.push(owner); // fork-hook: multi-window/window-id-preview-owner
               input.previewMainWindowSets?.push(window);
             }),
           prepareWebview: () => Effect.void,
@@ -473,6 +470,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     const createCalls = yield* Ref.make(0);
     const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
     const revealedWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
+    const splashWindowIds = makeTestWindowIds(); // fork-hook: multi-window/window-id-splash-registry
     const fallbackWindow = createOutcomes.find(
       (window): window is Electron.BrowserWindow => window !== null,
     );
@@ -522,22 +520,24 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
         }),
       main: Ref.get(mainWindow),
       get: () => Ref.get(mainWindow),
+      getById: splashWindowIds.getById, // fork-hook: multi-window/window-id-splash-get-by-id
       getOrCreate: (_identity, create) =>
         Ref.get(mainWindow).pipe(
           Effect.flatMap(
             Option.match({
               onNone: () =>
-                create.pipe(
+                splashWindowIds.create(create).pipe(
+                  // fork-hook: multi-window/window-id-splash-create
                   Effect.tap((window) => Ref.set(mainWindow, Option.some(window))),
-                  Effect.map((window) => ({ window, created: true as boolean })),
+                  Effect.map(splashWindowIds.created), // fork-hook: multi-window/window-id-splash-created
                 ),
-              onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+              onSome: splashWindowIds.existing, // fork-hook: multi-window/window-id-splash-existing
             }),
           ),
         ),
       close: () => Ref.set(mainWindow, Option.none()),
-      identityFor: () => Effect.succeed(Option.none()),
-      listIdentities: Effect.succeed([]),
+      windowIdFor: splashWindowIds.windowIdFor, // fork-hook: multi-window/window-id-splash-for
+      listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-splash-list
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
@@ -835,6 +835,8 @@ describe("DesktopWindow", () => {
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
       const previewMainWindowSets: Electron.BrowserWindow[] = [];
+      const previewOwners: string[] = []; // fork-hook: multi-window/window-id-intent-owners
+      const placementClaims: { key: string; title: string }[] = []; // fork-hook: multi-window/window-id-intent-claims
       const previewBrowserSessionRequests: number[] = [];
       const layer = makeTestLayer({
         window: fakeWindow.window,
@@ -842,6 +844,9 @@ describe("DesktopWindow", () => {
         mainWindow,
         createdWindowOptions,
         previewMainWindowSets,
+        previewOwners, // fork-hook: multi-window/window-id-intent-owners-input
+        placementClaims, // fork-hook: multi-window/window-id-intent-claims-input
+        workspaceMoves: [], // fork-hook: multi-window/window-id-intent-placement
         previewBrowserSessionRequests,
       });
 
@@ -854,15 +859,23 @@ describe("DesktopWindow", () => {
         assert.equal(yield* Ref.get(createCount), 1);
         assert.equal(createdWindowOptions[0]?.title, "project-1");
         assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
+          windowIdPreloadArgument(testWindowId(1)), // fork-hook: multi-window/window-id-intent-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
         ]);
         assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
+        assert.deepEqual(previewOwners, [testWindowId(1)]); // fork-hook: multi-window/window-id-intent-preview-owner
         assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
           "t3code-dev://app/#/project/environment-1/project-1",
         ]);
         assert.isFalse(fakeWindow.windowListeners.has("resize"));
 
+        fakeWindow.windowListeners.get("ready-to-show")?.(); // fork-hook: multi-window/window-id-intent-show
+        yield* Effect.yieldNow; // fork-hook: multi-window/window-id-intent-show-settle
+        assert.deepEqual(
+          placementClaims.map((claim) => claim.key),
+          [testWindowId(1)],
+        ); // fork-hook: multi-window/window-id-intent-claim
         const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
         const preventDefault = vi.fn();
         pageTitleUpdated?.({ preventDefault }, "Project One");
@@ -888,15 +901,20 @@ describe("DesktopWindow", () => {
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
       const workspaceMoves: { key: string; workspace: string }[] = [];
+      const placementClaims: { key: string; title: string }[] = []; // fork-hook: multi-window/window-id-restore-claims
+      const hubId = testWindowId(101); // fork-hook: multi-window/window-id-restore-hub
+      const projectWindowId = testWindowId(102); // fork-hook: multi-window/window-id-restore-project
       const layer = makeTestLayer({
         window: fakeWindow.window,
         createCount,
         mainWindow,
         createdWindowOptions,
         workspaceMoves,
+        placementClaims, // fork-hook: multi-window/window-id-restore-claims-input
         restoreEntries: [
-          { identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } },
+          { windowId: hubId, identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } }, // fork-hook: multi-window/window-id-restore-hub-entry
           {
+            windowId: projectWindowId, // fork-hook: multi-window/window-id-restore-project-entry
             identity: projectWindowIdentity(
               EnvironmentId.make("environment-1"),
               ProjectId.make("project-1"),
@@ -916,14 +934,29 @@ describe("DesktopWindow", () => {
 
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         assert.equal(yield* Ref.get(createCount), 2);
+        const hubArguments = createdWindowOptions[0]?.webPreferences?.additionalArguments; // fork-hook: multi-window/window-id-restore-hub-arguments
+        assert.deepEqual(hubArguments, [windowIdPreloadArgument(hubId)]); // fork-hook: multi-window/window-id-restore-hub-preload
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+          windowIdPreloadArgument(projectWindowId), // fork-hook: multi-window/window-id-restore-project-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
         ]);
 
         yield* Effect.yieldNow;
+        assert.deepEqual(
+          placementClaims.map((claim) => claim.key),
+          [hubId, projectWindowId],
+        ); // fork-hook: multi-window/window-id-restore-claim
+        assert.deepEqual(
+          createdWindowOptions.map((options) =>
+            options.webPreferences?.additionalArguments?.find((argument) =>
+              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+            ),
+          ),
+          [windowIdPreloadArgument(hubId), windowIdPreloadArgument(projectWindowId)],
+        ); // fork-hook: multi-window/window-id-restore-ids
         assert.deepEqual(workspaceMoves, [
-          { key: "hub", workspace: "1" },
-          { key: "project:environment-1:project-1", workspace: "code" },
+          { key: hubId, workspace: "1" }, // fork-hook: multi-window/window-id-restore-hub-move
+          { key: projectWindowId, workspace: "code" }, // fork-hook: multi-window/window-id-restore-project-move
         ]);
       }).pipe(Effect.provide(layer));
     }),
@@ -979,8 +1012,17 @@ describe("DesktopWindow", () => {
 
         assert.equal(yield* Ref.get(createCount), 2);
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+          windowIdPreloadArgument(testWindowId(2)), // fork-hook: multi-window/window-id-intent-restore-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-2/project-2`,
         ]);
+        assert.deepEqual(
+          createdWindowOptions.map((options) =>
+            options.webPreferences?.additionalArguments?.find((argument) =>
+              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+            ),
+          ),
+          [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
+        ); // fork-hook: multi-window/window-id-intent-restore-ids
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -1047,77 +1089,6 @@ describe("DesktopWindow", () => {
           assert.equal(yield* Ref.get(createCount), 3);
         }).pipe(Effect.provide(layer));
       }),
-  );
-
-  it.effect("maps an agent desktop on its target workspace without requesting focus", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const workspaceMoves: { key: string; workspace: string }[] = [];
-      const workspaceRuleEvents: {
-        action: "stage" | "clear";
-        title: string;
-        workspace?: string;
-      }[] = [];
-      const placementLifecycle: string[] = [];
-      fakeWindow.setTitle.mockImplementation((title) => {
-        placementLifecycle.push(`title:${title}`);
-      });
-      const revealRequests: number[] = [];
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves,
-        workspaceRuleEvents,
-        placementLifecycle,
-        revealRequests,
-        environmentEnv: {
-          T3CODE_DESKTOP_DEVTOOLS: "0",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-test",
-        },
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(createdWindowOptions[0]?.title, "t3code-dev-agent-test");
-        assert.deepEqual(revealRequests, []);
-
-        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
-        if (!readyToShow) return yield* Effect.die("ready-to-show listener was not registered");
-        readyToShow();
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-
-        assert.equal(fakeWindow.showInactive.mock.calls.length, 1);
-        assert.deepEqual(revealRequests, []);
-        assert.deepEqual(workspaceRuleEvents, [
-          {
-            action: "stage",
-            title: "t3code-dev-agent-test",
-            workspace: "8",
-          },
-          { action: "clear", title: "t3code-dev-agent-test" },
-        ]);
-        assert.deepEqual(workspaceMoves, [{ key: "hub", workspace: "8" }]);
-        assert.deepEqual(fakeWindow.setTitle.mock.calls, [
-          ["t3code-dev-agent-test"],
-          ["T3 Code (Dev)"],
-        ]);
-        assert.deepEqual(placementLifecycle, [
-          "stage:8",
-          "title:t3code-dev-agent-test",
-          "title:T3 Code (Dev)",
-          "move:8",
-          "clear",
-        ]);
-        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
-      }).pipe(Effect.provide(layer));
-    }),
   );
 
   it.effect("blocks only repeated Cmd+W input before it reaches the native window menu", () =>

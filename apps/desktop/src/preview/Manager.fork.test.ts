@@ -1,5 +1,4 @@
 import { it as effectIt } from "@effect/vitest";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -7,7 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
 import { describe, expect, vi } from "vite-plus/test";
-import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
+import type { WindowId } from "../window/WindowId.fork.ts";
 import { previewManagerFixtureLayer } from "./Manager.fork-test-harness.ts";
 import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
 import * as PreviewManager from "./Manager.ts";
@@ -37,20 +36,14 @@ describe("fork preview manager ownership", () => {
   effectIt.effect("namespaces equal tab ids by owning window and routes events to that owner", () =>
     withManager((manager) =>
       Effect.gen(function* () {
-        const firstIdentity = projectWindowIdentity(
-          EnvironmentId.make("environment-1"),
-          ProjectId.make("project-1"),
-        );
-        const secondIdentity = projectWindowIdentity(
-          EnvironmentId.make("environment-1"),
-          ProjectId.make("project-2"),
-        );
-        const first = yield* manager.forWindow(firstIdentity);
-        const second = yield* manager.forWindow(secondIdentity);
+        const firstWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
+        const secondWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
+        const first = yield* manager.forWindow(firstWindowId);
+        const second = yield* manager.forWindow(secondWindowId);
         const deliveries: string[] = [];
-        yield* manager.subscribeOwnedStateChanges((identity, tabId) =>
+        yield* manager.subscribeOwnedStateChanges((owner, tabId) =>
           Effect.sync(() => {
-            deliveries.push(`${windowIdentityKey(identity)}:${tabId}`);
+            deliveries.push(`${owner}:${tabId}`);
           }),
         );
 
@@ -59,10 +52,7 @@ describe("fork preview manager ownership", () => {
 
         expect(firstState.zoomFactor).toBe(1.25);
         expect(secondState.zoomFactor).toBe(0.8);
-        expect(deliveries).toEqual([
-          `${windowIdentityKey(firstIdentity)}:shared-tab`,
-          `${windowIdentityKey(secondIdentity)}:shared-tab`,
-        ]);
+        expect(deliveries).toEqual([`${firstWindowId}:shared-tab`, `${secondWindowId}:shared-tab`]);
       }),
     ),
   );
@@ -70,18 +60,8 @@ describe("fork preview manager ownership", () => {
   effectIt.effect("explicitly rejects a tab owned only by another window", () =>
     withManager((manager) =>
       Effect.gen(function* () {
-        const owner = yield* manager.forWindow(
-          projectWindowIdentity(
-            EnvironmentId.make("environment-1"),
-            ProjectId.make("project-owner"),
-          ),
-        );
-        const other = yield* manager.forWindow(
-          projectWindowIdentity(
-            EnvironmentId.make("environment-1"),
-            ProjectId.make("project-other"),
-          ),
-        );
+        const owner = yield* manager.forWindow("00000000-0000-4000-8000-00000000000a" as WindowId);
+        const other = yield* manager.forWindow("00000000-0000-4000-8000-00000000000b" as WindowId);
         yield* owner.createTab("owned-tab");
 
         const exit = yield* Effect.exit(other.closeTab("owned-tab"));
