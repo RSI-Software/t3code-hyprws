@@ -13,6 +13,7 @@ import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import { createClerkOAuthCancel } from "./clerkOAuthCancel.ts";
 import * as IpcChannels from "./ipc/channels.ts";
 import { mergeLegacyLocalStorage } from "./legacyLocalStorageMerge.ts";
+import { makeAttachedPrimaryBridge } from "./attachedPrimaryPreload.fork.ts"; // fork-hook: backend-attach/preload-import
 import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";
 
 const SNAP_SHOT_EVENT_TYPES = new Set([
@@ -137,6 +138,7 @@ const desktopBridge = {
   discoverLocalServers: () => ipcRenderer.invoke(IpcChannels.DISCOVER_LOCAL_SERVERS_CHANNEL),
   pairLocalServer: (environmentId) =>
     ipcRenderer.invoke(IpcChannels.PAIR_LOCAL_SERVER_CHANNEL, environmentId),
+  ...makeAttachedPrimaryBridge(ipcRenderer), // fork-hook: backend-attach/preload-bridge
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
