@@ -49,8 +49,8 @@ we may close it without merging it, or never review it.
        github-issues
        markdown-editing
        multi-window
-       project-windows
        thread-ordering
+       thread-fork
        upstream-fixes
        workspace-files
        workspaces
