@@ -13,8 +13,10 @@ import { vi } from "vite-plus/test";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
+import type * as PreviewManager from "../preview/Manager.ts";
 import type { DesktopWindowHarnessFork } from "./DesktopWindow.test.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import { testWindowId } from "./testWindowIds.fork.ts";
 
 /**
  * Upstream's test environment plus the variables a fork case opts into. The
@@ -38,6 +40,33 @@ export const desktopEnvironmentLayerFork = (
           ),
         ),
       );
+
+/**
+ * Preview session overrides that record calls when a fork case passes the
+ * matching recorder; without one, upstream's mock stands.
+ */
+export const previewSessionCountersFork = (input: {
+  readonly previewBrowserSessionRequests?: number[];
+  readonly previewMainWindowSets?: Electron.BrowserWindow[];
+}): Partial<PreviewManager.PreviewManager["Service"]> => {
+  const { previewBrowserSessionRequests: sessionRequests, previewMainWindowSets: mainWindowSets } =
+    input;
+  return {
+    ...(sessionRequests && {
+      getBrowserSession: () =>
+        Effect.sync(() => {
+          sessionRequests.push(1);
+          return {} as Electron.Session;
+        }),
+    }),
+    ...(mainWindowSets && {
+      setMainWindow: (window) =>
+        Effect.sync(() => {
+          mainWindowSets.push(window);
+        }),
+    }),
+  };
+};
 
 /**
  * Registers the fork's cases inside upstream's `DesktopWindow` suite, so they
@@ -194,6 +223,77 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         yield* desktopWindow.handleRendererReady;
         assert.equal(yield* Ref.get(createCount), 1);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("maps an agent desktop on its target workspace without requesting focus", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const workspaceMoves: { key: string; workspace: string }[] = [];
+      const workspaceRuleEvents: {
+        action: "stage" | "clear";
+        title: string;
+        workspace?: string;
+      }[] = [];
+      const placementLifecycle: string[] = [];
+      fakeWindow.setTitle.mockImplementation((title) => {
+        placementLifecycle.push(`title:${title}`);
+      });
+      const revealRequests: number[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        workspaceMoves,
+        workspaceRuleEvents,
+        placementLifecycle,
+        onReveal: () => revealRequests.push(1),
+        environmentEnv: {
+          T3CODE_DESKTOP_DEVTOOLS: "0",
+          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
+          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-test",
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(createdWindowOptions[0]?.title, "t3code-dev-agent-test");
+        assert.deepEqual(revealRequests, []);
+
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) return yield* Effect.die("ready-to-show listener was not registered");
+        readyToShow();
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+        assert.equal(fakeWindow.showInactive.mock.calls.length, 1);
+        assert.deepEqual(revealRequests, []);
+        assert.deepEqual(workspaceRuleEvents, [
+          {
+            action: "stage",
+            title: "t3code-dev-agent-test",
+            workspace: "8",
+          },
+          { action: "clear", title: "t3code-dev-agent-test" },
+        ]);
+        assert.deepEqual(workspaceMoves, [{ key: testWindowId(1), workspace: "8" }]);
+        assert.deepEqual(fakeWindow.setTitle.mock.calls, [
+          ["t3code-dev-agent-test"],
+          ["T3 Code (Dev)"],
+        ]);
+        assert.deepEqual(placementLifecycle, [
+          "stage:8",
+          "title:t3code-dev-agent-test",
+          "title:T3 Code (Dev)",
+          "move:8",
+          "clear",
+        ]);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
   );
