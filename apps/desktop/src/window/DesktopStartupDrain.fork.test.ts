@@ -10,25 +10,31 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
+import type { WindowIdentity } from "./WindowIdentity.ts";
 import {
   makeStartupDrain,
   type StartupDrainServices,
   type WindowOpeners,
 } from "./DesktopStartupDrain.fork.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import type { WindowId } from "./WindowId.fork.ts";
-import type { WindowRequest } from "./WindowDispatch.fork.ts";
+import type { WindowRestoreEntry } from "./DesktopWindowSession.ts";
+import { windowIdentityForSeed, type WindowRequest } from "./WindowDispatch.fork.ts";
 
 const fakeWindow = {} as Electron.BrowserWindow;
-const fakeWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
 
-/** Adapts a window opener to the restore opener, which also reports the id. */
-const asEnsure =
-  (open: () => (identity: WindowIdentity) => Effect.Effect<Electron.BrowserWindow>) =>
+const hubRestore: WindowRestoreEntry = {
+  route: "/",
+  seed: "all-projects",
+  bounds: null,
+  workspace: null,
+};
+
+/** Adapts an identity opener to the restore opener. */
+const asRestore =
+  <E>(open: () => (identity: WindowIdentity) => Effect.Effect<Electron.BrowserWindow, E>) =>
   () =>
-  (identity: WindowIdentity) =>
-    open()(identity).pipe(Effect.map((window) => ({ window, windowId: fakeWindowId })));
+  (entry: WindowRestoreEntry) =>
+    open()(windowIdentityForSeed(entry.seed));
 
 const projectLink = (name: string): WindowRequest => ({
   kind: "project-link",
@@ -42,15 +48,6 @@ const requestKey = (request: WindowRequest): string =>
   request.kind === "project-link" ? `project:${request.ref.projectId}` : request.kind;
 
 const noopServices: StartupDrainServices = {
-  hyprlandPlacement: {
-    isAvailable: false,
-    claim: () => Effect.void,
-    forget: () => Effect.void,
-    workspaceOf: () => Effect.succeedNone,
-    stageWorkspaceRule: () => Effect.succeed(false),
-    clearWorkspaceRule: () => Effect.void,
-    moveToWorkspace: () => Effect.void,
-  },
   windowSession: {
     capture: () => Effect.void,
     consume: Effect.succeed([]),
@@ -85,7 +82,7 @@ const makeRecordingOpeners = Effect.gen(function* () {
     );
   yield* Deferred.succeed(gate, undefined);
   const openers: WindowOpeners = {
-    ensureIdentity: asEnsure(() => (identity) => record(keyOf(identity))),
+    restore: asRestore(() => (identity) => record(keyOf(identity))),
     dispatch: () => (request) => record(requestKey(request)).pipe(Effect.asVoid),
     createMainIfBackendReady: () =>
       Ref.update(opened, (keys) => [...keys, "hub"]).pipe(Effect.asVoid),
@@ -112,7 +109,7 @@ describe("DesktopStartupDrain", () => {
           return fakeWindow;
         });
       const openers: WindowOpeners = {
-        ensureIdentity: asEnsure(pausingEnsure),
+        restore: asRestore(pausingEnsure),
         dispatch: () => (request) => Ref.update(opened, (keys) => [...keys, requestKey(request)]),
         createMainIfBackendReady: () => Effect.void,
       };
@@ -121,7 +118,7 @@ describe("DesktopStartupDrain", () => {
         ...noopServices,
         windowSession: {
           capture: () => Effect.void,
-          consume: Effect.succeed([{ identity: HUB_WINDOW_IDENTITY, workspace: null }]),
+          consume: Effect.succeed([hubRestore]),
         },
       });
       const drainFiber = yield* drain.drain(noopServices, () => openers).pipe(Effect.forkDetach);
@@ -153,7 +150,7 @@ describe("DesktopStartupDrain", () => {
           }
         });
       const openers: WindowOpeners = {
-        ensureIdentity: asEnsure(() => () => Effect.succeed(fakeWindow)),
+        restore: asRestore(() => () => Effect.succeed(fakeWindow)),
         dispatch: pausingDispatch,
         createMainIfBackendReady: () => Effect.void,
       };
@@ -187,7 +184,7 @@ describe("DesktopStartupDrain", () => {
           yield* Deferred.await(release);
         });
       const openers: WindowOpeners = {
-        ensureIdentity: asEnsure(() => () => Effect.succeed(fakeWindow)),
+        restore: asRestore(() => () => Effect.succeed(fakeWindow)),
         dispatch: pausingDispatch,
         createMainIfBackendReady: () => Effect.void,
       };
@@ -267,6 +264,52 @@ describe("DesktopStartupDrain", () => {
         "project:project-second",
         "project:project-third",
       ]);
+    }),
+  );
+
+  it.effect("still opens one window when every restored window fails", () =>
+    Effect.gen(function* () {
+      const drain = yield* makeStartupDrain;
+      const fakes = yield* makeRecordingOpeners;
+      const openers: WindowOpeners = {
+        ...fakes.openers,
+        restore: () => () =>
+          Effect.fail(
+            new ElectronWindow.ElectronWindowCreateError({
+              options: {
+                title: null,
+                width: null,
+                height: null,
+                minWidth: null,
+                minHeight: null,
+                show: null,
+                modal: null,
+                frame: null,
+                transparent: null,
+                backgroundColor: null,
+                webPreferences: {
+                  preload: null,
+                  partition: null,
+                  backgroundThrottling: null,
+                  sandbox: null,
+                  contextIsolation: null,
+                  nodeIntegration: null,
+                  webviewTag: null,
+                },
+              },
+              cause: new Error("simulated restore failure"),
+            }),
+          ),
+      };
+      yield* drain.stageRestore({
+        windowSession: {
+          capture: () => Effect.void,
+          consume: Effect.succeed([hubRestore, { ...hubRestore, route: "/settings" }]),
+        },
+      });
+      yield* drain.drain(noopServices, () => openers);
+      // The cold-start fallback: a restore that opened nothing is no restore.
+      assert.deepEqual(yield* Ref.get(fakes.opened), ["hub"]);
     }),
   );
 
