@@ -986,8 +986,6 @@ export function resolveScopedNewThreadProjectRef<
   );
 }
 
-export { isProjectInSidebarScope } from "./sidebar/SidebarPhysicalScope";
-
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];
