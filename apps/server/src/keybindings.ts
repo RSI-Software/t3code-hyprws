@@ -42,6 +42,7 @@ import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 import * as ServerConfig from "./config.ts";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { migrateRenamedKeybindingCommands } from "./keybindings.fork.ts"; // fork-hook: multi-window/dispatch-keybinding-migration
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
   DEFAULT_KEYBINDINGS,
@@ -314,6 +315,7 @@ const make = Effect.gen(function* () {
   );
 
   const readRawConfig = fs.readFileString(keybindingsConfigPath).pipe(
+    Effect.map(migrateRenamedKeybindingCommands), // fork-hook: multi-window/dispatch-keybinding-migration
     Effect.mapError(
       (cause) =>
         new KeybindingsConfigError({

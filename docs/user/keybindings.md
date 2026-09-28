@@ -138,8 +138,10 @@ through the pages you have visited, like a browser's back and forward buttons.
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
 (`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
 
-`project.openWindow` opens or reveals the active project's desktop window and defaults to
-`mod+alt+o`. The project-window command and its keybinding are shown only in the desktop app.
+`window.new` opens a new desktop window on all projects and defaults to `mod+shift+w`.
+`window.openProject` focuses the active project's desktop window, or opens one when it has none, and defaults to `mod+alt+o`.
+It was named `project.openWindow`, then `window.openInNew`; a saved binding with either old name keeps working.
+Both window commands and their keybindings are shown only in the desktop app.
 
 `terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
 `chat.focusComposer` moves focus back to the composer without closing the drawer. Both default to

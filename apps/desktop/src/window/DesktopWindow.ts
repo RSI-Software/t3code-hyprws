@@ -37,7 +37,6 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
-import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
 import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import { HyprlandPlacement } from "./HyprlandPlacement.ts";
@@ -48,6 +47,12 @@ import {
   windowPreloadArguments, // fork-hook: multi-window/window-preload-arguments-import
 } from "./WindowIdentity.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
+import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
+import {
+  resolveLaunchRequest,
+  type WindowCreateRequest,
+  type WindowRequest,
+} from "./WindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-type-import
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -119,9 +124,7 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
-    readonly openIdentity: (
-      identity: WindowIdentity,
-    ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly requestWindow: (request: WindowRequest) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/dispatch-request
     readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>;
     /**
      * Loads the windows an update relaunch left behind, queued until the
@@ -464,11 +467,16 @@ export const make = Effect.gen(function* () {
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (
     identity: WindowIdentity,
     windowId: WindowId, // fork-hook: multi-window/window-id-create-param
+    dispatched?: WindowCreateRequest, // fork-hook: multi-window/dispatch-route-param
   ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     if (identity.kind === "hub") {
       yield* previewManager.getBrowserSession();
     }
-    const applicationUrl = getWindowApplicationUrl(environment.isDevelopment, identity);
+    const primaryFork = WindowDispatch.isPrimaryWindowFork(identity, dispatched); // fork-hook: multi-window/dispatch-primary
+    const applicationUrl = WindowDispatch.dispatchedWindowUrlFork(
+      getWindowApplicationUrl(environment.isDevelopment, identity),
+      dispatched,
+    ); // fork-hook: multi-window/dispatch-url
     const normalWindowTitle =
       identity.kind === "hub" ? environment.displayName : identity.ref.projectId;
     const devAgentPlacement =
@@ -485,7 +493,10 @@ export const make = Effect.gen(function* () {
     const persistedSettings = yield* desktopSettings.get;
     // Bounds remain hub-only for the MVP. This preserves the existing settings
     // document and prevents concurrent project windows from racing one slot.
-    const persistedBounds = identity.kind === "hub" ? persistedSettings.mainWindowBounds : null;
+    const persistedBounds = WindowDispatch.primaryWindowBoundsFork(
+      primaryFork,
+      persistedSettings.mainWindowBounds,
+    ); // fork-hook: multi-window/dispatch-primary-bounds
     const displayBoundsResult = yield* Effect.sync(() => {
       try {
         return {
@@ -520,7 +531,7 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
-        additionalArguments: windowPreloadArguments(identity, windowId), // fork-hook: multi-window/window-id-preload-argument
+        additionalArguments: windowPreloadArguments(identity, windowId, dispatched?.seed), // fork-hook: multi-window/window-id-preload-argument
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -624,9 +635,9 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    if (identity.kind === "hub") {
+    if (primaryFork) {
       flushMainWindowBounds = flushBoundsPersist;
-    }
+    } // fork-hook: multi-window/dispatch-primary-flush
 
     yield* previewManager.setWindow(windowId, window); // fork-hook: multi-window/window-id-preview-owner
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -820,7 +831,7 @@ export const make = Effect.gen(function* () {
     window.on("minimize", publishWindowDemandState);
     window.on("restore", publishWindowDemandState);
 
-    if (identity.kind === "hub") {
+    if (primaryFork) {
       window.on("resize", scheduleBoundsPersist);
       window.on("move", scheduleBoundsPersist);
       window.on("maximize", scheduleBoundsPersist);
@@ -828,7 +839,7 @@ export const make = Effect.gen(function* () {
       window.on("close", () => {
         runFork(flushBoundsPersist);
       });
-    }
+    } // fork-hook: multi-window/dispatch-primary-listeners
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -939,7 +950,7 @@ export const make = Effect.gen(function* () {
         );
         runFork(
           revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
-            Effect.andThen(electronWindow.close(identity)),
+            Effect.andThen(Effect.sync(() => !window.isDestroyed() && window.close())), // fork-hook: multi-window/dispatch-guard-close
             Effect.asVoid,
           ),
         );
@@ -1187,10 +1198,18 @@ export const make = Effect.gen(function* () {
   const forkSnapShotDispatch = makePinnedSnapShotDispatch(requestTargetWindow, (event) =>
     dispatchRendererEvent(SNAP_SHOT_EVENT_CHANNEL, event, { reveal: event.type === "started" }),
   ); // fork-hook: multi-window/window-targets-snap-shot-dispatch
+
+  const requestWindow = WindowDispatch.makeDesktopWindowRequestFork({
+    electronWindow,
+    createWindow,
+    openPrimary: revealOrCreateMain,
+    createPrimary: createMainIfBackendReady,
+  }); // fork-hook: multi-window/dispatch-request-def
+
   const drainServices = { hyprlandPlacement, windowSession }; // fork-hook: multi-window/startup-drain-services
   const resolveDrainOpeners = makeStartupDrainOpeners(
     () => ensureIdentity,
-    () => revealOrCreateIdentity,
+    () => requestWindow, // fork-hook: multi-window/dispatch-drain-opener
     () => createMainIfBackendReady,
   ); // fork-hook: multi-window/startup-drain-openers
 
@@ -1200,11 +1219,9 @@ export const make = Effect.gen(function* () {
   const startupDrainOpenArguments = Effect.fn("desktop.window.openArguments")(
     (argv: readonly string[]) =>
       startupDrain
-        .stageArguments(drainServices, resolveWindowIdentityFromArguments, argv)
+        .stageArguments(drainServices, resolveLaunchRequest, argv) // fork-hook: multi-window/dispatch-drain-arguments
         .pipe(
-          Effect.flatMap((staged) =>
-            staged.queued ? Effect.void : revealOrCreateIdentity(staged.identity),
-          ),
+          Effect.flatMap((staged) => (staged.queued ? Effect.void : requestWindow(staged.request))), // fork-hook: multi-window/dispatch-drain-arguments
         ),
   ); // fork-hook: multi-window/startup-drain-stage-arguments-def
   const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
@@ -1225,7 +1242,7 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.prepareReveal(existingWindow.value);
       }
     }),
-    openIdentity: revealOrCreateIdentity,
+    requestWindow, // fork-hook: multi-window/dispatch-request
     restoreWindowSession: startupDrainRestore, // fork-hook: multi-window/startup-drain-stage-restore
     openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
     closeIdentity: electronWindow.close,
