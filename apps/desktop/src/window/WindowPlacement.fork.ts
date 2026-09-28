@@ -101,6 +101,12 @@ export const placeAtMapFork = (input: {
   readonly windowId: WindowId;
   readonly placement: MapPlacement;
   readonly titleHold: TitleHold;
+  /**
+   * Maximized only once shown inactive: Electron's maximize() shows a hidden
+   * window, which would map it before the rule and give it focus. The caller
+   * therefore runs this placement before its own maximize-and-reveal path.
+   */
+  readonly maximize: boolean;
   readonly dismissSplash: Effect.Effect<void>;
 }): Effect.Effect<void> => {
   const { hyprlandPlacement, window, windowId, placement, titleHold } = input;
@@ -111,6 +117,7 @@ export const placeAtMapFork = (input: {
     yield* hyprlandPlacement.stageWorkspaceRule(placement.title, workspace, { transient });
     yield* pin;
     if (!window.isDestroyed()) window.showInactive();
+    if (input.maximize && !window.isDestroyed()) window.maximize();
     yield* input.dismissSplash;
     yield* hyprlandPlacement.claim(windowId, placement.title);
     yield* release;
