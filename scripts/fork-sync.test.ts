@@ -830,6 +830,48 @@ it("edits the open issue in place when the rendered body drifts, never comments"
   );
 });
 
+it("rewrites the one standing issue for a new target and supersedes older open ones", () => {
+  const first = failedReport("check", "v1.0.0");
+  const next = { ...failedReport("check", "v1.1.0"), startedAt: "2026-09-22T10:00:00.000Z" };
+  const edits: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
+  const recording = exec({
+    gh: (args) => {
+      if (args[0] === "issue" && args[1] === "edit") {
+        edits.push({
+          args,
+          body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+        });
+        return ok();
+      }
+      if (args[0] === "issue" && args[1] === "list")
+        return ok(
+          JSON.stringify([
+            { number: 7, title: "legacy", body: "older failure" },
+            { number: 12, title: first.failure!.title, body: failureIssueBody(first) },
+          ]),
+        );
+      return ok();
+    },
+  });
+  const published = publishFailure(recording.runner, "/tmp", next);
+  assert.strictEqual(published.failure?.issue, 12);
+  assert.strictEqual(edits.length, 1);
+  const args = edits[0]!.args;
+  assert.strictEqual(args[2], "12");
+  assert.strictEqual(args[args.indexOf("--title") + 1], "hyprws sync failed at check (v1.1.0)");
+  const body = edits[0]!.body;
+  assert.include(body, "Open since 2026-09-21 across 2 targets;");
+  assert.include(body, "- 2026-09-22 · `v1.1.0` · check\n- 2026-09-21 · `v1.0.0` · check");
+  // the older open issue of the same kind closes as superseded; nothing new files
+  const close = recording.calls.find(({ args }) => args[0] === "issue" && args[1] === "close");
+  assert.strictEqual(close?.args[2], "7");
+  assert.include(close?.args ?? [], "Superseded by #12.");
+  assert.strictEqual(
+    recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "create"),
+    false,
+  );
+});
+
 it("makes no write when the live title and body already match the render", () => {
   const report = blockedReport("5".repeat(40));
   const recording = exec({
