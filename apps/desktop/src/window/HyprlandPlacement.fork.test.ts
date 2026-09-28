@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import type { WindowId } from "./WindowId.fork.ts";
+import { windowClaimTitle } from "./WindowPlacement.fork.ts";
 
 const PID = 4242;
 const first = "00000000-0000-4000-8000-000000000001" as WindowId;
@@ -39,6 +40,40 @@ const options = {
 };
 
 describe("HyprlandPlacement", () => {
+  it.effect("records its own workspace for each of three windows opened together", () =>
+    Effect.gen(function* () {
+      const third = "00000000-0000-4000-8000-000000000003" as WindowId;
+      // One window maps under the normal title, the others under claim titles.
+      const mapped = [
+        { windowId: first, title: "T3 Code", workspace: 18 },
+        { windowId: second, title: windowClaimTitle(second), workspace: 19 },
+        { windowId: third, title: windowClaimTitle(third), workspace: 18 },
+      ];
+      const placement = yield* HyprlandPlacement.make({
+        ...options,
+        requestHyprland: listClients(() =>
+          mapped.map(({ title, workspace }, index) => ({
+            ...client(`0x${index}`, title),
+            workspace: { id: workspace, name: String(workspace) },
+          })),
+        ),
+      });
+      const knownAddresses = new Set<string>();
+
+      yield* Effect.all(
+        mapped.map(({ windowId, title }) => placement.claim(windowId, title, { knownAddresses })),
+        { concurrency: "unbounded" },
+      );
+
+      for (const { windowId, workspace } of mapped) {
+        assert.deepEqual(
+          yield* placement.workspaceOf(windowId),
+          Option.some({ id: workspace, name: String(workspace) }),
+        );
+      }
+    }),
+  );
+
   it.effect("gives one compositor client to exactly one of two concurrent claims", () =>
     Effect.gen(function* () {
       const placement = yield* HyprlandPlacement.make({
