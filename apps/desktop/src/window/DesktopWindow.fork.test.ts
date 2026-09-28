@@ -304,7 +304,7 @@ describe("DesktopWindow (fork)", () => {
         yield* desktopWindow.requestWindow({ kind: "new-window" });
         yield* desktopWindow.requestWindow({
           kind: "open-in-new-window",
-          route: "/project/environment-1/project-1",
+          route: "/environment-1/thread-1",
           seed: projectRef,
         });
 
@@ -323,9 +323,9 @@ describe("DesktopWindow (fork)", () => {
     }),
   );
 
-  // Work started from a project window opens in it (RSI-Software/t3code-hyprws#1343):
-  // its own project routes and the shared pages stay; another project closes it.
-  it.effect("keeps a project window on its own issue work", () =>
+  // A seeded window is a filter, not a route scope (RSI-Software/t3code-hyprws#1347):
+  // navigating to another project's work keeps the window open.
+  it.effect("keeps a seeded window open when it navigates into another project", () =>
     Effect.gen(function* () {
       const { window, webContentsListeners } = makeWindow();
       const options: Electron.BrowserWindowConstructorOptions[] = [];
@@ -334,16 +334,13 @@ describe("DesktopWindow (fork)", () => {
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         yield* desktopWindow.requestWindow({
           kind: "open-in-new-window",
-          route: "/project/environment-1/project-1",
+          route: "/",
           seed: projectRef,
         });
-        assert.equal(options.length, 2);
 
-        // Issues from a shared page, then Work on this issue: its draft.
         const navigate = webContentsListeners.get("did-navigate-in-page");
-        navigate?.({}, "t3code-dev://app/#/settings/general");
-        navigate?.({}, "t3code-dev://app/#/project/environment-1/project-1/issues?state=open");
-        navigate?.({}, "t3code-dev://app/#/project/environment-1/project-1/draft/draft-1");
+        navigate?.({}, "t3code-dev://app/#/environment-2/thread-9");
+        navigate?.({}, "t3code-dev://app/#/project/environment-2/project-2/thread/thread-9");
         yield* Effect.yieldNow;
 
         assert.equal(options.length, 2);
@@ -352,70 +349,15 @@ describe("DesktopWindow (fork)", () => {
     }),
   );
 
-  it.effect("closes a project window that navigates into another project", () =>
-    Effect.gen(function* () {
-      const { window, webContentsListeners } = makeWindow();
-      const options: Electron.BrowserWindowConstructorOptions[] = [];
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        yield* desktopWindow.requestWindow({
-          kind: "open-in-new-window",
-          route: "/project/environment-1/project-1",
-          seed: projectRef,
-        });
-
-        webContentsListeners.get("did-navigate-in-page")?.(
-          {},
-          "t3code-dev://app/#/project/environment-2/project-2/thread/thread-9",
-        );
-        yield* Effect.yieldNow;
-
-        assert.equal(vi.mocked(window.close).mock.calls.length, 1);
-      }).pipe(Effect.provide(makeLayer(window, options)));
-    }),
-  );
-
-  it.effect("skips the close when the window left its project already destroyed", () =>
-    Effect.gen(function* () {
-      const { window, webContentsListeners } = makeWindow();
-      const options: Electron.BrowserWindowConstructorOptions[] = [];
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        yield* desktopWindow.requestWindow({
-          kind: "open-in-new-window",
-          route: "/project/environment-1/project-1",
-          seed: projectRef,
-        });
-        Object.assign(window, { isDestroyed: () => true });
-
-        webContentsListeners.get("did-navigate-in-page")?.(
-          {},
-          "t3code-dev://app/#/project/environment-2/project-2/thread/thread-9",
-        );
-        yield* Effect.yieldNow;
-
-        assert.equal(vi.mocked(window.close).mock.calls.length, 0);
-      }).pipe(Effect.provide(makeLayer(window, options)));
-    }),
-  );
-
-  it("opens a dispatched window at its route on the identity's origin", () => {
-    const projectUrl = "t3code-dev://app/#/project/environment-1/project-1";
-    assert.equal(dispatchedWindowUrlFork(projectUrl, undefined), projectUrl);
+  it("opens a dispatched window at its route on the app origin", () => {
+    const rootUrl = "t3code-dev://app/";
+    assert.equal(dispatchedWindowUrlFork(rootUrl, undefined), rootUrl);
     assert.equal(
-      dispatchedWindowUrlFork("t3code-dev://app/", {
-        route: "/project/e/p/thread/t",
-        seed: projectRef,
-      }),
-      "t3code-dev://app/#/project/e/p/thread/t",
+      dispatchedWindowUrlFork(rootUrl, { route: "/environment-1/thread-1", seed: projectRef }),
+      "t3code-dev://app/#/environment-1/thread-1",
     );
-    // `/` is the window's home, so a restored project window reopens on its project.
-    assert.equal(
-      dispatchedWindowUrlFork(projectUrl, { route: "/", seed: "all-projects" }),
-      projectUrl,
-    );
+    // A project seed no longer picks the URL: a restored window at `/` opens at the root.
+    assert.equal(dispatchedWindowUrlFork(rootUrl, { route: "/", seed: projectRef }), rootUrl);
   });
 
   it.effect(
