@@ -38,11 +38,11 @@ import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
 import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import { HyprlandPlacement } from "./HyprlandPlacement.ts";
+import type { WindowId } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import {
   HUB_WINDOW_IDENTITY,
-  projectWindowPreloadArgument,
-  windowIdentityKey,
   type WindowIdentity,
+  windowPreloadArguments, // fork-hook: multi-window/window-preload-arguments-import
 } from "./WindowIdentity.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 
@@ -464,6 +464,7 @@ export const make = Effect.gen(function* () {
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (
     identity: WindowIdentity,
+    windowId: WindowId, // fork-hook: multi-window/window-id-create-param
   ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     if (identity.kind === "hub") {
       yield* previewManager.getBrowserSession();
@@ -520,9 +521,7 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
-        ...(identity.kind === "project"
-          ? { additionalArguments: [projectWindowPreloadArgument(identity.ref)] }
-          : {}),
+        additionalArguments: windowPreloadArguments(identity, windowId), // fork-hook: multi-window/window-id-preload-argument
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -634,7 +633,7 @@ export const make = Effect.gen(function* () {
       flushMainWindowBounds = flushBoundsPersist;
     }
 
-    yield* previewManager.setWindow(identity, window);
+    yield* previewManager.setWindow(windowId, window); // fork-hook: multi-window/window-id-preview-owner
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -1018,7 +1017,6 @@ export const make = Effect.gen(function* () {
       if (Option.isSome(devAgentPlacement)) {
         const placement = devAgentPlacement.value;
         const workspace = { id: placement.workspace, name: String(placement.workspace) };
-        const key = windowIdentityKey(identity);
         // Stage before map, then show without activation. The exact temporary
         // title isolates concurrent worktree dev apps that share t3code-dev.
         void runPromise(
@@ -1031,11 +1029,11 @@ export const make = Effect.gen(function* () {
               window.showInactive();
             }
             yield* dismissConnectingSplash;
-            yield* hyprlandPlacement.claim(key, placement.title);
+            yield* hyprlandPlacement.claim(windowId, placement.title); // fork-hook: multi-window/window-id-agent-claim
             if (!window.isDestroyed()) window.setTitle(normalWindowTitle);
             // Restoring the title can re-evaluate broader dynamic rules. Keep
             // the address-scoped correction last so an explicit target wins.
-            yield* hyprlandPlacement.moveToWorkspace(key, workspace);
+            yield* hyprlandPlacement.moveToWorkspace(windowId, workspace); // fork-hook: multi-window/window-id-agent-move
           }).pipe(
             Effect.ensuring(hyprlandPlacement.clearWorkspaceRule(placement.title)),
             Effect.ensuring(Ref.set(pendingDevAgentPlacementRef, Option.none())),
@@ -1049,7 +1047,7 @@ export const make = Effect.gen(function* () {
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
       // The compositor maps the window a beat after it is shown, so bind it to
       // its Hyprland client now while the title is still the one it mapped with.
-      void runPromise(hyprlandPlacement.claim(windowIdentityKey(identity), window.getTitle()));
+      void runPromise(hyprlandPlacement.claim(windowId, window.getTitle())); // fork-hook: multi-window/window-id-claim
     });
 
     loadApplication();
@@ -1060,7 +1058,7 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
-      void runPromise(hyprlandPlacement.forget(windowIdentityKey(identity)));
+      void runPromise(hyprlandPlacement.forget(windowId)); // fork-hook: multi-window/window-id-forget
       if (identity.kind === "hub") {
         void runPromise(electronWindow.clearMain(Option.some(window)));
       }
@@ -1071,8 +1069,10 @@ export const make = Effect.gen(function* () {
 
   const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
     identity: WindowIdentity,
+    windowId?: WindowId, // fork-hook: multi-window/window-id-ensure-param
   ) {
-    const result = yield* electronWindow.getOrCreate(identity, createWindow(identity));
+    const create = (reservedId: WindowId) => createWindow(identity, reservedId); // fork-hook: multi-window/window-id-create
+    const result = yield* electronWindow.getOrCreate(identity, create, windowId); // fork-hook: multi-window/window-id-get-or-create
     if (result.created) {
       yield* logWindowInfo(
         identity.kind === "hub" ? "main window created" : "project window created",
@@ -1084,7 +1084,7 @@ export const make = Effect.gen(function* () {
         },
       );
     }
-    return result.window;
+    return result; // fork-hook: multi-window/window-id-ensure-result
   });
 
   revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
@@ -1094,15 +1094,17 @@ export const make = Effect.gen(function* () {
     // ensureIdentity is still returning, but that must not turn into a late focus.
     const suppressInitialReveal =
       identity.kind === "hub" && Option.isSome(yield* Ref.get(pendingDevAgentPlacementRef));
-    const window = yield* ensureIdentity(identity);
+    const { window } = yield* ensureIdentity(identity); // fork-hook: multi-window/window-id-reveal
     if (!suppressInitialReveal) yield* electronWindow.reveal(window);
     return window;
   });
 
   const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.map(({ window }) => window), // fork-hook: multi-window/window-id-create-main
     Effect.withSpan("desktop.window.createMain"),
   );
   const ensureMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.map(({ window }) => window), // fork-hook: multi-window/window-id-ensure-main
     Effect.withSpan("desktop.window.ensureMain"),
   );
   const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
@@ -1291,9 +1293,9 @@ export const make = Effect.gen(function* () {
         return;
       }
       const webContents = window.value.webContents;
-      const identity = yield* electronWindow.identityFor(window.value);
-      const windowPreviewManager = Option.isSome(identity)
-        ? yield* previewManager.forWindow(identity.value)
+      const windowId = yield* electronWindow.windowIdFor(window.value); // fork-hook: multi-window/window-id-zoom
+      const windowPreviewManager = Option.isSome(windowId) // fork-hook: multi-window/window-id-zoom-owner
+        ? yield* previewManager.forWindow(windowId.value) // fork-hook: multi-window/window-id-zoom-manager
         : previewManager;
       yield* windowPreviewManager.preserveGuestZooms(() => {
         // Same step size as the Electron zoomIn/zoomOut menu roles.

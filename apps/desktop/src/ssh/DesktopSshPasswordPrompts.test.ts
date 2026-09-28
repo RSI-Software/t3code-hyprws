@@ -93,10 +93,11 @@ function layerElectronWindow(window: ReturnType<typeof makeTestWindow>["window"]
       create: () => Effect.die("unexpected BrowserWindow creation"),
       main: Effect.succeedSome(window as Electron.BrowserWindow),
       get: () => Effect.succeedSome(window as Electron.BrowserWindow), // fork-hook: project-windows/ssh-prompts-window-get
+      getById: () => Effect.succeedSome(window as Electron.BrowserWindow), // fork-hook: multi-window/window-id-get-by-id
       getOrCreate: () => Effect.die("unexpected identity window creation"),
       close: () => Effect.void,
-      identityFor: () => Effect.succeedNone, // fork-hook: project-windows/ssh-prompts-window-identity
-      listIdentities: Effect.succeed([]),
+      windowIdFor: () => Effect.succeedNone, // fork-hook: project-windows/ssh-prompts-window-identity
+      listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
       currentMainOrFirst: Effect.succeedSome(window as Electron.BrowserWindow),
       focusedMainOrFirst: Effect.succeedSome(window as Electron.BrowserWindow),
       setMain: () => Effect.void,
