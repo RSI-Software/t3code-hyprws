@@ -33,6 +33,8 @@ export interface ProjectChooserState<Group extends ProjectChooserGroup> {
   readonly value: ProjectChooserItem[];
   /** The header's name for the filter: "Projects: All", one name, or "N selected". */
   readonly label: string;
+  /** The window title's name for the filter: selected names, or `null` for all projects. */
+  readonly titleLabel: string | null;
   /** The one selected group, when exactly one available entry is selected. */
   readonly single: Group | null;
   readonly count: number;
@@ -43,6 +45,16 @@ const ALL_ITEM: ProjectChooserItem = {
   label: "All projects",
   unavailable: false,
 };
+
+// The window title names at most this many projects, then counts the rest.
+const TITLE_LABEL_NAMES = 3;
+
+function titleLabelOf(items: ReadonlyArray<ProjectChooserItem>): string | null {
+  if (items.length === 0) return null;
+  const names = items.slice(0, TITLE_LABEL_NAMES).map((item) => item.label);
+  const rest = items.length - names.length;
+  return rest > 0 ? `${names.join(", ")} +${rest}` : names.join(", ");
+}
 
 // Grouped keys read as a path (`github.com/acme/web`); a physical key is an
 // opaque id, so it gets a generic name.
@@ -88,6 +100,7 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
         : only !== undefined
           ? `Projects: ${only.label}`
           : `Projects: ${count} selected`,
+    titleLabel: count === 0 ? null : titleLabelOf(value),
     single: only === undefined ? null : (groupByKey.get(only.value) ?? null),
     count,
   };
@@ -129,10 +142,16 @@ export function showOnlyProjectFilter(group: ProjectChooserGroup): ProjectFilter
 }
 
 // The chooser lives in the sidebar; the other surfaces reach it through this
-// one host, which the sidebar registers while it is mounted.
-interface ProjectChooserHost {
+// one host, which the sidebar registers while it is mounted. Its absence means
+// no chooser serves this window (no projects yet, the legacy sidebar, or a
+// route without the sidebar), so nothing else scopes to the filter either.
+export interface ProjectChooserHost {
   readonly open: () => void;
   readonly label: string;
+  readonly titleLabel: string | null;
+  readonly filter: ProjectFilter;
+  readonly setFilter: (filter: ProjectFilter) => void;
+  readonly groups: ReadonlyArray<ProjectChooserGroup>;
 }
 
 let host: ProjectChooserHost | null = null;
@@ -151,25 +170,38 @@ const subscribe = (listener: () => void) => {
 };
 
 /** Registers the sidebar's chooser while mounted, so other surfaces can open it. */
-export function useProjectChooserHost(open: () => void, label: string, enabled: boolean): void {
+export function useProjectChooserHost(registered: ProjectChooserHost, enabled: boolean): void {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this chooser in the module-level host store other surfaces open through.
   useEffect(() => {
     if (!enabled) return;
-    const registered: ProjectChooserHost = { open, label };
     setHost(registered);
     return () => {
       if (host === registered) setHost(null);
     };
-  }, [enabled, label, open]);
+  }, [enabled, registered]);
 }
 
-/** The mounted chooser's label; `null` where no chooser serves this window. */
-export function useProjectChooserLabel(): string | null {
+/** The mounted chooser; `null` where no chooser serves this window. */
+export function useProjectChooserHostValue(): ProjectChooserHost | null {
   // No chooser is mounted during a server render.
   return useSyncExternalStore(
     subscribe,
-    () => host?.label ?? null,
+    () => host,
     () => null,
   );
+}
+
+/** The mounted chooser, read outside React (keybindings). */
+export function readProjectChooserHost(): ProjectChooserHost | null {
+  return host;
+}
+
+/** Notifies on each chooser mount, unmount, and change, outside React (window title). */
+export const subscribeProjectChooserHost = subscribe;
+
+/** The mounted chooser's label; `null` where no chooser serves this window. */
+export function useProjectChooserLabel(): string | null {
+  return useProjectChooserHostValue()?.label ?? null;
 }
 
 /** Opens the sidebar's chooser. Returns whether one was there to open. */
