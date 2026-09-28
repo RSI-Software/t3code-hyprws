@@ -178,9 +178,8 @@ does not show its diff, so marks are made and read on web and desktop.
 ## Browse GitHub issues
 
 Open **GitHub Issues** to read issues from GitHub-backed projects across your connected
-environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In
-a project window the list starts with that project, and the **This project / All projects** toggle
-widens it without leaving the window.
+environments. Search by text, filter by Open, Closed, or All, and narrow the list to one project.
+In a desktop window, **All projects** means the projects in that window's project filter.
 
 Opening an issue shows its description, labels, assignees, and newest 100 comments. GitHub issue and
 pull request links in chat show their full `owner/repository#number` identity. Hover a link to open

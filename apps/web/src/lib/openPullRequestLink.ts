@@ -18,7 +18,6 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes"; // fork-hook: multi-window/window-project-ref
 import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export {
@@ -322,9 +321,8 @@ export function useOpenChangeRequestLink(
         }
         return true;
       }
-      const windowProjectRef = currentWindowProjectRef(); // fork-hook: multi-window/window-project-ref
       void navigate({
-        ...listRouteTarget("pull-requests", windowProjectRef),
+        to: "/pull-requests",
         search: {
           involvement: "all",
           // Every state, so the pull request being opened is also in the list behind it whether
@@ -336,11 +334,6 @@ export function useOpenChangeRequestLink(
           selectedProjectId: project.id,
           // Named so the page opens the right one of two servers holding this project.
           selectedEnvironmentId: project.environmentId,
-          ...(windowProjectRef !== null &&
-          (windowProjectRef.environmentId !== project.environmentId ||
-            windowProjectRef.projectId !== project.id)
-            ? { scope: "all" as const }
-            : {}),
         },
       });
       return true;

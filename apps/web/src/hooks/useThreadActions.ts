@@ -53,7 +53,6 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";
 import {
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
@@ -350,14 +349,10 @@ export function useThreadActions() {
       threadRef: target,
     };
   }, []);
-  const getCurrentRouteParams = useCallback(
-    () => router.state.matches[router.state.matches.length - 1]?.params ?? {},
-    [router],
-  );
-  const getCurrentRouteThreadRef = useCallback(
-    () => resolveThreadRouteRef(getCurrentRouteParams()),
-    [getCurrentRouteParams],
-  );
+  const getCurrentRouteThreadRef = useCallback(() => {
+    const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
+    return resolveThreadRouteRef(currentRouteParams);
+  }, [router]);
 
   const unarchiveThread = useCallback(
     async (target: ScopedThreadRef, opts: { navigate?: boolean } = {}) => {
@@ -635,15 +630,15 @@ export function useThreadActions() {
           ? readThreadShell(scopeThreadRef(threadRef.environmentId, fallbackThreadId))
           : null;
         await navigateAfterThreadDeletion(() =>
-          router.navigate({
-            ...resolveThreadRouteDeparture(
-              getCurrentRouteParams(),
-              fallbackThread
-                ? scopeThreadRef(fallbackThread.environmentId, fallbackThread.id)
-                : null,
-            ),
-            replace: true,
-          }),
+          fallbackThread
+            ? router.navigate({
+                to: "/$environmentId/$threadId",
+                params: buildThreadRouteParams(
+                  scopeThreadRef(fallbackThread.environmentId, fallbackThread.id),
+                ),
+                replace: true,
+              })
+            : router.navigate({ to: "/", replace: true }),
         );
       }
 
@@ -715,7 +710,6 @@ export function useThreadActions() {
       clearProjectDraftThreadById,
       clearTerminalUiState,
       deleteThreadMutation,
-      getCurrentRouteParams,
       getCurrentRouteThreadRef,
       loadSessionState,
       refreshVcsStatus,

@@ -1238,12 +1238,6 @@ export interface DesktopBridge {
    */
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
-  /**
-   * The project this window is scoped to, or null in the hub window. Lets the
-   * client keep shared pages (settings, usage) anchored to the project window
-   * instead of falling back to the hub route.
-   */
-  projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
   windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   /**
