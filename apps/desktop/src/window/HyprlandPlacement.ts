@@ -32,6 +32,7 @@ import {
   type HyprlandWindowRuleGrammar,
   type HyprlandWorkspaceRef,
 } from "./hyprland.ts";
+import type { WindowId } from "./WindowId.fork.ts";
 
 const { logDebug: logPlacementDebug } = makeComponentLogger("desktop.hyprland");
 
@@ -46,12 +47,14 @@ export class HyprlandPlacement extends Context.Service<
   {
     readonly isAvailable: boolean;
     /**
-     * Binds a window key to the compositor client that just appeared for it.
-     * Safe to call for every window; keys that never match stay unbound.
+     * Binds a window to the compositor client that just appeared for it.
+     * Safe to call for every window; windows that never match stay unbound.
      */
-    readonly claim: (key: string, title: string) => Effect.Effect<void>;
-    readonly forget: (key: string) => Effect.Effect<void>;
-    readonly workspaceOf: (key: string) => Effect.Effect<Option.Option<HyprlandWorkspaceRef>>;
+    readonly claim: (windowId: WindowId, title: string) => Effect.Effect<void>;
+    readonly forget: (windowId: WindowId) => Effect.Effect<void>;
+    readonly workspaceOf: (
+      windowId: WindowId,
+    ) => Effect.Effect<Option.Option<HyprlandWorkspaceRef>>;
     /** Stages a title-scoped rule before a hidden window maps. */
     readonly stageWorkspaceRule: (
       title: string,
@@ -59,7 +62,10 @@ export class HyprlandPlacement extends Context.Service<
     ) => Effect.Effect<boolean>;
     readonly clearWorkspaceRule: (title: string) => Effect.Effect<void>;
     /** Moves a claimed window to `workspace` without switching the view. */
-    readonly moveToWorkspace: (key: string, workspace: HyprlandWorkspaceRef) => Effect.Effect<void>;
+    readonly moveToWorkspace: (
+      windowId: WindowId,
+      workspace: HyprlandWorkspaceRef,
+    ) => Effect.Effect<void>;
   }
 >()("@t3tools/desktop/window/HyprlandPlacement") {}
 
@@ -70,7 +76,7 @@ const make = (options: {
   readonly claimIntervalMs?: number;
 }) =>
   Effect.sync(() => {
-    const addressesByKey = new Map<string, string>();
+    const addressesByWindowId = new Map<WindowId, string>();
     const isAvailable = (options.environment.instanceSignature?.trim() ?? "").length > 0;
     const claimAttempts = options.claimAttempts ?? CLAIM_ATTEMPTS;
     const claimIntervalMs = options.claimIntervalMs ?? CLAIM_INTERVAL_MS;
@@ -97,20 +103,23 @@ const make = (options: {
       return windowRuleGrammar;
     });
 
-    const claim = Effect.fn("desktop.hyprland.claim")(function* (key: string, title: string) {
-      if (!isAvailable || addressesByKey.has(key)) return;
+    const claim = Effect.fn("desktop.hyprland.claim")(function* (
+      windowId: WindowId,
+      title: string,
+    ) {
+      if (!isAvailable || addressesByWindowId.has(windowId)) return;
       for (let attempt = 0; attempt < claimAttempts; attempt += 1) {
         const clients = yield* readClients;
         const client = selectClientForWindow({
           clients,
           pid: options.pid,
           title,
-          claimedAddresses: new Set(addressesByKey.values()),
+          claimedAddresses: new Set(addressesByWindowId.values()),
         });
         if (client !== null) {
-          addressesByKey.set(key, client.address);
+          addressesByWindowId.set(windowId, client.address);
           yield* logPlacementDebug("window claimed", {
-            key,
+            windowId,
             address: client.address,
             workspace: client.workspace.name,
           });
@@ -118,11 +127,11 @@ const make = (options: {
         }
         yield* Effect.sleep(`${claimIntervalMs} millis`);
       }
-      yield* logPlacementDebug("window never matched a compositor client", { key, title });
+      yield* logPlacementDebug("window never matched a compositor client", { windowId, title });
     });
 
-    const workspaceOf = Effect.fn("desktop.hyprland.workspaceOf")(function* (key: string) {
-      const address = addressesByKey.get(key);
+    const workspaceOf = Effect.fn("desktop.hyprland.workspaceOf")(function* (windowId: WindowId) {
+      const address = addressesByWindowId.get(windowId);
       if (!isAvailable || address === undefined) {
         return Option.none<HyprlandWorkspaceRef>();
       }
@@ -159,21 +168,21 @@ const make = (options: {
     });
 
     const moveToWorkspace = Effect.fn("desktop.hyprland.moveToWorkspace")(function* (
-      key: string,
+      windowId: WindowId,
       workspace: HyprlandWorkspaceRef,
     ) {
-      const address = addressesByKey.get(key);
+      const address = addressesByWindowId.get(windowId);
       if (!isAvailable || address === undefined) return;
       const grammar = yield* resolveWindowRuleGrammar();
       const target = formatWorkspaceArgument(workspace);
       yield* request(formatMoveToWorkspaceRequest(workspace, address, grammar));
-      yield* logPlacementDebug("window returned to workspace", { key, workspace: target });
+      yield* logPlacementDebug("window returned to workspace", { windowId, workspace: target });
     });
 
     return HyprlandPlacement.of({
       isAvailable,
       claim,
-      forget: (key) => Effect.sync(() => void addressesByKey.delete(key)),
+      forget: (windowId) => Effect.sync(() => void addressesByWindowId.delete(windowId)),
       workspaceOf,
       stageWorkspaceRule,
       clearWorkspaceRule,
