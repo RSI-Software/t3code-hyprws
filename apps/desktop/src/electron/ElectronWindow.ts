@@ -121,6 +121,7 @@ export class ElectronWindow extends Context.Service<
     ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly getById: WindowRegistry.WindowRegistryService["getById"]; // fork-hook: multi-window/window-id-get-by-id
     readonly getOrCreate: WindowRegistry.WindowRegistryService["getOrCreate"]; // fork-hook: multi-window/window-id-get-or-create
+    readonly createNew: WindowRegistry.WindowRegistryService["createNew"]; // fork-hook: multi-window/dispatch-create-new
     readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
     readonly windowIdFor: WindowRegistry.WindowRegistryService["windowIdFor"]; // fork-hook: multi-window/window-id-for
     /** Every live registered window, in registration order. */
