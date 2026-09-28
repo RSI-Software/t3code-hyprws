@@ -42,7 +42,9 @@ export function DesktopLocalAutoPair() {
   const pair = useAtomCommand(connectPairing, { reportFailure: false });
   const attemptedRef = useRef(false);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- discovers and pairs the local server over desktop IPC once environments load.
   useEffect(() => {
+    if (window.desktopBridge?.refreshAttachedPrimaryBootstrap) return; // fork-hook: backend-attach/auto-pair-retired
     if (
       !shouldAttemptDesktopAutoPair({
         attempted: attemptedRef.current,
