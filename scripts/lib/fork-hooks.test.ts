@@ -157,11 +157,11 @@ it("accepts the multi-window and workspaces domains for markers (RSI-Software/t3
 
 it("parses a trailing line marker and strips it without touching the code", () => {
   const line =
-    'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target';
+    'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: multi-window/spawn-target';
   const hooks = parseForkHookMarkers(`const stale = 1;\n${line}\nb`);
   assert.strictEqual(hooks.length, 1);
   assert.deepInclude(hooks[0], {
-    key: "project-windows/spawn-target",
+    key: "multi-window/spawn-target",
     kind: "line",
     startLine: 2,
     endLine: 2,
@@ -172,18 +172,15 @@ it("parses a trailing line marker and strips it without touching the code", () =
   );
   assert.match(line, FORK_HOOK_LINE_SUFFIX);
   assert.strictEqual(FORK_HOOK_LINE_MARKER.test(line.trim()), false);
-  assert.strictEqual(
-    FORK_HOOK_LINE_MARKER.test("// fork-hook: project-windows/spawn-target"),
-    true,
-  );
+  assert.strictEqual(FORK_HOOK_LINE_MARKER.test("// fork-hook: multi-window/spawn-target"), true);
 });
 
 it("parses a trailing block-comment marker (CSS) and bounds it to its line", () => {
-  const line = '@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */';
+  const line = '@import "./index.fork.css"; /* fork-hook: multi-window/index-fork-css */';
   const hooks = parseForkHookMarkers(`@import "tailwindcss";\n${line}\n.wco {}`);
   assert.strictEqual(hooks.length, 1);
   assert.deepInclude(hooks[0], {
-    key: "project-windows/index-fork-css",
+    key: "multi-window/index-fork-css",
     kind: "line",
     startLine: 2,
     endLine: 2,
@@ -203,7 +200,7 @@ it("does not mark a mid-line or non-trailing comment", () => {
 it("parses a JSX pair and bounds the region inclusively", () => {
   const content = [
     "<div>",
-    "  {/* fork-hook: project-windows/preview-pane */}",
+    "  {/* fork-hook: multi-window/preview-pane */}",
     "  <PreviewPane />",
     "  {/* fork-hook-end */}",
     "</div>",
@@ -211,7 +208,7 @@ it("parses a JSX pair and bounds the region inclusively", () => {
   const hooks = parseForkHookMarkers(content);
   assert.strictEqual(hooks.length, 1);
   assert.deepInclude(hooks[0], {
-    key: "project-windows/preview-pane",
+    key: "multi-window/preview-pane",
     kind: "jsx",
     startLine: 2,
     endLine: 4,
@@ -349,23 +346,23 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
   for (const [filepath, snippet] of [
     [
       "hook.ts",
-      'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target\nexport const one = 1;\n',
+      'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: multi-window/spawn-target\nexport const one = 1;\n',
     ],
     [
       "hook.ts",
-      "registerWindowPolicy(resolveWindowPolicy(input)); // fork-hook: project-windows/register-policy\nexport const two = 2;\n",
+      "registerWindowPolicy(resolveWindowPolicy(input)); // fork-hook: multi-window/register-policy\nexport const two = 2;\n",
     ],
     [
       "hook.ts",
-      "const policy = resolveWindowPolicy(input); // fork-hook: project-windows/window-policy\nexport const three = 3;\n",
+      "const policy = resolveWindowPolicy(input); // fork-hook: multi-window/window-policy\nexport const three = 3;\n",
     ],
     [
       "hook.tsx",
-      "const row = <Row policy={windowPolicy} />; // fork-hook: project-windows/window-policy-row\nexport const four = 4;\n",
+      "const row = <Row policy={windowPolicy} />; // fork-hook: multi-window/window-policy-row\nexport const four = 4;\n",
     ],
     [
       "hook.tsx",
-      "export const five = { windowPolicy: resolveWindowPolicy(input) }; // fork-hook: project-windows/window-policy-prop\n",
+      "export const five = { windowPolicy: resolveWindowPolicy(input) }; // fork-hook: multi-window/window-policy-prop\n",
     ],
   ] as const) {
     const formatted = await fmt(filepath, snippet);
@@ -384,7 +381,7 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
     [
       "export const View = () => (",
       "  <div>",
-      "    {/* fork-hook: project-windows/preview-pane */}",
+      "    {/* fork-hook: multi-window/preview-pane */}",
       "    <PreviewPane />",
       "    {/* fork-hook-end */}",
       "  </div>",
@@ -392,7 +389,7 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
       "",
     ].join("\n"),
   );
-  assert.include(jsx, "{/* fork-hook: project-windows/preview-pane */}");
+  assert.include(jsx, "{/* fork-hook: multi-window/preview-pane */}");
   assert.include(jsx, "{/* fork-hook-end */}");
   const open = jsx.split("\n").findIndex((line) => line.includes("fork-hook:"));
   const close = jsx.split("\n").findIndex((line) => line.includes("fork-hook-end"));
