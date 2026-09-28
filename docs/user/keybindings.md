@@ -156,14 +156,14 @@ through the pages you have visited, like a browser's back and forward buttons.
 (`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
 
 `window.new` opens a new desktop window on all projects and defaults to `mod+shift+w`.
-`window.openProject` focuses the active project's desktop window, or opens one when it has none, and defaults to `mod+alt+o`.
+`window.openProject` focuses a window opened on the active project, or opens one filtered to it, and defaults to `mod+alt+o`.
 It was named `project.openWindow`, then `window.openInNew`; a saved binding with either old name keeps working.
 Both window commands and their keybindings are shown only in the desktop app.
 `projectFilter.choose` opens the window's [project chooser](./thread-sidebar.md#choose-a-windows-projects) and defaults to `mod+alt+f`.
 
 `terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
-`chat.focusComposer` moves focus back to the composer without closing the drawer. Both default to
-`` ctrl+` ``, so the one shortcut hops between the composer and the terminal.
+`chat.focusComposer` moves focus back to the composer without closing the drawer.
+Both default to `` ctrl+` ``, so the one shortcut hops between the composer and the terminal.
 
 ## Reserved shortcuts
 
