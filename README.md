@@ -5,126 +5,119 @@ T3 Code fixes that.
 Love it.
 
 I am also particular about how my workstation is laid out.
-I do not want every project piled into one application window.
-
-That feels like opening VS Code at `/` and putting every repository in one window.
+One app window holding every project feels like opening VS Code at `/`.
 Visual workspaces already solve that separation.
 
-`hyprws` makes the T3 Code desktop app fit that model with native, project-scoped windows.
-These are not separate T3 Code instances.
-They share one Electron process, backend pool, authentication, providers, sessions, and persisted state.
-
-## The layout
-
-Each project gets an independently placeable T3 Code window alongside its editor, terminals, and browsers.
-Hyprland and virtual desktops decide where those windows live.
+Upstream T3 Code is one window.
+`hyprws` allows for multiple windows, and you can set them up however you like!
+Select one (or more) projects in each window; Hyprland decides where it lives.
+They are not separate instances: every window shares one Electron process, backend, auth, providers, and state.
 
 ```text
-┌─ Workstation / Hyprland ───────────────────────────────────────────────────┐
-│                                                                           │
-│  Virtual desktop 1 · Project A                                            │
-│  ┌─ Monitor 1 · WS 1 ─────────────────┐  ┌─ Monitor 2 · WS 2 ───────────┐ │
-│  │ ┌────────────┐  ┌────────────────┐ │  │ ┌──────────────────────────┐ │ │
-│  │ │ T3 Code    │  │ editor + zmux  │ │  │ │ browsers                 │ │ │
-│  │ │ Project A  │  │ Project A      │ │  │ │ Project A                │ │ │
-│  │ └────────────┘  └────────────────┘ │  │ └──────────────────────────┘ │ │
-│  └────────────────────────────────────┘  └──────────────────────────────┘ │
-│                                   ⇅                                       │
-│  Virtual desktop 2 · Project B                                            │
-│  ┌─ Monitor 1 · WS 3 ─────────────────┐  ┌─ Monitor 2 · WS 4 ───────────┐ │
-│  │ ┌────────────┐  ┌────────────────┐ │  │ ┌──────────────────────────┐ │ │
-│  │ │ T3 Code    │  │ editor + zmux  │ │  │ │ browsers                 │ │ │
-│  │ │ Project B  │  │ Project B      │ │  │ │ Project B                │ │ │
-│  │ └────────────┘  └────────────────┘ │  │ └──────────────────────────┘ │ │
-│  └────────────────────────────────────┘  └──────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────────┘
+┌─ Virtual desktop 1 ──────────┐   ┌─ Virtual desktop 2 ──────────┐
+│ T3 Code · Project A          │   │ T3 Code · Projects B, C      │
+│ editor + zmux · browsers     │   │ editor + zmux · browsers     │
+└──────────────────────────────┘   └──────────────────────────────┘
+               └──────── one backend, one state ────────┘
 ```
 
-My surrounding setup is opinionated too.
-I use Hyprland workspaces, dual-monitor virtual desktops, `zmux`, and Worktrunk.
+My setup around it is opinionated: Hyprland, dual-monitor virtual desktops, `zmux`, and Worktrunk.
+The fork encodes none of that policy.
 
-The fork does not encode that compositor policy.
-It only provides the project windows that Hyprland can place.
+## Multiple windows
 
-## Why a fork?
+| Key           | Does                                           |
+| ------------- | ---------------------------------------------- |
+| `mod+shift+w` | New window on all projects                     |
+| `mod+alt+f`   | Choose this window's projects                  |
+| `mod+alt+o`   | Reuse a window showing this project, else open |
 
-`hyprws` now carries several independent domains.
-Each one exists because upstream T3 Code does not currently provide the behavior.
-Each one also has its own retirement condition.
+- **Filter:** narrows lists, never hides live work
+- **Update:** back on their Hyprland workspaces
+- **Old links:** `#/project/...` links still open
 
-Project-scoped windows were the first domain, but they are not necessarily permanent fork machinery.
-A browser pointed at a self-hosted T3 backend already shares sessions, authentication, providers, and state.
-Browser mode still trails Electron for terminal workflows and nested in-app browser windows.
+## What else the fork adds
 
-If browser mode reaches practical parity, the project-window domain is superseded.
-The same layout could use normal browser windows or a small PWA-style Electron shell around the web client.
-Upstream-native project windows would supersede it too.
-
-That would retire one domain, not necessarily the fork.
-Custom agents, rich Markdown editing, `zmux` integration, distribution, and future domains stand on their own needs.
-
-## What this fork adds
-
-The fork is organized into domains so future changes do not become one untraceable patch pile.
-Every fork commit is recorded by domain and tier in the [fork delta](docs/fork/internals/fork-delta.md).
-
-### Project windows
-
-- Open a project window from hub actions, the command palette, or `Ctrl+Alt+O`.
-- Give each window its own project-scoped routes, sidebar, drafts, and previews.
-- Focus the existing window when the same project is opened again.
-- Route second launches, renderer requests, and deep links to the correct window.
-- Keep shared services shared: backend, authentication, providers, settings, sessions, and persisted state.
-
-This domain can retire when the web client reaches practical Electron parity for this workflow.
-Upstream-native project-window support would also replace it.
-
-### Managed `zmux` estate
-
-- Attach thread terminals to the checkout's managed `zmux` session.
-- Bind new thread worktrees into the same session lifecycle.
-- Keep terminal work visible from both T3 Code and the operator's CLI.
+Every fork commit belongs to one domain, and each domain retires when upstream covers it.
+The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and boundaries.
 
 ### Custom agents
 
-- Discover provider-native Claude and Codex agents.
-- Select a custom agent for the main thread from the composer.
-- Persist the selection across new and resumed sessions.
+- **Discover:** native Claude and Codex agents
+- **Select:** one as the main thread
+- **Persist:** across new and resumed sessions
 
 ### Rich Markdown editing
 
-- Switch Markdown files between Rich and Source modes.
-- Preserve CommonMark, GFM, and YAML frontmatter through the existing save path.
-- Keep MDX in read-only preview where rich round-tripping would be unsafe.
+- **Modes:** Rich and Source for Markdown files
+- **Save:** CommonMark, GFM, frontmatter intact
+- **MDX:** stays a read-only preview
+- [Guide](docs/fork/user/markdown-editing.md)
+
+### Managed `zmux` terminals
+
+- **Attach:** terminals join the checkout session
+- **Worktrees:** new ones join the same session
+- **Shared:** visible from T3 Code and the CLI
+- [Guide](docs/fork/user/managed-terminals.md)
+
+### Worktrunk worktrees
+
+- **Mode:** **New worktrunk** for a thread
+- **Hooks:** `wt` hooks on create and remove
+- **Fallback:** plain worktrees without `wt`
+
+### GitHub issues
+
+- **Browse:** issues on web and desktop
+- **Detail:** filters, comments, and tabs
+- **Hand off:** one issue to a new thread as a draft
+
+### Threads
+
+- **Group:** related active threads in the sidebar
+- **Fork:** continue a copy on the same provider
+
+### Browser bookmarks
+
+- **Collections:** global and per project
+- **Star:** save, move, or remove a page
+- **New tab:** bookmarks listed first
+- [Guide](docs/fork/user/browser.md)
 
 ### Workspace files
 
-- Reveal gitignored agent artifacts in workspace file trees on demand.
-- Keep ignored paths hidden by default and preserve the choice on the current device.
-- Retain workspace containment unless a path is explicitly trusted.
+- **Reveal:** gitignored agent artifacts on demand
+- **Default:** hidden, remembered per device
+- **Safety:** containment holds unless trusted
+- [Guide](docs/fork/user/workspace-files.md)
 
-### Fork maintenance and distribution
+### Backend attach
 
-- Track why each fork domain exists, what it changes, and when it can be retired.
-- Scan upstream changes against each active domain on every rebase.
-- Run fork-specific CI and publish Linux AppImage releases as `v<upstream version>-hyprws.<n>`.
+- **Attach:** desktop joins a running backend
+- **Pair:** automatically, once per launch
+- **State:** one writer on `state.sqlite`, not two
 
-### Upstream fixes
+### Releases and upstream fixes
 
-The fork also carries focused fixes that are valid upstream but have not landed there yet.
-Each stays isolated so it can be offered upstream and dropped from the fork independently.
+- **Builds:** Linux AppImage releases
+- **Nightly:** cut on every trunk push
+- **Fixes:** focused, dropped once upstream lands
+- [Guide](docs/fork/user/install-and-update.md)
 
-The ledger separates `core`, `qol`, and `bugfix` commits.
-It also records whether each bug fix should go upstream.
-The [fork delta](docs/fork/internals/fork-delta.md) owns the exact domain boundaries and current change list.
+## Why a fork?
+
+Upstream has no multi-window concept at all.
+A browser on a self-hosted backend comes close, but still trails Electron for terminals and nested browser windows.
+At parity, the window domains retire; the others stand on their own.
 
 ## Fork development
 
-Read [Fork development](docs/fork/internals/fork-development.md) before changing fork behavior or Git topology.
-It owns the project-window architecture, Worktrunk lanes, and upstream rebase flow.
-
-Read [Fork delta](docs/fork/internals/fork-delta.md) for the authoritative list of fork changes and their rationale.
-[Fork sync](docs/fork/operations/fork-sync.md) is the runbook for rebasing, verifying, publishing, and releasing the fork.
+| Doc                                                         | Read it for                            |
+| ----------------------------------------------------------- | -------------------------------------- |
+| [Fork development](docs/fork/internals/fork-development.md) | Changing fork behavior or Git topology |
+| [Fork delta](docs/fork/internals/fork-delta.md)             | Every fork change and why              |
+| [Fork sync](docs/fork/operations/fork-sync.md)              | Rebase, verify, publish, release       |
 
 # T3 Code
 
