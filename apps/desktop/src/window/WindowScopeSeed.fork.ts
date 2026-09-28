@@ -10,7 +10,7 @@
  * upstream does; `"all-projects"` opts a window out of that inheritance.
  *
  * Kept free of package imports so the sandboxed preload can use it; see
- * `projectWindowArgument.ts` for why.
+ * `WindowId.fork.ts` for why.
  */
 const WINDOW_SCOPE_SEED_PRELOAD_ARGUMENT = "--t3code-window-scope-seed";
 
