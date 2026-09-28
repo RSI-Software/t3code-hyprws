@@ -8,8 +8,8 @@ Read [Fork delta](docs/fork/internals/fork-delta.md) before adding to the fork, 
 
 Upstream guidance below remains the default unless this section or the fork guide overrides it.
 
-- Treat a project-scoped desktop window as the user's T3 instance.
-- Keep the hub available and share the Electron process, backend pool, auth, providers, and persisted state.
+- Treat any desktop window as the user's T3 instance.
+- Keep the all-projects view available and share the Electron process, backend pool, auth, providers, and persisted state.
 - Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
 - Keep local `main` identical to `upstream/main`; never add fork commits to it.
 - Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
