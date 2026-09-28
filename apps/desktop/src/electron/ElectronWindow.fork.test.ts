@@ -31,6 +31,7 @@ import {
   projectWindowPreloadArgument,
   readProjectWindowPreloadRef,
 } from "../window/WindowIdentity.ts";
+import { isWindowId, type WindowId } from "../window/WindowId.fork.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 const TestLayer = ElectronWindow.layer.pipe(
   Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
@@ -78,12 +79,10 @@ describe("ElectronWindow", () => {
       const projectWindow = makeBrowserWindow({ id: 10, destroyed: false });
       const duplicateWindow = makeBrowserWindow({ id: 11, destroyed: false });
       const electronWindow = yield* ElectronWindow.ElectronWindow;
-      const created = yield* electronWindow.getOrCreate(
-        projectIdentity,
+      const created = yield* electronWindow.getOrCreate(projectIdentity, () =>
         Effect.succeed(projectWindow),
       );
-      const reused = yield* electronWindow.getOrCreate(
-        projectIdentity,
+      const reused = yield* electronWindow.getOrCreate(projectIdentity, () =>
         Effect.succeed(duplicateWindow),
       );
       assert.isTrue(created.created);
@@ -91,9 +90,64 @@ describe("ElectronWindow", () => {
       assert.strictEqual(reused.window, projectWindow);
       assert.deepEqual(yield* electronWindow.get(projectIdentity), Option.some(projectWindow));
       assert.deepEqual(
-        yield* electronWindow.identityFor(projectWindow),
-        Option.some(projectIdentity),
+        yield* electronWindow.windowIdFor(projectWindow),
+        Option.some(created.windowId),
       );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  it.effect("keys each window by a minted WindowId, never by what it shows", () =>
+    Effect.gen(function* () {
+      const projectIdentity = projectWindowIdentity(
+        EnvironmentId.make("environment-1"),
+        ProjectId.make("project-1"),
+      );
+      const projectWindow = makeBrowserWindow({ id: 20, destroyed: false });
+      const hubWindow = makeBrowserWindow({ id: 21, destroyed: false });
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      let handedId: WindowId | undefined;
+      const project = yield* electronWindow.getOrCreate(projectIdentity, (windowId) => {
+        handedId = windowId;
+        return Effect.succeed(projectWindow);
+      });
+      const hub = yield* electronWindow.getOrCreate(HUB_WINDOW_IDENTITY, () =>
+        Effect.succeed(hubWindow),
+      );
+      // The creator sees the id before the window exists, so it can hand it to
+      // the preload; the registry then files the window under that same id.
+      assert.strictEqual(handedId, project.windowId);
+      assert.isTrue(isWindowId(project.windowId));
+      assert.isTrue(isWindowId(hub.windowId));
+      assert.notStrictEqual(project.windowId, hub.windowId);
+      assert.notStrictEqual(project.windowId, String(projectWindow.id));
+      assert.deepEqual(yield* electronWindow.getById(project.windowId), Option.some(projectWindow));
+      assert.deepEqual(yield* electronWindow.listWindows, [
+        { windowId: project.windowId, identity: projectIdentity },
+        { windowId: hub.windowId, identity: HUB_WINDOW_IDENTITY },
+      ]);
+      projectWindow.__emit("closed");
+      assert.isTrue(Option.isNone(yield* electronWindow.getById(project.windowId)));
+      assert.isTrue(Option.isNone(yield* electronWindow.windowIdFor(projectWindow)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  it.effect("reuses a restored WindowId unless a live window already holds it", () =>
+    Effect.gen(function* () {
+      const restoredId = "00000000-0000-4000-8000-00000000000a" as WindowId;
+      const first = makeBrowserWindow({ id: 30, destroyed: false });
+      const second = makeBrowserWindow({ id: 31, destroyed: false });
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      const restored = yield* electronWindow.getOrCreate(
+        projectWindowIdentity(EnvironmentId.make("environment-1"), ProjectId.make("project-1")),
+        () => Effect.succeed(first),
+        restoredId,
+      );
+      const collided = yield* electronWindow.getOrCreate(
+        projectWindowIdentity(EnvironmentId.make("environment-1"), ProjectId.make("project-2")),
+        () => Effect.succeed(second),
+        restoredId,
+      );
+      assert.strictEqual(restored.windowId, restoredId);
+      assert.notStrictEqual(collided.windowId, restoredId);
+      assert.deepEqual(yield* electronWindow.getById(restoredId), Option.some(first));
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("closes identities and removes windows destroyed externally", () =>
@@ -105,8 +159,8 @@ describe("ElectronWindow", () => {
       const projectWindow = makeBrowserWindow({ id: 12, destroyed: false });
       const hubWindow = makeBrowserWindow({ id: 13, destroyed: false });
       const electronWindow = yield* ElectronWindow.ElectronWindow;
-      yield* electronWindow.getOrCreate(projectIdentity, Effect.succeed(projectWindow));
-      yield* electronWindow.getOrCreate(HUB_WINDOW_IDENTITY, Effect.succeed(hubWindow));
+      yield* electronWindow.getOrCreate(projectIdentity, () => Effect.succeed(projectWindow));
+      yield* electronWindow.getOrCreate(HUB_WINDOW_IDENTITY, () => Effect.succeed(hubWindow));
       projectWindow.__emit("closed");
       assert.isTrue(Option.isNone(yield* electronWindow.get(projectIdentity)));
       assert.isTrue(Option.isSome(yield* electronWindow.get(HUB_WINDOW_IDENTITY)));
