@@ -23,6 +23,7 @@ import {
   renderAuthoringWarnings,
   significantTestLines,
   TEST_FILE,
+  upstreamSourceLines,
   type CommitPatch,
   type ScanAuthoringWarning,
 } from "./fork-scan-authoring.ts";
@@ -879,6 +880,7 @@ const buildGuardInput = (
       upstreamTestFiles,
       (patch) => patch.removedTestLines.keys(),
       () => true,
+      significantTestLines,
     ),
     replayAddedLines,
     upstreamLines: readUpstreamLines(
@@ -889,6 +891,7 @@ const buildGuardInput = (
       (patch) => patch.changedLines.keys(),
       (path) =>
         MARKER_CAPABLE_PATH.test(path) && !GENERATED_HOOK_PATH.test(path) && !TEST_FILE.test(path),
+      upstreamSourceLines,
     ),
     upstreamTestTexts,
     headTestTexts:
@@ -921,6 +924,7 @@ const readUpstreamLines = (
   upstreamFiles: ReadonlySet<string>,
   selectPaths: (patch: CommitPatch) => Iterable<string>,
   keepPath: (path: string) => boolean,
+  readLines: (text: string) => ReadonlySet<string>,
 ): ReadonlyMap<string, ReadonlySet<string>> => {
   const paths = new Set<string>();
   for (const patch of patchesBySha.values())
@@ -932,7 +936,7 @@ const readUpstreamLines = (
   const lines = new Map<string, ReadonlySet<string>>();
   for (const path of [...paths].toSorted()) {
     try {
-      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+      lines.set(path, readLines(git.run(["show", `${target}:${path}`])));
     } catch {
       // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
     }
