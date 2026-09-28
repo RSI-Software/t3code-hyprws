@@ -60,13 +60,12 @@ import * as HyprlandPlacement from "./HyprlandPlacement.ts"; // fork-hook: multi
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import {
-  HUB_WINDOW_IDENTITY,
   PROJECT_WINDOW_PRELOAD_ARGUMENT,
   projectWindowIdentity,
   windowIdentityKey,
 } from "./WindowIdentity.ts";
 import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
-import { makeTestWindowIds, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
+import { makeTestWindowIds, testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -302,6 +301,7 @@ function layerTest(input: {
   const hyprlandPlacementLayer = Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
     isAvailable: input.workspaceMoves !== undefined,
     claim: (key, title) => Effect.sync(() => void input.placementClaims?.push({ key, title })), // fork-hook: multi-window/window-id-claim
+    snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
     forget: () => Effect.void,
     workspaceOf: () => Effect.succeed(Option.none()),
     stageWorkspaceRule: (title, workspace) =>
@@ -366,8 +366,8 @@ function layerTest(input: {
           }),
         ),
       ),
-    createNew: (identity, create) =>
-      windowIds.create(create).pipe(
+    createNew: (identity, create, requestedId) =>
+      windowIds.create(create, requestedId).pipe(
         Effect.tap((window) =>
           Effect.sync(() => {
             if (identity.kind === "project")
@@ -375,7 +375,7 @@ function layerTest(input: {
           }),
         ),
         Effect.map(windowIds.created),
-      ), // fork-hook: multi-window/dispatch-create-new
+      ), // fork-hook: multi-window/restore-create-new
     close: (identity) =>
       identity.kind === "hub"
         ? Ref.set(input.mainWindow, Option.none())
@@ -450,7 +450,7 @@ function layerTest(input: {
             Effect.sync(() => {
               input.previewOwners?.push(owner); // fork-hook: multi-window/window-id-preview-owner
               input.previewMainWindowSets?.push(window);
-            }),
+            }).pipe(Effect.andThen(input.setPreviewMainWindow?.(window) ?? Effect.void)), // fork-hook: multi-window/preview-main-window-set
           prepareWebview: () => Effect.void,
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
@@ -583,6 +583,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
             isAvailable: false,
             claim: () => Effect.void,
+            snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
             forget: () => Effect.void,
             workspaceOf: () => Effect.succeed(Option.none()),
             stageWorkspaceRule: () => Effect.succeed(false),
