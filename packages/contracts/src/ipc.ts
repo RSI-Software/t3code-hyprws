@@ -11,6 +11,11 @@ import {
   PreviewAutomationWaitForInput,
 } from "./previewAutomation.ts";
 import { SnapShotSource } from "./chatAttachment.ts";
+import {
+  type AttachedPrimaryLifecycle,
+  AttachedPrimaryLifecycleSchema,
+  type AttachedPrimaryRejectReason,
+} from "./attachedPrimary.fork.ts"; // fork-hook: backend-attach/contracts-import
 import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import type {
@@ -383,6 +388,8 @@ export interface DesktopEnvironmentBootstrap {
   // routed to a specific backend reopen against the same one.
   id: string;
   label: string;
+  lifecycle?: AttachedPrimaryLifecycle; // fork-hook: backend-attach/lifecycle-field
+  environmentId?: string; // fork-hook: backend-attach/environment-id-field
   // Concrete WSL distro used by the current backend run. This stays separate
   // from id because a default-tracking instance keeps the stable
   // "wsl:default" IPC target while each run launches a specific distro.
@@ -395,6 +402,8 @@ export interface DesktopEnvironmentBootstrap {
 export const DesktopEnvironmentBootstrapSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
+  lifecycle: Schema.optionalKey(AttachedPrimaryLifecycleSchema), // fork-hook: backend-attach/lifecycle-schema
+  environmentId: Schema.optionalKey(Schema.String), // fork-hook: backend-attach/environment-id-schema
   runningDistro: Schema.optionalKey(Schema.NullOr(Schema.String)),
   httpBaseUrl: Schema.NullOr(Schema.String),
   wsBaseUrl: Schema.NullOr(Schema.String),
@@ -1171,6 +1180,12 @@ export interface DesktopBridge {
   getLocalEnvironmentBearerToken: () => Promise<string>;
   discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
   pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;
+  getAttachedPrimaryBootstrap?: () => DesktopEnvironmentBootstrap | null; // fork-hook: backend-attach/bridge-get
+  refreshAttachedPrimaryBootstrap?: () => Promise<DesktopEnvironmentBootstrap | null>; // fork-hook: backend-attach/bridge-refresh
+  rejectAttachedPrimary?: (
+    bearerToken: string,
+    reason: AttachedPrimaryRejectReason,
+  ) => Promise<void>; // fork-hook: backend-attach/bridge-reject
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;
