@@ -51,6 +51,14 @@ import {
 } from "@t3tools/contracts";
 import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
+import {
+  dropNewThreadHintFork,
+  refreshNewThreadInViewFork,
+  scopePaletteProjectEntriesFork,
+  useCommandPaletteProjectScopeFork,
+  useNewThreadHintFork,
+  withProjectScopeToggleFork,
+} from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-import
 import { useProjectChooserLabel } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-palette
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -481,6 +489,8 @@ function OpenCommandPaletteDialog(props: {
     }
   };
   const threads = useThreadShells();
+  const paletteProjectScope = useCommandPaletteProjectScopeFork(); // fork-hook: workspaces/palette-scope
+  const newThreadHint = useNewThreadHintFork(activeDraftThread, activeThread, defaultProjectRef); // fork-hook: workspaces/palette-new-thread-hint
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
@@ -519,7 +529,7 @@ function OpenCommandPaletteDialog(props: {
     groups: projectGroups,
     preferredProjectRef: contextualProjectRef,
   });
-  const pickerProjects = projectPickerEntries.map(({ group, targetProject }) => ({
+  const pickerProjects = scopePaletteProjectEntriesFork(projectPickerEntries, paletteProjectScope.projectKeys).map(({ group, targetProject }) => ({ // fork-hook: workspaces/palette-scope-projects
     ...targetProject,
     displayName: group.displayName,
   }));
@@ -810,7 +820,11 @@ function OpenCommandPaletteDialog(props: {
     threadMessageItems,
     now: searchNow,
     isSearchPending: isThreadSearchPending,
-  } = useCommandPaletteThreadItems({ activeThread: activeThread ?? null, threadSearchQuery });
+  } = useCommandPaletteThreadItems({
+    activeThread: activeThread ?? null,
+    threadSearchQuery,
+    projectKeysFork: paletteProjectScope.projectKeys,
+  }); // fork-hook: workspaces/palette-scope-threads
   // Recent means used recently: written in or opened, whichever is later. The
   // open thread would always lead that list, so it is left out.
   const activeThreadValue = activeThread
@@ -1271,6 +1285,7 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  dropNewThreadHintFork(actionItems, newThreadHint); // fork-hook: workspaces/palette-new-thread-hint
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -1626,7 +1641,7 @@ function OpenCommandPaletteDialog(props: {
             ? changeThemeItem.groups
             : currentView?.groups[0]?.value === "appearance"
               ? changeAppearanceItem.groups
-              : (currentView?.groups ?? rootGroups);
+              : refreshNewThreadInViewFork(currentView?.groups ?? rootGroups, projectThreadItems); // fork-hook: workspaces/palette-scope-picker
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;
@@ -2225,6 +2240,7 @@ function OpenCommandPaletteDialog(props: {
         ];
 
   let displayedGroups: CommandPaletteView["groups"] = filteredGroups;
+  displayedGroups = withProjectScopeToggleFork(filteredGroups, paletteProjectScope, currentView); // fork-hook: workspaces/palette-scope-toggle
   if (newProjectFlow !== null) {
     displayedGroups = [
       ...(newProjectMachineGroup ? [newProjectMachineGroup] : []),
