@@ -29,6 +29,7 @@ import {
   readForkProviderFork,
   useThreadForkDispatchFork,
 } from "./useThreadActionMenu.fork"; // fork-hook: thread-fork/header-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -154,12 +155,13 @@ export function useThreadActionMenu(input: {
         canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
         isRegeneratingTitle,
         isRunning: !threadRuntimeCanArchive(thread.runtime),
-          hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
-          fork: forkThreadMenuStateFork(
-            readForkProviderFork(threadRef, thread),
-            forkRefInFlightFork(threadRef), // fork-hook: thread-fork/header-in-flight
-            ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
-          ),
+        hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
+        fork: forkThreadMenuStateFork(
+          readForkProviderFork(threadRef, thread),
+          forkRefInFlightFork(threadRef), // fork-hook: thread-fork/header-in-flight
+          ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
+        ), // fork-hook: thread-fork/header-menu-state
+        openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
         supports,
         snoozePresets,
         canShareWithGuest,
@@ -259,14 +261,16 @@ export function useThreadActionMenu(input: {
             setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
           );
           return;
-          case "fork":
-            return forkThreadDispatch(threadRef); // fork-hook: thread-fork/header-dispatch
-          case "reset-order":
-            return reportResetOrderThreadAction({
-              threadRef,
-              reorderActiveThread: reorderActiveThreadOrClear,
-              reportFailure,
-            }); // fork-hook: thread-ordering/reset-order-dispatch
+        case "fork":
+          return forkThreadDispatch(threadRef); // fork-hook: thread-fork/header-dispatch
+        case "open-in-new-window": // fork-hook: multi-window/dispatch-thread-menu
+          return openThreadInNewWindow(threadRef, thread.projectId); // fork-hook: multi-window/dispatch-thread-menu
+        case "reset-order":
+          return reportResetOrderThreadAction({
+            threadRef,
+            reorderActiveThread: reorderActiveThreadOrClear,
+            reportFailure,
+          }); // fork-hook: thread-ordering/reset-order-dispatch
         case "rename":
           onStartRename();
           return;
