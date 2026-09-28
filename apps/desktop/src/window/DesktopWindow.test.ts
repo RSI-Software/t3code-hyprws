@@ -365,6 +365,16 @@ function makeTestLayer(input: {
           }),
         ),
       ),
+    createNew: (identity, create) =>
+      windowIds.create(create).pipe(
+        Effect.tap((window) =>
+          Effect.sync(() => {
+            if (identity.kind === "project")
+              projectWindows.set(windowIdentityKey(identity), window);
+          }),
+        ),
+        Effect.map(windowIds.created),
+      ), // fork-hook: multi-window/dispatch-create-new
     close: (identity) =>
       identity.kind === "hub"
         ? Ref.set(input.mainWindow, Option.none())
@@ -529,6 +539,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             }),
           ),
         ),
+      createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
       close: () => Ref.set(mainWindow, Option.none()),
       windowIdFor: splashWindowIds.windowIdFor, // fork-hook: multi-window/window-id-splash-for
       listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-splash-list
@@ -851,6 +862,7 @@ describe("DesktopWindow", () => {
         assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(testWindowId(1)), // fork-hook: multi-window/window-id-intent-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
+          "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/dispatch-seed-deep-link
         ]);
         assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
         assert.deepEqual(previewOwners, [testWindowId(1)]); // fork-hook: multi-window/window-id-intent-preview-owner
@@ -1004,6 +1016,7 @@ describe("DesktopWindow", () => {
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(testWindowId(2)), // fork-hook: multi-window/window-id-intent-restore-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-2/project-2`,
+          "--t3code-window-scope-seed=environment-2/project-2", // fork-hook: multi-window/dispatch-seed-deep-link
         ]);
         assert.deepEqual(
           createdWindowOptions.map((options) =>
