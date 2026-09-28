@@ -23,8 +23,6 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
-import { filterSidebarProjects, filterSidebarThreads } from "./sidebar/SidebarPhysicalScope";
-import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -86,7 +84,7 @@ import {
   openInNewWindowRequest,
   requestDesktopWindow,
   supportsDesktopProjectWindows,
-} from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-legacy-import
+} from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-legacy-import
 import { isElectron } from "../env";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -139,7 +137,6 @@ import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../sta
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
-  resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -1244,10 +1241,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
   const { isMobile, setOpenMobile } = useSidebar();
   const desktopBridge =
     typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
@@ -1877,14 +1870,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      return router.navigate(routeFamily.thread(threadRef));
+      return router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      });
     },
-    [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
   const handleThreadFileDrop = useCallback(
     async (threadRef: ScopedThreadRef, files: File[]) => {
       const dropId = queuePendingFileDrop({ threadRef, files });
-      const targetPathname = router.buildLocation(routeFamily.thread(threadRef)).pathname;
+      const targetPathname = router.buildLocation({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      }).pathname;
       if (targetPathname === router.state.location.pathname) return;
       try {
         await navigateToThread(threadRef);
@@ -1895,7 +1894,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         clearPendingFileDrop(dropId);
       }
     },
-    [clearPendingFileDrop, navigateToThread, queuePendingFileDrop, routeFamily, router],
+    [clearPendingFileDrop, navigateToThread, queuePendingFileDrop, router],
   );
 
   const handleThreadClick = useCallback(
@@ -1937,13 +1936,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate(routeFamily.thread(threadRef));
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      });
     },
     [
       clearSelection,
       isMobile,
       rangeSelectTo,
-      routeFamily,
       router,
       setOpenMobile,
       setSelectionAnchor,
@@ -3290,17 +3291,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 });
 
 export default function LegacySidebar() {
-  const forcedProjectRef = useSidebarPhysicalScope();
-  const allProjects = useProjects();
-  const projects = useMemo(
-    () => filterSidebarProjects(allProjects, forcedProjectRef),
-    [allProjects, forcedProjectRef],
-  );
-  const allSidebarThreads = useThreadShells();
-  const sidebarThreads = useMemo(
-    () => filterSidebarThreads(allSidebarThreads, forcedProjectRef),
-    [allSidebarThreads, forcedProjectRef],
-  );
+  const projects = useProjects();
+  const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -3317,10 +3309,6 @@ export default function LegacySidebar() {
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
-  });
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
   });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
@@ -3511,9 +3499,12 @@ export default function LegacySidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void navigate(routeFamily.thread(threadRef));
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(threadRef),
+      });
     },
-    [clearSelection, isMobile, navigate, routeFamily, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, navigate, setOpenMobile, setSelectionAnchor],
   );
 
   const projectDnDSensors = useSensors(
@@ -3619,7 +3610,7 @@ export default function LegacySidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
-  const isManualProjectSorting = forcedProjectRef === null && sidebarProjectSortOrder === "manual";
+  const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {

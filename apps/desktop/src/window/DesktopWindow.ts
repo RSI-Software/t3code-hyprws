@@ -1,7 +1,6 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -255,60 +254,6 @@ function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
-export function getWindowApplicationUrl(isDevelopment: boolean, identity: WindowIdentity): string {
-  const baseUrl = getDesktopUrl(isDevelopment);
-  if (identity.kind === "hub") return baseUrl;
-  const environmentId = encodeURIComponent(identity.ref.environmentId);
-  const projectId = encodeURIComponent(identity.ref.projectId);
-  const applicationUrl = new URL(baseUrl);
-  applicationUrl.hash = `/project/${environmentId}/${projectId}`;
-  return applicationUrl.href;
-}
-
-function getHashRoutePathname(url: URL): string {
-  return url.hash.slice(1).split(/[?#]/u, 1)[0] ?? "";
-}
-
-// Routes a project window may show besides its own project subtree. These are
-// whole-app pages that replace the view and navigate back out again, so
-// bouncing them to the hub would close the project window mid-task.
-const PROJECT_WINDOW_SHARED_ROUTE_PREFIXES = [
-  "/settings",
-  "/projects",
-  "/usage",
-  "/pull-requests",
-  "/connect",
-  "/pair",
-] as const;
-
-function isSharedProjectWindowRoute(pathname: string): boolean {
-  return PROJECT_WINDOW_SHARED_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
-
-export function isRendererUrlForWindowIdentity(
-  isDevelopment: boolean,
-  identity: WindowIdentity,
-  rendererUrl: string,
-): boolean {
-  if (identity.kind === "hub") return true;
-  try {
-    const expected = new URL(getWindowApplicationUrl(isDevelopment, identity));
-    const actual = new URL(rendererUrl);
-    const expectedPathname = getHashRoutePathname(expected);
-    const actualPathname = getHashRoutePathname(actual);
-    return (
-      actual.origin === expected.origin &&
-      (actualPathname === expectedPathname ||
-        actualPathname.startsWith(`${expectedPathname}/`) ||
-        isSharedProjectWindowRoute(actualPathname))
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function isSameOriginRendererNavigation(input: {
   readonly applicationUrl: string;
   readonly navigationUrl: string;
@@ -486,10 +431,8 @@ export const make = Effect.gen(function* () {
       yield* previewManager.getBrowserSession();
     }
     const primaryFork = WindowDispatch.isPrimaryWindowFork(identity, dispatched); // fork-hook: multi-window/dispatch-primary
-    const applicationUrl = WindowDispatch.dispatchedWindowUrlFork(
-      getWindowApplicationUrl(environment.isDevelopment, identity),
-      dispatched,
-    ); // fork-hook: multi-window/dispatch-url
+    const rootUrlFork = getDesktopUrl(environment.isDevelopment); // fork-hook: multi-window/dispatch-root-url
+    const applicationUrl = WindowDispatch.dispatchedWindowUrlFork(rootUrlFork, dispatched); // fork-hook: multi-window/dispatch-url
     const normalWindowTitle =
       identity.kind === "hub" ? environment.displayName : identity.ref.projectId;
     const devAgentPlacement =
@@ -548,7 +491,7 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
-        additionalArguments: windowPreloadArguments(identity, windowId, dispatched?.seed), // fork-hook: multi-window/window-id-preload-argument
+        additionalArguments: windowPreloadArguments(windowId, dispatched?.seed), // fork-hook: multi-window/window-id-preload-argument
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -973,27 +916,6 @@ export const make = Effect.gen(function* () {
         );
       },
     );
-    if (identity.kind === "project") {
-      const guardProjectScope = (_event: unknown, url: string) => {
-        if (isRendererUrlForWindowIdentity(environment.isDevelopment, identity, url)) return;
-        runFork(
-          logWindowWarning("project window left its scope", {
-            url,
-            environmentId: identity.ref.environmentId,
-            projectId: identity.ref.projectId,
-          }),
-        );
-        runFork(
-          revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
-            Effect.andThen(Effect.sync(() => !window.isDestroyed() && window.close())), // fork-hook: multi-window/dispatch-guard-close
-            Effect.asVoid,
-          ),
-        );
-      };
-      window.webContents.on("did-navigate", guardProjectScope);
-      window.webContents.on("did-navigate-in-page", guardProjectScope);
-    }
-
     window.webContents.on("render-process-gone", (_event, details) => {
       const recoverable =
         details.reason === "crashed" ||

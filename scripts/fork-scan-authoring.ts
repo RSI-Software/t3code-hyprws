@@ -154,6 +154,18 @@ export const significantTestLines = (text: string): ReadonlySet<string> =>
       .map((line) => line.trim()),
   );
 
+/**
+ * Every non-blank line of an upstream source file, comments included: the hook
+ * guard reads a restored upstream comment as the revert it is, not a fork insertion.
+ */
+export const upstreamSourceLines = (text: string): ReadonlySet<string> =>
+  new Set(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== ""),
+  );
+
 export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch> => {
   const patches = new Map<string, CommitPatch>();
   for (const record of raw.replace(/\r\n/g, "\n").split(PATCH_RECORD_SEPARATOR)) {
@@ -414,6 +426,9 @@ export const collectAuthoringWarnings = (
       if (reported.has(key)) continue;
       const readded = patch.addedExports.find((added) => added.name === removed.name);
       if (readded === undefined) continue;
+      // The same line back in the same file is a move, such as a restore to upstream's order;
+      // the declaration stays upstream's own text where upstream edits it.
+      if (readded.path === removed.path && readded.line === removed.line) continue;
       reported.add(key);
       warn(
         "replaced-export",
