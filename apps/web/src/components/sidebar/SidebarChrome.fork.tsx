@@ -1,15 +1,8 @@
-// Fork-owned: the sidebar's GitHub Issues utility entry for commit
-// `9f92309411` (feat(issues): add GitHub Issues surface scoped to project
-// windows). The upstream `SidebarChrome.tsx` carries only marked hook lines
-// pointing here: the capability probe, the navigation callback, the footer
-// page detection, and the rendered entry.
-import { CircleDotIcon } from "lucide-react";
-import { useCallback } from "react";
+// Fork-owned sidebar GitHub Issues entry. Upstream `SidebarChrome.tsx` carries only marked
+// hook lines pointing here: the capability probe, the navigation callback, the footer page
+// detection, and the rendered entry.
+
 import type { useNavigate } from "@tanstack/react-router";
-
-import type { ScopedProjectRef } from "@t3tools/contracts";
-
-import { listRouteTarget } from "../../projectRoutes";
 
 type Environments = ReadonlyArray<{
   readonly serverConfig?: {
@@ -23,27 +16,20 @@ export const sidebarGitHubIssuesSupportedFork = (environments: Environments): bo
     (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
   );
 
-/** The footer page label for the Issues routes, or `null` when the path is not an Issues route. */
-export const resolveSidebarGitHubIssuesPageFork = (
-  pathname: string,
-  projectRef: ScopedProjectRef | null,
-): "github-issues" | null =>
-  pathname === "/issues" || (projectRef !== null && pathname.endsWith("/issues"))
-    ? "github-issues"
-    : null;
+/** True on the Issues page, which replaces the utility row with Back like the upstream utility pages. */
+export const isSidebarGitHubIssuesLocationFork = (location: { readonly pathname: string }) =>
+  location.pathname === "/issues";
 
-/** The utility entry's navigation callback: project-scoped Issues when inside a project window. */
-export const useGitHubIssuesSidebarNavigateFork = (deps: {
-  closeMobileSidebar: () => void;
-  navigate: ReturnType<typeof useNavigate>;
-  projectRef: ScopedProjectRef | null;
-}): (() => void) =>
-  useCallback(() => {
+/** The utility entry's navigation callback. */
+export const gitHubIssuesSidebarNavigateFork =
+  (deps: {
+    closeMobileSidebar: () => void;
+    navigate: ReturnType<typeof useNavigate>;
+  }): (() => void) =>
+  () => {
     deps.closeMobileSidebar();
     void deps.navigate({
-      ...listRouteTarget("issues", deps.projectRef),
+      to: "/issues",
       search: { state: "open" },
     });
-  }, [deps.closeMobileSidebar, deps.navigate, deps.projectRef]);
-
-/** The navigation callback handler wired through the marked JSX hook pair. */
+  };

@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema";
 import { ScopedProjectRef } from "./environment.ts";
 
 /**
- * A hash route inside the app, such as `/` or `/project/env/proj`. Leading
+ * A hash route inside the app, such as `/` or `/env/thread`. Leading
  * `//` is refused so a route can never read as a protocol-relative URL.
  */
 export const DesktopWindowRoute = Schema.String.check(Schema.isPattern(/^\/(?!\/)/u));
