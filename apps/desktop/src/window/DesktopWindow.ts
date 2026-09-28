@@ -461,6 +461,7 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
+        additionalArguments: windowPreloadArguments(windowId, dispatched?.seed), // fork-hook: multi-window/window-id-preload-argument
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
         // re-enables throttling so a hidden or minimized window goes back to
