@@ -1,8 +1,9 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   isValidProjectRouteId,
+  listRouteTarget,
   resolveProjectAvailabilityRedirect,
   resolveProjectContentRedirect,
   resolveProjectRefFromPathname,
@@ -90,5 +91,29 @@ describe("projectRoutes", () => {
         contentIdValid: true,
       }),
     ).toBe("project-index");
+  });
+
+  describe("list routes", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("keeps a desktop project window's lists in its project from a shared page", () => {
+      vi.stubGlobal("window", { desktopBridge: { projectWindowRef: PROJECT_REF } });
+      expect(listRouteTarget("issues", null)).toEqual({
+        to: "/project/$environmentId/$projectId/issues",
+        params: PROJECT_REF,
+      });
+      expect(listRouteTarget("pull-requests", null)).toEqual({
+        to: "/project/$environmentId/$projectId/pull-requests",
+        params: PROJECT_REF,
+      });
+    });
+
+    it("sends the hub and the web client to the all-projects lists", () => {
+      expect(listRouteTarget("issues", null)).toEqual({ to: "/issues" });
+      vi.stubGlobal("window", { desktopBridge: { projectWindowRef: null } });
+      expect(listRouteTarget("pull-requests", null)).toEqual({ to: "/pull-requests" });
+    });
   });
 });

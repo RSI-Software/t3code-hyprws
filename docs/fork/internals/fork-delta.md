@@ -247,13 +247,14 @@ Each new domain drops alone, and neither may keep the project route subtree.
 
 A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a manifest restore with one entry per window.
 
-| Seam     | Fork boundary                                                           |
-| -------- | ----------------------------------------------------------------------- |
-| Identity | `WindowId` minted in main at create, carried as a preload argument      |
-| Dispatch | `main`-window consumers resolve to the sender or most recent window     |
-| Startup  | A bounded intent queue drained once the renderer can load               |
-| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace |
-| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it       |
+| Seam     | Fork boundary                                                                             |
+| -------- | ----------------------------------------------------------------------------------------- |
+| Identity | `WindowId` minted in main at create, carried as a preload argument                        |
+| Dispatch | `main`-window consumers resolve to the sender or most recent window                       |
+| Requests | One table in `WindowDispatch.fork.ts` maps each window request to create, reuse, or focus |
+| Startup  | A bounded intent queue drained once the renderer can load                                 |
+| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace                   |
+| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it                         |
 
 ### Retirement condition
 

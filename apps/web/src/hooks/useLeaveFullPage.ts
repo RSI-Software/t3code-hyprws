@@ -8,7 +8,7 @@ import { readDesktopProjectWindowRef } from "../desktopProjectWindows";
  * Back-out navigation for the whole-app pages (settings, usage, pull requests)
  * that replace the view. The hub returns to the last main app URL. A desktop
  * project window steps back in its own history, or lands on its project: never
- * the hub, which the window is not allowed to show.
+ * the hub, since the desktop closes a project window that leaves its project.
  */
 export function useFullPageBackOut() {
   const navigate = useNavigate();
