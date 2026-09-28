@@ -14,6 +14,7 @@ import { createScratchProjectActions } from "../hooks/useScratchProject";
 import { getClientSettings } from "../hooks/useSettings";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { selectProjectGroupingSettings } from "../logicalProject";
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
@@ -94,6 +95,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
 
   const startNewLocal: CommandHandler = (event) => {
     claim(event);
+    if (startFilteredNewThreadFork(readThreadContext(), true)) return; // fork-hook: workspaces/filtered-new-thread
     void startNewThreadFromContext(readThreadContext());
   };
 
@@ -121,6 +123,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
         void scratch.startScratchThread(environmentId);
       },
       "chat.new": (event) => {
+        if (startFilteredNewThreadFork(readThreadContext(), false)) return claim(event); // fork-hook: workspaces/filtered-new-thread
         // Pre-hydration settings are the defaults, where the legacy sidebar is off.
         if (!getClientSettings().legacySidebarEnabled && readProjectGroupCount() > 1) {
           claim(event);
