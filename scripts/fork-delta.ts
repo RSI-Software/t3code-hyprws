@@ -92,7 +92,6 @@ export const ForkCommit = Schema.Struct({
   domain: OptionalTrailer,
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
-  repair: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
 
@@ -146,15 +145,36 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
 
+/** The subject prefix marking a fork landing that amends the commit it names. */
+export const FIXUP_PREFIX = "fixup! ";
+
+/** The ` (#N)` a squash landing appends to its pull request title. */
+const LANDING_SUFFIX = / \(#\d+\)$/;
+
 /**
- * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
+ * The owner subject a `fixup!` subject names, else undefined. A squash landing appends ` (#N)`, so
+ * one trailing ` (#N)` drops unless the full name is itself an owner, since an owner subject may end
+ * in its own landing number. Every `fixup!` matcher names its target here.
+ */
+export const fixupTarget = (
+  subject: string,
+  owners: { readonly has: (subject: string) => boolean },
+): string | undefined => {
+  if (!subject.startsWith(FIXUP_PREFIX)) return undefined;
+  const named = subject.slice(FIXUP_PREFIX.length);
+  return owners.has(named) ? named : named.replace(LANDING_SUFFIX, "");
+};
+
+/**
+ * Walk-authored `fixup!` commits are transient: they are trailer-free by
  * design, and the sync rebase autosquashes them into their owners immediately
  * after the delta check runs, so the ledger never sees them as permanent stack
  * members and must not demand trailers from them.
  */
 export const dropTransientFixups = (
   commits: ReadonlyArray<ForkCommit>,
-): ReadonlyArray<ForkCommit> => commits.filter((commit) => !commit.subject.startsWith("fixup! "));
+): ReadonlyArray<ForkCommit> =>
+  commits.filter((commit) => !commit.subject.startsWith(FIXUP_PREFIX));
 
 export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArray<ForkFinding> =>
   commits.flatMap((commit) => {
@@ -317,10 +337,6 @@ export const buildInventory = (input: {
       files: stats.files.length,
       overlaps: overlapPaths(stats.files, input.forkChanged, input.upstreamChanged).length,
     });
-    // A walk repair commit is the walk's own bookkeeping, not a domain's change:
-    // it stays visible in the per-commit table but its lines never count toward
-    // the domain sums.
-    if (commit.repair !== undefined) continue;
     for (const path of stats.files) distinctFiles.add(path);
     if (commit.domain === undefined) continue;
     const bucket = buckets.get(commit.domain) ?? {
