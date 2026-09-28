@@ -1,12 +1,28 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import type { WindowScopeSeed } from "@t3tools/contracts";
 import type * as Electron from "electron";
 
+import type { WindowRestoreEntry } from "./DesktopWindowSession.ts";
+import type { HyprlandWorkspaceRef } from "./hyprland.ts";
 import type { WindowId } from "./WindowId.fork.ts";
 
 /** The id a test registry mints for the nth window it creates. */
 export const testWindowId = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as WindowId;
+
+/** A restore row opening `seed` at its home, as an update relaunch records it. */
+export const testRestoreEntry = (
+  seed: WindowScopeSeed,
+  workspace: HyprlandWorkspaceRef | null,
+  windowId?: WindowId,
+): WindowRestoreEntry => ({
+  ...(windowId === undefined ? {} : { windowId }),
+  route: "/",
+  seed,
+  bounds: null,
+  workspace,
+});
 
 /**
  * A stand-in for main's window registry in `ElectronWindow` fakes: every
