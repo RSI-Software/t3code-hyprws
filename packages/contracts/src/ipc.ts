@@ -1123,6 +1123,8 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export type WindowScopeSeed = ScopedProjectRef | "all-projects"; // fork-hook: multi-window/window-scope-seed-type
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1243,6 +1245,7 @@ export interface DesktopBridge {
    */
   projectWindowRef?: ScopedProjectRef | null;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
+  windowScopeSeed?: WindowScopeSeed | null; // fork-hook: multi-window/window-scope-seed-bridge
   /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
