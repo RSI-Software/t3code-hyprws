@@ -31,9 +31,9 @@ vp run fork:scan
 
 | Fork commit | Domain | Upstream replacement |
 | --- | --- | --- |
-| \`apps/web/src/retired.ts\` | project-windows | gone |
+| \`apps/web/src/retired.ts\` | multi-window | gone |
 
-## project-windows
+## multi-window
 
 ### Shape
 
@@ -72,7 +72,7 @@ const scanInput = (overrides: Partial<ScanInput> = {}): ScanInput => ({
   base: "base",
   head: "HEAD",
   target: "upstream/main",
-  commits: [commit("aaaaaaa", "project-windows")],
+  commits: [commit("aaaaaaa", "multi-window")],
   filesBySha: new Map([["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/Sidebar.logic.ts"]]]),
   scans: parseRebaseScans(ledger),
   forkChanged: new Set(["apps/web/src/components/Sidebar.logic.ts"]),
@@ -82,8 +82,8 @@ const scanInput = (overrides: Partial<ScanInput> = {}): ScanInput => ({
 
 it("reads one pattern per code span from every domain's rebase scan", () => {
   const scans = parseRebaseScans(ledger);
-  assert.deepStrictEqual([...scans.keys()], ["project-windows", "upstream-fixes"]);
-  assert.deepStrictEqual(scans.get("project-windows"), [
+  assert.deepStrictEqual([...scans.keys()], ["multi-window", "upstream-fixes"]);
+  assert.deepStrictEqual(scans.get("multi-window"), [
     "apps/desktop/src/window/DesktopWindow.ts",
     "apps/desktop/src/ipc/**",
     "apps/web/src/routes/project.*",
@@ -98,10 +98,10 @@ it("reads the multi-window and workspaces rebase scans from the ledger (RSI-Soft
   const markdown = git.run(["show", `HEAD:${LEDGER_PATH}`]);
   assert.isAbove(root.length, 0, "the scan test runs inside a git checkout");
   const scans = parseRebaseScans(markdown);
-  const projectWindows = scans.get("project-windows") ?? [];
+  const multiWindow = scans.get("multi-window") ?? [];
   const workspaces = scans.get("workspaces") ?? [];
-  assert.strictEqual(projectWindows.length, 96);
-  assert.include(projectWindows, "apps/desktop/src/window/DesktopWindow.ts");
+  assert.include(multiWindow, "apps/desktop/src/preview/Manager*.ts");
+  assert.include(multiWindow, "apps/desktop/src/window/DesktopWindow.ts");
   assert.isTrue(
     workspaces.some((pattern) =>
       matchesScanPattern(pattern, "apps/web/src/components/Sidebar.tsx"),
@@ -112,7 +112,7 @@ it("reads the multi-window and workspaces rebase scans from the ledger (RSI-Soft
     workspaces.some((pattern) =>
       matchesScanPattern(pattern, "apps/desktop/src/window/DesktopWindow.ts"),
     ),
-    "a project-windows-only path must not match the workspaces scan",
+    "a multi-window-only path must not match the workspaces scan",
   );
 });
 
@@ -145,16 +145,16 @@ it("fails a file both the fork and upstream changed that the scan omits", () => 
   const result = buildScanResult(scanInput());
   assert.deepStrictEqual(result.domains, [
     {
-      domain: "project-windows",
+      domain: "multi-window",
       commitCount: 1,
       sharedCount: 1,
       gaps: ["apps/web/src/components/Sidebar.logic.ts"],
     },
   ]);
   assert.deepStrictEqual(scanFailures(result), [
-    "project-windows: rebase scan omits apps/web/src/components/Sidebar.logic.ts",
+    "multi-window: rebase scan omits apps/web/src/components/Sidebar.logic.ts",
   ]);
-  assert.include(renderScanReport(result), "MISSING  project-windows");
+  assert.include(renderScanReport(result), "MISSING  multi-window");
 });
 
 it("ignores a file only the fork changed and a file only upstream changed", () => {
@@ -179,7 +179,7 @@ it("accepts a file a scan pattern covers", () => {
   );
   assert.deepStrictEqual(scanFailures(covered), []);
   assert.deepStrictEqual(covered.overlaps, [
-    { path: "apps/desktop/src/ipc/methods/preview.ts", domain: "project-windows", covered: true },
+    { path: "apps/desktop/src/ipc/methods/preview.ts", domain: "multi-window", covered: true },
   ]);
 });
 
@@ -201,7 +201,7 @@ it("fails a domain that has commits but no rebase scan, and skips untagged commi
 it("attributes one shared file to every domain whose commits touch it", () => {
   const result = buildScanResult(
     scanInput({
-      commits: [commit("aaaaaaa", "project-windows"), commit("bbbbbbb", "upstream-fixes")],
+      commits: [commit("aaaaaaa", "multi-window"), commit("bbbbbbb", "upstream-fixes")],
       filesBySha: new Map([
         ["aaaaaaa".padEnd(40, "0"), ["apps/server/src/provider/Layers/GrokAdapter.ts"]],
         ["bbbbbbb".padEnd(40, "0"), ["apps/server/src/provider/Layers/GrokAdapter.ts"]],
@@ -212,7 +212,7 @@ it("attributes one shared file to every domain whose commits touch it", () => {
   );
   assert.deepStrictEqual(
     result.overlaps.map((overlap) => `${overlap.domain}:${overlap.covered}`),
-    ["project-windows:false", "upstream-fixes:true"],
+    ["multi-window:false", "upstream-fixes:true"],
   );
 });
 
