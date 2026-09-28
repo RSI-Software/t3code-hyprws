@@ -97,6 +97,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -4557,6 +4558,7 @@ export default function Sidebar() {
             forkInFlight(threadKey),
             ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
           ),
+          openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
           supports: {
             settlement: supportsSettlement,
             autoSettleOptOut: supportsAutoSettleOptOut,
@@ -4667,6 +4669,8 @@ export default function Sidebar() {
           }
           case "fork":
             return forkThreadDispatch(threadRef); // fork-hook: thread-fork/sidebar-dispatch
+          case "open-in-new-window": // fork-hook: multi-window/dispatch-thread-menu
+            return openThreadInNewWindow(threadRef, thread.projectId); // fork-hook: multi-window/dispatch-thread-menu
           case "reset-order":
             return attemptResetOrder(threadRef); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":

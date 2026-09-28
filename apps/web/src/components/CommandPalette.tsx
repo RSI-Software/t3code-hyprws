@@ -83,7 +83,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
+import { requestDesktopWindow, supportsDesktopProjectWindows } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-palette-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -2277,17 +2277,30 @@ function OpenCommandPaletteDialog(props: {
       : null) ??
     projectGroups[0] ??
     null;
+  if (desktopBridge) {
+    actionItems.push({
+      kind: "action",
+      value: "action:new-window",
+      searchTerms: ["new", "window", "desktop", "separate", "all projects"],
+      title: "New window",
+      icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "window.new",
+      run: async () => {
+        requestDesktopWindow(desktopBridge, { kind: "new-window" });
+      },
+    });
+  } // fork-hook: multi-window/dispatch-palette-new-window
   if (desktopBridge && contextualProjectRef) {
     actionItems.push({
       kind: "action",
       value: "action:open-project-window",
       searchTerms: ["open", "project", "window", "desktop", "separate"],
-      title: "Open project in new window",
+      title: "Open project window", // fork-hook: multi-window/dispatch-palette-open-project
       description: contextualProjectGroup?.displayName,
       icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "project.openWindow",
+      shortcutCommand: "window.openProject", // fork-hook: multi-window/dispatch-palette-open-project
       run: async () => {
-        await desktopBridge.openProjectWindow(contextualProjectRef);
+        requestDesktopWindow(desktopBridge, { kind: "project-link", ref: contextualProjectRef }); // fork-hook: multi-window/dispatch-palette-open-project
       },
     });
   }
