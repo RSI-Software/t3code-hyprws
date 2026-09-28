@@ -4,7 +4,7 @@
 // value and change handler, the trigger's label and icon, and the row extras.
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
 import { CheckIcon, FocusIcon, FolderIcon, FoldersIcon } from "lucide-react";
-import { useCallback, useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -39,25 +39,34 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
         items.map((item) => item.value),
         projectGroups,
       ),
-    [filter, projectGroups, setFilter],
-  );
-  const showOnly = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>, group: Group) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setFilter(showOnlyProjectFilter(group));
-      setMenuOpen(false);
-    },
-    [setFilter, setMenuOpen],
-  );
+    );
+  const showOnly = (event: ReactMouseEvent<HTMLButtonElement>, group: Group) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setFilter(showOnlyProjectFilter(group));
+    setMenuOpen(false);
+  };
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
-  const open = useCallback(() => {
-    // The chooser sits in the sidebar header, so a hidden sidebar shows first.
-    if (isMobile) setOpenMobile(true);
-    else setOpen(true);
-    setMenuOpen(true);
-  }, [isMobile, setMenuOpen, setOpen, setOpenMobile]);
-  useProjectChooserHost(open, state.label, enabled);
+  const openLatest = useRef(() => {});
+  useLayoutEffect(() => {
+    openLatest.current = () => {
+      // The chooser sits in the sidebar header, so a hidden sidebar shows first.
+      if (isMobile) setOpenMobile(true);
+      else setOpen(true);
+      setMenuOpen(true);
+    };
+  });
+  // Stable, so the registered host only changes with the filter and its label.
+  const open = () => openLatest.current();
+  const registered = {
+    open,
+    label: state.label,
+    titleLabel: state.titleLabel,
+    filter,
+    setFilter,
+    groups: projectGroups,
+  };
+  useProjectChooserHost(registered, enabled);
   return { ...state, selectedValues, unavailableValues, onValueChange, showOnly };
 }
 
