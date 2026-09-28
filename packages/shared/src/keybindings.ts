@@ -152,6 +152,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },
   { key: "mod+shift+w", command: "window.new", when: "!terminalFocus" }, // fork-hook: multi-window/dispatch-keybinding
   { key: "mod+alt+o", command: "window.openProject", when: "!terminalFocus" }, // fork-hook: multi-window/dispatch-keybinding
+  { key: "mod+alt+f", command: "projectFilter.choose", when: "!terminalFocus" }, // fork-hook: workspaces/chooser-keybinding
   { key: "mod+alt+shift+t", command: "themeEditor.toggle" },
   { key: "mod+s", command: "composer.stash", when: "!terminalFocus" },
   { key: "mod+shift+enter", command: "thread.steerQueuedMessage", when: "!terminalFocus" },
