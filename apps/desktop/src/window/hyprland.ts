@@ -143,6 +143,8 @@ export function resolveHyprlandWindowRuleGrammar(input: {
 const formatLuaString = (value: string): string =>
   JSON.stringify(value).replaceAll("\u2028", "\\u{2028}").replaceAll("\u2029", "\\u{2029}");
 
+const LUA_RULE_SEQUENCE_KEY = formatLuaString("t3code.rule.sequence");
+
 function formatLuaWindowRuleHandle(title: string, kind: "workspace" | "suppression"): string {
   return `t3code.desktop-agent.${kind}.${title}`;
 }
@@ -157,7 +159,9 @@ function formatLuaWindowRule(input: {
   const key = formatLuaString(formatLuaWindowRuleHandle(input.title, input.kind));
   const namePrefix = formatLuaString(`t3code-desktop-agent-${input.kind}-${input.title}-`);
   const titleMatcher = formatLuaString(matcher.slice("match:title ".length));
-  return `/eval local key=${key};local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name=${namePrefix}..seq,match={title=${titleMatcher}},${input.effect}})`;
+  // One compositor-wide counter names every rule, so no name is ever reused
+  // and no title leaves a counter behind.
+  return `/eval local key=${key};local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=${LUA_RULE_SEQUENCE_KEY};local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name=${namePrefix}..seq,match={title=${titleMatcher}},${input.effect}})`;
 }
 
 /** Exact map-time title matcher. Commas cannot be escaped in Hyprland rule fields. */
@@ -199,6 +203,12 @@ export function formatWorkspaceWindowRule(
       });
 }
 
+/** Disables a Lua rule and drops its handle global. */
+function formatClearLuaWindowRule(title: string, kind: "workspace" | "suppression"): string {
+  const key = formatLuaString(formatLuaWindowRuleHandle(title, kind));
+  return `/eval local key=${key};local rule=rawget(_G,key);if rule then rule:set_enabled(false);rawset(_G,key,nil) end`;
+}
+
 export function formatClearWorkspaceWindowRule(
   title: string,
   grammar: HyprlandWindowRuleGrammar = "legacy",
@@ -206,31 +216,53 @@ export function formatClearWorkspaceWindowRule(
   const matcher = formatWindowRuleTitleMatcher(title);
   if (matcher === null) return null;
   if (grammar === "legacy") return `/keyword windowrule workspace unset, ${matcher}`;
-  const key = formatLuaString(formatLuaWindowRuleHandle(title, "workspace"));
-  return `/eval local key=${key};local rule=rawget(_G,key);if rule then rule:set_enabled(false);rawset(_G,key,nil) end`;
+  return formatClearLuaWindowRule(title, "workspace");
+}
+
+/**
+ * Removes a suppression rule and its Lua globals. `null` on the legacy
+ * grammar, which has no unset for `suppress_event`; a title whose rules must
+ * not outlive it therefore never stages suppression there.
+ */
+export function formatClearSuppressionWindowRule(
+  title: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
+): string | null {
+  if (grammar === "legacy" || formatWindowRuleTitleMatcher(title) === null) return null;
+  return formatClearLuaWindowRule(title, "suppression");
 }
 
 /**
  * Pick the compositor client that belongs to a window we just opened.
  *
  * Everything this process owns shares one pid, so pid alone is ambiguous once
- * a second window exists. Claimed addresses drop out first, then an exact
- * title match wins; a lone remaining candidate is taken as the answer. Any
- * other shape is left unmatched rather than guessed at.
+ * a second window exists. Claimed addresses drop out, then a single exact
+ * title match is the answer. A window whose renderer retitled it before the
+ * claim has one more answer: given the addresses seen before it was shown,
+ * the only new client of ours that no staged title reserves. Two windows
+ * mapping at once leave two new clients, and neither is guessed at.
  */
 export function selectClientForWindow(input: {
   readonly clients: readonly HyprlandClient[];
   readonly pid: number;
   readonly title: string;
   readonly claimedAddresses: ReadonlySet<string>;
+  /** Our client addresses before the window was shown; enables the fallback. */
+  readonly knownAddresses?: ReadonlySet<string>;
+  /** Titles another window claims by exact match; never a fallback answer. */
+  readonly reservedTitles?: ReadonlySet<string>;
 }): HyprlandClient | null {
   const candidates = input.clients.filter(
     (client) => client.pid === input.pid && !input.claimedAddresses.has(client.address),
   );
-  if (candidates.length === 0) return null;
   const titled = candidates.filter((client) => client.title === input.title);
   if (titled.length === 1) return titled[0] ?? null;
-  return candidates.length === 1 ? (candidates[0] ?? null) : null;
+  const known = input.knownAddresses;
+  if (known === undefined || titled.length > 1) return null;
+  const fresh = candidates.filter(
+    (client) => !known.has(client.address) && !input.reservedTitles?.has(client.title),
+  );
+  return fresh.length === 1 ? (fresh[0] ?? null) : null;
 }
 
 class HyprlandRequestError extends Error {
