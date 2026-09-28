@@ -266,6 +266,7 @@ Upstream ships its own multi-window support.
 | `apps/desktop/src/window/DesktopWindow.ts`, `apps/desktop/src/app/DesktopApp.ts`, `apps/desktop/src/ipc/methods/window.ts`, `apps/desktop/src/window/hyprland.ts`                                       | Registry, dispatch, startup, restore      |
 | `apps/desktop/src/window/WindowIdentity.ts`, `apps/desktop/src/window/DesktopWindowSession.ts`, `apps/desktop/src/preview/WindowPolicy*.ts`, `apps/desktop/src/ipc/**`, `packages/contracts/src/ipc.ts` | Identity, session manifest, previews, IPC |
 | `apps/web/src/uiStateStore.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/windowSidebarScope.fork.ts`, `apps/desktop/src/window/WindowScopeSeed.fork.ts`                                     | Per-window sidebar scope                  |
+| `apps/desktop/src/electron/ElectronWindow.ts`, `apps/desktop/src/app/DesktopAppActivation.ts`, `apps/desktop/src/snapShot/DesktopSnapShot.ts`                                                           | Sender and most-recent window targets     |
 
 ## workspaces
 
