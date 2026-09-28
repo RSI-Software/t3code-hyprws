@@ -649,7 +649,7 @@ export const make = Effect.gen(function* () {
           // Upstream relaunches into a bare app because it only ever has one
           // window. The fork can be holding a window per project, each on its own
           // workspace, so record that layout while the windows are still alive.
-          yield* windowSession.capture(yield* electronWindow.listIdentities, "update");
+          yield* windowSession.capture(yield* electronWindow.listWindows, "update"); // fork-hook: multi-window/window-id-update-capture
           yield* electronUpdater.quitAndInstall({
             isSilent: true,
             isForceRunAfter: true,
