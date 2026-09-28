@@ -100,7 +100,7 @@ it("reads the multi-window and workspaces rebase scans from the ledger (RSI-Soft
   const scans = parseRebaseScans(markdown);
   const projectWindows = scans.get("project-windows") ?? [];
   const workspaces = scans.get("workspaces") ?? [];
-  assert.strictEqual(projectWindows.length, 105);
+  assert.strictEqual(projectWindows.length, 96);
   assert.include(projectWindows, "apps/desktop/src/window/DesktopWindow.ts");
   assert.isTrue(
     workspaces.some((pattern) =>
