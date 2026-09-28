@@ -19,6 +19,7 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopUserData from "./DesktopUserData.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { desktopSecondInstanceBuffer } from "./DesktopSecondInstanceBuffer.fork.ts"; // fork-hook: multi-window/second-instance-buffer
 import { makeComponentLogger } from "./DesktopObservability.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
@@ -126,6 +127,7 @@ export const make = Effect.gen(function* () {
           }),
       }).pipe(Effect.orDie),
   );
+  yield* desktopSecondInstanceBuffer.listen(electronApp); // fork-hook: multi-window/second-instance-buffer
 
   return DesktopClerk.of({
     configure: Effect.fn("desktop.clerk.configure")(function* <E>(
@@ -211,6 +213,7 @@ export const make = Effect.gen(function* () {
 
       // Clerk's bridge subscribes to these same Electron app events for OAuth
       // callbacks; EventEmitter delivers them to both listeners.
+      yield* desktopSecondInstanceBuffer.close; // fork-hook: multi-window/second-instance-buffer
       yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
         if (argv?.some((value) => startProviderAuthHandoff(value) || resumeProviderAuth(value)))
           return;
