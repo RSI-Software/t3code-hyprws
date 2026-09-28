@@ -3,6 +3,7 @@ import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 import {
+  AuthStandardClientScopes, // fork-hook: backend-attach/connections-standard-scopes
   AuthAccessReadScope,
   AuthAccessWriteScope,
   AuthEnvironmentMaintainScope,
@@ -25,6 +26,7 @@ import {
 import * as Cause from "effect/Cause";
 
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
+import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork"; // fork-hook: backend-attach/connections-session-scopes-import
 import {
   applyWslEnableSelection,
   isWslSettingsRowVisible,
@@ -163,9 +165,11 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   });
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const primarySessionState = usePrimarySessionState();
-  const currentSessionScopes = primarySessionState.data?.authenticated
-    ? (primarySessionState.data.permissions ?? primarySessionState.data.scopes ?? null)
-    : null;
+  const currentSessionScopes = connectionsSessionScopesFork(
+    desktopBridge,
+    AuthStandardClientScopes,
+    primarySessionState.data,
+  ); // fork-hook: backend-attach/connections-session-scopes
   const currentAuthPolicy = desktopBridge ? null : (primarySessionState.data?.auth.policy ?? null);
   const savedEnvironments = environments.filter(
     (environment) => environment.entry.target._tag !== "PrimaryConnectionTarget",
