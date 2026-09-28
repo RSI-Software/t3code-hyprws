@@ -10,6 +10,7 @@ import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import type { HyprlandPlacement as HyprlandPlacementKey } from "./HyprlandPlacement.ts";
 import type * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import type { DesktopWindowError } from "./DesktopWindow.ts";
+import type { WindowId } from "./WindowId.fork.ts";
 import { HUB_WINDOW_IDENTITY, windowIdentityKey, type WindowIdentity } from "./WindowIdentity.ts";
 
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
@@ -23,9 +24,14 @@ const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
 export const STARTUP_INTENT_QUEUE_CAPACITY = 8;
 
 export interface WindowOpeners {
+  /** Opens a window, reusing `windowId` when the restore carried one. */
   readonly ensureIdentity: () => (
     identity: WindowIdentity,
-  ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    windowId?: WindowId,
+  ) => Effect.Effect<
+    { readonly window: Electron.BrowserWindow; readonly windowId: WindowId },
+    DesktopWindowError
+  >;
   readonly revealOrCreateIdentity: () => (
     identity: WindowIdentity,
   ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
@@ -110,18 +116,20 @@ const makeStartupDrainImpl = Effect.gen(function* () {
       const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
       if (entries.length === 0) return false;
       for (const entry of entries) {
-        const key = windowIdentityKey(entry.identity);
-        const opened = yield* Effect.exit(openers.ensureIdentity()(entry.identity));
+        const opened = yield* Effect.exit(openers.ensureIdentity()(entry.identity, entry.windowId));
         if (Exit.isFailure(opened)) {
-          yield* logWindowWarning("failed to restore window", { identity: key });
+          yield* logWindowWarning("failed to restore window", {
+            identity: windowIdentityKey(entry.identity),
+          });
           continue;
         }
         const workspace = entry.workspace;
         if (workspace === null) continue;
+        const { window, windowId } = opened.value;
         yield* services.hyprlandPlacement
-          .claim(key, opened.value.getTitle())
+          .claim(windowId, window.getTitle())
           .pipe(
-            Effect.andThen(services.hyprlandPlacement.moveToWorkspace(key, workspace)),
+            Effect.andThen(services.hyprlandPlacement.moveToWorkspace(windowId, workspace)),
             Effect.ignore,
           );
       }
