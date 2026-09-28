@@ -173,19 +173,20 @@ for custom configuration.
 
 ## Desktop windows
 
-In the desktop app, **File → New Window** opens another window on all projects.
-The command palette and `mod+shift+w` do the same.
+In the desktop app, every window is a full T3 Code window: it can show any project, or all of them.
+**New Window** in the File menu, **New window** in the command palette, and `mod+shift+w` open one on all projects.
 
-To open a project in its own window, select the open-in-new-window button beside it in the project switcher.
-The legacy sidebar offers the same action in each project's context menu.
-A thread's context menu offers **Open in New Window**, which opens that thread in a new window.
+**Open in New Window** always creates a window:
 
-Open in New Window always creates a window, even when the project already has one.
-**Open project window** in the command palette, `mod+alt+o`, and a project link reuse a window already showing that project, and open one only when none does.
-Work you start from a window, such as an issue's thread, opens in that same window.
+- **Project:** its button in the project chooser
+- **Legacy sidebar:** a project's context menu
+- **Thread:** its context menu, opening that thread
+
+**Open project window** in the command palette, `mod+alt+o`, and a project link focus a window opened on that project, and open one only when none exists.
 A window opened on a project starts with its project filter set to that project; the filter stays changeable.
-Links saved from older project windows still open the same thread, draft, or list.
-Web and mobile clients do not show project-window actions.
+Work you start from a window, such as an issue's thread, opens in that same window.
+Older `#/project/...` links still open the same thread, draft, or list.
+Web and mobile clients do not show window actions.
 
 ### Choose a window's projects
 
