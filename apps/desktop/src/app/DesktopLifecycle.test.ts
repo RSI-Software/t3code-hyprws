@@ -71,6 +71,7 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
     close: () => Effect.void,
     windowIdFor: () => Effect.succeed(Option.none()), // fork-hook: multi-window/window-id-for
     listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
+    windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
     currentMainOrFirst: Effect.die("unexpected current window read"),
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
