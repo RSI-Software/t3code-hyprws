@@ -37,6 +37,7 @@ import {
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { OutsideFilterAddProjectFork } from "./OutsideFilterAddProject.fork"; // fork-hook: workspaces/outside-thread-import
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -355,6 +356,9 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* fork-hook: workspaces/outside-thread */}
+      <OutsideFilterAddProjectFork project={activeProject} />
+      {/* fork-hook-end */}
     </div>
   );
 });
