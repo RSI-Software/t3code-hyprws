@@ -79,6 +79,7 @@ import {
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import { MAC_PERMISSION_SETTINGS_URLS } from "../permissions/MacPermission.ts";
 import { showWindowsCaptureOverlay } from "./WindowsCaptureFeedback.ts";
+import { snapShotCaptureTarget } from "./SnapShotTarget.fork.ts"; // fork-hook: multi-window/window-targets-capture-import
 
 import {
   boundedSnapShotString,
@@ -425,6 +426,7 @@ async function captureSource({
   let linuxFeedback: LinuxCaptureFeedback | undefined;
   let linuxActivationFailure: { readonly cause: unknown } | undefined;
   const destinationWindow =
+    snapShotCaptureTarget(captureId) ?? // fork-hook: multi-window/window-targets-capture-destination
     Electron.BrowserWindow.getFocusedWindow() ??
     Electron.BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
   const destinationWindowBounds = destinationWindow?.getBounds();
