@@ -45,6 +45,9 @@ import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
+import { useMobileProjectFilter } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
+import { pickMobileProjectFilter } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
+import { mobileProjectFilterPick } from "../home/useMobileProjectFilter.fork"; // fork-hook: workspaces/mobile-filter-import
 import {
   getConnectionAwareBrandHeaderOptions,
   WorkspaceConnectionTitle,
@@ -252,6 +255,7 @@ function ThreadNavigationSidebarPane(
       setSelectedProjectKey(null);
     }
   }, [projectFilterOptions, selectedProjectKey]);
+  useMobileProjectFilter(projects, options, selectedProjectKey, setSelectedProjectKey); // fork-hook: workspaces/mobile-filter
   const selectedProjectRefs = useMemo(
     () =>
       selectedProjectScope === null
@@ -590,12 +594,14 @@ function ThreadNavigationSidebarPane(
         return;
       }
       if (event === "project:all") {
+        pickMobileProjectFilter(null); // fork-hook: workspaces/mobile-filter-pick
         setSelectedProjectKey(null);
         return;
       }
       if (event.startsWith("project:")) {
         const projectKey = event.slice("project:".length);
         if (projectFilterOptions.some((project) => project.key === projectKey)) {
+          pickMobileProjectFilter(projectKey); // fork-hook: workspaces/mobile-filter-pick
           setSelectedProjectKey(projectKey);
         }
         return;
@@ -886,6 +892,7 @@ function ThreadNavigationSidebarPane(
         selectedProjectKey,
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
+        ...mobileProjectFilterPick, // fork-hook: workspaces/mobile-filter-pick
       }),
     [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
   );
