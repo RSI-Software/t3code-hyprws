@@ -1,15 +1,9 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentShellStatus } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadState } from "@t3tools/client-runtime/state/threads";
-import type {
-  EnvironmentId,
-  ScopedProjectRef,
-  ScopedThreadRef,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import type { DraftId } from "./composerDraftStore";
-import { resolveProjectRouteRef } from "./projectRoutes";
 
 export type ThreadRouteTarget =
   | {
@@ -20,10 +14,6 @@ export type ThreadRouteTarget =
       kind: "draft";
       draftId: DraftId;
     };
-
-type ThreadRouteParams = Partial<
-  Record<"environmentId" | "projectId" | "threadId" | "draftId", string | undefined>
->;
 
 type DraftThreadRouteState = {
   environmentId: EnvironmentId;
@@ -85,59 +75,6 @@ export function buildDraftThreadRouteParams(draftId: DraftId): {
   draftId: DraftId;
 } {
   return { draftId };
-}
-
-export const hubThreadRouteFamily = {
-  kind: "hub" as const,
-  thread: (threadRef: ScopedThreadRef) => ({
-    to: "/$environmentId/$threadId" as const,
-    params: buildThreadRouteParams(threadRef),
-  }),
-  draft: (draftId: DraftId) => ({
-    to: "/draft/$draftId" as const,
-    params: buildDraftThreadRouteParams(draftId),
-  }),
-  index: () => ({ to: "/" as const }),
-};
-
-function projectThreadRouteFamily(projectRef: ScopedProjectRef) {
-  return {
-    kind: "project" as const,
-    projectRef,
-    thread: (threadRef: ScopedThreadRef) => ({
-      to: "/project/$environmentId/$projectId/thread/$threadId" as const,
-      params: {
-        environmentId: projectRef.environmentId,
-        projectId: projectRef.projectId,
-        threadId: threadRef.threadId,
-      },
-    }),
-    draft: (draftId: DraftId) => ({
-      to: "/project/$environmentId/$projectId/draft/$draftId" as const,
-      params: {
-        environmentId: projectRef.environmentId,
-        projectId: projectRef.projectId,
-        draftId,
-      },
-    }),
-    index: () => ({
-      to: "/project/$environmentId/$projectId" as const,
-      params: {
-        environmentId: projectRef.environmentId,
-        projectId: projectRef.projectId,
-      },
-    }),
-  };
-}
-
-export type ThreadRouteFamily =
-  | typeof hubThreadRouteFamily
-  | ReturnType<typeof projectThreadRouteFamily>;
-
-/** Selects the navigation family represented by the current route params. */
-export function resolveThreadRouteFamily(params: ThreadRouteParams): ThreadRouteFamily {
-  const projectRef = resolveProjectRouteRef(params);
-  return projectRef ? projectThreadRouteFamily(projectRef) : hubThreadRouteFamily;
 }
 
 export function resolveThreadRouteRef(

@@ -21,8 +21,6 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
-import { filterSidebarProjects, filterSidebarThreads } from "./sidebar/SidebarPhysicalScope";
-import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -92,7 +90,7 @@ import {
   openInNewWindowRequest,
   requestDesktopWindow,
   supportsDesktopProjectWindows,
-} from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-legacy-import
+} from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-legacy-import
 import { isElectron } from "../env";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
@@ -1310,10 +1308,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
   const { isMobile, setOpenMobile } = useSidebar();
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
@@ -1768,11 +1762,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     if (isMobile) {
       setOpenMobile(false);
     }
-    return router.navigate(routeFamily.thread(threadRef));
+    return router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+    });
   };
   const handleThreadFileDrop = async (threadRef: ScopedThreadRef, files: File[]) => {
     const dropId = queuePendingFileDrop({ threadRef, files });
-    const targetPathname = router.buildLocation(routeFamily.thread(threadRef)).pathname;
+    const targetPathname = router.buildLocation({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+    }).pathname;
     if (targetPathname === router.state.location.pathname) return;
     try {
       await navigateToThread(threadRef);
@@ -1820,7 +1820,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     if (isMobile) {
       setOpenMobile(false);
     }
-    void router.navigate(routeFamily.thread(threadRef));
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+    });
   };
 
   const handleMultiSelectContextMenu = async (position: { x: number; y: number }) => {
@@ -3331,7 +3334,6 @@ function clearThreadSelectionOnOutsideMouseDown(event: globalThis.MouseEvent) {
 }
 
 export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
-  const forcedProjectRef = useSidebarPhysicalScope();
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
@@ -3342,10 +3344,6 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     useThreadActions();
   const { isMobile, setOpenMobile } = useSidebar();
   const routeTarget = useThreadRouteTarget();
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -3419,7 +3417,10 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     if (isMobile) {
       setOpenMobile(false);
     }
-    void navigate(routeFamily.thread(threadRef));
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+    });
   };
 
   const projectDnDSensors = useSensors(useSensor(PointerSensor, PROJECT_POINTER_SENSOR_OPTIONS));
@@ -3472,7 +3473,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     animatedThreadListsRef.current.add(node);
   };
 
-  const isManualProjectSorting = forcedProjectRef === null && sidebarProjectSortOrder === "manual";
+  const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   // Build before modifier-dependent context to give the compiler a separate cache used by every row.
   const threadJumpLabelByKey = buildThreadJumpLabelMap({
     keybindings,

@@ -1,22 +1,17 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { MouseEvent } from "react";
 import type { useNavigate } from "@tanstack/react-router";
-import type { ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
+import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-request-links";
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
-import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes";
-
-import { findProjectOnChangeRequestHost } from "./openPullRequestLink";
 
 /**
- * Fork: the preferred-project policy for GitHub links, without a second
- * project resolver. Upstream's `findProjectOnChangeRequestHost` stays the only
- * matcher; the fork's preference is expressed by ordering the candidate list
- * so the window's active project sorts first before the call — its own
- * repository still wins inside the resolver, and the host-wide fallback now
- * meets the preferred project before any other checkout on the host.
+ * Fork: GitHub links prefer the window's project without a second resolver. Upstream's
+ * `findProjectOnChangeRequestHost` stays the only matcher; the active project sorts first in
+ * its candidate list, so its own repository still wins and the host-wide fallback meets the
+ * preferred project before any other checkout on the host.
  */
 
 function repositoryIdentityOf(project: EnvironmentProject): string | null {
@@ -47,7 +42,7 @@ function orderProjectsPreferredFirstFork(
  */
 export function findProjectPreferredFork(
   projects: ReadonlyArray<EnvironmentProject>,
-  link: ChangeRequestLink,
+  link: Parameters<typeof findProjectOnChangeRequestHost>[1],
   preferredProjectId?: string,
 ): EnvironmentProject | undefined {
   return findProjectOnChangeRequestHost(
@@ -62,6 +57,15 @@ export function linkedRepositoryFork(project: EnvironmentProject, repository: st
   return projectRepository?.toLowerCase() === repository.toLowerCase()
     ? projectRepository
     : repository;
+}
+
+/** Change request links prefer the thread's project and borrow a host checkout outside the panel too. */
+export function linkPreferenceFork(resolvedThreadRef: ScopedThreadRef | undefined): {
+  readonly projectId?: ProjectId | undefined;
+  readonly lendHostProject?: boolean;
+} {
+  const projectId = resolvedThreadRef ? readThreadShell(resolvedThreadRef)?.projectId : undefined;
+  return { projectId, lendHostProject: true };
 }
 
 export interface GitHubIssueLink {
@@ -111,11 +115,9 @@ export interface OpenGitHubIssueLinkInput {
 }
 
 /**
- * Claim a GitHub issue link for the in-app issue surface, or leave it alone.
- * Everything here — parsing, the project-window or hub candidate list, the
- * preferred-project ordering through `findProjectPreferredFork`, the right
- * panel open, and the scoped route fallback — is fork-owned; the upstream
- * handler carries only the one marked claim line.
+ * Claim a GitHub issue link for the in-app issue surface, or leave it alone. Parsing,
+ * candidate ordering through `findProjectPreferredFork`, the right panel open, and the
+ * scoped route fallback are fork-owned; the upstream handler carries one marked claim line.
  */
 export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boolean {
   const parsedIssue = parseGitHubIssueUrl(accept.targetUrl);
@@ -157,17 +159,6 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
     repository,
     number: parsedIssue.number,
   };
-  const windowProjectRef = currentWindowProjectRef();
-  void navigate({
-    ...listRouteTarget("issues", windowProjectRef),
-    search: {
-      ...search,
-      ...(windowProjectRef !== null &&
-      (windowProjectRef.environmentId !== issueProject.environmentId ||
-        windowProjectRef.projectId !== issueProject.id)
-        ? { scope: "all" as const }
-        : {}),
-    },
-  });
+  void navigate({ to: "/issues", search });
   return true;
 }

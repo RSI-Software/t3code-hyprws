@@ -1,9 +1,5 @@
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
-import {
-  scopedProjectKey,
-  scopeProjectRef,
-  scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
+import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   Outlet,
   Link,
@@ -45,8 +41,6 @@ import { AnchoredToastProvider, ToastProvider } from "../components/ui/toast";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
 import { useClientSettings } from "../hooks/useSettings";
-import { resolveProjectRefFromPathname } from "../projectRoutes";
-import { hubThreadRouteFamily } from "../threadRoutes";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -198,13 +192,9 @@ function RootRouteBranch() {
 
   const appShell = (
     <CommandPalette>
-      {pathname.startsWith("/project/") ? (
+      <AppSidebarLayout>
         <Outlet />
-      ) : (
-        <AppSidebarLayout>
-          <Outlet />
-        </AppSidebarLayout>
-      )}
+      </AppSidebarLayout>
     </CommandPalette>
   );
 
@@ -379,9 +369,11 @@ function EventRouter({
         return;
       }
       await navigate({
-        ...hubThreadRouteFamily.thread(
-          scopeThreadRef(payload.environment.environmentId, payload.bootstrapThreadId),
-        ),
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: payload.environment.environmentId,
+          threadId: payload.bootstrapThreadId,
+        },
         replace: true,
       });
       handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;

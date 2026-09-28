@@ -24,6 +24,7 @@ import {
   forkTestSibling,
   parseCommitPatches,
   significantTestLines,
+  upstreamSourceLines,
   type AuthoringGuardInput,
 } from "./fork-scan-authoring.ts";
 
@@ -476,6 +477,35 @@ it("fails a replaced export matched by name across files", () => {
   assert.isTrue(failures.some((failure) => failure.startsWith("replaced-export:")));
 });
 
+it("passes an upstream export moved verbatim within its own file", () => {
+  const raw = [
+    "abc1234",
+    "--- a/apps/web/src/upstream.ts",
+    "+++ b/apps/web/src/upstream.ts",
+    "@@ -1,2 +1,2 @@",
+    "-export const shared = 1;",
+    " const other = 2;",
+    "+export const shared = 1;",
+    "",
+  ].join("\n");
+  const result = buildScanResult(
+    baseInput({
+      commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+      filesBySha: new Map([["abc1234", ["apps/web/src/upstream.ts"]]]),
+      patchesBySha: parseCommitPatches(raw),
+      upstreamFiles: new Set(["apps/web/src/upstream.ts"]),
+      upstreamTestFiles: new Set(),
+      upstreamTestLines: new Map(),
+      upstreamLines: new Map([
+        ["apps/web/src/upstream.ts", new Set(["export const shared = 1;", "const other = 2;"])],
+      ]),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
+    }),
+  );
+  assert.isFalse(scanFailures(result).some((failure) => failure.startsWith("replaced-export:")));
+});
+
 it("only treats a replaced export as upstream when its source line exists in the target", () => {
   const raw = [
     "abc1234",
@@ -628,6 +658,10 @@ it("reads the sibling name and significant lines", () => {
   assert.deepStrictEqual(
     [...significantTestLines("// comment\n\nexpect(1).toBe(1);\n")],
     ["expect(1).toBe(1);"],
+  );
+  assert.deepStrictEqual(
+    [...upstreamSourceLines("  // comment\n\nconst one = 1;\n")],
+    ["// comment", "const one = 1;"],
   );
   void ledger;
 });
