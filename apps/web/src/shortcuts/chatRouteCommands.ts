@@ -5,6 +5,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { desktopWindowCommandsFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
 import { dispatchPreviewAction, type PreviewAction } from "../components/preview/previewActionBus";
 import { isAppModalPage } from "../components/sidebar/mainAppLocation";
 import { createNewThreadHandler, resolveDefaultProjectRef } from "../hooks/useHandleNewThread";
@@ -106,6 +107,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
 
   return registerCommands(
     {
+      ...desktopWindowCommandsFork(readThreadContext), // fork-hook: multi-window/dispatch-keybinding-run
       "chat.newLocal": startNewLocal,
       "chat.newWithoutProject": (event) => {
         const { activeThread, activeDraftThread } = readThreadContext();
