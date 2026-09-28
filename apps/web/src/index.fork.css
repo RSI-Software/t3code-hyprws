@@ -1,5 +1,5 @@
 /* Fork-only stylesheet, imported once from index.css behind the marked hook
-   `project-windows/index-fork-css`. Fork rules live here as cascade overrides;
+   `fork-meta/index-fork-css`. Fork rules live here as cascade overrides;
    index.css follows upstream text. Overrides use bumped specificity because the
    imported sheet precedes the upstream rules it beats. */
 

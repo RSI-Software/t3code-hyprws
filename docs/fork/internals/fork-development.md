@@ -26,7 +26,8 @@ A rerun adopts the worktree for the same tag and lease; the [`fork-sync`](../../
 | Per-window backend  | No separate server, database, or auth |
 | Second frontend     | No desktop-only copy of the web app   |
 | Compositor policy   | No workspace policy inside T3 Code    |
-| Removal             | Keep hub, remote, web, mobile         |
+| Hub window          | All projects is a filter state        |
+| Removal             | Keep remote, web, mobile              |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
 `dev:desktop:agent` is the one tooling exception; shipped launches leave placement to Hyprland.
@@ -74,8 +75,8 @@ Domains are not branches: a commit declares one with `Fork-Domain`.
 ### Extracting a domain
 
 ```bash
-git switch -c extract/project-windows upstream/main
-git cherry-pick $(vp run fork:delta --domain project-windows --shas)
+git switch -c extract/multi-window upstream/main
+git cherry-pick $(vp run fork:delta --domain multi-window --shas)
 ```
 
 A conflict means the domain shares code with another.
