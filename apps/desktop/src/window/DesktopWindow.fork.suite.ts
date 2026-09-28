@@ -16,7 +16,7 @@ import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
 import type * as PreviewManager from "../preview/Manager.ts";
 import type { DesktopWindowHarnessFork } from "./DesktopWindow.test.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
-import { testWindowId } from "./testWindowIds.fork.ts";
+import { testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts";
 
 /**
  * Upstream's test environment plus the variables a fork case opts into. The
@@ -294,6 +294,33 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
           "clear",
         ]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("leaves an unplaced restored window wherever Hyprland puts it", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const workspaceMoves: { key: string; workspace: string }[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        workspaceMoves,
+        restoreEntries: [testRestoreEntry("all-projects", null)],
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.restoreWindowSession;
+        yield* desktopWindow.openArguments(["t3code"]);
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        yield* Effect.yieldNow;
+        assert.deepEqual(workspaceMoves, []);
       }).pipe(Effect.provide(layer));
     }),
   );
