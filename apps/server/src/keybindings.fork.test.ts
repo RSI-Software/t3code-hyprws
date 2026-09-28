@@ -29,6 +29,13 @@ describe("fork keybinding defaults", () => {
     ).map((binding) => binding.command);
     assert.deepEqual(owners, ["window.new"]);
   });
+
+  it("gives the project chooser a chord no other default uses", () => {
+    const owners = Keybindings.DEFAULT_KEYBINDINGS.filter(
+      (binding) => binding.key === "mod+alt+f",
+    ).map((binding) => binding.command);
+    assert.deepEqual(owners, ["projectFilter.choose"]);
+  });
 });
 
 describe("fork keybinding command renames", () => {

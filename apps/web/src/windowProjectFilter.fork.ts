@@ -14,8 +14,9 @@ import { windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
  * Follows this window's filter onto the sidebar's current project groups and
- * projects it for upstream: `scopeKey` is the single-select chooser's value,
- * `projectKeys` the scoped project keys the list shows (`null` = all).
+ * projects it for upstream: `scopeKey` is the one entry's key, else `null`,
+ * `projectKeys` the scoped project keys the list shows (`null` = all). The
+ * chooser reads `filter` and writes through `setFilter`.
  */
 export function useWindowProjectFilter(
   projectGroups: ReadonlyArray<{
@@ -40,9 +41,11 @@ export function useWindowProjectFilter(
   }, [filter, state, stored]);
   return useMemo(
     () => ({
+      filter,
+      setFilter: state.set,
       scopeKey: projectFilterScopeKey(filter),
       projectKeys: projectFilterProjectKeys(filter),
     }),
-    [filter],
+    [filter, state],
   );
 }
