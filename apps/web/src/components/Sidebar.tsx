@@ -93,6 +93,14 @@ import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWi
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
+import { useWindowProjectFilter } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import {
+  ProjectChooserRowCheckFork,
+  ProjectChooserShowOnlyButtonFork,
+  ProjectChooserTriggerIconFork,
+  ProjectChooserUnavailableFork,
+  useSidebarProjectChooserFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -221,7 +229,6 @@ import {
   useSnoozeWakeClock,
   threadShortcutContext,
   useThreadJumpHintsVisible,
-  type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";
@@ -1042,6 +1049,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
   );
+  const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
+  const projectChooser = useSidebarProjectChooserFork({
+    filter: windowFilter.filter,
+    setFilter: windowFilter.setFilter,
+    projectGroups,
+    enabled: projectGroups.length > 0, // fork-hook: workspaces/chooser
+    setMenuOpen: (open) => dispatchProjectScopeMenu({ type: "open-changed", open }),
+  }); // fork-hook: workspaces/chooser
   const projectScopeFilter = useComboboxFilter();
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const allProjectConfigsReady = useAtomValue(environmentProjects.projectConfigsReadyAtom);
@@ -1376,7 +1391,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
+    projectScopeKey: projectChooser.label, // fork-hook: workspaces/chooser-settled-reset
     scopedProjectKeys,
     serverConfigs,
     connectedEnvironmentIds,
@@ -3100,7 +3115,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
-                  items={projectScopeItems}
+                  multiple // fork-hook: workspaces/chooser-multiple
+                  items={projectChooser.items} // fork-hook: workspaces/chooser-items
                   filteredItems={filteredProjectScopeItems}
                   autoHighlight
                   itemToStringLabel={(item) => item.label}
@@ -3133,6 +3149,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     } else {
                       setProjectScopeKeys([item.value]);
                     }
+                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
+                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
                   <ComboboxTrigger
@@ -3166,7 +3184,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         <ProjectFavicon project={scopedProjectGroups[0]} className="size-4" />
                       </span>
                     ) : (
-                      <ListFilterIcon className="size-4" />
+                      <ProjectChooserTriggerIconFork count={projectChooser.count} /> // fork-hook: workspaces/chooser-trigger-icon
                     )}
                   </ComboboxTrigger>
                   {/* Refocusing the trigger after a pointer close shows its focus ring and opens its tooltip. */}
@@ -3242,6 +3260,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
+                            {/* fork-hook: workspaces/chooser-row-check */}
+                            <ProjectChooserRowCheckFork
+                              selected={projectChooser.selectedValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             <ProjectScopeRowIcon isSelected={isSelected}>
                               {project ? (
                                 <ProjectFavicon project={project} className="size-4 shrink-0" />
@@ -3250,6 +3273,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )}
                             </ProjectScopeRowIcon>
                             <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-row-unavailable */}
+                            <ProjectChooserUnavailableFork
+                              unavailable={projectChooser.unavailableValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -3257,7 +3285,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
-                            {/* fork-hook: project-windows/sidebar-open-window-button */}
+                            {/* fork-hook: workspaces/chooser-row-show-only */}
+                            {project ? (
+                              <ProjectChooserShowOnlyButtonFork
+                                project={project}
+                                onShowOnly={projectChooser.showOnly}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
+                            {/* fork-hook: multi-window/sidebar-open-window-button */}
                             {project ? (
                               <SidebarOpenProjectWindowButtonFork
                                 desktopBridge={desktopBridge}
