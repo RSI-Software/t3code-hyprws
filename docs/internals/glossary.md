@@ -20,11 +20,11 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 Fork-only terms. The [fork sync runbook](../fork/operations/fork-sync.md) owns the procedure behind them.
 
-| Term                    | Meaning                                                                                                                                                                                    |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `release/vX.Y.Z-hyprws` | A create-only branch snapshotting the fork stack rebased onto stable upstream `vX.Y.Z`. Stable `vX.Y.Z-hyprws.<n>` tags are cut from it, and later trunk work never moves it.              |
-| `hyprws sync blocked`   | The fork's block issue: one per blocking upstream sha, labelled `ci` and found by its title phrase and `blocking-sha` body marker. A maintainer resolves it through the `fork-sync` skill. |
-| Nightly channel         | The prerelease update channel for `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>` tags, kept separate from stable fork releases in the desktop updater.                                             |
+| Term                    | Meaning                                                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `release/vX.Y.Z-hyprws` | A create-only branch snapshotting the fork stack rebased onto stable upstream `vX.Y.Z`. Stable `vX.Y.Z-hyprws.<n>` tags are cut from it, and later trunk work never moves it.             |
+| `hyprws sync blocked`   | The fork's standing block issue: one open at a time, labelled `ci`, found by its title phrase, and rewritten by each blocked run. A maintainer resolves it through the `fork-sync` skill. |
+| Nightly channel         | The prerelease update channel for `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>` tags, kept separate from stable fork releases in the desktop updater.                                            |
 
 ## Orchestration
 
