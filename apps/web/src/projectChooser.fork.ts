@@ -131,10 +131,15 @@ export function showOnlyProjectFilter(group: ProjectChooserGroup): ProjectFilter
 }
 
 // The chooser lives in the sidebar; the other surfaces reach it through this
-// one host, which the sidebar registers while it is mounted.
-interface ProjectChooserHost {
+// one host, which the sidebar registers while it is mounted. Its absence means
+// no chooser serves this window (no projects yet, the legacy sidebar, or a
+// route without the sidebar), so nothing else scopes to the filter either.
+export interface ProjectChooserHost {
   readonly open: () => void;
   readonly label: string;
+  readonly filter: ProjectFilter;
+  readonly setFilter: (filter: ProjectFilter) => void;
+  readonly groups: ReadonlyArray<ProjectChooserGroup>;
 }
 
 let host: ProjectChooserHost | null = null;
@@ -153,25 +158,34 @@ const subscribe = (listener: () => void) => {
 };
 
 /** Registers the sidebar's chooser while mounted, so other surfaces can open it. */
-export function useProjectChooserHost(open: () => void, label: string, enabled: boolean): void {
+export function useProjectChooserHost(registered: ProjectChooserHost, enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
-    const registered: ProjectChooserHost = { open, label };
     setHost(registered);
     return () => {
       if (host === registered) setHost(null);
     };
-  }, [enabled, label, open]);
+  }, [enabled, registered]);
+}
+
+/** The mounted chooser; `null` where no chooser serves this window. */
+export function useProjectChooserHostValue(): ProjectChooserHost | null {
+  // No chooser is mounted during a server render.
+  return useSyncExternalStore(
+    subscribe,
+    () => host,
+    () => null,
+  );
+}
+
+/** The mounted chooser, read outside React (keybindings). */
+export function readProjectChooserHost(): ProjectChooserHost | null {
+  return host;
 }
 
 /** The mounted chooser's label; `null` where no chooser serves this window. */
 export function useProjectChooserLabel(): string | null {
-  // No chooser is mounted during a server render.
-  return useSyncExternalStore(
-    subscribe,
-    () => host?.label ?? null,
-    () => null,
-  );
+  return useProjectChooserHostValue()?.label ?? null;
 }
 
 /** Opens the sidebar's chooser. Returns whether one was there to open. */
