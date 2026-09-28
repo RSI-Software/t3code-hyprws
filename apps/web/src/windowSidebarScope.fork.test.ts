@@ -4,6 +4,7 @@ import {
   type ScopedProjectRef,
   type WindowScopeSeed,
 } from "@t3tools/contracts";
+import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
 import { Storage } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { create } from "zustand";
@@ -12,6 +13,7 @@ import {
   parsePersistedState,
   PERSISTED_STATE_KEY,
   setSidebarProjectScopeKey,
+  type UiState,
 } from "./uiStateStore";
 import {
   bindWindowSidebarScope,
@@ -20,6 +22,7 @@ import {
   WINDOW_SIDEBAR_SCOPE_GRACE_MS,
   WINDOW_SIDEBAR_SCOPE_PREFIX,
   WINDOW_SIDEBAR_SCOPE_RESTORE_HORIZON_MS,
+  WEB_TAB_WINDOW_ID,
 } from "./windowSidebarScope.fork";
 
 const WINDOW_A = "00000000-0000-4000-8000-00000000000a";
@@ -87,7 +90,12 @@ function openWindow(
   } = {},
 ) {
   const raw = local.getItem(PERSISTED_STATE_KEY);
-  const store = create(() => parsePersistedState(raw === null ? {} : JSON.parse(raw)));
+  const store = create<UiState & { setSidebarProjectScopeKey: (key: string | null) => void }>(
+    (set) => ({
+      ...parsePersistedState(raw === null ? {} : JSON.parse(raw)),
+      setSidebarProjectScopeKey: (key) => set((state) => setSidebarProjectScopeKey(state, key)),
+    }),
+  );
   store.subscribe((state) =>
     local.setItem(
       PERSISTED_STATE_KEY,
@@ -103,11 +111,19 @@ function openWindow(
     windowId,
     options.seed ?? null,
   );
-  bindWindowSidebarScope(store, scope);
-  const choose = (scopeKey: string | null) =>
-    store.setState((state) => setSidebarProjectScopeKey(state, scopeKey));
-  return { store, scope, choose, scopeKey: () => store.getState().sidebarProjectScopeKey };
+  const filter = bindWindowSidebarScope(store, scope);
+  // The chooser's pick, through the store action as upstream's chooser calls it.
+  const choose = (scopeKey: string | null) => store.getState().setSidebarProjectScopeKey(scopeKey);
+  return { store, scope, filter, choose, scopeKey: () => store.getState().sidebarProjectScopeKey };
 }
+
+const entry = (key: string) => {
+  const group = groups.find((candidate) => candidate.projectKey === key)!;
+  return { key, members: group.memberProjectRefs };
+};
+const bothProjects: ProjectFilter = {
+  entries: [entry("github.com/acme/api"), entry("github.com/acme/web")],
+};
 
 describe("per-window sidebar project scope", () => {
   it("restart: two windows keep different scopes", () => {
@@ -279,6 +295,56 @@ describe("per-window sidebar project scope", () => {
   });
 });
 
+describe("per-window project filter", () => {
+  it("restart: a window reopens on every entry it selected", () => {
+    const local = new Storage();
+    const a = openWindow(local, WINDOW_A);
+    a.filter.set(bothProjects);
+    // Two entries have no single-select value, so the shared key shows all.
+    expect(a.scopeKey()).toBeNull();
+    openWindow(local, WINDOW_B).choose("github.com/acme/web");
+
+    const restored = openWindow(local, WINDOW_A);
+    expect(restored.filter.get()).toEqual(bothProjects);
+    expect(restored.scopeKey()).toBeNull();
+  });
+
+  it("the single-select chooser's pick is a one-entry filter, and its reset clears it", () => {
+    const a = openWindow(new Storage(), WINDOW_A);
+    a.choose("github.com/acme/api");
+    expect(a.filter.get()).toEqual({ entries: [{ key: "github.com/acme/api", members: [] }] });
+
+    a.filter.set({ entries: [entry("github.com/acme/web")] });
+    expect(a.scopeKey()).toBe("github.com/acme/web");
+    a.choose(null);
+    expect(a.filter.get().entries).toEqual([]);
+  });
+
+  it("with several entries, the chooser's All projects clears them and one pick replaces them", () => {
+    const a = openWindow(new Storage(), WINDOW_A);
+    a.filter.set(bothProjects);
+    a.choose(null);
+    expect(a.filter.get().entries).toEqual([]);
+
+    a.filter.set(bothProjects);
+    a.choose("github.com/acme/api");
+    expect(a.filter.get().entries.map((entry) => entry.key)).toEqual(["github.com/acme/api"]);
+    expect(a.scopeKey()).toBe("github.com/acme/api");
+  });
+
+  it("a scope record from before the filter reopens as a one-entry filter", () => {
+    const local = new Storage();
+    local.setItem(
+      `${WINDOW_SIDEBAR_SCOPE_PREFIX}${WINDOW_A}`,
+      JSON.stringify({ scopeKey: "github.com/acme/api", touchedAt: 1 }),
+    );
+
+    const a = openWindow(local, WINDOW_A);
+    expect(a.scopeKey()).toBe("github.com/acme/api");
+    expect(a.filter.get()).toEqual({ entries: [{ key: "github.com/acme/api", members: [] }] });
+  });
+});
+
 describe("installing the per-window scope", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -286,25 +352,50 @@ describe("installing the per-window scope", () => {
   });
 
   // A fresh module per test: `install` binds one store per page.
-  async function installInto(bridge: Record<string, unknown> | undefined) {
-    const local = new Storage();
+  async function installInto(
+    bridge: Record<string, unknown> | undefined,
+    { local = new Storage(), session = new Storage() } = {},
+  ) {
     local.setItem(PERSISTED_STATE_KEY, JSON.stringify({ sidebarProjectScopeKey: "shared" }));
-    vi.stubGlobal("window", { desktopBridge: bridge, localStorage: local, addEventListener() {} });
+    vi.stubGlobal("window", {
+      desktopBridge: bridge,
+      localStorage: local,
+      sessionStorage: session,
+      addEventListener() {},
+    });
     vi.stubGlobal("navigator", {});
+    vi.resetModules();
     const module = await import("./windowSidebarScope.fork");
     const store = create(() => parsePersistedState({ sidebarProjectScopeKey: "shared" }));
     module.install(store);
-    return { module, store, local };
+    return { module, store, local, session };
   }
 
-  it("is a no-op on plain web, which has no WindowId", async () => {
-    const { module, store, local } = await installInto(undefined);
-    module.applyWindowSidebarScopeSeed(groups, true);
-    store.setState({ sidebarProjectScopeKey: "github.com/acme/api" });
+  it("Web: plain web keeps each tab's filter in sessionStorage", async () => {
+    const first = await installInto(undefined);
+    // A new tab inherits the shared scope, as upstream.
+    expect(first.module.windowProjectFilterState().get().entries).toEqual([
+      { key: "shared", members: [] },
+    ]);
+    first.module.applyWindowSidebarScopeSeed(groups, true);
+    first.module.windowProjectFilterState().set(bothProjects);
 
-    expect(store.getState().sidebarProjectScopeKey).toBe("github.com/acme/api");
-    const keys = Array.from({ length: local.length }, (_, index) => local.key(index));
-    expect(keys).toEqual([PERSISTED_STATE_KEY]);
+    const tabKey = `${WINDOW_SIDEBAR_SCOPE_PREFIX}${WEB_TAB_WINDOW_ID}`;
+    expect(JSON.parse(first.session.getItem(tabKey) ?? "{}")).toEqual(
+      expect.objectContaining({ filter: bothProjects }),
+    );
+    // Nothing per tab reaches the shared localStorage.
+    const localKeys = Array.from({ length: first.local.length }, (_, i) => first.local.key(i));
+    expect(localKeys).toEqual([PERSISTED_STATE_KEY]);
+
+    // A reload keeps the tab's sessionStorage and reopens on its filter.
+    const reloaded = await installInto(undefined, { session: first.session });
+    expect(reloaded.module.windowProjectFilterState().get()).toEqual(bothProjects);
+    expect(reloaded.store.getState().sidebarProjectScopeKey).toBeNull();
+
+    // Another tab has its own sessionStorage and does not see it.
+    const other = await installInto(undefined, { local: first.local });
+    expect(other.module.windowProjectFilterState().get()).not.toEqual(bothProjects);
   });
 
   it("the sidebar's seed path puts the installed window on its seed project", async () => {
@@ -320,7 +411,9 @@ describe("installing the per-window scope", () => {
 
     expect(store.getState().sidebarProjectScopeKey).toBe("github.com/acme/web");
     expect(JSON.parse(local.getItem(`${WINDOW_SIDEBAR_SCOPE_PREFIX}${WINDOW_A}`) ?? "{}")).toEqual(
-      expect.objectContaining({ scopeKey: "github.com/acme/web" }),
+      expect.objectContaining({
+        filter: { entries: [{ key: "github.com/acme/web", members: [] }] },
+      }),
     );
   });
 });
