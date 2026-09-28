@@ -6,9 +6,16 @@ import type { ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
-import { currentWindowProjectRef, listRouteTarget } from "../projectRoutes";
 
-import { findProjectOnChangeRequestHost } from "./openPullRequestLink";
+/**
+ * Upstream's `findProjectOnChangeRequestHost`, passed in by its caller: importing it back from
+ * `./openPullRequestLink` would form a cycle that deadlocks tests mocking that module with
+ * `importOriginal`.
+ */
+export type FindProjectOnHostFork = (
+  projects: ReadonlyArray<EnvironmentProject>,
+  link: ChangeRequestLink,
+) => EnvironmentProject | undefined;
 
 /**
  * Fork: the preferred-project policy for GitHub links, without a second
@@ -46,14 +53,12 @@ function orderProjectsPreferredFirstFork(
  * otherwise any project checked out from that host.
  */
 export function findProjectPreferredFork(
+  findProjectOnHost: FindProjectOnHostFork,
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
   preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  return findProjectOnChangeRequestHost(
-    orderProjectsPreferredFirstFork(projects, preferredProjectId),
-    link,
-  );
+  return findProjectOnHost(orderProjectsPreferredFirstFork(projects, preferredProjectId), link);
 }
 
 /** The identity's own spelling of the repository when the link refers to it. */
@@ -108,6 +113,7 @@ export interface OpenGitHubIssueLinkInput {
   >;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly navigate: ReturnType<typeof useNavigate>;
+  readonly findProjectOnHost: FindProjectOnHostFork;
 }
 
 /**
@@ -120,8 +126,15 @@ export interface OpenGitHubIssueLinkInput {
 export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boolean {
   const parsedIssue = parseGitHubIssueUrl(accept.targetUrl);
   if (parsedIssue === null) return false;
-  const { event, resolvedThreadRef, allProjects, serverConfigs, primaryEnvironmentId, navigate } =
-    accept;
+  const {
+    event,
+    resolvedThreadRef,
+    allProjects,
+    serverConfigs,
+    primaryEnvironmentId,
+    navigate,
+    findProjectOnHost,
+  } = accept;
   const readsIssues = (environmentId: EnvironmentId) =>
     serverConfigs.get(environmentId)?.environment.capabilities.githubIssues === true;
   const projects = resolvedThreadRef
@@ -136,7 +149,12 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
   const preferredProjectId = resolvedThreadRef
     ? readThreadShell(resolvedThreadRef)?.projectId
     : undefined;
-  const issueProject = findProjectPreferredFork(projects, parsedIssue, preferredProjectId);
+  const issueProject = findProjectPreferredFork(
+    findProjectOnHost,
+    projects,
+    parsedIssue,
+    preferredProjectId,
+  );
   if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
   event.preventDefault();
   event.stopPropagation();
@@ -157,17 +175,6 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
     repository,
     number: parsedIssue.number,
   };
-  const windowProjectRef = currentWindowProjectRef();
-  void navigate({
-    ...listRouteTarget("issues", windowProjectRef),
-    search: {
-      ...search,
-      ...(windowProjectRef !== null &&
-      (windowProjectRef.environmentId !== issueProject.environmentId ||
-        windowProjectRef.projectId !== issueProject.id)
-        ? { scope: "all" as const }
-        : {}),
-    },
-  });
+  void navigate({ to: "/issues", search });
   return true;
 }

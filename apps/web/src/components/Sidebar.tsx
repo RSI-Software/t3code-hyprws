@@ -9,12 +9,6 @@ import {
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 
-import {
-  filterSidebarProjects,
-  resolveSidebarPhysicalScope,
-  setSidebarLogicalScope,
-} from "./sidebar/SidebarPhysicalScope";
-import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -74,8 +68,8 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-desktop-bridge-import
-import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopProjectWindows"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { useDesktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 import { useOpenProjectWindowFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-import
 import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: project-windows/sidebar-open-window-button-import
 import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
@@ -781,7 +775,6 @@ const SIDEBAR_DRAG_DISTANCE = 6;
 const SIDEBAR_DRAG_LABEL_HEIGHT = 24;
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
-  const forcedProjectRef = useSidebarPhysicalScope();
   const {
     projects,
     serverConfigs,
@@ -894,10 +887,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const acknowledgeWoke = useAcknowledgeThreadWoke();
   const routeTarget = useThreadRouteTarget();
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -990,28 +979,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
-  const {
-    projectGroup: scopedProjectGroup,
-    effectiveScopeKey: effectiveProjectScopeKey,
-    projectKeys: scopedProjectKeys,
-  } = useMemo(
-    () =>
-      resolveSidebarPhysicalScope({
-        forcedProjectRef,
-        projectGroups,
-        logicalScopeKey: projectScopeKey,
-      }),
-    [forcedProjectRef, projectGroups, projectScopeKey],
-  );
   const selectedProjectScopeItem =
-    projectScopeItems.find((item) => item.value === (effectiveProjectScopeKey ?? "all")) ??
+    projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
+  const scopedProjectGroup =
+    projectScopeKey === null
+      ? null
+      : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null);
+  const scopedProjectKeys = windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
+  useWindowProjectFilterChange(clearSelection); // fork-hook: workspaces/chooser-clear-selection
   useEffect(() => {
     const nextKey = resolveSidebarProjectScopeKey({
       groups: projectGroups,
@@ -1373,7 +1355,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isMobile) {
       setOpenMobile(false);
     }
-    void router.navigate(routeFamily.draft(draftId));
+    void router.navigate({ to: "/draft/$draftId", params: { draftId } });
   };
 
   const clearThreadSearch = () => {
@@ -1490,7 +1472,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       : shell
         ? () =>
             void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
-        : () => void router.navigate(routeFamily.index());
+        : () => void router.navigate({ to: "/" });
   };
 
   const attemptSettle = (
@@ -2946,7 +2928,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   isItemEqualToValue={(a, b) => a.value === b.value}
                   open={projectScopeMenuState.open}
                   onOpenChange={(open) => {
-                    if (forcedProjectRef !== null) return;
                     if (open) suppressNextScopeChangeRef.current = false;
                     dispatchProjectScopeMenu({ type: "open-changed", open });
                   }}
@@ -2959,7 +2940,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (forcedProjectRef !== null) return; // fork-hook: workspaces/chooser-change
                     projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
@@ -2967,7 +2947,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     render={
                       <SidebarHeaderIconButton
                         label={projectChooser.label} // fork-hook: workspaces/chooser-label
-                        disabled={forcedProjectRef !== null}
                       />
                     }
                   >
@@ -3085,25 +3064,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
-              }
-              projectSettingsAction={
-                forcedProjectRef !== null && scopedProjectGroup !== null ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <SidebarHeaderIconButton
-                          label={`Project settings for ${scopedProjectGroup.displayName}`}
-                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-                            void handleProjectSettings(event, scopedProjectGroup);
-                          }}
-                        >
-                          <SettingsIcon />
-                        </SidebarHeaderIconButton>
-                      }
-                    />
-                    <TooltipPopup side="right">Project settings</TooltipPopup>
-                  </Tooltip>
-                ) : undefined
               }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
