@@ -2,7 +2,9 @@ import type { DesktopWindowRequest, ScopedProjectRef, WindowScopeSeed } from "@t
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import type { DesktopWindowBounds } from "../settings/DesktopAppSettings.ts";
 import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
+import type { HyprlandWorkspaceRef } from "./hyprland.ts";
 import { isWindowId, type WindowId } from "./WindowId.fork.ts";
 import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
 
@@ -37,6 +39,11 @@ export type WindowRequest =
 export interface WindowCreateRequest {
   readonly route: string;
   readonly seed: WindowScopeSeed;
+  /** Set on an update restore: the bounds and workspace the window had. */
+  readonly restored?: {
+    readonly bounds: DesktopWindowBounds | null;
+    readonly workspace: HyprlandWorkspaceRef | null;
+  };
 }
 
 export const NEW_WINDOW_ROUTE = "/";
