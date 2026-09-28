@@ -43,7 +43,37 @@ export interface TestBlockHunk {
   readonly path: string;
   readonly added: number;
   readonly removed: number;
+  /**
+   * True when the hunk deletes nothing and its old range ends at the base
+   * file's last line: with --unified=0 that means no trailing context, so
+   * every added line lands after the last upstream line.
+   */
+  readonly tailAppend: boolean;
 }
+
+/** A hunk header's old range: `@@ -start,count ... @@`. */
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? /;
+
+const parseHunkHeader = (
+  line: string,
+): { readonly start: number; readonly count: number } | null => {
+  const match = HUNK_HEADER.exec(line);
+  if (match === null) return null;
+  return { start: Number(match[1]), count: match[2] === undefined ? 1 : Number(match[2]) };
+};
+
+/**
+ * The two documented in-module harness deferrals
+ * (docs/fork/internals/fork-development.md, "Fork tests live in
+ * fork-owned files"): both build the harness in-module, and a sibling
+ * would re-register every test. One shared list owns both guards; each
+ * guard still applies its own shape check, so a mid-file insertion in
+ * these files is refused exactly like any other upstream edit.
+ */
+export const HARNESS_DEFERRAL_FILES: ReadonlySet<string> = new Set([
+  "apps/desktop/src/window/DesktopWindow.test.ts",
+  "apps/server/src/server.test.ts",
+]);
 
 export interface CommitPatch {
   readonly removedExports: ReadonlyArray<ExportDeclaration>;
@@ -58,9 +88,15 @@ export interface CommitPatch {
   readonly removedTestLines: ReadonlyMap<string, ReadonlyArray<string>>;
   // Every added/removed content line a commit's patch carries, keyed by path,
   // so the hook guard can classify the seam without parsing diffs again.
+  // tailAppend aligns with added: true when the line's hunk is a tail
+  // append (deletes nothing, old range ends at the base file's last line).
   readonly changedLines: ReadonlyMap<
     string,
-    { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
+    {
+      readonly added: ReadonlyArray<string>;
+      readonly removed: ReadonlyArray<string>;
+      readonly tailAppend: ReadonlyArray<boolean>;
+    }
   >;
 }
 
@@ -154,7 +190,10 @@ export const significantTestLines = (text: string): ReadonlySet<string> =>
       .map((line) => line.trim()),
   );
 
-export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch> => {
+export const parseCommitPatches = (
+  raw: string,
+  baseLineCounts?: ReadonlyMap<string, number> | undefined,
+): ReadonlyMap<string, CommitPatch> => {
   const patches = new Map<string, CommitPatch>();
   for (const record of raw.replace(/\r\n/g, "\n").split(PATCH_RECORD_SEPARATOR)) {
     const [header = "", ...lines] = record.split("\n");
@@ -166,21 +205,52 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const removedTestLines = new Map<string, Array<string>>();
     const addedLines = new Map<string, Array<string>>();
     const removedLines = new Map<string, Array<string>>();
+    const tailAppendByPath = new Map<string, Array<boolean>>();
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
     let targetPath: string | null = null;
     let hunkAddedTestBlocks = 0;
     let hunkRemovedTestBlocks = 0;
+    let hunkOldEnd = 0;
+    let hunkRemoved = 0;
+    // Start offsets of this hunk's added lines within tailAppendByPath, so
+    // flush can mark exactly this hunk's lines without a parallel buffer.
+    let hunkAddedStarts: Array<{ readonly path: string; readonly index: number }> = [];
     const flushTestBlockHunk = () => {
       const path = targetPath ?? sourcePath;
+      // A tail append deletes nothing and its old range ends at the base
+      // file's last line. Without a base count the end is unprovable, so
+      // the hunk reads as mid-file and stays refused.
+      const baseCount = path === null ? undefined : baseLineCounts?.get(path);
+      const isTailAppend =
+        hunkRemoved === 0 && baseCount !== undefined && hunkOldEnd >= baseCount - 1;
+      for (const start of hunkAddedStarts) {
+        const flags = tailAppendByPath.get(start.path);
+        if (flags !== undefined && start.index < flags.length) flags[start.index] = isTailAppend;
+      }
       if (path !== null && (hunkAddedTestBlocks > 0 || hunkRemovedTestBlocks > 0)) {
-        testBlockHunks.push({ path, added: hunkAddedTestBlocks, removed: hunkRemovedTestBlocks });
+        testBlockHunks.push({
+          path,
+          added: hunkAddedTestBlocks,
+          removed: hunkRemovedTestBlocks,
+          tailAppend: isTailAppend,
+        });
       }
       hunkAddedTestBlocks = 0;
       hunkRemovedTestBlocks = 0;
+      hunkOldEnd = 0;
+      hunkRemoved = 0;
+      hunkAddedStarts = [];
     };
     for (const line of lines) {
+      if (line.startsWith("@@")) {
+        flushTestBlockHunk();
+        const header = parseHunkHeader(line);
+        hunkOldEnd =
+          header === null ? 0 : header.count === 0 ? header.start : header.start + header.count - 1;
+        continue;
+      }
       if (line.startsWith("--- ")) {
         flushTestBlockHunk();
         sourcePath = diffPath(line.slice(4));
@@ -188,10 +258,6 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (line.startsWith("+++ ")) {
         targetPath = diffPath(line.slice(4));
-        continue;
-      }
-      if (line.startsWith("@@")) {
-        flushTestBlockHunk();
         continue;
       }
       const added = line.startsWith("+");
@@ -204,6 +270,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const held = side.get(path);
       if (held === undefined) side.set(path, [content]);
       else held.push(content);
+      if (added) {
+        // The flag is decided per hunk at flush time; record a placeholder
+        // here so tailAppend aligns with added even across hunks.
+        const flags = tailAppendByPath.get(path) ?? [];
+        hunkAddedStarts.push({ path, index: flags.length });
+        flags.push(false);
+        tailAppendByPath.set(path, flags);
+      } else hunkRemoved += 1;
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const heldLines = removedTestLines.get(path) ?? [];
         heldLines.push(content.trim());
@@ -226,12 +300,17 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     flushTestBlockHunk();
     const changedLines = new Map<
       string,
-      { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
+      {
+        readonly added: ReadonlyArray<string>;
+        readonly removed: ReadonlyArray<string>;
+        readonly tailAppend: ReadonlyArray<boolean>;
+      }
     >();
     for (const path of new Set([...addedLines.keys(), ...removedLines.keys()]))
       changedLines.set(path, {
         added: addedLines.get(path) ?? [],
         removed: removedLines.get(path) ?? [],
+        tailAppend: tailAppendByPath.get(path) ?? [],
       });
     patches.set(sha, {
       removedExports,
@@ -348,6 +427,12 @@ export const collectAuthoringWarnings = (
     for (const hunk of patch.testBlockHunks) {
       const count = Math.max(0, hunk.added - hunk.removed);
       if (count === 0) continue;
+      // The in-module harness deferrals build the harness in-module, so a
+      // sibling would re-register every test: blocks appended after the
+      // last upstream line stay in-module. Anything else — a mid-file
+      // insertion, even of novel text like an early return — still needs
+      // the sibling, exactly like any other upstream edit.
+      if (hunk.tailAppend && HARNESS_DEFERRAL_FILES.has(hunk.path)) continue;
       appendedTestBlocks.set(hunk.path, (appendedTestBlocks.get(hunk.path) ?? 0) + count);
     }
     for (const [path, count] of [...appendedTestBlocks].toSorted(([left], [right]) =>

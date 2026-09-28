@@ -19,6 +19,7 @@ import {
   type AuthoringGuardCommit,
   collectAuthoringWarnings,
   commitPatchArguments,
+  HARNESS_DEFERRAL_FILES,
   parseCommitPatches,
   renderAuthoringWarnings,
   significantTestLines,
@@ -460,6 +461,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
               upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
               upstreamLines: input.guard?.upstreamLines,
               replayAddedLines: input.guard?.replayAddedLines?.get(commit.sha),
+              harnessDeferralFiles: HARNESS_DEFERRAL_FILES,
             }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
           }),
   };
@@ -588,6 +590,33 @@ const readLines = (raw: string): ReadonlyArray<string> =>
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+
+/**
+ * Base-tree line counts for the harness deferral files a guarded commit
+ * touches: the tail-append check compares each hunk's old range against
+ * the base count, so the check measures the tree the commit applied to.
+ * Unreadable blobs leave no entry and their hunks stay refused.
+ */
+const readBaseLineCounts = (
+  git: GitReader,
+  base: string,
+  guardCommits: ReadonlyArray<AuthoringGuardCommit>,
+  filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
+): ReadonlyMap<string, number> => {
+  const paths = new Set<string>();
+  for (const commit of guardCommits)
+    for (const path of filesBySha.get(commit.sha) ?? [])
+      if (HARNESS_DEFERRAL_FILES.has(path)) paths.add(path);
+  const counts = new Map<string, number>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      counts.set(path, git.run(["show", `${base}:${path}`]).split("\n").length);
+    } catch {
+      // An unreadable blob leaves no entry, and its hunks stay refused.
+    }
+  }
+  return counts;
+};
 
 const readChangedPaths = (git: GitReader, base: string, head: string): ReadonlyArray<string> =>
   readLines(git.run(["-c", "core.quotePath=false", "diff", "--name-only", `${base}..${head}`]));
@@ -814,7 +843,10 @@ const buildGuardInput = (
   const patchesBySha =
     guardCommits.length === 0
       ? new Map<string, CommitPatch>()
-      : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))));
+      : parseCommitPatches(
+          git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))),
+          readBaseLineCounts(git, range.base, guardCommits, filesBySha),
+        );
   const replayAddedLines = new Map<string, ReadonlyMap<string, ReadonlyArray<string>>>();
   if (options.replayOf !== null) {
     const replayBase = git.run(["merge-base", range.target, options.replayOf]).trim();

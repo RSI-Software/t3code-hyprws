@@ -35,6 +35,12 @@ export interface HookGuardCommit {
 
 export interface HookGuardChange {
   readonly added: ReadonlyArray<string>;
+  /**
+   * Per-added-line tail-append flags, aligned with `added`: true when the
+   * line's hunk deletes nothing and its old range ends at the base file's
+   * last line. Absent or short reads as all false.
+   */
+  readonly tailAppend?: ReadonlyArray<boolean> | undefined;
 }
 
 export interface HookGuardInput {
@@ -52,6 +58,13 @@ export interface HookGuardInput {
   // keyed by path. Matching occurrences are historical insertions, not lines
   // introduced by this replay, and are exempt count by count.
   readonly replayAddedLines?: ReadonlyMap<string, ReadonlyArray<string>> | undefined;
+  /**
+   * The shared in-module harness deferral list
+   * (scripts/fork-scan-authoring.ts): only added lines flagged tail-append
+   * in these files are exempt. A mid-file insertion there still needs a
+   * hook marker, exactly like any other upstream edit.
+   */
+  readonly harnessDeferralFiles?: ReadonlySet<string> | undefined;
 }
 
 const isForkHookSuffixLine = (line: string): boolean =>
@@ -106,6 +119,12 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
       if (marked.has(index + 1)) continue;
       if (line.includes("fork-hook:")) continue;
       if (isFragmentScaffold(change.added, index)) continue;
+      // Tail-appended lines in the harness deferral files are in-module by
+      // doctrine, not unmarked insertions. Position-gated (never text-only):
+      // an inserted early return is novel text, so a text match would
+      // exempt exactly the attack this refuses everywhere else.
+      if (input.harnessDeferralFiles?.has(path) === true && (change.tailAppend?.[index] ?? false))
+        continue;
       unmarked.push(line);
     }
     const code = unmarked.filter(

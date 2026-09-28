@@ -4,6 +4,14 @@ import { assert, it } from "@effect/vitest";
 
 import { hookGuardWarnings } from "./fork-hook-guard.ts";
 
+// Mirrors HARNESS_DEFERRAL_FILES in ../fork-scan-authoring.ts (one shared
+// list owns both guards); lib tests must not import outside scripts/lib,
+// so the scan-gates suite asserts the two stay in sync.
+const HARNESS_DEFERRAL_FILES: ReadonlySet<string> = new Set([
+  "apps/desktop/src/window/DesktopWindow.test.ts",
+  "apps/server/src/server.test.ts",
+]);
+
 const input = (
   added: ReadonlyArray<string>,
   path = "apps/web/src/thing.ts",
@@ -113,4 +121,47 @@ it("exempts an upstreamable bugfix", () => {
     }),
     [],
   );
+});
+
+it("exempts tail-appended lines in the harness deferral files", () => {
+  for (const path of [...HARNESS_DEFERRAL_FILES]) {
+    assert.deepStrictEqual(
+      hookGuardWarnings({
+        commit: { short: "abc1234", domain: "project-windows" },
+        files: [path],
+        changedLines: new Map([
+          [path, { added: ['it("fork case", () => {});'], tailAppend: [true] }],
+        ]),
+        upstreamFiles: new Set([path]),
+        harnessDeferralFiles: HARNESS_DEFERRAL_FILES,
+      }),
+      [],
+    );
+  }
+});
+
+it("still refuses a mid-file insertion in a harness deferral file", () => {
+  const path = "apps/desktop/src/window/DesktopWindow.test.ts";
+  const warnings = hookGuardWarnings({
+    commit: { short: "abc1234", domain: "project-windows" },
+    files: [path],
+    changedLines: new Map([[path, { added: ["if (early) return;"], tailAppend: [false] }]]),
+    upstreamFiles: new Set([path]),
+    harnessDeferralFiles: HARNESS_DEFERRAL_FILES,
+  });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /outside a marked hook/);
+});
+
+it("still refuses tail-appended lines outside the harness deferral files", () => {
+  const path = "apps/web/src/other.test.ts";
+  const warnings = hookGuardWarnings({
+    commit: { short: "abc1234", domain: "project-windows" },
+    files: [path],
+    changedLines: new Map([[path, { added: ['it("fork case", () => {});'], tailAppend: [true] }]]),
+    upstreamFiles: new Set([path]),
+    harnessDeferralFiles: HARNESS_DEFERRAL_FILES,
+  });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /outside a marked hook/);
 });

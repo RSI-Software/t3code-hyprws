@@ -16,15 +16,17 @@ import {
   resolveGuardedCommits,
   scanFailures,
   squashedMembers,
+  type AuthoringGuardInput,
   type ScanInput,
 } from "./fork-scan.ts";
+import type { AuthoringGuardInput as AuthoringGuardInputShape } from "./fork-scan-authoring.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
 import {
   forkTestSibling,
+  HARNESS_DEFERRAL_FILES,
   parseCommitPatches,
   significantTestLines,
-  type AuthoringGuardInput,
 } from "./fork-scan-authoring.ts";
 
 const ledger = `# Fork delta
@@ -291,6 +293,73 @@ it("guards every bounded commit without --replay-of", () => {
     ),
     commits,
   );
+});
+
+it("keeps the hook guard's deferral list in sync with the authoring guard", () => {
+  // scripts/lib tests must not import outside scripts/lib, so the hook
+  // guard suite mirrors HARNESS_DEFERRAL_FILES locally: fail here rather
+  // than drift into two lists.
+  assert.deepStrictEqual([...HARNESS_DEFERRAL_FILES].toSorted(), [
+    "apps/desktop/src/window/DesktopWindow.test.ts",
+    "apps/server/src/server.test.ts",
+  ]);
+});
+
+it("exempts tail-appended fork blocks in the harness deferral files", () => {
+  for (const path of [...HARNESS_DEFERRAL_FILES]) {
+    const raw = [
+      "abc1234",
+      `--- a/${path}`,
+      `+++ b/${path}`,
+      "@@ -10,0 +11 @@",
+      '+it("fork case", () => {});',
+      "",
+    ].join("\n");
+    const patchesBySha = parseCommitPatches(raw, new Map([[path, 11]]));
+    const guard: AuthoringGuardInputShape = {
+      commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+      filesBySha: new Map([["abc1234", [path]]]),
+      patchesBySha,
+      upstreamFiles: new Set([path]),
+      upstreamTestFiles: new Set([path]),
+      upstreamTestLines: new Map([[path, new Set()]]),
+      upstreamTestTexts: new Map(),
+      siblingTexts: new Map(),
+    };
+    const result = buildScanResult(baseInput(guard));
+    assert.deepStrictEqual(
+      scanFailures(result).filter((failure) => failure.startsWith("upstream-test:")),
+      [],
+    );
+  }
+});
+
+it("still refuses a mid-file insertion in a harness deferral file", () => {
+  const path = "apps/desktop/src/window/DesktopWindow.test.ts";
+  const raw = [
+    "abc1234",
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    "@@ -5,3 +5,4 @@",
+    " line5",
+    " line6",
+    " line7",
+    '+it("mid-file case", () => {});',
+    "",
+  ].join("\n");
+  const guard: AuthoringGuardInputShape = {
+    commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+    filesBySha: new Map([["abc1234", [path]]]),
+    patchesBySha: parseCommitPatches(raw, new Map([[path, 11]])),
+    upstreamFiles: new Set([path]),
+    upstreamTestFiles: new Set([path]),
+    upstreamTestLines: new Map([[path, new Set()]]),
+    upstreamTestTexts: new Map(),
+    siblingTexts: new Map(),
+  };
+  const result = buildScanResult(baseInput(guard));
+  const failures = scanFailures(result);
+  assert.isTrue(failures.some((failure) => failure.startsWith("upstream-test:")));
 });
 
 it("fails an upstream-test addition in the since range", () => {
