@@ -174,14 +174,16 @@ describe("desktop preview window policy", () => {
         environmentId: "environment 1",
         projectId: "project/1",
       });
-      void exposed.openProjectWindow({
-        environmentId: EnvironmentId.make("environment-2"),
-        projectId: ProjectId.make("project-2"),
-      });
-      expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.OPEN_PROJECT_WINDOW_CHANNEL, {
-        environmentId: "environment-2",
-        projectId: "project-2",
-      });
+      const request = {
+        kind: "open-in-new-window",
+        route: "/project/environment-2/project-2",
+        seed: {
+          environmentId: EnvironmentId.make("environment-2"),
+          projectId: ProjectId.make("project-2"),
+        },
+      } as const;
+      void exposed.requestWindow(request);
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.REQUEST_WINDOW_CHANNEL, request);
     } finally {
       process.argv = originalArgv;
     }

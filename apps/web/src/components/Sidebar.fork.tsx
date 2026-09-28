@@ -8,11 +8,12 @@ import { ExternalLinkIcon } from "lucide-react";
 
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
+  openInNewWindowRequest,
+  requestDesktopWindow,
   supportsDesktopProjectWindows,
   type DesktopProjectWindowBridge,
 } from "../desktopProjectWindows";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
-import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
 
 /** The desktop bridge, when the current window supports opening project windows. */
@@ -32,17 +33,10 @@ export const useOpenProjectWindowFork = (
       event.stopPropagation();
       closeProjectScopeMenu();
       if (!desktopBridge) return;
-      void desktopBridge
-        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
-        .catch((error: unknown) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to open project window",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
+      requestDesktopWindow(
+        desktopBridge,
+        openInNewWindowRequest(scopeProjectRef(projectGroup.environmentId, projectGroup.id)),
+      );
     },
     [desktopBridge, closeProjectScopeMenu],
   );
