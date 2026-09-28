@@ -9,21 +9,12 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
 import { toastManager } from "../components/ui/toast";
-import type { ThreadRouteFamily } from "../threadRoutes";
 import { forkThreadActionFork } from "./useThreadActionMenu.fork";
 
 const THREAD_REF: ScopedThreadRef = {
   environmentId: EnvironmentId.make("environment-1"),
   threadId: ThreadId.make("thread-1"),
 };
-
-const routeFamily = {
-  kind: "hub",
-  thread: (ref: ScopedThreadRef) => ({
-    to: "/$environmentId/$threadId" as const,
-    params: { environmentId: ref.environmentId, threadId: ref.threadId },
-  }),
-} as unknown as ThreadRouteFamily;
 
 const failureResult = (cause: Cause.Cause<unknown>): AtomCommandResult<never, unknown> =>
   AsyncResult.failure(cause) as AtomCommandResult<never, unknown>;
@@ -55,7 +46,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     const refusal = new Error("Thread 'thread-1' has no stable run to fork.");
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: (() => Promise.resolve(failureResult(Cause.fail(refusal)))) as never,
     });
@@ -71,7 +61,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     const navigate = vi.fn(async () => undefined);
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: (() => Promise.reject(new Error("Schema validation failed"))) as never,
     });
@@ -84,7 +73,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate: vi.fn(async () => undefined),
       forkThread: (() => Promise.resolve(failureResult(Cause.interrupt()))) as never,
     });
@@ -101,7 +89,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     });
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: forkThread as never,
       waitForShell: async () => true,
@@ -134,7 +121,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     });
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: (() => Promise.resolve(dispatched)) as never,
     });
@@ -156,7 +142,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     });
     const done = forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: (() => {
         order.push("rpc");
@@ -182,7 +167,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     const navigate = vi.fn(async () => undefined);
     await forkThreadActionFork({
       threadRef: THREAD_REF,
-      routeFamily,
       navigate,
       forkThread: (() => Promise.resolve(dispatched)) as never,
       waitForShell: async () => false,
@@ -200,7 +184,6 @@ describe("forkThreadActionFork failure surfaces", () => {
     const run = () =>
       forkThreadActionFork({
         threadRef: THREAD_REF,
-        routeFamily,
         navigate: vi.fn(async () => undefined),
         forkThread: forkThread as never,
       });

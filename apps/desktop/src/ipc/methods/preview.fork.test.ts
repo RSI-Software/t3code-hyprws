@@ -22,7 +22,6 @@ import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
 import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
-import { projectWindowPreloadArgument } from "../../window/projectWindowArgument.ts";
 
 const hubWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
 const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
@@ -155,13 +154,7 @@ describe("fork preview IPC ownership", () => {
         yield* Effect.promise(async () => {
           const hubArgv = ["electron", windowIdPreloadArgument(hubWindowId)];
           const hub = await loadBridge(hubArgv);
-          const project = await loadBridge([
-            "electron",
-            windowIdPreloadArgument(projectWindowId),
-            projectWindowPreloadArgument(projectRef),
-          ]);
-          expect(hub.projectWindowRef).toBeNull();
-          expect(project.projectWindowRef).toEqual(projectRef);
+          const project = await loadBridge(["electron", windowIdPreloadArgument(projectWindowId)]);
           expect(hub.windowId).toBe(hubWindowId);
           expect(project.windowId).toBe(projectWindowId);
           // A reload runs the preload again over the arguments main gave the
