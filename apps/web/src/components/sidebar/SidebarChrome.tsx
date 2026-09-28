@@ -8,16 +8,10 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
-import {
-  readDesktopProjectWindowRef,
-  resolveSidebarBrandTarget,
-} from "../../desktopProjectWindows";
-import { useFullPageBackOut } from "../../hooks/useLeaveFullPage"; // fork-hook: project-windows/sidebar-back-out-import
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
 import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
-import { resolveSidebarGitHubIssuesPageFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { isSidebarGitHubIssuesLocationFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
 import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
 import { useGitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
@@ -38,7 +32,7 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { isSidebarUtilityPage } from "./mainAppLocation"; // fork-hook: project-windows/sidebar-back-out-main-app-import
+import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -90,45 +84,27 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
-  const target = resolveSidebarBrandTarget(readDesktopProjectWindowRef());
-  const className = cn(
-    "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-    onBackdrop ? "text-white" : "text-foreground",
-  );
-  const lockup = (
-    // Center the visible capitals, without the font's ascender/descender space.
-    <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-      <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
-      <span
-        className={cn(
-          "truncate [text-box:trim-both_cap_alphabetic]",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
-        )}
-      >
-        Code
-      </span>
-    </span>
-  );
-
-  if (target.kind === "project") {
-    return (
-      <Link
-        aria-label={target.label}
-        className={className}
-        params={{
-          environmentId: target.ref.environmentId,
-          projectId: target.ref.projectId,
-        }}
-        to="/project/$environmentId/$projectId"
-      >
-        {lockup}
-      </Link>
-    );
-  }
-
   return (
-    <Link aria-label={target.label} className={className} to="/">
-      {lockup}
+    <Link
+      aria-label="Go to threads"
+      className={cn(
+        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        onBackdrop ? "text-white" : "text-foreground",
+      )}
+      to="/"
+    >
+      {/* Center the visible capitals, without the font's ascender/descender space. */}
+      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
+        <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
+        <span
+          className={cn(
+            "truncate [text-box:trim-both_cap_alphabetic]",
+            onBackdrop ? "text-white/70" : "text-muted-foreground",
+          )}
+        >
+          Code
+        </span>
+      </span>
     </Link>
   );
 }
@@ -160,16 +136,12 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const navigateToMainApp = useFullPageBackOut(); // fork-hook: project-windows/sidebar-back-out
+  const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
-  const pathname = useLocation({ select: (location) => location.pathname }); // fork-hook: project-windows/sidebar-pathname
-  const projectRef = resolveProjectRefFromPathname(pathname); // fork-hook: project-windows/sidebar-project-ref
-  const isOnProjectUtilityPage =
-    (projectRef !== null && pathname.endsWith("/pull-requests")) || // fork-hook: project-windows/sidebar-project-utility-page
-    resolveSidebarGitHubIssuesPageFork(pathname, projectRef) !== null; // fork-hook: github-issues/sidebar-issues-footer-page
+  const isOnIssuesPage = useLocation({ select: isSidebarGitHubIssuesLocationFork }); // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
   const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
   const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
@@ -181,14 +153,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handlePullRequestsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({
-      ...listRouteTarget("pull-requests", projectRef),
+      to: "/pull-requests",
       search: readPullRequestListPreferences(),
     });
-  }, [closeMobileSidebar, navigate, projectRef]);
+  }, [closeMobileSidebar, navigate]);
   const handleIssuesClick = useGitHubIssuesSidebarNavigateFork({
     closeMobileSidebar,
     navigate,
-    projectRef,
   }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
@@ -209,7 +180,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   return (
     <SidebarMenu className="flex-row items-center">
-      {isOnUtilityPage || isOnProjectUtilityPage ? ( // fork-hook: project-windows/sidebar-back-visible
+      {isOnUtilityPage || isOnIssuesPage ? ( // fork-hook: github-issues/sidebar-back-visible
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />

@@ -91,7 +91,6 @@ import {
   type PullRequestListSort,
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
@@ -144,8 +143,10 @@ import {
   type PullRequestSurface,
 } from "../rightPanelStore";
 import { useDebouncedValue } from "../state/queries";
-import { useProjects } from "../state/entities";
+import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { useWindowListProjects } from "../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
+import { pullRequestEnvironmentQueriesFork } from "../components/pullRequest/pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import {
   pullRequestEnvironment,
   usePullRequestList,
@@ -159,12 +160,6 @@ import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import {
-  WindowProjectScopeToggle,
-  normalizePullRequestProjectScopePatch,
-  usePullRequestProjectWindowScope,
-  type ScopedProjectRef,
-} from "./pullRequestProjectScope.fork"; // fork-hook: project-windows/pull-request-page-scope-import
 import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 
 function getShortcutContext() {
@@ -203,7 +198,6 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
    * link without it still opens, resolved by project id alone where that is unambiguous.
    */
   readonly selectedEnvironmentId?: EnvironmentId;
-  readonly scope?: "all"; // fork-hook: project-windows/pull-request-scope-search-field
 }
 
 /**
@@ -300,8 +294,8 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
   return labels.length === 0 ? {} : { labels };
 }
 
-export function validatePullRequestsSearch(raw: Record<string, unknown>): PullRequestsSearch {
-  return {
+export const Route = createFileRoute("/_chat/pull-requests")({
+  validateSearch: (raw: Record<string, unknown>): PullRequestsSearch => ({
     involvement:
       raw.involvement === "reviewing" || raw.involvement === "authored" ? raw.involvement : "all",
     state:
@@ -344,43 +338,17 @@ export function validatePullRequestsSearch(raw: Record<string, unknown>): PullRe
       ? { author: raw.author.trim().slice(0, 200) }
       : {}),
     ...pullRequestSearchLabels(raw.labels),
-    ...(raw.scope === "all" ? { scope: raw.scope } : {}),
-  };
-}
-
-export const Route = createFileRoute("/_chat/pull-requests")({
-  validateSearch: validatePullRequestsSearch,
-  component: HubPullRequestsRouteView,
+  }),
+  component: PullRequestsRouteView,
 });
 
-function HubPullRequestsRouteView() {
+function PullRequestsRouteView() {
   useEscapeToGoBack();
   const search = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  return (
-    <PullRequestsPage
-      forcedProjectRef={null}
-      search={search}
-      onNavigate={(options) => void navigate(options)}
-    />
-  );
-}
-
-export function PullRequestsPage({
-  forcedProjectRef,
-  search,
-  onNavigate,
-}: {
-  readonly forcedProjectRef: ScopedProjectRef | null;
-  readonly search: PullRequestsSearch;
-  readonly onNavigate: (options: {
-    search: (previous: PullRequestsSearch) => PullRequestsSearch;
-    replace: boolean;
-  }) => void;
-}) {
   const sort = search.sort ?? "ready";
   const statsPolicy: PullRequestStatsPolicy =
     sort === "ready" || sort === "largest" || sort === "smallest" ? "eager" : "visible";
+  const navigate = useNavigate({ from: Route.fullPath });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
   // Every connected environment that has said it can list pull requests. Sorted, so the query
@@ -395,36 +363,51 @@ export function PullRequestsPage({
         .toSorted((left, right) => left.environmentId.localeCompare(right.environmentId)),
     [environments],
   );
-  const allProjects = useProjects();
-  const {
-    scopedEnvironmentId,
-    environmentIds,
-    capabilityKnown,
-    projectsKnown,
-    projects,
-    scopedProjectId,
-    scopedProject,
-    listScope,
-    onScopeChange,
-    showHubScopeFilters,
-  } = usePullRequestProjectWindowScope({
-    forcedProjectRef,
-    search,
-    environments,
-    capableEnvironments,
-    allProjects,
-  }); // fork-hook: project-windows/pull-request-page-scope
+  // The server the URL asks for, kept only while it is one the page could read: a link naming a
+  // server this workspace no longer has falls back to all of them rather than to nothing.
+  const scopedEnvironmentId =
+    capableEnvironments.find((environment) => environment.environmentId === search.environmentId)
+      ?.environmentId ?? null;
   // Every server this workspace has ever heard of, connecting or not — wider than
   // `capableEnvironments`, which only holds the ones ready to answer.
   const knownEnvironmentIds = useMemo(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
+  const environmentIds = useMemo(
+    () =>
+      capableEnvironments
+        .filter(
+          (environment) =>
+            scopedEnvironmentId === null || environment.environmentId === scopedEnvironmentId,
+        )
+        .map((environment) => environment.environmentId),
+    [capableEnvironments, scopedEnvironmentId],
+  );
   const environmentKey = useMemo(
     () => pullRequestEnvironmentSetKey(environmentIds),
     [environmentIds],
   );
+  // An environment may still be connecting, or may predate this feature. Until at least one has
+  // reported, an empty set means "not known yet" rather than "no environment can", and the page
+  // waits rather than telling a reader to upgrade a server that has not spoken.
+  const capabilityKnown = environments.some((environment) => environment.serverConfig !== null);
   const pullRequestsSupported = environmentIds.length > 0;
+  const allProjects = useProjects();
+  // Whether the workspace has said what it holds yet. Until it has, an empty project list is
+  // "not loaded" rather than "none", and telling a reader to add a project they already have is
+  // the one wrong answer the empty state can give.
+  const projectsKnown = useAllEnvironmentShellsBootstrapped();
+  // Only the projects the page can actually read: one on an environment that cannot list pull
+  // requests could neither be listed nor acted on.
+  const projects = useMemo(
+    () => allProjects.filter((project) => environmentIds.includes(project.environmentId)),
+    [allProjects, environmentIds],
+  );
+  const windowProjects = useWindowListProjects(projects, {
+    projectId: search.projectId,
+    environmentId: search.environmentId,
+  }); // fork-hook: workspaces/list-page-window-filter
   const environmentLabels = useMemo(
     () =>
       new Map(
@@ -432,9 +415,18 @@ export function PullRequestsPage({
       ),
     [environments],
   );
+  // The scope the URL asks for, once the environments have had their say about whether it exists.
+  const scopedProjectId = useMemo(
+    () => resolveProjectScope(search.projectId, projects, projectsKnown),
+    [projects, projectsKnown, search.projectId],
+  );
+  const scopedProject = useMemo(
+    () => findScopedProject(projects, scopedEnvironmentId, scopedProjectId),
+    [projects, scopedEnvironmentId, scopedProjectId],
+  );
   const scopedProjects = useMemo(
-    () => pullRequestFilterProjects(projects, environmentLabels, scopedProject),
-    [environmentLabels, projects, scopedProject],
+    () => pullRequestFilterProjects(windowProjects, environmentLabels, scopedProject), // fork-hook: workspaces/list-page-window-filter
+    [environmentLabels, windowProjects, scopedProject], // fork-hook: workspaces/list-page-window-filter
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
@@ -531,14 +523,11 @@ export function PullRequestsPage({
     (patch: {
       [Key in keyof PullRequestsSearch]?: PullRequestsSearch[Key] | undefined;
     }) =>
-      void onNavigate({
+      void navigate({
         // Rebuilt rather than spread so a cleared field leaves the URL instead of
         // lingering as an explicit `undefined`.
         search: (previous: PullRequestsSearch): PullRequestsSearch => {
-          const next = {
-            ...previous,
-            ...normalizePullRequestProjectScopePatch(patch, forcedProjectRef),
-          }; // fork-hook: project-windows/pull-request-scope-patch
+          const next = { ...previous, ...patch };
           return {
             involvement: next.involvement ?? previous.involvement,
             state: next.state ?? previous.state,
@@ -559,12 +548,11 @@ export function PullRequestsPage({
             ...(next.checks ? { checks: next.checks } : {}),
             ...(next.author ? { author: next.author } : {}),
             ...(next.labels && next.labels.length > 0 ? { labels: next.labels } : {}),
-            ...(next.scope === "all" ? { scope: next.scope } : {}),
           };
         },
         replace: true,
       }),
-    [forcedProjectRef, onNavigate],
+    [navigate],
   );
 
   const clearedSelection = {
@@ -658,24 +646,12 @@ export function PullRequestsPage({
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
-    const assignment = assignProjectsToEnvironments(
-      projects,
-      queryEnvironmentIds,
-      queryEnvironmentIds[0],
-    );
-    const totals = new Map<EnvironmentId, number>();
-    for (const project of projects) {
-      totals.set(project.environmentId, (totals.get(project.environmentId) ?? 0) + 1);
-    }
-    return queryEnvironmentIds.flatMap((environmentId) => {
-      const projectIds = assignment.get(environmentId);
-      if (projectIds === undefined) return [];
-      // It lists everything it holds anyway, so the filter is left off and a one-server workspace
-      // asks exactly the question it asked before.
-      if (projectIds.length === (totals.get(environmentId) ?? 0)) return [{ environmentId }];
-      return [{ environmentId, projectIds }];
-    });
-  }, [projects, projectsKnown, queryEnvironmentIds, scopedProjectId]);
+    return pullRequestEnvironmentQueriesFork({
+      listed: windowProjects,
+      held: projects,
+      environmentIds: queryEnvironmentIds,
+    }); // fork-hook: workspaces/list-page-window-filter
+  }, [projects, projectsKnown, queryEnvironmentIds, scopedProjectId, windowProjects]); // fork-hook: workspaces/list-page-window-filter
   // Part of the scope, since a different split is a different question and its answers must not
   // be filed under the same page state.
   const assignmentKey = useMemo(
@@ -1915,17 +1891,6 @@ export function PullRequestsPage({
       onChange={(next) => updateListScope({ sort: next })}
     />
   );
-  const projectScopeToggle = (
-    <WindowProjectScopeToggle
-      forcedProjectRef={forcedProjectRef}
-      listScope={listScope}
-      onNavigate={(urlScope) =>
-        onScopeChange(urlScope, (scopePatch) =>
-          updateListScope({ ...scopePatch, environmentId: undefined }),
-        )
-      }
-    />
-  ); // fork-hook: project-windows/pull-request-scope-toggle
   const filtersMenu = (
     <PullRequestFiltersMenu
       onOpenChange={setFiltersOpen}
@@ -1951,14 +1916,13 @@ export function PullRequestsPage({
       hostOptions={hostMenuOptions}
       onHost={(host) => updateListScope({ host })}
       server={scopedEnvironmentId ?? undefined}
-      serverOptions={showHubScopeFilters ? serverMenuOptions : []}
+      serverOptions={serverMenuOptions}
       // Narrowing to one server drops a project scope belonging to another, which would
       // otherwise narrow the list to nothing with no visible filter to explain it.
       onServer={(server) => updateListScope({ environmentId: server, projectId: undefined })}
       projects={scopedProjects}
-      projectId={showHubScopeFilters ? scopedProjectId : undefined}
-      projectEnvironmentId={showHubScopeFilters ? scopedProject?.environmentId : undefined}
-      showProjectFilter={showHubScopeFilters} // fork-hook: project-windows/pull-request-filter-visibility
+      projectId={scopedProjectId}
+      projectEnvironmentId={scopedProject?.environmentId}
       unavailable={unavailableProjects}
       // The environment comes along with the project it belongs to, so a duplicate id on
       // another server never gets narrowed to by mistake; picking "All projects" leaves the
@@ -1982,7 +1946,6 @@ export function PullRequestsPage({
     searchInput,
     sortMenu,
     filtersMenu,
-    projectScopeToggle,
     rightPanelControl:
       // Footprint reserve while the panel is closed: the toggle itself stays
       // mounted at the fixed titlebar inset in both states so it cannot move
@@ -2413,7 +2376,6 @@ function PullRequestsColumn({
   searchInput,
   sortMenu,
   filtersMenu,
-  projectScopeToggle,
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
@@ -2433,7 +2395,6 @@ function PullRequestsColumn({
   searchInput: ReactNode;
   sortMenu: ReactNode;
   filtersMenu: ReactNode;
-  projectScopeToggle: ReactNode;
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
@@ -2580,9 +2541,6 @@ function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
-              {/* fork-hook: project-windows/pull-request-scope-toggle */}
-              {projectScopeToggle}
-              {/* fork-hook-end */}
               {/* fork-hook: workspaces/chooser-scope-label */}
               <ProjectChooserScopeLabelFork />
               {/* fork-hook-end */}
