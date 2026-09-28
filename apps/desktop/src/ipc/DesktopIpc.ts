@@ -4,12 +4,15 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import * as WindowTargets from "../electron/WindowTargets.fork.ts"; // fork-hook: multi-window/window-targets-import
+
 export interface DesktopIpcInvokeEvent {
   readonly sender: { readonly id: number };
 }
 
 export interface DesktopIpcSyncEvent {
   returnValue: unknown;
+  readonly sender?: { readonly id: number }; // fork-hook: multi-window/window-targets-sync-sender
 }
 
 export type DesktopIpcHandleListener = (
@@ -133,6 +136,7 @@ export const make = (ipcMain: DesktopIpcMain): DesktopIpc["Service"] =>
                   yield* Effect.annotateCurrentSpan({ channel });
                   return yield* handler();
                 }).pipe(
+                  WindowTargets.withIpcSender(event), // fork-hook: multi-window/window-targets-sync
                   Effect.annotateLogs({ channel }),
                   Effect.withSpan("desktop.ipc.invokeSync"),
                 ),
@@ -222,6 +226,7 @@ export const makeIpcMethod = <
     handler: (raw, event) =>
       decode(raw).pipe(
         Effect.flatMap((input) => method.handler(input, event)),
+        WindowTargets.withIpcSender(event), // fork-hook: multi-window/window-targets-invoke
         Effect.flatMap(encode),
         Effect.withSpan("desktop.ipc.method", { attributes: { channel: method.channel } }),
       ),
