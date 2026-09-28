@@ -1,4 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedPaletteThreadsFork } from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-threads-import
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -71,6 +72,7 @@ function useThreadSearchWithContentMatches(query: string) {
 export function useCommandPaletteThreadItems(input: {
   readonly activeThreadId: ThreadId | undefined;
   readonly threadSearchQuery: string;
+  readonly projectKeysFork?: ReadonlySet<string> | null; // fork-hook: workspaces/palette-scope-threads-input
 }) {
   const { activeThreadId, threadSearchQuery } = input;
   const navigate = useNavigate();
@@ -82,7 +84,7 @@ export function useCommandPaletteThreadItems(input: {
   const { projectByKey, projectTitleById } = useProjectLookups();
 
   const threadItems = buildThreadActionItems({
-    threads,
+    threads: scopedPaletteThreadsFork(threads, input.projectKeysFork ?? null), // fork-hook: workspaces/palette-scope-threads
     ...(activeThreadId ? { activeThreadId } : {}),
     projectTitleById,
     sortOrder: sidebarThreadSortOrder,

@@ -17,21 +17,21 @@ import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import { Button } from "./ui/button";
 
 /** The desktop bridge, when the current window supports opening project windows. */
-export const useDesktopProjectWindowBridgeFork = (): DesktopProjectWindowBridge | null =>
+export const desktopProjectWindowBridgeFork = (): DesktopProjectWindowBridge | null =>
   typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
     ? window.desktopBridge
     : null;
 
 /** The sidebar row's "open project window" click handler. */
-export const useOpenProjectWindowFork =
+export const openProjectWindowFork =
   (
     desktopBridge: DesktopProjectWindowBridge | null,
-    closeProjectScopeMenu: () => void,
+    dispatchProjectScopeMenu: (action: { type: "open-changed"; open: false }) => void,
   ): ((event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => void) =>
   (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
     event.preventDefault();
     event.stopPropagation();
-    closeProjectScopeMenu();
+    dispatchProjectScopeMenu({ type: "open-changed", open: false });
     if (!desktopBridge) return;
     requestDesktopWindow(
       desktopBridge,

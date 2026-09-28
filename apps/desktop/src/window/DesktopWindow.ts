@@ -51,6 +51,7 @@ import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
 import * as WindowPlacement from "./WindowPlacement.fork.ts"; // fork-hook: multi-window/placement-import
+import { hubFilterTitleFork } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
 import { bindWindowDemandStateFork } from "./WindowDemandState.fork.ts"; // fork-hook: zmux-estate/window-demand-state-import
 import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 import {
@@ -489,6 +490,9 @@ export const make = Effect.gen(function* () {
     WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
       identity.kind === "hub" ? null : pageTitle.trim() || null,
     ); // fork-hook: multi-window/project-title
+    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+      hubFilterTitleFork(identity.kind, environment.displayName, pageTitle),
+    ); // fork-hook: workspaces/window-title
     const titleHoldFork =
       mapPlacementFork === null && claimTitleFork === null
         ? null
