@@ -60,13 +60,12 @@ import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import {
-  HUB_WINDOW_IDENTITY,
   PROJECT_WINDOW_PRELOAD_ARGUMENT,
   projectWindowIdentity,
   windowIdentityKey,
 } from "./WindowIdentity.ts";
 import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
-import { makeTestWindowIds, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
+import { makeTestWindowIds, testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -301,6 +300,7 @@ function makeTestLayer(input: {
   const hyprlandPlacementLayer = Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
     isAvailable: input.workspaceMoves !== undefined,
     claim: (key, title) => Effect.sync(() => void input.placementClaims?.push({ key, title })), // fork-hook: multi-window/window-id-claim
+    snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
     forget: () => Effect.void,
     workspaceOf: () => Effect.succeed(Option.none()),
     stageWorkspaceRule: (title, workspace) =>
@@ -367,8 +367,8 @@ function makeTestLayer(input: {
           }),
         ),
       ),
-    createNew: (identity, create) =>
-      windowIds.create(create).pipe(
+    createNew: (identity, create, requestedId) =>
+      windowIds.create(create, requestedId).pipe(
         Effect.tap((window) =>
           Effect.sync(() => {
             if (identity.kind === "project")
@@ -376,7 +376,7 @@ function makeTestLayer(input: {
           }),
         ),
         Effect.map(windowIds.created),
-      ), // fork-hook: multi-window/dispatch-create-new
+      ), // fork-hook: multi-window/restore-create-new
     close: (identity) =>
       identity.kind === "hub"
         ? Ref.set(input.mainWindow, Option.none())
@@ -584,6 +584,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
             isAvailable: false,
             claim: () => Effect.void,
+            snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
             forget: () => Effect.void,
             workspaceOf: () => Effect.succeed(Option.none()),
             stageWorkspaceRule: () => Effect.succeed(false),
@@ -984,8 +985,21 @@ describe("DesktopWindow", () => {
       const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
       const workspaceMoves: { key: string; workspace: string }[] = [];
       const placementClaims: { key: string; title: string }[] = []; // fork-hook: multi-window/window-id-restore-claims
+      const readyToShowFork: ((...args: readonly unknown[]) => void)[] = []; // fork-hook: multi-window/placement-restore-ready
+      fakeWindow.window.once = ((
+        eventName: string,
+        listener: (...args: readonly unknown[]) => void,
+      ) => {
+        if (eventName === "ready-to-show") readyToShowFork.push(listener);
+        fakeWindow.windowListeners.set(eventName, listener);
+        return fakeWindow.window;
+      }) as Electron.BrowserWindow["once"]; // fork-hook: multi-window/placement-restore-ready
       const hubId = testWindowId(101); // fork-hook: multi-window/window-id-restore-hub
       const projectWindowId = testWindowId(102); // fork-hook: multi-window/window-id-restore-project
+      const projectSeedFork = {
+        environmentId: EnvironmentId.make("environment-1"),
+        projectId: ProjectId.make("project-1"),
+      }; // fork-hook: multi-window/restore-project-seed
       const layer = makeTestLayer({
         window: fakeWindow.window,
         createCount,
@@ -994,15 +1008,8 @@ describe("DesktopWindow", () => {
         workspaceMoves,
         placementClaims, // fork-hook: multi-window/window-id-restore-claims-input
         restoreEntries: [
-          { windowId: hubId, identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } }, // fork-hook: multi-window/window-id-restore-hub-entry
-          {
-            windowId: projectWindowId, // fork-hook: multi-window/window-id-restore-project-entry
-            identity: projectWindowIdentity(
-              EnvironmentId.make("environment-1"),
-              ProjectId.make("project-1"),
-            ),
-            workspace: { id: 4, name: "code" },
-          },
+          testRestoreEntry("all-projects", { id: 1, name: "1" }, hubId), // fork-hook: multi-window/window-id-restore-hub-entry
+          testRestoreEntry(projectSeedFork, { id: 4, name: "code" }, projectWindowId), // fork-hook: multi-window/window-id-restore-project-entry
         ],
       });
 
@@ -1017,13 +1024,18 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         assert.equal(yield* Ref.get(createCount), 2);
         const hubArguments = createdWindowOptions[0]?.webPreferences?.additionalArguments; // fork-hook: multi-window/window-id-restore-hub-arguments
-        assert.deepEqual(hubArguments, [windowIdPreloadArgument(hubId)]); // fork-hook: multi-window/window-id-restore-hub-preload
+        assert.deepEqual(hubArguments, [
+          windowIdPreloadArgument(hubId),
+          "--t3code-window-scope-seed=all-projects",
+        ]); // fork-hook: multi-window/window-id-restore-hub-preload
         assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
           windowIdPreloadArgument(projectWindowId), // fork-hook: multi-window/window-id-restore-project-preload
           `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
+          "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/restore-project-seed-arg
         ]);
 
-        yield* Effect.yieldNow;
+        for (const fire of readyToShowFork) fire(); // fork-hook: multi-window/placement-restore-map
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve))); // fork-hook: multi-window/placement-restore-settle
         assert.deepEqual(
           placementClaims.map((claim) => claim.key),
           [hubId, projectWindowId],
@@ -1055,7 +1067,7 @@ describe("DesktopWindow", () => {
         createCount,
         mainWindow,
         workspaceMoves,
-        restoreEntries: [{ identity: HUB_WINDOW_IDENTITY, workspace: null }],
+        restoreEntries: [testRestoreEntry("all-projects", null)], // fork-hook: multi-window/restore-hub-entry
       });
 
       yield* Effect.gen(function* () {
@@ -1083,7 +1095,7 @@ describe("DesktopWindow", () => {
         mainWindow,
         createdWindowOptions,
         workspaceMoves: [],
-        restoreEntries: [{ identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } }],
+        restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })], // fork-hook: multi-window/restore-hub-entry-placed
       });
 
       yield* Effect.gen(function* () {
