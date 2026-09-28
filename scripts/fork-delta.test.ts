@@ -69,16 +69,16 @@ const fixture =
   record(
     "aaaaaaaaa",
     "fix(web): scope markdown actions",
-    "Fork-Domain: project-windows\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
+    "Fork-Domain: multi-window\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
   ) +
   record(
     "bbbbbbbbb",
     "feat(desktop): register windows | by identity",
-    "Fork-Domain: project-windows\nFork-Tier: core\n",
+    "Fork-Domain: multi-window\nFork-Tier: core\n",
   ) +
   record("ccccccccc", "docs(readme): hyprws", "Fork-Domain: fork-meta\nFork-Tier: qol\n") +
   record("ddddddddd", "chore: untagged", "") +
-  record("eeeeeeeee", "fix(web): wrong tier", "Fork-Domain: project-windows\nFork-Tier: polish\n");
+  record("eeeeeeeee", "fix(web): wrong tier", "Fork-Domain: multi-window\nFork-Tier: polish\n");
 
 it("asks git for the fork range in stack order", () => {
   assert.deepStrictEqual(forkLogArguments("upstream/main", "HEAD").slice(0, 2), [
@@ -96,7 +96,7 @@ it("parses trailers and omits absent ones", () => {
     short: "aaaaaaaaa",
     authorDate: DEFAULT_AUTHOR_DATE,
     subject: "fix(web): scope markdown actions",
-    domain: "project-windows",
+    domain: "multi-window",
     tier: "bugfix",
     upstreamable: "yes",
   });
@@ -126,7 +126,7 @@ it("ignores trailer-free walk fixups entirely: the autosquash folds them after t
       record(
         "aaaaaaaaa",
         "fix(web): scope markdown actions",
-        "Fork-Domain: project-windows\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
+        "Fork-Domain: multi-window\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
       ),
   );
   const folded = dropTransientFixups(withFixup);
@@ -196,7 +196,7 @@ it("reads trailers a stack comment and co-author paragraph sit below (134a11855d
 it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
   const markdown = renderMarkdown(buildLedger("upstream/main", "HEAD", parseForkLog(fixture)));
   const lines = markdown.split("\n");
-  const projectWindows = lines.indexOf("## project-windows");
+  const projectWindows = lines.indexOf("## multi-window");
   const forkMeta = lines.indexOf("## fork-meta");
   assert.ok(projectWindows !== -1 && forkMeta !== -1);
   assert.strictEqual(
@@ -217,7 +217,7 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
 
 it("selects one domain with its findings in stack order", () => {
   const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture));
-  const selected = selectDomain(ledger, "project-windows");
+  const selected = selectDomain(ledger, "multi-window");
   assert.isNotNull(selected);
   assert.deepStrictEqual(
     selected.commits.map((commit) => commit.short),
