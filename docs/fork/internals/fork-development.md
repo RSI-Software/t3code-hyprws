@@ -12,13 +12,6 @@ Goal: a small, durable patch stack on upstream.
 1. Run `vp run fork:scan --no-typecheck`.
 2. Prefer one adapter boundary over scattered edits.
 
-The sync driver's typed report is the only authority for sync state.
-Published issue comments are projections of it: never parse one, and never treat an edit to one as a decision.
-
-The kept sync worktree carries a reshape extra between runs.
-A `fixup!` on trunk cannot: it compiles only against post-sync upstream, so landing it reds `hyprws`.
-A rerun adopts the worktree for the same tag and lease; the [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill's Unblock steps give the route.
-
 ## Non-goals
 
 | Never               | Detail                                |
@@ -26,7 +19,7 @@ A rerun adopts the worktree for the same tag and lease; the [`fork-sync`](../../
 | Per-window backend  | No separate server, database, or auth |
 | Second frontend     | No desktop-only copy of the web app   |
 | Compositor policy   | No workspace policy inside T3 Code    |
-| Hub window          | All projects is a filter state        |
+| Window kinds        | Every window is generic               |
 | Removal             | Keep remote, web, mobile              |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
@@ -84,7 +77,7 @@ Resolve it there, then record the seam in that domain's rebase scan.
 
 | Rule                      | Detail                          |
 | ------------------------- | ------------------------------- |
-| One domain per commit     | Two domains means two rebases   |     |
+| One domain per commit     | Two domains means two rebases   |
 | New code in its own files | Shared edits appear in the scan |
 | Contiguous commits        | The replay never interleaves    |
 
@@ -205,15 +198,19 @@ forkSupersedes({
 });
 ```
 
-The import is a typed no-op: `fork:scan` reads the declaration from the
-sibling's text and never runs it, while the import gives the call site a
-binding typecheck accepts.
-
+The import is a typed no-op: `fork:scan` reads the declaration from the sibling's text and never runs it.
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
-The scan reads the declaration (`fork:scan`, step 4): a call missing `upstream`, `reason`, or `commit`, or naming an upstream file or test name the target tree does not carry, fails the scan, and a sibling case that contradicts its upstream counterpart with no declaration is a finding. A named upstream case reads as superseded rather than contradictory in the additive gate. A declaration whose upstream case has adopted the fork behaviour surfaces as a retire candidate on the pinned-target walk.
 
-**Retiring one.** When upstream adopts the behavior, delete the declaration and its contradicting sibling case in the same change.
-The upstream file needs no repair, because it never changed, and a sibling whose declaration is gone is a contradiction waiting for the next suite run.
+| `fork:scan` step 4 reads                         | Result           |
+| ------------------------------------------------ | ---------------- |
+| A call missing `upstream`, `reason`, or `commit` | fails the scan   |
+| A named file or test the target lacks            | fails the scan   |
+| A contradicting sibling with no declaration      | finding          |
+| A declared upstream case                         | superseded       |
+| An upstream case now matching the fork           | retire candidate |
+
+**Retiring one.** When upstream adopts the behavior, delete the declaration and its sibling case in one change.
+An orphaned sibling is a contradiction waiting for the next suite run.
 
 ### Extend an upstream export, do not replace it
 
