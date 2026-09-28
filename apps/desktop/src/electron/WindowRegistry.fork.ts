@@ -7,6 +7,8 @@ import type * as Semaphore from "effect/Semaphore";
 import type * as Electron from "electron";
 
 import { IpcRequester } from "./WindowTargets.fork.ts";
+import { normalizeMainWindowBounds } from "../settings/DesktopAppSettings.ts";
+import type { CapturedWindow } from "../window/DesktopWindowSession.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
 import {
   HUB_WINDOW_IDENTITY,
@@ -31,6 +33,37 @@ export interface RegisteredWindow {
 }
 
 const makeWindowId = (): WindowId => NodeCrypto.randomUUID() as WindowId;
+
+/**
+ * What an update restore needs to reopen `entry`: the hash route it shows and
+ * its restorable (never maximized or minimized) bounds. A window that cannot
+ * answer reopens at its home with default bounds.
+ */
+function captureWindow(entry: RegisteredWindow): CapturedWindow {
+  const { windowId, identity, window } = entry;
+  let route = "/";
+  try {
+    route = new URL(window.webContents.getURL()).hash.slice(1) || "/";
+  } catch {
+    // An unloaded or unparsable URL keeps the window's home.
+  }
+  let bounds: CapturedWindow["bounds"] = null;
+  try {
+    const current =
+      window.isFullScreen() || window.isMaximized() || window.isMinimized()
+        ? window.getNormalBounds()
+        : window.getBounds();
+    bounds = normalizeMainWindowBounds({
+      x: Math.round(current.x),
+      y: Math.round(current.y),
+      width: Math.round(current.width),
+      height: Math.round(current.height),
+    });
+  } catch {
+    // Default bounds on reopen.
+  }
+  return { windowId, identity, route, bounds };
+}
 
 export function makeWindowRegistry() {
   const entries = new Map<WindowId, RegisteredWindow>();
@@ -172,13 +205,13 @@ export interface WindowRegistryService {
   readonly createNew: <E>(
     identity: WindowIdentity,
     create: (windowId: WindowId) => Effect.Effect<Electron.BrowserWindow, E>,
+    /** An update restore's previous id, honoured unless a live window holds it. */
+    windowId?: WindowId,
   ) => Effect.Effect<{ readonly window: Electron.BrowserWindow; readonly windowId: WindowId }, E>;
   readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
   readonly windowIdFor: (window: Electron.BrowserWindow) => Effect.Effect<Option.Option<WindowId>>;
-  /** Every live registered window, in registration order. */
-  readonly listWindows: Effect.Effect<
-    readonly { readonly windowId: WindowId; readonly identity: WindowIdentity }[]
-  >;
+  /** Every live registered window, in registration order, as an update captures it. */
+  readonly listWindows: Effect.Effect<readonly CapturedWindow[]>;
   /**
    * The registered window the current request targets: the IPC sender's own
    * window, else the most recently focused one. None only when main has not
@@ -211,10 +244,10 @@ export const makeWindowRegistryService = (
         return { window, windowId, created: true } as const;
       }),
     ),
-  createNew: (identity, create) =>
+  createNew: (identity, create, requestedId) =>
     semaphore.withPermits(1)(
       Effect.gen(function* () {
-        const windowId = registry.reserveId();
+        const windowId = registry.reserveId(requestedId);
         const window = yield* create(windowId);
         registry.register(windowId, identity, window);
         return { window, windowId } as const;
@@ -229,9 +262,7 @@ export const makeWindowRegistryService = (
         existing.window.close();
       }),
     ),
-  listWindows: Effect.sync(() =>
-    registry.list().map(({ windowId, identity }) => ({ windowId, identity })),
-  ),
+  listWindows: Effect.sync(() => registry.list().map(captureWindow)),
   windowIdFor: (window) =>
     Effect.sync(() => Option.fromNullishOr(registry.findByWindow(window)?.windowId)),
   requestTarget: Effect.gen(function* () {

@@ -121,9 +121,10 @@ describe("ElectronWindow", () => {
       assert.notStrictEqual(project.windowId, hub.windowId);
       assert.notStrictEqual(project.windowId, String(projectWindow.id));
       assert.deepEqual(yield* electronWindow.getById(project.windowId), Option.some(projectWindow));
+      // A window that cannot report its route or bounds reopens at its home.
       assert.deepEqual(yield* electronWindow.listWindows, [
-        { windowId: project.windowId, identity: projectIdentity },
-        { windowId: hub.windowId, identity: HUB_WINDOW_IDENTITY },
+        { windowId: project.windowId, identity: projectIdentity, route: "/", bounds: null },
+        { windowId: hub.windowId, identity: HUB_WINDOW_IDENTITY, route: "/", bounds: null },
       ]);
       projectWindow.__emit("closed");
       assert.isTrue(Option.isNone(yield* electronWindow.getById(project.windowId)));
@@ -149,6 +150,40 @@ describe("ElectronWindow", () => {
       assert.strictEqual(restored.windowId, restoredId);
       assert.notStrictEqual(collided.windowId, restoredId);
       assert.deepEqual(yield* electronWindow.getById(restoredId), Option.some(first));
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  it.effect("creates a restored window per id, even two on one identity", () =>
+    Effect.gen(function* () {
+      const firstId = "00000000-0000-4000-8000-00000000000b" as WindowId;
+      const secondId = "00000000-0000-4000-8000-00000000000c" as WindowId;
+      const first = Object.assign(makeBrowserWindow({ id: 40, destroyed: false }), {
+        webContents: { getURL: () => "t3code://app/#/settings/general" },
+        isFullScreen: () => false,
+        isMaximized: () => true,
+        isMinimized: () => false,
+        getNormalBounds: () => ({ x: 10.4, y: 20, width: 1000, height: 700 }),
+        getBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+      });
+      const second = makeBrowserWindow({ id: 41, destroyed: false });
+      const electronWindow = yield* ElectronWindow.ElectronWindow;
+      const one = yield* electronWindow.createNew(
+        HUB_WINDOW_IDENTITY,
+        () => Effect.succeed(first),
+        firstId,
+      );
+      const two = yield* electronWindow.createNew(
+        HUB_WINDOW_IDENTITY,
+        () => Effect.succeed(second),
+        secondId,
+      );
+      assert.deepEqual([one.windowId, two.windowId], [firstId, secondId]);
+      // Capture reads the hash route and the unmaximized bounds.
+      assert.deepEqual((yield* electronWindow.listWindows)[0], {
+        windowId: firstId,
+        identity: HUB_WINDOW_IDENTITY,
+        route: "/settings/general",
+        bounds: { x: 10, y: 20, width: 1000, height: 700 },
+      });
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("closes identities and removes windows destroyed externally", () =>
