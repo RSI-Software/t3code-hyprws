@@ -14,15 +14,6 @@ import type { WindowRequest } from "../window/WindowDispatch.fork.ts";
 import { makeSecondInstanceBuffer } from "./DesktopSecondInstanceBuffer.fork.ts";
 
 const noopServices: StartupDrainServices = {
-  hyprlandPlacement: {
-    isAvailable: false,
-    claim: () => Effect.void,
-    forget: () => Effect.void,
-    workspaceOf: () => Effect.succeedNone,
-    stageWorkspaceRule: () => Effect.succeed(false),
-    clearWorkspaceRule: () => Effect.void,
-    moveToWorkspace: () => Effect.void,
-  },
   windowSession: { capture: () => Effect.void, consume: Effect.succeed([]) },
 };
 
@@ -65,7 +56,7 @@ describe("DesktopSecondInstanceBuffer", () => {
           request.kind === "project-link" ? request.ref.projectId : request.kind,
         ]);
       const openers: WindowOpeners = {
-        ensureIdentity: () => () => Effect.die("no restore is staged"),
+        restore: () => () => Effect.die("no restore is staged"),
         dispatch: () => record,
         createMainIfBackendReady: () => Effect.void,
       };
