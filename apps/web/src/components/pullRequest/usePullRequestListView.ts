@@ -35,7 +35,8 @@ import {
 } from "./pullRequestList.logic";
 import type { PullRequestExpectedHost } from "./PullRequestListFilters";
 import type { PullRequestListPreferences, PullRequestListSort } from "./pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "./pullRequestProjectAssignment.logic";
+import { useWindowListProjects } from "../../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
+import { pullRequestEnvironmentQueriesFork } from "./pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import { pullRequestFilterProjects } from "./pullRequestProjectFilter.logic";
 import { pullRequestListEntryId } from "./pullRequestListGroups.logic";
 
@@ -76,12 +77,20 @@ export function usePullRequestScope(search: PullRequestsSearch) {
   const projects = allProjects.filter(
     (project) => !project.isScratch && environmentIds.includes(project.environmentId),
   );
+  const windowProjects = useWindowListProjects(projects, {
+    projectId: search.projectId,
+    environmentId: search.environmentId,
+  }); // fork-hook: workspaces/list-page-window-filter
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
   const scopedProjectId = resolveProjectScope(search.projectId, projects, projectsKnown);
   const scopedProject = findScopedProject(projects, scopedEnvironmentId, scopedProjectId);
-  const scopedProjects = pullRequestFilterProjects(projects, environmentLabels, scopedProject);
+  const scopedProjects = pullRequestFilterProjects(
+    windowProjects,
+    environmentLabels,
+    scopedProject,
+  ); // fork-hook: workspaces/list-page-window-filter
 
   const selectedHost = search.selectedHost ?? search.host;
   // A named server still connecting is kept named rather than falling back: falling back while it
@@ -120,21 +129,11 @@ export function usePullRequestScope(search: PullRequestsSearch) {
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
-    const assignment = assignProjectsToEnvironments(
-      projects,
-      queryEnvironmentIds,
-      queryEnvironmentIds[0],
-    );
-    const totals = new Map<EnvironmentId, number>();
-    for (const project of projects) {
-      totals.set(project.environmentId, (totals.get(project.environmentId) ?? 0) + 1);
-    }
-    return queryEnvironmentIds.flatMap((environmentId) => {
-      const projectIds = assignment.get(environmentId);
-      if (projectIds === undefined) return [];
-      if (projectIds.length === (totals.get(environmentId) ?? 0)) return [{ environmentId }];
-      return [{ environmentId, projectIds }];
-    });
+    return pullRequestEnvironmentQueriesFork({
+      listed: windowProjects,
+      held: projects,
+      environmentIds: queryEnvironmentIds,
+    }); // fork-hook: workspaces/list-page-window-filter
   })();
   const assignmentKey = environmentQueries
     .map(({ environmentId, projectIds }) => `${environmentId}#${projectIds?.join("+") ?? "*"}`)
