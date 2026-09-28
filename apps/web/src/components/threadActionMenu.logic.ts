@@ -5,6 +5,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import
 import type { ForkableThreadProviderState } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-state-type-import
 import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-fork/menu-items-import
+import { openInNewWindowMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
@@ -14,6 +15,7 @@ export type ThreadActionMenuId =
   | "unpin"
   | "reset-order" // fork-hook: thread-ordering/reset-order-id
   | "fork" // fork-hook: thread-fork/menu-id
+  | "open-in-new-window" // fork-hook: multi-window/dispatch-thread-menu-id
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -80,6 +82,7 @@ export interface ThreadActionMenuState {
   readonly isPinned: boolean;
   readonly hasManualOrder?: boolean; // fork-hook: thread-ordering/reset-order-state
   readonly fork?: ForkableThreadProviderState | null; // fork-hook: thread-fork/menu-state
+  readonly openInNewWindow?: boolean; // fork-hook: multi-window/dispatch-thread-menu-state
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
   readonly isSnoozed: boolean;
@@ -130,6 +133,7 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
         ]
       : []),
+    ...openInNewWindowMenuItems(state), // fork-hook: multi-window/dispatch-thread-menu-items
     ...resetOrderMenuItems(state), // fork-hook: thread-ordering/reset-order-items
     ...forkThreadMenuItems(state), // fork-hook: thread-fork/menu-items
     ...(state.supports.settlement

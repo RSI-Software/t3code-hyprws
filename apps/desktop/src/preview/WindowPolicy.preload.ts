@@ -20,7 +20,7 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
 export type ProjectWindowCapabilities = Required<
   Pick<
     DesktopBridge,
-    "openProjectWindow" | "projectWindowRef" | "getWindowDemandState" | "onWindowDemandStateChange"
+    "requestWindow" | "projectWindowRef" | "getWindowDemandState" | "onWindowDemandStateChange"
   >
 > &
   Pick<DesktopBridge, "windowId" | "windowScopeSeed">;
@@ -45,8 +45,7 @@ ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unkno
 });
 
 const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
-  openProjectWindow: (projectRef) =>
-    ipcRenderer.invoke(IpcChannels.OPEN_PROJECT_WINDOW_CHANNEL, projectRef),
+  requestWindow: (request) => ipcRenderer.invoke(IpcChannels.REQUEST_WINDOW_CHANNEL, request),
   // Branded ids are plain strings at runtime; the preload cannot import the
   // contracts package without breaking its sandboxed bundle.
   projectWindowRef: readProjectWindowPreloadParts(process.argv) as ScopedProjectRef | null,
