@@ -74,7 +74,7 @@ describe("window dispatch table", () => {
     Effect.gen(function* () {
       const ref = projectRef("one");
       const fake = makeOps({ open: [{ id: WINDOW_A, showing: ref }] });
-      const route = "/project/environment-one/project-one/thread/thread-1";
+      const route = "/environment-one/thread-1";
       yield* dispatchWindowRequest(fake.ops)({ kind: "open-in-new-window", route, seed: ref });
       assert.deepEqual(fake.calls, ["create"]);
       assert.deepEqual(fake.created, [{ route, seed: ref }]);
@@ -113,9 +113,7 @@ describe("window dispatch table", () => {
       const other = makeOps({ open: [{ id: WINDOW_B, showing: projectRef("two") }] });
       yield* dispatchWindowRequest(other.ops)({ kind: "project-link", ref });
       assert.deepEqual(other.calls, ["create"]);
-      assert.deepEqual(other.created, [
-        { route: "/project/environment-one/project-one", seed: ref },
-      ]);
+      assert.deepEqual(other.created, [{ route: "/", seed: ref }]);
     }),
   );
 
@@ -133,7 +131,7 @@ describe("window dispatch table", () => {
       assert.equal(fake.created.length, 1);
       assert.deepEqual(fake.calls, ["create", "reveal:created-1"]);
 
-      const route = "/project/environment-one/project-one";
+      const route = "/environment-one/thread-1";
       yield* dispatch({ kind: "open-in-new-window", route, seed: ref });
       yield* dispatch({ kind: "open-in-new-window", route, seed: ref });
       assert.equal(fake.created.length, 3);
