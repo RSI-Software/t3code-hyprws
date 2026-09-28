@@ -64,6 +64,8 @@ import { readProject } from "../state/entities";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { useProjectChooserHostValue } from "../projectChooser.fork"; // fork-hook: workspaces/window-title-import
+import { composeFilteredWindowTitle } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
