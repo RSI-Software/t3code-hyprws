@@ -11,12 +11,17 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import { HyprlandPlacement } from "./HyprlandPlacement.ts";
 import type { HyprlandWorkspaceRef } from "./hyprland.ts";
+import type { WindowId } from "./WindowId.fork.ts";
 import { HUB_WINDOW_IDENTITY, projectWindowIdentity } from "./WindowIdentity.ts";
 
 const projectIdentity = projectWindowIdentity(
   EnvironmentId.make("environment-1"),
   ProjectId.make("project-1"),
 );
+const hubWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
+const projectWindowId = "00000000-0000-4000-8000-000000000002" as WindowId;
+const hubWindow = { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY };
+const projectWindow = { windowId: projectWindowId, identity: projectIdentity };
 
 function makeLayer(baseDir: string, workspaces: Record<string, HyprlandWorkspaceRef>) {
   const environmentLayer = DesktopEnvironment.layer({
@@ -67,16 +72,21 @@ describe("DesktopWindowSession", () => {
     withSession(
       Effect.gen(function* () {
         const session = yield* DesktopWindowSession.DesktopWindowSession;
-        yield* session.capture([HUB_WINDOW_IDENTITY, projectIdentity], "update");
+        yield* session.capture([hubWindow, projectWindow], "update");
 
+        // Each window comes back under the id it had, so the relaunch keeps it.
         assert.deepEqual(yield* session.consume, [
-          { identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } },
-          { identity: projectIdentity, workspace: { id: 4, name: "code" } },
+          { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } },
+          {
+            windowId: projectWindowId,
+            identity: projectIdentity,
+            workspace: { id: 4, name: "code" },
+          },
         ]);
       }),
       {
-        hub: { id: 1, name: "1" },
-        "project:environment-1:project-1": { id: 4, name: "code" },
+        [hubWindowId]: { id: 1, name: "1" },
+        [projectWindowId]: { id: 4, name: "code" },
       },
     ),
   );
@@ -87,7 +97,7 @@ describe("DesktopWindowSession", () => {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const session = yield* DesktopWindowSession.DesktopWindowSession;
-        yield* session.capture([projectIdentity], "update");
+        yield* session.capture([projectWindow], "update");
 
         assert.lengthOf(yield* session.consume, 1);
         assert.isFalse(yield* fileSystem.exists(environment.windowSessionPath));
@@ -162,6 +172,33 @@ describe("DesktopWindowSession", () => {
         1_500,
       ),
       [{ identity: projectIdentity, workspace: null }],
+    );
+  });
+
+  it("restores a row's window id and drops one that is not a window id", () => {
+    assert.deepEqual(
+      DesktopWindowSession.readRestoreEntries(
+        {
+          version: 1,
+          reason: "update",
+          capturedAtMs: 1_000,
+          windows: [
+            { windowId: hubWindowId, kind: "hub", workspace: null },
+            {
+              windowId: "project:environment-1:project-1",
+              kind: "project",
+              environmentId: "environment-1",
+              projectId: "project-1",
+              workspace: null,
+            },
+          ],
+        },
+        1_500,
+      ),
+      [
+        { windowId: hubWindowId, identity: HUB_WINDOW_IDENTITY, workspace: null },
+        { identity: projectIdentity, workspace: null },
+      ],
     );
   });
 });

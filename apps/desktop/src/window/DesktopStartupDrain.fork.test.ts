@@ -21,8 +21,17 @@ import {
   type WindowOpeners,
 } from "./DesktopStartupDrain.fork.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { WindowId } from "./WindowId.fork.ts";
 
 const fakeWindow = {} as Electron.BrowserWindow;
+const fakeWindowId = "00000000-0000-4000-8000-000000000001" as WindowId;
+
+/** Adapts a window opener to the restore opener, which also reports the id. */
+const asEnsure =
+  (open: () => (identity: WindowIdentity) => Effect.Effect<Electron.BrowserWindow>) =>
+  () =>
+  (identity: WindowIdentity) =>
+    open()(identity).pipe(Effect.map((window) => ({ window, windowId: fakeWindowId })));
 
 const projectIdentity = (name: string): WindowIdentity =>
   projectWindowIdentity(
@@ -75,7 +84,7 @@ const makeRecordingOpeners = Effect.gen(function* () {
     );
   yield* Deferred.succeed(gate, undefined);
   const openers: WindowOpeners = {
-    ensureIdentity: () => record,
+    ensureIdentity: asEnsure(() => record),
     revealOrCreateIdentity: () => record,
     createMainIfBackendReady: () =>
       Ref.update(opened, (keys) => [...keys, "hub"]).pipe(Effect.asVoid),
@@ -104,7 +113,7 @@ describe("DesktopStartupDrain", () => {
       const keyOf = (identity: WindowIdentity): string =>
         identity.kind === "hub" ? "hub" : `project:${identity.ref.projectId}`;
       const openers: WindowOpeners = {
-        ensureIdentity: pausingEnsure,
+        ensureIdentity: asEnsure(pausingEnsure),
         revealOrCreateIdentity: () => (identity: WindowIdentity) =>
           Ref.update(opened, (keys) => [...keys, keyOf(identity)]).pipe(Effect.as(fakeWindow)),
         createMainIfBackendReady: () => Effect.void,
@@ -149,7 +158,7 @@ describe("DesktopStartupDrain", () => {
           return fakeWindow;
         });
       const openers: WindowOpeners = {
-        ensureIdentity: pausingReveal,
+        ensureIdentity: asEnsure(pausingReveal),
         revealOrCreateIdentity: pausingReveal,
         createMainIfBackendReady: () => Effect.void,
       };
@@ -187,7 +196,7 @@ describe("DesktopStartupDrain", () => {
           return fakeWindow;
         });
       const openers: WindowOpeners = {
-        ensureIdentity: pausingReveal,
+        ensureIdentity: asEnsure(pausingReveal),
         revealOrCreateIdentity: pausingReveal,
         createMainIfBackendReady: () => Effect.void,
       };
