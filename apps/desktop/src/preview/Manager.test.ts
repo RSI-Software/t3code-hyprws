@@ -2,8 +2,6 @@ import * as NodeVM from "node:vm";
 import { it as effectIt } from "@effect/vitest";
 import {
   DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
-  EnvironmentId,
-  ProjectId,
   type DesktopPreviewRecordingFrame,
   type DesktopPreviewRecordingInputEvent,
 } from "@t3tools/contracts";
@@ -25,7 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { projectWindowIdentity } from "../window/WindowIdentity.ts";
+import type { WindowId } from "../window/WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewManager from "./Manager.ts";
 
@@ -2525,10 +2523,7 @@ describe("PreviewManager", () => {
         );
 
         const otherWindow = yield* manager.forWindow(
-          projectWindowIdentity(
-            EnvironmentId.make("environment-1"),
-            ProjectId.make("other-project"),
-          ),
+          "00000000-0000-4000-8000-00000000000c" as WindowId, // fork-hook: multi-window/window-id-preview-owner
         );
         yield* otherWindow.navigate("tab_other_window", "https://other.example");
         yield* manager.createTab("tab_window_close_recording");
