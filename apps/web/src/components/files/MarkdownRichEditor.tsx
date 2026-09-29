@@ -7,7 +7,7 @@ import {
   serializerCtx,
 } from "@milkdown/core";
 import { Plugin } from "@milkdown/prose/state";
-import { $prose } from "@milkdown/utils";
+import { $prose, replaceAll } from "@milkdown/utils";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -95,6 +95,7 @@ export function MarkdownRichEditor({
   const initialValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const lastMarkdownRef = useRef(value);
+  const syncingValueRef = useRef(false);
   const cwdRef = useRef(cwd);
   const sourcePathRef = useRef(relativePath);
   const onOpenFileRef = useRef(onOpenFile);
@@ -113,6 +114,12 @@ export function MarkdownRichEditor({
             update(view, previousState) {
               if (view.state.doc.eq(previousState.doc)) return;
               const markdown = ctx.get(serializerCtx)(view.state.doc);
+              // A disk change loaded below is not an edit: saving its serialized
+              // form would rewrite the file the user never touched.
+              if (syncingValueRef.current) {
+                lastMarkdownRef.current = markdown;
+                return;
+              }
               if (markdown === lastMarkdownRef.current) return;
               lastMarkdownRef.current = markdown;
               onChangeRef.current(markdown);
@@ -144,6 +151,20 @@ export function MarkdownRichEditor({
       )
       .use(publishChanges);
   });
+
+  // `value` echoes this editor's own changes back through the optimistic file,
+  // so only a different value is new content from disk (refresh, reopen,
+  // focus, or an agent edit). Unsaved edits stay in the optimistic file, so
+  // they arrive here as the echo and are never replaced.
+  useEffect(() => {
+    if (!ready || value === lastMarkdownRef.current) return;
+    syncingValueRef.current = true;
+    try {
+      editor.current?.action(replaceAll(value));
+    } finally {
+      syncingValueRef.current = false;
+    }
+  }, [editor, ready, value]);
 
   useEffect(() => {
     if (!ready) return;
