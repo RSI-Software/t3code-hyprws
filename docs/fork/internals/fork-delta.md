@@ -442,6 +442,7 @@ Retired with the fork.
 
 Stable tags are `vX.Y.Z-hyprws.N`; nightlies are `vX.Y.Z-hyprws-nightly.YYYYMMDD.N`, with a six-hour changed-head check as fallback.
 `hyprws-release.yml` omits upstream's `concurrency.queue: max`, because one pending slot supersedes builds the newest commit already contains.
+Its release checks mirror upstream's jobs beside the build, but split packages and widen test budgets as `hyprws-ci.yml` does for GitHub-hosted runners.
 Upstream workflows stay in the tree untouched and disabled, because editing or deleting them is a standing rebase conflict.
 [Fork sync](../operations/fork-sync.md) owns the disable step.
 
