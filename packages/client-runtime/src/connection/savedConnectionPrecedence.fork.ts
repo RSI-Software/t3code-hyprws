@@ -1,25 +1,67 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
-import type { PlatformConnectionRegistration } from "./catalog.ts";
+import type { ConnectionCatalogEntry, PlatformConnectionRegistration } from "./catalog.ts";
 
 /**
- * Saved-connection precedence (RSI-Software/t3code-hyprws#1350). Upstream's
- * platform primary replaces a persisted registration for the same
- * environment, which is right for a spawned backend. An attached server comes
- * and goes, so replacing would delete the user's saved connection the first
- * time the attachment drops. Platforms that attach opt in, and the saved
- * connection stays the way that environment is reached.
+ * Saved-connection precedence (RSI-Software/t3code-hyprws#1350,
+ * RSI-Software/t3code-hyprws#1412). Upstream's platform primary replaces and
+ * deletes a persisted registration for the same environment, which is right
+ * for a spawned backend. An attached server comes and goes, so platforms that
+ * attach opt in: the attached primary wins while present, so the environment
+ * stays local, and the saved connection is kept and returns when the
+ * attachment drops.
  */
 export const savedConnectionsOutrankPrimary = Effect.map(
   Effect.serviceOption(ClientCapabilities.PrimaryEnvironmentAuth),
   (auth) => Option.isSome(auth) && auth.value.savedConnectionsOutrankPrimary === true,
 );
 
-export const keepsSavedConnection = (
+export const make = Effect.fn("SavedConnectionPrecedence.make")(function* (
   enabled: boolean,
-  registration: PlatformConnectionRegistration,
-  persistedTarget: unknown,
-): boolean =>
-  enabled && persistedTarget !== undefined && registration._tag === "PrimaryConnectionRegistration";
+  platformEnvironmentIds: Ref.Ref<ReadonlySet<EnvironmentId>>,
+  installEntry: (entry: ConnectionCatalogEntry) => Effect.Effect<void>,
+) {
+  const shadowed = yield* Ref.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(new Map());
+
+  /**
+   * Installs an attached primary above a saved connection for its environment,
+   * keeping the saved one persisted. True when it handled the registration.
+   */
+  const shadow = Effect.fn("SavedConnectionPrecedence.shadow")(function* (
+    registration: PlatformConnectionRegistration,
+    persistedTarget: unknown,
+    previous: ConnectionCatalogEntry | undefined,
+    entry: ConnectionCatalogEntry,
+  ) {
+    if (!enabled || persistedTarget === undefined) return false;
+    if (registration._tag !== "PrimaryConnectionRegistration") return false;
+    const environmentId = entry.target.environmentId;
+    if (previous !== undefined && previous.target._tag !== "PrimaryConnectionTarget") {
+      yield* Ref.update(shadowed, (current) => new Map(current).set(environmentId, previous));
+    }
+    yield* Ref.update(platformEnvironmentIds, (current) => new Set(current).add(environmentId));
+    yield* installEntry(entry);
+    return true;
+  });
+
+  /** Puts the saved connection back when its attached primary drops. */
+  const restore = Effect.fn("SavedConnectionPrecedence.restore")(function* (
+    environmentId: EnvironmentId,
+  ) {
+    const saved = (yield* Ref.get(shadowed)).get(environmentId);
+    if (saved === undefined) return false;
+    yield* Ref.update(shadowed, (current) => {
+      const next = new Map(current);
+      next.delete(environmentId);
+      return next;
+    });
+    yield* installEntry(saved);
+    return true;
+  });
+
+  return { shadow, restore };
+});
