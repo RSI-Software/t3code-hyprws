@@ -12,6 +12,7 @@ import {
   type FoldStack,
   foldMessage,
   forkPullRequests,
+  memberFindings,
   foldTrailers,
   parsePlan,
   type ProveStep,
@@ -249,6 +250,54 @@ it("carries only fork PR links: no upstream ref, no bare body #N", () => {
     folded,
     "- aaaa1111 feat(web): port of pingdotgg/t3code#6452 (#1355) (RSI-Software/t3code-hyprws#1355)",
   );
+});
+
+it("passes a fold whose commits name their members and touch only member paths", () => {
+  const a = commit("aaaa1111", { files: ["a.ts"] });
+  const b = commit("bbbb2222", { subject: "fix: b", files: ["b.ts"] });
+  const c = commit("cccc3333", { files: ["c.ts"] });
+  const folded = commit("ffff0001", {
+    subject: a.subject,
+    message: foldMessage({ members: [a, b] }),
+    files: ["a.ts", "b.ts"],
+  });
+  const kept = commit("ffff0002", { subject: c.subject, files: ["c.ts"] });
+  assert.deepStrictEqual(memberFindings(stackOf(a, b, c), stackOf(folded, kept)), []);
+});
+
+it("finds a memberless commit, stray paths, and orphaned or doubly-owned old commits", () => {
+  const a = commit("aaaa1111", { files: ["a.ts"] });
+  const b = commit("bbbb2222", { files: ["b.ts"] });
+  const orphan = commit("cccc3333");
+  const stray = commit("ffff0001", { subject: a.subject, files: ["a.ts", "residue.ts"] });
+  const twice = commit("ffff0002", {
+    subject: "feat: twice",
+    message:
+      "feat: twice\n\nSquashes:\n\n- aaaa1111 feat: a\n- bbbb2222 feat: b\n- 9999aaaa earlier fold\n",
+    files: ["b.ts"],
+  });
+  const none = commit("ffff0003", { subject: "feat: none" });
+  assert.deepStrictEqual(memberFindings(stackOf(a, b, orphan), stackOf(stray, twice, none)), [
+    "ffff0001 feat: aaaa1111: touches paths no member touched: residue.ts",
+    "ffff0003 feat: none: names no commit in the old range",
+    "aaaa1111 feat: aaaa1111: belongs to several new commits: ffff0001, ffff0002",
+    "cccc3333 feat: cccc3333: belongs to no new commit",
+  ]);
+});
+
+it("lets a Fork-Repair commit split across owners but not vanish", () => {
+  const repair = commit("eeee0000", { repair: "v1", files: ["a.ts", "b.ts"] });
+  const cites = (short: string, file: string) =>
+    commit(short, {
+      subject: `feat: ${short}`,
+      message: `feat: ${short}\n\nSquashes:\n\n- eeee0000 fix: repair\n`,
+      files: [file],
+    });
+  const owners = stackOf(cites("aaaa1111", "a.ts"), cites("bbbb2222", "b.ts"));
+  assert.deepStrictEqual(memberFindings(stackOf(repair), owners), []);
+  assert.deepStrictEqual(memberFindings(stackOf(repair), stackOf()), [
+    "eeee0000 feat: eeee0000: belongs to no new commit",
+  ]);
 });
 
 it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squashes lines only", () => {
