@@ -1,5 +1,5 @@
 import type { EnvironmentId, GitHubIssueDetail, ProjectId } from "@t3tools/contracts";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -29,6 +29,12 @@ vi.mock("../../hooks/useSettings", () => ({
 }));
 vi.mock("../../hooks/useHandleNewThread", () => ({
   useNewThreadHandler: () => vi.fn(),
+}));
+// Floating UI reads `window` when a tooltip mounts, which the node renderer has none of.
+vi.mock("../ui/tooltip", () => ({
+  Tooltip: ({ children }: { readonly children?: ReactNode }) => children,
+  TooltipTrigger: ({ children }: { readonly children?: ReactNode }) => children,
+  TooltipPopup: () => null,
 }));
 vi.mock("../pullRequest/PullRequestMarkdown", () => ({
   PullRequestMarkdown: ({ text }: { readonly text: string }) => text,
