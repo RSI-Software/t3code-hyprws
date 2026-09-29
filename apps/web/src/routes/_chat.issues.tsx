@@ -6,7 +6,7 @@ import {
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, LayersIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { EnvironmentGitHubIssueDetailContent } from "../components/githubIssue/GitHubIssueDetailPanel";
 import { GitHubIssueEmptyState } from "../components/githubIssue/GitHubIssueEmptyState";
@@ -32,6 +32,7 @@ import {
 } from "../components/githubIssue/GitHubIssueListView.logic";
 import { GitHubIssueListGhosts } from "../components/githubIssue/GitHubIssueGhosts";
 import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
+import { useGitHubIssueKeyboard } from "../components/githubIssue/useGitHubIssueKeyboard";
 import {
   ALL_PROJECTS_VALUE,
   GitHubIssueProjectMenu,
@@ -253,6 +254,13 @@ export function GitHubIssuesPage({
   const updateFilters = (patch: IssuesSearchPatch) => updateSearch({ ...patch, ...clearSelection });
   const closeDetail = () => updateSearch(clearSelection);
   const isMobile = useIsMobile();
+  const searchRef = useRef<HTMLDivElement | null>(null);
+  const onListKeyDown = useGitHubIssueKeyboard({
+    page: variant === "page",
+    searchRef,
+    openIssueUrl: selectedRef === null ? null : (detailQuery.data?.url ?? null),
+    onCloseIssue: selectedRef === null ? null : closeDetail,
+  });
   const projectMenuValue = scopedProject
     ? pullRequestProjectKey(scopedProject)
     : ALL_PROJECTS_VALUE;
@@ -419,7 +427,7 @@ export function GitHubIssuesPage({
         <ProjectChooserScopeLabelFork />
         {/* fork-hook-end */}
         {/* The field's own minimum, so a crowded row wraps its controls rather than overlapping them. */}
-        <div className="min-w-48 basis-full @lg/issues:basis-0 @lg/issues:flex-1">
+        <div ref={searchRef} className="min-w-48 basis-full @lg/issues:basis-0 @lg/issues:flex-1">
           <GitHubIssueSearchField
             value={search.q ?? ""}
             onChange={(next) => updateFilters({ q: next || undefined })}
@@ -471,7 +479,10 @@ export function GitHubIssuesPage({
 
   if (variant === "panel") {
     return (
-      <div className="@container/issues flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+      <div
+        className="@container/issues flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground"
+        onKeyDown={onListKeyDown}
+      >
         <div className="border-b border-border/70 p-3">{controls}</div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
           {notices}
@@ -501,7 +512,11 @@ export function GitHubIssuesPage({
             </WorkspaceBreadcrumb>
           </WorkspacePageHeader>
           <div className="topbar-scroll-fade scrollbar-gutter-both min-h-0 flex-1 overflow-y-auto">
-            <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
+            <WorkspacePageContainer
+              width="expanded"
+              className="min-h-full gap-4"
+              onKeyDown={onListKeyDown}
+            >
               {controls}
               {notices}
               {body}
