@@ -59,6 +59,7 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
@@ -1173,6 +1174,17 @@ export default function FilePreviewPanel({
         )
       : NO_FILE_REVISION_ATOM,
   );
+  // An edit made outside T3 Code reports no mutation, and the cached read
+  // outlives a closed tab. Arriving at the file again, by reopening it or
+  // focusing the window, re-reads it; unsaved edits stay in the optimistic file.
+  useLiveRefresh(file.refresh, {
+    enabled:
+      attachment === undefined &&
+      relativePath !== null &&
+      (isFolder || (!isMedia && !isPdf)) &&
+      !selectedFilePending,
+    key: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
+  });
 
   useEffect(() => {
     const crumbs = breadcrumbRef.current?.querySelectorAll<HTMLElement>("[data-file-crumb]");
