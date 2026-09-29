@@ -1,64 +1,26 @@
 import type { GitHubIssueLabel, GitHubIssueType } from "@t3tools/contracts";
-import type { CSSProperties, MouseEvent } from "react";
-
-import type { GitHubIssueFilterField } from "./GitHubIssueListView.logic";
+import type { MouseEvent, ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import {
-  gitHubChipVars,
-  gitHubIssueTypeHexColor,
-  gitHubIssueTypeLabel,
-} from "./githubIssueChips.logic";
-
-/**
- * Both chips wear the small outline `Badge` geometry: its sizing, focus ring and touch target.
- * The colour and the silhouette are GitHub's, so the chip is this feature's own element rather
- * than a restyled `Badge`, and that look is shared with the filter rows' swatches.
- */
-const CHIP_BASE =
-  "relative inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-1 whitespace-nowrap border px-0.75 font-medium text-xs leading-none outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background sm:h-4 sm:min-w-4 sm:text-3xs [button&]:cursor-pointer [button&]:pointer-coarse:after:absolute [button&]:pointer-coarse:after:size-full [button&]:pointer-coarse:after:min-h-11 [button&]:pointer-coarse:after:min-w-11";
-
-/**
- * The colour arrives as two custom properties and the theme picks one here, in classes rather than
- * inline, because an inline `--gh-chip` would outrank the dark variant that has to replace it.
- */
-const COLOURED =
-  "[--gh-chip:var(--gh-chip-light)] dark:[--gh-chip:var(--gh-chip-dark)] border-(--gh-chip)/40 text-(--gh-chip)";
-
-/** The muted chip a label or type falls back to when GitHub sent no colour it can paint. */
-const UNCOLOURED =
-  "border-border bg-muted/40 text-muted-foreground dark:bg-muted/40 [button&]:hover:bg-muted/64 dark:[button&]:hover:bg-muted/64";
-
-/**
- * A type is one per issue and is read first, so it takes the stronger silhouette: square corners
- * and a tinted fill. A label is many and secondary, so it is an outlined pill. The shape alone says
- * which vocabulary a chip belongs to, before any colour is decoded.
- */
-const TYPE_SHAPE =
-  "rounded-sm bg-(--gh-chip)/12 dark:bg-(--gh-chip)/16 [button&]:hover:bg-(--gh-chip)/24 dark:[button&]:hover:bg-(--gh-chip)/28";
-const LABEL_SHAPE =
-  "rounded-full bg-transparent dark:bg-transparent [button&]:hover:bg-(--gh-chip)/12 dark:[button&]:hover:bg-(--gh-chip)/16";
-
-/** The one colour treatment every rendering of a type or label shares. */
-function gitHubIssueChipLook(
-  kind: GitHubIssueFilterField,
-  color: string | null,
-): { readonly className: string; readonly style: CSSProperties | undefined } {
-  const style = gitHubChipVars(kind === "type" ? gitHubIssueTypeHexColor(color) : color);
-  return {
-    style,
-    className: cn(kind === "type" ? TYPE_SHAPE : LABEL_SHAPE, style ? COLOURED : UNCOLOURED),
-  };
-}
+import { PullRequestLabelChip } from "../pullRequest/pullRequestPresentation";
+import { pullRequestLabelColor } from "../pullRequest/pullRequestList.logic";
+import { gitHubIssueTypeHexColor, gitHubIssueTypeLabel } from "./githubIssueChips.logic";
+import type { GitHubIssueFilterField } from "./GitHubIssueListView.logic";
 
 /** What a type or label is called on screen; a type gains its glyph, a label is its own name. */
 export function gitHubIssueChipName(kind: GitHubIssueFilterField, name: string): string {
   return kind === "type" ? gitHubIssueTypeLabel(name) : name;
 }
 
+/** The colour a type or label paints with, in the `#rrggbb` form the pull request chip reads. */
+function gitHubIssueChipColor(kind: GitHubIssueFilterField, color: string | null): string | null {
+  return pullRequestLabelColor(kind === "type" ? gitHubIssueTypeHexColor(color) : color);
+}
+
 /**
- * The colour alone, for a list row that names the type or label in plain text beside it. Keeps the
- * chip's silhouette in miniature, so a square is a type and a circle is a label here too.
+ * The colour alone, for a filter row that names the type or label in plain text beside it. A
+ * square is a type and a circle is a label, the one place the two vocabularies still differ in
+ * shape: in a chip the type's glyph already says which is which.
  */
 export function GitHubIssueSwatch({
   kind,
@@ -67,83 +29,79 @@ export function GitHubIssueSwatch({
   readonly kind: GitHubIssueFilterField;
   readonly color: string | null;
 }) {
-  const { style } = gitHubIssueChipLook(kind, color);
+  const hex = gitHubIssueChipColor(kind, color);
   return (
     <span
       aria-hidden
       className={cn(
         "size-2.5 shrink-0",
         kind === "type" ? "rounded-xs" : "rounded-full",
-        style
-          ? "[--gh-chip:var(--gh-chip-light)] dark:[--gh-chip:var(--gh-chip-dark)] bg-(--gh-chip)"
-          : "bg-muted-foreground/40",
+        hex === null && "bg-muted-foreground/40",
       )}
-      style={style}
+      style={hex === null ? undefined : { backgroundColor: hex }}
     />
   );
 }
 
 /**
- * A chip is static, or a control that applies itself as a filter. As a control it stops the click
- * where it lands, because a row carries its own click target and filtering by a chip must not
- * also open the issue.
+ * A type or label in the pull request surface's own label chip, so one repository's `bug` reads
+ * the same on an issue as on the pull request that fixes it. As a control the chip applies itself
+ * as a filter and stops the click where it lands, because the row beneath opens the issue.
  */
-function GitHubIssueChip({
+export function GitHubIssueChip({
   kind,
   color,
   name,
+  size,
   className,
   onFilter,
+  children,
 }: {
   readonly kind: GitHubIssueFilterField;
   readonly color: string | null;
   readonly name: string;
-  readonly className: string | undefined;
-  readonly onFilter: (() => void) | undefined;
+  readonly size?: "sm" | "default";
+  readonly className?: string;
+  readonly onFilter?: () => void;
+  /** Rides after the name, for an overflow count. */
+  readonly children?: ReactNode;
 }) {
-  const look = gitHubIssueChipLook(kind, color);
-  const chipClassName = cn(CHIP_BASE, look.className, className);
-  if (onFilter === undefined) {
-    return (
-      <span className={chipClassName} style={look.style}>
-        {name}
-      </span>
-    );
-  }
+  const label = gitHubIssueChipName(kind, name);
+  const chip = (
+    <PullRequestLabelChip
+      label={{ name: label, color: gitHubIssueChipColor(kind, color) }}
+      {...(size ? { size } : {})}
+      className={cn(onFilter ? "max-w-full" : className)}
+    >
+      {children}
+    </PullRequestLabelChip>
+  );
+  if (onFilter === undefined) return chip;
   return (
     <button
       type="button"
-      aria-label={`Filter by ${name}`}
-      className={chipClassName}
-      style={look.style}
+      aria-label={`Filter by ${label}`}
+      className={cn(
+        "relative inline-flex min-w-0 max-w-40 shrink cursor-pointer rounded-sm outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onFilter();
       }}
     >
-      {name}
+      {chip}
     </button>
   );
 }
 
 export function GitHubIssueLabelChip({
   label,
-  className,
-  onFilter,
-}: {
+  ...props
+}: Omit<Parameters<typeof GitHubIssueChip>[0], "kind" | "color" | "name"> & {
   readonly label: GitHubIssueLabel;
-  readonly className?: string;
-  readonly onFilter?: () => void;
 }) {
-  return (
-    <GitHubIssueChip
-      kind="label"
-      color={label.color}
-      name={label.name}
-      className={className}
-      onFilter={onFilter}
-    />
-  );
+  return <GitHubIssueChip kind="label" color={label.color} name={label.name} {...props} />;
 }
 
 /**
@@ -152,20 +110,9 @@ export function GitHubIssueLabelChip({
  */
 export function GitHubIssueTypeChip({
   issueType,
-  className,
-  onFilter,
-}: {
+  ...props
+}: Omit<Parameters<typeof GitHubIssueChip>[0], "kind" | "color" | "name"> & {
   readonly issueType: GitHubIssueType;
-  readonly className?: string;
-  readonly onFilter?: () => void;
 }) {
-  return (
-    <GitHubIssueChip
-      kind="type"
-      color={issueType.color}
-      name={gitHubIssueTypeLabel(issueType.name)}
-      className={className}
-      onFilter={onFilter}
-    />
-  );
+  return <GitHubIssueChip kind="type" color={issueType.color} name={issueType.name} {...props} />;
 }
