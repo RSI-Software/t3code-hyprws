@@ -92,7 +92,7 @@ Superseded-upstream first, fork-specific last:
 A generic fix in no product domain is `upstream-fixes`.
 New commits land on top and move down at the next rebase.
 Reorder only on a clean stack; publish with a lease.
-A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each, so the rebase scan reads every member as a replay counterpart.
+A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each plus every PR reference the member carried, so the rebase scan reads every member as a replay counterpart; a refold keeps the links an earlier fold gathered.
 
 ### Branch bases
 
@@ -151,15 +151,16 @@ Fork-only paths need no granularity curation.
 
 ### Fold to stay tight
 
-Fold the ahead commits to one intent each, so a rebase conflict is solved once.
+Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a rebase conflict is solved once.
 The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
 Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
+A fold is tree-equal but rewrites commit boundaries: the release delta revision changes, and a nightly may republish the same tree.
 
-| Gate        | Detail                                               |
-| ----------- | ---------------------------------------------------- |
-| Same domain | Never across one: the ledger loses a domain          |
-| Tree-equal  | The folded tip's tree matches the old tip            |
-| `Squashes:` | Every member listed, per [Stack order](#stack-order) |
+| Gate        | Detail                                                        |
+| ----------- | ------------------------------------------------------------- |
+| Same domain | The plan refuses a mixed line: the ledger would lose a domain |
+| Tree-equal  | The folded tip's tree matches the old tip                     |
+| `Squashes:` | Every member listed, per [Stack order](#stack-order)          |
 
 ### Fork tests live in fork-owned files
 
