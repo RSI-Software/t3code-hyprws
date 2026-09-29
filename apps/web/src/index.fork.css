@@ -11,3 +11,11 @@
     min-height: 100%;
   }
 }
+
+/* upstream-fixes: the fallback context menu (contextMenuFallback.ts) caps its
+   list at 24rem, so a long thread menu scrolls in any window. Let it use the
+   viewport height instead; it still scrolls when the window is shorter. The
+   list's own inline max-height needs `!important` to lose. */
+.dropdown-glass[data-level] > div {
+  max-height: calc(100dvh - 0.5rem) !important;
+}
