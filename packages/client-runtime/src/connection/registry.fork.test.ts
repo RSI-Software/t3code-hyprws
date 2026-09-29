@@ -108,13 +108,13 @@ const withAuth = (savedConnectionsOutrankPrimary: boolean) =>
     }),
   );
 
-describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hyprws#1350", () => {
+describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hyprws#1412", () => {
   const savedTarget = new RelayConnectionTarget({
     environmentId: TARGET.environmentId,
     label: "Saved relay environment",
   });
 
-  it.effect("an attaching platform keeps the saved connection over its primary", () =>
+  it.effect("an attached primary wins and the saved connection returns when it drops", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness([savedTarget]);
       yield* Effect.gen(function* () {
@@ -122,12 +122,17 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
         const targetOf = SubscriptionRef.get(registry.entries).pipe(
           Effect.map((entries) => entries.get(TARGET.environmentId)?.target),
         );
+        const stored = Ref.get(harness.storedTargets).pipe(
+          Effect.map((targets) => targets.get(TARGET.environmentId)),
+        );
         yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
-        expect(yield* targetOf).toEqual(savedTarget);
-        // The attachment drops: the saved connection is untouched.
+        expect(yield* targetOf).toEqual(TARGET);
+        expect(yield* stored).toEqual(savedTarget);
+        // A re-attach while attached must not stash the primary as the saved entry.
+        yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
         yield* registry.reconcilePlatform([]);
         expect(yield* targetOf).toEqual(savedTarget);
-        expect((yield* Ref.get(harness.storedTargets)).has(TARGET.environmentId)).toBe(true);
+        expect(yield* stored).toEqual(savedTarget);
       }).pipe(Effect.provide(harness.layer), withAuth(true), Effect.scoped);
     }),
   );
