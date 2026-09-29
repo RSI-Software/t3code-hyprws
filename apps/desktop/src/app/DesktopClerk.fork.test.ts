@@ -28,6 +28,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 import { desktopLaunchArguments } from "./DesktopLaunchArguments.fork.ts";
 const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
@@ -57,6 +58,26 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
   );
 };
 describe("DesktopClerk", () => {
+  it.effect("leaves web and file URLs to upstream while routing application links", () =>
+    Effect.gen(function* () {
+      const opened: string[][] = [];
+      yield* desktopLaunchArguments.install((argv) =>
+        Effect.sync(() => void opened.push([...argv])),
+      );
+      const router = yield* desktopLaunchArguments.router;
+      const event = { preventDefault: vi.fn() };
+      const auth = vi.fn(() => false);
+      for (const url of ["https://example.com", "http://example.com", "file:///page.html"]) {
+        assert.isFalse(router.openUrl(event, url, [auth]));
+      }
+      assert.equal(event.preventDefault.mock.calls.length, 0);
+      assert.equal(auth.mock.calls.length, 0);
+      assert.isTrue(router.openUrl(event, "t3code://app/project/env/project", [auth]));
+      yield* Effect.yieldNow;
+      assert.deepEqual(opened, [["t3code://app/project/env/project"]]);
+      assert.equal(event.preventDefault.mock.calls.length, 1);
+    }),
+  );
   beforeEach(() => {
     createClerkBridgeMock.mockReset();
     storageMock.mockReset();
@@ -96,7 +117,7 @@ describe("DesktopClerk", () => {
       yield* Effect.yieldNow;
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
-      assert.deepEqual(registeredEvents, ["open-url", "second-instance"]);
+      assert.deepEqual(registeredEvents, ["open-url", "open-file", "second-instance"]);
       assert.deepEqual(openedArguments, [
         [
           "/repo/apps/desktop/node_modules/electron/dist/electron",
@@ -111,6 +132,10 @@ describe("DesktopClerk", () => {
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, {
+        receive: () => Effect.void,
+        setRendererReady: () => Effect.void,
+      }),
     );
   });
   it.effect("logs launch-argument failures with their source and argv", () => {
@@ -156,6 +181,10 @@ describe("DesktopClerk", () => {
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, {
+        receive: () => Effect.void,
+        setRendererReady: () => Effect.void,
+      }),
       Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
     );
   });
