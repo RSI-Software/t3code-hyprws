@@ -36,6 +36,7 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
@@ -1060,6 +1061,17 @@ export default function FilePreviewPanel({
     mutationId: workspaceMutationId,
     refresh: file.refresh,
     resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
+  });
+  // An edit made outside T3 Code reports no mutation, and the cached read
+  // outlives a closed tab. Arriving at the file again, by reopening it or
+  // focusing the window, re-reads it; unsaved edits stay in the optimistic file.
+  useLiveRefresh(file.refresh, {
+    enabled:
+      attachment === undefined &&
+      relativePath !== null &&
+      (isDirectory || (!isMedia && !isPdf)) &&
+      !selectedFilePending,
+    key: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
   });
 
   useEffect(() => {
