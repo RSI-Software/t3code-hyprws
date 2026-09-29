@@ -4,9 +4,11 @@
 
 // Folds the fork's ahead commits into one-intent commits. The agent picks the
 // folds and writes the plan; this script only lists the stack, replays a plan
-// onto a detached tip, proves the new tip against the old one, and publishes a
-// proven fold on the expected-old lease. It holds no fold rules:
-// .agents/skills/fork-fold/SKILL.md carries them.
+// onto a detached tip — merge-tree until the first refused block, then the
+// remaining plan as one rebase in a throwaway worktree
+// (scripts/lib/fork-fold-rebase.ts) — proves the new tip against the old one,
+// and publishes a proven fold on the expected-old lease. It holds no
+// fold rules: .agents/skills/fork-fold/SKILL.md carries them.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -14,6 +16,7 @@ import * as NodePath from "node:path";
 import { commitNumstatArguments, parseCommitNumstat } from "./fork-delta.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import { type CommandResult, commandText, runCommand } from "./lib/fork-command.ts";
+import { FoldRebaseError, rebaseRemaining, type FoldRebaseStop } from "./lib/fork-fold-rebase.ts";
 import {
   bodyProse,
   forkLogArguments,
@@ -38,7 +41,14 @@ Options:
 
 Plan: one line per output commit, tab-separated member shas in stack order.
 A last field that is not a sha overrides the first member's subject.
-Blank lines and # lines are ignored. Every ahead commit appears exactly once.
+Blank lines and # lines are ignored. Every ahead commit appears exactly once,
+and a line's members never mix Fork-Domain values.
+
+apply replays with merge-tree until a block refuses there; from that block on
+the remaining plan replays as one git rebase --autosquash in a throwaway
+worktree under the git common dir, and a run absorbing a Fork-Repair member
+starts there. Each stop names the worktree; resolve and rerun the same apply
+command to continue.
 
 Publish refuses unless local hyprws is at <old> with a clean hyprws worktree,
 proves, then pushes origin with --force-with-lease=hyprws:<old> — the <old>
@@ -76,6 +86,11 @@ class FoldError extends Error {}
 export interface FoldGit {
   readonly text: (args: ReadonlyArray<string>, input?: string, env?: NodeJS.ProcessEnv) => string;
   readonly result: (args: ReadonlyArray<string>) => CommandResult;
+  /** Runs at an explicit working directory with extra environment; non-zero status is a value, never a throw. */
+  readonly run: (
+    args: ReadonlyArray<string>,
+    options?: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv },
+  ) => CommandResult;
 }
 
 export const systemFoldGit = (cwd: string): FoldGit => ({
@@ -91,6 +106,11 @@ export const systemFoldGit = (cwd: string): FoldGit => ({
     return result.stdout.trim();
   },
   result: (args) => runCommand("git", args, { cwd }),
+  run: (args, options = {}) =>
+    runCommand("git", args, {
+      cwd: options.cwd ?? cwd,
+      ...(options.env === undefined ? {} : { env: { ...process.env, ...options.env } }),
+    }),
 });
 
 // -- list ---------------------------------------------------------------------
@@ -207,6 +227,9 @@ export const resolvePlan = (
       used.add(commit.sha);
       return [commit];
     });
+    const domains = [...new Set(members.map((member) => member.domain ?? ""))];
+    if (domains.length > 1)
+      problems.push(`line ${line.line}: fold mixes Fork-Domain: ${domains.toSorted().join(", ")}`);
     return { members, ...(line.subject === undefined ? {} : { subject: line.subject }) };
   });
   for (const commit of stack.commits) {
@@ -320,50 +343,125 @@ export const foldMessage = (block: FoldBlock): string => {
 };
 
 /**
- * Replays each block onto the running tip with merge-tree + commit-tree, so no
- * worktree or ref moves. A member that no longer applies cleanly (the plan
- * reordered it past a commit touching the same lines) stops the replay.
+ * merge-tree replay of one block onto the running tip: the next tip, or the
+ * member that no longer applies cleanly there (the plan reordered it past a
+ * commit touching the same lines) and hands the run to the worktree fallback.
+ */
+const fastBlock = (
+  git: FoldGit,
+  tip: string,
+  block: FoldBlock,
+): { readonly tip: string } | { readonly refused: FoldCommit } => {
+  let scratch = tip;
+  let tree = "";
+  for (const [index, member] of block.members.entries()) {
+    const merged = git.result([
+      "merge-tree",
+      "--write-tree",
+      `--merge-base=${member.sha}^`,
+      scratch,
+      member.sha,
+    ]);
+    if (merged.status !== 0) return { refused: member };
+    tree = merged.stdout.split("\n")[0] ?? "";
+    if (index < block.members.length - 1) {
+      scratch = git.text(["commit-tree", tree, "-p", scratch, "-m", "fork-fold scratch"]);
+    }
+  }
+  const lead = block.members[0] as FoldCommit;
+  const [name = "", email = "", date = ""] = git
+    .text(["log", "-1", "--format=%an%x00%ae%x00%aI", lead.sha])
+    .split("\0");
+  return {
+    tip: git.text(["commit-tree", tree, "-p", tip, "-F", "-"], `${foldMessage(block)}\n`, {
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_AUTHOR_DATE: date,
+    }),
+  };
+};
+
+/**
+ * Per remaining block, the fold message when a plain pick would keep a
+ * different one (any fold, or a subject override); the rebase amends those
+ * picks through `exec`. The message function is the single shape, so a fold
+ * reads the same from either path.
+ */
+const amendMessages = (
+  git: FoldGit,
+  blocks: ReadonlyArray<FoldBlock>,
+): ReadonlyArray<string | undefined> =>
+  blocks.map((block) => {
+    const [lead] = block.members;
+    if (lead === undefined) throw new FoldError("empty plan line");
+    const raw = git.text(["log", "-1", "--format=%B", lead.sha]);
+    const folded = foldMessage(block);
+    return folded === raw.replace(/\r\n/g, "\n").trimEnd() ? undefined : `${folded}\n`;
+  });
+
+export type FoldReplay =
+  | { readonly status: "applied"; readonly tip: string }
+  | {
+      readonly status: "stopped";
+      readonly stop: FoldRebaseStop;
+      /** The member merge-tree refused; absent when the run started in the worktree. */
+      readonly refused?: { readonly short: string; readonly subject: string };
+    };
+
+/**
+ * Replays the plan onto a detached tip: merge-tree while blocks apply cleanly,
+ * then one rebase of the remaining plan in a throwaway worktree. A run that
+ * absorbs a repair (a Fork-Repair member) starts in the worktree. Moves no
+ * ref either way; a stopped replay reports the worktree and resumes on rerun.
  */
 export const replay = (
   git: FoldGit,
   stack: FoldStack,
   blocks: ReadonlyArray<FoldBlock>,
-): string => {
+  planText: string,
+): FoldReplay => {
   const first = stack.commits[0];
   if (first === undefined) throw new FoldError(`no ahead commits in ${stack.base}..${stack.head}`);
-  let tip = git.text(["rev-parse", `${first.sha}^`]);
-  for (const block of blocks) {
-    let scratch = tip;
-    let tree = "";
-    for (const [index, member] of block.members.entries()) {
-      const merged = git.result([
-        "merge-tree",
-        "--write-tree",
-        `--merge-base=${member.sha}^`,
-        scratch,
-        member.sha,
-      ]);
-      if (merged.status !== 0) {
-        throw new FoldError(
-          `${member.short} ${member.subject}: does not apply at its plan position\n${merged.stdout.trim()}`,
-        );
-      }
-      tree = merged.stdout.split("\n")[0] ?? "";
-      if (index < block.members.length - 1) {
-        scratch = git.text(["commit-tree", tree, "-p", scratch, "-m", "fork-fold scratch"]);
-      }
-    }
-    const lead = block.members[0] as FoldCommit;
-    const [name = "", email = "", date = ""] = git
-      .text(["log", "-1", "--format=%an%x00%ae%x00%aI", lead.sha])
-      .split("\0");
-    tip = git.text(["commit-tree", tree, "-p", tip, "-F", "-"], `${foldMessage(block)}\n`, {
-      GIT_AUTHOR_NAME: name,
-      GIT_AUTHOR_EMAIL: email,
-      GIT_AUTHOR_DATE: date,
+  const start = git.text(["rev-parse", `${first.sha}^`]);
+  const fallback = (
+    remaining: ReadonlyArray<FoldBlock>,
+    onto: string,
+    refused?: { readonly short: string; readonly subject: string },
+  ): FoldReplay => {
+    const outcome = rebaseRemaining(git, {
+      base: stack.base,
+      head: stack.head,
+      planText,
+      stack,
+      remaining,
+      amends: amendMessages(git, remaining),
+      onto,
     });
+    // The rebase can finish without stopping where merge-tree refused — the
+    // sequencer resolves some shapes git's merge cannot.
+    return outcome.status === "applied"
+      ? outcome
+      : {
+          status: "stopped",
+          stop: outcome,
+          ...(refused === undefined ? {} : { refused }),
+        };
+  };
+  if (blocks.some((block) => block.members.some((member) => member.repair !== undefined))) {
+    return fallback(blocks, start);
   }
-  return tip;
+  let tip = start;
+  for (const [index, block] of blocks.entries()) {
+    const fast = fastBlock(git, tip, block);
+    if ("refused" in fast) {
+      return fallback(blocks.slice(index), tip, {
+        short: fast.refused.short,
+        subject: fast.refused.subject,
+      });
+    }
+    tip = fast.tip;
+  }
+  return { status: "applied", tip };
 };
 
 // -- prove --------------------------------------------------------------------
@@ -525,13 +623,33 @@ export const run = (
         args.values.get("--head") ?? "HEAD",
       );
       const planPath = args.positionals[0] ?? "";
-      const plan = parsePlan(readPlan(NodePath.resolve(cwd, planPath)));
+      const planText = readPlan(NodePath.resolve(cwd, planPath));
+      const plan = parsePlan(planText);
       const blocks = resolvePlan(plan, stack);
-      const tip = replay(git, stack, blocks);
+      const outcome = replay(git, stack, blocks, planText);
+      if (outcome.status === "stopped") {
+        process.stderr.write(
+          [
+            ...(outcome.refused === undefined
+              ? []
+              : [
+                  `merge-tree refused ${outcome.refused.short} ${outcome.refused.subject}; the remaining plan moved to a rebase in ${outcome.stop.worktree}`,
+                ]),
+            `stopped: ${outcome.stop.commit.slice(0, 10)} ${outcome.stop.subject}`,
+            ...(outcome.stop.unmerged.length === 0
+              ? []
+              : [`unmerged: ${outcome.stop.unmerged.join(", ")}`]),
+            ...(outcome.stop.detail.length === 0 ? [] : [outcome.stop.detail]),
+            "resolve in the worktree, then rerun this apply command to continue",
+            "",
+          ].join("\n"),
+        );
+        return 1;
+      }
       process.stderr.write(
-        `${stack.commits.length} commits → ${blocks.length} on ${tip.slice(0, 10)}\n`,
+        `${stack.commits.length} commits → ${blocks.length} on ${outcome.tip.slice(0, 10)}\n`,
       );
-      process.stdout.write(`${tip}\n`);
+      process.stdout.write(`${outcome.tip}\n`);
       return 0;
     }
     if (subcommand === "prove") {
@@ -550,7 +668,7 @@ export const run = (
       process.stderr.write(`fork:fold: ${error.message}\n${HELP}`);
       return 2;
     }
-    if (error instanceof FoldError) {
+    if (error instanceof FoldError || error instanceof FoldRebaseError) {
       process.stderr.write(`failed: ${error.message}\n`);
       return 1;
     }
