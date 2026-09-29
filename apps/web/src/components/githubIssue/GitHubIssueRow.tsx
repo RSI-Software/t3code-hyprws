@@ -1,15 +1,32 @@
 import type { EnvironmentGitHubIssueListEntry } from "@t3tools/client-runtime/state/github-issues";
+import { memo } from "react";
 
 import { cn } from "../../lib/utils";
-import { formatRelativeTimeLabel } from "../../timestampFormat";
+import {
+  PULL_REQUEST_ROW_CLASS,
+  PULL_REQUEST_ROW_NUMBER_CLASS,
+  PullRequestRowAuthor,
+  PullRequestRowLines,
+} from "../pullRequest/PullRequestListRow";
 import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
-import { GitHubIssueStateIcon } from "./GitHubIssueDetailPanel";
+import { GitHubIssueCommentCount, GitHubIssueStateGlyph } from "./githubIssuePresentation";
 import type { GitHubIssueFilterField } from "./GitHubIssueListView.logic";
 
-/** Beyond this the chips outgrow the row; the detail panel carries the full set. */
-const VISIBLE_LABELS = 3;
+/**
+ * Each label slot past the first only appears once the meta line is wide enough to hold it, the
+ * pull request row's own rule, so a narrow row shows one label and a "+N" and a wide one up to
+ * three. The "+N" rides the last visible pill and hides as soon as the next slot shows.
+ */
+const LABEL_SLOTS = [
+  { overflow: "@xl/pr-row-meta:hidden" },
+  { overflow: "@3xl/pr-row-meta:hidden" },
+  { overflow: "" },
+] as const;
 
-export function GitHubIssueRow({
+/** The pull request page row's padding and the content box a skipped row reserves. */
+const PAGE_ROW_CLASS = "px-3 py-2.5 [contain-intrinsic-block-size:36.5px]";
+
+function GitHubIssueRowImpl({
   issue,
   selected,
   showProject,
@@ -24,64 +41,87 @@ export function GitHubIssueRow({
   readonly onFilter: (field: GitHubIssueFilterField, name: string) => void;
 }) {
   const issueType = issue.issueType;
-  const chipped = issueType != null || issue.labels.length > 0;
   return (
-    // The row is a container rather than one button, because its chips are controls in their own
-    // right. Opening the issue stays a single target: the title button's overlay covers the row,
-    // and the chips sit above it.
+    // The pull request row's shape, but a container rather than one button, because its chips are
+    // controls in their own right. Opening the issue stays a single target: the title button's
+    // overlay covers the row, and the positioned chips sit above it.
     <div
       className={cn(
-        "relative grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 px-4 py-3 text-left transition-colors [contain-intrinsic-block-size:72px] [content-visibility:auto]",
+        PULL_REQUEST_ROW_CLASS,
+        PAGE_ROW_CLASS,
+        "relative transition-colors [content-visibility:auto]",
         "has-[[data-row-open]:focus-visible]:ring-1 has-[[data-row-open]:focus-visible]:ring-ring",
         selected ? "bg-accent" : "hover:bg-accent/60",
       )}
     >
-      <GitHubIssueStateIcon
-        state={issue.state}
-        className={cn(
-          "mt-0.5 size-4",
-          issue.state === "open" ? "text-success-foreground" : "text-muted-foreground",
-        )}
-      />
-      <div className="min-w-0">
-        <button
-          type="button"
-          data-row-open
-          aria-current={selected ? "true" : undefined}
-          className="block w-full min-w-0 text-left after:absolute after:inset-0 focus-visible:outline-none"
-          onClick={() => onSelect(issue)}
-        >
-          <span className="block truncate font-medium text-sm">{issue.title}</span>
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-            <span>#{issue.number}</span>
+      <span className="flex w-4 shrink-0 flex-col items-center self-start mt-0.75">
+        <GitHubIssueStateGlyph state={issue.state} />
+      </span>
+      <PullRequestRowLines
+        number={<span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{issue.number}</span>}
+        title={
+          <button
+            type="button"
+            data-row-open
+            aria-current={selected ? "true" : undefined}
+            className="cursor-pointer text-left after:absolute after:inset-0 after:rounded-md focus-visible:outline-none"
+            onClick={() => onSelect(issue)}
+          >
+            {issue.title}
+          </button>
+        }
+        status={<GitHubIssueCommentCount count={issue.commentCount} />}
+        metaClassName="@container/pr-row-meta"
+        meta={
+          <>
+            <PullRequestRowAuthor
+              actor={issue.author}
+              className="relative min-w-3.5 max-w-40"
+              labelClassName="sr-only @xs/pr-row-meta:not-sr-only @xs/pr-row-meta:truncate"
+            />
             {showProject ? <span className="truncate">{issue.repository}</span> : null}
-            {issue.author ? <span className="truncate">by {issue.author.login}</span> : null}
-          </span>
-        </button>
-        {chipped ? (
-          <span className="relative mt-1.5 flex flex-wrap items-center gap-1 text-3xs">
             {issueType == null ? null : (
               <GitHubIssueTypeChip
                 issueType={issueType}
+                // The type is the row's one fact about kind of work, so labels give way first.
+                className="shrink-0"
                 onFilter={() => onFilter("type", issueType.name)}
               />
             )}
-            {issue.labels.slice(0, VISIBLE_LABELS).map((label) => (
-              <GitHubIssueLabelChip
-                key={label.name}
-                label={label}
-                onFilter={() => onFilter("label", label.name)}
-              />
-            ))}
-            {issue.labels.length > VISIBLE_LABELS ? (
-              <span className="text-muted-foreground">+{issue.labels.length - VISIBLE_LABELS}</span>
+            {issue.labels.length > 0 ? (
+              <span className="flex min-w-0 items-center gap-1">
+                {LABEL_SLOTS.map((slot, index) => {
+                  const label = issue.labels[index];
+                  if (!label) return null;
+                  const remaining = issue.labels.length - index - 1;
+                  return (
+                    <GitHubIssueLabelChip
+                      key={label.name}
+                      label={label}
+                      className={
+                        index === 0
+                          ? ""
+                          : index === 1
+                            ? "hidden @xl/pr-row-meta:inline-flex"
+                            : "hidden @3xl/pr-row-meta:inline-flex"
+                      }
+                      onFilter={() => onFilter("label", label.name)}
+                    >
+                      {remaining > 0 ? (
+                        <span className={cn("shrink-0", slot.overflow)}>+{remaining}</span>
+                      ) : null}
+                    </GitHubIssueLabelChip>
+                  );
+                })}
+              </span>
             ) : null}
-          </span>
-        ) : null}
-      </div>
-      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
-        {formatRelativeTimeLabel(issue.updatedAt)}
-      </span>
+          </>
+        }
+        updatedAt={issue.updatedAt}
+      />
     </div>
   );
 }
+
+/** Memoized for the same reason the pull request row is: the route hands it a stable `onSelect`. */
+export const GitHubIssueRow = memo(GitHubIssueRowImpl);
