@@ -13,8 +13,47 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { FoldBlock, FoldGit, FoldStack } from "../fork-fold.ts";
-import { commandText } from "./fork-command.ts";
+import { commandText, type CommandResult } from "./fork-command.ts";
+import type { ParsedForkCommit } from "./fork-trailers.ts";
+
+/**
+ * The fold's shared data shapes and git interface, home here so every fold
+ * module imports them from inside `scripts/lib`: `apps/desktop` typechecks
+ * this whole directory, and a fold module outside it would drag its own
+ * imports into the desktop project (TS6307).
+ */
+export interface FoldCommit extends ParsedForkCommit {
+  readonly files: ReadonlyArray<string>;
+  /** Full commit message (`%B`), so fold messages can carry each member's PR links. */
+  readonly message: string;
+}
+
+export interface FoldStack {
+  readonly base: string;
+  readonly head: string;
+  readonly commits: ReadonlyArray<FoldCommit>;
+}
+
+export interface PlanLine {
+  readonly line: number;
+  readonly members: ReadonlyArray<string>;
+  readonly subject?: string;
+}
+
+export interface FoldBlock {
+  readonly members: ReadonlyArray<FoldCommit>;
+  readonly subject?: string;
+}
+
+export interface FoldGit {
+  readonly text: (args: ReadonlyArray<string>, input?: string, env?: NodeJS.ProcessEnv) => string;
+  readonly result: (args: ReadonlyArray<string>) => CommandResult;
+  /** Runs at an explicit working directory with extra environment; non-zero status is a value, never a throw. */
+  readonly run: (
+    args: ReadonlyArray<string>,
+    options?: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv },
+  ) => CommandResult;
+}
 
 export class FoldRebaseError extends Error {}
 

@@ -16,13 +16,19 @@ import * as NodePath from "node:path";
 import { commitNumstatArguments, parseCommitNumstat } from "./fork-delta.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import { type CommandResult, commandText, runCommand } from "./lib/fork-command.ts";
-import { FoldRebaseError, rebaseRemaining, type FoldRebaseStop } from "./lib/fork-fold-rebase.ts";
 import {
-  bodyProse,
-  forkLogArguments,
-  type ParsedForkCommit,
-  parseForkLog,
-} from "./lib/fork-trailers.ts";
+  FoldRebaseError,
+  rebaseRemaining,
+  type FoldBlock,
+  type FoldCommit,
+  type FoldGit,
+  type FoldRebaseStop,
+  type FoldStack,
+  type PlanLine,
+} from "./lib/fork-fold-rebase.ts";
+import { bodyProse, forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
+
+export type { FoldBlock, FoldCommit, FoldGit, FoldStack, PlanLine };
 import { HYPRWS_BRANCH, HYPRWS_REF } from "./lib/fork-policy.ts";
 
 const HELP = `Usage: vp run fork:fold <command> [options]
@@ -58,40 +64,7 @@ local hyprws to <new>.
 Exit 0 passes, 1 fails, 2 is usage.
 `;
 
-export interface FoldCommit extends ParsedForkCommit {
-  readonly files: ReadonlyArray<string>;
-  /** Full commit message (`%B`), so fold messages can carry each member's PR links. */
-  readonly message: string;
-}
-
-export interface FoldStack {
-  readonly base: string;
-  readonly head: string;
-  readonly commits: ReadonlyArray<FoldCommit>;
-}
-
-export interface PlanLine {
-  readonly line: number;
-  readonly members: ReadonlyArray<string>;
-  readonly subject?: string;
-}
-
-export interface FoldBlock {
-  readonly members: ReadonlyArray<FoldCommit>;
-  readonly subject?: string;
-}
-
 class FoldError extends Error {}
-
-export interface FoldGit {
-  readonly text: (args: ReadonlyArray<string>, input?: string, env?: NodeJS.ProcessEnv) => string;
-  readonly result: (args: ReadonlyArray<string>) => CommandResult;
-  /** Runs at an explicit working directory with extra environment; non-zero status is a value, never a throw. */
-  readonly run: (
-    args: ReadonlyArray<string>,
-    options?: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv },
-  ) => CommandResult;
-}
 
 export const systemFoldGit = (cwd: string): FoldGit => ({
   text: (args, input, env) => {
