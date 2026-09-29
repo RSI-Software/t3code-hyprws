@@ -19,6 +19,7 @@ import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopBackendMode from "./DesktopBackendMode.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import { desktopLaunchArguments } from "./DesktopLaunchArguments.fork.ts"; // fork-hook: multi-window/launch-arguments
 import { desktopSecondInstanceBuffer } from "./DesktopSecondInstanceBuffer.fork.ts"; // fork-hook: multi-window/second-instance-buffer
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
@@ -439,7 +440,8 @@ const startup = Effect.gen(function* () {
   // Before openArguments, so an explicit launch intent still overrides the
   // windows an update relaunch left behind.
   yield* desktopWindow.restoreWindowSession;
-  yield* clerk.configure((argv) => desktopWindow.openArguments(argv));
+  yield* desktopLaunchArguments.install((argv) => desktopWindow.openArguments(argv)); // fork-hook: multi-window/launch-arguments
+  yield* clerk.configure;
   yield* desktopWindow.openArguments(process.argv);
   yield* desktopSecondInstanceBuffer.flush((argv) => desktopWindow.openArguments(argv)); // fork-hook: multi-window/second-instance-buffer
 
