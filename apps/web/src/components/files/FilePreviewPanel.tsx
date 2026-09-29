@@ -66,6 +66,7 @@ import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn, isMacPlatform } from "~/lib/utils";
@@ -1344,6 +1345,17 @@ export default function FilePreviewPanel({
         )
       : NO_FILE_REVISION_ATOM,
   );
+  // An edit made outside T3 Code reports no mutation, and the cached read
+  // outlives a closed tab. Arriving at the file again, by reopening it or
+  // focusing the window, re-reads it; unsaved edits stay in the optimistic file.
+  useLiveRefresh(file.refresh, {
+    enabled:
+      attachment === undefined &&
+      relativePath !== null &&
+      (isFolder || (!isMedia && !isPdf)) &&
+      !selectedFilePending,
+    key: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
+  });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the breadcrumb DOM so the deepest and current crumbs are in view after commit
   useEffect(() => {
