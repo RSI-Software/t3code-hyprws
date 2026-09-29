@@ -437,6 +437,77 @@ const createSplitStack = () => {
   return { root, base, alpha, beta, repair, head: repair };
 };
 
+/**
+ * upstream: seed lines l1-l5; optionally the beta pair of createWorktreeStack, whose
+ * reorder conflicts on the upstream file; then gamma (fold-c) and delta (fold-d)
+ * editing the fork-owned ledger.txt, and a scratch.txt delta creates, gamma edits,
+ * and delta deletes. Folding gamma's edit into its lead conflicts only on those
+ * fork-owned paths.
+ */
+const createLedgerStack = (withUpstreamConflict: boolean) => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-ledger-"));
+  git(root, ["init", "-q", "-b", "fixture"]);
+  git(root, ["config", "user.name", "Fork Fold Test"]);
+  git(root, ["config", "user.email", "fork-fold@example.com"]);
+  write(root, "shared.txt", "l1\nl2\nl3\nl4\nl5\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-q", "-m", "upstream: seed lines"]);
+  const base = git(root, ["rev-parse", "HEAD"]);
+  const upstreamPair: Array<string> = [];
+  if (withUpstreamConflict) {
+    write(root, "shared.txt", "A1\nl2\nl3\nl4\nl5\n");
+    upstreamPair.push(
+      commitAll(root, "feat: alpha feature", "Fork-Domain: fold-a\nFork-Tier: core"),
+    );
+    write(root, "shared.txt", "A1\nB2\nl3\nl4\nl5\n");
+    upstreamPair.push(commitAll(root, "fix: beta edit", "Fork-Domain: fold-b\nFork-Tier: core"));
+    write(root, "shared.txt", "A1!\nB2\nl3\nl4\nl5\n");
+    upstreamPair.push(
+      commitAll(root, "chore: beta cleanup", "Fork-Domain: fold-b\nFork-Tier: qol"),
+    );
+  }
+  write(root, "ledger.txt", "c\n");
+  const gammaLead = commitAll(root, "feat: gamma", "Fork-Domain: fold-c\nFork-Tier: core");
+  write(root, "ledger.txt", "c\nd\n");
+  write(root, "scratch.txt", "d\n");
+  const deltaLead = commitAll(root, "feat: delta", "Fork-Domain: fold-d\nFork-Tier: core");
+  write(root, "ledger.txt", "c!\nd\n");
+  write(root, "scratch.txt", "d\nc\n");
+  const gammaEdit = commitAll(root, "fix: gamma edit", "Fork-Domain: fold-c\nFork-Tier: qol");
+  NodeFS.rmSync(NodePath.join(root, "scratch.txt"));
+  const deltaDrop = commitAll(
+    root,
+    "chore: delta drops scratch",
+    "Fork-Domain: fold-d\nFork-Tier: qol",
+  );
+  const [alphaFeature, betaEdit, betaCleanup] = upstreamPair;
+  const head = git(root, ["rev-parse", "HEAD"]);
+  return {
+    root,
+    base,
+    alphaFeature,
+    betaEdit,
+    betaCleanup,
+    gammaLead,
+    deltaLead,
+    gammaEdit,
+    deltaDrop,
+    head,
+  };
+};
+
+const withLedgerStack = (
+  withUpstreamConflict: boolean,
+  body: (stack: ReturnType<typeof createLedgerStack>) => void,
+) => {
+  const stack = createLedgerStack(withUpstreamConflict);
+  try {
+    body(stack);
+  } finally {
+    NodeFS.rmSync(stack.root, { recursive: true, force: true });
+  }
+};
+
 const withSplitStack = (body: (stack: ReturnType<typeof createSplitStack>) => void) => {
   const stack = createSplitStack();
   try {
@@ -658,6 +729,81 @@ it("falls back to a worktree rebase at the first refused block and resumes acros
       assert.include(beta, `- ${betaEdit.slice(0, 7)}`);
       assert.include(beta, "Fork-Domain: fold-b");
       assert.include(beta, "Fork-Tier: core");
+    },
+  ));
+
+it("resolves fork-owned conflicts to the old head on the fast path", () =>
+  withLedgerStack(false, ({ root, base, gammaLead, deltaLead, gammaEdit, deltaDrop, head }) => {
+    NodeFS.writeFileSync(
+      NodePath.join(root, "plan.tsv"),
+      `${gammaLead}\t${gammaEdit}\n${deltaLead}\t${deltaDrop}\n`,
+    );
+    const applied = cli(root, ["apply", "plan.tsv", "--base", base]);
+    assert.strictEqual(applied.status, 0, applied.stderr);
+    const tip = applied.stdout.trim();
+    assert.strictEqual(
+      git(root, ["rev-parse", `${tip}^{tree}`]),
+      git(root, ["rev-parse", `${head}^{tree}`]),
+    );
+    assert.strictEqual(NodeFS.existsSync(stateDir(root)), false);
+    // The gamma fold holds the ledger's final form and never the deleted scratch file.
+    assert.strictEqual(git(root, ["show", `${tip}^:ledger.txt`]), "c!\nd");
+    assert.strictEqual(
+      git(root, ["ls-tree", "--name-only", `${tip}^`])
+        .split("\n")
+        .includes("scratch.txt"),
+      false,
+    );
+  }));
+
+it("resolves fork-owned conflicts in the worktree fallback and stops only on upstream ones", () =>
+  withLedgerStack(
+    true,
+    ({
+      root,
+      base,
+      alphaFeature,
+      betaEdit,
+      betaCleanup,
+      gammaLead,
+      deltaLead,
+      gammaEdit,
+      deltaDrop,
+      head,
+    }) => {
+      NodeFS.writeFileSync(
+        NodePath.join(root, "plan.tsv"),
+        [
+          alphaFeature,
+          `${betaCleanup}\t${betaEdit}`,
+          `${gammaLead}\t${gammaEdit}`,
+          `${deltaLead}\t${deltaDrop}`,
+        ].join("\n"),
+      );
+      const worktree = worktreeDir(root);
+      const apply = () => cli(root, ["apply", "plan.tsv", "--base", base]);
+
+      const first = apply();
+      assert.strictEqual(first.status, 1, first.stderr);
+      assert.include(first.stderr, "chore: beta cleanup");
+      resolveStop(root, worktree, "A1!\nl2\nl3\nl4\nl5\n");
+      const second = apply();
+      assert.strictEqual(second.status, 1, second.stderr);
+      assert.include(second.stderr, "fix: beta edit");
+      resolveStop(root, worktree, "A1!\nB2\nl3\nl4\nl5\n");
+
+      // The gamma and delta folds conflict only on fork-owned paths: no third stop.
+      const third = apply();
+      assert.strictEqual(third.status, 0, third.stderr);
+      const tip = third.stdout.trim();
+      assert.strictEqual(
+        git(root, ["rev-parse", `${tip}^{tree}`]),
+        git(root, ["rev-parse", `${head}^{tree}`]),
+      );
+      assert.deepStrictEqual(
+        git(root, ["log", "--reverse", "--format=%s", `${base}..${tip}`]).split("\n"),
+        ["feat: alpha feature", "chore: beta cleanup", "feat: gamma", "feat: delta"],
+      );
     },
   ));
 

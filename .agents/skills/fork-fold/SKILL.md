@@ -30,6 +30,10 @@ vp run fork:fold publish origin/hyprws <tip>
 3. **Apply:** prints `<tip>`; moves no ref. The fast path replays with merge-tree; from the first refused block the remaining plan finishes as one autosquashed rebase in a worktree under the git common dir, kept until the fold finishes; at each stop the agent resolves and reruns the same apply command
 4. **Publish:** refuses unless local hyprws sits at `<old>` and the worktree where hyprws is checked out is clean; proves, then pushes with the [expected-old lease][lease] and moves the [local trunks][trunk]; a failed proof pushes nothing
 
+A conflict on a path the stack base lacks is fork-owned: `apply` resolves it to the old head, or drops it when the head lacks it.
+Only upstream-owned conflicts stop, since only they recur on a rebase.
+A middle commit may then hold a fork-owned file's final form early; only the tip is tested.
+
 A fold is tree-equal but rewrites commit boundaries: the release delta revision changes, and a nightly may republish the same tree.
 
 [lease]: ../../../docs/fork/operations/fork-sync.md#model
