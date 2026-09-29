@@ -5,6 +5,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   claudeForkTurnBoundaries,
+  decodeClaudeHistoryMessages,
   isClaudeHumanTurnStartFork,
   readClaudeForkSourceSessionId,
 } from "./ClaudeThreadFork.fork.ts";
@@ -68,5 +69,25 @@ describe("claudeForkTurnBoundaries", () => {
 
   it("yields no boundaries for a clone without human turns", () => {
     expect(claudeForkTurnBoundaries([])).toEqual([]);
+  });
+
+  it("reads a compacted clone whose system rows carry no message", () => {
+    // `getSessionMessages` omits `message` on system rows; compaction puts one first.
+    const messages = decodeClaudeHistoryMessages(
+      JSON.stringify([
+        {
+          type: "system",
+          uuid: "55555555-5555-4555-8555-555555555555",
+          parent_tool_use_id: null,
+        },
+        {
+          type: "user",
+          uuid: "66666666-6666-4666-8666-666666666666",
+          parent_tool_use_id: null,
+          message: { content: "after compaction" },
+        },
+      ]),
+    );
+    expect(claudeForkTurnBoundaries(messages)).toEqual(["66666666-6666-4666-8666-666666666666"]);
   });
 });
