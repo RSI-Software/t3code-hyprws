@@ -5,18 +5,16 @@ function GhostBar({ className }: { readonly className?: string }) {
   return <div aria-hidden className={cn("h-3 rounded bg-muted-foreground/15", className)} />;
 }
 
+/** Names what is on its way, for the ghost and for held rows alike. */
+export function searchingCaption(query?: string): string {
+  return query
+    ? `Searching GitHub for “${query.length > 48 ? `${query.slice(0, 48)}…` : query}”`
+    : "Reading issues from GitHub";
+}
+
 /** The pull request list's ghost, named for what is actually on its way. */
 export function GitHubIssueListGhosts({ query }: { readonly query?: string }) {
-  return (
-    <PullRequestListGhost
-      rows={7}
-      caption={
-        query
-          ? `Searching GitHub for “${query.length > 48 ? `${query.slice(0, 48)}…` : query}”`
-          : "Reading issues from GitHub"
-      }
-    />
-  );
+  return <PullRequestListGhost rows={7} caption={searchingCaption(query)} />;
 }
 
 /** The detail's own shape: title, meta line, facts, then the description section. */
