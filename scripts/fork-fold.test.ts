@@ -64,6 +64,17 @@ it("refuses a plan that drops, repeats, or invents a commit", () => {
   );
 });
 
+it("refuses a plan line whose members differ in Fork-Domain", () => {
+  const stack = stackOf(
+    commit("aaaa1111", { domain: "fold-a" }),
+    commit("bbbb2222", { domain: "fold-b" }),
+  );
+  assert.throws(
+    () => resolvePlan(parsePlan("aaaa\tbbbb\n"), stack),
+    /line 1: fold mixes Fork-Domain: fold-a, fold-b/,
+  );
+});
+
 it("merges trailers: first domain, strongest tier, upstreamable only when all are", () => {
   assert.strictEqual(
     foldTrailers([
@@ -265,6 +276,50 @@ const createStack = () => {
   return { root, base, metaOne, zmux, metaTwo, zmuxEdit, head: zmuxEdit };
 };
 
+/**
+ * upstream: seed lines l1-l5; alpha (fold-a): feature (l1), dependent (other.txt),
+ * optionally a repair (l5); beta (fold-b): edit (l2), cleanup (l1, adjacent to the
+ * edit). The beta pair's replay position after the alpha fold conflicts on the
+ * adjacent lines, so apply must fall back to the worktree rebase.
+ */
+const createWorktreeStack = (withRepair: boolean) => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-wt-"));
+  git(root, ["init", "-q", "-b", "fixture"]);
+  git(root, ["config", "user.name", "Fork Fold Test"]);
+  git(root, ["config", "user.email", "fork-fold@example.com"]);
+  write(root, "shared.txt", "l1\nl2\nl3\nl4\nl5\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-q", "-m", "upstream: seed lines"]);
+  const base = git(root, ["rev-parse", "HEAD"]);
+  write(root, "shared.txt", "A1\nl2\nl3\nl4\nl5\n");
+  const alphaFeature = commitAll(
+    root,
+    "feat: alpha feature",
+    "Fork-Domain: fold-a\nFork-Tier: core",
+  );
+  write(root, "other.txt", "alpha support\n");
+  const alphaDependent = commitAll(
+    root,
+    "fix: alpha dependent",
+    "Fork-Domain: fold-a\nFork-Tier: qol",
+  );
+  write(root, "shared.txt", "A1\nB2\nl3\nl4\nl5\n");
+  const betaEdit = commitAll(root, "fix: beta edit", "Fork-Domain: fold-b\nFork-Tier: core");
+  write(root, "shared.txt", "A1!\nB2\nl3\nl4\nl5\n");
+  const betaCleanup = commitAll(root, "chore: beta cleanup", "Fork-Domain: fold-b\nFork-Tier: qol");
+  let repair: string | undefined;
+  if (withRepair) {
+    write(root, "shared.txt", "A1!\nB2\nl3\nl4\nR5\n");
+    repair = commitAll(
+      root,
+      "fix: alpha repair",
+      "Fork-Domain: fold-a\nFork-Tier: bugfix\nFork-Repair: v1",
+    );
+  }
+  const head = git(root, ["rev-parse", "HEAD"]);
+  return { root, base, alphaFeature, alphaDependent, betaEdit, betaCleanup, repair, head };
+};
+
 const cli = (root: string, args: ReadonlyArray<string>) => {
   const result = NodeChildProcess.spawnSync(process.execPath, [forkFoldScript, ...args], {
     cwd: root,
@@ -281,6 +336,27 @@ const withStack = (body: (stack: ReturnType<typeof createStack>) => void) => {
     NodeFS.rmSync(stack.root, { recursive: true, force: true });
   }
 };
+
+const withWorktreeStack = (
+  withRepair: boolean,
+  body: (stack: ReturnType<typeof createWorktreeStack>) => void,
+) => {
+  const stack = createWorktreeStack(withRepair);
+  try {
+    body(stack);
+  } finally {
+    NodeFS.rmSync(stack.root, { recursive: true, force: true });
+  }
+};
+
+/** Simulates the agent at one stop: write the resolved lines and stage them. */
+const resolveStop = (root: string, worktree: string, shared: string) => {
+  NodeFS.writeFileSync(NodePath.join(worktree, "shared.txt"), shared);
+  git(root, ["-C", worktree, "add", "shared.txt"]);
+};
+
+const stateDir = (root: string) => NodePath.join(root, ".git", "fork-fold");
+const worktreeDir = (root: string) => NodePath.join(stateDir(root), "worktree");
 
 it("lists the ahead commits with their files in stack order", () =>
   withStack(({ root, base }) => {
@@ -345,10 +421,121 @@ it("folds same-domain commits across a disjoint neighbor and refuses a conflicti
       NodePath.join(root, "conflict.tsv"),
       `${metaOne}\n${zmuxEdit}\n${metaTwo}\n${zmux}\n`,
     );
-    const refused = cli(root, ["apply", "conflict.tsv", "--base", base]);
-    assert.strictEqual(refused.status, 1);
-    assert.include(refused.stderr, "fix: zmux edit: does not apply at its plan position");
+    const stopped = cli(root, ["apply", "conflict.tsv", "--base", base]);
+    assert.strictEqual(stopped.status, 1);
+    assert.include(stopped.stderr, "merge-tree refused");
+    assert.include(stopped.stderr, "stopped: ");
+    assert.include(stopped.stderr, "fix: zmux edit");
+    assert.include(stopped.stderr, worktreeDir(root));
+    assert.strictEqual(NodeFS.existsSync(worktreeDir(root)), true);
   }));
+
+it("refuses a mixed-domain line before any replay work", () =>
+  withWorktreeStack(false, ({ root, base, alphaFeature, betaEdit }) => {
+    NodeFS.writeFileSync(NodePath.join(root, "mixed.tsv"), `${alphaFeature}\t${betaEdit}\n`);
+    const refused = cli(root, ["apply", "mixed.tsv", "--base", base]);
+    assert.strictEqual(refused.status, 1);
+    assert.include(refused.stderr, "fold mixes Fork-Domain: fold-a, fold-b");
+    assert.strictEqual(NodeFS.existsSync(stateDir(root)), false);
+  }));
+
+it("falls back to a worktree rebase at the first refused block and resumes across stops to a tree-equal tip", () =>
+  withWorktreeStack(
+    false,
+    ({ root, base, alphaFeature, alphaDependent, betaCleanup, betaEdit, head }) => {
+      NodeFS.writeFileSync(
+        NodePath.join(root, "plan.tsv"),
+        `${alphaFeature}\t${alphaDependent}\n${betaCleanup}\t${betaEdit}\n`,
+      );
+      const worktree = worktreeDir(root);
+      const apply = () => cli(root, ["apply", "plan.tsv", "--base", base]);
+
+      // The alpha fold carries the fast path; the beta pair refuses there — it
+      // cannot replay before its dependent — and moves to the worktree rebase.
+      const first = apply();
+      assert.strictEqual(first.status, 1, first.stderr);
+      assert.include(first.stderr, "merge-tree refused");
+      assert.include(first.stderr, "stopped: ");
+      assert.include(first.stderr, "chore: beta cleanup");
+      assert.include(first.stderr, worktree);
+      assert.strictEqual(NodeFS.existsSync(worktree), true);
+
+      resolveStop(root, worktree, "A1!\nl2\nl3\nl4\nl5\n");
+      const second = apply();
+      assert.strictEqual(second.status, 1, second.stderr);
+      assert.include(second.stderr, "stopped: ");
+      assert.include(second.stderr, "fix: beta edit");
+
+      resolveStop(root, worktree, "A1!\nB2\nl3\nl4\nl5\n");
+      const third = apply();
+      assert.strictEqual(third.status, 0, third.stderr);
+      const tip = third.stdout.trim();
+      assert.strictEqual(
+        git(root, ["rev-parse", `${tip}^{tree}`]),
+        git(root, ["rev-parse", `${head}^{tree}`]),
+      );
+      assert.strictEqual(git(root, ["rev-parse", "HEAD"]), head);
+      // A finished fold removes the throwaway worktree and its state.
+      assert.strictEqual(NodeFS.existsSync(stateDir(root)), false);
+      assert.deepStrictEqual(
+        git(root, ["log", "--reverse", "--format=%s", `${base}..${tip}`]).split("\n"),
+        ["feat: alpha feature", "chore: beta cleanup"],
+      );
+      const beta = git(root, ["log", "-1", "--format=%B", tip]);
+      assert.include(beta, `- ${betaCleanup.slice(0, 7)}`);
+      assert.include(beta, `- ${betaEdit.slice(0, 7)}`);
+      assert.include(beta, "Fork-Domain: fold-b");
+      assert.include(beta, "Fork-Tier: core");
+    },
+  ));
+
+it("starts a repair-absorbing run in the worktree and finishes it tree-equal", () =>
+  withWorktreeStack(
+    true,
+    ({ root, base, alphaFeature, alphaDependent, betaCleanup, betaEdit, repair, head }) => {
+      assert.notStrictEqual(repair, undefined);
+      NodeFS.writeFileSync(
+        NodePath.join(root, "plan.tsv"),
+        `${alphaFeature}\t${alphaDependent}\t${repair}\n${betaCleanup}\t${betaEdit}\n`,
+      );
+      const worktree = worktreeDir(root);
+      const apply = () => cli(root, ["apply", "plan.tsv", "--base", base]);
+
+      const first = apply();
+      assert.strictEqual(first.status, 1, first.stderr);
+      assert.include(first.stderr, "stopped: ");
+      assert.include(first.stderr, "chore: beta cleanup");
+      // The whole plan started in the worktree: the rebase sits on the seed,
+      // not on a merge-tree fold of the first group.
+      const rebaseMerge = git(root, [
+        "-C",
+        worktree,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "rebase-merge",
+      ]);
+      assert.strictEqual(
+        NodeFS.readFileSync(NodePath.join(rebaseMerge, "onto"), "utf8").trim(),
+        base,
+      );
+
+      resolveStop(root, worktree, "A1!\nl2\nl3\nl4\nR5\n");
+      const second = apply();
+      assert.strictEqual(second.status, 1, second.stderr);
+      assert.include(second.stderr, "stopped: ");
+      assert.include(second.stderr, "fix: beta edit");
+
+      resolveStop(root, worktree, "A1!\nB2\nl3\nl4\nR5\n");
+      const third = apply();
+      assert.strictEqual(third.status, 0, third.stderr);
+      assert.strictEqual(
+        git(root, ["rev-parse", `${third.stdout.trim()}^{tree}`]),
+        git(root, ["rev-parse", `${head}^{tree}`]),
+      );
+      assert.strictEqual(NodeFS.existsSync(stateDir(root)), false);
+    },
+  ));
 
 it("proves tree equality, the delta check, and the replay scan, failing on any", () =>
   withStack(({ root, base, head }) => {
