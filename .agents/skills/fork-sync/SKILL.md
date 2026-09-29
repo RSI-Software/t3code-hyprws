@@ -38,6 +38,10 @@ Post-push recovery reads this file, never a comment.
 
 Never edit a report; a rerun supersedes it.
 
+## After
+
+A repairing sync — the rebased trunk carries `Fork-Repair` commits — ends with [`/fork-fold`](../fork-fold/SKILL.md) once trunk is green: its [repair split](../fork-fold/SKILL.md#repair-split) dissolves each repair into its owners. A sync with no repairs needs no fold.
+
 ## Stops
 
 | Report                          | Stop                            |
