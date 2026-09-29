@@ -22,7 +22,6 @@ import {
   parseCommitPatches,
   renderAuthoringWarnings,
   significantTestLines,
-  TEST_FILE,
   upstreamSourceLines,
   type CommitPatch,
   type ScanAuthoringWarning,
@@ -911,8 +910,8 @@ const buildGuardInput = (
       patchesBySha,
       upstreamFiles,
       (patch) => patch.changedLines.keys(),
-      (path) =>
-        MARKER_CAPABLE_PATH.test(path) && !GENERATED_HOOK_PATH.test(path) && !TEST_FILE.test(path),
+      // Test files included: restoring an upstream case is a revert there too.
+      (path) => MARKER_CAPABLE_PATH.test(path) && !GENERATED_HOOK_PATH.test(path),
       upstreamSourceLines,
     ),
     upstreamTestTexts,
