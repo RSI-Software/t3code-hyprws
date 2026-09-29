@@ -7,14 +7,14 @@ import type {
 } from "@t3tools/contracts";
 import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
-  CircleDotIcon,
-  CircleSlash2Icon,
+  ChevronRightIcon,
   ExternalLinkIcon,
-  ListTreeIcon,
-  MessageSquareIcon,
+  ShapesIcon,
+  TagIcon,
+  UsersIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import {
   composerDraftHasUserContent,
@@ -27,13 +27,20 @@ import { cn } from "../../lib/utils";
 import { githubIssueEnvironment } from "../../state/githubIssues";
 import { useEnvironmentQuery } from "../../state/query";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import {
+  PULL_REQUEST_ROW_CLASS,
+  PULL_REQUEST_ROW_NUMBER_CLASS,
+} from "../pullRequest/PullRequestListRow";
 import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
+import { PullRequestActorLabel, PullRequestMetaLine } from "../pullRequest/pullRequestPresentation";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { RefreshIcon } from "../ui/refresh-icon";
 import { toastManager } from "../ui/toast";
 import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
+import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
 
 export function githubIssueHandoffPrompt(
   issue: Pick<GitHubIssueDetail, "number" | "title" | "url">,
@@ -204,89 +211,115 @@ export function GitHubIssueDetailContent({
 
   // An environment on an older server omits the key rather than sending an empty list.
   const subIssues = detail.subIssues ?? [];
+  const closedSubIssues = subIssues.filter((child) => child.state === "closed").length;
 
   return (
-    <article className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
-      <div className="flex flex-wrap items-start gap-3">
-        {/* A 16rem basis wraps the actions below a title that would otherwise be squeezed. */}
-        <div className="flex min-w-0 flex-[1_1_16rem] items-start gap-4">
-          <GitHubIssueStateIcon
-            state={detail.state}
-            className={cn(
-              "mt-1 size-5 shrink-0",
-              detail.state === "open" ? "text-success-foreground" : "text-muted-foreground",
-            )}
-          />
-          <div className="min-w-0 flex-1">
-            <h2 className="text-balance font-semibold text-xl leading-tight">{detail.title}</h2>
-            <p className="mt-1 text-muted-foreground text-sm">
-              {detail.repository} #{detail.number} · opened by {detail.author?.login ?? "unknown"} ·{" "}
-              {formatRelativeTimeLabel(detail.createdAt)}
-            </p>
+    <article className="min-w-0">
+      <header className="min-w-0 px-4 pt-3 pb-4">
+        <div className="flex min-h-7 min-w-0 items-center gap-2">
+          <GitHubIssueStateGlyph state={detail.state} />
+          <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{detail.number}</span>
+          <span className="min-w-0 truncate font-mono text-2xs text-muted-foreground/70">
+            {detail.repository}
+          </span>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {onRefresh ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Refresh issue"
+                disabled={refreshing}
+                onClick={onRefresh}
+              >
+                <RefreshIcon refreshing={refreshing} />
+              </Button>
+            ) : null}
+            <Button
+              render={<a href={detail.url} target="_blank" rel="noreferrer noopener" />}
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Open issue on GitHub"
+            >
+              <ExternalLinkIcon />
+            </Button>
+            <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
+              <WrenchIcon className="size-3" />
+              {preparing ? "Preparing..." : "Work on this issue"}
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {onRefresh ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Refresh issue"
-              disabled={refreshing}
-              onClick={onRefresh}
-            >
-              <RefreshIcon refreshing={refreshing} className="size-4" />
-            </Button>
-          ) : null}
-          <Button size="sm" onClick={() => void workOnIssue()} disabled={preparing}>
-            <WrenchIcon className="size-4" />
-            {preparing ? "Preparing..." : "Work on this issue"}
-          </Button>
-          <Button
-            render={<a href={detail.url} target="_blank" rel="noreferrer noopener" />}
-            size="icon-sm"
-            variant="outline"
-            aria-label="Open issue on GitHub"
-          >
-            <ExternalLinkIcon className="size-4" />
-          </Button>
+        <h1 className="mt-1 text-balance font-semibold text-base leading-snug">{detail.title}</h1>
+        <div className="mt-2 flex min-h-5 min-w-0 items-center text-xs text-muted-foreground">
+          <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
+            <PullRequestActorLabel
+              key="author"
+              actor={detail.author}
+              profileUrl={gitHubProfileUrl(detail.author?.login, detail.url)}
+            />
+            <span key="opened">opened {formatRelativeTimeLabel(detail.createdAt)}</span>
+            {detail.closedAt ? (
+              <span key="closed">closed {formatRelativeTimeLabel(detail.closedAt)}</span>
+            ) : (
+              <span key="updated">updated {formatRelativeTimeLabel(detail.updatedAt)}</span>
+            )}
+          </PullRequestMetaLine>
         </div>
-      </div>
+      </header>
 
-      <div className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
-        {detail.issueType == null ? null : <GitHubIssueTypeChip issueType={detail.issueType} />}
-        {detail.labels.map((label) => (
-          <GitHubIssueLabelChip key={label.name} label={label} />
-        ))}
-        {detail.assignees.map((assignee) => (
-          <span
-            key={assignee.login}
-            className="rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs"
-          >
-            assigned to {assignee.login}
-          </span>
-        ))}
-      </div>
-
-      <section className="mt-6 rounded-xl border border-border/70 bg-card/30 p-4">
-        {detail.body ? (
-          <PullRequestMarkdown
-            text={detail.body}
-            cwd={detail.workspaceRoot}
-            environmentId={environmentId}
-          />
-        ) : (
-          <p className="text-muted-foreground text-sm">No description provided.</p>
+      <section aria-label="Issue facts" className="space-y-2 px-4 pt-2.5 pb-1">
+        {detail.issueType == null ? null : (
+          <GitHubIssueMetaRow icon={<ShapesIcon className="size-3.5" />} label="Type">
+            <GitHubIssueTypeChip issueType={detail.issueType} size="default" />
+          </GitHubIssueMetaRow>
         )}
+        <GitHubIssueMetaRow icon={<TagIcon className="size-3.5" />} label="Labels">
+          {detail.labels.length === 0 ? (
+            <span className="text-muted-foreground">None</span>
+          ) : (
+            <span className="flex min-w-0 flex-wrap items-center gap-1">
+              {detail.labels.map((label) => (
+                <GitHubIssueLabelChip
+                  key={label.name}
+                  label={label}
+                  size="default"
+                  className="max-w-48"
+                />
+              ))}
+            </span>
+          )}
+        </GitHubIssueMetaRow>
+        <GitHubIssueMetaRow icon={<UsersIcon className="size-3.5" />} label="Assignees">
+          {detail.assignees.length === 0 ? (
+            <span className="text-muted-foreground">None</span>
+          ) : (
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              {detail.assignees.map((assignee) => (
+                <PullRequestActorLabel
+                  key={assignee.login}
+                  actor={assignee}
+                  profileUrl={gitHubProfileUrl(assignee.login, detail.url)}
+                />
+              ))}
+            </span>
+          )}
+        </GitHubIssueMetaRow>
       </section>
 
+      <GitHubIssueSection key={`description:${detail.url}`} title="Description">
+        <PullRequestMarkdown
+          text={detail.body.trim().length > 0 ? detail.body : "_No description provided._"}
+          cwd={detail.workspaceRoot}
+          environmentId={environmentId}
+        />
+      </GitHubIssueSection>
+
       {subIssues.length > 0 ? (
-        <section className="mt-6">
-          <h3 className="flex items-center gap-2 font-medium text-sm">
-            <ListTreeIcon className="size-4" /> Sub-issues (
-            {subIssues.filter((child) => child.state === "closed").length} of {subIssues.length}{" "}
-            closed)
-          </h3>
-          <ul className="mt-3 divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70">
+        <GitHubIssueSection
+          key={`sub-issues:${detail.url}`}
+          title="Sub-issues"
+          count={`${closedSubIssues} of ${subIssues.length} closed`}
+        >
+          <ul className="space-y-0.5">
             {subIssues.map((child) => (
               <li key={child.url}>
                 <GitHubSubIssueRow
@@ -297,41 +330,124 @@ export function GitHubIssueDetailContent({
               </li>
             ))}
           </ul>
-        </section>
+        </GitHubIssueSection>
       ) : null}
 
-      <section className="mt-8">
-        <h3 className="flex items-center gap-2 font-medium text-sm">
-          <MessageSquareIcon className="size-4" /> Discussion ({detail.commentCount})
-        </h3>
-        <div className="mt-3 space-y-3">
+      <GitHubIssueSection
+        key={`discussion:${detail.url}`}
+        title="Discussion"
+        count={String(detail.commentCount)}
+      >
+        <div className="space-y-3">
           {detail.commentCount > detail.comments.length ? (
             <p className="text-muted-foreground text-xs">
-              Showing newest {detail.comments.length} of {detail.commentCount}
+              Showing the newest {detail.comments.length} of {detail.commentCount}
             </p>
           ) : null}
           {detail.comments.map((comment) => (
-            <div
+            <article
               key={comment.id}
-              className="rounded-xl border border-border/70 p-4 [contain-intrinsic-block-size:140px] [content-visibility:auto]"
+              // Offscreen comments skip style, layout and paint, as the pull request's do.
+              className="rounded-lg border border-border/60 bg-background [contain-intrinsic-block-size:160px] [content-visibility:auto]"
             >
-              <p className="mb-3 text-muted-foreground text-xs">
-                {comment.author?.login ?? "unknown"} commented{" "}
-                {formatRelativeTimeLabel(comment.createdAt)}
-              </p>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg bg-muted/25 px-3 py-2.5 text-xs">
+                <PullRequestActorLabel
+                  actor={comment.author}
+                  profileUrl={gitHubProfileUrl(comment.author?.login, detail.url)}
+                  className="max-w-full"
+                />
+                <a
+                  href={comment.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  <time dateTime={comment.createdAt}>
+                    {formatRelativeTimeLabel(comment.createdAt)}
+                  </time>
+                </a>
+              </div>
               <PullRequestMarkdown
+                className="px-3 py-3"
                 text={comment.body}
                 cwd={detail.workspaceRoot}
                 environmentId={environmentId}
               />
-            </div>
+            </article>
           ))}
           {detail.comments.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground text-sm">No comments yet.</p>
+            <p className="py-6 text-center text-muted-foreground text-xs">No comments yet.</p>
           ) : null}
         </div>
-      </section>
+      </GitHubIssueSection>
     </article>
+  );
+}
+
+/** GitHub attributes work from a deleted account to "ghost", which has no profile; nor do bots. */
+function gitHubProfileUrl(login: string | undefined, issueUrl: string): string | null {
+  if (!login || login.endsWith("[bot]")) return null;
+  try {
+    return new URL(`/${encodeURIComponent(login)}`, issueUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** The pull request summary's fact row: a fixed label column, then the value. */
+function GitHubIssueMetaRow({
+  icon,
+  label,
+  children,
+}: {
+  readonly icon: ReactNode;
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div className="grid min-h-7 min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-center gap-2 text-xs sm:min-h-6">
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        {icon}
+        {label}
+      </span>
+      <span className="min-w-0 text-foreground">{children}</span>
+    </div>
+  );
+}
+
+/**
+ * The pull request summary's section: a heading that rides the top of the scroll box and folds
+ * the body away, so a long discussion can be collapsed from wherever it has been read to.
+ */
+function GitHubIssueSection({
+  title,
+  count,
+  children,
+}: {
+  readonly title: string;
+  readonly count?: string;
+  readonly children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} render={<section aria-label={title} />}>
+      <div className="sticky top-0 z-10 flex w-full items-center bg-background pr-4">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left font-medium text-muted-foreground text-xs hover:text-foreground">
+          <span>{title}</span>
+          {count ? <span className="tabular-nums text-muted-foreground/60">{count}</span> : null}
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 text-muted-foreground/60 transition-transform",
+              open && "rotate-90",
+            )}
+          />
+        </CollapsibleTrigger>
+      </div>
+      <CollapsiblePanel keepMounted>
+        <div className="px-4 pb-4">{children}</div>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
@@ -358,59 +474,38 @@ export function GitHubSubIssueRow({
     gitHubSubIssueRepository(child.url)?.toLowerCase() === repository.toLowerCase();
   const inner = (
     <>
-      <GitHubIssueStateIcon
-        state={child.state}
-        className={cn(
-          "size-4 shrink-0",
-          child.state === "open" ? "text-success-foreground" : "text-muted-foreground",
-        )}
-      />
-      <span className="min-w-0 flex-1 truncate">{child.title}</span>
-      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">#{child.number}</span>
+      <GitHubIssueStateGlyph state={child.state} />
+      <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{child.number}</span>
+      <span className="min-w-0 flex-1 truncate text-sm">{child.title}</span>
     </>
   );
-  const actionClassName =
-    "flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  const actionClassName = cn(
+    PULL_REQUEST_ROW_CLASS,
+    "min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+  );
 
   if (onSelect === undefined || !sameRepository) {
     return (
-      <a
-        href={child.url}
-        target="_blank"
-        rel="noreferrer noopener"
-        className={cn(actionClassName, "w-full")}
-      >
+      <a href={child.url} target="_blank" rel="noreferrer noopener" className={actionClassName}>
         {inner}
         <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
       </a>
     );
   }
   return (
-    <div className="flex items-center">
+    <div className="group/sub-issue flex items-center">
       <button type="button" className={actionClassName} onClick={() => onSelect(child)}>
         {inner}
       </button>
       <Button
         render={<a href={child.url} target="_blank" rel="noreferrer noopener" />}
-        size="icon-sm"
+        size="icon-xs"
         variant="ghost"
-        className="mr-1 shrink-0 text-muted-foreground"
+        className="shrink-0"
         aria-label={`Open issue #${child.number} on GitHub`}
       >
-        <ExternalLinkIcon className="size-3.5" />
+        <ExternalLinkIcon />
       </Button>
     </div>
   );
-}
-
-export function GitHubIssueStateIcon({
-  state,
-  className,
-}: {
-  readonly state: GitHubIssueDetail["state"];
-  readonly className?: string;
-}) {
-  const Icon = state === "open" ? CircleDotIcon : CircleSlash2Icon;
-  const label = state === "open" ? "Open issue" : "Closed issue";
-  return <Icon role="img" aria-label={label} className={className} />;
 }
