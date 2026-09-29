@@ -7,8 +7,10 @@
 // onto a detached tip — merge-tree until the first refused block, then the
 // remaining plan as one rebase in a throwaway worktree
 // (scripts/lib/fork-fold-rebase.ts) — proves the new tip against the old one,
-// and publishes a proven fold on the expected-old lease. It holds no
-// fold rules: .agents/skills/fork-fold/SKILL.md carries them.
+// and publishes a proven fold on the expected-old lease. A Fork-Repair commit
+// is split into owner fixups before the run; a `fixup!` member renders as the
+// repair it carries. It holds no fold rules:
+// .agents/skills/fork-fold/SKILL.md carries them.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -49,6 +51,10 @@ Plan: one line per output commit, tab-separated member shas in stack order.
 A last field that is not a sha overrides the first member's subject.
 Blank lines and # lines are ignored. Every ahead commit appears exactly once,
 and a line's members never mix Fork-Domain values.
+
+A Fork-Repair commit is split before the run: each 'fixup! <owner subject>'
+piece joins its owner's line, and list prints the repair line to copy into
+every piece. .agents/skills/fork-fold/SKILL.md owns the procedure.
 
 apply replays with merge-tree until a block refuses there; from that block on
 the remaining plan replays as one git rebase --autosquash in a throwaway
@@ -142,6 +148,8 @@ export const renderList = (stack: FoldStack): string => {
       if (commit.files.length > LIST_FILES) {
         lines.push(`        +${commit.files.length - LIST_FILES} more (--json)`);
       }
+      // The line every split piece of this repair copies under its Squashes:.
+      if (commit.repair !== undefined) lines.push(`        fixup line: ${memberLine(commit)}`);
     });
   }
   return `${lines.join("\n")}\n`;
@@ -278,12 +286,42 @@ export const forkPullRequests = (message: string): ReadonlyArray<string> => {
   return [...refs.keys()];
 };
 
+/** A `fixup!` subject marks a split piece of a Fork-Repair commit. */
+const FIXUP_SUBJECT = "fixup! ";
+
+/**
+ * The first `- <sha> …` line under a `Squashes:` heading. A split piece of a
+ * repair carries the repair this way — the line `list` prints, copied verbatim,
+ * so the fold's provenance names the repair sha and its fork references.
+ */
+const firstSquashesLine = (message: string): string | undefined => {
+  const lines = message.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === "Squashes:");
+  if (start < 0) return undefined;
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    return SQUASH_MEMBER_LINE.test(trimmed) ? trimmed : undefined;
+  }
+  return undefined;
+};
+
 /**
  * One member line: the sha first (squashedMembers reads it), then the subject,
  * then every fork pull request the member cites, rendered full so the link
- * always stays on the fork.
+ * always stays on the fork. A `fixup!` member is a split piece of a repair, so
+ * it renders as the repair it carries — never as the throwaway piece.
  */
 const memberLine = (member: FoldCommit): string => {
+  if (member.subject.startsWith(FIXUP_SUBJECT)) {
+    const repair = firstSquashesLine(member.message);
+    if (repair === undefined) {
+      throw new FoldError(
+        `${member.short} ${member.subject}: a fixup! member carries no repair line under Squashes:`,
+      );
+    }
+    return repair;
+  }
   const links = forkPullRequests(member.message)
     .filter((ref) => !member.subject.includes(ref))
     .map((ref) => ` (${ref})`)
@@ -309,7 +347,8 @@ export const foldMessage = (block: FoldBlock): string => {
     "",
     "Squashes:",
     "",
-    ...block.members.map(memberLine),
+    // Two pieces of one repair render the same line; a repair is listed once.
+    ...new Set(block.members.map(memberLine)),
     "",
     foldTrailers(block.members),
   ].join("\n");
