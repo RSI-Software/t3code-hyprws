@@ -39,9 +39,10 @@ const ClaudeForkHistoryMessage = Schema.Struct({
   type: Schema.String,
   uuid: Schema.String,
   parent_tool_use_id: Schema.NullOr(Schema.String),
-  message: Schema.Unknown,
+  // System rows (e.g. a compacted session's `compact_boundary`) carry no `message`.
+  message: Schema.optionalKey(Schema.Unknown),
 });
-const decodeClaudeHistoryMessages = Schema.decodeSync(
+export const decodeClaudeHistoryMessages = Schema.decodeSync(
   Schema.fromJsonString(Schema.Array(ClaudeForkHistoryMessage)),
 );
 type ClaudeForkHistoryMessage = typeof ClaudeForkHistoryMessage.Type;
