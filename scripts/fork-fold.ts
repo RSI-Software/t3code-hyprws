@@ -38,7 +38,7 @@ const HELP = `Usage: vp run fork:fold <command> [options]
 Commands:
   list [--json]            Ahead commits grouped by Fork-Domain, with files
   apply <plan.tsv>         Replay the plan onto a detached tip; prints the tip sha
-  prove <old> <new>        Tree-equal, fork:delta --check, and fork:scan on <new>
+  prove <old> <new>        Member guard, tree-equal, fork:delta --check, fork:scan on <new>
   publish <old> <new>      Prove, push the expected-old lease, move local hyprws
 
 Options:
@@ -274,16 +274,25 @@ export const forkPullRequests = (message: string): ReadonlyArray<string> => {
   };
   add(SQUASH_MARKER.exec(subject.trim())?.[1]);
   for (const match of normalized.matchAll(FORK_PULL_URL)) add(match[1]);
-  const start = bodyLines.findIndex((line) => line.trim() === "Squashes:");
-  if (start >= 0) {
-    for (const line of bodyLines.slice(start + 1)) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      if (!SQUASH_MEMBER_LINE.test(trimmed)) break;
-      for (const match of line.matchAll(FORK_ITEM_REF)) add(match[1]);
-    }
+  for (const line of squashesLines(bodyLines.join("\n"))) {
+    for (const match of line.matchAll(FORK_ITEM_REF)) add(match[1]);
   }
   return [...refs.keys()];
+};
+
+/** The trimmed `- <sha> …` member lines under a message's first `Squashes:` heading. */
+const squashesLines = (message: string): ReadonlyArray<string> => {
+  const lines = message.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === "Squashes:");
+  if (start < 0) return [];
+  const members: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (!SQUASH_MEMBER_LINE.test(trimmed)) break;
+    members.push(trimmed);
+  }
+  return members;
 };
 
 /** A `fixup!` subject marks a split piece of a Fork-Repair commit. */
@@ -294,17 +303,7 @@ const FIXUP_SUBJECT = "fixup! ";
  * repair carries the repair this way — the line `list` prints, copied verbatim,
  * so the fold's provenance names the repair sha and its fork references.
  */
-const firstSquashesLine = (message: string): string | undefined => {
-  const lines = message.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => line.trim() === "Squashes:");
-  if (start < 0) return undefined;
-  for (const line of lines.slice(start + 1)) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    return SQUASH_MEMBER_LINE.test(trimmed) ? trimmed : undefined;
-  }
-  return undefined;
-};
+const firstSquashesLine = (message: string): string | undefined => squashesLines(message)[0];
 
 /**
  * One member line: the sha first (squashedMembers reads it), then the subject,
@@ -478,6 +477,45 @@ export const replay = (
 
 // -- prove --------------------------------------------------------------------
 
+/**
+ * Per-commit member guard: each new commit's members are the old commits its
+ * `Squashes:` lines name (shas outside the old range cite earlier folds) plus
+ * the old commit sharing its subject. Finds a new commit with no member, a new
+ * commit touching a path no member touched, and an old commit owned by no new
+ * commit or — unless it is a Fork-Repair split across owners — by several.
+ */
+export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
+  const findings: string[] = [];
+  const owners = new Map<string, string[]>(old.commits.map((commit) => [commit.sha, []]));
+  for (const commit of next.commits) {
+    const cited = squashesLines(commit.message).map((line) => line.slice(2).split(/\s/)[0] ?? "");
+    const members = old.commits.filter(
+      (member) =>
+        member.subject === commit.subject || cited.some((sha) => member.sha.startsWith(sha)),
+    );
+    const label = `${commit.short} ${commit.subject}`;
+    if (members.length === 0) {
+      findings.push(`${label}: names no commit in the old range`);
+      continue;
+    }
+    for (const member of members) owners.get(member.sha)?.push(commit.short);
+    const touched = new Set(members.flatMap((member) => member.files));
+    const stray = commit.files.filter((path) => !touched.has(path));
+    if (stray.length > 0) {
+      findings.push(`${label}: touches paths no member touched: ${stray.join(", ")}`);
+    }
+  }
+  for (const commit of old.commits) {
+    const owned = owners.get(commit.sha) ?? [];
+    const label = `${commit.short} ${commit.subject}`;
+    if (owned.length === 0) findings.push(`${label}: belongs to no new commit`);
+    else if (owned.length > 1 && commit.repair === undefined) {
+      findings.push(`${label}: belongs to several new commits: ${owned.join(", ")}`);
+    }
+  }
+  return findings;
+};
+
 export type ProveStep = (command: string, args: ReadonlyArray<string>) => CommandResult;
 
 export const proveChecks = (
@@ -511,6 +549,10 @@ const prove = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newR
   const next = git.text(["rev-parse", "--verify", `${newRef}^{commit}`]);
   const target = git.text(["merge-base", base, next]);
   let failed = 0;
+  const findings = memberFindings(readStack(git, base, old), readStack(git, base, next));
+  for (const finding of findings) process.stderr.write(`member: ${finding}\n`);
+  if (findings.length > 0) failed += 1;
+  process.stdout.write(`member guard → ${findings.length} finding(s)\n`);
   for (const [command, args] of proveChecks(base, old, next, target)) {
     const result = step(command, args);
     if (result.status !== 0) {
