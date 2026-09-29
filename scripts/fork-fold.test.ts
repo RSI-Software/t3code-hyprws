@@ -279,3 +279,139 @@ it("proves tree equality, the delta check, and the replay scan, failing on any",
     assert.strictEqual(run(["prove", head, parent, "--base", base], root, step), 1);
     assert.strictEqual(run(["prove", head], root, step), 2);
   }));
+
+// -- Publish: a local bare origin, so tests never push to a real remote ----------
+
+const remoteHyprws = (root: string): string =>
+  git(root, ["rev-parse", "refs/remotes/origin/hyprws"]);
+
+/** The stack fixture plus local `hyprws` at the tip, checked out in root, published to a bare origin. */
+const createTrunk = () => {
+  const stack = createStack();
+  const origin = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-origin-"));
+  git(origin, ["init", "--bare", "-q"]);
+  git(stack.root, ["remote", "add", "origin", origin]);
+  git(stack.root, ["branch", "hyprws", stack.head]);
+  git(stack.root, ["checkout", "-q", "hyprws"]);
+  git(stack.root, ["push", "-q", "origin", "hyprws"]);
+  return { ...stack, origin };
+};
+
+const withTrunk = (body: (trunk: ReturnType<typeof createTrunk>) => void) => {
+  const trunk = createTrunk();
+  try {
+    body(trunk);
+  } finally {
+    NodeFS.rmSync(trunk.root, { recursive: true, force: true });
+    NodeFS.rmSync(trunk.origin, { recursive: true, force: true });
+  }
+};
+
+/** Applies the two per-domain folds; the plan file must not dirty the tree. */
+const foldTo = (root: string, base: string, members: [string, string, string, string]): string => {
+  NodeFS.writeFileSync(
+    NodePath.join(root, "fold.tsv"),
+    `${members[0]}\t${members[1]}\n${members[2]}\t${members[3]}\n`,
+  );
+  const applied = cli(root, ["apply", "fold.tsv", "--base", base]);
+  NodeFS.unlinkSync(NodePath.join(root, "fold.tsv"));
+  assert.strictEqual(applied.status, 0, applied.stderr);
+  return applied.stdout.trim();
+};
+
+/** Real git against the fixture, stubbed green vp checks; every call recorded. */
+const publishStep = (root: string) => {
+  const calls: Array<string> = [];
+  const step: ProveStep = (command, args) => {
+    calls.push([command, ...args].join(" "));
+    return command === "git"
+      ? runCommand(command, args, { cwd: root })
+      : { status: 0, stdout: "", stderr: "" };
+  };
+  return { calls, step };
+};
+
+it("publish proves, pushes the expected-old lease, and moves the local trunk", () =>
+  withTrunk(({ root, base, metaOne, metaTwo, zmux, zmuxEdit, head }) => {
+    const next = foldTo(root, base, [metaOne, metaTwo, zmux, zmuxEdit]);
+    const target = git(root, ["merge-base", base, next]);
+    const { calls, step } = publishStep(root);
+    assert.strictEqual(run(["publish", head, next, "--base", base], root, step), 0);
+    assert.strictEqual(remoteHyprws(root), next);
+    assert.strictEqual(git(root, ["rev-parse", "refs/heads/hyprws"]), next);
+    // The lease is the <old> resolved at the start; no fetch re-resolves it.
+    assert.deepStrictEqual(calls, [
+      `git diff --quiet ${head} ${next}`,
+      `vp run fork:delta --check --base ${base} --head ${next}`,
+      `vp run fork:scan --head ${next} --target ${target} --since ${target} --replay-of ${head} --no-typecheck`,
+      `git push origin ${next}:hyprws --force-with-lease=hyprws:${head}`,
+    ]);
+  }));
+
+it("a failed proof pushes nothing", () =>
+  withTrunk(({ root, base, head }) => {
+    const parent = git(root, ["rev-parse", `${head}^`]);
+    const { calls, step } = publishStep(root);
+    assert.strictEqual(run(["publish", head, parent, "--base", base], root, step), 1);
+    assert.strictEqual(remoteHyprws(root), head);
+    assert.strictEqual(git(root, ["rev-parse", "refs/heads/hyprws"]), head);
+    assert.ok(calls.every((call) => !call.startsWith("git push")));
+  }));
+
+it("a moved remote refuses the lease and keeps the local trunk", () =>
+  withTrunk(({ root, base, metaOne, metaTwo, zmux, zmuxEdit, head }) => {
+    const next = foldTo(root, base, [metaOne, metaTwo, zmux, zmuxEdit]);
+    git(root, ["push", "-q", "origin", "--force", `${base}:hyprws`]);
+    const { calls, step } = publishStep(root);
+    assert.strictEqual(run(["publish", head, next, "--base", base], root, step), 1);
+    assert.strictEqual(remoteHyprws(root), base);
+    assert.strictEqual(git(root, ["rev-parse", "refs/heads/hyprws"]), head);
+    assert.ok(calls.some((call) => call.startsWith("git push")));
+  }));
+
+it("checks the hyprws worktree, not the invoking checkout, and skips when checked out nowhere", () =>
+  withTrunk(({ root, base, metaOne, metaTwo, zmux, zmuxEdit, head }) => {
+    const next = foldTo(root, base, [metaOne, metaTwo, zmux, zmuxEdit]);
+    git(root, ["checkout", "-q", "fixture"]); // publish runs from another checkout
+    const trunk = NodePath.join(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-trunk-")),
+      "wt",
+    );
+    git(root, ["worktree", "add", "-q", trunk, "hyprws"]);
+    try {
+      // A dirty trunk worktree refuses even though the invoking checkout is clean.
+      const dirtyTrunk = publishStep(root);
+      write(trunk, "dirty.txt", "uncommitted\n");
+      assert.strictEqual(run(["publish", head, next, "--base", base], root, dirtyTrunk.step), 1);
+      assert.deepStrictEqual(dirtyTrunk.calls, []);
+      assert.strictEqual(remoteHyprws(root), head);
+      NodeFS.unlinkSync(NodePath.join(trunk, "dirty.txt"));
+      git(root, ["worktree", "remove", trunk]);
+
+      // Checked out nowhere: no worktree tree to check, so a dirty invoking
+      // checkout does not refuse.
+      const nowhere = publishStep(root);
+      write(root, "dirty.txt", "uncommitted\n");
+      assert.strictEqual(run(["publish", head, next, "--base", base], root, nowhere.step), 0);
+      assert.strictEqual(remoteHyprws(root), next);
+      assert.strictEqual(git(root, ["rev-parse", "refs/heads/hyprws"]), next);
+    } finally {
+      NodeFS.rmSync(NodePath.dirname(trunk), { recursive: true, force: true });
+    }
+  }));
+
+it("a dirty or moved local refuses before prove and push", () =>
+  withTrunk(({ root, base, head }) => {
+    const dirty = publishStep(root);
+    write(root, "dirty.txt", "uncommitted\n");
+    assert.strictEqual(run(["publish", head, head, "--base", base], root, dirty.step), 1);
+    assert.deepStrictEqual(dirty.calls, []);
+    assert.strictEqual(remoteHyprws(root), head);
+    NodeFS.unlinkSync(NodePath.join(root, "dirty.txt"));
+
+    const moved = publishStep(root);
+    git(root, ["update-ref", "refs/heads/hyprws", base]);
+    assert.strictEqual(run(["publish", head, head, "--base", base], root, moved.step), 1);
+    assert.deepStrictEqual(moved.calls, []);
+    assert.strictEqual(git(root, ["rev-parse", "refs/heads/hyprws"]), base);
+  }));
