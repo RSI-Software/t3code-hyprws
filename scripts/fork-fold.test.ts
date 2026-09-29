@@ -158,6 +158,46 @@ it("appends every member fork PR link, and squashedMembers still reads the sha p
   assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "bbbb2222"]);
 });
 
+it("renders a fixup member as the repair it carries, once per repair, and refuses one without it", () => {
+  const owner = commit("aaaa1111", {
+    subject: "feat: alpha feature",
+    message: "feat: alpha feature\n",
+  });
+  const repairLine = "- 9999999 fix: post-sync repairs (#1400) (RSI-Software/t3code-hyprws#1400)";
+  const fixup = (short: string): FoldCommit =>
+    commit(short, {
+      subject: "fixup! feat: alpha feature",
+      message: [
+        "fixup! feat: alpha feature",
+        "",
+        "Squashes:",
+        "",
+        repairLine,
+        "",
+        "Fork-Domain: fold-a",
+        "Fork-Tier: core",
+      ].join("\n"),
+    });
+  const folded = foldMessage({ members: [owner, fixup("cccc2222"), fixup("dddd3333")] });
+  assert.strictEqual(folded.split(repairLine).length - 1, 1);
+  assert.include(folded, "- aaaa1111 feat: alpha feature");
+  assert.notInclude(folded, "fixup!");
+  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "9999999"]);
+  assert.throws(
+    () =>
+      foldMessage({
+        members: [
+          owner,
+          commit("eeee4444", {
+            subject: "fixup! feat: alpha feature",
+            message: "fixup! feat: alpha feature\n",
+          }),
+        ],
+      }),
+    /carries no repair line/,
+  );
+});
+
 it("carries an earlier fold's links into the next fold", () => {
   const earlier = commit("cccc3333", {
     subject: "feat(web): folded (#1355)",
@@ -318,6 +358,89 @@ const createWorktreeStack = (withRepair: boolean) => {
   }
   const head = git(root, ["rev-parse", "HEAD"]);
   return { root, base, alphaFeature, alphaDependent, betaEdit, betaCleanup, repair, head };
+};
+
+/**
+ * upstream: seed; alpha (fold-a) and beta (fold-b) features; one repair touching
+ * all three files, ready to split into two owner fixups plus an upstream-fixes residue.
+ */
+const createSplitStack = () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-split-"));
+  git(root, ["init", "-q", "-b", "fixture"]);
+  git(root, ["config", "user.name", "Fork Fold Test"]);
+  git(root, ["config", "user.email", "fork-fold@example.com"]);
+  write(root, "base.txt", "base\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-q", "-m", "upstream: seed"]);
+  const base = git(root, ["rev-parse", "HEAD"]);
+  write(root, "alpha.txt", "alpha one\n");
+  const alpha = commitAll(root, "feat: alpha feature", "Fork-Domain: fold-a\nFork-Tier: core");
+  write(root, "beta.txt", "beta one\n");
+  const beta = commitAll(root, "feat: beta feature", "Fork-Domain: fold-b\nFork-Tier: core");
+  write(root, "alpha.txt", "alpha one\nalpha repair\n");
+  write(root, "beta.txt", "beta one\nbeta repair\n");
+  write(root, "base.txt", "base\nresidue\n");
+  const repair = commitAll(
+    root,
+    "fix: post-sync repairs (#1400)",
+    "Fork-Domain: upstream-fixes\nFork-Tier: bugfix\nFork-Repair: v1",
+  );
+  return { root, base, alpha, beta, repair, head: repair };
+};
+
+const withSplitStack = (body: (stack: ReturnType<typeof createSplitStack>) => void) => {
+  const stack = createSplitStack();
+  try {
+    body(stack);
+  } finally {
+    NodeFS.rmSync(stack.root, { recursive: true, force: true });
+  }
+};
+
+/**
+ * Simulates the agent's repair split on a detached copy of the head: each
+ * owner's hunks become a `fixup!` commit carrying the repair line from `list`,
+ * and the inseparable remainder becomes one upstream-fixes commit.
+ */
+const splitRepair = (root: string, repair: string, repairLine: string) => {
+  git(root, ["checkout", "-q", "--detach", `${repair}^`]);
+  write(root, "alpha.txt", "alpha one\nalpha repair\n");
+  git(root, ["add", "alpha.txt"]);
+  git(root, [
+    "commit",
+    "-q",
+    "-m",
+    "fixup! feat: alpha feature",
+    "-m",
+    `Squashes:\n\n${repairLine}`,
+    "-m",
+    "Fork-Domain: fold-a\nFork-Tier: core",
+  ]);
+  const alphaFixup = git(root, ["rev-parse", "HEAD"]);
+  write(root, "beta.txt", "beta one\nbeta repair\n");
+  git(root, ["add", "beta.txt"]);
+  git(root, [
+    "commit",
+    "-q",
+    "-m",
+    "fixup! feat: beta feature",
+    "-m",
+    `Squashes:\n\n${repairLine}`,
+    "-m",
+    "Fork-Domain: fold-b\nFork-Tier: core",
+  ]);
+  const betaFixup = git(root, ["rev-parse", "HEAD"]);
+  write(root, "base.txt", "base\nresidue\n");
+  git(root, ["add", "base.txt"]);
+  git(root, [
+    "commit",
+    "-q",
+    "-m",
+    "fix: adapt the seed layout to the upstream change",
+    "-m",
+    "Fork-Domain: upstream-fixes\nFork-Tier: bugfix",
+  ]);
+  return { alphaFixup, betaFixup, residue: git(root, ["rev-parse", "HEAD"]) };
 };
 
 const cli = (root: string, args: ReadonlyArray<string>) => {
@@ -536,6 +659,74 @@ it("starts a repair-absorbing run in the worktree and finishes it tree-equal", (
       assert.strictEqual(NodeFS.existsSync(stateDir(root)), false);
     },
   ));
+
+it("folds a split repair into its owners, provenance and residue included", () =>
+  withSplitStack(({ root, base, alpha, beta, repair, head }) => {
+    // list prints the line every split piece copies under its Squashes:.
+    const listed = cli(root, ["list", "--base", base]);
+    assert.strictEqual(listed.status, 0, listed.stderr);
+    const repairLine = listed.stdout.split("fixup line: ")[1]?.split("\n")[0] ?? "";
+    assert.strictEqual(
+      repairLine,
+      `- ${repair.slice(0, 7)} fix: post-sync repairs (#1400) (RSI-Software/t3code-hyprws#1400)`,
+    );
+
+    const { alphaFixup, betaFixup, residue } = splitRepair(root, repair, repairLine);
+    const splitHead = residue;
+    assert.strictEqual(
+      git(root, ["rev-parse", `${splitHead}^{tree}`]),
+      git(root, ["rev-parse", `${head}^{tree}`]),
+    );
+    const splitList = cli(root, ["list", "--base", base, "--head", splitHead, "--json"]);
+    assert.strictEqual(splitList.status, 0, splitList.stderr);
+    const split = JSON.parse(splitList.stdout) as FoldStack;
+    assert.deepStrictEqual(
+      split.commits.map((entry) => entry.subject),
+      [
+        "feat: alpha feature",
+        "feat: beta feature",
+        "fixup! feat: alpha feature",
+        "fixup! feat: beta feature",
+        "fix: adapt the seed layout to the upstream change",
+      ],
+    );
+
+    NodeFS.writeFileSync(
+      NodePath.join(root, "plan.tsv"),
+      [`${alpha}\t${alphaFixup}`, `${beta}\t${betaFixup}`, residue].join("\n"),
+    );
+    const applied = cli(root, ["apply", "plan.tsv", "--base", base, "--head", splitHead]);
+    assert.strictEqual(applied.status, 0, applied.stderr);
+    const tip = applied.stdout.trim();
+    assert.strictEqual(
+      git(root, ["rev-parse", `${tip}^{tree}`]),
+      git(root, ["rev-parse", `${head}^{tree}`]),
+    );
+    assert.deepStrictEqual(
+      git(root, ["log", "--reverse", "--format=%s", `${base}..${tip}`]).split("\n"),
+      [
+        "feat: alpha feature",
+        "feat: beta feature",
+        "fix: adapt the seed layout to the upstream change",
+      ],
+    );
+
+    // Each owner lists its old sha, the repair sha, and the repair's reference.
+    const alphaBody = git(root, ["log", "-1", "--format=%B", `${tip}~2`]);
+    assert.include(alphaBody, `- ${alpha.slice(0, 7)} feat: alpha feature`);
+    assert.include(alphaBody, repairLine);
+    assert.notInclude(alphaBody, "fixup!");
+    assert.include(alphaBody, "Fork-Domain: fold-a\nFork-Tier: core");
+    assert.notInclude(alphaBody, "Fork-Repair");
+    assert.deepStrictEqual(squashedMembers(alphaBody), [alpha.slice(0, 7), repair.slice(0, 7)]);
+    const betaBody = git(root, ["log", "-1", "--format=%B", `${tip}^`]);
+    assert.include(betaBody, `- ${beta.slice(0, 7)} feat: beta feature`);
+    assert.include(betaBody, repairLine);
+    assert.deepStrictEqual(squashedMembers(betaBody), [beta.slice(0, 7), repair.slice(0, 7)]);
+    const residueBody = git(root, ["log", "-1", "--format=%B", tip]);
+    assert.notInclude(residueBody, "Squashes:");
+    assert.notInclude(residueBody, "Fork-Repair");
+  }));
 
 it("proves tree equality, the delta check, and the replay scan, failing on any", () =>
   withStack(({ root, base, head }) => {
