@@ -11,6 +11,7 @@ import {
   type FoldCommit,
   type FoldStack,
   foldMessage,
+  forkPullRequests,
   foldTrailers,
   parsePlan,
   type ProveStep,
@@ -28,6 +29,7 @@ const commit = (short: string, overrides: Partial<FoldCommit> = {}): FoldCommit 
   short,
   authorDate: "2026-01-01T00:00:00+00:00",
   subject: `feat: ${short}`,
+  message: `feat: ${short}\n`,
   domain: "fork-meta",
   tier: "qol",
   files: [],
@@ -80,8 +82,6 @@ it("merges trailers: first domain, strongest tier, upstreamable only when all ar
 });
 
 it("keeps one member verbatim and gives a fold the lead's prose, its members, and trailers", () => {
-  const lead = commit("aaaa1111", { tier: "bugfix", upstreamable: "no" });
-  const tail = commit("bbbb2222");
   const leadMessage = [
     "feat: aaaa1111",
     "",
@@ -97,13 +97,15 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
     "Co-authored-by: donjor <donjor@example.com>",
     "",
   ].join("\n");
-  assert.strictEqual(foldMessage({ members: [lead] }, leadMessage), leadMessage.trimEnd());
+  const lead = commit("aaaa1111", { tier: "bugfix", upstreamable: "no", message: leadMessage });
+  const tail = commit("bbbb2222");
+  assert.strictEqual(foldMessage({ members: [lead] }), leadMessage.trimEnd());
   assert.strictEqual(
-    foldMessage({ members: [lead], subject: "fix: reworded" }, leadMessage).split("\n")[0],
+    foldMessage({ members: [lead], subject: "fix: reworded" }).split("\n")[0],
     "fix: reworded",
   );
 
-  const folded = foldMessage({ members: [lead, tail] }, leadMessage);
+  const folded = foldMessage({ members: [lead, tail] });
   assert.strictEqual(
     folded,
     [
@@ -128,6 +130,95 @@ it("keeps one member verbatim and gives a fold the lead's prose, its members, an
     tier: "qol",
     upstreamable: "no",
   });
+});
+
+it("appends every member fork PR link, and squashedMembers still reads the sha prefix", () => {
+  const first = commit("aaaa1111", {
+    subject: "feat(web): first (#1355)",
+    message: "feat(web): first (#1355)\n\nWhy it changed.\n",
+  });
+  const second = commit("bbbb2222", {
+    subject: "fix(web): second",
+    message: "fix(web): second\n\nhttps://github.com/RSI-Software/t3code-hyprws/pull/1361\n",
+  });
+  const folded = foldMessage({ members: [first, second] });
+  assert.include(folded, "- aaaa1111 feat(web): first (#1355) (RSI-Software/t3code-hyprws#1355)");
+  assert.include(folded, "- bbbb2222 fix(web): second (RSI-Software/t3code-hyprws#1361)");
+  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "bbbb2222"]);
+});
+
+it("carries an earlier fold's links into the next fold", () => {
+  const earlier = commit("cccc3333", {
+    subject: "feat(web): folded (#1355)",
+    message: [
+      "feat(web): folded (#1355)",
+      "",
+      "Why the fold exists.",
+      "",
+      "Squashes:",
+      "",
+      "- aaaa1111 feat(web): first (RSI-Software/t3code-hyprws#1355)",
+      "- bbb2222 fix(web): second (RSI-Software/t3code-hyprws#1355) (RSI-Software/t3code-hyprws#1361)",
+      "",
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: qol",
+    ].join("\n"),
+  });
+  const tail = commit("dddd4444", {
+    subject: "fix(web): third (#1370)",
+    message: "fix(web): third (#1370)\n",
+  });
+  const folded = foldMessage({ members: [earlier, tail] });
+  assert.include(
+    folded,
+    "- cccc3333 feat(web): folded (#1355) (RSI-Software/t3code-hyprws#1355) (RSI-Software/t3code-hyprws#1361)",
+  );
+  assert.include(folded, "- dddd4444 fix(web): third (#1370) (RSI-Software/t3code-hyprws#1370)");
+  // The old members are gone; only this fold's members are replay counterparts.
+  assert.deepStrictEqual(squashedMembers(folded), ["cccc3333", "dddd4444"]);
+});
+
+it("carries only fork PR links: no upstream ref, no bare body #N", () => {
+  const message = [
+    "feat(web): port of pingdotgg/t3code#6452 (#1355)",
+    "",
+    "Closes #1361; upstream review at https://github.com/pingdotgg/t3code/pull/6452.",
+    "",
+    "Fork-Domain: fork-meta",
+    "Fork-Tier: qol",
+  ].join("\n");
+  assert.deepStrictEqual(forkPullRequests(message), ["RSI-Software/t3code-hyprws#1355"]);
+  const folded = foldMessage({
+    members: [
+      commit("aaaa1111", { subject: "feat(web): port of pingdotgg/t3code#6452 (#1355)", message }),
+      commit("bbbb2222"),
+    ],
+  });
+  assert.include(
+    folded,
+    "- aaaa1111 feat(web): port of pingdotgg/t3code#6452 (#1355) (RSI-Software/t3code-hyprws#1355)",
+  );
+});
+
+it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squashes lines only", () => {
+  const message = [
+    "feat(web): first (#1355)",
+    "",
+    "Body cites https://github.com/RSI-Software/t3code-hyprws/pull/1361,",
+    "an upstream https://github.com/pingdotgg/t3code/pull/6452, pingdotgg/t3code#6452,",
+    "an issue RSI-Software/t3code-hyprws#999, and a bare #123.",
+    "",
+    "Squashes:",
+    "",
+    "- aaaa1111 feat: older (RSI-Software/t3code-hyprws#1370)",
+    "",
+    "Fork-Domain: fork-meta",
+  ].join("\n");
+  assert.deepStrictEqual(forkPullRequests(message), [
+    "RSI-Software/t3code-hyprws#1355",
+    "RSI-Software/t3code-hyprws#1361",
+    "RSI-Software/t3code-hyprws#1370",
+  ]);
 });
 
 // -- Fixture repository ---------------------------------------------------------
