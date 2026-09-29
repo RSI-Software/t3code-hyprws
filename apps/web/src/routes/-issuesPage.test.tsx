@@ -190,7 +190,7 @@ describe("GitHubIssuesPage", () => {
     );
 
     expect(html).toContain("project menu");
-    expect(html).not.toContain('aria-label="Refresh GitHub issues"');
+    expect(html).not.toContain('aria-label="GitHub issues breadcrumb"');
     expect(mocks.listTargets.at(-1)).toEqual([
       {
         environmentId: environment1,
