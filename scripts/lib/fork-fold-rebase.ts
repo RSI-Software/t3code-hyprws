@@ -57,6 +57,53 @@ export interface FoldGit {
 
 export class FoldRebaseError extends Error {}
 
+/**
+ * A conflicted path the stack base lacks is fork-owned: upstream never
+ * conflicts with it on a rebase, so its intermediate states carry no replay
+ * value. Both apply paths resolve it to its content at the old head, or drop
+ * it when the head lacks it; tree equality at the tip is unchanged.
+ * `stackBase` is the upstream commit the stack sits on, never a ref that moves.
+ */
+export const partitionConflicts = (
+  git: FoldGit,
+  stackBase: string,
+  paths: ReadonlyArray<string>,
+): { readonly forkOwned: ReadonlyArray<string>; readonly upstream: ReadonlyArray<string> } => {
+  const unique = [...new Set(paths)];
+  const upstream = unique.filter(
+    (path) => git.result(["cat-file", "-e", `${stackBase}:${path}`]).status === 0,
+  );
+  return { forkOwned: unique.filter((path) => !upstream.includes(path)), upstream };
+};
+
+/** `mode oid` of a path at the old head, or undefined when the head lacks it. */
+const headEntry = (git: FoldGit, head: string, path: string): string | undefined =>
+  git.text(["ls-tree", "--format=%(objectmode) %(objectname)", head, "--", path]) || undefined;
+
+/** Rewrites a conflicted merge-tree result so each fork-owned path holds its old-head content. */
+export const resolveForkOwnedTree = (
+  git: FoldGit,
+  tree: string,
+  paths: ReadonlyArray<string>,
+  head: string,
+): string => {
+  const index = NodePath.join(
+    git.text(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    "fork-fold-index",
+  );
+  const env = { GIT_INDEX_FILE: index };
+  try {
+    git.text(["read-tree", tree], undefined, env);
+    const info = paths.map(
+      (path) => `${headEntry(git, head, path) ?? `0 ${"0".repeat(40)}`}\t${path}`,
+    );
+    git.text(["update-index", "--index-info"], `${info.join("\n")}\n`, env);
+    return git.text(["write-tree"], undefined, env);
+  } finally {
+    NodeFS.rmSync(index, { force: true });
+  }
+};
+
 /** Flags mirror the sync rebase's configuration (scripts/fork-sync.ts REBASE_CONFIG). */
 const REBASE_FLAGS = [
   "-c",
@@ -79,6 +126,8 @@ export interface FoldRebaseRequest {
   readonly amends: ReadonlyArray<string | undefined>;
   /** The fast path's last tip, or the stack base when the run starts in the worktree. */
   readonly onto: string;
+  /** The upstream commit the stack sits on; a path it lacks is fork-owned. */
+  readonly stackBase: string;
 }
 
 export interface FoldRebaseStop {
@@ -179,24 +228,53 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
     throw new FoldRebaseError("a remaining fold member is not on the stack");
   const upstream = must(["rev-parse", `${earliestCommit.sha}^`]);
 
-  const status = git.run(
-    [
-      ...REBASE_FLAGS,
-      ...(fresh
-        ? ["rebase", "-i", "--autosquash", "--rerere-autoupdate", "--onto", request.onto, upstream]
-        : ["rebase", "--continue"]),
-    ],
-    {
+  const resume = () =>
+    git.run([...REBASE_FLAGS, "rebase", "--continue"], {
       cwd: worktree,
-      env:
-        fresh === false
-          ? { GIT_EDITOR: "true" }
-          : {
-              GIT_EDITOR: "true",
-              GIT_SEQUENCE_EDITOR: `cp ${shellQuote(NodePath.join(stateDir, "todo"))}`,
-            },
-    },
-  );
+      env: { GIT_EDITOR: "true" },
+    });
+  // A commit a resolution leaves empty stays: the member guard owns every old commit.
+  let status = fresh
+    ? git.run(
+        [
+          ...REBASE_FLAGS,
+          "rebase",
+          "-i",
+          "--autosquash",
+          "--empty=keep",
+          "--rerere-autoupdate",
+          "--onto",
+          request.onto,
+          upstream,
+        ],
+        {
+          cwd: worktree,
+          env: {
+            GIT_EDITOR: "true",
+            GIT_SEQUENCE_EDITOR: `cp ${shellQuote(NodePath.join(stateDir, "todo"))}`,
+          },
+        },
+      )
+    : resume();
+  // Fork-owned conflicts resolve to the old head; only upstream-owned ones stop.
+  // Pinned from the invoking checkout: inside the worktree `HEAD` is the rebase.
+  const oldHead = must(["rev-parse", "--verify", `${request.head}^{commit}`]);
+  while (status.status !== 0 && rebaseInProgress()) {
+    const unmerged = must(["diff", "--name-only", "--diff-filter=U"], worktree)
+      .split("\n")
+      .filter((path) => path.length > 0);
+    const { forkOwned, upstream: owned } = partitionConflicts(git, request.stackBase, unmerged);
+    for (const path of forkOwned) {
+      must(
+        headEntry(git, oldHead, path) === undefined
+          ? ["rm", "-q", "--force", "--", path]
+          : ["checkout", oldHead, "--", path],
+        worktree,
+      );
+    }
+    if (forkOwned.length === 0 || owned.length > 0) break;
+    status = resume();
+  }
   if (status.status !== 0) {
     if (!rebaseInProgress())
       throw new FoldRebaseError(
@@ -233,7 +311,7 @@ const writeTodo = (stateDir: string, request: FoldRebaseRequest): void => {
     if (amend !== undefined) {
       const messagePath = NodePath.join(messagesDir, `${index}.txt`);
       NodeFS.writeFileSync(messagePath, amend);
-      lines.push(`exec git commit --amend --no-verify -F ${shellQuote(messagePath)}`);
+      lines.push(`exec git commit --amend --allow-empty --no-verify -F ${shellQuote(messagePath)}`);
     }
   });
   NodeFS.writeFileSync(NodePath.join(stateDir, "todo"), `${lines.join("\n")}\n`);

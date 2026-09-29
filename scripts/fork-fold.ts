@@ -20,7 +20,9 @@ import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import { type CommandResult, commandText, runCommand } from "./lib/fork-command.ts";
 import {
   FoldRebaseError,
+  partitionConflicts,
   rebaseRemaining,
+  resolveForkOwnedTree,
   type FoldBlock,
   type FoldCommit,
   type FoldGit,
@@ -59,8 +61,10 @@ every piece. .agents/skills/fork-fold/SKILL.md owns the procedure.
 apply replays with merge-tree until a block refuses there; from that block on
 the remaining plan replays as one git rebase --autosquash in a throwaway
 worktree under the git common dir, and a run absorbing a Fork-Repair member
-starts there. Each stop names the worktree; resolve and rerun the same apply
-command to continue.
+starts there. A conflict on a path the stack base lacks is fork-owned and
+resolves to the old head on both paths; only an upstream-owned conflict stops.
+Each stop names the worktree; resolve and rerun the same apply command to
+continue.
 
 Publish refuses unless local hyprws is at <old> with a clean hyprws worktree,
 proves, then pushes origin with --force-with-lease=hyprws:<old> — the <old>
@@ -356,10 +360,13 @@ export const foldMessage = (block: FoldBlock): string => {
 /**
  * merge-tree replay of one block onto the running tip: the next tip, or the
  * member that no longer applies cleanly there (the plan reordered it past a
- * commit touching the same lines) and hands the run to the worktree fallback.
+ * commit touching the same upstream lines) and hands the run to the worktree
+ * fallback. A conflict confined to fork-owned paths resolves to the old head.
  */
 const fastBlock = (
   git: FoldGit,
+  oldHead: string,
+  stackBase: string,
   tip: string,
   block: FoldBlock,
 ): { readonly tip: string } | { readonly refused: FoldCommit } => {
@@ -369,12 +376,21 @@ const fastBlock = (
     const merged = git.result([
       "merge-tree",
       "--write-tree",
+      "--name-only",
       `--merge-base=${member.sha}^`,
       scratch,
       member.sha,
     ]);
-    if (merged.status !== 0) return { refused: member };
-    tree = merged.stdout.split("\n")[0] ?? "";
+    // Exit 1 is a conflict: the conflicted paths follow the tree, up to a blank line.
+    if (merged.status !== 0 && merged.status !== 1) return { refused: member };
+    const [written = "", ...rest] = merged.stdout.split("\n");
+    tree = written;
+    if (merged.status === 1) {
+      const conflicted = rest.slice(0, Math.max(rest.indexOf(""), 0));
+      const { forkOwned, upstream } = partitionConflicts(git, stackBase, conflicted);
+      if (forkOwned.length === 0 || upstream.length > 0) return { refused: member };
+      tree = resolveForkOwnedTree(git, tree, forkOwned, oldHead);
+    }
     if (index < block.members.length - 1) {
       scratch = git.text(["commit-tree", tree, "-p", scratch, "-m", "fork-fold scratch"]);
     }
@@ -447,6 +463,7 @@ export const replay = (
       remaining,
       amends: amendMessages(git, remaining),
       onto,
+      stackBase: start,
     });
     // The rebase can finish without stopping where merge-tree refused — the
     // sequencer resolves some shapes git's merge cannot.
@@ -461,9 +478,10 @@ export const replay = (
   if (blocks.some((block) => block.members.some((member) => member.repair !== undefined))) {
     return fallback(blocks, start);
   }
+  const oldHead = git.text(["rev-parse", "--verify", `${stack.head}^{commit}`]);
   let tip = start;
   for (const [index, block] of blocks.entries()) {
-    const fast = fastBlock(git, tip, block);
+    const fast = fastBlock(git, oldHead, start, tip, block);
     if ("refused" in fast) {
       return fallback(blocks.slice(index), tip, {
         short: fast.refused.short,
