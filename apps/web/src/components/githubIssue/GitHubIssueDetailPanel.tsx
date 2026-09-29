@@ -208,7 +208,8 @@ export function GitHubIssueDetailContent({
   return (
     <article className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-4">
+        {/* A 16rem basis wraps the actions below a title that would otherwise be squeezed. */}
+        <div className="flex min-w-0 flex-[1_1_16rem] items-start gap-4">
           <GitHubIssueStateIcon
             state={detail.state}
             className={cn(
