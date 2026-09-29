@@ -218,13 +218,11 @@ describe("DesktopClerk", () => {
 
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure(() => Effect.void)));
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
 
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
-      // The fork also registers "open-url" for project deep links, covered in
-      // DesktopClerk.fork.test.ts, so this asserts upstream's handler is present.
-      assert.include(registeredEvents, "second-instance");
+      assert.deepEqual(registeredEvents, ["open-url", "second-instance"]);
     }).pipe(
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
@@ -248,7 +246,7 @@ describe("DesktopClerk", () => {
 
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure(() => Effect.void)));
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
 
       assert.isTrue(Exit.hasInterrupts(exit));
       assert.equal(quit.mock.calls.length, 1);
@@ -282,13 +280,12 @@ it.effect(
     } as unknown as ElectronWindow.ElectronWindow["Service"];
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
-      yield* clerk.configure(() => Effect.void); // fork-hook: multi-window/clerk-open-arguments
+      yield* clerk.configure;
       const event = { preventDefault: vi.fn() };
       listeners.get("open-url")!(event, "t3code-dev://app/auth/callback?code=clerk-code");
       listeners.get("open-url")!(event, "t3code://app/welcome");
       assert.equal(loadURL.mock.calls.length, 0);
-      // Fork: every open-url is claimed; non-auth URLs route to openArguments. // fork-hook: multi-window/clerk-open-arguments
-      assert.equal(event.preventDefault.mock.calls.length, 2); // fork-hook: multi-window/clerk-open-arguments
+      assert.equal(event.preventDefault.mock.calls.length, 0);
       listeners.get("second-instance")!({}, [
         "t3",
         "t3code-dev://app/settings/providers?instanceId=work&code=never-forward",
@@ -298,7 +295,7 @@ it.effect(
         ["t3code-dev://app/settings/providers?instanceId=work"],
       ]);
       listeners.get("open-url")!(event, "t3code-dev://app/welcome#agents:machine-id");
-      assert.equal(event.preventDefault.mock.calls.length, 3); // fork-hook: multi-window/clerk-open-arguments
+      assert.equal(event.preventDefault.mock.calls.length, 1);
     }).pipe(
       Effect.scoped,
       Effect.provide(makeDesktopClerkLayer()),
@@ -367,7 +364,7 @@ it.effect.each(["startup", "open-url"] as const)(
       } as unknown as ElectronApp.ElectronApp["Service"];
       yield* Effect.gen(function* () {
         const clerk = yield* DesktopClerk.DesktopClerk;
-        yield* clerk.configure(() => Effect.void); // fork-hook: multi-window/clerk-open-arguments
+        yield* clerk.configure;
         if (entry === "open-url") {
           const event = { preventDefault: vi.fn() };
           listeners.get("open-url")!(event, link);
