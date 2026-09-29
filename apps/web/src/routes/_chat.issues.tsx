@@ -436,37 +436,42 @@ export function GitHubIssuesPage({
 
   const controls = (
     <div className="flex flex-col gap-2">
+      {/* Two groups that wrap whole: a crowded row moves every control under the search
+          together, never stranding the last one on a line of its own. */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* fork-hook: workspaces/chooser-scope-label */}
-        <ProjectChooserScopeLabelFork />
-        {/* fork-hook-end */}
-        {/* The field's own minimum, so a crowded row wraps its controls rather than overlapping them. */}
-        <div ref={searchRef} className="min-w-48 basis-full @lg/issues:basis-0 @lg/issues:flex-1">
-          <GitHubIssueSearchField
-            value={search.q ?? ""}
-            onChange={(next) => updateFilters({ q: next || undefined })}
-          />
+        <div className="flex min-w-0 grow basis-80 items-center gap-2">
+          {/* fork-hook: workspaces/chooser-scope-label */}
+          <ProjectChooserScopeLabelFork />
+          {/* fork-hook-end */}
+          <div ref={searchRef} className="min-w-0 flex-1">
+            <GitHubIssueSearchField
+              value={search.q ?? ""}
+              onChange={(next) => updateFilters({ q: next || undefined })}
+            />
+          </div>
         </div>
-        <GitHubIssueFilterAdd {...narrowingProps} />
-        <GitHubIssueStateToggle
-          state={search.state}
-          onState={(next) => updateFilters({ state: next })}
-        />
-        <GitHubIssueProjectMenu
-          projects={githubProjects}
-          value={projectMenuValue}
-          onValueChange={selectProject}
-        />
-        <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
-        <Button
-          size="icon"
-          variant="outline"
-          aria-label="Refresh GitHub issues"
-          disabled={refreshing}
-          onClick={refresh}
-        >
-          <RefreshIcon size="md" refreshing={refreshing} />
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <GitHubIssueFilterAdd {...narrowingProps} />
+          <GitHubIssueStateToggle
+            state={search.state}
+            onState={(next) => updateFilters({ state: next })}
+          />
+          <GitHubIssueProjectMenu
+            projects={githubProjects}
+            value={projectMenuValue}
+            onValueChange={selectProject}
+          />
+          <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
+          <Button
+            size="icon"
+            variant="outline"
+            aria-label="Refresh GitHub issues"
+            disabled={refreshing}
+            onClick={refresh}
+          >
+            <RefreshIcon size="md" refreshing={refreshing} />
+          </Button>
+        </div>
       </div>
       <GitHubIssueFilterBar {...narrowingProps} />
     </div>
