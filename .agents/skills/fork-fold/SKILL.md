@@ -55,6 +55,7 @@ One line per output commit: member shas, tab-separated, in stack order.
 ## Fold rule
 
 One PR-sized intent per output commit: a feature absorbs its fixes and resolutions.
+A `Fork-Repair` commit never survives the fold: [split it first](#repair-split).
 
 Fold when both hold:
 
@@ -63,13 +64,27 @@ Fold when both hold:
 
 The plan refuses a mixed-domain line: across domains the ledger would lose one.
 
+## Repair split
+
+A `Fork-Repair` commit dissolves before the run, so no repair lands in the fold.
+Split each one on a detached copy of the head (`git worktree add --detach <dir> <head>`):
+
+1. `git rebase -i <first repair>^` and mark every `Fork-Repair` commit `edit`. Commits before the first repair keep their shas — the rebase never replays them — and owners always precede the repairs they absorb, so `Squashes:` keeps resolving against the old tip.
+2. At each stop: `git reset HEAD^`; stage each owner's hunks and commit them as `fixup! <owner subject>` with the owner's trailers and the repair's line under `Squashes:` — `list` prints that line under every repair.
+3. One inseparable remainder: a single `upstream-fixes` commit naming the upstream change it adapts to, without `Fork-Repair`.
+4. `git rebase --continue`. The split head is tree-equal to the old tip.
+
+Run the fold with `--head <split head>`: each fixup joins its owner's plan line and squashes there, so the owner's `Squashes:` lists its own old sha, the repair sha, and the repair's references.
+`prove` and `publish` take the pre-split tip as `<old>`; a tree-equal fold needs no retest.
+
 ## Stops
 
-| Output                                | Move                            |
-| ------------------------------------- | ------------------------------- |
-| `does not apply at its plan position` | Reorder or split that line      |
-| `plan does not cover the stack`       | Fix the listed shas             |
-| `publish` refuses                     | Read the reason; nothing pushed |
+| Output                                   | Move                                     |
+| ---------------------------------------- | ---------------------------------------- |
+| `does not apply at its plan position`    | Reorder or split that line               |
+| `plan does not cover the stack`          | Fix the listed shas                      |
+| `a fixup! member carries no repair line` | Copy `list`'s fixup line into that piece |
+| `publish` refuses                        | Read the reason; nothing pushed          |
 
 ## Cadence
 
