@@ -207,13 +207,20 @@ function GitHubDestinationLink({
         >
           <GitHubTargetIcon target={linkTarget} />
         </span>
-        <span className="shrink-0 font-mono font-semibold text-primary">{reference}</span>
+        {/* In a narrow chip the title gives way first, then the repository; the
+            number stays whole and clear of the destination toolbar. */}
+        <span className="flex min-w-0 font-mono font-semibold text-primary">
+          <span className="truncate">{linkTarget.repository}</span>
+          {linkTarget.number === null ? null : (
+            <span className="shrink-0">#{linkTarget.number}</span>
+          )}
+        </span>
         {showTitle ? (
           <>
             <span className="shrink-0 text-muted-foreground/50" aria-hidden>
               ·
             </span>
-            <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/85">
+            <span className="min-w-0 shrink-[1000] overflow-hidden text-ellipsis whitespace-nowrap text-foreground/85">
               {children}
             </span>
           </>
