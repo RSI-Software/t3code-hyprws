@@ -141,6 +141,7 @@ export function GitHubIssueDetailContent({
   loading,
   refreshing = false,
   onRefresh,
+  onStateChanged,
   onRetry,
   onSelectSubIssue,
 }: {
@@ -157,6 +158,8 @@ export function GitHubIssueDetailContent({
   readonly refreshing?: boolean;
   /** Re-reads the issue on demand. Absent where the panel owns no read, like the empty state. */
   readonly onRefresh?: () => void;
+  /** Called once the issue has closed or reopened, for a list beside the panel to re-read. */
+  readonly onStateChanged?: () => void;
   readonly onRetry: () => void;
   /** Opens a same-repository child in the surface that owns this detail view. */
   readonly onSelectSubIssue?: (child: GitHubSubIssue) => void;
@@ -239,6 +242,7 @@ export function GitHubIssueDetailContent({
               composerTarget={composerTarget}
               refreshing={refreshing}
               onRefresh={onRefresh}
+              onStateChanged={onStateChanged}
               copyLinkShortcut={copyLinkShortcut}
             />
             <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
