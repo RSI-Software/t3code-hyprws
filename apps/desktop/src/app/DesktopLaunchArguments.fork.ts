@@ -12,7 +12,7 @@ type OpenArguments = (source: LaunchSource, argv: readonly string[]) => Effect.E
 // its `open-url` listener claims only provider-auth URLs. The fork opens every
 // other launch as a window instead. `DesktopApp` installs the opener; the
 // Clerk listeners route through it and keep upstream behavior without one.
-export const makeDesktopLaunchArguments = () => {
+const makeDesktopLaunchArguments = () => {
   let openArguments: OpenArguments | undefined;
 
   /** Installs the window opener; call before `DesktopClerk.configure`. */
