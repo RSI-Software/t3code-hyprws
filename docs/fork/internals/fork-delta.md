@@ -29,7 +29,7 @@ Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` 
 
 | Where                                                     | Mode                 | Against              |
 | --------------------------------------------------------- | -------------------- | -------------------- |
-| Fork CI                                                   | Advisory, every push | live `upstream/main` |
+| Fork CI                                                   | Blocking, every push | live `upstream/main` |
 | The sync driver's check step (`hyprws-upstream-sync.yml`) | Blocking             | the rebased tip      |
 
 **Stale fork mocks.** On every rebase, diff each `*.fork.test.*` mock key set against the sibling `*.test.*` mock of the same service.
@@ -68,8 +68,7 @@ A retirement is recorded by the retire commit itself, not a ledger.
 | `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair |
 
 `Fork-Upstreamable: yes` is a tracking tag, never authorization to post upstream; `AGENTS.md` owns that rule.
-`Fork-Repair` marks what a walk's repair pass rewrote, keeping that commit out of the replayed series.
-`Fork-Budget` rows are inert history and are not rewritten.
+`Fork-Repair` marks a repair the next fold absorbs.
 `vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
 
 **Squash-body mode.** Fork CI also runs it with `--base origin/hyprws --head <sha> --squash-body <file>`, both refs explicit.
