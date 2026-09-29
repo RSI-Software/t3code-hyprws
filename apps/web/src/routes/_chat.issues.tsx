@@ -30,7 +30,10 @@ import {
   type GitHubIssueListNarrowing,
   type GitHubIssueOrder,
 } from "../components/githubIssue/GitHubIssueListView.logic";
-import { GitHubIssueListGhosts } from "../components/githubIssue/GitHubIssueGhosts";
+import {
+  GitHubIssueListGhosts,
+  searchingCaption,
+} from "../components/githubIssue/GitHubIssueGhosts";
 import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
 import { useGitHubIssueKeyboard } from "../components/githubIssue/useGitHubIssueKeyboard";
 import {
@@ -358,8 +361,17 @@ export function GitHubIssuesPage({
       description={search.q ? "Nothing matched this search." : "No issues matched these filters."}
     />
   ) : (
-    <section aria-label={`${GROUP_LABELS[search.state]} issues`}>
-      <GitHubIssueGroupHeader state={search.state} count={entries.length} />
+    <section
+      aria-label={`${GROUP_LABELS[search.state]} issues`}
+      aria-busy={listQuery.carried}
+      // Rows held from the last answer while this one travels: still readable, visibly not final.
+      className={listQuery.carried ? "opacity-60 transition-opacity" : "transition-opacity"}
+    >
+      <GitHubIssueGroupHeader
+        state={search.state}
+        count={entries.length}
+        caption={listQuery.carried ? searchingCaption(sentQuery) : null}
+      />
       {/* Rows are not virtualized: each environment/project query is capped at 50, and rows use content-visibility:auto. */}
       <div className="space-y-0.5">
         {entries.map((issue) => (
@@ -596,9 +608,12 @@ const GROUP_LABELS = { open: "Open", closed: "Closed", all: "All" } as const sat
 function GitHubIssueGroupHeader({
   state,
   count,
+  caption,
 }: {
   readonly state: IssuesSearch["state"];
   readonly count: number;
+  /** Says what is on its way while the rows below are held from the last answer. */
+  readonly caption: string | null;
 }) {
   const Icon = state === "all" ? LayersIcon : GITHUB_ISSUE_STATE_PRESENTATION[state].Icon;
   return (
@@ -607,6 +622,12 @@ function GitHubIssueGroupHeader({
       <h2 className="shrink-0">{GROUP_LABELS[state]}</h2>
       <span className="shrink-0 tabular-nums text-muted-foreground/50">{count}</span>
       <Separator className="min-w-2 flex-1" />
+      {caption ? (
+        <span className="flex min-w-0 items-center gap-1.5 font-normal">
+          <Spinner className="size-3 shrink-0" />
+          <span className="truncate">{caption}</span>
+        </span>
+      ) : null}
     </div>
   );
 }
