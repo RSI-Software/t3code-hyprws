@@ -50,6 +50,8 @@ Exit 0 passes, 1 fails, 2 is usage.
 
 export interface FoldCommit extends ParsedForkCommit {
   readonly files: ReadonlyArray<string>;
+  /** Full commit message (`%B`), so fold messages can carry each member's PR links. */
+  readonly message: string;
 }
 
 export interface FoldStack {
@@ -93,16 +95,38 @@ export const systemFoldGit = (cwd: string): FoldGit => ({
 
 // -- list ---------------------------------------------------------------------
 
+const commitMessageArguments = (shas: ReadonlyArray<string>) =>
+  ["log", "--no-walk", "--format=%H\u001f%B\u001e", ...shas] as const;
+
+const parseCommitMessages = (raw: string): ReadonlyMap<string, string> => {
+  const messages = new Map<string, string>();
+  for (const record of raw.replace(/\r\n/g, "\n").split("\u001e")) {
+    const normalized = record.replace(/^\n/, "");
+    const separator = normalized.indexOf("\u001f");
+    if (separator <= 0) continue;
+    messages.set(normalized.slice(0, separator), normalized.slice(separator + 1));
+  }
+  return messages;
+};
+
 export const readStack = (git: FoldGit, base: string, head: string): FoldStack => {
   const commits = parseForkLog(git.text(forkLogArguments(base, head)));
   const files =
     commits.length === 0
       ? new Map()
       : parseCommitNumstat(git.text(commitNumstatArguments(commits.map(({ sha }) => sha))));
+  const messages =
+    commits.length === 0
+      ? new Map<string, string>()
+      : parseCommitMessages(git.text(commitMessageArguments(commits.map(({ sha }) => sha))));
   return {
     base,
     head,
-    commits: commits.map((commit) => ({ ...commit, files: files.get(commit.sha)?.files ?? [] })),
+    commits: commits.map((commit) => ({
+      ...commit,
+      files: files.get(commit.sha)?.files ?? [],
+      message: messages.get(commit.sha) ?? "",
+    })),
   };
 };
 
@@ -222,15 +246,64 @@ const withoutSquashes = (prose: string): string =>
     })
     .join("\n\n");
 
+const FORK_REPO = "RSI-Software/t3code-hyprws";
+const FORK_PULL_URL = new RegExp(`https://github\\.com/${FORK_REPO}/pull/(\\d+)`, "g");
+const FORK_ITEM_REF = new RegExp(`${FORK_REPO}#(\\d+)`, "g");
+/** GitHub squash-merge appends ` (#N)` to a landed pull request's subject. */
+const SQUASH_MARKER = /\(#(\d+)\)\s*$/;
+/** A `Squashes:` member line; fork-scan's squashedMembers reads the same shape. */
+const SQUASH_MEMBER_LINE = /^- [0-9a-f]{7,40}\b/;
+
+/**
+ * The fork pull requests a commit cites, as full `RSI-Software/t3code-hyprws#N`
+ * refs in first-seen order: its subject's squash marker, a fork pull URL in its
+ * message, and refs already listed on an earlier fold's `Squashes:` lines. A
+ * bare `#N` in a body is usually an issue (`Closes #N`), and any other repo's
+ * ref posts backlinks upstream, so neither is carried.
+ */
+export const forkPullRequests = (message: string): ReadonlyArray<string> => {
+  const normalized = message.replace(/\r\n/g, "\n");
+  const [subject = "", ...bodyLines] = normalized.split("\n");
+  const refs = new Map<string, string>();
+  const add = (n?: string) => {
+    if (n !== undefined) refs.set(`${FORK_REPO}#${n}`, `${FORK_REPO}#${n}`);
+  };
+  add(SQUASH_MARKER.exec(subject.trim())?.[1]);
+  for (const match of normalized.matchAll(FORK_PULL_URL)) add(match[1]);
+  const start = bodyLines.findIndex((line) => line.trim() === "Squashes:");
+  if (start >= 0) {
+    for (const line of bodyLines.slice(start + 1)) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      if (!SQUASH_MEMBER_LINE.test(trimmed)) break;
+      for (const match of line.matchAll(FORK_ITEM_REF)) add(match[1]);
+    }
+  }
+  return [...refs.keys()];
+};
+
+/**
+ * One member line: the sha first (squashedMembers reads it), then the subject,
+ * then every fork pull request the member cites, rendered full so the link
+ * always stays on the fork.
+ */
+const memberLine = (member: FoldCommit): string => {
+  const links = forkPullRequests(member.message)
+    .filter((ref) => !member.subject.includes(ref))
+    .map((ref) => ` (${ref})`)
+    .join("");
+  return `- ${member.short} ${member.subject}${links}`;
+};
+
 /**
  * One member keeps its message verbatim. A fold keeps the first member's prose,
- * lists every member under `Squashes:` (fork-scan's squashedMembers reads it),
- * and ends with the merged trailers.
+ * lists every member under `Squashes:` (fork-scan's squashedMembers reads it)
+ * with its fork pull request links, and ends with the merged trailers.
  */
-export const foldMessage = (block: FoldBlock, firstMessage: string): string => {
+export const foldMessage = (block: FoldBlock): string => {
   const [first] = block.members;
   if (first === undefined) throw new FoldError("empty plan line");
-  const [subjectLine = "", ...rest] = firstMessage.replace(/\r\n/g, "\n").split("\n");
+  const [subjectLine = "", ...rest] = first.message.replace(/\r\n/g, "\n").split("\n");
   const subject = block.subject ?? subjectLine;
   if (block.members.length === 1) return [subject, ...rest].join("\n").trimEnd();
   const prose = withoutSquashes(bodyProse(rest.join("\n")));
@@ -240,7 +313,7 @@ export const foldMessage = (block: FoldBlock, firstMessage: string): string => {
     "",
     "Squashes:",
     "",
-    ...block.members.map((member) => `- ${member.short} ${member.subject}`),
+    ...block.members.map(memberLine),
     "",
     foldTrailers(block.members),
   ].join("\n");
@@ -281,18 +354,14 @@ export const replay = (
       }
     }
     const lead = block.members[0] as FoldCommit;
-    const [name = "", email = "", date = "", message = ""] = git
-      .text(["log", "-1", "--format=%an%x00%ae%x00%aI%x00%B", lead.sha])
+    const [name = "", email = "", date = ""] = git
+      .text(["log", "-1", "--format=%an%x00%ae%x00%aI", lead.sha])
       .split("\0");
-    tip = git.text(
-      ["commit-tree", tree, "-p", tip, "-F", "-"],
-      `${foldMessage(block, message)}\n`,
-      {
-        GIT_AUTHOR_NAME: name,
-        GIT_AUTHOR_EMAIL: email,
-        GIT_AUTHOR_DATE: date,
-      },
-    );
+    tip = git.text(["commit-tree", tree, "-p", tip, "-F", "-"], `${foldMessage(block)}\n`, {
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_AUTHOR_DATE: date,
+    });
   }
   return tip;
 };
