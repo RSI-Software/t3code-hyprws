@@ -16,6 +16,29 @@ const FORK_COLUMNS = [
 ] as const;
 
 /**
+ * Fork-owned tables, created idempotently after the upstream migrations for
+ * the same reason as the columns above. They report nothing: a fresh database
+ * and an upgraded one both simply have them afterwards.
+ */
+const FORK_TABLES = [
+  // Thread ↔ GitHub issue links for the github-issues domain, shaped like
+  // upstream's `projection_thread_pull_requests`.
+  `CREATE TABLE IF NOT EXISTS projection_thread_issues (
+    thread_id TEXT NOT NULL,
+    host TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    number INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    source TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    snapshot_json TEXT,
+    PRIMARY KEY (thread_id, host, repository, number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_projection_thread_issues_issue
+    ON projection_thread_issues(host, repository, number)`,
+] as const;
+
+/**
  * Shipped-nightly repair for fork nightlies
  * `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded the fork column
  * as numbered migration row `(48, "ProjectionThreadCheckoutMove")`.
@@ -44,6 +67,10 @@ export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
     if (columns.some((existing) => existing.name === column)) continue;
     yield* sql`ALTER TABLE ${sql.literal(table)} ADD COLUMN ${sql.literal(column)} ${sql.literal(definition)}`;
     added.push(`${table}.${column}`);
+  }
+
+  for (const statement of FORK_TABLES) {
+    yield* sql.unsafe(statement);
   }
 
   if (added.length > 0) {

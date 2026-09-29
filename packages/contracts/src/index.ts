@@ -31,6 +31,7 @@ export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
 export * from "./githubIssue.ts"; // fork-hook: github-issues/contracts-reexport
+export * from "./threadIssues.fork.ts"; // fork-hook: github-issues/thread-issues-reexport
 export * from "./threadFork.fork.ts"; // fork-hook: thread-fork/contracts-reexport
 export * from "./attachedPrimary.fork.ts"; // fork-hook: backend-attach/contracts-reexport
 export * from "./desktopWindow.fork.ts"; // fork-hook: multi-window/contracts-reexport
