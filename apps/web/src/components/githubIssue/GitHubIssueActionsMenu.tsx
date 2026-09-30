@@ -39,6 +39,10 @@ import {
   githubIssueAskPrompt,
   githubIssueExplainPrompt,
 } from "./githubIssueAsk.logic";
+import {
+  GitHubIssueThreadLinkMenuItem,
+  type useGitHubIssueThreadLinks,
+} from "./GitHubIssueThreadLinks";
 
 type AskKind = "ask" | "explain";
 
@@ -55,6 +59,8 @@ export function GitHubIssueActionsMenu({
   onRefresh,
   onStateChanged,
   copyLinkShortcut,
+  threadLinks,
+  onPickThread,
 }: {
   readonly environmentId: EnvironmentId;
   readonly detail: GitHubIssueDetail;
@@ -66,6 +72,10 @@ export function GitHubIssueActionsMenu({
   readonly onStateChanged: (() => void) | undefined;
   /** Whether the copy-link shortcut copies this issue here; beside a thread it copies the thread. */
   readonly copyLinkShortcut: boolean;
+  /** The issue's thread links; Ask and Explain only mention the issue and never link it. */
+  readonly threadLinks: ReturnType<typeof useGitHubIssueThreadLinks>;
+  /** Opens the thread picker, for a panel with no server thread beside it. */
+  readonly onPickThread: () => void;
 }) {
   const newThread = useNewThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -210,6 +220,17 @@ export function GitHubIssueActionsMenu({
               </span>
             </span>
           </MenuItem>
+          {threadLinks.supported ? (
+            <>
+              <MenuSeparator />
+              <GitHubIssueThreadLinkMenuItem
+                links={threadLinks}
+                composerTarget={composerTarget}
+                environmentId={environmentId}
+                onPickThread={onPickThread}
+              />
+            </>
+          ) : null}
           <MenuSeparator />
           <MenuItem onClick={() => void readLocalApi()?.shell.openExternal(detail.url)}>
             <ArrowUpRightIcon className="size-3.5" />

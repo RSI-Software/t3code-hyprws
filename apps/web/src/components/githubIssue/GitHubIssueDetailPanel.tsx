@@ -10,6 +10,7 @@ import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts
 import {
   ChevronRightIcon,
   ExternalLinkIcon,
+  LinkIcon,
   ShapesIcon,
   TagIcon,
   UsersIcon,
@@ -42,6 +43,13 @@ import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
+import { githubIssueHandoffs } from "./githubIssueHandoff";
+import {
+  GitHubIssueLinkedThreadList,
+  GitHubIssueThreadPicker,
+  useGitHubIssueThreadLinks,
+} from "./GitHubIssueThreadLinks";
+import { githubIssueLinkTarget } from "./githubIssueThreadLinks.logic";
 
 export function githubIssueHandoffPrompt(
   issue: Pick<GitHubIssueDetail, "number" | "title" | "url">,
@@ -166,6 +174,8 @@ export function GitHubIssueDetailContent({
 }) {
   const newThread = useNewThreadHandler();
   const [preparing, setPreparing] = useState(false);
+  const threadLinks = useGitHubIssueThreadLinks(environmentId, detail);
+  const [pickingThread, setPickingThread] = useState(false);
 
   const workOnIssue = async () => {
     if (!detail || !environmentId || preparing) return;
@@ -177,6 +187,10 @@ export function GitHubIssueDetailContent({
         opened.draftId,
         githubIssueHandoffPrompt(detail, handoffPromptTemplate),
       );
+      // The issue rides the draft it was handed to and links at that draft's first send. A draft
+      // left unchanged still holds whatever it was opened for, so it gains no issue here.
+      const handoff = githubIssueLinkTarget(detail.url);
+      if (seeded && handoff !== null) githubIssueHandoffs.record(opened.draftId, handoff);
       toastManager.add({
         type: "success",
         title: seeded ? "Issue ready in a thread" : "Thread opened",
@@ -244,6 +258,8 @@ export function GitHubIssueDetailContent({
               onRefresh={onRefresh}
               onStateChanged={onStateChanged}
               copyLinkShortcut={copyLinkShortcut}
+              threadLinks={threadLinks}
+              onPickThread={() => setPickingThread(true)}
             />
             <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
               <WrenchIcon className="size-3" />
@@ -334,6 +350,33 @@ export function GitHubIssueDetailContent({
             ))}
           </ul>
         </GitHubIssueSection>
+      ) : null}
+
+      {threadLinks.supported ? (
+        <GitHubIssueSection
+          key={`threads:${detail.url}`}
+          title="Linked threads"
+          {...(threadLinks.threads === null ? {} : { count: String(threadLinks.threads.length) })}
+        >
+          <GitHubIssueLinkedThreadList links={threadLinks} environmentId={environmentId} />
+          <Button
+            size="xs"
+            variant="ghost"
+            className="mt-1"
+            disabled={threadLinks.pending}
+            onClick={() => setPickingThread(true)}
+          >
+            <LinkIcon className="size-3" />
+            Link to a thread
+          </Button>
+        </GitHubIssueSection>
+      ) : null}
+      {pickingThread && threadLinks.supported ? (
+        <GitHubIssueThreadPicker
+          links={threadLinks}
+          environmentId={environmentId}
+          onOpenChange={setPickingThread}
+        />
       ) : null}
 
       <GitHubIssueSection
