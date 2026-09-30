@@ -84,14 +84,15 @@ export const make = Effect.gen(function* () {
     const started = yield* DateTime.now;
     read.startedAtMs = DateTime.toEpochMillis(started);
     inFlight.set(id, read);
-    const detail = yield* githubIssues
-      .detail({
+    // A snapshot stores a title and a state, so the read asks for exactly that.
+    const summary = yield* githubIssues
+      .summary({
         projectId: read.projectId,
         repository: read.key.repository,
         number: read.key.number,
       })
       .pipe(Effect.ensuring(Effect.sync(() => inFlight.delete(id))), Effect.option);
-    if (Option.isNone(detail)) {
+    if (Option.isNone(summary)) {
       // A failed read writes nothing: an unread link stays unknown and a known snapshot is kept,
       // because either is truer than a guessed state.
       yield* Effect.logWarning("linked issue read failed", { issue: id });
@@ -99,8 +100,8 @@ export const make = Effect.gen(function* () {
     }
     // The read's start time, so a link made while it was in flight rejects it as older.
     const snapshot = {
-      title: detail.value.title,
-      state: detail.value.state,
+      title: summary.value.title,
+      state: summary.value.state,
       syncedAt: DateTime.formatIso(started),
     };
     yield* Effect.forEach(
