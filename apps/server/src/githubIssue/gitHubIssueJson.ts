@@ -1,5 +1,6 @@
 import {
   GitHubIssueActor,
+  GitHubIssueCloseReason,
   GitHubIssueComment,
   GitHubIssueLabel,
   GitHubIssueReactions,
@@ -11,6 +12,7 @@ import {
   PositiveInt,
   TrimmedNonEmptyString,
   type GitHubIssueActor as GitHubIssueActorType,
+  type GitHubIssueCloseReason as GitHubIssueCloseReasonType,
   type GitHubIssueComment as GitHubIssueCommentType,
   type GitHubIssueLabel as GitHubIssueLabelType,
   type GitHubIssueReactions as GitHubIssueReactionsType,
@@ -40,6 +42,10 @@ const RawSubIssue = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   state: Schema.String,
+  // A close reason in GitHub's GraphQL words. `gh issue view --json subIssues` omits the key on
+  // every child (gh 2.98.0), so a detail read attaches reasons with its own GraphQL call and an
+  // absent key here must survive.
+  stateReason: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const RawReactionGroup = Schema.Struct({
@@ -68,6 +74,9 @@ const RawIssue = Schema.Struct({
   issueType: Schema.optional(Schema.NullOr(RawIssueType)),
   subIssues: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawSubIssue) }))),
   state: Schema.String,
+  // A close reason in GitHub's GraphQL words; gh versions before it asked for `stateReason` omit
+  // the key entirely, which an absent reason must survive.
+  stateReason: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   reactionGroups: Schema.optional(Schema.NullOr(Schema.Array(RawReactionGroup))),
@@ -85,6 +94,7 @@ const NormalizedIssue = Schema.Struct({
   labels: Schema.Array(GitHubIssueLabel),
   issueType: Schema.NullOr(GitHubIssueType),
   state: GitHubIssueState,
+  closeReason: Schema.NullOr(GitHubIssueCloseReason),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   commentCount: NonNegativeInt,
@@ -153,11 +163,27 @@ function reactions(
 }
 
 function subIssue(raw: RawSubIssue) {
-  return { number: raw.number, title: raw.title, url: raw.url, state: state(raw.state) };
+  return {
+    number: raw.number,
+    title: raw.title,
+    url: raw.url,
+    state: state(raw.state),
+    closeReason: closeReason(raw.stateReason),
+  };
 }
 
 function state(raw: string): string {
   return raw.toLowerCase();
+}
+
+/**
+ * A close reason in the wire's own words. An open issue, one reopened since its last close
+ * (`REOPENED`), and anything a future GitHub adds all read as none rather than as a guess.
+ */
+export function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
+  if (raw === "COMPLETED") return "completed";
+  if (raw === "NOT_PLANNED") return "not planned";
+  return null;
 }
 
 function timestamp(raw: string): string {
@@ -176,6 +202,7 @@ function normalizeGitHubIssue(raw: RawGitHubIssue) {
     issueType:
       raw.issueType === null || raw.issueType === undefined ? null : issueType(raw.issueType),
     state: state(raw.state),
+    closeReason: closeReason(raw.stateReason),
     createdAt: timestamp(raw.createdAt),
     updatedAt: timestamp(raw.updatedAt),
     // `gh` sends the comments themselves and no count; the list keeps only the count, so a busy
@@ -226,11 +253,18 @@ export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(func
 const IssueSummary = Schema.Struct({
   title: TrimmedNonEmptyString,
   state: GitHubIssueState,
+  closeReason: Schema.NullOr(GitHubIssueCloseReason),
 });
 export type GitHubIssueSummary = typeof IssueSummary.Type;
 
 const decodeIssueSummary = Schema.decodeEffect(
-  Schema.fromJsonString(Schema.Struct({ title: Schema.String, state: Schema.String })),
+  Schema.fromJsonString(
+    Schema.Struct({
+      title: Schema.String,
+      state: Schema.String,
+      stateReason: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  ),
 );
 const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
 
@@ -238,5 +272,47 @@ export const decodeGitHubIssueSummary = Effect.fn("decodeGitHubIssueSummary")(fu
   raw: string,
 ) {
   const decoded = yield* decodeIssueSummary(raw);
-  return yield* decodeNormalizedIssueSummary({ title: decoded.title, state: state(decoded.state) });
+  return yield* decodeNormalizedIssueSummary({
+    title: decoded.title,
+    state: state(decoded.state),
+    closeReason: closeReason(decoded.stateReason),
+  });
+});
+
+/** A child's close reason keyed by its number, read with one extra GraphQL call because `gh`
+ * carries no reason on sub-issue nodes (RSI-Software/t3code-hyprws#1461). */
+const RawSubIssueReasons = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        issue: Schema.NullOr(
+          Schema.Struct({
+            subIssues: Schema.NullOr(
+              Schema.Struct({
+                nodes: Schema.Array(
+                  Schema.Struct({
+                    number: Schema.Number,
+                    stateReason: Schema.NullOr(Schema.String),
+                  }),
+                ),
+              }),
+            ),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+
+const decodeSubIssueReasonPayload = Schema.decodeEffect(Schema.fromJsonString(RawSubIssueReasons));
+
+export const decodeGitHubSubIssueReasons = Effect.fn("decodeGitHubSubIssueReasons")(function* (
+  raw: string,
+) {
+  const decoded = yield* decodeSubIssueReasonPayload(raw);
+  const reasons = new Map<number, GitHubIssueCloseReasonType | null>();
+  for (const node of decoded.data.repository?.issue?.subIssues?.nodes ?? []) {
+    reasons.set(node.number, closeReason(node.stateReason));
+  }
+  return reasons;
 });
