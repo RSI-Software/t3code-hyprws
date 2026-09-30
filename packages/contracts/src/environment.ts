@@ -158,6 +158,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server answers server.prepareTriage. */
   triage: Schema.optionalKey(Schema.Boolean),
   githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
+  threadIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-thread-issues-capability
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
