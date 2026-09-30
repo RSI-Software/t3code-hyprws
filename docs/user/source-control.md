@@ -201,7 +201,8 @@ Change that text under **Settings → Source Control → GitHub links**, in **Gi
 prompt**. The template takes `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the
 server environment that owns the issue, so its web and desktop clients use the same prompt.
 
-Issues are read-only here: commenting, closing, labeling, and assigning stay on GitHub. Each server
+The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
+needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
 holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or
 `gh auth login --hostname <host>` for GitHub Enterprise.
 

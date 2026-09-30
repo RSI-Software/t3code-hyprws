@@ -7,6 +7,7 @@ import type {
   GitHubIssueListResult,
   GitHubIssueOperationError,
   GitHubIssueRef,
+  GitHubIssueSetStateInput,
   OrchestrationProjectShell,
 } from "@t3tools/contracts";
 import {
@@ -56,6 +57,7 @@ export class GitHubIssueService extends Context.Service<
       input: GitHubIssueListInput,
     ) => Effect.Effect<GitHubIssueListResult, GitHubIssueError>;
     readonly detail: (input: GitHubIssueRef) => Effect.Effect<GitHubIssueDetail, GitHubIssueError>;
+    readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
@@ -200,16 +202,25 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  /** The project an issue reference names, which is where `gh` runs and whose host it asks. */
+  const issueProject = Effect.fn("GitHubIssueService.issueProject")(function* (
+    input: GitHubIssueRef,
+    operation: string,
+  ) {
+    const projects = yield* workspaceProjects(input.projectId);
+    const project = projects[0];
+    if (project === undefined) {
+      return yield* new GitHubIssueOperationErrorClass({
+        operation,
+        detail: "The selected project cannot read GitHub issues.",
+      });
+    }
+    return project;
+  });
+
   const detail: GitHubIssueService["Service"]["detail"] = Effect.fn("GitHubIssueService.detail")(
     function* (input) {
-      const projects = yield* workspaceProjects(input.projectId);
-      const project = projects[0];
-      if (project === undefined) {
-        return yield* new GitHubIssueOperationErrorClass({
-          operation: "detail",
-          detail: "The selected project cannot read GitHub issues.",
-        });
-      }
+      const project = yield* issueProject(input, "detail");
       const output = yield* cli
         .execute({
           cwd: project.project.workspaceRoot,
@@ -239,7 +250,29 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return GitHubIssueService.of({ list, detail });
+  const setState: GitHubIssueService["Service"]["setState"] = Effect.fn(
+    "GitHubIssueService.setState",
+  )(function* (input) {
+    const operation = input.state === "closed" ? "close" : "reopen";
+    const project = yield* issueProject(input, operation);
+    // `gh` answers a close of a closed issue, or a reopen of an open one, with a warning and
+    // exit 0, so a press that raced another reader's settles on the state asked for either way.
+    yield* cli
+      .execute({
+        cwd: project.project.workspaceRoot,
+        args: [
+          "issue",
+          operation,
+          String(input.number),
+          "--repo",
+          cliRepository(project, input.repository),
+          ...(input.state === "closed" && input.reason ? ["--reason", input.reason] : []),
+        ],
+      })
+      .pipe(Effect.mapError(fromCliError(operation, project.host)));
+  });
+
+  return GitHubIssueService.of({ list, detail, setState });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);
