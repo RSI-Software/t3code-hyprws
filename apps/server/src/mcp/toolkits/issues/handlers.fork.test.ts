@@ -3,9 +3,9 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationCommand,
+  type OrchestrationV2ServerCommand as OrchestrationCommand,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type ThreadIssueLink,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -18,12 +18,9 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { McpServer, type Tool } from "effect/unstable/ai";
 
-import { OrchestrationCommandInvariantError } from "../../../orchestration/Errors.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "../../../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   IssuesToolkitHandlersLiveFork,
@@ -78,8 +75,8 @@ function makeProject(
 }
 
 /** A shell carrying the optional `issues` key, omitted when empty like the server omits it. */
-function makeThread(issues: ReadonlyArray<ThreadIssueLink> = []): OrchestrationThreadShell {
-  const shell: OrchestrationThreadShell = {
+function makeThread(issues: ReadonlyArray<ThreadIssueLink> = []): OrchestrationV2ThreadShell {
+  const shell = v2PullRequestThread({
     id: THREAD_ID,
     projectId: PROJECT_ID,
     title: "Thread",
@@ -89,19 +86,14 @@ function makeThread(issues: ReadonlyArray<ThreadIssueLink> = []): OrchestrationT
     branch: null,
     worktreePath: null,
     pullRequests: [],
-    latestTurn: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-20T00:00:00.000Z",
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
-    session: null,
     latestUserMessageAt: "2026-08-20T00:00:00.000Z",
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-  };
-  return (issues.length === 0 ? shell : { ...shell, issues }) as OrchestrationThreadShell;
+  });
+  return issues.length === 0 ? shell : { ...shell, issues };
 }
 
 function makeLink(number: number, overrides: Partial<ThreadIssueLink> = {}): ThreadIssueLink {
@@ -117,41 +109,42 @@ function makeLink(number: number, overrides: Partial<ThreadIssueLink> = {}): Thr
   };
 }
 
+/** The orchestrator's refusal: a dispatch error carrying the reason as its cause. */
 const rejectAs = (detail: string) => (command: OrchestrationCommand) =>
-  new OrchestrationCommandInvariantError({ commandType: command.type, detail });
+  new Orchestrator.OrchestratorDispatchError({
+    commandId: command.commandId,
+    commandType: command.type,
+    cause: detail,
+  });
 
 interface HarnessOptions {
-  readonly thread?: OrchestrationThreadShell | null;
+  readonly thread?: OrchestrationV2ThreadShell | null;
   readonly project?: OrchestrationProjectShell | null;
-  readonly reject?: (command: OrchestrationCommand) => OrchestrationCommandInvariantError | null;
+  readonly reject?: (
+    command: OrchestrationCommand,
+  ) => Orchestrator.OrchestratorDispatchError | null;
   /** What shell reads see once a command is dispatched, such as the thread deleted meanwhile. */
-  readonly threadAfterDispatch?: OrchestrationThreadShell | null;
+  readonly threadAfterDispatch?: OrchestrationV2ThreadShell | null;
 }
 
 /** The thread shell reads see; dispatch may replace it. */
 interface ThreadState {
-  current: OrchestrationThreadShell | null;
+  current: OrchestrationV2ThreadShell | null;
 }
 
 function harnessDependencies(
   options: HarnessOptions,
-  dispatch: OrchestrationEngineShape["dispatch"],
+  dispatch: Orchestrator.OrchestratorV2Shape["dispatch"],
   state: ThreadState = { current: options.thread === undefined ? makeThread() : options.thread },
 ) {
   const project = options.project === undefined ? makeProject() : options.project;
   return Layer.mergeAll(
-    Layer.mock(ProjectionSnapshotQuery)({
-      getThreadShellById: (threadId) =>
-        Effect.succeed(
-          threadId === THREAD_ID ? Option.fromNullishOr(state.current) : Option.none(),
-        ),
-      getProjectShellById: () => Effect.succeed(Option.fromNullishOr(project)),
+    Layer.mock(ProjectService.ProjectService)({
+      getShell: () => Effect.succeed(Option.fromNullishOr(project)),
     }),
-    Layer.mock(OrchestrationEngineService)({
-      readEvents: () => Stream.empty,
+    Layer.mock(Orchestrator.OrchestratorV2)({
+      getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? state.current : null),
       dispatch,
-      streamDomainEvents: Stream.empty,
-      latestSequence: Effect.succeed(0),
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
   );
@@ -162,13 +155,13 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (options: Ha
   const state: ThreadState = {
     current: options.thread === undefined ? makeThread() : options.thread,
   };
-  const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
+  const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) =>
     Effect.gen(function* () {
       if (options.threadAfterDispatch !== undefined) state.current = options.threadAfterDispatch;
       const rejection = options.reject?.(command) ?? null;
       if (rejection !== null) return yield* rejection;
       yield* Ref.update(commands, (recorded) => [...recorded, command]);
-      return { sequence: 1 };
+      return { sequence: 1, storedEvents: [] };
     });
   const dependencies = harnessDependencies(options, dispatch, state);
   const toolkit = yield* IssuesToolkitFork.pipe(

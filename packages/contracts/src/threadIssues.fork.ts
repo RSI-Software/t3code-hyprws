@@ -76,6 +76,19 @@ const ThreadIssueLinkSyncCommand = Schema.Struct({
   snapshot: ThreadIssueSnapshot,
 });
 
+/**
+ * Which of a thread's links to reread from the host: `stale` for a panel opening
+ * (unread or older than the server's freshness window), `all` for a refresh.
+ */
+export const ThreadIssueSyncScope = Schema.Literals(["stale", "all"]);
+export type ThreadIssueSyncScope = typeof ThreadIssueSyncScope.Type;
+
+export const ThreadIssueSyncInput = Schema.Struct({
+  threadId: ThreadId,
+  scope: ThreadIssueSyncScope,
+});
+export type ThreadIssueSyncInput = typeof ThreadIssueSyncInput.Type;
+
 /** Spread into both client command unions. */
 export const threadIssueClientCommandsFork = [
   ThreadIssueLinkCommand,
