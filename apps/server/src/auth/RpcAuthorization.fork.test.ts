@@ -9,5 +9,8 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.githubIssuesDetail)).toBe(
       AuthOrchestrationReadScope,
     );
+    expect(requiredScopeForRpcMethod(WS_METHODS.githubIssuesLinkedThreads)).toBe(
+      AuthOrchestrationReadScope,
+    );
   });
 });
