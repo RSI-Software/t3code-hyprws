@@ -431,6 +431,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.ref }}
+          fetch-depth: 0
           sparse-checkout: |
             /*
             !/.repos/
@@ -448,6 +449,13 @@ jobs:
 
       - name: Install browser secret helper build libraries
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      # upstream-client-compat.fork.test.ts decodes fork payloads with the
+      # contracts at `git merge-base HEAD upstream/main`.
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
 
       - name: Test
         run: vp run --filter @t3tools/scripts test
