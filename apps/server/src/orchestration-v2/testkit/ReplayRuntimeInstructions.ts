@@ -1,12 +1,14 @@
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
 
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
+import { materializeForkReplayRuntimeInstructions } from "./ReplayRuntimeInstructions.fork.ts"; // fork-hook: github-issues/replay-runtime-instructions-import
 
 /** Adds current runtime context to legacy prompt expectations, keeping outbound matching exact. */
 export function materializeReplayTranscriptRuntimeInstructions(
   transcript: ProviderReplayTranscript,
   runtime: { readonly driver: ProviderDriverKind; readonly model: string },
 ): ProviderReplayTranscript {
+  transcript = materializeForkReplayRuntimeInstructions(transcript); // fork-hook: github-issues/replay-runtime-instructions
   const harness =
     runtime.driver === "cursor"
       ? "Cursor"
