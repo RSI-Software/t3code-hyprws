@@ -7,6 +7,7 @@ import { OrchestrationMessageContext } from "./composerContext.ts";
 import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ForkThreadEnvMode } from "./environment.fork.ts";
+import * as ThreadIssuesFork from "./threadIssues.fork.ts"; // fork-hook: github-issues/orchestration-import
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -816,6 +817,7 @@ export const OrchestrationThread = Schema.Struct({
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  issues: ThreadIssuesFork.ThreadIssueLinksFieldFork, // fork-hook: github-issues/thread-issues-field
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
@@ -911,6 +913,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  issues: ThreadIssuesFork.ThreadIssueLinksFieldFork, // fork-hook: github-issues/thread-shell-issues-field
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
@@ -1519,6 +1522,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadCheckoutMoveRequestClientCommand,
+  ...ThreadIssuesFork.threadIssueClientCommandsFork, // fork-hook: github-issues/dispatchable-commands
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -1554,6 +1558,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
   ThreadCheckoutMoveRequestClientCommand,
+  ...ThreadIssuesFork.threadIssueClientCommandsFork, // fork-hook: github-issues/client-commands
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
@@ -1756,6 +1761,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadCheckoutMoveCompleteCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
+  ...ThreadIssuesFork.threadIssueInternalCommandsFork, // fork-hook: github-issues/internal-commands
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1785,6 +1791,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.pull-request-linked",
   "thread.pull-request-unlinked",
   "thread.pull-request-synced",
+  ...ThreadIssuesFork.THREAD_ISSUE_EVENT_TYPES_FORK, // fork-hook: github-issues/event-types
   "thread.checkout-move-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
@@ -2221,6 +2228,7 @@ export const OrchestrationEvent = Schema.Union([
     type: Schema.Literal("thread.pull-request-synced"),
     payload: ThreadPullRequestSyncedPayload,
   }),
+  ...ThreadIssuesFork.threadIssueEventsFork(EventBaseFields), // fork-hook: github-issues/events
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("thread.checkout-move-updated"),
