@@ -270,6 +270,75 @@ export const threadIssueStreamTestsFork = <R, BuildError, UrlError, ClientError>
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("a resuming detail subscriber gets no issue events from replay or live", () =>
+    Effect.gen(function* () {
+      const liveEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+      const threadId = harness.makeThread().id;
+      const messageEvent = (sequence: number) =>
+        decodeEvent({
+          ...eventBase(threadId, sequence),
+          type: "thread.message-sent",
+          payload: {
+            threadId,
+            messageId: MessageId.make(`issue-resume-message-${sequence}`),
+            role: "user",
+            text: "Around the link changes",
+            turnId: null,
+            streaming: false,
+            createdAt: link.linkedAt,
+            updatedAt: link.linkedAt,
+          },
+        });
+      yield* harness.buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            streamDomainEvents: Stream.fromPubSub(liveEvents),
+            latestSequence: Effect.succeed(4),
+            getThreadReplayStats: () =>
+              Effect.succeed({ eventCount: 3, payloadBytes: 1, hasCreateEvent: false }),
+            // A link lands live while the persisted range replays.
+            readThreadEvents: () =>
+              Stream.fromEffect(
+                PubSub.publishAll(liveEvents, [linkedEvent(threadId, 5), messageEvent(6)]),
+              ).pipe(
+                Stream.flatMap(() =>
+                  Stream.make(
+                    linkedEvent(threadId, 2),
+                    unlinkedEvent(threadId, 3),
+                    messageEvent(4),
+                  ),
+                ),
+              ),
+          },
+          projectionSnapshotQuery: {},
+        },
+      });
+
+      const wsUrl = yield* harness.getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        harness.withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId,
+            afterSequence: 1,
+            requestCompletionMarker: true,
+          }).pipe(
+            Stream.takeUntil((item) => item.kind === "synchronized"),
+            Stream.runCollect,
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      assert.deepStrictEqual(
+        items.map((item) => (item.kind === "event" ? item.event.sequence : item.kind)),
+        // The live link and message buffer ahead of the marker.
+        [4, 6, "synchronized"],
+      );
+      for (const item of items) {
+        yield* decodePreFeatureThreadStreamItem(yield* encodeThreadStreamItem(item));
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("a sync for an unknown or deleted thread answers not found", () =>
     Effect.gen(function* () {
       yield* harness.buildAppUnderTest({
