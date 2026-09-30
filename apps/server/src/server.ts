@@ -60,7 +60,10 @@ import * as IssueService from "./issue/IssueService.ts";
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueTrackerBindings from "./persistence/IssueTrackerBindings.ts";
 import * as IssueTrackerRegistry from "./issue/IssueTrackerRegistry.ts";
-import { gitHubIssueServiceLiveFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
+import {
+  gitHubIssueServiceLiveFork,
+  threadIssueSyncReactorLiveFork,
+} from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
@@ -761,6 +764,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ProviderInstallation.layer,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
+  threadIssueSyncReactorLiveFork, // fork-hook: github-issues/server-issue-sync-reactor
   checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
   checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
 ).pipe(
