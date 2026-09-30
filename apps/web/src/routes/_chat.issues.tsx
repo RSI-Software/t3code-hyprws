@@ -469,16 +469,20 @@ export function GitHubIssuesPage({
             value={projectMenuValue}
             onValueChange={selectProject}
           />
-          <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
-          <Button
-            size="icon"
-            variant="outline"
-            aria-label="Refresh GitHub issues"
-            disabled={refreshing}
-            onClick={refresh}
-          >
-            <RefreshIcon size="md" refreshing={refreshing} />
-          </Button>
+          {/* The order and refresh pair wraps whole: the row's last unit always carries two
+              controls, so even a pane too narrow for all five strands none of them. */}
+          <div className="flex items-center gap-2">
+            <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
+            <Button
+              size="icon"
+              variant="outline"
+              aria-label="Refresh GitHub issues"
+              disabled={refreshing}
+              onClick={refresh}
+            >
+              <RefreshIcon size="md" refreshing={refreshing} />
+            </Button>
+          </div>
         </div>
       </div>
       <GitHubIssueFilterBar {...narrowingProps} />
