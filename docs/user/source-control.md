@@ -198,6 +198,13 @@ Change that text under **Settings → Source Control → GitHub links**, in **Gi
 prompt**. The template takes `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the
 server environment that owns the issue, so its web and desktop clients use the same prompt.
 
+**Thread links** tie an issue to the threads that work on it:
+
+- **Work on this issue:** the first send links it
+- **Issue panel:** open, link, or unlink threads
+- **Thread:** its issues panel lists its links
+- **Palette:** link by URL or `#number`
+
 The issue panel's menu closes an issue as completed or not planned, and reopens a closed one, which
 needs write access to the repository. Commenting, labeling, and assigning stay on GitHub. Each server
 holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or
