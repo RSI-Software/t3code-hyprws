@@ -224,6 +224,7 @@ export const make = Effect.gen(function* () {
       pullRequests: true,
       githubIssues: true, // fork-hook: github-issues/server-environment-capability
       pullRequestChecks: true,
+      threadIssues: true, // fork-hook: github-issues/server-environment-thread-issues-capability
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,
       threadSettlement: true,
