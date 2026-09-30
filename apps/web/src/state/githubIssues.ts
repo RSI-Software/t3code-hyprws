@@ -48,6 +48,8 @@ const useGitHubIssueListsQuery = createMergedEnvironmentQueryFork<
 export function useGitHubIssueList(targets: ReadonlyArray<GitHubIssueQueryTarget>): {
   readonly data: MergedGitHubIssueList | null;
   readonly carried: boolean;
+  /** Rows on screen include an environment whose latest read failed — old rows, not current. */
+  readonly stale: boolean;
   readonly isPending: boolean;
   readonly refresh: () => void;
 } {
@@ -75,6 +77,7 @@ export function useGitHubIssueList(targets: ReadonlyArray<GitHubIssueQueryTarget
   return {
     data: answered ?? carried,
     carried: carried !== null,
+    stale: query.stale,
     isPending: query.isPending,
     refresh: query.refresh,
   };
