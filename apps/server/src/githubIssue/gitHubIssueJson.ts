@@ -220,3 +220,23 @@ export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(func
   }));
   return yield* decodeNormalizedIssueDetail(normalized);
 });
+
+/** What a linked-issue snapshot stores, read on its own so a refresh skips the rest of a detail
+ * read (RSI-Software/t3code-hyprws#1451). Server-local: nothing of it crosses the wire. */
+const IssueSummary = Schema.Struct({
+  title: TrimmedNonEmptyString,
+  state: GitHubIssueState,
+});
+export type GitHubIssueSummary = typeof IssueSummary.Type;
+
+const decodeIssueSummary = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ title: Schema.String, state: Schema.String })),
+);
+const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
+
+export const decodeGitHubIssueSummary = Effect.fn("decodeGitHubIssueSummary")(function* (
+  raw: string,
+) {
+  const decoded = yield* decodeIssueSummary(raw);
+  return yield* decodeNormalizedIssueSummary({ title: decoded.title, state: state(decoded.state) });
+});
