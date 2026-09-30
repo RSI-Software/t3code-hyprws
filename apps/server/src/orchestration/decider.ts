@@ -52,6 +52,7 @@ import {
   isCheckoutMoveCommand,
   refuseTurnStartDuringCheckoutMoveFork,
 } from "./decider.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
+import { decideThreadIssueFork, isThreadIssueCommandFork } from "./threadIssues.fork.ts"; // fork-hook: github-issues/decider-import
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -231,6 +232,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     // fork-hook: zmux-estate/decider-checkout-move-dispatch
     return yield* decideCheckoutMoveFork({ command, readModel, withEventBase });
   }
+  if (isThreadIssueCommandFork(command))
+    return yield* decideThreadIssueFork({ command, readModel, withEventBase }); // fork-hook: github-issues/decider-dispatch
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({

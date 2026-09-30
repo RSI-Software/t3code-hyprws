@@ -133,6 +133,7 @@ import { makeChildItemRenderDetail } from "./provider/childItemRenderDetail.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationThreadSettleBlockedError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { threadIssueStreamTestsFork } from "./ws.threadIssues.fork.suite.ts"; // fork-hook: github-issues/ws-stream-tests-import
 import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
 import { encodeAgentActivityPageCursor } from "./orchestration/agentActivityCursor.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
@@ -13518,6 +13519,13 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
       assertFailure(result, terminalError);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
+  threadIssueStreamTestsFork(it, {
+    buildAppUnderTest,
+    getWsServerUrl,
+    withWsRpcClient,
+    makeThread: () => makeDefaultOrchestrationReadModel().threads[0]!,
+    makeThreadShell: makeDefaultOrchestrationThreadShell,
+  }); // fork-hook: github-issues/ws-stream-tests
 });
 
 it.live(
