@@ -2918,7 +2918,7 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "pull-requests",
             },
           ),
-        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
+        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect, sql), // fork-hook: github-issues/ws-rpc-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlLookupRepository,
