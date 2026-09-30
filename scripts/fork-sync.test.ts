@@ -8,6 +8,7 @@ import { assert, it } from "@effect/vitest";
 
 import {
   blockedIssueBody,
+  checkCommands,
   blockingShaMarker,
   checkFailureDetail,
   closeBlocks,
@@ -249,7 +250,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.notStrictEqual(report.trunk.after, report.trunk.before);
       assert.strictEqual(report.push.pushed, false);
       assert.strictEqual(report.conflicts.length, 0);
-      assert.strictEqual(report.checks.length, 3);
+      assert.strictEqual(report.checks.length, checkCommands().length);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
     },
   );
@@ -430,7 +431,7 @@ it("pushes the rebased tip after a green battery", () => {
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "applied");
       assert.strictEqual(report.push.pushed, true);
-      assert.strictEqual(report.checks.length, 3);
+      assert.strictEqual(report.checks.length, checkCommands().length);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
       const push = recording.calls.find(
         ({ command, args }) => command === "git" && args[0] === "push",
@@ -538,7 +539,7 @@ it("accepts an upstream delete whose fork edit is net-zero and continues the reb
         f.git(["ls-tree", "--name-only", report.trunk.after!, "--", "shared.txt"], f.root),
         "",
       );
-      assert.strictEqual(report.checks.length, 3);
+      assert.strictEqual(report.checks.length, checkCommands().length);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
     },
   );
@@ -1696,4 +1697,30 @@ it("links the trunk's install when the target left the dependency set alone", ()
   } finally {
     NodeFS.rmSync(repo.root, { recursive: true, force: true });
   }
+});
+
+it("runs every single-command step of the CI Check job before a direct trunk push", () => {
+  // Setup steps, and steps `fork:ci` already runs in CI's shape.
+  const coveredElsewhere = new Set([
+    "vp run --filter @t3tools/desktop ensure:electron",
+    "vp run fork:stale-delete",
+    "vp check",
+  ]);
+  const workflow = NodeFS.readFileSync(
+    NodePath.join(import.meta.dirname, "..", ".github", "workflows", "hyprws-ci.yml"),
+    "utf8",
+  );
+  const job = workflow.slice(
+    workflow.indexOf("\n  check:\n"),
+    workflow.indexOf("\n  merge-tree:\n"),
+  );
+  const steps = [...job.matchAll(/^\s+run: (vpr? .+)$/gm)].map((match) => match[1]!.trim());
+  const battery = new Set(checkCommands().map((args) => args.join(" ")));
+  const uncovered = steps.filter((step) => {
+    const command = step.split(" --base ")[0]!;
+    if (coveredElsewhere.has(command)) return false;
+    return !battery.has(command.replace(/^vpr /, "run ").replace(/^vp /, ""));
+  });
+  assert.isAbove(steps.length, 3);
+  assert.deepStrictEqual(uncovered, []);
 });
