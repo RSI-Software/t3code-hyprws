@@ -31,7 +31,7 @@ Hidden terminals stay asleep.
 | **Partial**  | the steps that succeeded, plus **Retry**            |
 | **Complete** | **Undo**, while the physical checkout still matches |
 
-Web, desktop, and mobile show the same status and recovery action.
+Web and desktop show the same status and recovery action.
 
 ## Follow or pin a terminal
 
@@ -42,7 +42,7 @@ Terminal views follow their thread by default.
 | **Pin to this checkout**   | keeps this device's view where it is          |
 | **Follow thread checkout** | reattaches to the thread's effective checkout |
 
-The preference is local to that browser or mobile device.
+The preference is local to that browser.
 Pinning does not close or move other devices or external zmux clients.
 
 Both controls are disabled while a move is queued or preparing.
