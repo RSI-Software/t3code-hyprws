@@ -64,6 +64,7 @@ import {
   GitHubIssueListResult,
   GitHubIssueOperationError,
   GitHubIssueRef,
+  GitHubIssueSetStateInput,
 } from "./githubIssue.ts";
 import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
 import { ThreadIssueKey } from "./threadIssues.fork.ts";
@@ -94,6 +95,11 @@ const WsGitHubIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads"
   error: GitHubIssueRpcErrorFork,
 });
 
+const WsGitHubIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
+  payload: GitHubIssueSetStateInput,
+  error: GitHubIssueRpcErrorFork,
+});
+
 /**
  * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
  * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
@@ -103,11 +109,13 @@ export const githubIssuesRpcFork = {
     githubIssuesList: "githubIssues.list",
     githubIssuesDetail: "githubIssues.detail",
     githubIssuesLinkedThreads: "githubIssues.linkedThreads",
+    githubIssuesSetState: "githubIssues.setState",
   } as const,
   rpcs: [
     WsGitHubIssuesListRpcFork,
     WsGitHubIssuesDetailRpcFork,
     WsGitHubIssuesLinkedThreadsRpcFork,
+    WsGitHubIssuesSetStateRpcFork,
   ] as const,
 };
 
