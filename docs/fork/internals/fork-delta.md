@@ -283,7 +283,7 @@ Upstream ships durable bookmarks in both scopes, with equivalent address-field c
 
 ### Shape
 
-- **Server:** read-only list and detail
+- **Server:** list, detail, close, and reopen
 - **Lists:** degrade per project, keep identity
 - **Web:** routes, filters, comments, tabs
 - **Hand-off:** unsent draft from a template
@@ -303,10 +303,10 @@ The `github-issue-settings-search` guard rejects adding that item back into the 
 
 ### Retirement condition
 
-| Upstream ships                    | Action                                    |
-| --------------------------------- | ----------------------------------------- |
-| Issues list, detail, and hand-off | Delete the service and UI                 |
-| The core service only             | Keep the scope adapter under `workspaces` |
+| Upstream ships                           | Action                                    |
+| ---------------------------------------- | ----------------------------------------- |
+| Issues list, detail, close, and hand-off | Delete the service and UI                 |
+| The core service only                    | Keep the scope adapter under `workspaces` |
 
 ### Rebase scan
 
