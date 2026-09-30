@@ -287,6 +287,8 @@ import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavaila
 import { RightPanelTabs } from "./RightPanelTabs";
 import { GitHubIssueDetailSurfaceFork } from "./githubIssue/GitHubIssueDetailSurface.fork"; // fork-hook: github-issues/chat-view-detail-import
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
+import { linkGitHubIssueHandoffFork } from "./githubIssue/githubIssueHandoff"; // fork-hook: github-issues/handoff-link-import
+import { LinkGitHubIssueDialogHost } from "./githubIssue/LinkGitHubIssueDialog"; // fork-hook: github-issues/link-dialog-import
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
 import { DeviceSetup } from "./device/DeviceSetup";
@@ -9358,6 +9360,7 @@ export default function ChatView(props: ChatViewProps) {
             clearedDraftSnapshot &&
           multipleModelSelectionsRef.current === submittedSelections;
         setThreadError(threadIdForSend, null);
+        const handoffThreadRefsFork: ScopedThreadRef[] = []; // fork-hook: github-issues/handoff-link-multi-collect
         const starts = Promise.all(
           multipleTargets.map(async (target) => {
             const retryKey = JSON.stringify([
@@ -9429,6 +9432,7 @@ export default function ChatView(props: ChatViewProps) {
                 throw error;
               }
               startedCount += 1;
+              handoffThreadRefsFork.push(scopeThreadRef(environmentId, targetThreadId)); // fork-hook: github-issues/handoff-link-multi-started
             } catch (error) {
               if (requestMayHaveStarted && !uncertainMultipleSubmissionsRef.current.has(retryKey)) {
                 uncertainMultipleSubmissionsRef.current.set(retryKey, targetThreadId);
@@ -9491,6 +9495,7 @@ export default function ChatView(props: ChatViewProps) {
         resetLocalDispatch();
         releasedComposer = true;
         await starts;
+        linkGitHubIssueHandoffFork(draftId, handoffThreadRefsFork); // fork-hook: github-issues/handoff-link-multi-send
         if (startedCount > 0) {
           toastManager.add(
             stackedThreadToast({
@@ -9844,6 +9849,7 @@ export default function ChatView(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        linkGitHubIssueHandoffFork(draftId, [scopeThreadRef(environmentId, threadIdForSend)]); // fork-hook: github-issues/handoff-link-send
         // The turn is under way and will spend quota, so that thread's limits
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
@@ -10856,6 +10862,7 @@ export default function ChatView(props: ChatViewProps) {
         key={`${activeProject.environmentId}:${activeProject.id}`}
         projectRef={scopeProjectRef(activeProject.environmentId, activeProject.id)}
         onSelectIssue={openIssueFromBrowser}
+        threadRef={activeThreadRef} // fork-hook: github-issues/thread-issue-links
       />
     ) : renderedRightPanelSurface?.kind === "github-issue" ? (
       <GitHubIssueDetailSurfaceFork
@@ -11904,6 +11911,7 @@ export default function ChatView(props: ChatViewProps) {
         </AlertDialogPopup>
       </AlertDialog>
       <LinkPullRequestDialogHost />
+      <LinkGitHubIssueDialogHost /* fork-hook: github-issues/link-dialog-host */ />
       {expandedImage && (
         <ExpandedImageDialog
           key={expandedImageKey(expandedImage)}

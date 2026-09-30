@@ -3,8 +3,9 @@
 // upstream `CommandPalette.tsx` carries only marked hook lines pointing here;
 // the capability probe, the navigation command, and the action item are built
 // in this module.
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { projectFilterProjectKeys } from "@t3tools/client-runtime/state/project-filter";
-import { CircleDotIcon, ListFilterIcon, SearchIcon } from "lucide-react";
+import { CircleDotIcon, LinkIcon, ListFilterIcon, SearchIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { openProjectChooser, useProjectChooserHostValue } from "../projectChooser.fork";
@@ -18,7 +19,8 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
 } from "./CommandPalette.logic";
-import type { ScopedProjectRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
+import { openLinkGitHubIssueDialog } from "./githubIssue/LinkGitHubIssueDialog";
 
 /**
  * The palette's Issues navigation entry, or `null` when no reachable
@@ -44,6 +46,29 @@ export function buildGitHubIssuesActionItemFork(input: {
     icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await input.navigate({ to: "/issues", search: { state: "open" } } as never);
+    },
+  };
+}
+
+/**
+ * The palette's "Link GitHub issue to thread" entry for the active thread
+ * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
+ * issue links. It carries no default keybinding.
+ */
+export function buildLinkGitHubIssueActionItemFork(
+  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
+  capabilities: { readonly threadIssues?: boolean } | undefined,
+): CommandPaletteActionItem | null {
+  if (!activeThread || capabilities?.threadIssues !== true) return null;
+  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+  return {
+    kind: "action",
+    value: "action:link-github-issue",
+    searchTerms: ["link", "issue", "github", "attach", "track"],
+    title: "Link GitHub issue to thread",
+    icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openLinkGitHubIssueDialog(threadRef);
     },
   };
 }
