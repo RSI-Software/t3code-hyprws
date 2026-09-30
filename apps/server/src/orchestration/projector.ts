@@ -26,6 +26,7 @@ import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import * as ThreadIssuesFork from "./threadIssues.fork.ts"; // fork-hook: github-issues/projector-import
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -346,8 +347,11 @@ export function projectEvent(
     ...model,
     snapshotSequence: event.sequence,
     updatedAt: event.occurredAt,
+    ...ThreadIssuesFork.threadIssuesDroppedFork(model, event), // fork-hook: github-issues/projector-deleted-thread
   };
 
+  if (ThreadIssuesFork.isThreadIssueEventFork(event))
+    return ThreadIssuesFork.projectThreadIssueEventFork(nextBase, event); // fork-hook: github-issues/projector-dispatch
   switch (event.type) {
     case "project.created":
       return decodeForEvent(ProjectCreatedPayload, event.payload, event.type, "payload").pipe(
