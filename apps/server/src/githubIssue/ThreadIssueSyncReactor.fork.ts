@@ -84,7 +84,7 @@ export const make = Effect.gen(function* () {
     const started = yield* DateTime.now;
     read.startedAtMs = DateTime.toEpochMillis(started);
     inFlight.set(id, read);
-    // A snapshot stores a title and a state, so the read asks for exactly that.
+    // A snapshot stores a title, a state, and a close reason, so the read asks for exactly that.
     const summary = yield* githubIssues
       .summary({
         projectId: read.projectId,
@@ -102,6 +102,7 @@ export const make = Effect.gen(function* () {
     const snapshot = {
       title: summary.value.title,
       state: summary.value.state,
+      closeReason: summary.value.closeReason,
       syncedAt: DateTime.formatIso(started),
     };
     yield* Effect.forEach(
