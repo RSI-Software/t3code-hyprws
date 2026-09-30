@@ -97,6 +97,7 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import * as ThreadSettlementReactor from "./orchestration/ThreadSettlementReactor.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
+import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts"; // fork-hook: github-issues/server-issue-sync-import
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -284,6 +285,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(ThreadSettlementReactor.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
+  Layer.provideMerge(ThreadIssueSyncReactor.layer.pipe(Layer.provide(gitHubIssueServiceLiveFork))), // fork-hook: github-issues/server-issue-sync-reactor
   Layer.provideMerge(ThreadPullRequestReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
