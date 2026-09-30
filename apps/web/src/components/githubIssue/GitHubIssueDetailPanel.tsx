@@ -10,6 +10,7 @@ import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts
 import {
   ChevronRightIcon,
   ExternalLinkIcon,
+  LinkIcon,
   ShapesIcon,
   TagIcon,
   UsersIcon,
@@ -42,6 +43,13 @@ import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
+import { githubIssueHandoffs } from "./githubIssueHandoff";
+import {
+  GitHubIssueLinkedThreadList,
+  GitHubIssueThreadPicker,
+  useGitHubIssueThreadLinks,
+} from "./GitHubIssueThreadLinks";
+import { githubIssueLinkTarget } from "./githubIssueThreadLinks.logic";
 
 export function githubIssueHandoffPrompt(
   issue: Pick<GitHubIssueDetail, "number" | "title" | "url">,
@@ -168,25 +176,17 @@ export function GitHubIssueDetailContent({
 }) {
   const newThread = useNewThreadHandler();
   const [preparing, setPreparing] = useState(false);
+  const threadLinks = useGitHubIssueThreadLinks(environmentId, detail);
+  const [pickingThread, setPickingThread] = useState(false);
 
   const workOnIssue = async () => {
     if (!detail || !environmentId || preparing) return;
     setPreparing(true);
-    try {
-      const opened = await newThread(scopeProjectRef(environmentId, detail.projectId));
-      if (opened === null) throw new Error("Draft creation returned no destination.");
-      const seeded = seedGitHubIssueDraftIfEmpty(
-        opened.draftId,
-        githubIssueHandoffPrompt(detail, handoffPromptTemplate),
-      );
-      toastManager.add({
-        type: "success",
-        title: seeded ? "Issue ready in a thread" : "Thread opened",
-        description: seeded
-          ? "The task is in the composer — read it over, then send."
-          : "The existing composer was left unchanged.",
-      });
-    } catch {
+    const opened = await newThread(scopeProjectRef(environmentId, detail.projectId)).catch(
+      () => null,
+    );
+    setPreparing(false);
+    if (opened === null) {
       toastManager.add({
         type: "error",
         title: "Could not open a thread",
@@ -260,6 +260,8 @@ export function GitHubIssueDetailContent({
               onRefresh={onRefresh}
               onStateChanged={onStateChanged}
               copyLinkShortcut={copyLinkShortcut}
+              threadLinks={threadLinks}
+              onPickThread={() => setPickingThread(true)}
             />
             <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
               <WrenchIcon className="size-3" />
@@ -350,6 +352,33 @@ export function GitHubIssueDetailContent({
             ))}
           </ul>
         </GitHubIssueSection>
+      ) : null}
+
+      {threadLinks.supported ? (
+        <GitHubIssueSection
+          key={`threads:${detail.url}`}
+          title="Linked threads"
+          {...(threadLinks.threads === null ? {} : { count: String(threadLinks.threads.length) })}
+        >
+          <GitHubIssueLinkedThreadList links={threadLinks} environmentId={environmentId} />
+          <Button
+            size="xs"
+            variant="ghost"
+            className="mt-1"
+            disabled={threadLinks.pending}
+            onClick={() => setPickingThread(true)}
+          >
+            <LinkIcon className="size-3" />
+            Link to a thread
+          </Button>
+        </GitHubIssueSection>
+      ) : null}
+      {pickingThread && threadLinks.supported ? (
+        <GitHubIssueThreadPicker
+          links={threadLinks}
+          environmentId={environmentId}
+          onOpenChange={setPickingThread}
+        />
       ) : null}
 
       <GitHubIssueSection
