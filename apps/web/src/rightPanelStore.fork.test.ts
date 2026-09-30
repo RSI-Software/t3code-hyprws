@@ -84,6 +84,18 @@ describe("rightPanelStore", () => {
       rosterFocusAgentId: "agent-1",
     });
   });
+  it("opens the unfocused roster when a launcher passes its click event", () => {
+    const clickEvent = { _reactName: "onClick", type: "click" };
+    useRightPanelStore
+      .getState()
+      .openAgents(refA, { selectedAgentId: clickEvent as unknown as string });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: null,
+      rosterFocusAgentId: null,
+    });
+  });
   // The fork backfills pre-widen Agents surfaces while upstream asserts the
   // selected surface keeps the plain shape (commit `b14ef0ccce`).
   forkSupersedes({
