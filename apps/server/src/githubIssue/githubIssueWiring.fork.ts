@@ -13,10 +13,15 @@ import type {
   GitHubIssueRef,
   GitHubIssueSetStateInput,
   ThreadIssueKey,
+  ThreadIssueSyncInput,
 } from "@t3tools/contracts";
+import { GitHubIssueOperationError } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
+import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
@@ -55,6 +60,39 @@ export const gitHubIssueRpcHandlersFork = (
     observeRpcEffect("githubIssues.setState", githubIssues.setState(input), {
       "rpc.aggregate": "github-issues",
     }),
+  // An active thread only: an unknown or deleted one answers not found.
+  "githubIssues.syncThreadLinks": (input: ThreadIssueSyncInput) =>
+    observeRpcEffect(
+      "githubIssues.syncThreadLinks",
+      Effect.flatMap(ProjectionSnapshotQuery.ProjectionSnapshotQuery, (snapshots) =>
+        snapshots.getThreadShellById(input.threadId),
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitHubIssueOperationError({
+              operation: "syncThreadLinks",
+              detail: "The thread could not be read.",
+              cause,
+            }),
+        ),
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              Effect.fail(
+                new GitHubIssueOperationError({
+                  operation: "syncThreadLinks",
+                  detail: `Thread ${input.threadId} was not found.`,
+                }),
+              ),
+            onSome: (thread) =>
+              Effect.flatMap(ThreadIssueSyncReactor.ThreadIssueSyncReactor, (sync) =>
+                sync.syncThread(thread, input.scope),
+              ),
+          }),
+        ),
+      ),
+      { "rpc.aggregate": "github-issues" },
+    ),
 });
 
 /** The upstream-shaped service layer, composed with its own dependencies. */
