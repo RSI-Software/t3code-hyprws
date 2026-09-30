@@ -1,9 +1,18 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, GitHubIssueDetail, ScopedThreadRef } from "@t3tools/contracts";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type {
+  EnvironmentId,
+  GitHubIssueCloseReason,
+  GitHubIssueDetail,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
   ArrowUpRightIcon,
   BookOpenIcon,
+  CircleCheckIcon,
+  CircleDotIcon,
+  CircleSlashIcon,
   CopyIcon,
   LinkIcon,
   MessageCircleQuestionIcon,
@@ -16,7 +25,10 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { readLocalApi } from "../../localApi";
+import { useServerConfigs } from "../../state/entities";
+import { githubIssueEnvironment } from "../../state/githubIssues";
 import { primaryServerKeybindingsAtom } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { RefreshIcon } from "../ui/refresh-icon";
@@ -41,6 +53,7 @@ export function GitHubIssueActionsMenu({
   composerTarget,
   refreshing,
   onRefresh,
+  onStateChanged,
   copyLinkShortcut,
 }: {
   readonly environmentId: EnvironmentId;
@@ -49,12 +62,19 @@ export function GitHubIssueActionsMenu({
   readonly composerTarget: ScopedThreadRef | null;
   readonly refreshing: boolean;
   readonly onRefresh: (() => void) | undefined;
+  /** Lets a list beside the panel re-read once the issue has closed or reopened. */
+  readonly onStateChanged: (() => void) | undefined;
   /** Whether the copy-link shortcut copies this issue here; beside a thread it copies the thread. */
   readonly copyLinkShortcut: boolean;
 }) {
   const newThread = useNewThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [asking, setAsking] = useState<AskKind | null>(null);
+  const runSetState = useAtomCommand(githubIssueEnvironment.setState, { reportFailure: false });
+  const [changingState, setChangingState] = useState(false);
+  // A server that predates `githubIssues.setState` still lists issues; offer nothing it cannot do.
+  const canChangeState =
+    useServerConfigs().get(environmentId)?.environment.capabilities.githubIssueStateChange === true;
   const { copyToClipboard } = useCopyToClipboard<string>({
     target: "issue reference",
     onCopy: (label) => toastManager.add({ type: "success", title: `${label} copied` }),
@@ -100,6 +120,45 @@ export function GitHubIssueActionsMenu({
       title: "Asked in a thread",
       description: `The issue is in the composer: ${nextStep}`,
     });
+  };
+
+  // No confirmation, unlike a pull request's close: Reopen sits in this same menu, so a stray
+  // press is one click from undone, and closing an issue is the everyday end of one.
+  const setState = async (state: GitHubIssueDetail["state"], reason?: GitHubIssueCloseReason) => {
+    if (changingState) return;
+    setChangingState(true);
+    const result = await runSetState({
+      environmentId,
+      input: {
+        projectId: detail.projectId,
+        repository: detail.repository,
+        number: detail.number,
+        state,
+        ...(reason ? { reason } : {}),
+      },
+    });
+    setChangingState(false);
+    if (result._tag === "Failure") {
+      const failure = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: state === "closed" ? "Could not close the issue" : "Could not reopen the issue",
+        description:
+          failure instanceof Error ? failure.message : "Check your access to the repository.",
+      });
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title:
+        state === "open"
+          ? "Issue reopened"
+          : reason === "not planned"
+            ? "Issue closed as not planned"
+            : "Issue closed as completed",
+    });
+    onRefresh?.();
+    onStateChanged?.();
   };
 
   const label = refreshing ? "Refreshing issue" : "More issue actions";
@@ -169,6 +228,30 @@ export function GitHubIssueActionsMenu({
             <CopyIcon className="size-3.5" />
             Copy issue number
           </MenuItem>
+          {canChangeState ? <MenuSeparator /> : null}
+          {!canChangeState ? null : detail.state === "open" ? (
+            <>
+              <MenuItem
+                disabled={changingState}
+                onClick={() => void setState("closed", "completed")}
+              >
+                <CircleCheckIcon className="size-3.5" />
+                Close as completed
+              </MenuItem>
+              <MenuItem
+                disabled={changingState}
+                onClick={() => void setState("closed", "not planned")}
+              >
+                <CircleSlashIcon className="size-3.5" />
+                Close as not planned
+              </MenuItem>
+            </>
+          ) : (
+            <MenuItem disabled={changingState} onClick={() => void setState("open")}>
+              <CircleDotIcon className="size-3.5" />
+              Reopen issue
+            </MenuItem>
+          )}
         </MenuPopup>
       </Menu>
     </TooltipProvider>
