@@ -103,7 +103,29 @@ describe("GitHub issue JSON", () => {
       expect(issue.comments).toStrictEqual([]);
       expect(issue.subIssues).toStrictEqual([]);
       expect(issue.issueType).toBeNull();
+      expect(issue.closeReason).toBeNull();
       expect(issue.closedAt).toBeNull();
+    }),
+  );
+
+  it.effect("maps the close reason, reading anything but a real close as none", () =>
+    Effect.gen(function* () {
+      const issues = yield* decodeGitHubIssueList(
+        encodeJson([
+          { ...rawIssue, state: "CLOSED", stateReason: "COMPLETED" },
+          { ...rawIssue, state: "CLOSED", stateReason: "NOT_PLANNED" },
+          // GitHub keeps a reopened issue's last close reason; neither word is a close now.
+          { ...rawIssue, state: "OPEN", stateReason: "REOPENED" },
+          { ...rawIssue, state: "CLOSED" },
+        ]),
+      );
+
+      expect(issues.map((issue) => issue.closeReason)).toStrictEqual([
+        "completed",
+        "not planned",
+        null,
+        null,
+      ]);
     }),
   );
 

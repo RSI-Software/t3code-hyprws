@@ -1,5 +1,6 @@
 import {
   GitHubIssueActor,
+  GitHubIssueCloseReason,
   GitHubIssueComment,
   GitHubIssueLabel,
   GitHubIssueReactions,
@@ -11,6 +12,7 @@ import {
   PositiveInt,
   TrimmedNonEmptyString,
   type GitHubIssueActor as GitHubIssueActorType,
+  type GitHubIssueCloseReason as GitHubIssueCloseReasonType,
   type GitHubIssueComment as GitHubIssueCommentType,
   type GitHubIssueLabel as GitHubIssueLabelType,
   type GitHubIssueReactions as GitHubIssueReactionsType,
@@ -68,6 +70,9 @@ const RawIssue = Schema.Struct({
   issueType: Schema.optional(Schema.NullOr(RawIssueType)),
   subIssues: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawSubIssue) }))),
   state: Schema.String,
+  // A close reason in GitHub's GraphQL words; gh versions before it asked for `stateReason` omit
+  // the key entirely, which an absent reason must survive.
+  stateReason: Schema.optional(Schema.NullOr(Schema.String)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   reactionGroups: Schema.optional(Schema.NullOr(Schema.Array(RawReactionGroup))),
@@ -85,6 +90,7 @@ const NormalizedIssue = Schema.Struct({
   labels: Schema.Array(GitHubIssueLabel),
   issueType: Schema.NullOr(GitHubIssueType),
   state: GitHubIssueState,
+  closeReason: Schema.NullOr(GitHubIssueCloseReason),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   commentCount: NonNegativeInt,
@@ -160,6 +166,16 @@ function state(raw: string): string {
   return raw.toLowerCase();
 }
 
+/**
+ * A close reason in the wire's own words. An open issue, one reopened since its last close
+ * (`REOPENED`), and anything a future GitHub adds all read as none rather than as a guess.
+ */
+function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
+  if (raw === "COMPLETED") return "completed";
+  if (raw === "NOT_PLANNED") return "not planned";
+  return null;
+}
+
 function timestamp(raw: string): string {
   if (!Number.isFinite(Date.parse(raw))) throw new Error(`Invalid GitHub timestamp: ${raw}`);
   return raw;
@@ -176,6 +192,7 @@ function normalizeGitHubIssue(raw: RawGitHubIssue) {
     issueType:
       raw.issueType === null || raw.issueType === undefined ? null : issueType(raw.issueType),
     state: state(raw.state),
+    closeReason: closeReason(raw.stateReason),
     createdAt: timestamp(raw.createdAt),
     updatedAt: timestamp(raw.updatedAt),
     // `gh` sends the comments themselves and no count; the list keeps only the count, so a busy

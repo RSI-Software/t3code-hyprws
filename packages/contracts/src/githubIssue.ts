@@ -11,6 +11,10 @@ import {
 export const GitHubIssueState = Schema.Literals(["open", "closed"]);
 export type GitHubIssueState = typeof GitHubIssueState.Type;
 
+/** Why an issue closed, in `gh issue close --reason`'s words. */
+export const GitHubIssueCloseReason = Schema.Literals(["completed", "not planned"]);
+export type GitHubIssueCloseReason = typeof GitHubIssueCloseReason.Type;
+
 export const GitHubIssueListState = Schema.Literals(["all", "open", "closed"]);
 export type GitHubIssueListState = typeof GitHubIssueListState.Type;
 
@@ -73,6 +77,9 @@ export const GitHubIssueListEntry = Schema.Struct({
   // environment on an older server omits the key entirely rather than sending null.
   issueType: Schema.optional(Schema.NullOr(GitHubIssueType)),
   state: GitHubIssueState,
+  // Optional for the same reason `issueType` is: an environment on an older server omits the key
+  // entirely rather than sending null.
+  closeReason: Schema.optional(Schema.NullOr(GitHubIssueCloseReason)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   // Optional for the same reason `issueType` is: an environment on an older server omits the key.
@@ -109,10 +116,6 @@ export const GitHubIssueRef = Schema.Struct({
   number: PositiveInt,
 });
 export type GitHubIssueRef = typeof GitHubIssueRef.Type;
-
-/** Why an issue closed, in `gh issue close --reason`'s words. */
-export const GitHubIssueCloseReason = Schema.Literals(["completed", "not planned"]);
-export type GitHubIssueCloseReason = typeof GitHubIssueCloseReason.Type;
 
 /** Closes or reopens an issue. A reason only applies to a close; GitHub defaults it to completed. */
 export const GitHubIssueSetStateInput = Schema.Struct({

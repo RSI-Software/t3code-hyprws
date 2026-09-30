@@ -1,4 +1,4 @@
-import type { GitHubIssueState } from "@t3tools/contracts";
+import type { GitHubIssueCloseReason, GitHubIssueState } from "@t3tools/contracts";
 import { CircleCheckIcon, CircleDotIcon, MessageSquareIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
@@ -22,14 +22,42 @@ export const GITHUB_ISSUE_STATE_PRESENTATION = {
   },
 } as const satisfies Record<GitHubIssueState, unknown>;
 
+/**
+ * A closed issue whose read cannot say it landed: closed as not planned, or an older server that
+ * sent no reason at all. The draft grey, because the merged purple would claim completed work.
+ */
+export const GITHUB_ISSUE_NOT_PLANNED_PRESENTATION = {
+  label: "Closed as not planned",
+  toneClassName: PULL_REQUEST_STATE_PRESENTATION.draft.toneClassName,
+  Icon: CircleCheckIcon,
+} as const;
+
+/**
+ * An issue's presentation by state and, when closed, its close reason. A read that carries no
+ * reason field at all — a sub-issue or a thread-link snapshot — passes none and keeps the
+ * completed tone; a read that carries the field passes it even when null, which reads as not
+ * planned's grey rather than a guess of landed work.
+ */
+export function githubIssueStatePresentation(
+  state: GitHubIssueState,
+  closeReason?: GitHubIssueCloseReason | null,
+) {
+  if (state === "open") return GITHUB_ISSUE_STATE_PRESENTATION.open;
+  return closeReason === "completed" || closeReason === undefined
+    ? GITHUB_ISSUE_STATE_PRESENTATION.closed
+    : GITHUB_ISSUE_NOT_PLANNED_PRESENTATION;
+}
+
 export function GitHubIssueStateGlyph({
   state,
+  closeReason,
   className,
 }: {
   readonly state: GitHubIssueState;
+  readonly closeReason?: GitHubIssueCloseReason | null;
   readonly className?: string;
 }) {
-  const presentation = GITHUB_ISSUE_STATE_PRESENTATION[state];
+  const presentation = githubIssueStatePresentation(state, closeReason);
   return (
     <Tooltip>
       {/* A span, not a button: the glyph sits inside rows that are themselves a click target. */}
