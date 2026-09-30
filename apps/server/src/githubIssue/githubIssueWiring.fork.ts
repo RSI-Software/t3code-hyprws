@@ -11,6 +11,7 @@ import type {
   EnvironmentAuthorizationError,
   GitHubIssueListInput,
   GitHubIssueRef,
+  GitHubIssueSetStateInput,
   ThreadIssueKey,
 } from "@t3tools/contracts";
 
@@ -50,6 +51,10 @@ export const gitHubIssueRpcHandlersFork = (
       listLinkedIssueThreadsFork(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
       { "rpc.aggregate": "github-issues" },
     ),
+  "githubIssues.setState": (input: GitHubIssueSetStateInput) =>
+    observeRpcEffect("githubIssues.setState", githubIssues.setState(input), {
+      "rpc.aggregate": "github-issues",
+    }),
 });
 
 /** The upstream-shaped service layer, composed with its own dependencies. */
