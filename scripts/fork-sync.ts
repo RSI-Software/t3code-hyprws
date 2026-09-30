@@ -18,7 +18,7 @@
 // | target  | the named target is not a release tag on upstream  |
 // | fetch   | the fetch errors                                   |
 // | rebase  | a conflict neither rerere nor hook re-apply fixes  |
-// | check   | `fork:delta --check`, `fork:ci`, or the typecheck is red |
+// | check   | the check battery (`checkCommands`) is red         |
 // | push    | the expected-old lease is refused                  |
 // | blocked | `gh` refuses the write                             |
 //
@@ -746,16 +746,19 @@ export const dependencySetChanged = (
 
 /**
  * The check battery, in the CI shape: the ledger gate, then everything the
- * fork's pull-request CI runs — `vp run fork:ci` derives the pinned scan flags
- * from HEAD (scripts/lib/fork-ci-flags.ts) and runs the rebase scan plus the
- * whole scripts suite — then the repo-wide typecheck the Check job runs as
- * `vpr typecheck`. A direct push to the trunk has no pull request to gate it,
- * so the driver runs the battery itself before the push.
+ * fork's pull-request CI Check job runs — `vp run fork:ci` derives the pinned
+ * scan flags from HEAD (scripts/lib/fork-ci-flags.ts) and runs the rebase scan,
+ * `vp check`, and the whole scripts suite — then the Check job's unused-code,
+ * `vpr typecheck`, and desktop build steps. A direct push to the trunk has no
+ * pull request to gate it, so the driver runs the battery itself before the
+ * push. The product test jobs stay CI-only: they gate the pushed trunk after.
  */
 export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "fork:delta", "--check"],
   ["run", "fork:ci"],
+  ["run", "knip:check"],
   ["run", "typecheck"],
+  ["run", "build:desktop"],
 ];
 
 /** The last lines of combined check output kept in a failure detail. */
