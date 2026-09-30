@@ -159,7 +159,14 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
 
 /** A link without a successful read says so, rather than passing for an open issue. */
 function ThreadIssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink }) {
-  if (link.snapshot !== null) return <GitHubIssueStateGlyph state={link.snapshot.state} />;
+  if (link.snapshot !== null) {
+    return (
+      <GitHubIssueStateGlyph
+        state={link.snapshot.state}
+        closeReason={link.snapshot.closeReason ?? null}
+      />
+    );
+  }
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
