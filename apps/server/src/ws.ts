@@ -2912,7 +2912,7 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "pull-requests",
             },
           ),
-        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
+        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect, sql), // fork-hook: github-issues/ws-rpc-handlers
         ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves, observeRpcEffect), // fork-hook: zmux-estate/ws-checkout-move-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(

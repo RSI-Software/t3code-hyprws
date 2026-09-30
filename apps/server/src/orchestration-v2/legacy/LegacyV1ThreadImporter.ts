@@ -32,6 +32,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "../RandomUuid.ts";
+import { importLegacyThreadIssuesFork } from "./LegacyV1ThreadIssues.fork.ts"; // fork-hook: github-issues/legacy-issues-import
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
 const TRANSCRIPT_EVENT_BATCH_SIZE = 100;
@@ -652,6 +653,7 @@ const make = Effect.gen(function* () {
       importedThreadCount += 1;
       importedMessageCount += previews.length;
     }
+    yield* importLegacyThreadIssuesFork(sql, eventSink); // fork-hook: github-issues/legacy-issues-step
     return { importedThreadCount, importedMessageCount };
   });
 

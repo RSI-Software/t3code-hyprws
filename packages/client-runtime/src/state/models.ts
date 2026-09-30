@@ -133,6 +133,7 @@ export interface EnvironmentThreadShell {
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
+  readonly issues?: OrchestrationV2ThreadShell["issues"]; // fork-hook: github-issues/client-shell-issues-field
   readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
@@ -239,6 +240,7 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
+    ...(thread.issues === undefined ? {} : { issues: thread.issues }), // fork-hook: github-issues/client-shell-issues
     ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,

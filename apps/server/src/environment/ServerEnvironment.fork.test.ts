@@ -31,6 +31,7 @@ it.layer(NodeServices.layer)("ServerEnvironment fork", (it) => {
       }).pipe(Effect.provide(makeServerEnvironmentLayer(baseDir)));
 
       expect(descriptor.capabilities.githubIssues).toBe(true);
+      expect(descriptor.capabilities.threadIssues).toBe(true);
     }),
   );
 });

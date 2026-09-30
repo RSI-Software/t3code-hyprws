@@ -45,6 +45,7 @@ export * from "./threadMetadataMcp.ts";
 export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
 export * from "./threadTitle.ts";
+export * from "./threadIssues.fork.ts"; // fork-hook: github-issues/thread-issues-reexport
 export * from "./attachedPrimary.fork.ts"; // fork-hook: backend-attach/contracts-reexport
 export * from "./desktopWindow.fork.ts"; // fork-hook: multi-window/contracts-reexport
 export * from "./t3ProjectFile.ts";
