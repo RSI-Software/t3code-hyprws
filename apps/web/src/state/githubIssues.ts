@@ -9,12 +9,17 @@ import type {
   GitHubIssueListInput,
   GitHubIssueListResult,
 } from "@t3tools/contracts";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import {
   carryGitHubIssueList,
   gitHubIssueListScope,
 } from "../components/githubIssue/githubIssueListCarry.logic";
+import {
+  gitHubIssueListReadFailed,
+  holdGitHubIssueList,
+  keepGitHubIssueListRows,
+} from "../components/githubIssue/githubIssueListKeep.logic";
 import { connectionAtomRuntime } from "../connection/runtime";
 import type { EnvironmentQueryTarget } from "./pullRequests";
 import { createMergedEnvironmentQueryFork } from "./pullRequests.fork";
@@ -41,6 +46,13 @@ const useGitHubIssueListsQuery = createMergedEnvironmentQueryFork<
 >("web-github-issues:list", githubIssueEnvironment.list);
 
 /**
+ * The last answer per scope, kept outside the component so it survives a scope switch and a
+ * remount — the rows an all-failing refresh keeps come from here. Scopes are few: one per
+ * environment and project the page asks about, so the store needs no eviction.
+ */
+const heldLists = new Map<string, MergedGitHubIssueList>();
+
+/**
  * The merged list for these targets. A new state or search is a new query that starts empty, so
  * while it travels the last answer for the same projects stands in, narrowed to what the new
  * question could show, and `carried` says so.
@@ -48,7 +60,7 @@ const useGitHubIssueListsQuery = createMergedEnvironmentQueryFork<
 export function useGitHubIssueList(targets: ReadonlyArray<GitHubIssueQueryTarget>): {
   readonly data: MergedGitHubIssueList | null;
   readonly carried: boolean;
-  /** Rows on screen include an environment whose latest read failed — old rows, not current. */
+  /** Rows on screen are not current: an environment's read failed, or every project's read did. */
   readonly stale: boolean;
   readonly isPending: boolean;
   readonly refresh: () => void;
@@ -62,23 +74,30 @@ export function useGitHubIssueList(targets: ReadonlyArray<GitHubIssueQueryTarget
     [query.errors, query.values],
   );
   const scope = gitHubIssueListScope(targets);
-  const [held, setHeld] = useState<{ scope: string; list: MergedGitHubIssueList } | null>(null);
-  if (answered !== null && (held?.list !== answered || held.scope !== scope)) {
-    setHeld({ scope, list: answered });
-  }
+  // A render-phase write: idempotent by answer reference, so it can never loop the render.
+  if (answered !== null) holdGitHubIssueList(heldLists, answered, scope);
+  const held = heldLists.get(scope) ?? null;
   const input = targets[0]?.input;
   const carried = useMemo(
     () =>
-      answered === null && query.isPending && input && held?.scope === scope
-        ? carryGitHubIssueList(held.list, input)
+      answered === null && query.isPending && input && held
+        ? carryGitHubIssueList(held, input)
         : null,
     [answered, held, input, query.isPending, scope],
   );
+  // Rows a read that failed for every project keeps: the last good ones for this scope, stale the
+  // way a failed refresh reads, while the current errors still ride the list for the notices.
+  const kept =
+    answered !== null && gitHubIssueListReadFailed(answered)
+      ? keepGitHubIssueListRows(answered, held)
+      : null;
   return {
-    data: answered ?? carried,
+    data: kept ?? answered ?? carried,
     carried: carried !== null,
-    stale: query.stale,
+    stale: query.stale || kept !== null,
     isPending: query.isPending,
-    refresh: query.refresh,
+    // Wrapped: the fork's refresh takes an override target list, and an onClick that forwards a
+    // click event as that argument would throw instead of refetching.
+    refresh: () => query.refresh(),
   };
 }
