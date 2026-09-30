@@ -6,14 +6,17 @@
 // friends.
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type {
   EnvironmentAuthorizationError,
   GitHubIssueListInput,
   GitHubIssueRef,
+  ThreadIssueKey,
 } from "@t3tools/contracts";
 
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
+import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 type ObserveRpcEffect = <A, E, R>(
@@ -31,6 +34,7 @@ type GitHubIssues = typeof GitHubIssueService.GitHubIssueService.Service;
 export const gitHubIssueRpcHandlersFork = (
   githubIssues: GitHubIssues,
   observeRpcEffect: ObserveRpcEffect,
+  sql: SqlClient.SqlClient,
 ) => ({
   "githubIssues.list": (input: GitHubIssueListInput) =>
     observeRpcEffect("githubIssues.list", githubIssues.list(input), {
@@ -40,6 +44,12 @@ export const gitHubIssueRpcHandlersFork = (
     observeRpcEffect("githubIssues.detail", githubIssues.detail(input), {
       "rpc.aggregate": "github-issues",
     }),
+  "githubIssues.linkedThreads": (input: ThreadIssueKey) =>
+    observeRpcEffect(
+      "githubIssues.linkedThreads",
+      listLinkedIssueThreadsFork(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      { "rpc.aggregate": "github-issues" },
+    ),
 });
 
 /** The upstream-shaped service layer, composed with its own dependencies. */
