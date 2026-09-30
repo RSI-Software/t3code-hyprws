@@ -67,7 +67,7 @@ import {
   GitHubIssueSetStateInput,
 } from "./githubIssue.ts";
 import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
-import { ThreadIssueKey } from "./threadIssues.fork.ts";
+import { ThreadIssueKey, ThreadIssueSyncInput } from "./threadIssues.fork.ts";
 
 const GitHubIssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
@@ -101,6 +101,15 @@ const WsGitHubIssuesSetStateRpcFork = Rpc.make("githubIssues.setState", {
 });
 
 /**
+ * Rereads a thread's linked issues from GitHub (RSI-Software/t3code-hyprws#1434). Answers once
+ * the reads are queued; the snapshots arrive on the thread shell stream.
+ */
+const WsGitHubIssuesSyncThreadLinksRpcFork = Rpc.make("githubIssues.syncThreadLinks", {
+  payload: ThreadIssueSyncInput,
+  error: GitHubIssueRpcErrorFork,
+});
+
+/**
  * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
  * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
  */
@@ -110,12 +119,14 @@ export const githubIssuesRpcFork = {
     githubIssuesDetail: "githubIssues.detail",
     githubIssuesLinkedThreads: "githubIssues.linkedThreads",
     githubIssuesSetState: "githubIssues.setState",
+    githubIssuesSyncThreadLinks: "githubIssues.syncThreadLinks",
   } as const,
   rpcs: [
     WsGitHubIssuesListRpcFork,
     WsGitHubIssuesDetailRpcFork,
     WsGitHubIssuesLinkedThreadsRpcFork,
     WsGitHubIssuesSetStateRpcFork,
+    WsGitHubIssuesSyncThreadLinksRpcFork,
   ] as const,
 };
 
