@@ -264,8 +264,9 @@ import {
 } from "../previewMiniPlayerStore";
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { RightPanelTabs } from "./RightPanelTabs";
-import { GitHubIssueDetailSurfaceFork } from "./githubIssue/GitHubIssueDetailSurface.fork"; // fork-hook: github-issues/chat-view-detail-import
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
+import { linkGitHubIssueHandoffFork } from "./githubIssue/githubIssueHandoff"; // fork-hook: github-issues/handoff-link-import
+import { LinkGitHubIssueDialogHost } from "./githubIssue/LinkGitHubIssueDialog"; // fork-hook: github-issues/link-dialog-import
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -6803,6 +6804,7 @@ export default function ChatView(props: ChatViewProps) {
             clearedDraftSnapshot &&
           readMultipleModelSelections() === submittedSelections;
         setThreadError(threadIdForSend, null);
+        const handoffThreadRefsFork: ScopedThreadRef[] = []; // fork-hook: github-issues/handoff-link-multi-collect
         const starts = Promise.all(
           multipleTargets.map(async (target) => {
             const started = await startFanoutThread({
@@ -6876,6 +6878,7 @@ export default function ChatView(props: ChatViewProps) {
         resetLocalDispatch();
         releasedComposer = true;
         await starts;
+        linkGitHubIssueHandoffFork(draftId, handoffThreadRefsFork); // fork-hook: github-issues/handoff-link-multi-send
         if (startedCount > 0) {
           toastManager.add(
             stackedThreadToast({
@@ -7225,6 +7228,7 @@ export default function ChatView(props: ChatViewProps) {
       } else {
         turnStartSucceeded = true;
         setKeepFullHistory(routeThreadKey, false);
+        linkGitHubIssueHandoffFork(draftId, [scopeThreadRef(environmentId, threadIdForSend)]); // fork-hook: github-issues/handoff-link-send
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
@@ -8833,6 +8837,7 @@ export default function ChatView(props: ChatViewProps) {
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
       <LinkPullRequestDialogHost />
       <ThreadVisitWatermark threadRef={routeThreadRef} />
+      <LinkGitHubIssueDialogHost /* fork-hook: github-issues/link-dialog-host */ />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>
   );
