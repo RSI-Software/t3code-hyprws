@@ -135,6 +135,10 @@
       "types": "./src/server/randomUuid.ts",
       "import": "./src/server/randomUuid.ts"
     },
+    "./server/RuntimeInstructions.fork": {
+      "types": "./src/server/RuntimeInstructions.fork.ts",
+      "import": "./src/server/RuntimeInstructions.fork.ts"
+    },
     "./server/runtimeInstructions": {
       "types": "./src/server/runtimeInstructions.ts",
       "import": "./src/server/runtimeInstructions.ts"
