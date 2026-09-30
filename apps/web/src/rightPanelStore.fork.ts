@@ -34,15 +34,21 @@ export interface AgentsSurfaceFork {
   rosterFocusAgentId: string | null;
 }
 
-/** The singleton Agents surface. Absent drill-down state opens the roster unfocused. */
+const agentIdOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/**
+ * The singleton Agents surface. Absent drill-down state opens the roster unfocused. Anything but a
+ * string id opens unfocused too: upstream's zero-arg `onAddAgents` launchers hand the widened
+ * opener their click event, and a stored event object crashes the panel that renders it.
+ */
 export const agentsSurfaceFork = (target?: {
   readonly selectedAgentId?: string | null;
   readonly rosterFocusAgentId?: string | null;
 }): AgentsSurfaceFork => ({
   id: "agents",
   kind: "agents",
-  selectedAgentId: target?.selectedAgentId ?? null,
-  rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
+  selectedAgentId: agentIdOrNull(target?.selectedAgentId),
+  rosterFocusAgentId: agentIdOrNull(target?.rosterFocusAgentId),
 });
 
 /**
@@ -56,9 +62,8 @@ export const normalizeAgentsSurfaceFork = (surface: {
   readonly rosterFocusAgentId?: unknown;
 }): [AgentsSurfaceFork] => [
   agentsSurfaceFork({
-    selectedAgentId: typeof surface.selectedAgentId === "string" ? surface.selectedAgentId : null,
-    rosterFocusAgentId:
-      typeof surface.rosterFocusAgentId === "string" ? surface.rosterFocusAgentId : null,
+    selectedAgentId: agentIdOrNull(surface.selectedAgentId),
+    rosterFocusAgentId: agentIdOrNull(surface.rosterFocusAgentId),
   }),
 ];
 
