@@ -11,6 +11,7 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
 import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 type Codec = Schema.Codec<unknown, unknown>;
@@ -22,7 +23,22 @@ interface Contracts {
   readonly ExecutionEnvironmentDescriptor: Codec;
   readonly OrchestrationEvent: Codec;
   readonly OrchestrationEventType: Codec & { readonly literals: ReadonlyArray<string> };
+  readonly ServerConfig: Codec;
+  readonly ServerConfigStreamEvent: Codec;
+  readonly VcsStatusStreamEvent: Codec;
+  readonly GitPreparePullRequestThreadResult: Codec;
 }
+
+/** Every schema an upstream client decodes from a fork server, by export name. */
+const wireSchemas = [
+  "ServerConfig",
+  "ServerConfigStreamEvent",
+  "OrchestrationShellStreamItem",
+  "OrchestrationThreadStreamItem",
+  "ExecutionEnvironmentDescriptor",
+  "VcsStatusStreamEvent",
+  "GitPreparePullRequestThreadResult",
+] as const;
 
 const repoRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const contractsEntry = "packages/contracts/src/index.ts";
@@ -73,6 +89,77 @@ const acrossTheWire = (fork: Codec, upstream: Codec, value: unknown) => {
   );
 };
 
+/**
+ * Slots the schema admits but the server never sends. The thread stream
+ * forwards only thread-detail events (`isThreadDetailEvent` in
+ * `apps/server/src/ws.ts`), and the shell stream turns project events into a
+ * `project-upserted` read model.
+ */
+const sentNever = new Set([
+  '$<event>.event<project.meta-updated>.payload.defaultThreadEnvMode: "worktrunk"',
+]);
+
+/** Literal values a wire slot admits, keyed by path; `open` when it also admits any string. */
+type LiteralSlots = Map<string, { literals: Set<unknown>; open: boolean }>;
+
+const collectLiterals = (
+  ast: SchemaAST.AST,
+  path = "$",
+  slots: LiteralSlots = new Map(),
+  suspends = new WeakSet<SchemaAST.AST>(),
+): LiteralSlots => {
+  const slot = () => {
+    let entry = slots.get(path);
+    if (!entry) slots.set(path, (entry = { literals: new Set(), open: false }));
+    return entry;
+  };
+  const walk = (next: SchemaAST.AST, nextPath: string) =>
+    collectLiterals(next, nextPath, slots, suspends);
+  // A suspend is a recursive schema: walk its body once, at its first path.
+  if (SchemaAST.isSuspend(ast)) {
+    if (!suspends.has(ast)) {
+      suspends.add(ast);
+      walk(ast.thunk(), path);
+    }
+  } else if (SchemaAST.isLiteral(ast)) slot().literals.add(ast.literal);
+  else if (SchemaAST.isString(ast) || SchemaAST.isTemplateLiteral(ast)) slot().open = true;
+  else if (SchemaAST.isUnion(ast)) for (const type of ast.types) walk(type, path);
+  else if (SchemaAST.isObjects(ast)) {
+    // A union member keys its paths by its tag, so members never pool literals.
+    const tag = ast.propertySignatures.find(
+      (property) =>
+        ["type", "kind", "_tag"].includes(String(property.name)) &&
+        SchemaAST.isLiteral(property.type),
+    );
+    const base =
+      tag && SchemaAST.isLiteral(tag.type) ? `${path}<${String(tag.type.literal)}>` : path;
+    for (const property of ast.propertySignatures) {
+      walk(property.type, `${base}.${String(property.name)}`);
+    }
+    for (const index of ast.indexSignatures) walk(index.type, `${base}[*]`);
+  } else if (SchemaAST.isArrays(ast)) {
+    for (const element of [...ast.elements, ...ast.rest]) walk(element, `${path}[]`);
+  }
+  return slots;
+};
+
+/**
+ * Fork literals in a slot upstream also reads that upstream would not admit.
+ * Walks the wire form and the decoded form: a lenient upstream slot can accept
+ * any wire value yet decode an unknown one to nothing.
+ */
+const forkOnlyLiterals = (forkSchema: Codec, upstreamSchema: Codec) =>
+  [SchemaAST.toEncoded, SchemaAST.toType].flatMap((side) => {
+    const upstreamSlots = collectLiterals(side(upstreamSchema.ast));
+    return [...collectLiterals(side(forkSchema.ast))].flatMap(([path, forkSlot]) => {
+      const upstreamSlot = upstreamSlots.get(path);
+      if (!upstreamSlot || upstreamSlot.open || upstreamSlot.literals.size === 0) return [];
+      return [...forkSlot.literals]
+        .filter((literal) => !upstreamSlot.literals.has(literal))
+        .map((literal) => `${path}: ${JSON.stringify(literal)}`);
+    });
+  });
+
 const now = "2026-01-01T00:00:00.000Z";
 const issue = {
   host: "github.com",
@@ -82,6 +169,40 @@ const issue = {
   source: "manual",
   linkedAt: now,
   snapshot: { title: "Crash on open", state: "open", syncedAt: now },
+};
+const checkoutMove = {
+  requestId: "command-compat",
+  source: { repositoryRoot: "/repo", checkoutRoot: "/repo", revision: "abc123", branch: "main" },
+  requestedPath: "/repo-worktree",
+  destination: null,
+  expectedCheckoutRoot: "/repo",
+  status: "queued",
+  completedSteps: [],
+  effectiveProvider: null,
+  requestedAt: now,
+  updatedAt: now,
+};
+const project = {
+  id: "project-compat",
+  title: "Compat project",
+  workspaceRoot: "/repo",
+  defaultModelSelection: null,
+  defaultThreadEnvMode: "worktree",
+  defaultThreadEnvModeFork: "worktrunk",
+  scripts: [],
+  createdAt: now,
+  updatedAt: now,
+};
+/** Fork settings keys, with the Worktrunk mode standing behind its upstream wire value. */
+const forkSettings = {
+  defaultThreadEnvMode: "worktree",
+  defaultThreadEnvModeFork: "worktrunk",
+  terminalSessionMode: "zmux",
+  githubIssueHandoffPromptTemplate: "Work on #{{number}}",
+  followExternalWorkspaceSymlinks: true,
+  projectSettingsOverrides: {
+    [project.id]: { defaultThreadEnvMode: "worktree", defaultThreadEnvModeFork: "worktrunk" },
+  },
 };
 const threadCore = {
   id: "thread-compat",
@@ -94,6 +215,7 @@ const threadCore = {
   worktreePath: null,
   pullRequests: [],
   issues: [issue],
+  checkoutMove,
   latestTurn: null,
   createdAt: now,
   updatedAt: now,
@@ -130,9 +252,15 @@ describe("an upstream client reading a fork server", () => {
     const items = [
       {
         kind: "snapshot",
-        snapshot: { snapshotSequence: 1, projects: [], threads: [threadShell], updatedAt: now },
+        snapshot: {
+          snapshotSequence: 1,
+          projects: [project],
+          threads: [threadShell],
+          updatedAt: now,
+        },
       },
-      { kind: "thread-upserted", sequence: 2, thread: threadShell },
+      { kind: "project-upserted", sequence: 2, project },
+      { kind: "thread-upserted", sequence: 3, thread: threadShell },
     ];
     for (const item of items) {
       const decoded = acrossTheWire(
@@ -140,7 +268,10 @@ describe("an upstream client reading a fork server", () => {
         upstream.OrchestrationShellStreamItem,
         item,
       );
-      expect(JSON.stringify(decoded)).not.toContain("issues");
+      const wire = JSON.stringify(decoded);
+      for (const key of ["issues", "checkoutMove", "Fork", "worktrunk"]) {
+        expect(wire).not.toContain(key);
+      }
     }
     const detail = acrossTheWire(
       fork.OrchestrationThreadStreamItem,
@@ -169,6 +300,77 @@ describe("an upstream client reading a fork server", () => {
     );
     expect(decoded).toMatchObject({ capabilities: { repositoryIdentity: true } });
     expect(JSON.stringify(decoded)).not.toContain("githubIssues");
+  });
+
+  it("reads fork settings through their upstream slots, Worktrunk as a worktree", () => {
+    const decoded = acrossTheWire(fork.ServerConfigStreamEvent, upstream.ServerConfigStreamEvent, {
+      version: 1,
+      type: "settingsUpdated",
+      payload: { settings: forkSettings },
+    });
+    expect(decoded).toMatchObject({
+      payload: {
+        settings: {
+          defaultThreadEnvMode: "worktree",
+          projectSettingsOverrides: { [project.id]: { defaultThreadEnvMode: "worktree" } },
+        },
+      },
+    });
+    const wire = JSON.stringify(decoded);
+    for (const key of ["Fork", "worktrunk", "terminalSessionMode", "githubIssueHandoff"]) {
+      expect(wire).not.toContain(key);
+    }
+  });
+
+  it("decodes a VCS status from a Worktrunk worktree", () => {
+    const local = {
+      isRepo: true,
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: "feature",
+      hasWorkingTreeChanges: false,
+      worktrunk: true,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+    };
+    const decoded = acrossTheWire(fork.VcsStatusStreamEvent, upstream.VcsStatusStreamEvent, {
+      _tag: "localUpdated",
+      local,
+    });
+    expect(decoded).toMatchObject({ _tag: "localUpdated", local: { refName: "feature" } });
+    expect(JSON.stringify(decoded)).not.toContain("worktrunk");
+  });
+
+  it("decodes a pull request thread result that carries a zmux notice", () => {
+    const decoded = acrossTheWire(
+      fork.GitPreparePullRequestThreadResult,
+      upstream.GitPreparePullRequestThreadResult,
+      {
+        pullRequest: {
+          number: 42,
+          title: "Compat PR",
+          url: "https://github.com/acme/web/pull/42",
+          baseBranch: "main",
+          headBranch: "feature",
+          state: "open",
+        },
+        branch: "feature",
+        worktreePath: "/repo-feature",
+        zmuxSessionNotice: { summary: "zmux unavailable", detail: "No zmux on PATH" },
+      },
+    );
+    expect(decoded).toMatchObject({ branch: "feature", worktreePath: "/repo-feature" });
+    expect(JSON.stringify(decoded)).not.toContain("zmux");
+  });
+
+  // Durable guard: a fork value in a slot upstream decodes (the Worktrunk env
+  // mode once was) fails here. Fork-only keys pass, since upstream drops them.
+  it("admits no fork-only literal in a slot an upstream client decodes", () => {
+    for (const name of wireSchemas) {
+      const leaks = forkOnlyLiterals(fork[name], upstream[name]).filter(
+        (leak) => !sentNever.has(leak),
+      );
+      expect(leaks, name).toEqual([]);
+    }
   });
 
   it("rejects every fork-only event type, so the server must never send one", () => {

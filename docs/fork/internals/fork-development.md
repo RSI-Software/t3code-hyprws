@@ -35,11 +35,12 @@ Goal: a small, durable patch stack on upstream.
 **Mobile:** no fork build; users run the upstream app.
 A fork server must stay usable from it, which simply lacks fork features.
 
-| Fork wire surface | Rule                                       |
-| ----------------- | ------------------------------------------ |
-| Fields            | Optional; upstream decoders drop them      |
-| Capabilities      | Optional flags; absent means unsupported   |
-| Event types       | Never on a stream the upstream app decodes |
+| Fork wire surface | Rule                                                          |
+| ----------------- | ------------------------------------------------------------- |
+| Fields            | Optional; upstream decoders drop them                         |
+| Capabilities      | Optional flags; absent means unsupported                      |
+| Event types       | Never on a stream the upstream app decodes                    |
+| Literal values    | Never in an upstream slot; a `...Fork` sibling key holds them |
 
 `scripts/upstream-client-compat.fork.test.ts` decodes fork payloads with the upstream base contracts.
 
