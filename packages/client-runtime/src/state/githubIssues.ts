@@ -90,6 +90,11 @@ export function createGitHubIssueEnvironmentAtoms<R, E>(
       label: "environment-data:github-issues:set-state",
       tag: WS_METHODS.githubIssuesSetState,
     }),
+    /** Rereads a thread's linked issues; the snapshots arrive on the thread shell stream. */
+    syncThreadLinks: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:github-issues:sync-thread-links",
+      tag: WS_METHODS.githubIssuesSyncThreadLinks,
+    }),
     /** The threads that link one issue, by its host-level key. */
     linkedThreads: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:github-issues:linked-threads",
