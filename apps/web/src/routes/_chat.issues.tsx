@@ -421,6 +421,7 @@ export function GitHubIssuesPage({
       loading={detailQuery.isPending}
       refreshing={detailQuery.isPending}
       onRefresh={detailQuery.refresh}
+      onStateChanged={listQuery.refresh}
       onRetry={detailQuery.refresh}
       onSelectSubIssue={(child) =>
         updateSearch({
