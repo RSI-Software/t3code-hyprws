@@ -29,21 +29,23 @@ import {
   decodeGitHubIssueSummary,
   type GitHubIssueSummary,
 } from "./gitHubIssueJson.ts";
+import { attachSubIssueCloseReasons } from "./subIssueCloseReasons.fork.ts";
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_CONCURRENCY = 8;
 const DETAIL_COMMENT_LIMIT = 100;
-// `issueType` and `subIssues` need a recent `gh`; an older CLI rejects the unknown field name and
-// degrades the whole project, which the list already reports per project rather than swallowing.
+// `issueType`, `subIssues`, and `stateReason` need a recent `gh`; an older CLI rejects the unknown
+// field name and degrades the whole project, which the list already reports per project rather
+// than swallowing.
 // `comments` is asked for by count alone: `gh` has no count field, and the entry keeps only the
 // length, so the cost is one subprocess read rather than anything crossing the socket.
 const ISSUE_LIST_FIELDS =
-  "number,title,url,author,assignees,labels,issueType,state,createdAt,updatedAt,comments,reactionGroups";
+  "number,title,url,author,assignees,labels,issueType,state,stateReason,createdAt,updatedAt,comments,reactionGroups";
 const ISSUE_DETAIL_FIELDS = `${ISSUE_LIST_FIELDS},body,subIssues,closedAt`;
-// The linked-issue sync reads this alone: a snapshot stores a title and a state, so refreshing one
-// never hauls the body, comments, and reactions a detail read asks for
-// (RSI-Software/t3code-hyprws#1451).
-const ISSUE_SUMMARY_FIELDS = "title,state";
+// The linked-issue sync reads this alone: a snapshot stores a title, a state, and a close
+// reason, so refreshing one never hauls the body, comments, and reactions a detail read asks
+// for (RSI-Software/t3code-hyprws#1451). `stateReason` rides the same single read.
+const ISSUE_SUMMARY_FIELDS = "title,state,stateReason";
 
 type GitHubIssueCliError = GitHubIssueCliMissingError | GitHubIssueCliUnauthenticatedError;
 type GitHubIssueError = GitHubIssueCliError | GitHubIssueOperationError;
@@ -250,8 +252,18 @@ export const make = Effect.gen(function* () {
       const issue = yield* decodeGitHubIssueDetail(output.stdout).pipe(
         Effect.mapError((cause) => decodeError("detail", cause)),
       );
+      // Fork-hook: github-issues/sub-issue-close-reasons — `gh` omits a child's close reason, so
+      // one extra read attaches it when a closed child exists (RSI-Software/t3code-hyprws#1461).
+      const subIssues = yield* attachSubIssueCloseReasons(cli, {
+        host: project.host,
+        workspaceRoot: project.project.workspaceRoot,
+        repository: input.repository,
+        parentNumber: input.number,
+        children: issue.subIssues,
+      });
       return {
         ...issue,
+        subIssues,
         comments: issue.comments.slice(-DETAIL_COMMENT_LIMIT),
         projectId: project.project.id,
         projectTitle: project.project.title,
