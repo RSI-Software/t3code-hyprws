@@ -1,5 +1,5 @@
 // Fork-owned test sibling for `ServerEnvironment.test.ts`: the GitHub Issues
-// capability that commit `9f92309411` (feat(issues): add GitHub Issues surface
+// capabilities that commit `9f92309411` (feat(issues): add GitHub Issues surface
 // scoped to project windows) advertises through the marked hook
 // `github-issues/server-environment-capability` in `ServerEnvironment.ts`.
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -19,7 +19,7 @@ it.layer(NodeServices.layer)("ServerEnvironment fork", (it) => {
       Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
     );
 
-  it.effect("advertises the read-only GitHub Issues capability", () =>
+  it.effect("advertises the GitHub Issues capabilities", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
@@ -32,6 +32,7 @@ it.layer(NodeServices.layer)("ServerEnvironment fork", (it) => {
 
       expect(descriptor.capabilities.githubIssues).toBe(true);
       expect(descriptor.capabilities.threadIssues).toBe(true);
+      expect(descriptor.capabilities.githubIssueStateChange).toBe(true);
     }),
   );
 });
