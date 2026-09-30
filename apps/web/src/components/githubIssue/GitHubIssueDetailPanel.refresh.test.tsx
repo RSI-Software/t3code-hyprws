@@ -35,7 +35,31 @@ vi.mock("../ui/tooltip", () => ({
   Tooltip: ({ children }: { readonly children?: ReactNode }) => children,
   TooltipTrigger: ({ children }: { readonly children?: ReactNode }) => children,
   TooltipPopup: () => null,
+  TooltipProvider: ({ children }: { readonly children?: ReactNode }) => children,
 }));
+// The menu's popup portals open on a press; here its items render in place so they can be pressed.
+vi.mock("../ui/menu", () => {
+  const Passthrough = ({ children }: { readonly children?: ReactNode }) => children;
+  return {
+    Menu: Passthrough,
+    MenuTrigger: Passthrough,
+    MenuPopup: Passthrough,
+    MenuSeparator: () => null,
+    MenuShortcut: Passthrough,
+    MenuItem: ({
+      children,
+      onClick,
+    }: {
+      readonly children?: ReactNode;
+      readonly onClick?: () => void;
+    }) => (
+      <button type="button" onClick={onClick}>
+        {children}
+      </button>
+    ),
+  };
+});
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => [] }));
 vi.mock("../pullRequest/PullRequestMarkdown", () => ({
   PullRequestMarkdown: ({ text }: { readonly text: string }) => text,
 }));
@@ -71,6 +95,7 @@ function renderPanel(reference?: {
   const element = (
     <GitHubIssueDetailPanel
       environmentId={"env-1" as EnvironmentId}
+      composerTarget={null}
       onSelectSubIssue={() => {}}
       reference={{
         projectId: ref.projectId as ProjectId,
@@ -101,6 +126,7 @@ describe("GitHub issue side panel refresh", () => {
       renderer.update(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
+          composerTarget={null}
           onSelectSubIssue={() => {}}
           reference={{
             projectId: "project-1" as ProjectId,
@@ -120,6 +146,7 @@ describe("GitHub issue side panel refresh", () => {
       renderer.update(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
+          composerTarget={null}
           onSelectSubIssue={() => {}}
           reference={{
             projectId: "project-1" as ProjectId,
@@ -134,6 +161,7 @@ describe("GitHub issue side panel refresh", () => {
       renderer.update(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
+          composerTarget={null}
           onSelectSubIssue={() => {}}
           reference={{
             projectId: "project-1" as ProjectId,
@@ -146,9 +174,12 @@ describe("GitHub issue side panel refresh", () => {
     expect(state.refresh).toHaveBeenCalledTimes(2);
   });
 
-  it("re-reads on demand from the header refresh control", () => {
+  it("re-reads on demand from the actions menu", () => {
     const renderer = renderPanel();
-    const button = renderer.root.findByProps({ "aria-label": "Refresh issue" });
+    const button = renderer.root
+      .findAllByType("button")
+      .find((candidate) => [candidate.props.children].flat().includes("Refresh"));
+    if (!button) throw new Error("No Refresh item in the actions menu.");
     act(() => {
       button.props.onClick();
     });

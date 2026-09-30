@@ -4,6 +4,7 @@ import type {
   GitHubIssueDetail,
   GitHubIssueRef,
   GitHubSubIssue,
+  ScopedThreadRef,
 } from "@t3tools/contracts";
 import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
@@ -35,8 +36,8 @@ import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
 import { PullRequestActorLabel, PullRequestMetaLine } from "../pullRequest/pullRequestPresentation";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { RefreshIcon } from "../ui/refresh-icon";
 import { toastManager } from "../ui/toast";
+import { GitHubIssueActionsMenu } from "./GitHubIssueActionsMenu";
 import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
@@ -69,10 +70,12 @@ export function seedGitHubIssueDraftIfEmpty(
 
 export function GitHubIssueDetailPanel({
   environmentId,
+  composerTarget,
   onSelectSubIssue,
   reference,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly composerTarget: ScopedThreadRef | null;
   readonly onSelectSubIssue: (child: GitHubSubIssue) => void;
   readonly reference: GitHubIssueRef;
 }) {
@@ -96,6 +99,7 @@ export function GitHubIssueDetailPanel({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <EnvironmentGitHubIssueDetailContent
         environmentId={environmentId}
+        composerTarget={composerTarget}
         detail={query.data}
         error={query.error}
         loading={query.isPending}
@@ -129,6 +133,8 @@ export function EnvironmentGitHubIssueDetailContent({
 
 export function GitHubIssueDetailContent({
   environmentId,
+  composerTarget = null,
+  copyLinkShortcut = false,
   detail,
   error,
   handoffPromptTemplate = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
@@ -139,6 +145,10 @@ export function GitHubIssueDetailContent({
   onSelectSubIssue,
 }: {
   readonly environmentId: EnvironmentId | null;
+  /** The thread the panel sits beside, whose composer takes the issue's questions. */
+  readonly composerTarget?: ScopedThreadRef | null;
+  /** Whether the page's copy-link shortcut copies this issue, so the menu may show it. */
+  readonly copyLinkShortcut?: boolean;
   readonly detail: GitHubIssueDetail | null;
   readonly error: string | null;
   readonly handoffPromptTemplate?: string;
@@ -223,25 +233,14 @@ export function GitHubIssueDetailContent({
             {detail.repository}
           </span>
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            {onRefresh ? (
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="Refresh issue"
-                disabled={refreshing}
-                onClick={onRefresh}
-              >
-                <RefreshIcon refreshing={refreshing} />
-              </Button>
-            ) : null}
-            <Button
-              render={<a href={detail.url} target="_blank" rel="noreferrer noopener" />}
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Open issue on GitHub"
-            >
-              <ExternalLinkIcon />
-            </Button>
+            <GitHubIssueActionsMenu
+              environmentId={environmentId}
+              detail={detail}
+              composerTarget={composerTarget}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              copyLinkShortcut={copyLinkShortcut}
+            />
             <Button size="xs" onClick={() => void workOnIssue()} disabled={preparing}>
               <WrenchIcon className="size-3" />
               {preparing ? "Preparing..." : "Work on this issue"}
