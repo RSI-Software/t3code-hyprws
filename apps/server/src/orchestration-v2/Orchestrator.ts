@@ -118,6 +118,7 @@ import {
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
+import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
 import {
   checkoutMoveMetadataFork,
@@ -398,6 +399,9 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request.watch":
     case "thread.pull-request-watch.sync":
     case "thread.pull-request.sync":
+    case "thread.issue.link": // fork-hook: github-issues/orchestrator-thread-id-link
+    case "thread.issue.unlink": // fork-hook: github-issues/orchestrator-thread-id-unlink
+    case "thread.issue-link.sync": // fork-hook: github-issues/orchestrator-thread-id-sync
     case "thread.title.regeneration.complete":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
@@ -9562,6 +9566,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request-watch.sync":
         yield* dispatchPullRequestWatchSync(command, events, effects);
         break;
+      case "thread.issue.link": // fork-hook: github-issues/orchestrator-dispatch-link
+      case "thread.issue.unlink": // fork-hook: github-issues/orchestrator-dispatch-unlink
+      case "thread.issue-link.sync": // fork-hook: github-issues/orchestrator-dispatch-sync
+        yield* dispatchThreadIssueCommandFork({
+          command,
+          getThread: projectionStore.getThread(command.threadId).pipe(mapDispatchError(command)),
+          emit: emit(events, command),
+          refuse: (cause) => mapDispatchError(command)(Effect.fail(cause)),
+        }); // fork-hook: github-issues/orchestrator-dispatch-call
+        break; // fork-hook: github-issues/orchestrator-dispatch-break
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
         break;
