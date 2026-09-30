@@ -89,6 +89,7 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode.fork";
+import { makeThreadIssueReadsFork } from "../../persistence/ProjectionThreadIssues.fork.ts"; // fork-hook: github-issues/snapshot-import
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
@@ -521,6 +522,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const sql = yield* SqlClient.SqlClient;
+  const threadIssueReadsFork = yield* makeThreadIssueReadsFork; // fork-hook: github-issues/snapshot-reads
   const repositoryIdentityResolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const repositoryIdentityResolutionConcurrency = 4;
   const resolveRepositoryIdentitiesForProjects = Effect.fn(
@@ -2289,6 +2291,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          threadIssueReadsFork.byThread("ProjectionSnapshotQuery.getSnapshot"), // fork-hook: github-issues/snapshot-issues-query
         ]),
       )
       .pipe(
@@ -2304,6 +2307,7 @@ pending_approval_requests AS (
             checkpointRows,
             latestTurnRows,
             stateRows,
+            threadIssuesByThreadFork, // fork-hook: github-issues/snapshot-issues-rows
           ]) =>
             Effect.gen(function* () {
               const messagesByThread = new Map<string, Array<OrchestrationMessage>>();
@@ -2478,6 +2482,7 @@ pending_approval_requests AS (
                 ),
                 branchPullRequest: row.branchPullRequest,
                 checkoutMove: row.checkoutMove,
+                ...threadIssuesByThreadFork(row.threadId), // fork-hook: github-issues/snapshot-thread-issues
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -2583,6 +2588,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          threadIssueReadsFork.byThread("ProjectionSnapshotQuery.getCommandReadModel"), // fork-hook: github-issues/read-model-issues-query
         ]),
       )
       .pipe(
@@ -2595,6 +2601,7 @@ pending_approval_requests AS (
             sessionRows,
             latestTurnRows,
             stateRows,
+            threadIssuesByThreadFork, // fork-hook: github-issues/read-model-issues-rows
           ]) =>
             Effect.gen(function* () {
               const linkedThreadIds = new Set(pullRequestRows.map((row) => row.threadId));
@@ -2725,6 +2732,7 @@ pending_approval_requests AS (
                   ),
                   branchPullRequest: row.branchPullRequest,
                   checkoutMove: row.checkoutMove,
+                  ...threadIssuesByThreadFork(row.threadId), // fork-hook: github-issues/read-model-thread-issues
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -2856,6 +2864,9 @@ pending_approval_requests AS (
                 sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
               );
               const pullRequestsByThread = groupPullRequestRowsByThread(pullRequestRows);
+              const threadIssuesByThreadFork = yield* threadIssueReadsFork.byThread(
+                "ProjectionSnapshotQuery.getShellSnapshot",
+              ); // fork-hook: github-issues/shell-issues-query
 
               // Built from schema-decoded rows, so no second decode here. The HTTP
               // and RPC layers encode it against OrchestrationShellSnapshot on the
@@ -2887,6 +2898,7 @@ pending_approval_requests AS (
                           row.projectId,
                           repositoryIdentities.get(row.projectId),
                         ),
+                        ...threadIssuesByThreadFork(row.threadId), // fork-hook: github-issues/shell-thread-issues
                         latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
@@ -3038,6 +3050,9 @@ pending_approval_requests AS (
               }
 
               const pullRequestsByThread = groupPullRequestRowsByThread(pullRequestRows);
+              const threadIssuesByThreadFork = yield* threadIssueReadsFork.byThread(
+                "ProjectionSnapshotQuery.getArchivedShellSnapshot",
+              ); // fork-hook: github-issues/archived-shell-issues-query
               const activeProjectIds = new Set(threadRows.map((row) => row.projectId));
               const repositoryIdentities = yield* resolveRepositoryIdentitiesForProjects(
                 projectRows.filter((row) => activeProjectIds.has(row.projectId)),
@@ -3074,6 +3089,7 @@ pending_approval_requests AS (
                     row.projectId,
                     repositoryIdentities.get(row.projectId),
                   ),
+                  ...threadIssuesByThreadFork(row.threadId), // fork-hook: github-issues/archived-shell-thread-issues
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -3423,6 +3439,10 @@ pending_approval_requests AS (
                 ?.repositoryIdentity,
         ),
         branchPullRequest: threadRow.value.branchPullRequest,
+        ...(yield* threadIssueReadsFork.forThread(
+          threadRow.value.threadId,
+          "ProjectionSnapshotQuery.getThreadShellById",
+        )), // fork-hook: github-issues/thread-shell-issues
         checkoutMove: threadRow.value.checkoutMove,
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
@@ -3727,6 +3747,7 @@ pending_approval_requests AS (
         ),
         branchPullRequest: threadRow.value.branchPullRequest,
         checkoutMove: threadRow.value.checkoutMove,
+        ...(yield* threadIssueReadsFork.forThread(threadRow.value.threadId)), // fork-hook: github-issues/detail-thread-issues
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,

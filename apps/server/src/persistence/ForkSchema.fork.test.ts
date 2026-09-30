@@ -28,6 +28,28 @@ layer("ForkSchema", (it) => {
       assert.deepStrictEqual(second, []);
     }),
   );
+
+  it.effect("creates the thread issue link table and its issue index idempotently", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* ensureForkSchema();
+      yield* sql`
+        INSERT INTO projection_thread_issues (thread_id, host, repository, number, url, source, linked_at)
+        VALUES ('thread-1', 'github.com', 'acme/web', 7, 'https://github.com/acme/web/issues/7', 'manual', '2026-09-01T00:00:00.000Z')
+      `;
+      // A rerun keeps the rows: the pass never rebuilds a table it already made.
+      yield* ensureForkSchema();
+      const rows = yield* sql<{ readonly threadId: string }>`
+        SELECT thread_id AS "threadId" FROM projection_thread_issues
+      `;
+      assert.deepStrictEqual(rows, [{ threadId: "thread-1" }]);
+      const indexes = yield* sql<{ readonly name: string }>`
+        PRAGMA index_list(projection_thread_issues)
+      `;
+      assert.ok(indexes.some((index) => index.name === "idx_projection_thread_issues_issue"));
+    }),
+  );
 });
 
 // A separate top-level `layer(...)` block gets its own memo map, and so its own

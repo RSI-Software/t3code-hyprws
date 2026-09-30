@@ -47,6 +47,7 @@ import {
   type ProjectionThreadCheckoutMoveRow,
   ProjectionThreadCheckoutMoveRepositoryLive,
 } from "../../persistence/ThreadsCheckoutMove.fork.ts";
+import { makeThreadIssueProjectionFork } from "../../persistence/ProjectionThreadIssues.fork.ts"; // fork-hook: github-issues/pipeline-import
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -495,6 +496,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+    const applyThreadIssuesProjectionFork = yield* makeThreadIssueProjectionFork; // fork-hook: github-issues/pipeline-projector
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -608,6 +610,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const applyThreadsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadsProjection",
     )(function* (event, attachmentSideEffects) {
+      yield* applyThreadIssuesProjectionFork(event); // fork-hook: github-issues/pipeline-apply
       switch (event.type) {
         case "thread.created":
           // A draft retry can re-create this id; links belong to the old incarnation.
