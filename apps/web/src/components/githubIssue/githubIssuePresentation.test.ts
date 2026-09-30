@@ -27,7 +27,7 @@ describe("GitHub issue presentation", () => {
     );
   });
 
-  it("drops not planned, and a read that says no reason, to the neutral grey", () => {
+  it("drops not planned, and a read that cannot say a reason, to the neutral grey", () => {
     expect(githubIssueStatePresentation("closed", "not planned")).toBe(
       GITHUB_ISSUE_NOT_PLANNED_PRESENTATION,
     );
@@ -39,10 +39,10 @@ describe("GitHub issue presentation", () => {
     );
   });
 
-  it("keeps a read that cannot carry a reason at all on the completed tone", () => {
-    expect(githubIssueStatePresentation("closed")).toBe(GITHUB_ISSUE_STATE_PRESENTATION.closed);
+  it("never reads a reason-less closed issue as completed, even from an older server", () => {
+    expect(githubIssueStatePresentation("closed")).toBe(GITHUB_ISSUE_NOT_PLANNED_PRESENTATION);
     expect(githubIssueStatePresentation("closed", undefined)).toBe(
-      GITHUB_ISSUE_STATE_PRESENTATION.closed,
+      GITHUB_ISSUE_NOT_PLANNED_PRESENTATION,
     );
   });
 });

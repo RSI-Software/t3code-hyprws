@@ -33,17 +33,17 @@ export const GITHUB_ISSUE_NOT_PLANNED_PRESENTATION = {
 } as const;
 
 /**
- * An issue's presentation by state and, when closed, its close reason. A read that carries no
- * reason field at all — a sub-issue or a thread-link snapshot — passes none and keeps the
- * completed tone; a read that carries the field passes it even when null, which reads as not
- * planned's grey rather than a guess of landed work.
+ * An issue's presentation by state and, when closed, its close reason. Every read this app makes
+ * carries a reason — including sub-issues and thread-link snapshots — so a read that still has
+ * none comes from an older server's wire, and it reads as not planned too: the grey claims
+ * nothing, while the completed tone would claim landed work (RSI-Software/t3code-hyprws#1461).
  */
 export function githubIssueStatePresentation(
   state: GitHubIssueState,
   closeReason?: GitHubIssueCloseReason | null,
 ) {
   if (state === "open") return GITHUB_ISSUE_STATE_PRESENTATION.open;
-  return closeReason === "completed" || closeReason === undefined
+  return closeReason === "completed"
     ? GITHUB_ISSUE_STATE_PRESENTATION.closed
     : GITHUB_ISSUE_NOT_PLANNED_PRESENTATION;
 }

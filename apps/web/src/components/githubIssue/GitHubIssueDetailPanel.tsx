@@ -520,7 +520,7 @@ export function GitHubSubIssueRow({
     gitHubSubIssueRepository(child.url)?.toLowerCase() === repository.toLowerCase();
   const inner = (
     <>
-      <GitHubIssueStateGlyph state={child.state} />
+      <GitHubIssueStateGlyph state={child.state} closeReason={child.closeReason ?? null} />
       <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{child.number}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{child.title}</span>
     </>

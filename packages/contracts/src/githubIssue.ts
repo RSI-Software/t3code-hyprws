@@ -50,6 +50,9 @@ export const GitHubSubIssue = Schema.Struct({
   title: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,
   state: GitHubIssueState,
+  // Optional, not merely nullable: a client merges details from several environments at once, and
+  // an environment on an older server omits the key entirely rather than sending null.
+  closeReason: Schema.optional(Schema.NullOr(GitHubIssueCloseReason)),
 });
 export type GitHubSubIssue = typeof GitHubSubIssue.Type;
 

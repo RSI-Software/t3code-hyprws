@@ -4,7 +4,11 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 
 import issue152Fixture from "./__fixtures__/issue-152.json" with { type: "json" };
-import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJson.ts";
+import {
+  decodeGitHubIssueDetail,
+  decodeGitHubIssueList,
+  decodeGitHubSubIssueReasons,
+} from "./gitHubIssueJson.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -144,6 +148,14 @@ describe("GitHub issue JSON", () => {
                 url: `${rawIssue.url.replace("42", "43")}`,
                 state: "OPEN",
               },
+              {
+                id: "I_2",
+                number: 44,
+                title: "Drop the list",
+                url: `${rawIssue.url.replace("42", "44")}`,
+                state: "CLOSED",
+                stateReason: "NOT_PLANNED",
+              },
             ],
           },
         }),
@@ -156,8 +168,42 @@ describe("GitHub issue JSON", () => {
           title: "Render the list",
           url: "https://github.com/t3tools/t3code/issues/43",
           state: "open",
+          closeReason: null,
+        },
+        {
+          number: 44,
+          title: "Drop the list",
+          url: "https://github.com/t3tools/t3code/issues/44",
+          state: "closed",
+          closeReason: "not planned",
         },
       ]);
+    }),
+  );
+
+  it.effect("keys the graphql sub-issue reasons by child number", () =>
+    Effect.gen(function* () {
+      const reasons = yield* decodeGitHubSubIssueReasons(
+        encodeJson({
+          data: {
+            repository: {
+              issue: {
+                subIssues: {
+                  nodes: [
+                    { number: 43, stateReason: "NOT_PLANNED" },
+                    { number: 44, stateReason: "COMPLETED" },
+                    { number: 45, stateReason: null },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      );
+
+      expect(reasons.get(43)).toBe("not planned");
+      expect(reasons.get(44)).toBe("completed");
+      expect(reasons.get(45)).toBeNull();
     }),
   );
 
