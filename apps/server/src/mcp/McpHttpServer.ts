@@ -96,6 +96,7 @@ import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as ToolSearchHandlers from "./toolkits/toolSearch/handlers.ts";
 import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { IssuesToolkitRegistrationLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
 import * as IssuesHandlers from "./toolkits/issues/handlers.ts";
 import { IssuesToolkit } from "./toolkits/issues/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
@@ -1520,6 +1521,7 @@ export const layerTools = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  IssuesToolkitRegistrationLiveFork, // fork-hook: github-issues/mcp-issues-toolkit
   layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
