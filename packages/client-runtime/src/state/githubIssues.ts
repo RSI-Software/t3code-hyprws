@@ -9,7 +9,7 @@ import type {
 import type { Atom } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
+import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 export type EnvironmentGitHubIssueRef = GitHubIssueRef & {
   readonly environmentId: EnvironmentId;
@@ -78,6 +78,11 @@ export function createGitHubIssueEnvironmentAtoms<R, E>(
       label: "environment-data:github-issues:detail",
       tag: WS_METHODS.githubIssuesDetail,
       staleTimeMs: 15_000,
+    }),
+    // The caller re-reads the detail it shows once this lands; the list follows on its own read.
+    setState: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:github-issues:set-state",
+      tag: WS_METHODS.githubIssuesSetState,
     }),
   };
 }
