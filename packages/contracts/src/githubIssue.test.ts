@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   GitHubIssueDetail,
+  GitHubIssueListEntry,
   GitHubIssueListInput,
   GitHubIssueListProjectError,
   GitHubIssueRef,
@@ -53,18 +54,39 @@ const detail = {
 
 describe("GitHub issue contracts", () => {
   it("decodes every issue detail field", () => {
-    expect(Schema.decodeUnknownSync(GitHubIssueDetail)(detail)).toStrictEqual(detail);
+    expect(decodeIssueDetail(detail)).toStrictEqual(detail);
   });
 
   it("keeps the host's true comment total when the returned comments are capped", () => {
-    const decoded = Schema.decodeUnknownSync(GitHubIssueDetail)({ ...detail, commentCount: 101 });
+    const decoded = decodeIssueDetail({ ...detail, commentCount: 101 });
     expect(decoded.comments).toHaveLength(1);
     expect(decoded.commentCount).toBe(101);
   });
 
+  it("carries a close reason on a read and none when the server omits it", () => {
+    const entry = {
+      projectId: "project-1",
+      projectTitle: "t3code",
+      repository: "t3tools/t3code",
+      number: 42,
+      title: "Support GitHub issues",
+      url: "https://github.com/t3tools/t3code/issues/42",
+      author: null,
+      assignees: [],
+      labels: [],
+      state: "closed",
+      createdAt: "2026-08-20T00:00:00Z",
+      updatedAt: "2026-08-21T00:00:00Z",
+    };
+    const decode = Schema.decodeUnknownSync(GitHubIssueListEntry);
+    expect(decode({ ...entry, closeReason: "not planned" }).closeReason).toBe("not planned");
+    expect(decode({ ...entry, closeReason: null }).closeReason).toBeNull();
+    expect(decode(entry).closeReason).toBeUndefined();
+  });
+
   it.each([0, -1])("rejects non-positive issue number %s", (number) => {
     expect(() =>
-      Schema.decodeUnknownSync(GitHubIssueRef)({
+      decodeIssueRef({
         projectId: "project-1",
         repository: "t3tools/t3code",
         number,
@@ -79,11 +101,11 @@ describe("GitHub issue contracts", () => {
   });
 
   it.each([0, 101, 1.5])("rejects invalid list limit %s", (limit) => {
-    expect(() => Schema.decodeUnknownSync(GitHubIssueListInput)({ state: "all", limit })).toThrow();
+    expect(() => decodeIssueListInput({ state: "all", limit })).toThrow();
   });
 
   it("keeps the upstream project error field set", () => {
-    const decoded = Schema.decodeUnknownSync(GitHubIssueListProjectError)({
+    const decoded = decodeIssueListProjectError({
       projectId: "project-1",
       projectTitle: "t3code",
       message: "Run gh auth login",
