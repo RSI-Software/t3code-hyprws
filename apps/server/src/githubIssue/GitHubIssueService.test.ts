@@ -425,4 +425,70 @@ describe("GitHubIssueService", () => {
       assert.strictEqual(detail.comments[0]?.updatedAt, "2026-08-21T02:00:00Z");
     }),
   );
+
+  it.effect("closes with a reason and reopens without one", () =>
+    Effect.gen(function* () {
+      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>(() =>
+        Effect.succeed(output("")),
+      );
+      const service = yield* makeService(
+        [project({ id: "p1", title: "web", workspaceRoot: "/web" })],
+        execute,
+      );
+      const reference = { projectId: "p1" as ProjectId, repository: "acme/web", number: 42 };
+
+      yield* service.setState({ ...reference, state: "closed", reason: "not planned" });
+      yield* service.setState({ ...reference, state: "open", reason: "completed" });
+
+      assert.strictEqual(execute.mock.calls[0]?.[0].cwd, "/web");
+      assert.deepStrictEqual(execute.mock.calls[0]?.[0].args, [
+        "issue",
+        "close",
+        "42",
+        "--repo",
+        "github.com/acme/web",
+        "--reason",
+        "not planned",
+      ]);
+      assert.deepStrictEqual(execute.mock.calls[1]?.[0].args, [
+        "issue",
+        "reopen",
+        "42",
+        "--repo",
+        "github.com/acme/web",
+      ]);
+    }),
+  );
+
+  it.effect("reports an unauthenticated close with the host to log in to", () =>
+    Effect.gen(function* () {
+      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>((input) =>
+        Effect.fail(
+          new GitHubCli.GitHubCliAuthenticationError({
+            command: "gh",
+            cwd: input.cwd,
+            cause: new Error("gh auth login"),
+          }),
+        ),
+      );
+      const service = yield* makeService(
+        [project({ id: "p1", title: "web", workspaceRoot: "/web", host: "ghe.acme.dev" })],
+        execute,
+      );
+      const error = yield* service
+        .setState({
+          projectId: "p1" as ProjectId,
+          repository: "acme/web",
+          number: 42,
+          state: "closed",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(
+        error._tag === "GitHubIssueCliUnauthenticatedError" ? error.host : null,
+        "ghe.acme.dev",
+      );
+      assert.strictEqual(execute.mock.calls[0]?.[0].args.includes("--reason"), false);
+    }),
+  );
 });
