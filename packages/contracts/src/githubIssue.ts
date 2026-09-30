@@ -110,6 +110,18 @@ export const GitHubIssueRef = Schema.Struct({
 });
 export type GitHubIssueRef = typeof GitHubIssueRef.Type;
 
+/** Why an issue closed, in `gh issue close --reason`'s words. */
+export const GitHubIssueCloseReason = Schema.Literals(["completed", "not planned"]);
+export type GitHubIssueCloseReason = typeof GitHubIssueCloseReason.Type;
+
+/** Closes or reopens an issue. A reason only applies to a close; GitHub defaults it to completed. */
+export const GitHubIssueSetStateInput = Schema.Struct({
+  ...GitHubIssueRef.fields,
+  state: GitHubIssueState,
+  reason: Schema.optional(GitHubIssueCloseReason),
+});
+export type GitHubIssueSetStateInput = typeof GitHubIssueSetStateInput.Type;
+
 export const GitHubIssueComment = Schema.Struct({
   id: TrimmedNonEmptyString,
   author: Schema.NullOr(GitHubIssueActor),
