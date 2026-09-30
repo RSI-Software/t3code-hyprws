@@ -141,6 +141,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { threadIssueStreamTestsFork } from "./ws.threadIssues.fork.suite.ts"; // fork-hook: github-issues/ws-stream-tests-import
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
+import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts"; // fork-hook: github-issues/ws-issue-sync-test-import
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
@@ -1069,6 +1070,7 @@ const buildAppUnderTest = (options?: {
             drain: Effect.void,
             requestSync: () => Effect.void,
           }),
+          ThreadIssueSyncReactor.layerInert, // fork-hook: github-issues/ws-issue-sync-mock
         ),
       ),
       Layer.provide(
