@@ -1,7 +1,8 @@
 import type { EnvironmentId, GitHubIssueDetail, ProjectId } from "@t3tools/contracts";
-import { act, type ReactNode } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
 
 import { GitHubIssueDetailPanel } from "./GitHubIssueDetailPanel";
 
@@ -11,57 +12,40 @@ const state = vi.hoisted(() => ({
   isPending: false,
 }));
 
-vi.mock("../../state/query", () => ({
-  useEnvironmentQuery: () => ({
+vi.mock(import("../../state/query"), async (original) => ({
+  ...(await original()),
+  useEnvironmentQuery: (() => ({
     data: state.data,
     dataUpdatedAt: null,
     error: null,
     isPending: state.isPending,
     isSuccess: true,
     refresh: state.refresh,
-  }),
+  })) as never,
 }));
-vi.mock("../../state/githubIssues", () => ({
-  githubIssueEnvironment: { detail: () => ({}) },
+vi.mock(import("../../state/use-atom-command"), async (original) => ({
+  ...(await original()),
+  useAtomCommand: (() => vi.fn()) as never,
 }));
-vi.mock("../../hooks/useSettings", () => ({
-  useEnvironmentSettings: () => undefined,
+vi.mock(import("../../hooks/useSettings"), async (original) => ({
+  ...(await original()),
+  useEnvironmentSettings: (() => undefined) as never,
 }));
-vi.mock("../../hooks/useHandleNewThread", () => ({
-  useNewThreadHandler: () => vi.fn(),
+vi.mock(import("../../hooks/useHandleNewThread"), async (original) => ({
+  ...(await original()),
+  useNewThreadHandler: (() => vi.fn()) as never,
 }));
-// Floating UI reads `window` when a tooltip mounts, which the node renderer has none of.
-vi.mock("../ui/tooltip", () => ({
-  Tooltip: ({ children }: { readonly children?: ReactNode }) => children,
-  TooltipTrigger: ({ children }: { readonly children?: ReactNode }) => children,
-  TooltipPopup: () => null,
-  TooltipProvider: ({ children }: { readonly children?: ReactNode }) => children,
+vi.mock(import("@effect/atom-react"), async (original) => ({
+  ...(await original()),
+  useAtomValue: (() => []) as never,
 }));
-// The menu's popup portals open on a press; here its items render in place so they can be pressed.
-vi.mock("../ui/menu", () => {
-  const Passthrough = ({ children }: { readonly children?: ReactNode }) => children;
-  return {
-    Menu: Passthrough,
-    MenuTrigger: Passthrough,
-    MenuPopup: Passthrough,
-    MenuSeparator: () => null,
-    MenuShortcut: Passthrough,
-    MenuItem: ({
-      children,
-      onClick,
-    }: {
-      readonly children?: ReactNode;
-      readonly onClick?: () => void;
-    }) => (
-      <button type="button" onClick={onClick}>
-        {children}
-      </button>
-    ),
-  };
-});
-vi.mock("@effect/atom-react", () => ({ useAtomValue: () => [] }));
-vi.mock("../pullRequest/PullRequestMarkdown", () => ({
-  PullRequestMarkdown: ({ text }: { readonly text: string }) => text,
+vi.mock(import("../../state/entities"), async (original) => ({
+  ...(await original()),
+  useServerConfigs: (() => new Map()) as never,
+}));
+vi.mock(import("../pullRequest/PullRequestMarkdown"), async (original) => ({
+  ...(await original()),
+  PullRequestMarkdown: (({ text }: { readonly text: string }) => text) as never,
 }));
 
 function makeDetail(): GitHubIssueDetail {
@@ -104,26 +88,35 @@ function renderPanel(reference?: {
       }}
     />
   );
-  let renderer: ReactTestRenderer | undefined;
-  act(() => {
-    renderer = create(element);
-  });
-  if (!renderer) throw new Error("Panel did not render.");
-  return renderer;
+  act(() => root.render(element));
+  return root;
 }
+
+let root: Root;
+let container: HTMLDivElement;
 
 describe("GitHub issue side panel refresh", () => {
   beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
     state.refresh.mockClear();
     state.data = makeDetail();
     state.isPending = false;
   });
 
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("re-reads the open issue once when the panel opens, not on every render", () => {
-    const renderer = renderPanel();
+    renderPanel();
     expect(state.refresh).toHaveBeenCalledTimes(1);
     act(() => {
-      renderer.update(
+      root.render(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
           composerTarget={null}
@@ -140,10 +133,10 @@ describe("GitHub issue side panel refresh", () => {
   });
 
   it("re-reads once when a different issue opens under the mounted panel", () => {
-    const renderer = renderPanel();
+    renderPanel();
     expect(state.refresh).toHaveBeenCalledTimes(1);
     act(() => {
-      renderer.update(
+      root.render(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
           composerTarget={null}
@@ -158,7 +151,7 @@ describe("GitHub issue side panel refresh", () => {
     });
     expect(state.refresh).toHaveBeenCalledTimes(2);
     act(() => {
-      renderer.update(
+      root.render(
         <GitHubIssueDetailPanel
           environmentId={"env-1" as EnvironmentId}
           composerTarget={null}
@@ -174,15 +167,10 @@ describe("GitHub issue side panel refresh", () => {
     expect(state.refresh).toHaveBeenCalledTimes(2);
   });
 
-  it("re-reads on demand from the actions menu", () => {
-    const renderer = renderPanel();
-    const button = renderer.root
-      .findAllByType("button")
-      .find((candidate) => [candidate.props.children].flat().includes("Refresh"));
-    if (!button) throw new Error("No Refresh item in the actions menu.");
-    act(() => {
-      button.props.onClick();
-    });
+  it("re-reads on demand from the actions menu", async () => {
+    renderPanel();
+    await page.getByRole("button", { name: "More issue actions" }).click();
+    await page.getByRole("menuitem", { name: "Refresh" }).click();
     expect(state.refresh).toHaveBeenCalledTimes(2);
   });
 });
