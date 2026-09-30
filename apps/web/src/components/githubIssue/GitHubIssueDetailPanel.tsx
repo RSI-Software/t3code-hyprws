@@ -244,7 +244,7 @@ export function GitHubIssueDetailContent({
     <article className="min-w-0">
       <header className="min-w-0 px-4 pt-3 pb-4">
         <div className="flex min-h-7 min-w-0 items-center gap-2">
-          <GitHubIssueStateGlyph state={detail.state} />
+          <GitHubIssueStateGlyph state={detail.state} closeReason={detail.closeReason ?? null} />
           <span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{detail.number}</span>
           <span className="min-w-0 truncate font-mono text-2xs text-muted-foreground/70">
             {detail.repository}
