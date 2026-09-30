@@ -55,7 +55,7 @@ function GitHubIssueRowImpl({
       )}
     >
       <span className="flex w-4 shrink-0 flex-col items-center self-start mt-0.75">
-        <GitHubIssueStateGlyph state={issue.state} />
+        <GitHubIssueStateGlyph state={issue.state} closeReason={issue.closeReason ?? null} />
       </span>
       <PullRequestRowLines
         number={<span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{issue.number}</span>}

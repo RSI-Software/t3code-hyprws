@@ -57,7 +57,7 @@ function makeThread(id: string, issues: ReadonlyArray<ThreadIssueLink>) {
 }
 
 function makeSummary(input: GitHubIssueRef): GitHubIssueSummary {
-  return { title: `Issue ${input.number}`, state: "closed" };
+  return { title: `Issue ${input.number}`, state: "closed", closeReason: "not planned" };
 }
 
 const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
@@ -142,6 +142,7 @@ describe("ThreadIssueSyncReactor", () => {
         assert.deepStrictEqual(sync?.snapshot, {
           title: "Issue 7",
           state: "closed",
+          closeReason: "not planned",
           syncedAt: NOW,
         });
       }),

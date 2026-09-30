@@ -1,5 +1,5 @@
 import type { GitHubSubIssue } from "@t3tools/contracts";
-import { Children, isValidElement, type ReactElement } from "react";
+import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { DraftId, type ComposerThreadDraftState } from "../../composerDraftStore";
@@ -9,6 +9,7 @@ import {
   githubIssueHandoffPrompt,
   seedGitHubIssueDraftIfEmpty,
 } from "./GitHubIssueDetailPanel";
+import { GitHubIssueStateGlyph } from "./githubIssuePresentation";
 
 const child: GitHubSubIssue = {
   number: 42,
@@ -26,6 +27,7 @@ const emptyDraft: ComposerThreadDraftState = {
   terminalContexts: [],
   previewAnnotations: [],
   reviewComments: [],
+  threadContexts: [],
   modelSelectionByProvider: {},
   activeProvider: null,
   runtimeMode: null,
@@ -104,5 +106,31 @@ describe("GitHub sub-issue row", () => {
     expect(isValidElement(row)).toBe(true);
     expect((row as ReactElement).type).toBe("a");
     expect((row as ReactElement<{ href: string }>).props.href).toBe(child.url);
+  });
+
+  it("hands a closed child's close reason to the state glyph", () => {
+    const glyph = (override: Partial<GitHubSubIssue>): ReactElement => {
+      const row = GitHubSubIssueRow({
+        child: { ...child, ...override },
+        repository: "acme/web",
+      });
+      const find = (node: ReactNode): ReactElement | null => {
+        if (!isValidElement(node)) return null;
+        if (node.type === GitHubIssueStateGlyph) return node;
+        return Children.toArray(
+          (node.props as { children?: ReactNode }).children,
+        ).reduce<ReactElement | null>((found, inner) => found ?? find(inner), null);
+      };
+      const found = find(row);
+      if (found === null) throw new Error("no state glyph in the row");
+      return found;
+    };
+
+    expect(glyph({ state: "closed", closeReason: "not planned" }).props).toMatchObject({
+      state: "closed",
+      closeReason: "not planned",
+    });
+    // A child whose reason an older server omitted passes null, never a guessed completed.
+    expect(glyph({ state: "closed" }).props).toMatchObject({ closeReason: null });
   });
 });
