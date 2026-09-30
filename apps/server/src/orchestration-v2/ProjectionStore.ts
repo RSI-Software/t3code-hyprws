@@ -77,6 +77,7 @@ import {
   isThreadHistoryTurnStart,
   THREAD_HISTORY_MAX_RAW_TURNS,
 } from "./threadHistoryPaging.ts";
+import { threadIssuesField } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/projection-issues-import
 import { checkoutMoveShellFieldsFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 
 export class ProjectionStoreApplyEventError extends Schema.TaggedError<ProjectionStoreApplyEventError>()(
@@ -1404,6 +1405,7 @@ export function threadShellFromProjection(
     worktreePath: projection.thread.worktreePath,
     ...checkoutMoveShellFieldsFork(projection.thread), // fork-hook: zmux-estate/shell-checkout-move
     pullRequests: threadPullRequestsOf(projection.thread),
+    ...threadIssuesField(projection.thread.issues), // fork-hook: github-issues/projection-thread-shell-issues
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: projection.thread.linkedPullRequest }),
@@ -1673,6 +1675,7 @@ function shellFromState(input: {
     worktreePath: input.state.thread.worktreePath,
     ...checkoutMoveShellFieldsFork(input.state.thread), // fork-hook: zmux-estate/state-shell-checkout-move
     pullRequests: threadPullRequestsOf(input.state.thread),
+    ...threadIssuesField(input.state.thread.issues), // fork-hook: github-issues/projection-state-shell-issues
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: input.state.thread.linkedPullRequest }),
