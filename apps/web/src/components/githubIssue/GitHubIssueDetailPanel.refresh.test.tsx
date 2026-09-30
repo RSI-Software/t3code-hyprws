@@ -22,7 +22,10 @@ vi.mock("../../state/query", () => ({
   }),
 }));
 vi.mock("../../state/githubIssues", () => ({
-  githubIssueEnvironment: { detail: () => ({}) },
+  githubIssueEnvironment: { detail: () => ({}), setState: {} },
+}));
+vi.mock("../../state/use-atom-command", () => ({
+  useAtomCommand: () => vi.fn(),
 }));
 vi.mock("../../hooks/useSettings", () => ({
   useEnvironmentSettings: () => undefined,
@@ -60,6 +63,7 @@ vi.mock("../ui/menu", () => {
   };
 });
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => [] }));
+vi.mock("../../state/entities", () => ({ useServerConfigs: () => new Map() }));
 vi.mock("../pullRequest/PullRequestMarkdown", () => ({
   PullRequestMarkdown: ({ text }: { readonly text: string }) => text,
 }));
