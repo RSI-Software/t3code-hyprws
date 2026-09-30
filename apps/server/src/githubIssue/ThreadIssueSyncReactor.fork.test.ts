@@ -3,7 +3,6 @@ import {
   GitHubIssueOperationError,
   ProjectId,
   ThreadId,
-  type GitHubIssueDetail,
   type GitHubIssueRef,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -27,6 +26,7 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import { GitHubIssueService } from "./GitHubIssueService.ts";
+import type { GitHubIssueSummary } from "./gitHubIssueJson.ts";
 import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 
 const NOW = "2026-09-30T12:00:00.000Z";
@@ -55,32 +55,15 @@ function makeThread(id: string, issues: ReadonlyArray<ThreadIssueLink>) {
   return { id: ThreadId.make(id), projectId: PROJECT_ID, issues };
 }
 
-function makeDetail(input: GitHubIssueRef): GitHubIssueDetail {
-  return {
-    projectId: input.projectId,
-    projectTitle: "Project",
-    repository: input.repository,
-    number: input.number,
-    title: `Issue ${input.number}`,
-    url: `https://github.com/${input.repository}/issues/${input.number}`,
-    author: null,
-    assignees: [],
-    labels: [],
-    state: "closed",
-    createdAt: "2026-09-01T00:00:00.000Z",
-    updatedAt: NOW,
-    workspaceRoot: "/workspace/project",
-    body: "",
-    comments: [],
-    commentCount: 0,
-    closedAt: NOW,
-  };
+function makeSummary(input: GitHubIssueRef): GitHubIssueSummary {
+  return { title: `Issue ${input.number}`, state: "closed" };
 }
 
 const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
-  detail: (input: GitHubIssueRef) => Effect.Effect<GitHubIssueDetail, GitHubIssueOperationError> = (
-    input,
-  ) => Effect.succeed(makeDetail(input)),
+  summary: (
+    input: GitHubIssueRef,
+  ) => Effect.Effect<GitHubIssueSummary, GitHubIssueOperationError> = (input) =>
+    Effect.succeed(makeSummary(input)),
 ) {
   const activation = yield* Deferred.make<void>();
   const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -93,11 +76,12 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
     Layer.mock(ProjectionSnapshotQuery)({
       getThreadShellById: () => Effect.succeed(Option.some(shell)),
     }),
+    // Only the light read is implemented: a sync that reached for the full detail would fail.
     Layer.mock(GitHubIssueService)({
-      detail: (input) =>
+      summary: (input) =>
         Ref.update(reads, (all) => [...all, input]).pipe(
           Effect.andThen(Queue.offer(started, undefined)),
-          Effect.andThen(detail(input)),
+          Effect.andThen(summary(input)),
         ),
     }),
     Layer.mock(OrchestrationEngineService)({
@@ -194,7 +178,7 @@ describe("ThreadIssueSyncReactor", () => {
         yield* TestClock.setTime(Date.parse(NOW));
         const gate = yield* Deferred.make<void>();
         const fixture = yield* makeHarness((input) =>
-          Deferred.await(gate).pipe(Effect.as(makeDetail(input))),
+          Deferred.await(gate).pipe(Effect.as(makeSummary(input))),
         );
         yield* fixture.reactor.syncThread(makeThread("one", [makeLink(9)]), "all");
         // The second request lands while the first read is in flight and joins it.
@@ -223,7 +207,7 @@ describe("ThreadIssueSyncReactor", () => {
             Effect.flatMap((count) => Ref.update(peak, (max) => Math.max(max, count))),
             Effect.andThen(Deferred.await(gate)),
             Effect.andThen(Ref.update(running, (count) => count - 1)),
-            Effect.as(makeDetail(input)),
+            Effect.as(makeSummary(input)),
           ),
         );
         const links = Array.from({ length: 10 }, (_, index) => makeLink(index + 1));
@@ -265,7 +249,7 @@ describe("ThreadIssueSyncReactor", () => {
         yield* TestClock.setTime(Date.parse(NOW));
         const gate = yield* Deferred.make<void>();
         const fixture = yield* makeHarness((input) =>
-          Deferred.await(gate).pipe(Effect.as(makeDetail(input))),
+          Deferred.await(gate).pipe(Effect.as(makeSummary(input))),
         );
         yield* fixture.reactor.syncThread(makeThread("one", [makeLink(4)]), "all");
         yield* Queue.take(fixture.started);
