@@ -1,11 +1,10 @@
-// Fork-owned: the command-palette "Go to Issues" entry for commit `9f92309411`
-// (feat(issues): add GitHub Issues surface scoped to project windows). The
-// upstream `CommandPalette.tsx` carries only marked hook lines pointing here;
-// the capability probe, the navigation command, and the action item are built
-// in this module.
+// Fork-owned command-palette "Go to Issues" entry. Upstream `CommandPalette.tsx` carries only
+// marked hook lines pointing here; the capability probe, the navigation command, and the
+// action item are built in this module.
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { projectFilterProjectKeys } from "@t3tools/client-runtime/state/project-filter";
-import { CircleDotIcon, ListFilterIcon, SearchIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CircleDotIcon, LinkIcon, ListFilterIcon, SearchIcon } from "lucide-react";
+import { useState } from "react";
 
 import { openProjectChooser, useProjectChooserHostValue } from "../projectChooser.fork";
 import { chatNewMatchesCurrentProject, scopeToProjectKeys } from "../projectFilterScope.fork";
@@ -18,7 +17,8 @@ import {
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
 } from "./CommandPalette.logic";
-import type { ScopedProjectRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
+import { openLinkGitHubIssueDialog } from "./githubIssue/LinkGitHubIssueDialog";
 
 /**
  * The palette's Issues navigation entry, or `null` when no reachable
@@ -44,6 +44,29 @@ export function buildGitHubIssuesActionItemFork(input: {
     icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await input.navigate({ to: "/issues", search: { state: "open" } } as never);
+    },
+  };
+}
+
+/**
+ * The palette's "Link GitHub issue to thread" entry for the active thread
+ * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
+ * issue links. It carries no default keybinding.
+ */
+export function buildLinkGitHubIssueActionItemFork(
+  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
+  capabilities: { readonly threadIssues?: boolean } | undefined,
+): CommandPaletteActionItem | null {
+  if (!activeThread || capabilities?.threadIssues !== true) return null;
+  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+  return {
+    kind: "action",
+    value: "action:link-github-issue",
+    searchTerms: ["link issue to thread", "github", "attach", "track"],
+    title: "Link GitHub issue to thread",
+    icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openLinkGitHubIssueDialog(threadRef);
     },
   };
 }
@@ -82,6 +105,8 @@ export function buildProjectChooserActionItemFork(
 const NEW_THREAD_IN_VIEW = "projects";
 
 export interface CommandPaletteProjectScope {
+  /** Explicit inclusion can intentionally show no projects. */
+  readonly preserveEmpty?: boolean;
   /** The project keys the palette shows; `null` shows every project. */
   readonly projectKeys: ReadonlySet<string> | null;
   /** The toggle between the filter and every project; `null` when unscoped. */
@@ -92,12 +117,16 @@ export function useCommandPaletteProjectScopeFork(): CommandPaletteProjectScope 
   const chooser = useProjectChooserHostValue();
   const filter = chooser?.filter ?? null;
   const label = chooser?.label ?? null;
+  const groups = chooser?.groups;
   const [searchAll, setSearchAll] = useState(false);
-  const filterKeys = useMemo(
-    () => (filter === null ? null : projectFilterProjectKeys(filter)),
-    [filter],
-  );
-  return useMemo(() => {
+  const filterKeys =
+    filter === null
+      ? null
+      : projectFilterProjectKeys(
+          filter,
+          groups?.flatMap((group) => group.memberProjectRefs),
+        );
+  return (() => {
     if (filterKeys === null || label === null) return { projectKeys: null, toggle: null };
     const toggle: CommandPaletteActionItem = searchAll
       ? {
@@ -120,8 +149,12 @@ export function useCommandPaletteProjectScopeFork(): CommandPaletteProjectScope 
           keepOpen: true,
           run: async () => setSearchAll(true),
         };
-    return { projectKeys: searchAll ? null : filterKeys, toggle };
-  }, [filterKeys, label, searchAll]);
+    return {
+      projectKeys: searchAll ? null : filterKeys,
+      toggle,
+      preserveEmpty: filter?.mode === "include",
+    };
+  })();
 }
 
 /**
@@ -157,27 +190,66 @@ export function dropNewThreadHintFork(
   items[index] = withoutHint;
 }
 
-/** The palette's threads under the scope. */
-export function scopedPaletteThreadsFork<
-  Thread extends { readonly environmentId: string; readonly projectId: string },
->(threads: ReadonlyArray<Thread>, projectKeys: ReadonlySet<string> | null) {
-  return scopeToProjectKeys(threads, projectKeys, (thread) => [
-    `${thread.environmentId}:${thread.projectId}`,
-  ]);
+// These arrays are freshly derived for this render, never store-owned. Filtering
+// them after construction keeps the upstream palette calls as insertion-only seams.
+export function scopePaletteThreadItemsFork(
+  items: CommandPaletteActionItem[],
+  projectKeys: ReadonlySet<string> | null,
+): void {
+  if (projectKeys === null) return;
+  const scoped = scopeToProjectKeys(items, projectKeys, (item) =>
+    "projectKeyFork" in item && typeof item.projectKeyFork === "string"
+      ? [item.projectKeyFork]
+      : [],
+  );
+  items.splice(0, items.length, ...scoped);
+}
+
+export function scopePalettePickerProjectsFork<
+  Project extends { readonly environmentId: string; readonly id: string },
+>(
+  projects: Project[],
+  entries: ReadonlyArray<{
+    readonly group: { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> };
+    readonly targetProject: { readonly environmentId: string; readonly id: string };
+  }>,
+  scope: CommandPaletteProjectScope,
+): void {
+  if (scope.projectKeys === null) return;
+  const allowed = new Set(
+    scopePaletteProjectEntriesFork(entries, scope.projectKeys, scope.preserveEmpty).map(
+      ({ targetProject }) => `${targetProject.environmentId}:${targetProject.id}`,
+    ),
+  );
+  const scoped = projects.filter((project) =>
+    allowed.has(`${project.environmentId}:${project.id}`),
+  );
+  projects.splice(0, projects.length, ...scoped);
+}
+
+export function paletteGroupsInputFork(
+  groups: ReadonlyArray<CommandPaletteGroup>,
+  projectThreadItems: ReadonlyArray<CommandPaletteActionItem>,
+) {
+  const refreshed = refreshNewThreadInViewFork(groups, projectThreadItems);
+  return refreshed === groups ? {} : { activeGroups: refreshed };
 }
 
 /**
- * The palette's project picker entries under the scope. A scope that leaves no
- * entry (its projects not loaded yet) shows every project, so the picker is
- * never empty.
+ * Explicit inclusion keeps an empty picker empty. Legacy/exclusion filters
+ * retain the existing fallback when none of their projects are available.
  */
 export function scopePaletteProjectEntriesFork<
   Entry extends { readonly group: { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> } },
->(entries: ReadonlyArray<Entry>, projectKeys: ReadonlySet<string> | null): ReadonlyArray<Entry> {
+>(
+  entries: ReadonlyArray<Entry>,
+  projectKeys: ReadonlySet<string> | null,
+  preserveEmpty = false,
+): ReadonlyArray<Entry> {
   const scoped = scopeToProjectKeys(entries, projectKeys, (entry) =>
     entry.group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
   );
-  return scoped.length > 0 ? scoped : entries;
+  return scoped.length === 0 && !preserveEmpty ? entries : scoped;
 }
 
 /**
