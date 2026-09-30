@@ -415,6 +415,7 @@ export function GitHubIssuesPage({
   ) : (
     <EnvironmentGitHubIssueDetailContent
       environmentId={selectedRef.environmentId}
+      copyLinkShortcut={variant === "page"}
       detail={detailQuery.data}
       error={detailQuery.error}
       loading={detailQuery.isPending}
