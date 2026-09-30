@@ -13,10 +13,14 @@ import type {
   GitHubIssueRef,
   GitHubIssueSetStateInput,
   ThreadIssueKey,
+  ThreadIssueSyncInput,
 } from "@t3tools/contracts";
+import { GitHubIssueOperationError } from "@t3tools/contracts";
 
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
+import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
@@ -55,10 +59,53 @@ export const gitHubIssueRpcHandlersFork = (
     observeRpcEffect("githubIssues.setState", githubIssues.setState(input), {
       "rpc.aggregate": "github-issues",
     }),
+  // An active thread only: an unknown or deleted one answers not found.
+  "githubIssues.syncThreadLinks": (input: ThreadIssueSyncInput) =>
+    observeRpcEffect(
+      "githubIssues.syncThreadLinks",
+      Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
+        orchestrator.getThreadShell(input.threadId),
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitHubIssueOperationError({
+              operation: "syncThreadLinks",
+              detail: "The thread could not be read.",
+              cause,
+            }),
+        ),
+        // The shell read serves active and archived threads, never a deleted one.
+        Effect.flatMap((thread) =>
+          thread === null
+            ? Effect.fail(
+                new GitHubIssueOperationError({
+                  operation: "syncThreadLinks",
+                  detail: `Thread ${input.threadId} was not found.`,
+                }),
+              )
+            : Effect.flatMap(ThreadIssueSyncReactor.ThreadIssueSyncReactor, (sync) =>
+                sync.syncThread(thread, input.scope),
+              ),
+        ),
+      ),
+      { "rpc.aggregate": "github-issues" },
+    ),
 });
 
-/** The upstream-shaped service layer, composed with its own dependencies. */
+/**
+ * The upstream-shaped service layer, composed with its own dependencies. The
+ * project list and repository identities come from the server runtime.
+ */
 export const gitHubIssueServiceLiveFork = GitHubIssueService.layer.pipe(
   Layer.provide(GitHubCli.layer),
   Layer.provide(VcsProcess.layer),
+);
+
+/**
+ * Linked issue reads on link, panel open, and refresh, joined to the runtime
+ * core through `github-issues/server-issue-sync-reactor` in `server.ts`. The
+ * same layer value as the routes' service, so both share one instance.
+ */
+export const threadIssueSyncReactorLiveFork = ThreadIssueSyncReactor.layer.pipe(
+  Layer.provide(gitHubIssueServiceLiveFork),
 );
