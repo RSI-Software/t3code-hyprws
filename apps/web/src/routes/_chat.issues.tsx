@@ -33,6 +33,7 @@ import {
 import {
   GitHubIssueListGhosts,
   searchingCaption,
+  staleRefreshCaption,
 } from "../components/githubIssue/GitHubIssueGhosts";
 import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
 import { useGitHubIssueKeyboard } from "../components/githubIssue/useGitHubIssueKeyboard";
@@ -319,6 +320,9 @@ export function GitHubIssuesPage({
     [],
   );
   const refreshing = listQuery.isPending;
+  // Rows held from the last answer: while a new one travels, or kept after its refresh failed.
+  // Still readable, visibly not final — but only a read in flight makes the section busy.
+  const heldRows = listQuery.carried || listQuery.stale;
   const refresh = () => {
     listQuery.refresh();
     detailQuery.refresh();
@@ -371,14 +375,21 @@ export function GitHubIssuesPage({
   ) : (
     <section
       aria-label={`${GROUP_LABELS[search.state]} issues`}
-      aria-busy={listQuery.carried}
-      // Rows held from the last answer while this one travels: still readable, visibly not final.
-      className={listQuery.carried ? "opacity-60 transition-opacity" : "transition-opacity"}
+      aria-busy={listQuery.isPending}
+      // Rows held from the last answer while this one travels, or after its refresh failed:
+      // still readable, visibly not final.
+      className={heldRows ? "opacity-60 transition-opacity" : "transition-opacity"}
     >
       <GitHubIssueGroupHeader
         state={search.state}
         count={entries.length}
-        caption={listQuery.carried ? searchingCaption(sentQuery) : null}
+        caption={
+          listQuery.carried
+            ? { text: searchingCaption(sentQuery), pending: true }
+            : listQuery.stale
+              ? { text: staleRefreshCaption, pending: false }
+              : null
+        }
       />
       {/* Rows are not virtualized: each environment/project query is capped at 50, and rows use content-visibility:auto. */}
       <div className="space-y-0.5">
@@ -632,8 +643,8 @@ function GitHubIssueGroupHeader({
 }: {
   readonly state: IssuesSearch["state"];
   readonly count: number;
-  /** Says what is on its way while the rows below are held from the last answer. */
-  readonly caption: string | null;
+  /** Says what the rows below are: what is on its way, or what a failed refresh left. */
+  readonly caption: { readonly text: string; readonly pending: boolean } | null;
 }) {
   const Icon = state === "all" ? LayersIcon : GITHUB_ISSUE_STATE_PRESENTATION[state].Icon;
   return (
@@ -644,8 +655,8 @@ function GitHubIssueGroupHeader({
       <Separator className="min-w-2 flex-1" />
       {caption ? (
         <span className="flex min-w-0 items-center gap-1.5 font-normal">
-          <Spinner className="size-3 shrink-0" />
-          <span className="truncate">{caption}</span>
+          {caption.pending ? <Spinner className="size-3 shrink-0" /> : null}
+          <span className="truncate">{caption.text}</span>
         </span>
       ) : null}
     </div>
