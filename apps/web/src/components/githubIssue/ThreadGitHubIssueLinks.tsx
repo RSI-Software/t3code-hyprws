@@ -3,8 +3,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
-import { CircleHelpIcon, PlusIcon, UnlinkIcon } from "lucide-react";
-import { useState } from "react";
+import { CircleHelpIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useServerConfigs, useThreadShell } from "../../state/entities";
@@ -31,7 +31,18 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
     useServerConfigs().get(threadRef.environmentId)?.environment.capabilities.threadIssues === true;
   const thread = useThreadShell(supported ? threadRef : null);
   const unlink = useAtomCommand(githubIssueEnvironment.unlinkFromThread, { reportFailure: false });
+  const sync = useAtomCommand(githubIssueEnvironment.syncThreadLinks, { reportFailure: false });
   const [pending, setPending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const loaded = thread !== null;
+  // Opening the panel rereads stale links once per thread per mount; the server skips fresh ones.
+  useEffect(() => {
+    if (!loaded) return;
+    void sync({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, scope: "stale" },
+    });
+  }, [loaded, sync, threadRef.environmentId, threadRef.threadId]);
   if (thread === null) return null;
   const links = thread.issues ?? [];
 
@@ -56,12 +67,39 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
     });
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    const result = await sync({
+      environmentId: threadRef.environmentId,
+      input: { threadId: threadRef.threadId, scope: "all" },
+    });
+    setRefreshing(false);
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    const failure = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: "Could not refresh linked issues",
+      description: failure instanceof Error ? failure.message : undefined,
+    });
+  };
+
   return (
     <section aria-label="Issues linked to this thread">
       <div className="flex items-center gap-2 px-3 pb-1 font-medium text-muted-foreground/70 text-xs">
         <h2 className="shrink-0">Linked to this thread</h2>
         <span className="shrink-0 tabular-nums text-muted-foreground/50">{links.length}</span>
         <Separator className="min-w-2 flex-1" />
+        {links.length > 0 ? (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Refresh linked issues from GitHub"
+            disabled={refreshing}
+            onClick={() => void refresh()}
+          >
+            <RefreshCwIcon />
+          </Button>
+        ) : null}
         <Button
           size="xs"
           variant="ghost"
@@ -119,7 +157,7 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
   );
 }
 
-/** A link not yet read from GitHub says so, rather than passing for an open issue. */
+/** A link without a successful read says so, rather than passing for an open issue. */
 function ThreadIssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink }) {
   if (link.snapshot !== null) return <GitHubIssueStateGlyph state={link.snapshot.state} />;
   return (
@@ -127,11 +165,11 @@ function ThreadIssueLinkStateGlyph({ link }: { readonly link: ThreadIssueLink })
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
         <CircleHelpIcon
           role="img"
-          aria-label="State not read yet"
+          aria-label="State unknown"
           className="size-4 shrink-0 text-muted-foreground"
         />
       </TooltipTrigger>
-      <TooltipPopup>State not read yet</TooltipPopup>
+      <TooltipPopup>State unknown</TooltipPopup>
     </Tooltip>
   );
 }
