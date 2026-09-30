@@ -105,6 +105,7 @@ import {
   referencedThreadContexts,
 } from "./composerSend.logic";
 import { useMultipleModelSend } from "./useMultipleModelSend";
+import { linkGitHubIssueHandoffFork } from "../githubIssue/githubIssueHandoff"; // fork-hook: github-issues/handoff-link-import
 import { worktrunkBootstrapFork, worktrunkDispatchFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/send-bootstrap-import
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
@@ -1349,6 +1350,7 @@ export function useComposerSend(input: ComposerSendInput) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        linkGitHubIssueHandoffFork(draftId, [scopeThreadRef(environmentId, threadIdForSend)]); // fork-hook: github-issues/handoff-link-send
         if (checkoutPullRequestUrl) {
           linkCheckoutPullRequest(
             scopeThreadRef(environmentId, threadIdForSend),
