@@ -17,7 +17,7 @@ It folds each `fixup! <subject>` landing into the one fork commit it names, and 
 | target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
 | fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`                    | fetch error                                        |
 | rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
-| check   | `fork:delta --check`, `fork:ci`, `vpr typecheck`, in the worktree         | any red                                            |
+| check   | `fork:delta --check`, then the CI Check job's steps, in the worktree      | any red                                            |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
 | blocked | one standing block issue, rewritten per run, through `gh`                 | `gh` refuses the write                             |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
