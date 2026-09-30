@@ -65,6 +65,8 @@ import {
   GitHubIssueOperationError,
   GitHubIssueRef,
 } from "./githubIssue.ts";
+import { PullRequestLinkedThreadsResult } from "./pullRequest.ts";
+import { ThreadIssueKey } from "./threadIssues.fork.ts";
 
 const GitHubIssueRpcErrorFork = Schema.Union([
   GitHubIssueCliMissingError,
@@ -85,6 +87,13 @@ const WsGitHubIssuesDetailRpcFork = Rpc.make("githubIssues.detail", {
   error: GitHubIssueRpcErrorFork,
 });
 
+/** Threads linked to one issue, by host-qualified key (RSI-Software/t3code-hyprws#1431). */
+const WsGitHubIssuesLinkedThreadsRpcFork = Rpc.make("githubIssues.linkedThreads", {
+  payload: ThreadIssueKey,
+  success: PullRequestLinkedThreadsResult,
+  error: GitHubIssueRpcErrorFork,
+});
+
 /**
  * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
  * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
@@ -93,8 +102,13 @@ export const githubIssuesRpcFork = {
   methodNames: {
     githubIssuesList: "githubIssues.list",
     githubIssuesDetail: "githubIssues.detail",
+    githubIssuesLinkedThreads: "githubIssues.linkedThreads",
   } as const,
-  rpcs: [WsGitHubIssuesListRpcFork, WsGitHubIssuesDetailRpcFork] as const,
+  rpcs: [
+    WsGitHubIssuesListRpcFork,
+    WsGitHubIssuesDetailRpcFork,
+    WsGitHubIssuesLinkedThreadsRpcFork,
+  ] as const,
 };
 
 // Fork-thread RPC registration for the same-provider thread fork. The payload,

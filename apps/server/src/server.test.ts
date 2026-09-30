@@ -138,7 +138,7 @@ import {
 } from "./orchestration/Errors.ts";
 import { workspaceSymlinkTestsFork } from "./server.workspaceSymlinks.fork.suite.ts"; // fork-hook: upstream-fixes/workspace-symlink-tests-import
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
+import { threadIssueStreamTestsFork } from "./ws.threadIssues.fork.suite.ts"; // fork-hook: github-issues/ws-stream-tests-import
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
@@ -13335,6 +13335,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assertFailure(result, terminalError);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
+  threadIssueStreamTestsFork(it, {
+    buildAppUnderTest,
+    getWsServerUrl,
+    withWsRpcClient,
+    makeThread: () => makeDefaultOrchestrationReadModel().threads[0]!,
+    makeThreadShell: makeDefaultOrchestrationThreadShell,
+  }); // fork-hook: github-issues/ws-stream-tests
 });
 
 it.live(
