@@ -23,7 +23,12 @@ import * as Layer from "effect/Layer";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
-import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJson.ts";
+import {
+  decodeGitHubIssueDetail,
+  decodeGitHubIssueList,
+  decodeGitHubIssueSummary,
+  type GitHubIssueSummary,
+} from "./gitHubIssueJson.ts";
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_CONCURRENCY = 8;
@@ -35,6 +40,10 @@ const DETAIL_COMMENT_LIMIT = 100;
 const ISSUE_LIST_FIELDS =
   "number,title,url,author,assignees,labels,issueType,state,createdAt,updatedAt,comments,reactionGroups";
 const ISSUE_DETAIL_FIELDS = `${ISSUE_LIST_FIELDS},body,subIssues,closedAt`;
+// The linked-issue sync reads this alone: a snapshot stores a title and a state, so refreshing one
+// never hauls the body, comments, and reactions a detail read asks for
+// (RSI-Software/t3code-hyprws#1451).
+const ISSUE_SUMMARY_FIELDS = "title,state";
 
 type GitHubIssueCliError = GitHubIssueCliMissingError | GitHubIssueCliUnauthenticatedError;
 type GitHubIssueError = GitHubIssueCliError | GitHubIssueOperationError;
@@ -57,6 +66,9 @@ export class GitHubIssueService extends Context.Service<
       input: GitHubIssueListInput,
     ) => Effect.Effect<GitHubIssueListResult, GitHubIssueError>;
     readonly detail: (input: GitHubIssueRef) => Effect.Effect<GitHubIssueDetail, GitHubIssueError>;
+    readonly summary: (
+      input: GitHubIssueRef,
+    ) => Effect.Effect<GitHubIssueSummary, GitHubIssueError>;
     readonly setState: (input: GitHubIssueSetStateInput) => Effect.Effect<void, GitHubIssueError>;
   }
 >()("t3/githubIssue/GitHubIssueService") {}
@@ -250,6 +262,29 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const summary: GitHubIssueService["Service"]["summary"] = Effect.fn("GitHubIssueService.summary")(
+    function* (input) {
+      const project = yield* issueProject(input, "summary");
+      const output = yield* cli
+        .execute({
+          cwd: project.project.workspaceRoot,
+          args: [
+            "issue",
+            "view",
+            String(input.number),
+            "--repo",
+            cliRepository(project, input.repository),
+            "--json",
+            ISSUE_SUMMARY_FIELDS,
+          ],
+        })
+        .pipe(Effect.mapError(fromCliError("summary", project.host)));
+      return yield* decodeGitHubIssueSummary(output.stdout).pipe(
+        Effect.mapError((cause) => decodeError("summary", cause)),
+      );
+    },
+  );
+
   const setState: GitHubIssueService["Service"]["setState"] = Effect.fn(
     "GitHubIssueService.setState",
   )(function* (input) {
@@ -272,7 +307,7 @@ export const make = Effect.gen(function* () {
       .pipe(Effect.mapError(fromCliError(operation, project.host)));
   });
 
-  return GitHubIssueService.of({ list, detail, setState });
+  return GitHubIssueService.of({ list, detail, summary, setState });
 });
 
 export const layer = Layer.effect(GitHubIssueService, make);
