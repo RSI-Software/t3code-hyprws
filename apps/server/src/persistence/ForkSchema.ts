@@ -17,16 +17,34 @@ const FORK_COLUMNS: ReadonlyArray<{
 }> = [];
 
 /**
- * Shipped-nightly repair for fork nightlies
- * `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded the fork column
- * as numbered migration row `(48, "ProjectionThreadCheckoutMove")`.
- *
- * The Migrator only runs migrations with an id above the latest recorded id,
- * so that stale fork row would make upstream's real 048
- * (`ProjectionThreadBranchPullRequest`) skip: latest id 48 is not below 48.
- * Delete exactly that row before `runMigrations` so upstream's guarded 048
- * runs. Checkout moves now ride on the V2 thread payload, so no fork column
- * replaces it; databases that already carry `checkout_move_json` keep it unread.
+ * Fork-owned tables, created idempotently after the upstream migrations for
+ * the same reason as the columns above. They report nothing: a fresh database
+ * and an upgraded one both simply have them afterwards.
+ */
+const FORK_TABLES = [
+  // V1 thread ↔ GitHub issue links for the github-issues domain. V2 keeps links
+  // on the thread payload; only the legacy import reads this table, so it stays
+  // for databases that predate V2 and fresh ones alike.
+  `CREATE TABLE IF NOT EXISTS projection_thread_issues (
+    thread_id TEXT NOT NULL,
+    host TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    number INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    source TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    snapshot_json TEXT,
+    PRIMARY KEY (thread_id, host, repository, number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_projection_thread_issues_issue
+    ON projection_thread_issues(host, repository, number)`,
+] as const;
+
+/**
+ * Repairs fork nightlies `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded
+ * migration row `(48, "ProjectionThreadCheckoutMove")`. The Migrator runs only ids above the
+ * latest recorded one, so that row would skip upstream's real 048: delete exactly it before
+ * `runMigrations`. Databases that already carry `checkout_move_json` keep that column unread.
  */
 export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRow")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -46,6 +64,10 @@ export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
     if (columns.some((existing) => existing.name === column)) continue;
     yield* sql`ALTER TABLE ${sql.literal(table)} ADD COLUMN ${sql.literal(column)} ${sql.literal(definition)}`;
     added.push(`${table}.${column}`);
+  }
+
+  for (const statement of FORK_TABLES) {
+    yield* sql.unsafe(statement);
   }
 
   if (added.length > 0) {
