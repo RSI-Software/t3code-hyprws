@@ -207,6 +207,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
   githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
+  threadIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-thread-issues-capability
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
