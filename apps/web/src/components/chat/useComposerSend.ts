@@ -96,6 +96,7 @@ import {
 import { usePlanFollowUpSend } from "./useProposedPlanSend";
 import { useMultipleModelSend } from "./useMultipleModelSend";
 import { worktrunkBootstrapFork, worktrunkDispatchFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/send-bootstrap-import
+import { linkGitHubIssueHandoffFork } from "../githubIssue/githubIssueHandoff"; // fork-hook: github-issues/handoff-link-import
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
   awaitAttachmentUploads,
@@ -1337,6 +1338,7 @@ export function useComposerSend(input: ComposerSendInput) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        linkGitHubIssueHandoffFork(draftId, [scopeThreadRef(environmentId, threadIdForSend)]); // fork-hook: github-issues/handoff-link-send
         setKeepFullHistory(routeThreadKey, false);
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {
