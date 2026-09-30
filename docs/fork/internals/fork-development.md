@@ -20,17 +20,28 @@ Goal: a small, durable patch stack on upstream.
 | Second frontend     | No desktop-only copy of the web app   |
 | Compositor policy   | No workspace policy inside T3 Code    |
 | Window kinds        | Every window can show any project     |
-| Removal             | Keep remote, web, mobile              |
+| Removal             | Keep remote, web, upstream mobile app |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
 `dev:desktop:agent` is the one tooling exception; shipped launches leave placement to Hyprland.
 
 ## Multi-surface rule
 
-`AGENTS.md` owns the surface walk. Two fork-specific rules:
+`AGENTS.md` owns the surface walk. Fork-specific rules:
 
 - **Scoped ref:** resolves in every mode
 - **Project ID:** never globally unique, never local
+
+**Mobile:** no fork build; users run the upstream app.
+A fork server must stay usable from it, which simply lacks fork features.
+
+| Fork wire surface | Rule                                       |
+| ----------------- | ------------------------------------------ |
+| Fields            | Optional; upstream decoders drop them      |
+| Capabilities      | Optional flags; absent means unsupported   |
+| Event types       | Never on a stream the upstream app decodes |
+
+`scripts/upstream-client-compat.fork.test.ts` decodes fork payloads with the upstream base contracts.
 
 ## Testing a fork checkout
 
