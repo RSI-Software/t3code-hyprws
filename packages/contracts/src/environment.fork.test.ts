@@ -24,6 +24,17 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.githubIssues,
     ).toBe(true);
   });
+  it("treats a missing thread issue links capability as unsupported under version skew", () => {
+    expect(decodeDescriptor(descriptor).capabilities.threadIssues).toBeUndefined();
+  });
+  it("preserves an advertised thread issue links capability", () => {
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, threadIssues: true },
+      }).capabilities.threadIssues,
+    ).toBe(true);
+  });
 });
 describe("ThreadEnvMode (the wire schema)", () => {
   it("accepts only the modes every released client validates against", () => {
