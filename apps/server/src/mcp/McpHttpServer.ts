@@ -32,6 +32,7 @@ import {
 } from "./toolkits/preview/tools.ts";
 import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { IssuesToolkitRegistrationLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
 import {
   DeviceScreenshotToolkitHandlersLive,
   DeviceStandardToolkitHandlersLive,
@@ -670,5 +671,6 @@ const McpTransportLive = McpServer.layerHttp({
 export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
+  IssuesToolkitRegistrationLiveFork, // fork-hook: github-issues/mcp-issues-toolkit
   DeviceToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));
