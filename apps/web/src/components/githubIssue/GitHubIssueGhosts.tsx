@@ -12,6 +12,9 @@ export function searchingCaption(query?: string): string {
     : "Reading issues from GitHub";
 }
 
+/** Names the rows a failed refresh left behind: readable, but not what GitHub says right now. */
+export const staleRefreshCaption = "Couldn't refresh · showing last results";
+
 /** The pull request list's ghost, named for what is actually on its way. */
 export function GitHubIssueListGhosts({ query }: { readonly query?: string }) {
   return <PullRequestListGhost rows={7} caption={searchingCaption(query)} />;
