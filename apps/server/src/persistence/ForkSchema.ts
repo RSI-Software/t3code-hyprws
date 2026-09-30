@@ -1,32 +1,120 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /**
- * Fork-owned columns, added after the upstream migration sequence has run.
- *
- * Upstream numbers its migrations sequentially, so a fork migration in that
- * sequence collides with the next upstream release and a database migrated by
- * either build skips the other's step. Fork columns instead land through this
- * idempotent pass: each one is checked with `PRAGMA table_info` and added when
- * missing, whatever the migration table says.
+ * Fork-owned columns, added after the upstream migration sequence has run. A numbered fork
+ * migration would collide with the next upstream release, so this idempotent pass checks each
+ * column with `PRAGMA table_info` and adds it when missing, whatever the migration table says.
  */
 const FORK_COLUMNS: ReadonlyArray<{
   readonly table: string;
   readonly column: string;
   readonly definition: string;
-}> = [];
+}> = [
+  // The external MCP policy an owner attached to a device approval.
+  { table: "auth_device_authorizations", column: "mcp_policy_json", definition: "TEXT" },
+  // The run an external MCP interrupt committed to, read back by its retry.
+  { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
+  // When the legacy import folded a V1 issue link into its V2 thread; set rows never import again.
+  { table: "projection_thread_issues", column: "imported_at", definition: "TEXT" },
+  // A stopped collaborator share's thread shell, frozen when sharing stopped; null while live.
+  { table: "fork_colleague_shares", column: "frozen_shell_json", definition: "TEXT" },
+  // What a live share's collaborator messages may do: `send`, or `approve` to wait for the host.
+  { table: "fork_colleague_shares", column: "access", definition: "TEXT" },
+];
 
 /**
- * Shipped-nightly repair for fork nightlies
- * `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded the fork column
- * as numbered migration row `(48, "ProjectionThreadCheckoutMove")`.
- *
- * The Migrator only runs migrations with an id above the latest recorded id,
- * so that stale fork row would make upstream's real 048
- * (`ProjectionThreadBranchPullRequest`) skip: latest id 48 is not below 48.
- * Delete exactly that row before `runMigrations` so upstream's guarded 048
- * runs. Checkout moves now ride on the V2 thread payload, so no fork column
- * replaces it; databases that already carry `checkout_move_json` keep it unread.
+ * Fork-owned tables, created idempotently after the upstream migrations for
+ * the same reason as the columns above. They report nothing: a fresh database
+ * and an upgraded one both simply have them afterwards.
+ */
+const FORK_TABLES = [
+  // V1 thread ↔ GitHub issue links for the github-issues domain. V2 keeps links
+  // on the thread payload; only the legacy import reads this table, so it stays
+  // for databases that predate V2 and fresh ones alike.
+  `CREATE TABLE IF NOT EXISTS projection_thread_issues (
+    thread_id TEXT NOT NULL,
+    host TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    number INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    source TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    snapshot_json TEXT,
+    PRIMARY KEY (thread_id, host, repository, number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_projection_thread_issues_issue
+    ON projection_thread_issues(host, repository, number)`,
+  // Owner-approved native client requests for the device-auth domain. Only a
+  // digest of the device code is stored; rows prune once expired.
+  `CREATE TABLE IF NOT EXISTS auth_device_authorizations (
+    device_code_hash TEXT PRIMARY KEY,
+    user_code TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    client_json TEXT NOT NULL,
+    requested_scopes TEXT,
+    proof_key_thumbprint TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_polled_at TEXT,
+    last_proof_iat INTEGER,
+    granted_scopes TEXT,
+    granted_ttl_ms INTEGER,
+    decided_at TEXT,
+    session_id TEXT
+  )`,
+  // External MCP policies for device-authorized sessions, keyed by the session
+  // the grant issued; the session's own expiry and revocation end the grant.
+  `CREATE TABLE IF NOT EXISTS auth_external_mcp_grants (
+    session_id TEXT PRIMARY KEY,
+    policy_json TEXT NOT NULL,
+    client_label TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  // External MCP retry keys: each binds one request's fingerprint to the
+  // result it produced, so a retry replays it instead of acting again.
+  `CREATE TABLE IF NOT EXISTS auth_external_mcp_requests (
+    session_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    client_request_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, operation, client_request_id)
+  )`,
+  // Sidebar thread groups for the thread-ordering domain, in sidebar order.
+  // Members are a JSON array of thread ids; a thread is in at most one group.
+  `CREATE TABLE IF NOT EXISTS fork_thread_groups (
+    group_id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    thread_ids_json TEXT NOT NULL,
+    parent_thread_id TEXT
+  )`,
+  // Threads shared with a collaborator's pairing subject for the colleague-collab domain.
+  `CREATE TABLE IF NOT EXISTS fork_colleague_shares (
+    subject TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    colleague_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (subject, thread_id)
+  )`,
+  // Collaborator messages waiting for the host to send or dismiss them (colleague-collab).
+  `CREATE TABLE IF NOT EXISTS fork_collaborator_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    collaborator_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    submitted_at TEXT NOT NULL
+  )`,
+] as const;
+
+/**
+ * Repairs fork nightlies `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded
+ * migration row `(48, "ProjectionThreadCheckoutMove")`. The Migrator runs only ids above the
+ * latest recorded one, so that row would skip upstream's real 048: delete exactly it before
+ * `runMigrations`. Databases that already carry `checkout_move_json` keep that column unread.
  */
 export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRow")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -40,6 +128,11 @@ export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRo
 export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const added: string[] = [];
+
+  // Tables first, so a column can extend a fork table on a fresh database.
+  for (const statement of FORK_TABLES) {
+    yield* sql.unsafe(statement);
+  }
 
   for (const { table, column, definition } of FORK_COLUMNS) {
     const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(${sql.literal(table)})`;
