@@ -41,6 +41,7 @@ import {
   startFanoutThread,
 } from "./chatViewSend";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
+import { collectIssueHandoffFork } from "./useMultipleModelSend.fork"; // fork-hook: github-issues/handoff-link-multi-import
 import type { StoredThreadEnvMode as EnvModeFork } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/multi-env-mode-import
 import { worktrunkBootstrapFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/multi-bootstrap-import
 
@@ -152,6 +153,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
           clearedDraftSnapshot &&
         appAtomRegistry.get(fanoutSelectionsAtom) === submittedSelections;
       setThreadError(threadId, null);
+      const handoffFork = collectIssueHandoffFork(draftId, environmentId); // fork-hook: github-issues/handoff-link-multi-collect
       const starts = Promise.all(
         targets.map(async (target) => {
           const started = await startFanoutThread({
@@ -163,6 +165,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
             model: target.selection.model,
             uncertainSubmissions: uncertainSubmissionsRef.current,
             start: (targetThreadId) => {
+              handoffFork.capture(target, targetThreadId); // fork-hook: github-issues/handoff-link-multi-capture
               return startThreadTurn({
                 environmentId,
                 input: {
@@ -210,6 +213,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                 params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
               }),
           });
+          handoffFork.complete(target, started); // fork-hook: github-issues/handoff-link-multi-complete
           if (started) startedCount += 1;
           else failedSelections.push(target.selection);
         }),
@@ -218,6 +222,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
       resetLocalDispatch();
       releasedComposer = true;
       await starts;
+      handoffFork.link(); // fork-hook: github-issues/handoff-link-multi-send
       if (startedCount > 0) {
         toastManager.add(
           stackedThreadToast({
