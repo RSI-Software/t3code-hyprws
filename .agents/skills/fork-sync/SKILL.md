@@ -32,7 +32,7 @@ Post-push recovery reads this file, never a comment.
 | `lease`        | The `origin/hyprws` sha the push is leased against         |
 | `trunk`        | Trunk before and after the run                             |
 | `conflicts[]`  | Path, fork commit, upstream commit, resolution route       |
-| `checks[]`     | `fork:delta --check`, `fork:scan`, typecheck, and results  |
+| `checks[]`     | Each battery command and its result                        |
 | `decision`     | A stopped run's worktree, paths, and exact resume commands |
 | `decision.tip` | A red check's rebased tip, kept in the worktree            |
 
