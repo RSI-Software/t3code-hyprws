@@ -6,10 +6,16 @@ import type {
   GitHubIssueListResult,
   GitHubIssueRef,
 } from "@t3tools/contracts";
+import type * as Crypto from "effect/Crypto";
 import type { Atom } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
+import { linkThreadIssue, unlinkThreadIssue } from "../operations/threadIssues.fork.ts";
+import {
+  createEnvironmentCommand,
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+} from "./runtime.ts";
 
 export type EnvironmentGitHubIssueRef = GitHubIssueRef & {
   readonly environmentId: EnvironmentId;
@@ -66,7 +72,7 @@ export function mergeGitHubIssueLists(
 }
 
 export function createGitHubIssueEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
 ) {
   return {
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -83,6 +89,22 @@ export function createGitHubIssueEnvironmentAtoms<R, E>(
     setState: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:github-issues:set-state",
       tag: WS_METHODS.githubIssuesSetState,
+    }),
+    /** The threads that link one issue, by its host-level key. */
+    linkedThreads: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:github-issues:linked-threads",
+      tag: WS_METHODS.githubIssuesLinkedThreads,
+      staleTimeMs: 15_000,
+    }),
+    // Thread shells carry their links, so the thread side follows on the shell stream; the
+    // issue side re-reads `linkedThreads` once one of these lands.
+    linkToThread: createEnvironmentCommand(runtime, {
+      label: "environment-data:github-issues:link-thread",
+      execute: (input: Parameters<typeof linkThreadIssue>[0]) => linkThreadIssue(input),
+    }),
+    unlinkFromThread: createEnvironmentCommand(runtime, {
+      label: "environment-data:github-issues:unlink-thread",
+      execute: (input: Parameters<typeof unlinkThreadIssue>[0]) => unlinkThreadIssue(input),
     }),
   };
 }
