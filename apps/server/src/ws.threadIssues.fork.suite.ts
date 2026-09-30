@@ -269,4 +269,26 @@ export const threadIssueStreamTestsFork = <R, BuildError, UrlError, ClientError>
       }
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
+
+  it.effect("a sync for an unknown or deleted thread answers not found", () =>
+    Effect.gen(function* () {
+      yield* harness.buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {},
+          projectionSnapshotQuery: { getThreadShellById: () => Effect.succeedNone },
+        },
+      });
+      const wsUrl = yield* harness.getWsServerUrl("/ws");
+      const error = yield* Effect.scoped(
+        harness.withWsRpcClient(wsUrl, (client) =>
+          client["githubIssues.syncThreadLinks"]({
+            threadId: harness.makeThreadShell().id,
+            scope: "all",
+          }).pipe(Effect.flip),
+        ),
+      );
+      assert.strictEqual(error._tag, "GitHubIssueOperationError");
+      assert.include(error.message, "was not found");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
 };
