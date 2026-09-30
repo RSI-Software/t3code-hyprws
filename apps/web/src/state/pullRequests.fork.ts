@@ -26,6 +26,8 @@ interface MergedEnvironmentQueryForkView<A> {
   readonly errors: ReadonlyArray<MergedEnvironmentQueryErrorFork>;
   /** True while any targeted environment is still waiting for an answer. */
   readonly isPending: boolean;
+  /** True when rows on screen come from an environment whose latest read failed. */
+  readonly stale: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export function createMergedEnvironmentQueryFork<Input, A>(
       const values: Array<readonly [EnvironmentId, A]> = [];
       const errors: MergedEnvironmentQueryErrorFork[] = [];
       let isPending = false;
+      let stale = false;
       for (const target of targets) {
         const result = get(atomFor(target));
         isPending ||= result.waiting;
@@ -58,15 +61,21 @@ export function createMergedEnvironmentQueryFork<Input, A>(
           });
         }
         const value = Option.getOrNull(AsyncResult.value(result));
-        if (value !== null) values.push([target.environmentId, value]);
+        if (value !== null) {
+          values.push([target.environmentId, value]);
+          // A failure carries its previous success, so rows can outlive the read that listed
+          // them: they stand for an environment the last refresh could not answer.
+          stale ||= result._tag === "Failure";
+        }
       }
-      return { values, errors, isPending };
+      return { values, errors, isPending, stale };
     }).pipe(Atom.withLabel(`${label}:${key}`)),
   );
   const empty = Atom.make<MergedEnvironmentQueryForkView<A>>({
     values: [],
     errors: [],
     isPending: false,
+    stale: false,
   }).pipe(Atom.withLabel(`${label}:empty`));
   return function useMergedQueryFork(targets: ReadonlyArray<EnvironmentQueryTarget<Input>>) {
     const key = JSON.stringify(targets);
