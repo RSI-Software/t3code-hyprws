@@ -8,7 +8,7 @@ import {
   CommandId,
   pullRequestHostOf,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type ThreadId,
   type ThreadIssueKey,
 } from "@t3tools/contracts";
@@ -19,13 +19,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { McpServer } from "effect/unstable/ai";
 
+import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import {
   normalizeThreadIssueKey,
   threadIssueKeysEqual,
-} from "../../../orchestration/threadIssues.fork.ts";
-import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { OrchestrationCommandInvariantError } from "../../../orchestration/Errors.ts";
+} from "../../../orchestration-v2/ThreadIssues.fork.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   IssueHostRequiredError,
@@ -135,7 +134,7 @@ const resolveIssueTarget = Effect.fn("IssuesToolkitFork.resolveTarget")(function
 });
 
 /** The thread shell's `issues` key is omitted when the thread has none, like `pullRequests` beside it. */
-type ThreadIssuesShell = Pick<OrchestrationThreadShell, "id" | "issues">;
+type ThreadIssuesShell = Pick<OrchestrationV2ThreadShell, "id" | "issues">;
 
 /** What `list_thread_issues` reports from a thread shell. */
 function listThreadIssuesFork(thread: ThreadIssuesShell): ListThreadIssuesResult {
@@ -153,8 +152,8 @@ function listThreadIssuesFork(thread: ThreadIssuesShell): ListThreadIssuesResult
 }
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const engine = yield* Orchestrator.OrchestratorV2;
+  const projects = yield* ProjectService.ProjectService;
   const crypto = yield* Crypto.Crypto;
 
   const commandId = (tag: string, threadId: ThreadId) =>
@@ -170,13 +169,13 @@ const make = Effect.gen(function* () {
       | typeof IssueUnlinkFailedError
       | typeof IssueListFailedError,
   ) {
-    const thread = yield* snapshots
-      .getThreadShellById(threadId)
+    const thread = yield* engine
+      .getThreadShell(threadId)
       .pipe(Effect.mapError((cause) => new Failure({ cause })));
-    if (Option.isNone(thread)) {
+    if (thread === null) {
       return yield* new IssueThreadNotFoundError({ threadId });
     }
-    return thread.value;
+    return thread;
   });
 
   const requireThread = Effect.fn("IssuesToolkitFork.requireThread")(function* (
@@ -196,8 +195,8 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * The decider rejects a duplicate link and an absent unlink with the same
-   * invariant tag as a missing or deleted thread, so a rejection is read back
+   * The orchestrator refuses a duplicate link and an absent unlink with the same
+   * dispatch error as a missing or deleted thread, so a refusal is read back
    * against the thread. It is the agent's idempotent success only when the
    * thread still exists and this exact link is in the state the call wanted.
    */
@@ -206,7 +205,7 @@ const make = Effect.gen(function* () {
     key: ThreadIssueKey,
     wantLinked: boolean,
     Failure: typeof IssueLinkFailedError | typeof IssueUnlinkFailedError,
-    rejection: OrchestrationCommandInvariantError,
+    rejection: Orchestrator.OrchestratorDispatchError,
   ) {
     const thread = yield* readThread(threadId, Failure);
     const linked = (thread.issues ?? []).some((link) => threadIssueKeysEqual(link, key));
@@ -216,10 +215,10 @@ const make = Effect.gen(function* () {
   });
 
   const projectOf = (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationV2ThreadShell,
     Failure: typeof IssueLinkFailedError | typeof IssueUnlinkFailedError,
   ) =>
-    snapshots.getProjectShellById(thread.projectId).pipe(
+    projects.getShell(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.mapError((cause) => new Failure({ cause })),
     );
@@ -253,7 +252,7 @@ const make = Effect.gen(function* () {
           .pipe(
             Effect.as(null),
             Effect.catchTags({
-              OrchestrationCommandInvariantError: (rejection) => Effect.succeed(rejection),
+              OrchestratorDispatchError: (rejection) => Effect.succeed(rejection),
             }),
             Effect.catchCause(dispatchFailure(IssueLinkFailedError)),
           );
@@ -279,7 +278,7 @@ const make = Effect.gen(function* () {
           .pipe(
             Effect.as(null),
             Effect.catchTags({
-              OrchestrationCommandInvariantError: (rejection) => Effect.succeed(rejection),
+              OrchestratorDispatchError: (rejection) => Effect.succeed(rejection),
             }),
             Effect.catchCause(dispatchFailure(IssueUnlinkFailedError)),
           );
