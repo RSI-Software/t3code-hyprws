@@ -10,7 +10,8 @@ import { useCallback } from "react";
 
 import { readEnvironmentSupportsActiveReorder } from "../state/entities.ts";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import { ThreadActiveReorderUnsupportedError } from "./useThreadActions.ts";
+// Type-only: a value import cycles through the host and deadlocks its `importOriginal` mocks.
+import type { ThreadActiveReorderUnsupportedError } from "./useThreadActions.ts";
 
 /**
  * Fork: the order key the active-reorder write accepts. A string places the
@@ -25,7 +26,8 @@ export type ActiveThreadOrderKey = string | null;
  * same `thread.active.reorder` command accepting null to restore automatic
  * ordering — the path drags use for manual placement.
  */
-export function useReorderActiveThreadFork(input: {
+export function reorderActiveThreadFork(input: {
+  readonly unsupportedError: typeof ThreadActiveReorderUnsupportedError;
   readonly reorderActiveThreadMutation: (value: {
     readonly environmentId: ScopedThreadRef["environmentId"];
     readonly input: {
@@ -41,7 +43,7 @@ export function useReorderActiveThreadFork(input: {
     if (!readEnvironmentSupportsActiveReorder(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
-          new ThreadActiveReorderUnsupportedError({
+          new input.unsupportedError({
             environmentId: target.environmentId,
             threadId: target.threadId,
           }),
@@ -60,7 +62,7 @@ export function useReorderActiveThreadFork(input: {
  * the manual key through the existing active-reorder write (null =
  * automatic ordering); failure toasts match the sidebar's attempt* helpers.
  */
-export function useAttemptResetThreadOrder(
+export function attemptResetThreadOrderFork(
   reorderActiveThreadOrClear: (
     target: ScopedThreadRef,
     orderKey: ActiveThreadOrderKey,
