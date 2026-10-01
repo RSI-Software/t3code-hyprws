@@ -50,6 +50,7 @@ the change. Upload evidence to GitHub and embed or link it here. Never commit PR
        backend-attach
        browser-bookmarks
        custom-agents
+       device-auth
        distribution
        fork-meta
        github-issues
