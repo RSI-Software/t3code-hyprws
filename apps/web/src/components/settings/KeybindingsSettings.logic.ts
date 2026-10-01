@@ -15,12 +15,8 @@ import { shortcutKeyFromEvent } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
-// Usage page commands in page order, with `usage.open` after the first metric.
-const usagePageCommands = [...METRIC_OPTIONS, ...WINDOW_OPTIONS]
-  .map((option): KeybindingCommand => option.command)
-  .toSpliced(1, 0, "usage.open");
 const usageCommandOrder = new Map<KeybindingCommand, number>(
-  usagePageCommands.map((command, index) => [command, index]),
+  [...METRIC_OPTIONS, ...WINDOW_OPTIONS].map((option, index) => [option.command, index]),
 );
 
 const firstUsageCommand = METRIC_OPTIONS[0].command;

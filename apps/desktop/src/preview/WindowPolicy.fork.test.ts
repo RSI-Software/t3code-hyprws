@@ -40,9 +40,14 @@ vi.mock("electron", () => ({
   webContents: { fromId },
 }));
 
+// The preload module subscribes once at load, and Vitest clears mock calls
+// before each test, so its load-time subscriptions are kept here.
+const loadSubscriptions = [...ipcRenderer.on.mock.calls];
+const subscriptions = () => [...loadSubscriptions, ...ipcRenderer.on.mock.calls];
+
 /** Replays what the main process pushes on a preload channel the bridge subscribed to. */
 const emit = (channel: string, ...args: ReadonlyArray<unknown>) => {
-  for (const [subscribed, listener] of ipcRenderer.on.mock.calls)
+  for (const [subscribed, listener] of subscriptions())
     if (subscribed === channel) listener({}, ...(args as never[]));
 };
 
@@ -240,7 +245,7 @@ describe("desktop preview window policy", () => {
   });
 
   it("subscribes the demand channel once no matter how many bridges are exposed", () => {
-    const before = ipcRenderer.on.mock.calls.filter(
+    const before = subscriptions().filter(
       ([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL,
     ).length;
 
@@ -250,9 +255,8 @@ describe("desktop preview window policy", () => {
     // The listener belongs to the preload module, not to a bridge, so a repeat
     // call never adds a second `ipcRenderer` subscription.
     expect(
-      ipcRenderer.on.mock.calls.filter(
-        ([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL,
-      ).length,
+      subscriptions().filter(([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL)
+        .length,
     ).toBe(before);
     expect(before).toBe(1);
   });
