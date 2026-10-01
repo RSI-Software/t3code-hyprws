@@ -1,5 +1,6 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -39,6 +40,8 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
         return next;
       });
     const network = yield* SubscriptionRef.make<"unknown" | "offline" | "online">("online");
+    const connects = yield* Ref.make<ReadonlyArray<ConnectionTarget["_tag"]>>([]);
+    const connected = yield* Deferred.make<void>();
     const layer = EnvironmentRegistry.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
@@ -77,7 +80,13 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
             changes: SubscriptionRef.changes(network),
           }),
           Layer.succeed(ConnectionWakeups.ConnectionWakeups, { changes: Stream.never }),
-          Layer.succeed(ConnectionDriver.ConnectionDriver, { connect: () => Effect.never }),
+          Layer.succeed(ConnectionDriver.ConnectionDriver, {
+            connect: (entry) =>
+              Ref.update(connects, (current) => [...current, entry.target._tag]).pipe(
+                Effect.andThen(Deferred.succeed(connected, undefined)),
+                Effect.andThen(Effect.never),
+              ),
+          }),
           Layer.succeed(Persistence.EnvironmentCacheStore, {
             loadShell: () => Effect.succeedNone,
             saveShell: () => Effect.void,
@@ -96,7 +105,7 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
         ),
       ),
     );
-    return { layer, storedTargets };
+    return { layer, storedTargets, connects, connected };
   });
 
 const withAuth = (savedConnectionsOutrankPrimary: boolean) =>
@@ -133,6 +142,25 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
         yield* registry.reconcilePlatform([]);
         expect(yield* targetOf).toEqual(savedTarget);
         expect(yield* stored).toEqual(savedTarget);
+      }).pipe(Effect.provide(harness.layer), withAuth(true), Effect.scoped);
+    }),
+  );
+
+  it.effect("an unchanged attached primary keeps its connection across platform polls", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([savedTarget]);
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        const poll = registry.reconcilePlatform([
+          new PrimaryConnectionRegistration({ target: TARGET }),
+        ]);
+        yield* poll;
+        yield* Deferred.await(harness.connected);
+        yield* poll;
+        yield* poll;
+        // A reinstalled entry connects from a forked fiber on the next turn.
+        yield* Effect.yieldNow;
+        expect(yield* Ref.get(harness.connects)).toEqual(["PrimaryConnectionTarget"]);
       }).pipe(Effect.provide(harness.layer), withAuth(true), Effect.scoped);
     }),
   );
