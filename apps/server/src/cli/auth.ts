@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { withDeviceCommandFork } from "./authDevice.fork.ts"; // fork-hook: device-auth/cli-device-import
 
 import {
   formatConnectDeviceList,
@@ -328,4 +329,5 @@ const sessionCommand = Command.make("session").pipe(
 export const authCommand = Command.make("auth").pipe(
   Command.withDescription("Manage the local auth control plane for headless deployments."),
   Command.withSubcommands([pairingCommand, sessionCommand, connectDeviceCommand]),
+  withDeviceCommandFork, // fork-hook: device-auth/cli-device-command
 );
