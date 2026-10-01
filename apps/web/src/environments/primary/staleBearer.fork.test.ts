@@ -11,7 +11,7 @@ import { makePrimaryEnvironmentHttpLayer } from "./httpLayer";
 // The attached-primary 401 contract (RSI-Software/t3code-hyprws#1350): one
 // re-mint and retry; a second 401 or a transport error drops the attachment;
 // managed desktop keeps upstream's bearer client untouched.
-describe.sequential("attached primary stale bearer retry", () => {
+describe("attached primary stale bearer retry", { concurrent: false }, () => {
   afterEach(() => {
     __resetDesktopPrimaryAuthForTests();
     Reflect.deleteProperty(globalThis, "window");

@@ -318,16 +318,16 @@ it("keeps a single-line line marker bounded to its own line", () => {
   assert.deepInclude(hooks[0], { key: "dom/name", startLine: 2, endLine: 2 });
 });
 
-// The repo's formatter is `vp fmt`, which forwards to the repo's Oxfmt binary
-// (`node_modules/.bin/oxfmt`); prettier exists only as a transitive dependency
-// and no prettier config ships. The proof runs that binary directly — the same
-// formatter `vp fmt` applies — so a marker surviving it is what lands.
+// The repo's formatter is `vp fmt`, which forwards to the Oxfmt that vite-plus
+// bundles; prettier exists only as a transitive dependency and no prettier
+// config ships. The proof runs `vp fmt` itself, so a marker surviving it is
+// what lands.
 it("keeps a trailing fork-hook marker on its line through the repo formatter", async () => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
-  const oxfmt = NodePath.join(repoRoot, "node_modules/.bin/oxfmt");
-  // oxfmt's stdin mode stalls when driven through a spawned pipe, so the
+  const vp = NodePath.join(repoRoot, "node_modules/.bin/vp");
+  // Oxfmt's stdin mode stalls when driven through a spawned pipe, so the
   // snippet is written to a temp file and redirected in.
   const fmt = async (filepath: string, snippet: string): Promise<string> => {
     const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-hook-fmt-"));
@@ -336,7 +336,7 @@ it("keeps a trailing fork-hook marker on its line through the repo formatter", a
       NodeFS.writeFileSync(file, snippet);
       const { stdout } = await run("sh", [
         "-c",
-        `"${oxfmt}" --stdin-filepath="${filepath}" < "${file}"`,
+        `"${vp}" fmt --stdin-filepath="${filepath}" < "${file}"`,
       ]);
       return stdout;
     } finally {
