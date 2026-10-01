@@ -97,6 +97,7 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import * as ThreadSettlementReactor from "./orchestration/ThreadSettlementReactor.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
+import * as DeviceAuthorizationRoutes from "./auth/DeviceAuthorization.fork.ts"; // fork-hook: device-auth/server-routes-import
 import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts"; // fork-hook: github-issues/server-issue-sync-import
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
@@ -640,6 +641,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     deviceHubProxyRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
+    DeviceAuthorizationRoutes.routeLayer, // fork-hook: device-auth/server-routes
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
   // Last, so no route layer can replace the server's one TracerDisabledWhen.
