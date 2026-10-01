@@ -197,7 +197,7 @@ import {
   isThreadTriageAction,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
-import { useAttemptResetThreadOrder } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
+import { attemptResetThreadOrderFork } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
 import {
   forkInFlight,
   forkThreadMenuStateFork,
@@ -1014,6 +1014,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
     reportFailure: false,
   });
+  const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
+  const { requestThreadGroupTitle, generatingGroupIds } = threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onError: (error) => {
       toastManager.add(
@@ -1468,6 +1470,30 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
   ); // fork-hook: thread-ordering/group-spans-layout
 
+  const activeGroupByThreadKey = (() => {
+    const byKey = new Map<
+      string,
+      {
+        readonly projectKey: string;
+        readonly group: SidebarThreadGroup;
+        readonly threads: readonly EnvironmentThreadShell[];
+        readonly isAnchor: boolean;
+      }
+    >();
+    for (const item of activeThreadGroupLayout) {
+      if (item.kind !== "group") continue;
+      item.threads.forEach((thread, index) => {
+        byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
+          projectKey: item.projectKey,
+          group: item.group,
+          threads: item.threads,
+          isAnchor: index === 0,
+        });
+      });
+    }
+    return byKey;
+  })(); // fork-hook: thread-ordering/group-by-thread-key
+
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
   // already shown keep their places while slower environments answer.
@@ -1809,7 +1835,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       }
     })();
   };
-  const attemptResetOrder = useAttemptResetThreadOrder(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
+  const attemptResetOrder = attemptResetThreadOrderFork(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
   const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/sidebar-dispatch-hook
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
     void (async () => {
