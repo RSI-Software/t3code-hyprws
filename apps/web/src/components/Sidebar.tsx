@@ -273,6 +273,7 @@ import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./Sid
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
 import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
+import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -2307,7 +2308,6 @@ export default function Sidebar() {
   const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
   const setThreadGroupMembership = useUiStateStore((store) => store.setThreadGroupMembership);
   const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
-  const renameThreadGroupIfCurrent = useUiStateStore((store) => store.renameThreadGroupIfCurrent);
   const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
   const removeThreadGroup = useUiStateStore((store) => store.removeThreadGroup);
   const threads = useThreadShells();
@@ -2343,7 +2343,8 @@ export default function Sidebar() {
   const generateThreadGroupTitle = useAtomCommand(threadGroupEnvironment.generateTitle, {
     reportFailure: false,
   });
-  const [generatingGroupIds, setGeneratingGroupIds] = useState<ReadonlySet<string>>(new Set());
+  const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
+  const { requestThreadGroupTitle, generatingGroupIds } = threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -2872,65 +2873,6 @@ export default function Sidebar() {
     }
     return byKey;
   }, [activeThreadGroupLayout]);
-  const requestThreadGroupTitle = useCallback(
-    async (input: {
-      readonly projectKey: string;
-      readonly groupId: string;
-      readonly members: readonly EnvironmentThreadShell[];
-      readonly expectedGroup: Pick<SidebarThreadGroup, "title" | "threadIds">;
-      readonly previousTitle?: string | undefined;
-    }) => {
-      const first = input.members[0];
-      if (
-        !first ||
-        input.members.length < 2 ||
-        input.members.some(
-          (thread) =>
-            thread.environmentId !== first.environmentId || thread.projectId !== first.projectId,
-        )
-      ) {
-        return;
-      }
-      const generatingKey = `${input.projectKey}\0${input.groupId}`;
-      setGeneratingGroupIds((current) => new Set(current).add(generatingKey));
-      try {
-        const result = await generateThreadGroupTitle({
-          environmentId: first.environmentId,
-          input: {
-            projectId: first.projectId,
-            memberTitles: input.members.map((thread) => thread.title),
-            ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
-          },
-        });
-        if (result._tag === "Success") {
-          renameThreadGroupIfCurrent(
-            input.projectKey,
-            input.groupId,
-            input.expectedGroup,
-            result.value.title,
-          );
-          return;
-        }
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to name thread group",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-      } finally {
-        setGeneratingGroupIds((current) => {
-          const next = new Set(current);
-          next.delete(generatingKey);
-          return next;
-        });
-      }
-    },
-    [generateThreadGroupTitle, renameThreadGroupIfCurrent],
-  );
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
