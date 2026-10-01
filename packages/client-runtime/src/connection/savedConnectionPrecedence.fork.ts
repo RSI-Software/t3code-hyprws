@@ -23,7 +23,10 @@ export const savedConnectionsOutrankPrimary = Effect.map(
 export const make = Effect.fn("SavedConnectionPrecedence.make")(function* (
   enabled: boolean,
   platformEnvironmentIds: Ref.Ref<ReadonlySet<EnvironmentId>>,
-  installEntry: (entry: ConnectionCatalogEntry) => Effect.Effect<void>,
+  installEntry: (
+    entry: ConnectionCatalogEntry,
+    options?: { readonly retainEquivalentRuntime?: boolean },
+  ) => Effect.Effect<void>,
 ) {
   const shadowed = yield* Ref.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(new Map());
 
@@ -44,7 +47,9 @@ export const make = Effect.fn("SavedConnectionPrecedence.make")(function* (
       yield* Ref.update(shadowed, (current) => new Map(current).set(environmentId, previous));
     }
     yield* Ref.update(platformEnvironmentIds, (current) => new Set(current).add(environmentId));
-    yield* installEntry(entry);
+    // The platform re-reports the primary on every poll; an unchanged one keeps
+    // its live connection instead of reconnecting (RSI-Software/t3code-hyprws#1472).
+    yield* installEntry(entry, { retainEquivalentRuntime: true });
     return true;
   });
 
