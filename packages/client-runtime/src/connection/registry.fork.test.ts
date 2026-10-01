@@ -151,9 +151,14 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
       const harness = yield* makeHarness([savedTarget]);
       yield* Effect.gen(function* () {
         const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-        const poll = registry.reconcilePlatform([
-          new PrimaryConnectionRegistration({ target: TARGET }),
-        ]);
+        // Each poll builds fresh objects, as the platform poll does in production.
+        const poll = Effect.suspend(() =>
+          registry.reconcilePlatform([
+            new PrimaryConnectionRegistration({
+              target: new PrimaryConnectionTarget({ ...TARGET }),
+            }),
+          ]),
+        );
         yield* poll;
         yield* Deferred.await(harness.connected);
         yield* poll;
