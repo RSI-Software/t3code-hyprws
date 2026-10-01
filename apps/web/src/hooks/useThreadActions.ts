@@ -436,17 +436,25 @@ export function useThreadActions() {
 
       const pathKeys = new Set<string>();
       for (const [environmentId, threadIds] of threadIdsByEnvironment) {
-        const environmentSettings = appAtomRegistry
+        const environmentConfig = appAtomRegistry
           .get(environmentServerConfigsAtom)
-          .get(environmentId)?.settings;
+          .get(environmentId);
+        const environmentSettings = environmentConfig?.settings;
         const threads = readEnvironmentThreadRefs(environmentId).flatMap((ref) => {
           const shell = readThreadShell(ref);
           return shell === null ? [] : [shell];
         });
+        // A Scratch folder is not a git worktree, so the batch never asks about one.
+        const isWorktreeProject = (projectId: (typeof threads)[number]["projectId"]) => {
+          const project = readProject({ environmentId, projectId });
+          return (
+            project !== null && !isScratchProject(project, environmentConfig?.scratchWorkspaceRoot)
+          );
+        };
         const removableThreadIds = new Set(
           threads.flatMap((shell) =>
             threadIds.has(shell.id) &&
-            readProject({ environmentId, projectId: shell.projectId }) !== null &&
+            isWorktreeProject(shell.projectId) &&
             !(environmentSettings
               ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete
               : false)
