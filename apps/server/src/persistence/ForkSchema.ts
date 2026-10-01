@@ -38,6 +38,24 @@ const FORK_TABLES = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_projection_thread_issues_issue
     ON projection_thread_issues(host, repository, number)`,
+  // Owner-approved native client requests for the device-auth domain. Only a
+  // digest of the device code is stored; rows prune once expired.
+  `CREATE TABLE IF NOT EXISTS auth_device_authorizations (
+    device_code_hash TEXT PRIMARY KEY,
+    user_code TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    client_json TEXT NOT NULL,
+    requested_scopes TEXT,
+    proof_key_thumbprint TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_polled_at TEXT,
+    last_proof_iat INTEGER,
+    granted_scopes TEXT,
+    granted_ttl_ms INTEGER,
+    decided_at TEXT,
+    session_id TEXT
+  )`,
 ] as const;
 
 /**

@@ -11,6 +11,7 @@ import * as References from "effect/References";
 import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { deviceCommand } from "./authDevice.fork.ts"; // fork-hook: device-auth/cli-device-import
 
 import {
   formatIssuedPairingCredential,
@@ -245,5 +246,5 @@ const sessionCommand = Command.make("session").pipe(
 
 export const authCommand = Command.make("auth").pipe(
   Command.withDescription("Manage the local auth control plane for headless deployments."),
-  Command.withSubcommands([pairingCommand, sessionCommand]),
+  Command.withSubcommands([pairingCommand, sessionCommand, deviceCommand]), // fork-hook: device-auth/cli-device-command
 );
