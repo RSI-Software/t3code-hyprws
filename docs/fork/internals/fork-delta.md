@@ -157,6 +157,7 @@ A per-file diff says nothing about seam growth until `git cat-file -e origin/mai
 | [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach             |
 | [github-issues](#github-issues)         | Active | core, bugfix      | Upstream ships multi-environment Issues   |
 | [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread agent selection      |
+| [device-auth](#device-auth)             | Active | core              | Upstream ships native client approval     |
 | [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships rich Markdown editing      |
 | [workspace-files](#workspace-files)     | Active | core              | Upstream supports linked artifacts        |
 | [fork-meta](#fork-meta)                 | Active | core, qol, bugfix | Never; it documents the fork              |
@@ -430,6 +431,46 @@ Retired with the fork.
 | `README.md`, `AGENTS.md`, `docs/README.md`, `package.json`, `docs/fork/internals/scripts.md`, `docs/internals/ci.md`, `docs/internals/glossary.md`, `scripts/*.ts`, `.github/workflows/hyprws-upstream-sync.yml`, `.github/pull_request_template.md`, `docs/operations/release.md`, `docs/user/source-control.md`, `docs/user/thread-sidebar.md`, `docs/user/keybindings.md`, `apps/web/src/index.css`, `apps/desktop/src/ssh/DesktopSshPasswordPrompts.test.ts`, `apps/desktop/src/updates/updatesTestHarness.ts`                                                                                                                                                | Shared tooling, workflows, and docs   |
 | `pnpm-lock.yaml`, `third-party-licenses.config.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Other shared paths                    |
 | `.agents/skills/test-t3-*/**`, `apps/desktop/src/app/DesktopAppIdentity.ts`, `apps/desktop/src/app/DesktopClerk.test.ts`, `apps/desktop/src/app/DesktopConfig.ts`, `apps/desktop/src/ipc/methods/preview*.ts`, `apps/desktop/src/preview/Manager.fork.test.ts`, `apps/desktop/src/window/*.ts`, `apps/*/vite.config.ts`, `apps/web/src/browser/devAppPreviewHandoff.ts`, `apps/web/src/components/ChatView.tsx`, `apps/web/src/hooks/useThreadActions.ts`, `apps/web/src/state/shell.ts`, `apps/web/src/state/windowProjectBootstrap.fork.ts`, `apps/web/src/state/githubIssues.ts`, `apps/web/src/lucideOptimizer.test.ts`, `scripts/lib/dev-app*.ts`, `t3.json` | `dev:app` test surfaces               |
+
+## device-auth
+
+### Need
+
+- **Client:** a headless native client needs a token
+- **Gap:** upstream hands tokens out by copy-paste
+- **Rule:** the token never passes through a person
+
+### Shape
+
+An RFC 8628-style device grant, approved by the owner on the host.
+
+1. Client: `POST /oauth/device_authorization`, optional DPoP proof
+2. Owner: `t3 auth device list`, then `approve <user-code>`
+3. Client: polls `POST /oauth/device_token`, receives the token
+
+| Aspect      | Rule                                                                     |
+| ----------- | ------------------------------------------------------------------------ |
+| Approval    | Host CLI only; no HTTP route can approve                                 |
+| Storage     | `auth_device_authorizations` through `ForkSchema.ts`                     |
+| Device code | Stored as a SHA-256 digest; single use                                   |
+| Key         | A DPoP start binds the request and the session to that key               |
+| Scopes      | Requested, else standard; owner `--scope` narrows only                   |
+| Browsers    | Refused: CORS answers every origin, and no credential gates these routes |
+| Lifetime    | `--ttl`, default 30 days; renewal is a new grant                         |
+| Revocation  | The issued session, through `t3 auth session revoke`                     |
+| Abuse cap   | 20 open requests; 10-minute expiry                                       |
+
+### Retirement condition
+
+A tagged upstream release ships owner-approved native client authorization.
+
+### Rebase scan
+
+| Path                                                                                                    | Why it matters              |
+| ------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`            | Fork-owned grant and CLI    |
+| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts` | Route, command, table hooks |
+| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                  | Reused issue and proof APIs |
 
 ## distribution
 
