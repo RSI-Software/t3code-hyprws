@@ -25,7 +25,7 @@ export type ActiveThreadOrderKey = string | null;
  * same `thread.active.reorder` command accepting null to restore automatic
  * ordering — the path drags use for manual placement.
  */
-export function useReorderActiveThreadFork(input: {
+export function reorderActiveThreadFork(input: {
   readonly reorderActiveThreadMutation: (value: {
     readonly environmentId: ScopedThreadRef["environmentId"];
     readonly input: {
@@ -60,7 +60,7 @@ export function useReorderActiveThreadFork(input: {
  * the manual key through the existing active-reorder write (null =
  * automatic ordering); failure toasts match the sidebar's attempt* helpers.
  */
-export function useAttemptResetThreadOrder(
+export function attemptResetThreadOrderFork(
   reorderActiveThreadOrClear: (
     target: ScopedThreadRef,
     orderKey: ActiveThreadOrderKey,
