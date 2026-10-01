@@ -3,6 +3,7 @@ export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
   "custom-agents",
+  "device-auth",
   "distribution",
   "fork-meta",
   "github-issues",
