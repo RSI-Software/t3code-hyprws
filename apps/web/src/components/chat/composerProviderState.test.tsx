@@ -20,7 +20,6 @@ import {
 // vary only the descriptor shape per scenario.
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
-const OPENCODE_PROVIDER: ProviderDriverKind = ProviderDriverKind.make("opencode");
 const MODEL = "test-model";
 
 function selectDescriptor(
@@ -180,44 +179,9 @@ describe("getComposerProviderState", () => {
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
   });
 
-  it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
-    const state = getComposerProviderState({
-      provider: OPENCODE_PROVIDER,
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [
-          { id: "build", label: "Build", isDefault: true },
-          { id: "plan", label: "Plan" },
-        ]),
-      ]),
-      modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
-    });
-
-    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
-  });
-
-  it("drops the agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
-    const state = getComposerProviderState({
-      provider: OPENCODE_PROVIDER,
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [{ id: "plan", label: "Plan", isDefault: true }]),
-      ]),
-      modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
-    });
-
-    expect(state).toEqual({
-      provider: OPENCODE_PROVIDER,
-      promptEffort: null,
-      modelOptionsForDispatch: undefined,
-    });
-  });
-
   it("falls back to a surviving agent when plan was the descriptor default and plan mode is disabled", () => {
     const state = getComposerProviderState({
-      provider: OPENCODE_PROVIDER,
+      provider: PROVIDER,
       model: MODEL,
       models: modelWith([
         selectDescriptor("agent", [

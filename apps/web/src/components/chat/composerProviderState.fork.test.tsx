@@ -7,16 +7,19 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import {
+  getComposerProviderState,
   renderProviderAgentMenuContent,
   renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
 // vary only the descriptor shape per scenario.
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
+const OPENCODE_PROVIDER: ProviderDriverKind = ProviderDriverKind.make("opencode");
 const MODEL = "test-model";
 function selectDescriptor(
   id: string,
@@ -56,6 +59,57 @@ function selections(
 ): ReadonlyArray<ProviderOptionSelection> {
   return entries.map(([id, value]) => ({ id, value }));
 }
+describe("getComposerProviderState legacy plan mode", () => {
+  forkSupersedes({
+    upstream:
+      "apps/web/src/components/chat/composerProviderState.test.tsx > drops the plan agent from dispatch when legacy plan mode is disabled",
+    reason:
+      "only OpenCode hides its plan agent with legacy plan mode off; other providers keep plan as a selectable main-thread agent",
+    commit: "cfe211a818a",
+  });
+  it("drops the plan agent from OpenCode dispatch when legacy plan mode is disabled", () => {
+    const input = {
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [
+          { id: "build", label: "Build", isDefault: true },
+          { id: "plan", label: "Plan" },
+        ]),
+      ]),
+      modelOptions: selections(["agent", "plan"]),
+      planModeEnabled: false,
+    };
+    expect(
+      getComposerProviderState({ ...input, provider: OPENCODE_PROVIDER }).modelOptionsForDispatch,
+    ).toEqual(selections(["agent", "build"]));
+    expect(
+      getComposerProviderState({ ...input, provider: PROVIDER }).modelOptionsForDispatch,
+    ).toEqual(selections(["agent", "plan"]));
+  });
+  forkSupersedes({
+    upstream:
+      "apps/web/src/components/chat/composerProviderState.test.tsx > drops the agent descriptor entirely when plan is the only option and plan mode is disabled",
+    reason:
+      "only OpenCode hides its plan agent with legacy plan mode off; other providers keep plan as a selectable main-thread agent",
+    commit: "cfe211a818a",
+  });
+  it("drops the OpenCode agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
+    const state = getComposerProviderState({
+      provider: OPENCODE_PROVIDER,
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [{ id: "plan", label: "Plan", isDefault: true }]),
+      ]),
+      modelOptions: selections(["agent", "plan"]),
+      planModeEnabled: false,
+    });
+    expect(state).toEqual({
+      provider: OPENCODE_PROVIDER,
+      promptEffort: null,
+      modelOptionsForDispatch: undefined,
+    });
+  });
+});
 describe("provider traits render guards", () => {
   it("renders an agent-only descriptor in its dedicated control", () => {
     const models = modelWith([
