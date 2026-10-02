@@ -1,6 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
-// fork job step 5: supersedes declarations
-// Gate: none — declaration parsing; fork:scan turns refusals and undeclared contradictions into failures (fork:ci).
 
 // The `forkSupersedes({ upstream, reason, commit })` declaration a fork test
 // sibling carries beside a case that deliberately contradicts an upstream

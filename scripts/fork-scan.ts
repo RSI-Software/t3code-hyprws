@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git check runs before an Effect runtime exists.
-// fork job step 5: PR CI rebase scan
-// Gate: fork:ci — the Fork rebase scan step of the hyprws-ci Check job, carrying the additive gate, hook guard, and authoring guards inside its range.
 
 // Checks every fork domain's rebase scan against the shared files its own
 // commits touch. Shared means the fork changed the file above its upstream base
 // and upstream changed it too on the way to the target, which is where a rebase
 // silently merges two intents, so the file must be listed in that domain's
 // rebase-scan table in docs/fork/internals/fork-delta.md. The target defaults to
-// live `upstream/main`; `--target <tag>` pins a release and reproduces the
-// automerged-overlap walk gate 3 of the fork-sync skill used to do by hand.
+// live `upstream/main`; `--target <tag>` pins a release.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -68,8 +65,9 @@ export interface ScanOptions {
   readonly head: string;
   readonly target: string;
   readonly typecheck: boolean;
-  // The CI job passes both on every run; the overlap report covers the whole
-  // range regardless of either.
+  // `since` bounds the hook guard, authoring guards, and additive gate to the
+  // commits one change introduces; the overlap report covers the whole range
+  // regardless of either.
   readonly since: string | null;
   readonly replayOf: string | null;
 }
@@ -111,7 +109,7 @@ export interface ScanResult {
   // stays advisory.
   readonly warnings: ReadonlyArray<ScanAuthoringWarning>;
   readonly hookDetails: ReadonlyArray<string>;
-  // Step 1: the additive gate (files, migrations, tests intact). Read from
+  // The additive gate (files, migrations, tests intact). Read from
   // the scan's own range so the gate runs everywhere the scan runs —
   // including the CI `Fork rebase scan` step, which invokes `fork:scan`
   // directly and never `fork:ci`.
@@ -145,7 +143,7 @@ Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
-  --since <ref>   Accepted for the CI job's shape; the report covers the whole range
+  --since <ref>   Guard only commits in <ref>..head; the overlap report covers the whole range
   --replay-of <ref>
                   Guard only commits whose added lines differ from the same-subject commit on this ref.
                   When --since equals --target, upstream-test/replaced-export/additive findings already
@@ -159,7 +157,7 @@ Typechecks run only when --head resolves to checkout HEAD; other refs report dec
 Pre-rebase overlap walk, declarations only:
   vp run fork:scan --head <fork-ref> --target vX.Y.Z --no-typecheck
 
-Rebase rehearsal, gate 3 (silent seams, from the rehearsed worktree):
+Rebase rehearsal (silent seams, from the rehearsed worktree):
   vp run fork:scan --target vX.Y.Z
 `;
 
@@ -307,10 +305,10 @@ export interface ScanInput extends ScanRange {
   // Absent when the caller only wants the rebase-scan verdict, as the unit
   // tests and the ledger-only walks do.
   readonly guard?: AuthoringGuardInput | undefined;
-  // Step 1 findings, computed by the runner from the scan's own range so
+  // Additive-gate findings, computed by the runner from the scan's own range so
   // unit tests can pass them in directly without a git checkout.
   readonly additive?: ReadonlyArray<AdditiveFinding>;
-  // Step 4 findings (RSI-Software/t3code-hyprws#716), likewise injectable:
+  // forkSupersedes findings (RSI-Software/t3code-hyprws#716), likewise injectable:
   // declaration refusals plus undeclared-contradiction findings.
   readonly supersedes?: ReadonlyArray<string>;
   readonly retireCandidates?: ReadonlyArray<SituatedDeclaration>;
