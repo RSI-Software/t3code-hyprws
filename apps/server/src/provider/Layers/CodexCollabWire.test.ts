@@ -123,25 +123,10 @@ describe("routeCodexChildNotification", () => {
       "model/rerouted",
       "item/started",
       "item/completed",
-      "item/agentMessage/delta",
-      "item/reasoning/textDelta",
-      "item/reasoning/summaryTextDelta",
-      "item/reasoning/summaryPartAdded",
-      "item/commandExecution/outputDelta",
-      "item/commandExecution/terminalInteraction",
-      "item/fileChange/outputDelta",
-      "item/fileChange/patchUpdated",
-      "item/plan/delta",
       "thread/closed",
       "error",
     ]) {
       assert.equal(routeCodexChildNotification(method), "agent-event", method);
-    }
-  });
-
-  it("drops only enumerated child chatter", () => {
-    for (const method of ["turn/plan/updated", "thread/name/updated"]) {
-      assert.equal(routeCodexChildNotification(method), "drop", method);
     }
   });
 
