@@ -358,6 +358,32 @@ it("fails an upstream-test addition in the since range", () => {
   assert.isTrue(failures.some((failure) => failure.startsWith("upstream-test:")));
 });
 
+it("passes a restored upstream case and still counts a fork block reusing its title", () => {
+  const path = "apps/web/src/other.test.ts";
+  const opener = 'it("lists running sessions", () => {';
+  const raw = ["abc1234", `--- a/${path}`, `+++ b/${path}`, "@@ -0,0 +1 @@", `+${opener}`, ""].join(
+    "\n",
+  );
+  const scan = (headText: string) =>
+    scanFailures(
+      buildScanResult(
+        baseInput({
+          commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+          filesBySha: new Map([["abc1234", [path]]]),
+          patchesBySha: parseCommitPatches(raw),
+          upstreamFiles: new Set([path]),
+          upstreamTestFiles: new Set([path]),
+          upstreamTestLines: new Map([[path, significantTestLines(`${opener}\n});\n`)]]),
+          upstreamTestTexts: new Map([[path, `${opener}\n});\n`]]),
+          headTestTexts: new Map([[path, headText]]),
+          siblingTexts: new Map(),
+        }),
+      ),
+    ).filter((failure) => failure.startsWith("upstream-test:"));
+  assert.deepStrictEqual(scan(`${opener}\n});\n`), []);
+  assert.lengthOf(scan(`${opener}\n});\n${opener}\n});\n`), 1);
+});
+
 it("passes a declared-superseded deletion and still fails an undeclared one", () => {
   // RSI-Software/t3code-hyprws#1208: the sibling declares the upstream case the fork
   // contradicts, so deleting the fork's in-place rewrite from the upstream copy is
