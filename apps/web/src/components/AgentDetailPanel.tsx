@@ -36,7 +36,7 @@ import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { formatProviderDriverKindLabel } from "~/providerModels";
-import { orchestrationEnvironment } from "~/state/orchestration";
+import { agentActivityEnvironment } from "~/state/orchestration.fork";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "~/state/query";
 
@@ -199,9 +199,9 @@ function AgentDetailPanelSession({
     [agent.id, environmentId, providerSupportsDetail, threadId],
   );
   const query = useEnvironmentQuery(
-    queryTarget === null ? null : orchestrationEnvironment.agentActivity(queryTarget),
+    queryTarget === null ? null : agentActivityEnvironment.agentActivity(queryTarget),
   );
-  const loadAgentActivity = useAtomCommand(orchestrationEnvironment.agentActivity.load, {
+  const loadAgentActivity = useAtomCommand(agentActivityEnvironment.agentActivity.load, {
     label: "agents:load-agent-activity",
     reportFailure: false,
   });

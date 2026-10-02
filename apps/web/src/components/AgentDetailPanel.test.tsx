@@ -26,8 +26,8 @@ const testState = vi.hoisted(() => ({
 vi.mock("~/components/ui/scroll-area", () => ({
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("~/state/orchestration", () => ({
-  orchestrationEnvironment: {
+vi.mock("~/state/orchestration.fork", () => ({
+  agentActivityEnvironment: {
     agentActivity: Object.assign(
       vi.fn(() => ({})),
       { load: {} },
@@ -47,7 +47,7 @@ vi.mock("~/state/use-atom-command", () => ({
 }));
 
 import { AgentDetailPanel } from "./AgentDetailPanel";
-import { orchestrationEnvironment } from "~/state/orchestration";
+import { agentActivityEnvironment } from "~/state/orchestration.fork";
 
 function agent(id: string, provider: RuntimeSubagent["provider"] = null): RuntimeSubagent {
   return {
@@ -207,7 +207,7 @@ beforeEach(() => {
   };
   testState.runQuery.mockReset();
   testState.useAtomCommand.mockReset();
-  vi.mocked(orchestrationEnvironment.agentActivity).mockClear();
+  vi.mocked(agentActivityEnvironment.agentActivity).mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -227,7 +227,7 @@ describe("AgentDetailPanel pagination boundary", () => {
       await act(() => root.render(panel("agent-a", provider)));
 
       expect(container.textContent).toContain("supported-row");
-      expect(orchestrationEnvironment.agentActivity).toHaveBeenCalledWith({
+      expect(agentActivityEnvironment.agentActivity).toHaveBeenCalledWith({
         environmentId,
         input: { threadId, agentId: "agent-a", limit: 50 },
       });
@@ -237,7 +237,7 @@ describe("AgentDetailPanel pagination boundary", () => {
   it("does not query for a child owned by an explicitly unsupported provider", async () => {
     await act(() => root.render(panel("agent-a", cursorProvider)));
 
-    expect(orchestrationEnvironment.agentActivity).not.toHaveBeenCalled();
+    expect(agentActivityEnvironment.agentActivity).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Child detail unavailable");
     expect(container.textContent).toContain("Cursor does not expose durable child activity");
   });
@@ -247,7 +247,7 @@ describe("AgentDetailPanel pagination boundary", () => {
     await act(() => root.render(panel("agent-a", null)));
 
     expect(container.textContent).toContain("legacy-row");
-    expect(orchestrationEnvironment.agentActivity).toHaveBeenCalled();
+    expect(agentActivityEnvironment.agentActivity).toHaveBeenCalled();
   });
 
   it("keeps child-owned detail loaded across composer provider switches", async () => {
@@ -258,7 +258,7 @@ describe("AgentDetailPanel pagination boundary", () => {
 
     await act(() => root.render(providerPanel("cursor")));
     expect(container.textContent).toContain("provider-neutral-row");
-    expect(orchestrationEnvironment.agentActivity).toHaveBeenLastCalledWith({
+    expect(agentActivityEnvironment.agentActivity).toHaveBeenLastCalledWith({
       environmentId,
       input: { threadId, agentId: "agent-a", limit: 50 },
     });
@@ -296,7 +296,7 @@ describe("AgentDetailPanel pagination boundary", () => {
     expect(container.textContent).not.toContain("raw live secret");
     expect(container.textContent).not.toContain("raw-live-data");
     expect(testState.useAtomCommand).toHaveBeenCalledWith(
-      orchestrationEnvironment.agentActivity.load,
+      agentActivityEnvironment.agentActivity.load,
       expect.objectContaining({ label: "agents:load-agent-activity" }),
     );
 
