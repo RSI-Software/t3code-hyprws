@@ -113,7 +113,6 @@ jobs:
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
       delta_revision: ${{ steps.delta_revision.outputs.delta_revision }}
       gate_proceed: ${{ steps.release_gate.outputs.gate_proceed }}
-      gate_reason: ${{ steps.release_gate.outputs.gate_reason }}
       ref: ${{ steps.release_ref.outputs.sha }}
     steps:
       - id: release_channel
@@ -197,7 +196,6 @@ jobs:
             // A fetch failure closes the gate with a reason, never a throw.
             const close = async (reason) => {
               core.setOutput('gate_proceed', 'false');
-              core.setOutput('gate_reason', reason);
               await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
               core.setFailed(reason);
             };
@@ -207,7 +205,6 @@ jobs:
             // so this branch skips without failing the step.
             const skip = async (reason) => {
               core.setOutput('gate_proceed', 'false');
-              core.setOutput('gate_reason', reason);
               await core.summary.addHeading('Release gate: skipped').addRaw(reason).write();
               core.info(reason);
             };
@@ -251,7 +248,6 @@ jobs:
             const proceed = first.startsWith('proceed');
             const reason = first.replace(/^(proceed|skip):\s*/, '');
             core.setOutput('gate_proceed', proceed ? 'true' : 'false');
-            core.setOutput('gate_reason', reason);
             if (!proceed) {
               await close(reason);
               return;
@@ -264,9 +260,6 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
-
-      - name: Ensure Electron runtime is installed
-        run: vp run --filter @t3tools/desktop ensure:electron
 
       - id: release_meta
         name: Resolve release version

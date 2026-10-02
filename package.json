@@ -60,8 +60,6 @@
     "fork:sync": "node scripts/fork-sync.ts",
     "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
-    "fork:release-version": "node scripts/fork-release-version.ts",
-    "fork:release-delta-rev": "node scripts/fork-release-delta-rev.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts"
   },
