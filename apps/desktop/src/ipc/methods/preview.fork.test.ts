@@ -63,11 +63,15 @@ describe("fork preview IPC ownership", () => {
   effectIt.effect(
     "preserves profile partitions and window ownership through the assembled preload",
     () => {
-      const stored = new Map<string, { cookies: Set<string>; cache: Set<string> }>();
+      const stored = new Map<
+        string,
+        { cookies: Set<string>; cache: Set<string>; on: ReturnType<typeof vi.fn> }
+      >();
       fromPartition.mockImplementation((partition: string) => {
-        const state = { cookies: new Set(["session"]), cache: new Set(["page"]) };
+        const state = { cookies: new Set(["session"]), cache: new Set(["page"]), on: vi.fn() };
         stored.set(partition, state);
         return {
+          on: state.on,
           getUserAgent: () => "Mozilla/5.0 Electron/41.5.0 t3code/0.0.39",
           setUserAgent: vi.fn(),
           setPermissionRequestHandler: vi.fn(),
@@ -227,6 +231,11 @@ describe("fork preview IPC ownership", () => {
             projectPreview.getPreviewConfig(projectRef.environmentId, "unregistered"),
           ).rejects.toThrow("not an authorized desktop window");
           expect(stored.size).toBe(4);
+          // The app manager and both window managers each route agent downloads on
+          // every profile session, including sessions opened before a window's manager.
+          for (const { on } of stored.values()) {
+            expect(on.mock.calls.filter(([event]) => event === "will-download")).toHaveLength(3);
+          }
           expect(stored.get(personal.partition)?.cookies.size).toBe(1);
         });
       }).pipe(
