@@ -62,6 +62,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
+import { registerProviderCommandReactorForkTests } from "./ProviderCommandReactor.fork.test.ts"; // fork-hook: fork-meta/provider-reactor-fork-tests-import
 import {
   providerErrorLabelFromInstanceHint,
   ProviderCommandReactorLive,
@@ -671,6 +672,7 @@ describe("ProviderCommandReactor", () => {
       },
     };
   }
+  registerProviderCommandReactorForkTests({ createHarness }); // fork-hook: fork-meta/provider-reactor-fork-tests
 
   effectIt.effect.each(["new", "ready", "stopped"] as const)(
     "handles sign-out for a %s thread before worktree repair, text helpers, or startup",

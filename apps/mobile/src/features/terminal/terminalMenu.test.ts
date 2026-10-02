@@ -36,6 +36,9 @@ function makeKnownSession(input: {
   readonly cwd?: string | null;
   readonly updatedAt?: string | null;
 }): KnownTerminalSession {
+  if (input.status === "suspended") {
+    throw new Error("terminalMenu.fork.test.ts builds suspended sessions");
+  } // fork-hook: fork-meta/terminal-menu-suspended-status
   return {
     target: {
       environmentId: EnvironmentId.make("env-1"),
@@ -49,15 +52,7 @@ function makeKnownSession(input: {
             terminalId: input.terminalId,
             cwd: input.cwd,
             worktreePath: input.cwd,
-            // The fork's managed status adds "suspended", which the wire summary carries as a
-            // running session whose attachment is parked (see client-runtime terminalSession).
-            status:
-              input.status === "closed"
-                ? "error"
-                : input.status === "suspended"
-                  ? "running"
-                  : input.status,
-            ...(input.status === "suspended" ? { attachmentStatus: "suspended" as const } : {}),
+            status: input.status === "closed" ? "error" : input.status,
             pid: input.status === "running" ? 123 : null,
             exitCode: null,
             exitSignal: null,
