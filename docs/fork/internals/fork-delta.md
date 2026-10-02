@@ -27,13 +27,10 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a tag
 `fork:scan` fails when a domain's own commits change a file its table omits and upstream also changed.
 Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` spans them.
 
-| Where                                                     | Mode                 | Against              |
-| --------------------------------------------------------- | -------------------- | -------------------- |
-| Fork CI                                                   | Blocking, every push | live `upstream/main` |
-| The sync driver's check step (`hyprws-upstream-sync.yml`) | Blocking             | the rebased tip      |
-
-**Stale fork mocks.** On every rebase, diff each `*.fork.test.*` mock key set against the sibling `*.test.*` mock of the same service.
-A key present upstream and absent in the fork sibling is stale even when both suites pass.
+| Where                                                     | Mode                 | Against                 |
+| --------------------------------------------------------- | -------------------- | ----------------------- |
+| Fork CI                                                   | Blocking, every push | its upstream merge base |
+| The sync driver's check step (`hyprws-upstream-sync.yml`) | Blocking             | the target tag          |
 
 ## Why the fork exists
 
@@ -71,14 +68,13 @@ A retirement is recorded by the retire commit itself, not a ledger.
 `Fork-Repair` marks a repair the next fold absorbs.
 `vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
 
-**Squash-body mode.** Fork CI also runs it with `--base origin/hyprws --head <sha> --squash-body <file>`, both refs explicit.
+**Squash-body mode.** The advisory `hyprws Body` workflow runs `--check --squash-body <file>`; it is not a required check.
 It validates the body's final trailer paragraph, which becomes the squash trailers.
 A trailer carried only by a branch commit cannot satisfy it.
 
 ## Carry cost
 
 Decided per commit by the levers retire, reshape, automate, or accept; no gate carries a numeric cap.
-
 **Accept is never "as-is".** A kept commit needs a mechanical seam: fork code in fork-only files, and upstream files carrying only marked hook lines the walk re-applies.
 
 ### Marking a hook
@@ -87,7 +83,6 @@ Decided per commit by the levers retire, reshape, automate, or accept; no gate c
 | -------------- | ------------------------------------------------------------------------- |
 | Statement      | trailing `// fork-hook: <domain>/<name>` or `/* fork-hook: … */`          |
 | Multi-line JSX | the pair `{/* fork-hook: <domain>/<name> */}` and `{/* fork-hook-end */}` |
-| Charging       | `scripts/lib/fork-hooks.ts` is fork-owned, so its edit is never charged   |
 
 **A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
 **A hook never removes or modifies an upstream line**, except that a marked JSX region may re-indent what it wraps, and an in-place substitution removes the line its marked replacement supplies.
@@ -129,60 +124,6 @@ const trackInstaller = (install: (session: Session) => void) =>
     () => Effect.sync(() => installers.delete(install)),
   ); // fork-hook: multi-window/download-track
 ```
-
-### The removal rule
-
-`unexplainedRemoval` aligns base against fork over significant lines, accepting a removed base line only when its position falls inside a marked span.
-
-| Case                                         | Result                                           |
-| -------------------------------------------- | ------------------------------------------------ |
-| A marked hook elsewhere in the file          | absorbs nothing                                  |
-| A removal outside every marked span          | refused by the walk, charged by `fork-hook-seam` |
-| A needed deletion with no marked replacement | reshape debt with a named reason                 |
-
-At a replay stop the walk re-inserts a marked hook by its manifest anchor when that anchor resolves to exactly one site.
-Zero sites, several, or an unplaceable end marker leaves an ordinary `conflict` stop naming the hook.
-
-### The `fork-hook-seam` guard
-
-It refuses an addition outside a marked hook, a deletion outside the removal rule, or an unknown marker, and lives in `ADOPTED_AUTHORING_GUARDS`.
-
-| Aspect            | Rule                                                                                               |
-| ----------------- | -------------------------------------------------------------------------------------------------- |
-| Fork side         | rebuilt from the upstream blob and the diff's positions                                            |
-| Unreconstructable | charged, never exempted                                                                            |
-| Removal gap       | every addition in it must be a line-kind marked hook                                               |
-| Formatter reflow  | same tokens either side: no `fork-hook-seam` addition charge; the hook guard has no such exemption |
-| Outside the rule  | upstreamable `bugfix` commits, and generated paths                                                 |
-| Generated files   | never reshape debt; a sync restores HEAD and regenerates                                           |
-| Historical range  | advisory, so the woven trunk is unaffected                                                         |
-
-It charges some seams the walk accepts, never the reverse.
-A scar rule directs the author to a fork-owned file, and the narrow call left behind still needs its own marker.
-
-### Declaration and placement
-
-**Declaration comes from the fork tip, placement from the replayed blob, and the tip wins**, because a seam whose owning commit predates its marker carries no marker in that blob.
-
-| Case                      | Resolution                                    |
-| ------------------------- | --------------------------------------------- |
-| The blob carries a marker | the in-file marker wins                       |
-| Otherwise                 | locate the tip's marked span in the fork side |
-| Absent or ambiguous       | refuse, reporting the key and replay position |
-| Replay position           | threaded in, never inferred from rebase state |
-
-### Measurement
-
-**Measurement informs, it never enforces.** `vp run fork:delta --inventory` measures commits, lines, and shared files per domain.
-
-| Subject                         | Rule                                                    |
-| ------------------------------- | ------------------------------------------------------- |
-| `Fork-Repair` commits           | visible per commit, excluded from domain sums           |
-| `vp run fork:delta --inventory` | measures the checkout; the sync report measures nothing |
-
-**A `.fork.` in a filename is a reader signal only.**
-No guard decides on it, and its one placement rule is [Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
-A per-file diff says nothing about seam growth until `git cat-file -e origin/main:<path>` proves the path exists upstream.
 
 ## Domain index
 
@@ -445,10 +386,10 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 | ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                  |
 | This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                 |
-| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork gates; `package.json` names them          |
+| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork tooling; hand-run ones get an alias       |
 | [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure        |
 | `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts |
-| `.github/pull_request_template.md` trailer block                                                  | Domain list copied from `FORK_DOMAINS`             |
+| `.github/pull_request_template.md` trailer block                                                  | Points to `FORK_DOMAINS` for the domain list       |
 
 Every fork workflow checkout that runs rebased code scrubs its persisted credential first; `hyprws-upstream-sync.yml`'s scrub step is the pattern.
 
@@ -521,7 +462,8 @@ A tagged upstream release ships owner-approved native client authorization.
 
 | Item                                              | Role                                                             |
 | ------------------------------------------------- | ---------------------------------------------------------------- |
-| `.github/workflows/hyprws-ci.yml`                 | Checks, tests, trailer check, citation guard, desktop build      |
+| `.github/workflows/hyprws-ci.yml`                 | Checks, tests, trailer check, desktop build                      |
+| `.github/workflows/hyprws-body.yml`               | Advisory body checks: citations, squash trailers                 |
 | `.github/workflows/hyprws-release.yml`            | Human-cut stable releases plus a prerelease per `hyprws` landing |
 | `scripts/fork-release-version.ts`                 | Resolves channel metadata and the previous tag in that channel   |
 | `scripts/build-desktop-artifact.ts`               | Derives the update feed from `GITHUB_REPOSITORY`                 |
