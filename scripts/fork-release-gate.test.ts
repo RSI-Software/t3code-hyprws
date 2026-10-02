@@ -1,10 +1,6 @@
 import { assert, it } from "@effect/vitest";
 
-import {
-  decideReleaseGate,
-  parseReleaseGateOptions,
-  renderGateOutput,
-} from "./fork-release-gate.ts";
+import { decideReleaseGate, parseReleaseGateOptions } from "./fork-release-gate.ts";
 
 const sha = (prefix: string): string => `${prefix}${"0".repeat(40 - prefix.length)}`;
 
@@ -52,9 +48,6 @@ it("closes the gate when a sha is missing and compares case-insensitively", () =
   );
 });
 
-it("renders the github output the workflow consumes", () => {
-  const output = renderGateOutput({ proceed: false, reason: "release gate closed: x" });
-  assert.match(output, /^gate_proceed=false$/m);
-  assert.match(output, /^gate_reason=release gate closed: x$/m);
+it("refuses options without a trunk tip", () => {
   assert.throws(() => parseReleaseGateOptions(["--release-sha", sha("abc")]), /--trunk-tip/);
 });

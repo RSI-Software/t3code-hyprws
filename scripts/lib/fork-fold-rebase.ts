@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - Standalone fold tool runs before an Effect runtime exists.
-// Gate: local — fork-fold apply's fallback runs it by hand; no workflow invokes it.
 
 // The worktree fallback behind fork-fold apply. The merge-tree fast path stops
 // at the first refused block; from that block on the remaining plan replays as
