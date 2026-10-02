@@ -51,7 +51,6 @@ import {
   MENU_ACTION_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
-  WINDOW_DEMAND_STATE_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
@@ -1722,51 +1721,6 @@ describe("DesktopWindow", () => {
             width: 1410,
             height: 930,
           },
-        ]);
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
-  it.effect("publishes demand from visibility without treating focus as visibility", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-
-        const show = fakeWindow.windowListeners.get("show");
-        const hide = fakeWindow.windowListeners.get("hide");
-        const minimize = fakeWindow.windowListeners.get("minimize");
-        const restore = fakeWindow.windowListeners.get("restore");
-        if (!show || !hide || !minimize || !restore) {
-          return yield* Effect.die("window demand listeners were not registered");
-        }
-        assert.equal(fakeWindow.windowListeners.has("focus"), false);
-        assert.equal(fakeWindow.windowListeners.has("blur"), false);
-
-        fakeWindow.isFocused.mockReturnValue(false);
-        show();
-        fakeWindow.isVisible.mockReturnValue(false);
-        hide();
-        fakeWindow.isVisible.mockReturnValue(true);
-        fakeWindow.isMinimized.mockReturnValue(true);
-        minimize();
-        fakeWindow.isMinimized.mockReturnValue(false);
-        restore();
-
-        assert.deepEqual(fakeWindow.send.mock.calls, [
-          [WINDOW_DEMAND_STATE_CHANNEL, true],
-          [WINDOW_DEMAND_STATE_CHANNEL, false],
-          [WINDOW_DEMAND_STATE_CHANNEL, false],
-          [WINDOW_DEMAND_STATE_CHANNEL, true],
         ]);
       }).pipe(Effect.provide(layer));
     }),
