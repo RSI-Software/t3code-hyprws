@@ -50,7 +50,7 @@ import {
   resolveClaudeModelsForVersion,
 } from "../ClaudeModelCatalog.ts";
 import {
-  parseClaudeInitializationAgents,
+  claudeInitializationAgentsField, // fork-hook: custom-agents/claude-probe-agents-parse
   withClaudeAgentOptions,
 } from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-options-import
 
@@ -392,7 +392,7 @@ const probeClaudeCapabilities = (
           subscriptionType: account?.subscriptionType,
           tokenSource: account?.tokenSource,
           apiProvider: account?.apiProvider,
-          agents: parseClaudeInitializationAgents(init.agents), // fork-hook: custom-agents/claude-probe-agents-parse
+          ...claudeInitializationAgentsField(init.agents), // fork-hook: custom-agents/claude-probe-agents-parse
           slashCommands: parseClaudeInitializationCommands(init.commands),
           ...(usage ? { usage } : {}),
         } satisfies ClaudeCapabilitiesProbe;
