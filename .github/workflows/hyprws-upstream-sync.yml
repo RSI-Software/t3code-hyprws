@@ -71,7 +71,8 @@ jobs:
     name: Sync
     needs: [mirror]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The battery runs every hyprws CI test job one after another.
+    timeout-minutes: 90
     permissions:
       contents: read
       issues: write
