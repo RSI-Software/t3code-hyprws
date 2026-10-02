@@ -274,6 +274,39 @@ it("adds the fixups the sync folds into an owner to its replay match", () => {
   );
 });
 
+it("reads a squash-landed fixup as the owner it names", () => {
+  const matches = matchReplayCounterparts(
+    [
+      { sha: "replayed-owner", subject: "fix: owner" },
+      { sha: "replayed-numbered", subject: "fix: numbered (#219)" },
+    ],
+    new Map([
+      ["fix: owner", ["original-owner"]],
+      ["fixup! fix: owner (#1600)", ["landed-fixup"]],
+      ["fix: numbered (#219)", ["original-numbered"]],
+      ["fixup! fix: numbered (#219)", ["direct-fixup"]],
+      ["fixup! fix: numbered (#219) (#1601)", ["landed-numbered-fixup"]],
+    ]),
+  );
+  assert.deepStrictEqual(
+    [...matches],
+    [
+      ["replayed-owner", ["original-owner", "landed-fixup"]],
+      ["replayed-numbered", ["original-numbered", "direct-fixup", "landed-numbered-fixup"]],
+    ],
+  );
+  assert.deepStrictEqual(
+    withFixupOwnerTrailers([
+      { sha: "owner", short: "owner", subject: "fix: owner", domain: "example", tier: "core" },
+      { sha: "fixup", short: "fixup", subject: "fixup! fix: owner (#1600)" },
+    ]).map(({ sha, domain, tier }) => ({ sha, domain, tier })),
+    [
+      { sha: "owner", domain: "example", tier: "core" },
+      { sha: "fixup", domain: "example", tier: "core" },
+    ],
+  );
+});
+
 it("scans a trailer-free fixup as the commit it names", () => {
   assert.deepStrictEqual(
     withFixupOwnerTrailers([
