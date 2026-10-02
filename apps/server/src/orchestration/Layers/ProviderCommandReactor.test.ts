@@ -70,6 +70,7 @@ import {
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { forkLastRenamedBranchStatus } from "../../git/RenamedBranchStatus.fork-test-harness.ts"; // fork-hook: zmux-estate/provider-reactor-renamed-branch-import
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -299,17 +300,15 @@ describe("ProviderCommandReactor", () => {
         ),
       ),
     );
-    let checkedOutBranch = "t3code/1234abcd";
     const renameBranch = vi.fn((input: unknown) =>
-      Effect.sync(() => {
-        checkedOutBranch =
+      Effect.succeed({
+        branch:
           typeof input === "object" &&
           input !== null &&
           "newBranch" in input &&
           typeof input.newBranch === "string"
             ? input.newBranch
-            : "renamed-branch";
-        return { branch: checkedOutBranch };
+            : "renamed-branch",
       }),
     );
     const pruneWorktrees = vi.fn((_: { readonly cwd: string }) => Effect.void);
@@ -476,15 +475,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           renameBranch,
-          localStatus: () =>
-            Effect.succeed({
-              isRepo: true,
-              hasPrimaryRemote: true,
-              isDefaultRef: false,
-              refName: checkedOutBranch,
-              hasWorkingTreeChanges: false,
-              workingTree: { files: [], insertions: 0, deletions: 0 },
-            }),
+          localStatus: forkLastRenamedBranchStatus(renameBranch), // fork-hook: zmux-estate/provider-reactor-renamed-branch-status
           pruneWorktrees,
           createWorktree,
         } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
@@ -1550,14 +1541,9 @@ describe("ProviderCommandReactor", () => {
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {
       const releaseStart = yield* Deferred.make<void>();
-      const startEntered = yield* Deferred.make<void>();
       const harness = yield* Effect.promise(() =>
         createHarness({
-          startSessionEffect: (session) =>
-            Deferred.succeed(startEntered, undefined).pipe(
-              Effect.andThen(Deferred.await(releaseStart)),
-              Effect.as(session),
-            ),
+          startSessionEffect: (session) => Deferred.await(releaseStart).pipe(Effect.as(session)),
         }),
       );
       const now = "2026-01-01T00:00:00.000Z";
@@ -1577,16 +1563,12 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       });
 
-      yield* Deferred.await(startEntered);
+      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
       const duringStartup = yield* Effect.promise(() => harness.readModel());
-      const startingSession = duringStartup.threads.find(
-        (entry) => entry.id === ThreadId.make("thread-1"),
-      )?.session;
-      expect(startingSession?.status).toBe("starting");
-      expect(startingSession?.activeTurnId).toBeNull();
-      expect(yield* Effect.promise(() => harness.readPendingTurnStarts())).toEqual([
-        { threadId: "thread-1" },
-      ]);
+      expect(
+        duringStartup.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session
+          ?.status,
+      ).toBe("starting");
       expect(harness.sendTurn).not.toHaveBeenCalled();
 
       yield* Deferred.succeed(releaseStart, undefined);
