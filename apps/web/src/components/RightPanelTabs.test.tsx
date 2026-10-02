@@ -94,15 +94,13 @@ function renderTabs(
   second?: DesktopPreviewFavicon,
   audio?: { audible?: boolean; audioMuted?: boolean },
   previewRuntimeTabId: ((tabId: string) => string) | null = (tabId) => `runtime:${tabId}`,
-  options: { empty?: boolean; issuesAvailable?: boolean } = {},
 ) {
-  const surfaces = options.empty ? [] : second ? [previewSurface, secondSurface] : [previewSurface];
   return renderToStaticMarkup(
     <RightPanelTabs
       mode="inline"
-      surfaces={surfaces}
+      surfaces={second ? [previewSurface, secondSurface] : [previewSurface]}
       environmentId={null}
-      activeSurfaceId={options.empty ? null : previewSurface.id}
+      activeSurfaceId={previewSurface.id}
       pendingSurfaceIds={new Set()}
       previewSessions={sessions}
       desktopByTabId={{
@@ -134,7 +132,7 @@ function renderTabs(
       filesAvailable={false}
       pullRequestAvailable={false}
       pullRequestsAvailable={false}
-      issuesAvailable={options.issuesAvailable ?? false}
+      issuesAvailable={false} // fork-hook: github-issues/right-panel-tabs-issues-prop
       agentsAvailable={false}
       deviceAvailable={false}
     >
