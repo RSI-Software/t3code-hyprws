@@ -115,8 +115,10 @@ Never post a block to `pingdotgg/t3code`.
 
 Rerere replays content resolutions but records nothing for a delete/modify: the fix is a driver rule or a pre-adopt commit on `hyprws` (precedent `72666ffe19`, RSI-Software/t3code-hyprws#1227).
 
-**Reshape extras.** The kept sync worktree carries them between runs; a rerun on the same tag and lease adopts it.
-A trunk `fixup!` cannot carry one: it compiles only against post-sync upstream, so landing it reds `hyprws`.
+**Reshape.** Resolve minimally in the rebase: upstream's text plus marked hooks verbatim.
+Adaptation never lands inside a replayed commit; the hook guard (`scripts/lib/fork-hook-guard.ts`, run by `fork:ci`) refuses it.
+Commit it once, as one `Fork-Repair` commit at the tip of the kept sync worktree; a rerun on the same tag and lease adopts it.
+After the sync, the [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) repair split dissolves it into its owners.
 
 ## Failure lifecycle
 
