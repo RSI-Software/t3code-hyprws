@@ -11,7 +11,13 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import { FIXUP_PREFIX, forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
+import {
+  FIXUP_PREFIX,
+  fixupTarget,
+  forkLogArguments,
+  parseForkLog,
+  type ForkCommit,
+} from "./fork-delta.ts";
 import {
   type AuthoringGuardCommit,
   collectAuthoringWarnings,
@@ -748,18 +754,25 @@ export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
 
 // A squash resolves every listed member by sha prefix and consumes no subject
 // ordinal; anything else matches its subject, oldest first. The sync
-// autosquashes each `fixup! <subject>` into the one commit it names, so those
-// fixups join that owner's first match.
+// folds each `fixup! <subject>` into the one commit it names, so those fixups
+// join that owner's first match.
 export const matchReplayCounterparts = (
   commits: ReadonlyArray<ReplayedCommit>,
   counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
   replayShas: ReadonlyArray<string> = [],
 ): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const owners = new Set([...counterparts.keys()].filter((key) => !key.startsWith(FIXUP_PREFIX)));
+  const fixupsByOwner = new Map<string, ReadonlyArray<string>>();
+  for (const [subject, shas] of counterparts) {
+    const named = fixupTarget(subject, owners);
+    if (named !== undefined)
+      fixupsByOwner.set(named, [...(fixupsByOwner.get(named) ?? []), ...shas]);
+  }
   const ordinalBySubject = new Map<string, number>();
   const matched = new Map<string, ReadonlyArray<string>>();
   for (const commit of commits) {
     const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
-    const fixups = ordinal === 0 ? (counterparts.get(FIXUP_PREFIX + commit.subject) ?? []) : [];
+    const fixups = ordinal === 0 ? (fixupsByOwner.get(commit.subject) ?? []) : [];
     const squashed = (commit.squashes ?? []).flatMap((member) =>
       replayShas.filter((sha) => sha.startsWith(member)),
     );
@@ -785,8 +798,9 @@ export const withFixupOwnerTrailers = (
 ): ReadonlyArray<ForkCommit> => {
   const ownerBySubject = new Map(commits.map((commit) => [commit.subject, commit]));
   return commits.map((commit) => {
-    if (commit.domain !== undefined || !commit.subject.startsWith(FIXUP_PREFIX)) return commit;
-    const owner = ownerBySubject.get(commit.subject.slice(FIXUP_PREFIX.length));
+    const named = fixupTarget(commit.subject, ownerBySubject);
+    if (commit.domain !== undefined || named === undefined) return commit;
+    const owner = ownerBySubject.get(named);
     if (owner?.domain === undefined) return commit;
     return {
       ...commit,
