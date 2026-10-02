@@ -675,10 +675,11 @@ const splitRepair = (root: string, repair: string, repairLine: string) => {
   return { alphaFixup, betaFixup, residue: git(root, ["rev-parse", "HEAD"]) };
 };
 
-const cli = (root: string, args: ReadonlyArray<string>) => {
+const cli = (root: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) => {
   const result = NodeChildProcess.spawnSync(process.execPath, [forkFoldScript, ...args], {
     cwd: root,
     encoding: "utf8",
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
   });
   return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
 };
@@ -803,7 +804,11 @@ it("falls back to a worktree rebase at the first refused block and resumes acros
         `${alphaFeature}\t${alphaDependent}\n${betaCleanup}\t${betaEdit}\n`,
       );
       const worktree = worktreeDir(root);
-      const apply = () => cli(root, ["apply", "plan.tsv", "--base", base]);
+      const apply = (env?: NodeJS.ProcessEnv) =>
+        cli(root, ["apply", "plan.tsv", "--base", base], env);
+      // Repo scope outranks a developer's global opt-out, so the commit each
+      // resume runs would detach auto maintenance here exactly as it does on CI.
+      git(root, ["config", "maintenance.auto", "true"]);
 
       // The alpha fold carries the fast path; the beta pair refuses there — it
       // cannot replay before its dependent — and moves to the worktree rebase.
@@ -816,10 +821,14 @@ it("falls back to a worktree rebase at the first refused block and resumes acros
       assert.strictEqual(NodeFS.existsSync(worktree), true);
 
       resolveStop(root, worktree, "A1!\nl2\nl3\nl4\nl5\n");
-      const second = apply();
+      const trace = NodePath.join(root, "trace2.json");
+      const second = apply({ GIT_TRACE2_EVENT: trace });
       assert.strictEqual(second.status, 1, second.stderr);
       assert.include(second.stderr, "stopped: ");
       assert.include(second.stderr, "fix: beta edit");
+      // A detached maintenance run's `rerere gc` would race the next pick for
+      // MERGE_RR.lock and kill the rebase mid-stop (RSI-Software/t3code-hyprws#1459).
+      assert.notInclude(NodeFS.readFileSync(trace, "utf8"), '"maintenance","run"');
 
       resolveStop(root, worktree, "A1!\nB2\nl3\nl4\nl5\n");
       const third = apply();
