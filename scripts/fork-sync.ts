@@ -9,9 +9,11 @@
 // a rerun of the same command is always the next move.
 //
 // The sync worktree is the carrier between runs. A run records its tag, target
-// sha, and lease beside it; a rerun on the same three adopts the kept worktree
-// — continuing a resolved rebase, or taking a finished HEAD with any reshape
-// extras committed there — and a different tag or a moved lease recreates it.
+// sha, lease, and every stop's conflict rows beside it; a rerun on the same
+// three adopts the kept worktree — continuing a resolved rebase, or taking a
+// finished HEAD with any reshape extras committed there — and reports every
+// stop so far. A different tag or a moved lease recreates it. A new worktree
+// runs the repo's own worktree setup step, so a stop already has dependencies.
 //
 // | Step    | Fails when                                         |
 // | ------- | -------------------------------------------------- |
@@ -31,16 +33,19 @@
 // Markdown this prints is output, never read back. Publication goes through
 // plain `gh`, and nothing is ever posted to upstream.
 //
-// The check battery installs fresh in the replay worktree instead of linking
-// the trunk's node_modules whenever the target changed the lockfile, the
-// workspace catalog, or a manifest, so the battery's toolchain always matches
-// the target's declared dependency set.
+// The check battery installs again in the replay worktree only when the
+// rebased tip changed the lockfile, the workspace catalog, or a manifest since
+// the setup step installed, so the battery's toolchain always matches the
+// tip's declared dependency set.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as Schema from "effect/Schema";
+
+import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
+import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 
 import { FIXUP_PREFIX } from "./fork-delta.ts";
 import { ciTestJobs } from "./lib/fork-ci-jobs.ts";
@@ -231,11 +236,7 @@ export const ForkSyncReport = Schema.Struct({
   }),
   /** The scan base: `git merge-base upstream/main <tip>`. */
   base: Schema.String,
-  rerere: Schema.Struct({
-    restored: Schema.Boolean,
-    saved: Schema.Boolean,
-    published: Schema.Boolean,
-  }),
+  /** Every stop's rows, earlier runs on the same kept worktree included, in stop order. */
   conflicts: Schema.Array(ConflictRow),
   checks: Schema.Array(CheckRow),
   /** The block issues the applied run closed, or failed to close, after the push. */
@@ -350,33 +351,89 @@ const REBASE_CONFIG = [
 
 export const worktreePath = (root: string): string => NodePath.join(root, SYNC_DIR, WORKTREE_DIR);
 
-/** What the kept sync worktree was built for; a rerun adopts it only on an exact match. */
-interface WorktreeState {
-  readonly tag: string;
-  readonly targetSha: string;
-  readonly lease: string;
-}
+/**
+ * What the kept sync worktree was built for and what it carries between runs.
+ * A rerun adopts it only when tag, target, and lease match exactly.
+ */
+const WorktreeState = Schema.Struct({
+  tag: Schema.String,
+  targetSha: Schema.String,
+  lease: Schema.String,
+  /** The commit whose dependency set the setup step installed; absent when none ran. */
+  installed: Schema.optionalKey(Schema.String),
+  /** Every stop's rows so far, so the run that finishes the rebase reports them all. */
+  conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
+});
+interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
+const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
 
 const worktreeStatePath = (root: string): string =>
   NodePath.join(root, SYNC_DIR, `${WORKTREE_DIR}.json`);
 
-const keptWorktreeMatches = (
+const writeWorktreeState = (root: string, state: WorktreeState): void =>
+  NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
+
+/** The kept worktree's state when it was built for `expected`'s tag, target, and lease. */
+const keptWorktreeState = (
   runner: CommandRunner,
   root: string,
   expected: WorktreeState,
-): boolean => {
-  let state: Partial<WorktreeState>;
+): WorktreeState | null => {
+  let state: WorktreeState;
   try {
-    state = JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8"));
+    state = decodeWorktreeState(JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8")));
   } catch {
-    return false;
+    return null;
   }
-  return (
-    state.tag === expected.tag &&
+  return state.tag === expected.tag &&
     state.targetSha === expected.targetSha &&
     state.lease === expected.lease &&
     gitResult(runner, worktreePath(root), ["rev-parse", "--verify", "HEAD"]).status === 0
+    ? state
+    : null;
+};
+
+/**
+ * The stops recorded so far plus this run's, one row per fork commit and path:
+ * re-entering a stop that is still unresolved replaces its rows in place.
+ */
+const mergeStops = (
+  carried: ReadonlyArray<ConflictRow>,
+  current: ReadonlyArray<ConflictRow>,
+): ReadonlyArray<ConflictRow> => {
+  const rows = new Map<string, ConflictRow>();
+  for (const row of [...carried, ...current]) rows.set(`${row.forkCommit}\0${row.path}`, row);
+  return [...rows.values()];
+};
+
+/**
+ * Run the setup step the worktree's `t3.json` marks `runOnWorktreeCreate`, as
+ * T3 Code runs it for a thread worktree (`scripts/setup-worktree.ts` here: it
+ * installs dependencies). It runs in the battery's scrubbed environment, so the
+ * push credential and the live instance's variables never reach it. Returns
+ * whether a setup step ran.
+ */
+const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string): boolean => {
+  let contents: string;
+  try {
+    contents = NodeFS.readFileSync(NodePath.join(worktree, "t3.json"), "utf8");
+  } catch {
+    return false;
+  }
+  const setup = parseT3ProjectFile(contents)?.scripts?.find(
+    (script) => script.runOnWorktreeCreate === true,
   );
+  if (setup === undefined) return false;
+  process.stdout.write(`sync: running worktree setup '${setup.command}' in ${worktree}\n`);
+  runRequire(runner, "sh", ["-c", setup.command], {
+    cwd: worktree,
+    env: {
+      ...verificationEnv(worktree),
+      ...projectScriptRuntimeEnv({ project: { cwd: root }, worktreePath: worktree }),
+    },
+    stream: true,
+  });
+  return true;
 };
 
 /** Drop the sync worktree and its state once nothing is left to carry. */
@@ -469,10 +526,11 @@ const reapplyHooks = (
 
 /**
  * A generated path a conflict regenerates instead of stopping. A `generator`
- * route reruns a `vp` command; `from: "root"` runs it from the trunk
- * checkout's install against the replay worktree, which has no node_modules
- * mid-rebase. A `merge` route has no generator: it merges the three stages and
- * formats the result.
+ * route reruns a `vp` command; `from: "root"` runs the trunk checkout's copy
+ * of it, with that checkout's install, against the replay worktree, whose own
+ * copy may be mid-replay and whose install exists only when a setup step ran.
+ * A `merge` route has no generator: it merges the three stages and formats the
+ * result.
  */
 export type RegenerationRoute =
   | {
@@ -610,22 +668,18 @@ export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<st
  * instead: a rebase in progress re-enters the stop loop, so unresolved paths
  * block again and resolved ones continue; a finished HEAD is taken as the
  * rebased tip as long as it contains the target.
+ *
+ * `conflicts` collects this run's rows as they happen; `rebaseOnto` owns it.
  */
-export const rebaseOnto = (
+const replayOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
   oldSha: string,
+  adopted: boolean,
+  conflicts: ConflictRow[],
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
-  const state: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
-  const adopted = keptWorktreeMatches(runner, root, state);
-  if (!adopted) {
-    dropWorktree(runner, root);
-    git(runner, root, ["worktree", "prune"]);
-    git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
-    NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
-  }
   // The fork stack above `target` sits on this upstream commit — for a normal
   // run the previous release tag. Net-zero compares the fork trunk to it from
   // real refs, once per run, never from the worktree.
@@ -634,7 +688,6 @@ export const rebaseOnto = (
   if (refusals.length > 0) throw new Error(refusals.join("; "));
   const editorEnv = { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" };
   const rebaseArgs = ["rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha];
-  const conflicts: ConflictRow[] = [];
   const forkCommitCount = Number(
     git(runner, root, ["rev-list", "--count", `${target.sha}..${oldSha}`]),
   );
@@ -767,6 +820,54 @@ export const rebaseOnto = (
   };
 };
 
+/** A sync rebase as the run sees it: this run's replay plus what the kept worktree carries. */
+export type SyncRebase = RebaseOutcome & {
+  /** Every stop's rows, earlier runs on the same kept worktree included, in stop order. */
+  readonly recorded: ReadonlyArray<ConflictRow>;
+  /** The commit whose dependency set the worktree has installed; `null` when none is. */
+  readonly installed: string | null;
+};
+
+/**
+ * Rebase `oldSha` onto `target` in the kept sync worktree (see `replayOnto`).
+ * A new worktree runs the repo's setup step before the rebase starts, so a
+ * stop has dependencies. Each stop's rows persist beside the worktree as they
+ * are recorded, so the run that finishes the rebase still reports them.
+ */
+export const rebaseOnto = (
+  runner: CommandRunner,
+  root: string,
+  target: ReleaseTag,
+  oldSha: string,
+): SyncRebase => {
+  const worktree = worktreePath(root);
+  const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
+  let state = keptWorktreeState(runner, root, expected);
+  const adopted = state !== null;
+  if (state === null) {
+    dropWorktree(runner, root);
+    git(runner, root, ["worktree", "prune"]);
+    git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
+    state = runWorktreeSetup(runner, root, worktree)
+      ? { ...expected, installed: oldSha }
+      : expected;
+    writeWorktreeState(root, state);
+  }
+  const carried = state.conflicts ?? [];
+  const conflicts: ConflictRow[] = [];
+  let outcome: RebaseOutcome;
+  try {
+    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts);
+  } finally {
+    writeWorktreeState(root, { ...state, conflicts: mergeStops(carried, conflicts) });
+  }
+  return {
+    ...outcome,
+    recorded: mergeStops(carried, outcome.conflicts),
+    installed: state.installed ?? null,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Check
 // ---------------------------------------------------------------------------
@@ -822,69 +923,24 @@ const verificationEnv = (worktree: string): NodeJS.ProcessEnv => ({
   PATH: worktreeExecutablePath(process.env.PATH, worktree),
 });
 
-/**
- * Reuse one checkout's pnpm install from the detached worktree: workspace links
- * are copied verbatim so they resolve to the rebased sources, the root store is
- * shared directly.
- */
-export const linkInstalledModules = (root: string, worktree: string): void => {
-  const copyModuleLinks = (source: string, destination: string): void => {
-    NodeFS.mkdirSync(destination, { recursive: true });
-    for (const entry of NodeFS.readdirSync(source, { withFileTypes: true })) {
-      const sourcePath = NodePath.join(source, entry.name);
-      const destinationPath = NodePath.join(destination, entry.name);
-      if (entry.isSymbolicLink()) {
-        NodeFS.symlinkSync(NodeFS.readlinkSync(sourcePath), destinationPath);
-      } else if (entry.isDirectory()) {
-        copyModuleLinks(sourcePath, destinationPath);
-      } else {
-        NodeFS.copyFileSync(sourcePath, destinationPath);
-      }
-    }
-  };
-  const visit = (directory: string, depth: number): void => {
-    const relative = NodePath.relative(root, directory);
-    const sourceModules = NodePath.join(directory, "node_modules");
-    const worktreeModules = NodePath.join(worktree, relative, "node_modules");
-    if (NodeFS.existsSync(sourceModules) && !NodeFS.existsSync(worktreeModules)) {
-      if (relative.length === 0) NodeFS.symlinkSync(sourceModules, worktreeModules, "dir");
-      else copyModuleLinks(sourceModules, worktreeModules);
-    }
-    if (depth === 2) return;
-    for (const entry of NodeFS.readdirSync(directory, { withFileTypes: true })) {
-      if (
-        !entry.isDirectory() ||
-        entry.name === "node_modules" ||
-        entry.name === ".git" ||
-        entry.name === ".repos" ||
-        entry.name === ".t3"
-      )
-        continue;
-      visit(NodePath.join(directory, entry.name), depth + 1);
-    }
-  };
-  visit(root, 0);
-};
-
-/** The files whose diff marks the target as having changed the installed dependency set. */
+/** The files whose diff marks a commit as having changed the installed dependency set. */
 const DEPENDENCY_FILES = ["pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"];
 
 /**
- * True when the target changed the dependency set since the trunk: the
- * lockfile, the catalog, or a manifest. `linkInstalledModules` is only safe
- * when the replay's node_modules still match what the target's sources
- * expect — a bumped catalog entry (e.g. `vite-plus` 0.3.0 → 0.3.3) means the
- * trunk's toolchain runs against the target's sources and skews tool output
- * (see e.g. `oxfmt` formatting) that no fork commit touches.
+ * True when the dependency set differs between two commits: the lockfile, the
+ * catalog, or a manifest. An install is only reusable while the replay's
+ * sources expect what it installed — a bumped catalog entry (e.g. `vite-plus`
+ * 0.3.0 → 0.3.3) means an older toolchain runs against newer sources and skews
+ * tool output (see e.g. `oxfmt` formatting) that no fork commit touches.
  */
 export const dependencySetChanged = (
   runner: CommandRunner,
   root: string,
-  trunkSha: string,
-  targetSha: string,
+  fromSha: string,
+  toSha: string,
 ): boolean =>
-  gitResult(runner, root, ["diff", "--quiet", trunkSha, targetSha, "--", ...DEPENDENCY_FILES])
-    .status !== 0;
+  gitResult(runner, root, ["diff", "--quiet", fromSha, toSha, "--", ...DEPENDENCY_FILES]).status !==
+  0;
 
 /**
  * The Check-job half of the battery: the ledger gate, then everything the
@@ -925,24 +981,29 @@ export const checkFailureDetail = (
  * push to the trunk has no pull request to gate it, so the driver runs the
  * whole battery itself, and any red row keeps the push from happening. There
  * is no flag that drops a row.
+ *
+ * `installed` is the commit whose dependency set the worktree setup step
+ * installed. The battery installs again only when the rebased tip changed that
+ * set, or when nothing is installed.
  */
 export const runChecks = (
   runner: CommandRunner,
   root: string,
   worktree: string,
   target: ReleaseTag,
-  trunkSha: string,
+  installed: string | null,
 ): ReadonlyArray<CheckRow> => {
   const testJobs = ciTestJobs(worktree);
-  if (dependencySetChanged(runner, root, trunkSha, target.sha)) {
-    process.stdout.write(
-      `sync: dependency set changed on ${target.sha.slice(0, 7)}; installing in the replay worktree\n`,
-    );
-    runRequire(runner, "vp", ["i", "--frozen-lockfile"], { cwd: worktree, stream: true });
-  } else {
-    linkInstalledModules(root, worktree);
-  }
   const env = verificationEnv(worktree);
+  const tip = git(runner, worktree, ["rev-parse", "HEAD"]);
+  if (installed === null || dependencySetChanged(runner, root, installed, tip)) {
+    process.stdout.write(
+      installed === null
+        ? "sync: nothing installed in the replay worktree; installing\n"
+        : `sync: dependency set changed since ${installed.slice(0, 7)}; installing in the replay worktree\n`,
+    );
+    runRequire(runner, "vp", ["i", "--frozen-lockfile"], { cwd: worktree, env, stream: true });
+  }
   const passed = (result: CommandResult): boolean =>
     result.status === 0 && result.error === undefined;
   const runOne = (args: ReadonlyArray<string>): CommandResult => {
@@ -1046,13 +1107,14 @@ export const blockedIssueBody = (report: ForkSyncReport, previous?: string): str
   const cell = (value: string): string =>
     `\`${value.replaceAll("\\", "\\\\").replaceAll("|", "\\|")}\``;
   const blocked = report.blocked!;
-  const first = report.conflicts[0];
+  // Earlier stops' rows lead the table; the subject is the blocking commit's.
+  const blocking = report.conflicts.find((row) => row.upstreamCommit === blocked.blockingSha);
   return [
     `Origin: hyprws sync run onto ${report.target.tag}; \`vp run fork:sync ${report.target.tag}\`.`,
     "",
     `A sync run rebased \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\` and stopped at a seam neither rerere nor hook re-apply resolves.`,
     "",
-    `Blocking upstream commit: ${cell(`${blocked.blockingSha} ${first?.upstreamSubject ?? ""}`)}`,
+    `Blocking upstream commit: ${cell(`${blocked.blockingSha} ${blocking?.upstreamSubject ?? ""}`)}`,
     "",
     "| Path | Fork commit | Upstream commit | Refusal |",
     "| --- | --- | --- | --- |",
@@ -1545,7 +1607,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       lease: { expectedOld },
       trunk: { before: expectedOld, after: null },
       base: mergeBase(expectedOld),
-      rerere: { restored: false, saved: false, published: false },
       conflicts: [],
       checks: [],
       closedBlocks: [],
@@ -1635,12 +1696,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // rebase
     step = "rebase";
-    // No shared cache: the runner is ephemeral, so nothing published could replay
-    // on the next run. Local rerere still replays within this rebase.
-    const rerere = { restored: false, saved: false, published: false };
     const rebase = rebaseOnto(runner, root, target, expectedOld);
 
     if (rebase.status === "blocked") {
+      // This run's rows: earlier stops' manual paths are already resolved.
       const manualPaths = rebase.conflicts
         .filter((row) => row.via === "manual")
         .map((row) => row.path);
@@ -1649,8 +1708,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       // decisions persist before any comment posts
       const blockedReport = frame({
         outcome: "blocked",
-        rerere: { ...rerere },
-        conflicts: [...rebase.conflicts],
+        conflicts: [...rebase.recorded],
         decision: {
           worktree,
           paths: manualPaths,
@@ -1692,13 +1750,12 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // check
     step = "check";
-    const checks = runChecks(runner, root, worktreePath(root), target, expectedOld);
+    const checks = runChecks(runner, root, worktreePath(root), target, rebase.installed);
     if (checks.some((check) => check.status === "failed")) {
       // The worktree stays: it carries the red tip and any fix committed there.
       const worktree = worktreePath(root);
       return fail({
-        rerere: { ...rerere },
-        conflicts: [...rebase.conflicts],
+        conflicts: [...rebase.recorded],
         checks,
         decision: {
           worktree,
@@ -1724,8 +1781,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         frame({
           outcome: "applied",
           trunk: { before: expectedOld, after: newSha },
-          rerere: { ...rerere },
-          conflicts: [...rebase.conflicts],
+          conflicts: [...rebase.recorded],
           checks,
           push: { pushed: false, detail: "dry run" },
         }),
@@ -1741,8 +1797,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     dropWorktree(runner, root);
     if (pushRefused)
       return fail({
-        rerere: { ...rerere },
-        conflicts: [...rebase.conflicts],
+        conflicts: [...rebase.recorded],
         checks,
         error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
       });
@@ -1754,8 +1809,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       frame({
         outcome: "applied",
         trunk: { before: expectedOld, after: newSha },
-        rerere: { ...rerere },
-        conflicts: [...rebase.conflicts],
+        conflicts: [...rebase.recorded],
         checks,
         push: { pushed: true, detail: `${newSha.slice(0, 7)} → origin/${HYPRWS_BRANCH}` },
         closedBlocks: [...close.closed],
@@ -1784,7 +1838,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         lease: { expectedOld: "" },
         trunk: { before: "", after: null },
         base: "",
-        rerere: { restored: false, saved: false, published: false },
         conflicts: [],
         checks: [],
         closedBlocks: [],
