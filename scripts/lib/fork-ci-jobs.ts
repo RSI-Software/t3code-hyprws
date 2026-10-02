@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - The sync driver reads the workflow before any Effect runtime exists.
-// Gate: sync tip — the test jobs the sync battery runs before it moves hyprws; derives them, never judges them.
 
 // The one derivation of the hyprws CI test jobs as local `vp` commands. The
 // sync driver pushes the trunk directly, so no pull request runs these jobs

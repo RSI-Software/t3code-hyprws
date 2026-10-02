@@ -139,10 +139,9 @@ jobs:
 
       # The driver pushes the trunk with the mirror
       # PAT, built here so the token never lands in .git/config or a workflow
-      # env block the check battery inherits. Its issue writes go through ghb
+      # env block the check battery inherits. Its issue writes go through gh
       # with the job's own token (issues: write).
       - name: Run the sync driver
-        id: sync
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -156,7 +155,6 @@ jobs:
           vp run fork:sync 2>&1 | tee "$RUNNER_TEMP/fork-sync.log"
           code=${PIPESTATUS[0]}
           set -e
-          echo "exit=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
 
       - name: Summarize the run

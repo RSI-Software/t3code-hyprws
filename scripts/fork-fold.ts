@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone fold tool runs before an Effect runtime exists.
-// Gate: local — the fork-fold skill runs it by hand; prove reports, and no workflow invokes it.
 
 // Folds the fork's ahead commits into one-intent commits. The agent picks the
 // folds and writes the plan; this script only lists the stack, replays a plan
