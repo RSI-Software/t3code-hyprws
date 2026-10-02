@@ -1,5 +1,10 @@
 import * as NodeVM from "node:vm";
 import { it as effectIt } from "@effect/vitest";
+import { DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER } from "@t3tools/contracts";
+import type {
+  DesktopPreviewRecordingFrame,
+  DesktopPreviewRecordingInputEvent,
+} from "@t3tools/contracts";
 import {
   DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
   type DesktopPreviewRecordingFrame,

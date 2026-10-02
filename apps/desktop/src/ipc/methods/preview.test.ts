@@ -1,10 +1,8 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   DEFAULT_BROWSER_PROFILE_ID,
-  EnvironmentId,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewAutomationStatus,
-  ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -13,19 +11,16 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import type { WindowId } from "../../window/WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
-const { fromPartition, fromWebContents, fromId } = vi.hoisted(() => ({
+const { fromPartition } = vi.hoisted(() => ({
   fromPartition: vi.fn(() => {
     throw new Error("Session can only be received when app is ready");
   }),
-  fromWebContents: vi.fn(() => null as Electron.BrowserWindow | null),
-  fromId: vi.fn(() => null as Electron.WebContents | null),
 }));
 
 vi.mock("electron", () => ({
@@ -37,17 +32,13 @@ vi.mock("electron", () => ({
     fromPartition,
   },
   webContents: {
-    fromId,
+    fromId: vi.fn(() => null),
   },
 }));
 
 describe("preview IPC methods", () => {
   beforeEach(() => {
     fromPartition.mockClear();
-    fromWebContents.mockReset();
-    fromWebContents.mockReturnValue(null);
-    fromId.mockReset();
-    fromId.mockReturnValue(null);
   });
 
   it("does not access the Electron session while the module loads", async () => {
