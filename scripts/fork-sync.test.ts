@@ -1458,7 +1458,7 @@ it("files one governed failure issue when the check battery goes red", () => {
   withFixture(checkRedFixture, (f) => {
     const issueBodies: string[] = [];
     const recording = exec({
-      vp: () => refused("fork:delta --check is red"),
+      vp: () => refused("fork:ci is red"),
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") {
           issueBodies.push(
@@ -1499,12 +1499,9 @@ it("files one governed failure issue when the check battery goes red", () => {
     );
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `check` step/);
-    assert.match(
-      body,
-      /```\nthe check battery is red: vp run fork:delta --check, .*Test Server 2\n```/,
-    );
+    assert.match(body, /```\nthe check battery is red: vp run fork:ci, .*Test Server 2\n```/);
     assert.match(body, /\| Test Server 2 · `vp run --filter t3 test --shard 2\/2` \| failed \|/);
-    assert.match(body, /\| `vp run fork:delta --check` \| failed \|/);
+    assert.match(body, /\| `vp run fork:ci` \| failed \|/);
     assert.include(body, failureMarker("check", "v1.0.0"));
   });
 });
@@ -1515,7 +1512,7 @@ it("a rerun with the same failure edits the issue in place instead of filing aga
     const edits: string[] = [];
     let listResponse = ok("[]");
     const recording = exec({
-      vp: () => refused("fork:delta --check is red"),
+      vp: () => refused("fork:ci is red"),
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "list") return listResponse;
         if (args[0] === "issue" && args[1] === "create") {
@@ -1562,7 +1559,7 @@ it("a dry run reports the failure and files nothing", () => {
   withFixture(checkRedFixture, (f) => {
     let creates = 0;
     const recording = exec({
-      vp: () => refused("fork:delta --check is red"),
+      vp: () => refused("fork:ci is red"),
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") creates += 1;
         return ok("[]");
