@@ -2280,18 +2280,28 @@ it("leaves the trunk alone and names the suite when one CI test job is red", () 
   );
 });
 
-it("runs the battery with CI's umask and none of the live T3 instance's environment", () => {
+it("runs the battery with CI's umask and a scrubbed environment", () => {
   const repo = dependencyRepo();
   const inherited = {
     T3_SERVICE_LAUNCHER_CONTEXT: process.env.T3_SERVICE_LAUNCHER_CONTEXT,
     T3CODE_HOME: process.env.T3CODE_HOME,
+    GH_REPO: process.env.GH_REPO,
+    GH_HOST: process.env.GH_HOST,
+    GH_TOKEN: process.env.GH_TOKEN,
   };
   const outer = process.umask(0o077);
   try {
     process.env.T3_SERVICE_LAUNCHER_CONTEXT = '{"childVersion":"9.9.9"}';
     process.env.T3CODE_HOME = NodePath.join(repo.root, "live-home");
+    process.env.GH_REPO = "RSI-Software/t3code-hyprws";
+    process.env.GH_HOST = "github.example.com";
+    process.env.GH_TOKEN = "kept";
     const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-    const seen: Array<{ readonly umask: number; readonly keys: ReadonlyArray<string> }> = [];
+    const seen: Array<{
+      readonly umask: number;
+      readonly keys: ReadonlyArray<string>;
+      readonly token: string | undefined;
+    }> = [];
     const runner: CommandRunner = {
       run: (command, args, spec) => {
         if (command !== "vp") return runCommand(command, args, { cwd: spec.cwd });
@@ -2299,7 +2309,10 @@ it("runs the battery with CI's umask and none of the live T3 instance's environm
         process.umask(umask);
         seen.push({
           umask,
-          keys: Object.keys(spec.env ?? {}).filter((key) => key.startsWith("T3")),
+          keys: Object.keys(spec.env ?? {}).filter(
+            (key) => key.startsWith("T3") || key === "GH_REPO" || key === "GH_HOST",
+          ),
+          token: spec.env?.GH_TOKEN,
         });
         return ok();
       },
@@ -2307,7 +2320,8 @@ it("runs the battery with CI's umask and none of the live T3 instance's environm
     const target: ReleaseTag = { tag: "v1.0.0", sha: trunkSha };
     capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
     assert.strictEqual(seen.length, checkCommands().length + 3);
-    for (const call of seen) assert.deepStrictEqual(call, { umask: 0o022, keys: [] });
+    for (const call of seen)
+      assert.deepStrictEqual(call, { umask: 0o022, keys: [], token: "kept" });
     const restored = process.umask(outer);
     assert.strictEqual(restored, 0o077);
   } finally {
