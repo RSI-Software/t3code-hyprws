@@ -104,7 +104,8 @@ Superseded-upstream first, fork-specific last:
 A generic fix in no product domain is `upstream-fixes`.
 New commits land on top and move down at the next rebase.
 Reorder only on a clean stack; publish with a lease.
-A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each plus every PR reference the member carried, so the rebase scan reads every member as a replay counterpart; a refold keeps the links an earlier fold gathered.
+A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each plus every PR reference the member carried, so the rebase scan reads every member as a replay counterpart.
+A refold keeps every link an earlier fold gathered, bare `(#N)` markers included, and `prove` refuses a fold that drops one.
 
 ### Branch bases
 

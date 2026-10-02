@@ -40,7 +40,7 @@ const HELP = `Usage: vp run fork:fold <command> [options]
 Commands:
   list [--json]            Ahead commits grouped by Fork-Domain, with files
   apply <plan.tsv>         Replay the plan onto a detached tip; prints the tip sha
-  prove <old> <new>        Member guard, tree-equal, fork:delta --check, fork:scan on <new>
+  prove <old> <new>        Member and link guards, tree-equal, fork:delta --check, fork:scan on <new>
   publish <old> <new>      Prove, push the expected-old lease, move local hyprws
 
 Options:
@@ -51,6 +51,8 @@ Options:
 
 Plan: one line per output commit, tab-separated member shas in stack order.
 A last field that is not a sha overrides the first member's subject.
+A RSI-Software/t3code-hyprws#N field attaches that PR link to the line's
+commit, even a single member, which then renders as a fold.
 Blank lines and # lines are ignored. Every ahead commit appears exactly once,
 and a line's members never mix Fork-Domain values.
 
@@ -175,10 +177,12 @@ export const parsePlan = (text: string): ReadonlyArray<PlanLine> =>
   text.split("\n").flatMap((raw, index) => {
     const trimmed = raw.trim();
     if (trimmed.length === 0 || trimmed.startsWith("#")) return [];
-    const fields = raw
+    const all = raw
       .split("\t")
       .map((field) => field.trim())
       .filter((field) => field.length > 0);
+    const links = [...new Set(all.filter((field) => PLAN_LINK.test(field)))];
+    const fields = all.filter((field) => !PLAN_LINK.test(field));
     const last = fields.at(-1) ?? "";
     const subject = SHA.test(last) ? undefined : last;
     const members = subject === undefined ? fields : fields.slice(0, -1);
@@ -188,7 +192,14 @@ export const parsePlan = (text: string): ReadonlyArray<PlanLine> =>
         `plan line ${index + 1}: expected tab-separated shas, got "${bad ?? raw}"`,
       );
     }
-    return [{ line: index + 1, members, ...(subject === undefined ? {} : { subject }) }];
+    return [
+      {
+        line: index + 1,
+        members,
+        ...(links.length === 0 ? {} : { links }),
+        ...(subject === undefined ? {} : { subject }),
+      },
+    ];
   });
 
 /** Maps each plan member onto the stack; every ahead commit must appear exactly once. */
@@ -215,7 +226,11 @@ export const resolvePlan = (
     const domains = [...new Set(members.map((member) => member.domain ?? ""))];
     if (domains.length > 1)
       problems.push(`line ${line.line}: fold mixes Fork-Domain: ${domains.toSorted().join(", ")}`);
-    return { members, ...(line.subject === undefined ? {} : { subject: line.subject }) };
+    return {
+      members,
+      ...(line.links === undefined ? {} : { links: line.links }),
+      ...(line.subject === undefined ? {} : { subject: line.subject }),
+    };
   });
   for (const commit of stack.commits) {
     if (!used.has(commit.sha)) problems.push(`${commit.short} ${commit.subject}: missing`);
@@ -256,7 +271,14 @@ const withoutSquashes = (prose: string): string =>
 
 const FORK_REPO = "RSI-Software/t3code-hyprws";
 const FORK_PULL_URL = new RegExp(`https://github\\.com/${FORK_REPO}/pull/(\\d+)`, "g");
-const FORK_ITEM_REF = new RegExp(`${FORK_REPO}#(\\d+)`, "g");
+/** A plan field naming a fork pull request to attach to the line's commit. */
+const PLAN_LINK = new RegExp(`^${FORK_REPO}#\\d+$`);
+/**
+ * A PR ref on a `Squashes:` member line: the full fork ref, or the bare `(#N)`
+ * squash marker a member subject carries — the only form folds before
+ * RSI-Software/t3code-hyprws#1404 wrote.
+ */
+const MEMBER_LINE_REF = new RegExp(`${FORK_REPO}#(\\d+)|\\(#(\\d+)\\)`, "g");
 /** GitHub squash-merge appends ` (#N)` to a landed pull request's subject. */
 const SQUASH_MARKER = /\(#(\d+)\)\s*$/;
 /** A `Squashes:` member line; fork-scan's squashedMembers reads the same shape. */
@@ -265,9 +287,10 @@ const SQUASH_MEMBER_LINE = /^- [0-9a-f]{7,40}\b/;
 /**
  * The fork pull requests a commit cites, as full `RSI-Software/t3code-hyprws#N`
  * refs in first-seen order: its subject's squash marker, a fork pull URL in its
- * message, and refs already listed on an earlier fold's `Squashes:` lines. A
- * bare `#N` in a body is usually an issue (`Closes #N`), and any other repo's
- * ref posts backlinks upstream, so neither is carried.
+ * message, and refs already listed on an earlier fold's `Squashes:` lines, full
+ * or as a bare `(#N)` marker. A bare `#N` in a body is usually an issue
+ * (`Closes #N`), and any other repo's ref posts backlinks upstream, so neither
+ * is carried.
  */
 export const forkPullRequests = (message: string): ReadonlyArray<string> => {
   const normalized = message.replace(/\r\n/g, "\n");
@@ -279,10 +302,14 @@ export const forkPullRequests = (message: string): ReadonlyArray<string> => {
   add(SQUASH_MARKER.exec(subject.trim())?.[1]);
   for (const match of normalized.matchAll(FORK_PULL_URL)) add(match[1]);
   for (const line of squashesLines(bodyLines.join("\n"))) {
-    for (const match of line.matchAll(FORK_ITEM_REF)) add(match[1]);
+    for (const ref of memberLineRefs(line)) refs.set(ref, ref);
   }
   return [...refs.keys()];
 };
+
+/** The fork pull requests one `Squashes:` member line names, as full refs. */
+const memberLineRefs = (line: string): ReadonlyArray<string> =>
+  [...line.matchAll(MEMBER_LINE_REF)].map((match) => `${FORK_REPO}#${match[1] ?? match[2]}`);
 
 /** The trimmed `- <sha> …` member lines under a message's first `Squashes:` heading. */
 const squashesLines = (message: string): ReadonlyArray<string> => {
@@ -333,25 +360,33 @@ const memberLine = (member: FoldCommit): string => {
 };
 
 /**
- * One member keeps its message verbatim. A fold keeps the first member's prose,
- * lists every member under `Squashes:` (fork-scan's squashedMembers reads it)
- * with its fork pull request links, and ends with the merged trailers.
+ * One member without plan links keeps its message verbatim. A fold keeps the
+ * first member's prose, lists every member under `Squashes:` (fork-scan's
+ * squashedMembers reads it) with its fork pull request links, appends the
+ * plan's links to the lead line, and ends with the merged trailers.
  */
 export const foldMessage = (block: FoldBlock): string => {
   const [first] = block.members;
   if (first === undefined) throw new FoldError("empty plan line");
   const [subjectLine = "", ...rest] = first.message.replace(/\r\n/g, "\n").split("\n");
   const subject = block.subject ?? subjectLine;
-  if (block.members.length === 1) return [subject, ...rest].join("\n").trimEnd();
+  const attached = block.links ?? [];
+  if (block.members.length === 1 && attached.length === 0) {
+    return [subject, ...rest].join("\n").trimEnd();
+  }
   const prose = withoutSquashes(bodyProse(rest.join("\n")));
+  // Two pieces of one repair render the same line; a repair is listed once.
+  const [lead = "", ...others] = new Set(block.members.map(memberLine));
+  const listed = new Set([lead, ...others].flatMap(memberLineRefs));
+  const added = attached.filter((ref) => !listed.has(ref)).map((ref) => ` (${ref})`);
   return [
     subject,
     ...(prose.length === 0 ? [] : ["", prose]),
     "",
     "Squashes:",
     "",
-    // Two pieces of one repair render the same line; a repair is listed once.
-    ...new Set(block.members.map(memberLine)),
+    `${lead}${added.join("")}`,
+    ...others,
     "",
     foldTrailers(block.members),
   ].join("\n");
@@ -534,6 +569,19 @@ export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<s
   return findings;
 };
 
+/**
+ * Link guard: every fork pull request an old commit cites must still be cited
+ * by some new commit, so no fold ever drops a link.
+ */
+export const linkFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
+  const kept = new Set(next.commits.flatMap((commit) => forkPullRequests(commit.message)));
+  return old.commits.flatMap((commit) =>
+    forkPullRequests(commit.message)
+      .filter((ref) => !kept.has(ref))
+      .map((ref) => `${ref}: cited by ${commit.short} ${commit.subject}, by no new commit`),
+  );
+};
+
 export type ProveStep = (command: string, args: ReadonlyArray<string>) => CommandResult;
 
 export const proveChecks = (
@@ -567,10 +615,16 @@ const prove = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newR
   const next = git.text(["rev-parse", "--verify", `${newRef}^{commit}`]);
   const target = git.text(["merge-base", base, next]);
   let failed = 0;
-  const findings = memberFindings(readStack(git, base, old), readStack(git, base, next));
-  for (const finding of findings) process.stderr.write(`member: ${finding}\n`);
-  if (findings.length > 0) failed += 1;
-  process.stdout.write(`member guard → ${findings.length} finding(s)\n`);
+  const oldStack = readStack(git, base, old);
+  const nextStack = readStack(git, base, next);
+  for (const [guard, findings] of [
+    ["member", memberFindings(oldStack, nextStack)],
+    ["link", linkFindings(oldStack, nextStack)],
+  ] as const) {
+    for (const finding of findings) process.stderr.write(`${guard}: ${finding}\n`);
+    if (findings.length > 0) failed += 1;
+    process.stdout.write(`${guard} guard → ${findings.length} finding(s)\n`);
+  }
   for (const [command, args] of proveChecks(base, old, next, target)) {
     const result = step(command, args);
     if (result.status !== 0) {

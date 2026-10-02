@@ -48,13 +48,16 @@ One line per output commit: member shas, tab-separated, in stack order.
 ```text
 # a comment
 9e2656daeb	4f7a0802b5	fix(fork): optional subject override
-25bf181b2a
+25bf181b2a	RSI-Software/t3code-hyprws#395
 ```
 
 - **Coverage:** every ahead commit, exactly once
 - **Order:** line order is the new stack order
 - **One member:** message kept verbatim
 - **Fold:** lead prose, `Squashes:` with each member's PR references, merged trailers
+
+A `RSI-Software/t3code-hyprws#N` field attaches that PR link to the lead's `Squashes:` line; a lone member then renders as a fold.
+Backfill a link an earlier fold lost this way.
 
 ## Fold rule
 
@@ -80,7 +83,7 @@ Split each one on a detached copy of the head (`git worktree add --detach <dir> 
 
 Run the fold with `--head <split head>`: each fixup joins its owner's plan line and squashes there, so the owner's `Squashes:` lists its own old sha, the repair sha, and the repair's references.
 `prove` and `publish` take the pre-split tip as `<old>`; a tree-equal fold needs no retest.
-`prove` also refuses a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or, unless it carries `Fork-Repair`, by several.
+`prove` also refuses a dropped PR link, a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or, unless it carries `Fork-Repair`, by several.
 
 ## Stops
 
