@@ -340,6 +340,12 @@ export const resolveTarget = (
 // Rebase
 // ---------------------------------------------------------------------------
 
+/**
+ * `maintenance.auto=false`: every `git commit` the sequencer runs would
+ * otherwise detach a `git maintenance run --auto` whose `rerere gc` holds
+ * MERGE_RR.lock while the next pick conflicts, and the rebase dies on that lock
+ * after clearing REBASE_HEAD but before recording the stop.
+ */
 const REBASE_CONFIG = [
   "-c",
   "core.commentChar=auto",
@@ -347,6 +353,8 @@ const REBASE_CONFIG = [
   "diff.algorithm=histogram",
   "-c",
   "rerere.enabled=true",
+  "-c",
+  "maintenance.auto=false",
 ];
 
 export const worktreePath = (root: string): string => NodePath.join(root, SYNC_DIR, WORKTREE_DIR);
