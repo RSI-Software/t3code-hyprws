@@ -116,7 +116,7 @@ export default function FileBrowserPanel({
     ready,
     error,
     isPending,
-  } = useDirectoryEntries(environmentId, cwd, { includeIgnored: showIgnoredFiles });
+  } = useDirectoryEntries(environmentId, cwd);
   const [query, setQuery] = useState("");
   const [expandAll, setExpandAll] = useState(false);
   const pathSearch = useProjectPathSearch({ environmentId, cwd, query: query.slice(0, 256) }, 200);

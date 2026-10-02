@@ -5,15 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
+import { useShowIgnoredFiles } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 /** Loads only requested directories; collapsing a folder keeps its children cached. */
-export function useDirectoryEntries(
-  environmentId: EnvironmentId,
-  cwd: string,
-  options?: { readonly includeIgnored?: boolean },
-) {
+export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   // fork-hook: workspace-files/file-browser-ignored-listing — the show-ignored preference rides the entries input
-  const includeIgnored = options?.includeIgnored === true;
+  const includeIgnored = useShowIgnoredFiles(); // fork-hook: workspace-files/file-browser-ignored-listing
   const [directories, setDirectories] = useState(new Map<string, readonly ProjectEntry[]>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [pending, setPending] = useState(0);

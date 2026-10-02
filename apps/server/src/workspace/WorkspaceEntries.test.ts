@@ -23,12 +23,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 const TestLayer = Layer.empty.pipe(
-  Layer.provideMerge(
-    WorkspaceEntries.layer.pipe(
-      Layer.provide(WorkspacePaths.layer),
-      Layer.provide(VcsDriverRegistry.layer), // fork-hook: workspace-files/workspace-entries-test-registry-layer
-    ),
-  ),
+  Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+  Layer.provideMerge(VcsDriverRegistry.layer), // fork-hook: workspace-files/workspace-entries-test-registry-layer
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provide(
