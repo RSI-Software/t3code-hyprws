@@ -40,6 +40,7 @@ A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the
 | Push      | only when every row is green; a red row leaves `hyprws` unmoved   |
 | Report    | each row names its CI job; the run's error lists every red one    |
 | Env       | umask `022`; no `T3_*` or `T3CODE_*` variable reaches a check     |
+| Install   | only when the tip changed the set the setup step installed        |
 
 `fork-fold` publishes only a tree-equal fold, so it inherits the same guarantee.
 
@@ -67,7 +68,7 @@ Issue comments are projections of it: never parse one, and never treat an edit t
 | `target`      | The tag and its sha                                        |
 | `lease`       | The fetched `origin/hyprws` sha the push is leased against |
 | `trunk`       | Trunk before and after                                     |
-| `conflicts[]` | Path, fork commit, upstream commit, how the row resolved   |
+| `conflicts[]` | Every stop's path, fork and upstream commit, resolution    |
 | `checks[]`    | The check battery and each verdict                         |
 | `decision`    | A blocked run's worktree, paths, and resume commands       |
 
@@ -111,7 +112,7 @@ Never post a block to `pingdotgg/t3code`.
 2. Open that worktree.
 3. Resolve per [the rule](#automatic-resolution).
 4. `git add` the resolved paths.
-5. `git rebase --continue`.
+5. `git rebase --continue` once.
 6. Rerun `vp run fork:sync <tag>`.
 
 A pending regenerable file refuses step 5; skip it, and the rerun regenerates the file and continues.
@@ -122,6 +123,10 @@ Rerere replays content resolutions but records nothing for a delete/modify: the 
 Adaptation never lands inside a replayed commit; the hook guard (`scripts/lib/fork-hook-guard.ts`, run by `fork:ci`) refuses it.
 Commit it once, as one `Fork-Repair` commit at the tip of the kept sync worktree; a rerun on the same tag and lease adopts it.
 After the sync, the [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) repair split dissolves it into its owners.
+
+**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed.
+It carries every stop's rows between runs, so the report keeps them.
+Rerun after each stop: the report records only the stops a run saw.
 
 ## Failure lifecycle
 
