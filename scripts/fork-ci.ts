@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
-// fork job steps 3 and 5: the CI battery
-// Gate: local — the pre-pull-request battery, run by hand; no workflow invokes it, so it blocks nothing by itself.
 
 // The local pre-pull-request battery: what the fork's pull-request CI runs on
 // a branch, in one command. The delta trailer check runs first with the same
@@ -14,10 +12,10 @@
 // does, so a local green run cannot be greener than CI
 // (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
 // the Fork stale-delete check, the Fork rebase scan, the `vp check` step,
-// and the Test Scripts job of hyprws-ci.yml; the Body job's squash-body
-// check needs the pull-request body artifact and gates separately, as do
-// knip, typecheck, the desktop build, the product test jobs, and the
-// release and sync workflows.
+// and the Test Scripts job of hyprws-ci.yml. The advisory Body job's
+// squash-body check needs the pull-request body, and knip, typecheck, the
+// desktop build, the product test jobs, and the release and sync workflows
+// run separately.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
