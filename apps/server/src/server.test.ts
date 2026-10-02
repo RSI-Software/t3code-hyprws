@@ -979,7 +979,7 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(gitManagerLayer),
       Layer.provide(gitVcsDriverLayer),
-      Layer.provide(Layer.merge(gitWorkflowLayer, zmuxSessionBinderLayer)),
+      Layer.provide(gitWorkflowLayer),
       Layer.provide(reviewLayer),
       Layer.provide(vcsProvisioningLayer),
       Layer.provide(
