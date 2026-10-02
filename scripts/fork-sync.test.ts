@@ -93,6 +93,8 @@ const fixture = (options: {
   /** The fork branches from the tagged upstream commit instead of its base. */
   readonly forkOnTag?: boolean;
   readonly nightlyTag?: boolean;
+  /** The base commit's t3.json worktree setup command; a no-op by default, as every fork checkout declares one. */
+  readonly setup?: string;
 }): Fixture => {
   const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
   const git = (args: ReadonlyArray<string>, cwd = base): string => {
@@ -115,6 +117,14 @@ const fixture = (options: {
   NodeFS.writeFileSync(
     NodePath.join(repo, "shared.txt"),
     options.baseContent ?? "line1\nline2\nline3\n",
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(repo, "t3.json"),
+    JSON.stringify({
+      scripts: [
+        { name: "Setup Worktree", command: options.setup ?? "true", runOnWorktreeCreate: true },
+      ],
+    }),
   );
   writeWorkflow(repo);
   for (const [path, content] of Object.entries(options.baseFiles ?? {}))
@@ -293,9 +303,75 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.strictEqual(report.trunk.before, blocked.trunk.before);
       assert.notStrictEqual(report.trunk.after, report.trunk.before);
       assert.strictEqual(report.push.pushed, false);
-      assert.strictEqual(report.conflicts.length, 0);
+      // the hand-finished stop still reports its row
+      assert.deepEqual(report.conflicts, blocked.conflicts);
       assert.strictEqual(report.checks.length, BATTERY_ROWS);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
+    },
+  );
+});
+
+it("runs the repo's worktree setup once, so the first stop already has its dependencies", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+      setup: "mkdir -p node_modules/.bin && touch node_modules/.bin/tsc",
+    },
+    (f) => {
+      const shas = forkShas(f);
+      const first = exec();
+      capture(() => run(["v1.0.0"], { runner: first.runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "blocked");
+      assert.strictEqual(first.calls.filter(({ command }) => command === "sh").length, 1);
+      assert.strictEqual(
+        NodeFS.existsSync(NodePath.join(f.worktree, "node_modules/.bin/tsc")),
+        true,
+      );
+      const state = JSON.parse(
+        NodeFS.readFileSync(NodePath.join(NodePath.dirname(f.worktree), "worktree.json"), "utf8"),
+      );
+      assert.strictEqual(state.installed, shas.fork);
+
+      NodeFS.writeFileSync(
+        NodePath.join(f.worktree, "shared.txt"),
+        "line1\nline2 resolved\nline3\n",
+      );
+      f.git(["add", "shared.txt"], f.worktree);
+      f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
+
+      // the adopted rerun neither repeats the setup nor installs a second time
+      const second = exec();
+      const applied = capture(() =>
+        run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
+      );
+      assert.strictEqual(applied.value, 0);
+      assert.strictEqual(
+        second.calls.some(
+          ({ command, args }) => command === "sh" || (command === "vp" && args[0] === "i"),
+        ),
+        false,
+      );
+    },
+  );
+});
+
+it("writes no rerere field and still reads a report that carries one", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      capture(() => run(["v1.0.0"], { runner: exec().runner, root: f.root }));
+      const path = reportPath(f.root, "v1.0.0");
+      const written = JSON.parse(NodeFS.readFileSync(path, "utf8"));
+      assert.notProperty(written, "rerere");
+      NodeFS.writeFileSync(
+        path,
+        JSON.stringify({ ...written, rerere: { restored: false, saved: false, published: false } }),
+      );
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "blocked");
     },
   );
 });
@@ -746,7 +822,10 @@ it("holds a generated path until the stop's manual paths resolve, then regenerat
       const applied = readReport(f.root, "v2.0.0");
       assert.deepStrictEqual(
         applied.conflicts.map(({ path, via }) => ({ path, via })),
-        [{ path: LOCKFILE, via: "regenerate" }],
+        [
+          { path: "shared.txt", via: "manual" },
+          { path: LOCKFILE, via: "regenerate" },
+        ],
       );
       assert.strictEqual(
         f.git(["show", `${applied.trunk.after}:${LOCKFILE}`], f.root),
@@ -937,7 +1016,6 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
   lease: { expectedOld: "2".repeat(40) },
   trunk: { before: "2".repeat(40), after: null },
   base: "3".repeat(40),
-  rerere: { restored: false, saved: false, published: false },
   conflicts: [
     {
       path: "apps/web/src/page.tsx",
@@ -979,7 +1057,6 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
   lease: { expectedOld: "2".repeat(40) },
   trunk: { before: "2".repeat(40), after: null },
   base: "3".repeat(40),
-  rerere: { restored: false, saved: false, published: false },
   conflicts: [],
   checks: [{ command: "vp run fork:delta --check", status: "failed", detail: "red" }],
   decision: { worktree: "", paths: [], resume: "" },
@@ -1861,7 +1938,7 @@ it("records a non-empty detail tail when a streamed battery check fails", () => 
 });
 
 // ---------------------------------------------------------------------------
-// linkInstalledModules vs a fresh install: the dependency-set skew guard
+// The setup step's install vs a second one: the dependency-set skew guard
 // ---------------------------------------------------------------------------
 
 /** A minimal repo (no upstream/origin remotes) for the dependency-diff guard. */
@@ -1884,7 +1961,7 @@ const dependencyRepo = (): { readonly root: string; readonly worktree: string } 
   return { root, worktree };
 };
 
-it("installs fresh in the replay worktree when the target changed the lockfile", () => {
+it("installs again in the replay worktree when the tip changed the lockfile since setup", () => {
   const repo = dependencyRepo();
   try {
     const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
@@ -1905,18 +1982,16 @@ it("installs fresh in the replay worktree when the target changed the lockfile",
     const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
     const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
 
-    assert.match(printed.output, /sync: dependency set changed on/);
+    assert.match(printed.output, /sync: dependency set changed since/);
     const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
     assert.notStrictEqual(install, undefined);
     assert.deepStrictEqual(install!.args, ["i", "--frozen-lockfile"]);
-    // Neither module-linking side effect ran: the fresh install owns node_modules.
-    assert.strictEqual(NodeFS.existsSync(NodePath.join(repo.worktree, "node_modules")), false);
   } finally {
     NodeFS.rmSync(repo.root, { recursive: true, force: true });
   }
 });
 
-it("links the trunk's install when the target left the dependency set alone", () => {
+it("skips a second install when the tip kept the dependency set setup installed", () => {
   const repo = dependencyRepo();
   try {
     const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
@@ -1927,7 +2002,6 @@ it("links the trunk's install when the target left the dependency set alone", ()
 
     assert.strictEqual(dependencySetChanged(realRunner, repo.root, trunkSha, targetSha), false);
 
-    NodeFS.mkdirSync(NodePath.join(repo.root, "node_modules"), { recursive: true });
     const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
     const runner: CommandRunner = {
       run: (command, args, spec) => {
@@ -1939,13 +2013,16 @@ it("links the trunk's install when the target left the dependency set alone", ()
     const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
     const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
 
-    assert.notMatch(printed.output, /sync: dependency set changed/);
+    assert.notMatch(printed.output, /installing/);
     const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
     assert.strictEqual(install, undefined);
-    // linkInstalledModules ran: the worktree's node_modules is now a symlink to the trunk's.
+
+    // a worktree no setup step installed gets the battery's own install
+    const bare = capture(() => runChecks(runner, repo.root, repo.worktree, target, null));
+    assert.match(bare.output, /nothing installed in the replay worktree/);
     assert.strictEqual(
-      NodeFS.lstatSync(NodePath.join(repo.worktree, "node_modules")).isSymbolicLink(),
-      true,
+      calls.filter((call) => call.command === "vp" && call.args[0] === "i").length,
+      1,
     );
   } finally {
     NodeFS.rmSync(repo.root, { recursive: true, force: true });
