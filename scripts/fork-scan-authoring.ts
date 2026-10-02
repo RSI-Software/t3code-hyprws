@@ -39,7 +39,8 @@ export interface ExportDeclaration {
 
 export interface TestBlockHunk {
   readonly path: string;
-  readonly added: number;
+  // Trimmed, so the block rule can tell a restored upstream opener from a fork one.
+  readonly addedOpeners: ReadonlyArray<string>;
   readonly removed: number;
 }
 
@@ -180,14 +181,18 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
     let targetPath: string | null = null;
-    let hunkAddedTestBlocks = 0;
+    let hunkAddedOpeners: Array<string> = [];
     let hunkRemovedTestBlocks = 0;
     const flushTestBlockHunk = () => {
       const path = targetPath ?? sourcePath;
-      if (path !== null && (hunkAddedTestBlocks > 0 || hunkRemovedTestBlocks > 0)) {
-        testBlockHunks.push({ path, added: hunkAddedTestBlocks, removed: hunkRemovedTestBlocks });
+      if (path !== null && (hunkAddedOpeners.length > 0 || hunkRemovedTestBlocks > 0)) {
+        testBlockHunks.push({
+          path,
+          addedOpeners: hunkAddedOpeners,
+          removed: hunkRemovedTestBlocks,
+        });
       }
-      hunkAddedTestBlocks = 0;
+      hunkAddedOpeners = [];
       hunkRemovedTestBlocks = 0;
     };
     for (const line of lines) {
@@ -229,7 +234,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         });
       }
       if (TEST_BLOCK.test(content)) {
-        if (added) hunkAddedTestBlocks += 1;
+        if (added) hunkAddedOpeners.push(content.trim());
         else hunkRemovedTestBlocks += 1;
       }
     }
@@ -259,6 +264,12 @@ const FORK_TEST_FILE = /\.fork\.test\.tsx?$/;
 
 const TITLE_OF =
   /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
+
+/** The paths whose target-tree text the upstream-test rule measures this patch against. */
+export const upstreamTestPaths = (patch: CommitPatch): ReadonlyArray<string> => [
+  ...patch.removedTestLines.keys(),
+  ...patch.testBlockHunks.filter((hunk) => hunk.addedOpeners.length > 0).map((hunk) => hunk.path),
+];
 
 /** Trimmed, without blank and comment-only lines: the case-body lines the rule counts. */
 const significant = (content: string): boolean => {
@@ -354,9 +365,28 @@ export const collectAuthoringWarnings = (
       found.push({ rule, commit: commit.short, domain: commit.domain, detail });
     };
 
+    const occurrences = (text: string, line: string) =>
+      significantLines(text).filter((candidate) => candidate === line).length;
+    // An added opener the target already carries restores an upstream case
+    // rather than gaining a fork block, unless the head holds more copies of
+    // that line than the target: a fork block that reuses an upstream title
+    // still counts.
+    const restoresUpstreamOpener = (path: string, line: string): boolean => {
+      if (input.upstreamTestLines.get(path)?.has(line) !== true) return false;
+      const targetText = input.upstreamTestTexts.get(path);
+      const headText = input.headTestTexts?.get(path);
+      return (
+        targetText === undefined ||
+        headText === undefined ||
+        occurrences(headText, line) <= occurrences(targetText, line)
+      );
+    };
     const appendedTestBlocks = new Map<string, number>();
     for (const hunk of patch.testBlockHunks) {
-      const count = Math.max(0, hunk.added - hunk.removed);
+      const forkOpeners = hunk.addedOpeners.filter(
+        (line) => !restoresUpstreamOpener(hunk.path, line),
+      ).length;
+      const count = Math.min(forkOpeners, Math.max(0, hunk.addedOpeners.length - hunk.removed));
       if (count === 0) continue;
       appendedTestBlocks.set(hunk.path, (appendedTestBlocks.get(hunk.path) ?? 0) + count);
     }
@@ -389,8 +419,6 @@ export const collectAuthoringWarnings = (
       const upstreamLines = input.upstreamTestLines.get(path);
       const targetText = input.upstreamTestTexts.get(path);
       const headText = input.headTestTexts?.get(path);
-      const occurrences = (text: string, line: string) =>
-        significantLines(text).filter((candidate) => candidate === line).length;
       const upstream =
         upstreamLines === undefined
           ? lines
