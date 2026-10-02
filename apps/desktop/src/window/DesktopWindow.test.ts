@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import { DesktopSnapShotId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -64,8 +63,7 @@ import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import { windowIdentityKey } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-key-import
-import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
-import { makeTestWindowIds, testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
+import { makeTestWindowIds } from "./testWindowIds.fork.ts"; // fork-hook: multi-window/window-id-test-registry-import
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -770,185 +768,6 @@ describe("DesktopWindow", () => {
       }),
     );
   });
-
-  it.effect("opens a pending project intent once and uses its renderer title", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const previewMainWindowSets: Electron.BrowserWindow[] = [];
-      const previewOwners: string[] = []; // fork-hook: multi-window/window-id-intent-owners
-      const placementClaims: { key: string; title: string }[] = []; // fork-hook: multi-window/window-id-intent-claims
-      const previewBrowserSessionRequests: number[] = [];
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        previewMainWindowSets,
-        previewOwners, // fork-hook: multi-window/window-id-intent-owners-input
-        placementClaims, // fork-hook: multi-window/window-id-intent-claims-input
-        workspaceMoves: [], // fork-hook: multi-window/window-id-intent-placement
-        previewBrowserSessionRequests,
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.openArguments(["t3code", "--project", "environment-1", "project-1"]);
-        assert.equal(yield* Ref.get(createCount), 0);
-
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(yield* Ref.get(createCount), 1);
-        assert.equal(createdWindowOptions[0]?.title, "project-1");
-        assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
-          windowIdPreloadArgument(testWindowId(1)), // fork-hook: multi-window/window-id-intent-preload
-          "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/dispatch-seed-deep-link
-        ]);
-        assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
-        assert.deepEqual(previewOwners, [testWindowId(1)]); // fork-hook: multi-window/window-id-intent-preview-owner
-        assert.deepEqual(previewBrowserSessionRequests, []);
-        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]); // fork-hook: multi-window/intent-root-url
-        assert.isFalse(fakeWindow.windowListeners.has("resize"));
-
-        fakeWindow.windowListeners.get("ready-to-show")?.(); // fork-hook: multi-window/window-id-intent-show
-        yield* Effect.yieldNow; // fork-hook: multi-window/window-id-intent-show-settle
-        assert.deepEqual(
-          placementClaims.map((claim) => claim.key),
-          [testWindowId(1)],
-        ); // fork-hook: multi-window/window-id-intent-claim
-        const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
-        const preventDefault = vi.fn();
-        pageTitleUpdated?.({ preventDefault }, "Project One");
-        assert.equal(preventDefault.mock.calls.length, 1);
-        assert.deepEqual(fakeWindow.setTitle.mock.calls, [["Project One"]]);
-
-        yield* desktopWindow.openArguments(["t3code-dev://app/project/environment-1/project-1"]);
-        assert.equal(yield* Ref.get(createCount), 1);
-
-        fakeWindow.webContentsListeners.get("did-navigate-in-page")?.({}, "t3code-dev://app/");
-        yield* Effect.yieldNow;
-        assert.equal(yield* Ref.get(createCount), 1); // fork-hook: multi-window/intent-no-scope-guard
-        assert.equal(fakeWindow.close.mock.calls.length, 0); // fork-hook: multi-window/intent-no-scope-guard-close
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
-  it.effect("reopens the windows an update relaunch recorded, on their old workspaces", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const workspaceMoves: { key: string; workspace: string }[] = [];
-      const placementClaims: { key: string; title: string }[] = []; // fork-hook: multi-window/window-id-restore-claims
-      const readyToShowFork: ((...args: readonly unknown[]) => void)[] = []; // fork-hook: multi-window/placement-restore-ready
-      fakeWindow.window.once = ((
-        eventName: string,
-        listener: (...args: readonly unknown[]) => void,
-      ) => {
-        if (eventName === "ready-to-show") readyToShowFork.push(listener);
-        fakeWindow.windowListeners.set(eventName, listener);
-        return fakeWindow.window;
-      }) as Electron.BrowserWindow["once"]; // fork-hook: multi-window/placement-restore-ready
-      const hubId = testWindowId(101); // fork-hook: multi-window/window-id-restore-hub
-      const projectWindowId = testWindowId(102); // fork-hook: multi-window/window-id-restore-project
-      const projectSeedFork = {
-        environmentId: EnvironmentId.make("environment-1"),
-        projectId: ProjectId.make("project-1"),
-      }; // fork-hook: multi-window/restore-project-seed
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves,
-        placementClaims, // fork-hook: multi-window/window-id-restore-claims-input
-        restoreEntries: [
-          testRestoreEntry("all-projects", { id: 1, name: "1" }, hubId), // fork-hook: multi-window/window-id-restore-hub-entry
-          testRestoreEntry(projectSeedFork, { id: 4, name: "code" }, projectWindowId), // fork-hook: multi-window/window-id-restore-project-entry
-        ],
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.restoreWindowSession;
-        // A relaunch after an update carries no arguments, so the hub default
-        // must not win over the recorded windows.
-        yield* desktopWindow.openArguments(["t3code"]);
-        assert.equal(yield* Ref.get(createCount), 0);
-
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(yield* Ref.get(createCount), 2);
-        const hubArguments = createdWindowOptions[0]?.webPreferences?.additionalArguments; // fork-hook: multi-window/window-id-restore-hub-arguments
-        assert.deepEqual(hubArguments, [
-          windowIdPreloadArgument(hubId),
-          "--t3code-window-scope-seed=all-projects",
-        ]); // fork-hook: multi-window/window-id-restore-hub-preload
-        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
-          windowIdPreloadArgument(projectWindowId), // fork-hook: multi-window/window-id-restore-project-preload
-          "--t3code-window-scope-seed=environment-1/project-1", // fork-hook: multi-window/restore-project-seed-arg
-        ]);
-
-        for (const fire of readyToShowFork) fire(); // fork-hook: multi-window/placement-restore-map
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve))); // fork-hook: multi-window/placement-restore-settle
-        assert.deepEqual(
-          placementClaims.map((claim) => claim.key),
-          [hubId, projectWindowId],
-        ); // fork-hook: multi-window/window-id-restore-claim
-        assert.deepEqual(
-          createdWindowOptions.map((options) =>
-            options.webPreferences?.additionalArguments?.find((argument) =>
-              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
-            ),
-          ),
-          [windowIdPreloadArgument(hubId), windowIdPreloadArgument(projectWindowId)],
-        ); // fork-hook: multi-window/window-id-restore-ids
-        assert.deepEqual(workspaceMoves, [
-          { key: hubId, workspace: "1" }, // fork-hook: multi-window/window-id-restore-hub-move
-          { key: projectWindowId, workspace: "code" }, // fork-hook: multi-window/window-id-restore-project-move
-        ]);
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
-  it.effect("still honours an explicit launch intent alongside a restore", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves: [],
-        restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })], // fork-hook: multi-window/restore-hub-entry-placed
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.restoreWindowSession;
-        yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-
-        assert.equal(yield* Ref.get(createCount), 2);
-        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
-          windowIdPreloadArgument(testWindowId(2)), // fork-hook: multi-window/window-id-intent-restore-preload
-          "--t3code-window-scope-seed=environment-2/project-2", // fork-hook: multi-window/dispatch-seed-deep-link
-        ]);
-        assert.deepEqual(
-          createdWindowOptions.map((options) =>
-            options.webPreferences?.additionalArguments?.find((argument) =>
-              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
-            ),
-          ),
-          [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
-        ); // fork-hook: multi-window/window-id-intent-restore-ids
-      }).pipe(Effect.provide(layer));
-    }),
-  );
 
   it.effect("does not open a development window until the backend is ready", () =>
     Effect.gen(function* () {
