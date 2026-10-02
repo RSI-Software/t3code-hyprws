@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 
 import {
   assessForkSupersedes,
+  caseOpeners,
   caseSourceLines,
   collectForkSupersedes,
   contradictingTitles,
@@ -147,6 +148,50 @@ it("judges a declaration naming a wrapped each-table title", () => {
   assert.deepStrictEqual(enclosedSupersededTitles(sibling, "thing.test.ts"), [
     "refreshes after %s",
   ]);
+});
+
+it("recognizes multiline each tables without losing their rows or title location", () => {
+  const upstream = [
+    ``,
+    `it.each([`,
+    `  { host: "Darwin x86_64", downloads: false },`,
+    `  { host: "Darwin arm64", downloads: true },`,
+    `])(`,
+    `  "downloads for $host",`,
+    `  ({ downloads }) => expect(downloads).toBe(true),`,
+    `);`,
+    `it("next case", () => {});`,
+  ].join("\n");
+  assert.deepStrictEqual(caseOpeners(upstream), [
+    { start: 1, titleLine: 5, title: "downloads for $host" },
+    { start: 8, titleLine: 8, title: "next case" },
+  ]);
+  assert.deepStrictEqual(
+    caseSourceLines(upstream, "downloads for $host"),
+    upstream.split("\n").slice(1, 8),
+  );
+  const sibling = [
+    `forkSupersedes({ upstream: "thing.test.ts > downloads for $host", reason: "fork releases", commit: "abc" });`,
+    upstream.replace("toBe(true)", "toBe(false)"),
+  ].join("\n");
+  const assessed = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling]]),
+    new Map([["thing.test.ts", upstream]]),
+    new Map(),
+  );
+  assert.isEmpty(assessed.refusals);
+  assert.deepStrictEqual(assessed.superseded, [
+    { path: "thing.test.ts", title: "downloads for $host" },
+  ]);
+  assert.deepStrictEqual(enclosedSupersededTitles(sibling, "thing.test.ts"), [
+    "downloads for $host",
+  ]);
+  const missing = assessForkSupersedes(
+    new Map([["thing.fork.test.ts", sibling.replace("downloads for $host", "absent")]]),
+    new Map([["thing.test.ts", upstream]]),
+    new Map(),
+  );
+  assert.lengthOf(missing.refusals, 1);
 });
 
 it("refuses a declaration naming an absent file or title", () => {
