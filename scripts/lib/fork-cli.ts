@@ -1,5 +1,4 @@
 export class UsageError extends Error {}
-// Gate: none — usage-error type and argv parsing every fork script shares; gates nothing itself.
 
 export interface CliArguments {
   readonly values: ReadonlyMap<string, string>;
