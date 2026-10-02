@@ -20,6 +20,7 @@ import {
   renderAuthoringWarnings,
   significantTestLines,
   upstreamSourceLines,
+  upstreamTestPaths,
   type CommitPatch,
   type ScanAuthoringWarning,
 } from "./fork-scan-authoring.ts";
@@ -897,7 +898,7 @@ const buildGuardInput = (
       range.target,
       patchesBySha,
       upstreamTestFiles,
-      (patch) => patch.removedTestLines.keys(),
+      upstreamTestPaths,
       () => true,
       significantTestLines,
     ),
@@ -965,10 +966,11 @@ const readUpstreamLines = (
 
 /**
  * The target-tree text of every upstream test file a warned commit removes a
- * test line from — the same path set `readUpstreamLines` selects for the
- * test side, plus the full text. The declared-superseded exemption compares
- * structurally by case, so it needs the text, not just the line set
- * (RSI-Software/t3code-hyprws#1208).
+ * test line from or adds a test opener to — the same path set
+ * `readUpstreamLines` selects for the test side, plus the full text. The
+ * declared-superseded exemption compares structurally by case, and the
+ * restored-opener exemption by count, so both need the text, not just the
+ * line set (RSI-Software/t3code-hyprws#1208).
  */
 const readUpstreamTestTexts = (
   git: GitReader,
@@ -978,8 +980,7 @@ const readUpstreamTestTexts = (
 ): ReadonlyMap<string, string> => {
   const paths = new Set<string>();
   for (const patch of patchesBySha.values())
-    for (const path of patch.removedTestLines.keys())
-      if (upstreamTestFiles.has(path)) paths.add(path);
+    for (const path of upstreamTestPaths(patch)) if (upstreamTestFiles.has(path)) paths.add(path);
   const texts = new Map<string, string>();
   for (const path of [...paths].toSorted()) {
     try {
