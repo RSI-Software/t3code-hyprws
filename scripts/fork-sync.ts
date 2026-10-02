@@ -12,8 +12,10 @@
 // sha, lease, and every stop's conflict rows beside it; a rerun on the same
 // three adopts the kept worktree — continuing a resolved rebase, or taking a
 // finished HEAD with any reshape extras committed there — and reports every
-// stop so far. A different tag or a moved lease recreates it. A new worktree
-// runs the repo's own worktree setup step, so a stop already has dependencies.
+// stop so far. A green dry run keeps it too, so the real run publishes the
+// tip the dry run proved. A different tag or a moved lease recreates it. A new
+// worktree runs the repo's own worktree setup step, so a stop already has
+// dependencies.
 //
 // | Step    | Fails when                                         |
 // | ------- | -------------------------------------------------- |
@@ -187,13 +189,14 @@ export const ConflictRow = Schema.Struct({
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 
 /**
- * The typed decision route a stopped run leaves behind. Recovery reads this —
- * resolve the named paths in the named worktree, continue the rebase, rerun.
+ * The typed decision route a stopped run or a green dry run leaves behind.
+ * Recovery reads this — resolve the named paths in the named worktree, continue
+ * the rebase, rerun; after a green dry run, the real run publishes the kept tip.
  */
 export const DecisionRoute = Schema.Struct({
-  /** The detached worktree holding the stopped rebase; `""` when nothing to resume. */
+  /** The detached worktree holding the stopped rebase or kept tip; `""` when nothing to resume. */
   worktree: Schema.String,
-  /** The rebased tip a red check battery left in the worktree; trunk did not move. */
+  /** The rebased tip a red battery or a green dry run left in the worktree; trunk did not move. */
   tip: Schema.optionalKey(Schema.String),
   /** The paths resolved by hand there. */
   paths: Schema.Array(Schema.String),
@@ -1789,13 +1792,22 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     // push — the documented expected-old lease; a dry run reaches applied without it
     step = "push";
     if (dryRun) {
-      dropWorktree(runner, root);
+      // The worktree stays: the real run on the same tag and lease adopts the
+      // proven tip instead of rebasing again, since rerere replays resolutions
+      // but not the repairs committed after them (RSI-Software/t3code-hyprws#1495).
+      const worktree = worktreePath(root);
       return finish(
         frame({
           outcome: "applied",
           trunk: { before: expectedOld, after: newSha },
           conflicts: [...rebase.recorded],
           checks,
+          decision: {
+            worktree,
+            tip: newSha,
+            paths: [],
+            resume: `vp run fork:sync ${target.tag}`,
+          },
           push: { pushed: false, detail: "dry run" },
         }),
       );
