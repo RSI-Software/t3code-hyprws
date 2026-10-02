@@ -14,6 +14,7 @@ import {
   forkPullRequests,
   memberFindings,
   foldTrailers,
+  linkFindings,
   parsePlan,
   type ProveStep,
   resolvePlan,
@@ -50,6 +51,16 @@ it("parses members, a subject override, and skips blank and comment lines", () =
     { line: 4, members: ["cccc3333"] },
   ]);
   assert.throws(() => parsePlan("aaaa1111\tHEAD~1\tsubject\n"), /plan line 1/);
+});
+
+it("parses fork PR link fields on a plan line beside its members and subject", () => {
+  const link = "RSI-Software/t3code-hyprws#395";
+  assert.deepStrictEqual(parsePlan(`aaaa1111\t${link}\tbbbb2222\t${link}\tfix: reworded\n`), [
+    { line: 1, members: ["aaaa1111", "bbbb2222"], links: [link], subject: "fix: reworded" },
+  ]);
+  const stack = stackOf(commit("aaaa1111"));
+  assert.deepStrictEqual(resolvePlan(parsePlan(`aaaa1111\t${link}\n`), stack)[0]?.links, [link]);
+  assert.throws(() => parsePlan("aaaa1111\t#395\tsubject\n"), /plan line 1/);
 });
 
 it("refuses a plan that drops, repeats, or invents a commit", () => {
@@ -230,6 +241,105 @@ it("carries an earlier fold's links into the next fold", () => {
   assert.deepStrictEqual(squashedMembers(folded), ["cccc3333", "dddd4444"]);
 });
 
+it("keeps the bare (#N) links an older fold's member lines carry", () => {
+  // The shape folds wrote before full refs: a member line ending in a bare squash marker.
+  const older = commit("cccc3333", {
+    subject: "feat(desktop): launch Electron into Hyprland workspaces (#224)",
+    message: [
+      "feat(desktop): launch Electron into Hyprland workspaces (#224)",
+      "",
+      "Squashes:",
+      "",
+      "- 6dd0b2fd97 feat(desktop): launch Electron into Hyprland workspaces (#224)",
+      "- d0aef4f9c7 fix(web): keep the sidebar brand inside a project window (#395)",
+      "",
+      "Fork-Domain: multi-window",
+      "Fork-Tier: core",
+    ].join("\n"),
+  });
+  const folded = foldMessage({ members: [older, commit("dddd4444")] });
+  assert.include(
+    folded,
+    "- cccc3333 feat(desktop): launch Electron into Hyprland workspaces (#224) (RSI-Software/t3code-hyprws#224) (RSI-Software/t3code-hyprws#395)",
+  );
+  assert.notInclude(folded, "d0aef4f9c7");
+});
+
+it("attaches plan links to the lead line, re-rendering a single member as a fold", () => {
+  const lead = commit("aaaa1111", {
+    subject: "refactor(web): centralize thread route navigation",
+    message:
+      "refactor(web): centralize thread route navigation\n\nWhy.\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+  });
+  const linked = foldMessage({
+    members: [lead],
+    links: ["RSI-Software/t3code-hyprws#29", "RSI-Software/t3code-hyprws#2"],
+  });
+  assert.strictEqual(
+    linked,
+    [
+      "refactor(web): centralize thread route navigation",
+      "",
+      "Why.",
+      "",
+      "Squashes:",
+      "",
+      "- aaaa1111 refactor(web): centralize thread route navigation (RSI-Software/t3code-hyprws#29) (RSI-Software/t3code-hyprws#2)",
+      "",
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: qol",
+    ].join("\n"),
+  );
+  assert.deepStrictEqual(squashedMembers(linked), ["aaaa1111"]);
+  // A link a member line already names is not repeated.
+  const tail = commit("bbbb2222", { subject: "fix: b (#29)", message: "fix: b (#29)\n" });
+  const folded = foldMessage({ members: [lead, tail], links: ["RSI-Software/t3code-hyprws#29"] });
+  assert.strictEqual(folded.split("RSI-Software/t3code-hyprws#29").length - 1, 1);
+  assert.include(folded, "- bbbb2222 fix: b (#29) (RSI-Software/t3code-hyprws#29)");
+});
+
+it("no fold drops a link any member cites, and the link guard finds one that does", () => {
+  const members = [
+    commit("aaaa1111", { subject: "feat: a (#10)", message: "feat: a (#10)\n" }),
+    commit("bbbb2222", {
+      subject: "fix: b",
+      message: "fix: b\n\nhttps://github.com/RSI-Software/t3code-hyprws/pull/11\n",
+    }),
+    commit("cccc3333", {
+      subject: "feat: c",
+      message:
+        "feat: c\n\nSquashes:\n\n- 0123456 feat: old (#12)\n- 1234567 fix: old (RSI-Software/t3code-hyprws#13)\n",
+    }),
+    commit("dddd4444", {
+      subject: "fixup! feat: a (#10)",
+      message: "fixup! feat: a (#10)\n\nSquashes:\n\n- 2345678 fix: repair (#14)\n",
+    }),
+  ];
+  const cited = members.flatMap((member) => forkPullRequests(member.message));
+  assert.strictEqual(new Set(cited).size, 5);
+  const [a, b, c, fixup] = members as [FoldCommit, FoldCommit, FoldCommit, FoldCommit];
+  // A fixup piece always folds with its owner.
+  for (const block of [
+    { members },
+    { members: [a, fixup] },
+    { members: [b, c] },
+    { members: [c] },
+  ]) {
+    const kept = forkPullRequests(foldMessage(block));
+    const dropped = block.members
+      .flatMap((member) => forkPullRequests(member.message))
+      .filter((ref) => !kept.includes(ref));
+    assert.deepStrictEqual(dropped, []);
+  }
+
+  const folded = commit("ffff0001", { message: foldMessage({ members }) });
+  assert.deepStrictEqual(linkFindings(stackOf(...members), stackOf(folded)), []);
+  const bare = commit("ffff0002", { message: "feat: a\n\nSquashes:\n\n- aaaa1111 feat: a\n" });
+  assert.deepStrictEqual(linkFindings(stackOf(a), stackOf(bare)), [
+    "RSI-Software/t3code-hyprws#10: cited by aaaa1111 feat: a (#10), by no new commit",
+  ]);
+});
+
 it("carries only fork PR links: no upstream ref, no bare body #N", () => {
   const message = [
     "feat(web): port of pingdotgg/t3code#6452 (#1355)",
@@ -311,6 +421,7 @@ it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squas
     "Squashes:",
     "",
     "- aaaa1111 feat: older (RSI-Software/t3code-hyprws#1370)",
+    "- bbbb2222 fix: older still (#395)",
     "",
     "Fork-Domain: fork-meta",
   ].join("\n");
@@ -318,6 +429,7 @@ it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squas
     "RSI-Software/t3code-hyprws#1355",
     "RSI-Software/t3code-hyprws#1361",
     "RSI-Software/t3code-hyprws#1370",
+    "RSI-Software/t3code-hyprws#395",
   ]);
 });
 
