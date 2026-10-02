@@ -10,7 +10,6 @@ import { assert, it } from "@effect/vitest";
 import {
   deriveForkCiFlags,
   forkScanArguments,
-  FORK_CI_OUTPUT_KEYS,
   renderForkCiOutputs,
   renderForkCiScanArguments,
   systemForkCiGit,
@@ -88,20 +87,13 @@ it("passes the whole CI shape to fork:scan, replay-of included only when it reso
   ]);
 });
 
-it("renders the GitHub output keys the workflow consumes, empty replay-of included", () => {
-  assert.deepStrictEqual(
-    [...FORK_CI_OUTPUT_KEYS],
-    ["head", "base", "since", "target", "replay-of"],
-  );
-  assert.strictEqual(
-    renderForkCiOutputs(deriveForkCiFlags(fakeGit({}), HEAD)),
-    `head=${HEAD}\nbase=${BASE}\nsince=${TRUNK}\ntarget=${BASE}\nreplay-of=origin/hyprws\n`,
-  );
+it("renders only the since output the workflow consumes", () => {
+  assert.strictEqual(renderForkCiOutputs(deriveForkCiFlags(fakeGit({}), HEAD)), `since=${TRUNK}\n`);
   assert.strictEqual(
     renderForkCiOutputs(
       deriveForkCiFlags(fakeGit({ trunkResolves: false, trunkMergeBase: null }), HEAD),
     ),
-    `head=${HEAD}\nbase=${BASE}\nsince=${HEAD}^\ntarget=${BASE}\nreplay-of=\n`,
+    `since=${HEAD}^\n`,
   );
 });
 
