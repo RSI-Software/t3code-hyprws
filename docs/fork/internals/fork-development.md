@@ -130,7 +130,7 @@ Land onto `hyprws` by squash; a merge commit breaks the stack.
 - **Never raw `git merge`:** bypasses both
 
 `ghb pr merge` squashes with the PR title and body, so end it with trailers.
-`.github/workflows/hyprws-ci.yml` is the required check.
+`.github/workflows/hyprws-ci.yml` is the required check; `hyprws-body.yml` checks the body's trailers and citations, advisory only.
 Non-linear movement onto `hyprws` voids a sync run's lease; the next run rebases over a merge commit the same way over any other base, which is exactly what the fork stack forbids.
 
 ## Upstream citations
@@ -215,7 +215,7 @@ forkSupersedes({
 The import is a typed no-op: `fork:scan` reads the declaration from the sibling's text and never runs it.
 Never `it.skip`, a comment-out, or an in-place edit: a bare skip loses an assertion unnoticed.
 
-| `fork:scan` step 4 reads                         | Result           |
+| `fork:scan` reads                                | Result           |
 | ------------------------------------------------ | ---------------- |
 | A call missing `upstream`, `reason`, or `commit` | fails the scan   |
 | A named file or test the target lacks            | fails the scan   |
