@@ -410,6 +410,26 @@ it("lets a Fork-Repair commit split across owners but not vanish", () => {
   ]);
 });
 
+it("lets a mover split across owners only when every owner cites it", () => {
+  const mover = commit("eeee0000", { subject: "test: move blocks", files: ["a.ts", "b.ts"] });
+  const cites = (short: string, subject: string, file: string) =>
+    commit(short, {
+      subject,
+      message: `${subject}\n\nSquashes:\n\n- eeee0000 test: move blocks\n`,
+      files: [file],
+    });
+  const remainder = cites("bbbb2222", "test: move blocks", "b.ts");
+  assert.deepStrictEqual(
+    memberFindings(stackOf(mover), stackOf(cites("aaaa1111", "feat: a", "a.ts"), remainder)),
+    [],
+  );
+  const silent = commit("cccc3333", { subject: "test: move blocks", files: ["b.ts"] });
+  assert.deepStrictEqual(
+    memberFindings(stackOf(mover), stackOf(cites("aaaa1111", "feat: a", "a.ts"), silent)),
+    ["eeee0000 test: move blocks: belongs to several new commits: aaaa1111, cccc3333"],
+  );
+});
+
 it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squashes lines only", () => {
   const message = [
     "feat(web): first (#1355)",
