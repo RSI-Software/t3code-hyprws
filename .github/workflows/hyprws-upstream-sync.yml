@@ -140,11 +140,12 @@ jobs:
       # The driver pushes the trunk with the mirror
       # PAT, built here so the token never lands in .git/config or a workflow
       # env block the check battery inherits. Its issue writes go through gh
-      # with the job's own token (issues: write).
+      # with the job's own token (issues: write) and name the repository
+      # themselves. No GH_REPO here: the battery inherits this env, and the
+      # server's GitHub code under test defers to gh whenever GH_REPO is set.
       - name: Run the sync driver
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
           export GIT_CONFIG_COUNT=1
