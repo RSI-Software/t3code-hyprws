@@ -534,11 +534,15 @@ export const replay = (
  * `Squashes:` lines name (shas outside the old range cite earlier folds) plus
  * the old commit sharing its subject. Finds a new commit with no member, a new
  * commit touching a path no member touched, and an old commit owned by no new
- * commit or — unless it is a Fork-Repair split across owners — by several.
+ * commit or by several. A Fork-Repair commit may split across owners, and so
+ * may any old commit every owner cites under `Squashes:`: a mover split back
+ * into the owners whose blocks it moved.
  */
 export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
   const findings: string[] = [];
-  const owners = new Map<string, string[]>(old.commits.map((commit) => [commit.sha, []]));
+  const owners = new Map<string, { short: string; cites: boolean }[]>(
+    old.commits.map((commit) => [commit.sha, []]),
+  );
   for (const commit of next.commits) {
     const cited = squashesLines(commit.message).map((line) => line.slice(2).split(/\s/)[0] ?? "");
     const members = old.commits.filter(
@@ -550,7 +554,10 @@ export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<s
       findings.push(`${label}: names no commit in the old range`);
       continue;
     }
-    for (const member of members) owners.get(member.sha)?.push(commit.short);
+    for (const member of members) {
+      const cites = cited.some((sha) => member.sha.startsWith(sha));
+      owners.get(member.sha)?.push({ short: commit.short, cites });
+    }
     const touched = new Set(members.flatMap((member) => member.files));
     const stray = commit.files.filter((path) => !touched.has(path));
     if (stray.length > 0) {
@@ -561,8 +568,13 @@ export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<s
     const owned = owners.get(commit.sha) ?? [];
     const label = `${commit.short} ${commit.subject}`;
     if (owned.length === 0) findings.push(`${label}: belongs to no new commit`);
-    else if (owned.length > 1 && commit.repair === undefined) {
-      findings.push(`${label}: belongs to several new commits: ${owned.join(", ")}`);
+    else if (
+      owned.length > 1 &&
+      commit.repair === undefined &&
+      !owned.every((owner) => owner.cites)
+    ) {
+      const shorts = owned.map((owner) => owner.short).join(", ");
+      findings.push(`${label}: belongs to several new commits: ${shorts}`);
     }
   }
   return findings;
