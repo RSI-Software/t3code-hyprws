@@ -73,6 +73,7 @@ Resolve each seam by verdict, then follow Unblock.
 
 The battery is red; the worktree keeps the rebased tip.
 
+- **Red job**: `checks[].job` names it
 - **Trunk-green fix**: by pull request
 - **Sync-only fix**: commit in the kept worktree
 - **Never**: weaken a check
