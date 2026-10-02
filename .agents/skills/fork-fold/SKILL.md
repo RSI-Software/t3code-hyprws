@@ -83,7 +83,7 @@ Split each one on a detached copy of the head (`git worktree add --detach <dir> 
 
 Run the fold with `--head <split head>`: each fixup joins its owner's plan line and squashes there, so the owner's `Squashes:` lists its own old sha, the repair sha, and the repair's references.
 `prove` and `publish` take the pre-split tip as `<old>`; a tree-equal fold needs no retest.
-`prove` also refuses a dropped PR link, a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or, unless it carries `Fork-Repair`, by several.
+`prove` also refuses a dropped PR link, a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or by several, unless it carries `Fork-Repair` or every owner cites it under `Squashes:`.
 
 ## Stops
 
