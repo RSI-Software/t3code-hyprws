@@ -6,7 +6,8 @@
 //
 // `vp run fork:regenerate-route-tree [<checkout>]` regenerates this checkout,
 // or the named one. The generator always resolves from this checkout's
-// install: the sync's replay worktree has no node_modules mid-rebase.
+// install: the sync's replay worktree has one only when a setup step ran, and
+// its copy of this script may be mid-replay.
 //
 // `@tanstack/router-generator` is reached through the fork's existing
 // `@tanstack/router-plugin` dependency in apps/web; the fork adds no new
