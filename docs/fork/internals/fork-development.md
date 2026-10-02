@@ -186,15 +186,7 @@ Otherwise the replay conflicts at one seam on every upstream append.
 | Additive gate | A dropped line in the replay is a finding             |
 | Ownership     | The selected upstream target tree                     |
 | Recognized    | `it`, `test`, `describe`, `effectIt`, Effect variants |
-
-Two harness deferrals, exact paths, never widened:
-
-```text
-apps/desktop/src/window/DesktopWindow.test.ts
-apps/server/src/server.test.ts
-```
-
-Both build the harness in-module; a sibling would re-register every test.
+| Restore       | An opener the target already has is no fork block     |
 
 ### Diverging from an upstream expectation
 
