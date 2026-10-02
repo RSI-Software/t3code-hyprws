@@ -149,6 +149,25 @@ const isForkTier = (value: string | undefined): value is ForkTier =>
 /** The subject prefix marking a fork landing that amends the commit it names. */
 export const FIXUP_PREFIX = "fixup! ";
 
+/** The ` (#N)` a squash landing appends to its pull request title. */
+const LANDING_SUFFIX = / \(#\d+\)$/;
+
+/**
+ * The owner subject a `fixup!` subject names, or undefined for any other
+ * subject. `ghb pr merge --squash` lands `fixup! <owner subject> (#N)`, so one
+ * trailing ` (#N)` drops unless the full name is itself an owner: an owner
+ * subject may end in its own landing number. Every `fixup!` matcher names its
+ * target here (RSI-Software/t3code-hyprws#1508).
+ */
+export const fixupTarget = (
+  subject: string,
+  owners: { readonly has: (subject: string) => boolean },
+): string | undefined => {
+  if (!subject.startsWith(FIXUP_PREFIX)) return undefined;
+  const named = subject.slice(FIXUP_PREFIX.length);
+  return owners.has(named) ? named : named.replace(LANDING_SUFFIX, "");
+};
+
 /**
  * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
  * design, and the sync rebase autosquashes them into their owners immediately

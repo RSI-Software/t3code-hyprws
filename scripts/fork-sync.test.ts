@@ -15,7 +15,7 @@ import {
   dependencySetChanged,
   failureIssueBody,
   failureMarker,
-  fixupRefusals,
+  resolveFixups,
   publishBlock,
   publishFailure,
   realRunner,
@@ -35,6 +35,7 @@ import { deriveCiTestJobs, workflowJobIds } from "./lib/fork-ci-jobs.ts";
 import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
+import { placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
 
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
 const refused = (stderr: string): CommandResult => ({ status: 1, stdout: "", stderr });
@@ -1765,7 +1766,7 @@ it("an already-applied run fails and records the refusal when the block close is
 // ---------------------------------------------------------------------------
 
 /** A fork stack carrying one owner plus its fixup; the sync must fold the pair. */
-const foldFixture = (): Fixture => {
+const foldFixture = (fixupSubject = "fixup! feat(fork): owned change"): Fixture => {
   const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-fold-"));
   const git = (args: ReadonlyArray<string>, cwd = base): string => {
     const result = runCommand("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 });
@@ -1810,7 +1811,7 @@ const foldFixture = (): Fixture => {
   );
   NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "fork line1 fixed\nline2\nline3\n");
   git(["add", "shared.txt"], repo);
-  git(["commit", "--quiet", "-m", "fixup! feat(fork): owned change"], repo);
+  git(["commit", "--quiet", "-m", fixupSubject], repo);
   git(["push", "--quiet", "origin", "hyprws"], repo);
   git(["checkout", "--quiet", "main"], repo);
   NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3 upstream\n");
@@ -1825,8 +1826,8 @@ const foldFixture = (): Fixture => {
   };
 };
 
-const withFoldFixture = (effect: (fixture: Fixture) => void): void => {
-  const f = foldFixture();
+const withFoldFixture = (effect: (fixture: Fixture) => void, fixupSubject?: string): void => {
+  const f = foldFixture(fixupSubject);
   try {
     effect(f);
   } finally {
@@ -1834,25 +1835,96 @@ const withFoldFixture = (effect: (fixture: Fixture) => void): void => {
   }
 };
 
+const subjectCommits = (subjects: ReadonlyArray<string>) =>
+  subjects.map((subject, index) => ({ sha: `sha${index}`, subject }));
+
 it("refuses a fixup whose subject names no fork commit above the target", () => {
   assert.deepStrictEqual(
-    fixupRefusals(["feat(fork): owned change", "fixup! feat(fork): missing change"]),
-    ['fixup "fixup! feat(fork): missing change" names no fork commit above the target'],
+    resolveFixups(
+      subjectCommits([
+        "feat(fork): owned change",
+        "fixup! feat(fork): missing change",
+        "fixup! feat(fork): missing change (#1600)",
+      ]),
+    ).refusals,
+    [
+      'fixup "fixup! feat(fork): missing change" names no fork commit above the target',
+      'fixup "fixup! feat(fork): missing change (#1600)" names no fork commit above the target',
+    ],
   );
 });
 
 it("refuses a fixup whose subject names more than one fork commit above the target", () => {
   assert.deepStrictEqual(
-    fixupRefusals([
-      "feat(fork): twice owned",
-      "feat(fork): twice owned",
-      "fixup! feat(fork): twice owned",
-    ]),
-    ['fixup "fixup! feat(fork): twice owned" names 2 fork commits above the target'],
+    resolveFixups(
+      subjectCommits([
+        "feat(fork): twice owned",
+        "feat(fork): twice owned",
+        "fixup! feat(fork): twice owned",
+        "fixup! feat(fork): twice owned (#1600)",
+      ]),
+    ).refusals,
+    [
+      'fixup "fixup! feat(fork): twice owned" names 2 fork commits above the target',
+      'fixup "fixup! feat(fork): twice owned (#1600)" names 2 fork commits above the target',
+    ],
   );
 });
 
-it("starts the sync rebase interactive with autosquash and no-op editors", () => {
+it("resolves a squash-landed fixup to the owner it names, keeping an owner's own landing number", () => {
+  assert.deepStrictEqual(
+    resolveFixups(
+      subjectCommits([
+        "feat(web): x (#219)",
+        "feat(web): y",
+        "fixup! feat(web): x (#219) (#1600)",
+        "fixup! feat(web): y (#1601)",
+        "fixup! feat(web): x (#219)",
+      ]),
+    ),
+    {
+      owners: [
+        ["sha2", "sha0"],
+        ["sha3", "sha1"],
+        ["sha4", "sha0"],
+      ],
+      refusals: [],
+    },
+  );
+});
+
+it("places each resolved fixup under its owner in git's generated todo", () => {
+  const todo = [
+    "pick aaaa111 feat: a",
+    "fixup cccc333 fixup! feat: a",
+    "pick bbbb222 feat: b",
+    "pick dddd444 fixup! feat: a (#9)",
+    "pick eeee555 fixup! feat: b (#10)",
+    "pick ffff666 fixup! feat: gone (#11)",
+    "",
+    "# Rebase 1234567..eeee555 onto 1234567 (5 commands)",
+  ].join("\n");
+  assert.strictEqual(
+    placeFixups(todo, [
+      ["cccc3333333", "aaaa1111111"],
+      ["dddd4444444", "aaaa1111111"],
+      ["eeee5555555", "bbbb2222222"],
+      ["ffff6666666", "9999999999"],
+    ]),
+    [
+      "pick aaaa111 feat: a",
+      "fixup cccc333 fixup! feat: a",
+      "fixup dddd444 fixup! feat: a (#9)",
+      "pick bbbb222 feat: b",
+      "fixup eeee555 fixup! feat: b (#10)",
+      "pick ffff666 fixup! feat: gone (#11)",
+      "",
+      "# Rebase 1234567..eeee555 onto 1234567 (5 commands)",
+    ].join("\n"),
+  );
+});
+
+it("starts the sync rebase interactive with autosquash and the fixup-placing sequence editor", () => {
   withFoldFixture((f) => {
     const seen: Array<{
       readonly args: ReadonlyArray<string>;
@@ -1878,8 +1950,25 @@ it("starts the sync rebase interactive with autosquash and no-op editors", () =>
     assert.ok(initial!.args.includes("-i"));
     assert.ok(initial!.args.includes("--autosquash"));
     assert.strictEqual(initial!.env?.GIT_EDITOR, "true");
-    assert.strictEqual(initial!.env?.GIT_SEQUENCE_EDITOR, "true");
+    assert.strictEqual(initial!.env?.GIT_SEQUENCE_EDITOR, sequenceEditor());
   });
+});
+
+it("folds a squash-landed fixup into its owner at the sync rebase", () => {
+  withFoldFixture((f) => {
+    const target = { tag: "v1.0.0", sha: f.git(["rev-parse", "v1.0.0"], f.root) };
+    const outcome = rebaseOnto(realRunner, f.root, target, f.git(["rev-parse", "hyprws"], f.root));
+    assert.strictEqual(outcome.status, "applied");
+    if (outcome.status !== "applied") return;
+    assert.deepStrictEqual(
+      f.git(["log", "--format=%s", `v1.0.0..${outcome.newSha}`], f.root).split("\n"),
+      ["feat(fork): owned change"],
+    );
+    assert.strictEqual(
+      f.git(["show", `${outcome.newSha}:shared.txt`], f.root),
+      "fork line1 fixed\nline2\nline3 upstream",
+    );
+  }, "fixup! feat(fork): owned change (#1600)");
 });
 
 it("folds the fixup into its owner so the applied series never carries fix-of-fix", () => {
