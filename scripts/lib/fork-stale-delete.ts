@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
-// fork job step 5: stale-delete check
-// Gate: fork:ci — a commit in base..head deleting an upstream line a later one restores fails.
 
 // Rebase replays each commit, never the net: deleting an upstream line a later
 // commit restores leaves the tip equal to upstream yet conflicts on replay.
