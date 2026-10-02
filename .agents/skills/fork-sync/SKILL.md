@@ -92,6 +92,7 @@ Only a `manual` row stops the run.
 
 In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.
 Upstream deleted and the fork edit is net-zero: the deletion stands.
+A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates; when one is pending, skip `git rebase --continue` and rerun.
 Never adapt inside a replayed commit: the hook guard refuses it.
 Adaptation lands once, in one `Fork-Repair` commit at the tip; [`/fork-fold`](../fork-fold/SKILL.md) dissolves it afterward.
 
