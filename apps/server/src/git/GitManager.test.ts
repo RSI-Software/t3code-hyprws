@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { expect, vi } from "vite-plus/test";
+import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
@@ -51,6 +51,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
 import * as GitManager from "./GitManager.ts";
 
 const encodeCliJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
