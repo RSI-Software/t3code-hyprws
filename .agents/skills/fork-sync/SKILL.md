@@ -31,7 +31,7 @@ Post-push recovery reads this file, never a comment.
 | `target`       | The tag and its sha                                        |
 | `lease`        | The `origin/hyprws` sha the push is leased against         |
 | `trunk`        | Trunk before and after the run                             |
-| `conflicts[]`  | Path, fork commit, upstream commit, resolution route       |
+| `conflicts[]`  | Every stop's path, fork and upstream commit, route         |
 | `checks[]`     | Each battery command and its result                        |
 | `decision`     | A stopped run's worktree, paths, and exact resume commands |
 | `decision.tip` | A red check's rebased tip, kept in the worktree            |
@@ -103,6 +103,8 @@ Adaptation lands once, in one `Fork-Repair` commit at the tip; [`/fork-fold`](..
 5. Commit any adaptation there as one `Fork-Repair` commit at the tip.
 6. Rerun `vp run fork:sync <tag>`.
 
+The worktree ran the `t3.json` setup step, so it builds and tests.
+If `rebase --continue` stops again, rerun first: the report keeps only stops a run saw.
 The rerun adopts the kept worktree and checks its HEAD.
 A resolved rebase still in progress continues; an unresolved one blocks again.
 A new tag or a moved lease recreates the worktree.
