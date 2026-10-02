@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git helper runs before an Effect runtime exists.
-// fork job steps 2 and 5: CI flag derivation
-// Gate: none — flag derivation the Check job and fork:ci share; decides scope, never pass or fail.
 
 // The one derivation of the `fork:scan` flags the hyprws CI pull-request Check
 // job pins a branch with. The workflow's `Fork ledger` and `Fork rebase scan`
@@ -96,18 +94,8 @@ export const forkScanArguments = (flags: ForkCiFlags): ReadonlyArray<string> => 
   "--no-typecheck",
 ];
 
-export const FORK_CI_OUTPUT_KEYS = ["head", "base", "since", "target", "replay-of"] as const;
-
-/** GitHub Actions `key=value` lines, one per flag, for `>> "$GITHUB_OUTPUT"`. */
-export const renderForkCiOutputs = (flags: ForkCiFlags): string =>
-  [
-    `head=${flags.head}`,
-    `base=${flags.base}`,
-    `since=${flags.since}`,
-    `target=${flags.target}`,
-    `replay-of=${flags.replayOf ?? ""}`,
-    "",
-  ].join("\n");
+/** The GitHub Actions `since=` line the stale-delete step reads, for `>> "$GITHUB_OUTPUT"`. */
+export const renderForkCiOutputs = (flags: ForkCiFlags): string => `since=${flags.since}\n`;
 
 /** The scan argv one token per line, for the workflow's `mapfile -t SCAN_ARGS`. */
 export const renderForkCiScanArguments = (flags: ForkCiFlags): string =>
@@ -138,7 +126,7 @@ Derives the fork:scan flags the hyprws CI pull-request Check job runs.
 The workflow calls this file; vp run fork:ci imports the same functions.
 
 Modes:
-  ledger   GitHub output lines: ${FORK_CI_OUTPUT_KEYS.join(", ")}
+  ledger   the GitHub output line since=<ref>
   scan     the fork:scan argv, one token per line
 `;
 
