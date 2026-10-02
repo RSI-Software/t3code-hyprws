@@ -66,7 +66,7 @@ Resolve each seam by verdict, then follow Unblock.
 | Verdict | Seam                                                        |
 | ------- | ----------------------------------------------------------- |
 | Keep    | Only upstream moved; upstream stands, hook returns verbatim |
-| Reshape | Fork side moved too; narrow the seam, land `fixup!`         |
+| Reshape | Fork side moved too; resolve minimally, adapt at the tip    |
 | Retire  | Upstream owns it now; traced verdict, drop at rebase        |
 
 ### Check battery
@@ -90,15 +90,16 @@ The expected-old lease lost; someone landed first.
 The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, and hook re-apply re-inserts marked fork hooks.
 Only a `manual` row stops the run.
 
-Only upstream moved: upstream's text stands.
-A marked fork hook goes back verbatim.
+In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.
 Upstream deleted and the fork edit is net-zero: the deletion stands.
+Never adapt inside a replayed commit: the hook guard refuses it.
+Adaptation lands once, in one `Fork-Repair` commit at the tip; [`/fork-fold`](../fork-fold/SKILL.md) dissolves it afterward.
 
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
 3. Resolve each path by the rule above.
 4. `git add` them; `git rebase --continue`.
-5. Commit any reshape extra there.
+5. Commit any adaptation there as one `Fork-Repair` commit at the tip.
 6. Rerun `vp run fork:sync <tag>`.
 
 The rerun adopts the kept worktree and checks its HEAD.
