@@ -29,6 +29,8 @@ import {
   type ForkSyncReport,
   type ReleaseTag,
 } from "./fork-sync.ts";
+import { deriveCiTestJobs, workflowJobIds } from "./lib/fork-ci-jobs.ts";
+import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
@@ -37,6 +39,40 @@ const refused = (stderr: string): CommandResult => ({ status: 1, stdout: "", std
 // ---------------------------------------------------------------------------
 // Fixture: one upstream remote, one origin remote, a fork trunk
 // ---------------------------------------------------------------------------
+
+/** A hyprws CI workflow in miniature: a Check job, a pooled job, and a matrix job. */
+const FIXTURE_WORKFLOW = `name: hyprws CI
+jobs:
+  check:
+    name: Check
+    steps:
+      - run: vp check
+  test:
+    name: Test
+    steps:
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+      - run: vp run --filter '!t3' test --testTimeout=60000
+  test_server:
+    name: Test Server \${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - run: vp run --filter t3 test --shard \${{ matrix.shard }}/\${{ strategy.job-total }}
+`;
+
+const FIXTURE_TEST_JOBS = deriveCiTestJobs(FIXTURE_WORKFLOW);
+
+/** Every row a full battery reports: the Check-job commands, then each test job. */
+const BATTERY_ROWS = checkCommands().length + FIXTURE_TEST_JOBS.length;
+
+const writeWorkflow = (root: string, source = FIXTURE_WORKFLOW): void => {
+  const path = NodePath.join(root, FORK_CI_WORKFLOW_PATH);
+  NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
+  NodeFS.writeFileSync(path, source);
+};
 
 interface Fixture {
   readonly root: string;
@@ -75,6 +111,7 @@ const fixture = (options: {
     NodePath.join(repo, "shared.txt"),
     options.baseContent ?? "line1\nline2\nline3\n",
   );
+  writeWorkflow(repo);
   git(["add", "."], repo);
   git(["commit", "--quiet", "-m", "base"], repo);
   git(["remote", "add", "origin", origin], repo);
@@ -250,7 +287,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.notStrictEqual(report.trunk.after, report.trunk.before);
       assert.strictEqual(report.push.pushed, false);
       assert.strictEqual(report.conflicts.length, 0);
-      assert.strictEqual(report.checks.length, checkCommands().length);
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
     },
   );
@@ -274,7 +311,7 @@ it("refuses the push when the check battery is red and records the failing comma
       assert.strictEqual(printed.value, 1);
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "failed");
-      assert.strictEqual(report.error, "the check battery is red");
+      assert.strictEqual(report.error, "the check battery is red: vp run fork:ci");
       assert.strictEqual(report.trunk.after, null);
       assert.match(printed.output, /Trunk: [0-9a-f]{7} → unchanged/);
       assert.strictEqual(report.push.pushed, false);
@@ -431,7 +468,7 @@ it("pushes the rebased tip after a green battery", () => {
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "applied");
       assert.strictEqual(report.push.pushed, true);
-      assert.strictEqual(report.checks.length, checkCommands().length);
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
       const push = recording.calls.find(
         ({ command, args }) => command === "git" && args[0] === "push",
@@ -539,7 +576,7 @@ it("accepts an upstream delete whose fork edit is net-zero and continues the reb
         f.git(["ls-tree", "--name-only", report.trunk.after!, "--", "shared.txt"], f.root),
         "",
       );
-      assert.strictEqual(report.checks.length, checkCommands().length);
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
       for (const check of report.checks) assert.strictEqual(check.status, "passed");
     },
   );
@@ -1111,7 +1148,11 @@ it("files one governed failure issue when the check battery goes red", () => {
     );
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `check` step/);
-    assert.match(body, /```\nthe check battery is red\n```/);
+    assert.match(
+      body,
+      /```\nthe check battery is red: vp run fork:delta --check, .*Test Server 2\n```/,
+    );
+    assert.match(body, /\| Test Server 2 · `vp run --filter t3 test --shard 2\/2` \| failed \|/);
     assert.match(body, /\| `vp run fork:delta --check` \| failed \|/);
     assert.include(body, failureMarker("check", "v1.0.0"));
   });
@@ -1400,6 +1441,7 @@ const foldFixture = (): Fixture => {
   git(["init", "--quiet", "--initial-branch", "main", repo]);
   configure(repo);
   NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3\n");
+  writeWorkflow(repo);
   git(["add", "."], repo);
   git(["commit", "--quiet", "-m", "base"], repo);
   git(["remote", "add", "origin", origin], repo);
@@ -1627,7 +1669,7 @@ const dependencyRepo = (): { readonly root: string; readonly worktree: string } 
   git(["add", "."]);
   git(["commit", "--quiet", "-m", "trunk"]);
   const worktree = NodePath.join(root, "replay-worktree");
-  NodeFS.mkdirSync(worktree, { recursive: true });
+  writeWorkflow(worktree);
   return { root, worktree };
 };
 
@@ -1723,4 +1765,140 @@ it("runs every single-command step of the CI Check job before a direct trunk pus
   });
   assert.isAbove(steps.length, 3);
   assert.deepStrictEqual(uncovered, []);
+});
+
+it("runs every hyprws CI test job before a direct trunk push", () => {
+  const source = NodeFS.readFileSync(
+    NodePath.join(import.meta.dirname, "..", FORK_CI_WORKFLOW_PATH),
+    "utf8",
+  );
+  const jobs = deriveCiTestJobs(source);
+  const derived = new Set(jobs.map((job) => job.id));
+  // `check` is guarded by the Check-job test above; `merge-tree` gates a
+  // pull-request head's conflicts against the trunk and tests nothing.
+  assert.deepStrictEqual(
+    workflowJobIds(source).filter((id) => !derived.has(id)),
+    ["check", "merge-tree"],
+  );
+
+  const repo = dependencyRepo();
+  try {
+    writeWorkflow(repo.worktree, source);
+    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+    const calls: Array<ReadonlyArray<string>> = [];
+    const runner: CommandRunner = {
+      run: (command, args, spec) => {
+        if (command === "vp") {
+          calls.push(args);
+          return ok();
+        }
+        return runCommand(command, args, { cwd: spec.cwd });
+      },
+    };
+    const target: ReleaseTag = { tag: "v1.0.0", sha: trunkSha };
+    const rows = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha)).value;
+    assert.deepStrictEqual(
+      calls.slice(checkCommands().length),
+      jobs.flatMap((job) => job.commands),
+    );
+    assert.deepStrictEqual(
+      rows.flatMap((row) => (row.job === undefined ? [] : [row.job])),
+      jobs.map((job) => job.name),
+    );
+  } finally {
+    NodeFS.rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+it("leaves the trunk alone and names the suite when one CI test job is red", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const shas = forkShas(f);
+      const recording = exec({
+        vp: (args) =>
+          args.includes("2/2") ? refused("FAIL src/rateLimit.test.ts > probes GraphQL\n") : ok(),
+      });
+      const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+      assert.strictEqual(printed.value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "failed");
+      assert.strictEqual(report.error, "the check battery is red: Test Server 2");
+      assert.deepStrictEqual(
+        report.checks.filter((check) => check.status === "failed").map((check) => check.job),
+        ["Test Server 2"],
+      );
+      // the battery still runs every other job, so one report names every red suite
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
+      assert.match(printed.output, /❌ Test Server 2 · `vp run --filter t3 test --shard 2\/2`/);
+      assert.strictEqual(
+        recording.calls.some(({ command, args }) => command === "git" && args[0] === "push"),
+        false,
+      );
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+    },
+  );
+});
+
+it("runs the battery with CI's umask and none of the live T3 instance's environment", () => {
+  const repo = dependencyRepo();
+  const inherited = {
+    T3_SERVICE_LAUNCHER_CONTEXT: process.env.T3_SERVICE_LAUNCHER_CONTEXT,
+    T3CODE_HOME: process.env.T3CODE_HOME,
+  };
+  const outer = process.umask(0o077);
+  try {
+    process.env.T3_SERVICE_LAUNCHER_CONTEXT = '{"childVersion":"9.9.9"}';
+    process.env.T3CODE_HOME = NodePath.join(repo.root, "live-home");
+    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
+    const seen: Array<{ readonly umask: number; readonly keys: ReadonlyArray<string> }> = [];
+    const runner: CommandRunner = {
+      run: (command, args, spec) => {
+        if (command !== "vp") return runCommand(command, args, { cwd: spec.cwd });
+        const umask = process.umask(0o022);
+        process.umask(umask);
+        seen.push({
+          umask,
+          keys: Object.keys(spec.env ?? {}).filter((key) => key.startsWith("T3")),
+        });
+        return ok();
+      },
+    };
+    const target: ReleaseTag = { tag: "v1.0.0", sha: trunkSha };
+    capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
+    assert.strictEqual(seen.length, checkCommands().length + 3);
+    for (const call of seen) assert.deepStrictEqual(call, { umask: 0o022, keys: [] });
+    const restored = process.umask(outer);
+    assert.strictEqual(restored, 0o077);
+  } finally {
+    process.umask(outer);
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    NodeFS.rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+it("takes no flag that drops a battery row", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const recording = exec();
+      const code = capture(() =>
+        run(["v1.0.0", "--skip-tests"], { runner: recording.runner, root: f.root }),
+      ).value;
+      assert.strictEqual(code, 1);
+      assert.strictEqual(
+        recording.calls.some(({ command }) => command === "vp"),
+        false,
+      );
+    },
+  );
 });
