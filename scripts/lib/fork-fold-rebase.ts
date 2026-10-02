@@ -37,11 +37,14 @@ export interface FoldStack {
 export interface PlanLine {
   readonly line: number;
   readonly members: ReadonlyArray<string>;
+  /** Fork PR refs the plan attaches to this commit, as `RSI-Software/t3code-hyprws#N`. */
+  readonly links?: ReadonlyArray<string>;
   readonly subject?: string;
 }
 
 export interface FoldBlock {
   readonly members: ReadonlyArray<FoldCommit>;
+  readonly links?: ReadonlyArray<string>;
   readonly subject?: string;
 }
 
