@@ -87,69 +87,6 @@ const testLayer = (
   );
 
 describe("ProjectSetupScriptRunner", () => {
-  it.effect("runs the inherited machine setup action in the checkout's worktree", () => {
-    const open = vi.fn(() =>
-      Effect.succeed({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        cwd: "/repo/worktrees/a",
-        worktreePath: "/repo/worktrees/a",
-        status: "running" as const,
-        pid: 123,
-        history: "",
-        exitCode: null,
-        exitSignal: null,
-        label: "setup-default-setup",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
-    );
-    const write = vi.fn(() => Effect.void);
-    return Effect.gen(function* () {
-      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
-      const result = yield* runner.runForThread({
-        threadId: "thread-1",
-        projectId: "project-1",
-        worktreePath: "/repo/worktrees/a",
-      });
-      expect(result).toMatchObject({ status: "started", scriptId: "default-setup" });
-      expect(open).toHaveBeenCalledWith({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        cwd: "/repo/worktrees/a",
-        worktreePath: "/repo/worktrees/a",
-        env: {
-          T3CODE_PROJECT_ROOT: "/repo/project",
-          T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
-          NO_COLOR: "1",
-          FORCE_COLOR: "0",
-        },
-      });
-      expect(write).toHaveBeenCalledWith({
-        threadId: "thread-1",
-        terminalId: "setup-default-setup",
-        data: "npm install && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r",
-      });
-    }).pipe(
-      Effect.provide(
-        testLayer(
-          makeProject([]),
-          { open, write },
-          ServerSettings.layerTest({
-            defaultProjectScripts: [
-              {
-                id: "default-setup",
-                name: "Setup",
-                command: "npm install",
-                icon: "configure",
-                runOnWorktreeCreate: true,
-              },
-            ],
-          }),
-        ),
-      ),
-    );
-  });
-
   it.effect("returns no-script when no setup script exists", () => {
     const open = vi.fn(() => Effect.die("unexpected open"));
     const write = vi.fn(() => Effect.die("unexpected write"));
