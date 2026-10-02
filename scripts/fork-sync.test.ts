@@ -641,13 +641,20 @@ it("accepts an upstream delete whose fork edit is net-zero and continues the reb
       f.git(["push", "--quiet", "upstream", "main", "v2.0.0"], f.root);
       f.git(["checkout", "--quiet", "hyprws"], f.root);
 
-      const { runner } = exec();
+      const { runner, calls } = exec();
       const applied = capture(() => run(["v2.0.0", "--dry-run"], { runner, root: f.root }));
       assert.strictEqual(applied.value, 0);
       const report = readReport(f.root, "v2.0.0");
       assert.strictEqual(report.outcome, "applied");
       assert.notStrictEqual(report.trunk.after, null);
       assert.strictEqual(report.conflicts.length, 2);
+      // Auto maintenance detached by a sequencer commit would race the next
+      // pick for MERGE_RR.lock (RSI-Software/t3code-hyprws#1459).
+      const rebases = calls.filter(
+        ({ command, args }) => command === "git" && args.includes("rebase"),
+      );
+      assert.isTrue(rebases.some(({ args }) => args.includes("--continue")));
+      for (const { args } of rebases) assert.include(args, "maintenance.auto=false");
       for (const row of report.conflicts) {
         assert.strictEqual(row.path, "shared.txt");
         assert.strictEqual(row.via, "net-zero-delete");
