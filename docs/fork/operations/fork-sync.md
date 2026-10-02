@@ -83,7 +83,8 @@ Conflict resolution is machine-owned, in this order.
 | 1   | Local rerere replays resolutions within the run's rebase and stages them                                                       |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text           |
 | 3   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
-| 4   | Anything left is a `manual` row and stops the run                                                                              |
+| 4   | A [regenerable file](#regenerable-files) regenerates once every other path in the stop resolves                                |
+| 5   | Anything left is a `manual` row and stops the run                                                                              |
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim.
@@ -113,6 +114,8 @@ Never post a block to `pingdotgg/t3code`.
 5. `git rebase --continue`.
 6. Rerun `vp run fork:sync <tag>`.
 
+A pending regenerable file refuses step 5; skip it, and the rerun regenerates the file and continues.
+
 Rerere replays content resolutions but records nothing for a delete/modify: the fix is a driver rule or a pre-adopt commit on `hyprws` (precedent `72666ffe19`, RSI-Software/t3code-hyprws#1227).
 
 **Reshape.** Resolve minimally in the rebase: upstream's text plus marked hooks verbatim.
@@ -132,11 +135,18 @@ A run that fails on a non-blocked step (target, fetch, rebase, check, push, or a
 
 ## Regenerable files
 
-A sync keeps the new base's version and reruns the generator after applying fork source inputs.
+On a conflict, the driver resolves each path and stages the result, in table order.
+A generator reruns over the resolved sources, from the path's `HEAD` copy.
+The package-name merge keeps both sides' entries: upstream's order, then the fork's additions.
+A failed resolver leaves a `manual` row naming the failure.
 
-| Path             | Generator                    | Rebase rule                                                       |
-| ---------------- | ---------------------------- | ----------------------------------------------------------------- |
-| `pnpm-lock.yaml` | `vp install --lockfile-only` | Restore from `HEAD`, resolve sources, regenerate, stage, continue |
+| Path                               | Resolver                            | Runs from                    |
+| ---------------------------------- | ----------------------------------- | ---------------------------- |
+| `pnpm-lock.yaml`                   | `vp install --lockfile-only`        | The sync worktree            |
+| `third-party-licenses.config.json` | merge by package name               | The driver, then `vp fmt`    |
+| `apps/web/src/routeTree.gen.ts`    | `vp run fork:regenerate-route-tree` | The trunk checkout's install |
+
+`REGENERATION_ROUTES` in `scripts/fork-sync.ts` owns the rows; a test fails when this table drifts from it, or when the fork carries a generated path neither routes.
 
 On a branch that changes a package manifest, regenerate the lockfile before pushing, so a hand-merged lockfile fails there instead of costing a sync run.
 
