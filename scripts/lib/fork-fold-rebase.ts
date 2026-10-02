@@ -102,7 +102,7 @@ export const resolveForkOwnedTree = (
   }
 };
 
-/** Flags mirror the sync rebase's configuration (scripts/fork-sync.ts REBASE_CONFIG). */
+/** Flags mirror the sync rebase's configuration (scripts/fork-sync.ts REBASE_CONFIG), which explains each. */
 const REBASE_FLAGS = [
   "-c",
   "core.commentChar=auto",
@@ -110,6 +110,8 @@ const REBASE_FLAGS = [
   "diff.algorithm=histogram",
   "-c",
   "rerere.enabled=true",
+  "-c",
+  "maintenance.auto=false",
 ];
 
 export interface FoldRebaseRequest {
