@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - Standalone fold tool runs before an Effect runtime exists.
-// Gate: local — fork-fold apply's fallback runs it by hand; no workflow invokes it.
 
 // The worktree fallback behind fork-fold apply: from the first block merge-tree refuses, the
 // remaining plan replays as one `git rebase -i --autosquash` in a worktree under the git common dir
