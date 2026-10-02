@@ -54,6 +54,9 @@ export interface HookGuardInput {
   readonly replayAddedLines?: ReadonlyMap<string, ReadonlyArray<string>> | undefined;
 }
 
+/** A trimmed line that is only comment: `//`, a block opener, or a block continuation. */
+const COMMENT_LINE = /^(?:\/\/|\/\*|\*)/;
+
 const isForkHookSuffixLine = (line: string): boolean =>
   FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
 
@@ -113,8 +116,13 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     );
     if (code.length === 0) continue;
     const sample = code.slice(0, 3).map((line) => line.trim());
+    // A comment-only line ends a trailing marker's backward walk, so marking
+    // more cannot cover it; only moving or dropping the comment can.
+    const remedy = code.every((line) => COMMENT_LINE.test(line.trim()))
+      ? "a comment-only line stops the marker's walk, so move the comment inside the statement or drop it"
+      : "wrap the insertion in a fork-hook marker";
     details.push(
-      `${path}: ${code.length} added line(s) outside a marked hook (first: ${sample.join(" / ")}); wrap the insertion in a fork-hook marker`,
+      `${path}: ${code.length} added line(s) outside a marked hook (first: ${sample.join(" / ")}); ${remedy}`,
     );
   }
   return details;
