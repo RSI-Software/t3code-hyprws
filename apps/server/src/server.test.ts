@@ -131,7 +131,6 @@ import {
 import { workspaceSymlinkTestsFork } from "./server.workspaceSymlinks.fork.suite.ts"; // fork-hook: upstream-fixes/workspace-symlink-tests-import
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { threadIssueStreamTestsFork } from "./ws.threadIssues.fork.suite.ts"; // fork-hook: github-issues/ws-stream-tests-import
-import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as ThreadIssueSyncReactor from "./githubIssue/ThreadIssueSyncReactor.fork.ts"; // fork-hook: github-issues/ws-issue-sync-test-import
