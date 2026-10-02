@@ -35,7 +35,7 @@ A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the
 
 | Rule      | Contract                                                          |
 | --------- | ----------------------------------------------------------------- |
-| Check job | `fork:delta --check`, `fork:ci`, then the Check job's own steps   |
+| Check job | `fork:ci`, then the Check job's own steps                         |
 | Test jobs | every `test*` job in `hyprws-ci.yml`, one row per matrix cell     |
 | Derived   | read from the replayed workflow; an unreadable step stops the run |
 | No skip   | no flag drops a row                                               |
@@ -178,7 +178,8 @@ The workflow uses its own `GITHUB_TOKEN` with `issues: write`; never widen the t
 
 ### Which events run the fork matrix
 
-`hyprws-ci.yml` produces every context the `hyprws` ruleset requires: `Check`, `Test`, `Test Scripts`, and three `Test Server` shards.
+`hyprws-ci.yml` produces every context the `hyprws` ruleset requires: `Check`, `Test`, `Test Scripts`, `Test Web`, `merge-tree`, and three `Test Server` shards.
+`hyprws-body.yml` stays advisory: no ruleset requires its `Body` context.
 It runs on a pull request opened, pushed to, or reopened, on a push to a fork trunk or release branch, and on `merge_group`.
 
 It skips `ready_for_review`, already covered on that draft head.
@@ -186,7 +187,7 @@ Add the `merge_group` trigger before requiring a queue in the ruleset.
 
 ### Upstream workflows and merge settings
 
-Keep only `hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-upstream-sync.yml` enabled.
+Keep only the four `hyprws-*.yml` workflows enabled.
 Disable every other workflow with `gh workflow disable`; they expect upstream secrets and runners.
 
 ```bash
@@ -202,16 +203,16 @@ gh api -X PATCH repos/RSI-Software/t3code-hyprws \
 
 Applied by hand in **Settings > Rules > Rulesets**, all `active`; nothing changes them unattended.
 
-| Ruleset             | Targets and rules                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| `hyprws`            | Pull request, 0 approvals, plus `Check`, `Test`, three `Test Server`. Admin bypass, no force-push rule |
-| `main`              | Pull request, same admin bypass. Only the mirror writes it                                             |
-| `no trunk deletion` | Blocks deleting `hyprws` and `main`, no bypass actors                                                  |
-| `stable tags`       | `refs/tags/v*-hyprws.*`, excluding nightlies. Blocks delete and update                                 |
+| Ruleset             | Targets and rules                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `hyprws`            | Pull request, 0 approvals, plus every `hyprws-ci.yml` context above. Admin bypass, no force-push rule |
+| `main`              | Pull request, same admin bypass. Only the mirror writes it                                            |
+| `no trunk deletion` | Blocks deleting `hyprws` and `main`, no bypass actors                                                 |
+| `stable tags`       | `refs/tags/v*-hyprws.*`, excluding nightlies. Blocks delete and update                                |
 
 ### Runners
 
-Both fork workflows run on `ubuntu-latest`.
+Every fork workflow runs on `ubuntu-latest`.
 `hyprws-release.yml` publishes a nightly on every trunk landing that passes the release gate (trunk tip plus green `hyprws CI`), with a six-hour fallback schedule.
 It keeps the newest 7 nightlies and deletes older ones with their tags; stable is never pruned.
 Stable fork releases are tagged by hand; `hyprws-release.yml` owns the build either way.
