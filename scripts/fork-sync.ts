@@ -922,6 +922,11 @@ const VERIFICATION_ENV_KEYS = new Set([
   "GIT_CONFIG_KEY_0",
   "GIT_CONFIG_VALUE_0",
   "HYPRWS_PUSH_TOKEN",
+  // The server's GitHub code reads these to pick its repository and host, so
+  // a shell that exports them changes what the rebased tests exercise. CI sets
+  // neither. `GH_TOKEN` stays: it only authenticates.
+  "GH_HOST",
+  "GH_REPO",
 ]);
 
 /**
