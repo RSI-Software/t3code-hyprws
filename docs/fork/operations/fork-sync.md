@@ -17,7 +17,7 @@ It folds each `fixup! <subject>` landing into the one fork commit it names, and 
 | target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
 | fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`                    | fetch error                                        |
 | rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
-| check   | `fork:delta --check`, then the CI Check job's steps, in the worktree      | any red                                            |
+| check   | the [check battery](#check-battery), in the worktree                      | any red                                            |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
 | blocked | one standing block issue, rewritten per run, through `gh`                 | `gh` refuses the write                             |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
@@ -26,6 +26,22 @@ A tag the fork already sits on reports `already applied`, after closing any open
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
 An applied run cuts the nightly by itself: `hyprws-ci.yml` completion triggers `hyprws-release.yml` through `workflow_run`.
 The release gate needs the current `origin/hyprws` tip with a green `hyprws CI`; a red battery cuts no release (RSI-Software/t3code-hyprws#1181).
+
+## Check battery
+
+A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the push; the battery does.
+
+| Rule      | Contract                                                          |
+| --------- | ----------------------------------------------------------------- |
+| Check job | `fork:delta --check`, `fork:ci`, then the Check job's own steps   |
+| Test jobs | every `test*` job in `hyprws-ci.yml`, one row per matrix cell     |
+| Derived   | read from the replayed workflow; an unreadable step stops the run |
+| No skip   | no flag drops a row                                               |
+| Push      | only when every row is green; a red row leaves `hyprws` unmoved   |
+| Report    | each row names its CI job; the run's error lists every red one    |
+| Env       | umask `022`; no `T3_*` or `T3CODE_*` variable reaches a check     |
+
+`fork-fold` publishes only a tree-equal fold, so it inherits the same guarantee.
 
 ## Local trunk
 
