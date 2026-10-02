@@ -10,7 +10,7 @@ Discipline lives in [Fork development](../internals/fork-development.md); the pr
 `hyprws` is the single fork trunk.
 The sync driver runs one upstream release tag end to end: one run, one exit code, one report.
 It never merges upstream in, nor drops, reorders, or rewords a commit.
-It folds each `fixup! <subject>` landing into the one fork commit it names, and refuses a fixup naming none or several.
+It folds each `fixup! <subject>` landing into the one fork commit it names, a squash landing's trailing ` (#N)` included, and refuses a fixup naming none or several.
 
 | Step    | Does                                                                      | Fails when                                         |
 | ------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
