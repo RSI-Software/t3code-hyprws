@@ -20,6 +20,15 @@ vp run fork:sync <tag> --dry-run
 `--dry-run` rebases and checks, then stops: no push, no issue, no publication.
 Any other flag is a defect.
 
+A green dry run keeps its tip in the sync worktree for the real run:
+
+1. Dry run reaches `applied`
+2. `decision.tip` names the kept tip
+3. `vp run fork:sync <tag>` adopts it
+4. The battery reruns; the tip pushes
+
+A moved lease or a new tag rebases again instead.
+
 ## Read the report
 
 `.t3/fork-sync/<tag>.json` is the only run authority; the printed Markdown is output.
@@ -34,7 +43,7 @@ Post-push recovery reads this file, never a comment.
 | `conflicts[]`  | Every stop's path, fork and upstream commit, route         |
 | `checks[]`     | Each battery command and its result                        |
 | `decision`     | A stopped run's worktree, paths, and exact resume commands |
-| `decision.tip` | A red check's rebased tip, kept in the worktree            |
+| `decision.tip` | A red check's or green dry run's tip, kept in the worktree |
 
 Never edit a report; a rerun supersedes it.
 
@@ -114,6 +123,8 @@ A failed run does the same with the one open failure issue.
 Each body ends with its open-since date, target count, and last five runs; a clean run closes both.
 
 ### Finished tip from elsewhere
+
+A green dry run's tip needs none of this: the real run adopts it.
 
 1. Open the kept worktree.
 2. `git rebase --abort` if one is in progress.
