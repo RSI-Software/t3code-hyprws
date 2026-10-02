@@ -2,7 +2,6 @@
 
 // The license-list resolver the sync's stop loop runs on a conflicted
 // `third-party-licenses.config.json` (RSI-Software/t3code-hyprws#1488).
-// Gate: sync tip — merges both sides' license entries during the sync rebase; any other shape refuses and stops the run.
 //
 // The config is authored input: `vp run licenses:sync` reads it and never
 // reproduces it, so no generator can rebuild a conflicted copy. Both sides
