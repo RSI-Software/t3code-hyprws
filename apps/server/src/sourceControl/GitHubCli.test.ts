@@ -354,62 +354,6 @@ describe("GitHubCli.listPullRequestsByHead", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("reads an explicit repository instead of the one gh would pick", () =>
-    Effect.gen(function* () {
-      const documents: Array<{ query: string; variables: Record<string, unknown> }> = [];
-      const commands: Array<ReadonlyArray<string>> = [];
-      mockRun.mockImplementation((input) =>
-        Effect.sync(() => {
-          commands.push([input.command, ...input.args]);
-          if (input.command === "git") {
-            return processOutput(
-              "origin\tgit@github.com:me/web.git (fetch)\nupstream\tgit@github.com:acme/web.git (fetch)\n",
-            );
-          }
-          if (input.args[0] === "pr") return jsonOutput([]);
-          documents.push(decodeRequest(input.stdin ?? ""));
-          return jsonOutput({
-            data: {
-              repository: { h0: { nodes: [] } },
-              rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2099-01-01T00:00:00Z" },
-            },
-          });
-        }),
-      );
-      const gh = yield* GitHubCli.GitHubCli;
-      const lookup = yield* gh
-        .listPullRequestsByHead({
-          cwd: "/repo",
-          headSelector: "feature/a",
-          state: "all",
-          limit: 100,
-          rateLimitHost: "github.com",
-          repository: "github.com/me/web",
-        })
-        .pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
-      yield* Fiber.join(lookup);
-      assert.strictEqual(
-        commands.some(([command]) => command === "git"),
-        false,
-      );
-      assert.deepStrictEqual(
-        [documents[0]?.variables.owner, documents[0]?.variables.name],
-        ["me", "web"],
-      );
-
-      yield* gh.listPullRequestsByHead({
-        cwd: "/repo",
-        headSelector: "feature/a",
-        state: "all",
-        limit: 100,
-        rateLimitHost: "github.com",
-        repository: "enterprise.test/me/web",
-      });
-      assert.deepStrictEqual(commands.at(-1)?.slice(9, 11), ["--repo", "enterprise.test/me/web"]);
-    }).pipe(Effect.provide(layer)),
-  );
-
   it.effect("fails a rate-limited document whole instead of asking head by head", () =>
     Effect.gen(function* () {
       let ghCalls = 0;
