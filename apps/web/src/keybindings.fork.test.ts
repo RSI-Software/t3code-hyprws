@@ -13,6 +13,7 @@ import {
   shouldShowThreadJumpHintsForModifiers,
   type ShortcutEventLike,
 } from "./keybindings";
+import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
     key: "j",
@@ -143,11 +144,24 @@ const DEFAULT_BINDINGS = compile([
   },
 ]);
 describe("thread navigation helpers", () => {
+  forkSupersedes({
+    upstream:
+      "apps/web/src/keybindings.test.ts > never shows jump hints while the terminal is focused, even with an unrestricted binding",
+    reason:
+      "the terminal drawer forwards resolved thread jumps to the window ahead of Ghostty encoding, so a focused terminal still shows the hint",
+    commit: "75c2629308d",
+  });
   it("shows jump hints with terminal focus when the binding is active there", () => {
     assert.isTrue(
       shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
+      }),
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
       }),
     );
     const composerOnlyBindings = compile([
