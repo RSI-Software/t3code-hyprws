@@ -1,4 +1,3 @@
-// Gate: none — trailer parsing every fork gate reads; gates nothing itself.
 export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
