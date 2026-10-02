@@ -145,7 +145,7 @@ describe("resolveCompletedTurnTiming", () => {
     expect(resolveCompletedTurnTiming({ latestTurn: null })).toBeNull();
     expect(
       resolveCompletedTurnTiming({
-        latestTurn: makeLatestTurn({ state: "error" }),
+        latestTurn: { ...makeLatestTurn(), state: "error" },
       }),
     ).toBeNull();
     expect(
