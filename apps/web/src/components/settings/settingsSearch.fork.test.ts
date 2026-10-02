@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { searchSettings } from "./settingsSearch";
 
 // Fork-owned assertions for the external workspace symlinks settings entry
@@ -10,5 +11,24 @@ describe("searchSettings — external workspace symlinks (fork)", () => {
     expect(searchSettings("external workspace symlinks").map((item) => item.id)).toEqual([
       "external-workspace-symlinks",
     ]);
+  });
+
+  forkSupersedes({
+    upstream:
+      "apps/web/src/components/settings/settingsSearch.test.ts > routes where links open to integrations",
+    reason:
+      "the fork's external workspace symlinks entry ranks first for 'external links', so the link target is found rather than first",
+    commit: "6833e1b88b7",
+  });
+  it("routes where links open to integrations beside the symlinks entry", () => {
+    expect(searchSettings("open links in")[0]).toMatchObject({
+      id: "browser-link-target",
+      to: "/settings/integrations",
+    });
+    expect(
+      searchSettings("external links").find(({ id }) => id === "browser-link-target"),
+    ).toMatchObject({
+      id: "browser-link-target",
+    });
   });
 });
