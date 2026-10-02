@@ -135,6 +135,7 @@ import {
   OrchestrationCommandInvariantError,
   OrchestrationThreadSettleBlockedError,
 } from "./orchestration/Errors.ts";
+import { workspaceSymlinkTestsFork } from "./server.workspaceSymlinks.fork.suite.ts"; // fork-hook: upstream-fixes/workspace-symlink-tests-import
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { threadIssueStreamTestsFork } from "./ws.threadIssues.fork.suite.ts"; // fork-hook: github-issues/ws-stream-tests-import
 import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
@@ -1760,6 +1761,12 @@ const getWsServerUrl = (
       yield* getAuthenticatedSessionCookieHeader(options?.credential),
     );
   });
+
+export type WorkspaceSymlinkHarnessFork = {
+  buildAppUnderTest: typeof buildAppUnderTest;
+  getWsServerUrl: typeof getWsServerUrl;
+  withWsRpcClient: typeof withWsRpcClient;
+}; // fork-hook: upstream-fixes/workspace-symlink-harness
 
 // Mirrors NodeHttpServer.layerTest, which does not expose server options,
 // with the production `websocket: { perMessageDeflate: true }` setting.
@@ -8234,49 +8241,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("reads external workspace symlinks when the global setting is enabled", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "t3-ws-workspace-external-link-",
-      });
-      const sharedDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "t3-ws-workspace-external-link-target-",
-      });
-      yield* fs.makeDirectory(path.join(sharedDir, "plans"), { recursive: true });
-      yield* fs.writeFileString(path.join(sharedDir, "plans", "spec.md"), "# Shared plan\n");
-      yield* fs.symlink(sharedDir, path.join(workspaceDir, ".dump"));
-
-      yield* buildAppUnderTest({
-        layers: {
-          serverSettings: {
-            getSettings: Effect.succeed({
-              ...DEFAULT_SERVER_SETTINGS,
-              followExternalWorkspaceSymlinks: true,
-            }),
-          },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const response = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.projectsReadFile]({
-            cwd: workspaceDir,
-            relativePath: ".dump/plans/spec.md",
-          }),
-        ),
-      );
-
-      assert.deepEqual(response, {
-        relativePath: ".dump/plans/spec.md",
-        contents: "# Shared plan\n",
-        byteLength: 14,
-        truncated: false,
-      });
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
+  workspaceSymlinkTestsFork(it, { buildAppUnderTest, getWsServerUrl, withWsRpcClient }); // fork-hook: upstream-fixes/workspace-symlink-tests
 
   it.effect("reports workspace root stat failures without relabeling them as missing", () =>
     Effect.gen(function* () {
