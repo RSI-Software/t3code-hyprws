@@ -43,6 +43,7 @@ import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
 
 import { FIXUP_PREFIX } from "./fork-delta.ts";
+import { ciTestJobs } from "./lib/fork-ci-jobs.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
   commandText,
@@ -196,6 +197,8 @@ export const DecisionRoute = Schema.Struct({
 export interface DecisionRoute extends Schema.Schema.Type<typeof DecisionRoute> {}
 
 export const CheckRow = Schema.Struct({
+  /** The hyprws CI test job a row runs; absent on a Check-job row. */
+  job: Schema.optionalKey(Schema.String),
   command: Schema.String,
   status: Schema.Literals(["passed", "failed", "skipped"]),
   detail: Schema.String,
@@ -659,6 +662,16 @@ const VERIFICATION_ENV_KEYS = new Set([
   "HYPRWS_PUSH_TOKEN",
 ]);
 
+/**
+ * A shell inside T3 Code inherits the live instance's own variables: its home,
+ * port, and service-launcher context. CI has none, and the rebased tests must
+ * never reach live state, so every one of them is scrubbed.
+ */
+const VERIFICATION_ENV_PREFIX = /^T3(?:CODE)?_/;
+
+/** The umask GitHub-hosted runners give every CI step. */
+const CI_UMASK = 0o022;
+
 /** The worktree's own `.bin` first, and no other checkout's bin directory at all. */
 const worktreeExecutablePath = (inherited: string | undefined, worktree: string): string => {
   const worktreeBin = NodePath.join(worktree, "node_modules", ".bin");
@@ -675,7 +688,9 @@ const worktreeExecutablePath = (inherited: string | undefined, worktree: string)
 
 const verificationEnv = (worktree: string): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !VERIFICATION_ENV_KEYS.has(key)),
+    Object.entries(process.env).filter(
+      ([key]) => !VERIFICATION_ENV_KEYS.has(key) && !VERIFICATION_ENV_PREFIX.test(key),
+    ),
   ),
   PATH: worktreeExecutablePath(process.env.PATH, worktree),
 });
@@ -745,13 +760,12 @@ export const dependencySetChanged = (
     .status !== 0;
 
 /**
- * The check battery, in the CI shape: the ledger gate, then everything the
+ * The Check-job half of the battery: the ledger gate, then everything the
  * fork's pull-request CI Check job runs — `vp run fork:ci` derives the pinned
  * scan flags from HEAD (scripts/lib/fork-ci-flags.ts) and runs the rebase scan,
  * `vp check`, and the whole scripts suite — then the Check job's unused-code,
- * `vpr typecheck`, and desktop build steps. A direct push to the trunk has no
- * pull request to gate it, so the driver runs the battery itself before the
- * push. The product test jobs stay CI-only: they gate the pushed trunk after.
+ * `vpr typecheck`, and desktop build steps. The test-job half is never listed
+ * here: `runChecks` derives it from the workflow (scripts/lib/fork-ci-jobs.ts).
  */
 export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "fork:delta", "--check"],
@@ -760,6 +774,10 @@ export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "typecheck"],
   ["run", "build:desktop"],
 ];
+
+/** A check row as a report line names it: the CI test job first, when it has one. */
+export const checkLabel = (check: CheckRow): string =>
+  check.job === undefined ? `\`${check.command}\`` : `${check.job} · \`${check.command}\``;
 
 /** The last lines of combined check output kept in a failure detail. */
 export const CHECK_DETAIL_TAIL_LINES = 40;
@@ -774,6 +792,13 @@ export const checkFailureDetail = (
   return `${text.split("\n").slice(-tail).join("\n")} (exit ${result.status})`;
 };
 
+/**
+ * The check battery, in the CI shape: `checkCommands`, then every hyprws CI
+ * test job the replayed workflow declares, matrix cells included. A direct
+ * push to the trunk has no pull request to gate it, so the driver runs the
+ * whole battery itself, and any red row keeps the push from happening. There
+ * is no flag that drops a row.
+ */
 export const runChecks = (
   runner: CommandRunner,
   root: string,
@@ -781,6 +806,7 @@ export const runChecks = (
   target: ReleaseTag,
   trunkSha: string,
 ): ReadonlyArray<CheckRow> => {
+  const testJobs = ciTestJobs(worktree);
   if (dependencySetChanged(runner, root, trunkSha, target.sha)) {
     process.stdout.write(
       `sync: dependency set changed on ${target.sha.slice(0, 7)}; installing in the replay worktree\n`,
@@ -790,22 +816,41 @@ export const runChecks = (
     linkInstalledModules(root, worktree);
   }
   const env = verificationEnv(worktree);
-  return checkCommands().map((args) => {
-    // The rehearsal head authors no commits, so the battery scopes the hook
-    // guard to the replayed fork delta: everything after the rehearsal
-    // target. Pull-request runs keep the merge-base rule inside fork:ci.
-    const scoped = args[1] === "fork:ci" ? [...args, "--since", target.sha] : args;
-    const result = runner.run("vp", scoped, { cwd: worktree, env, stream: true });
-    if (result.status === 0 && result.error === undefined)
-      return { command: commandText("vp", args), status: "passed", detail: "" };
-    const detail = checkFailureDetail(result);
-    process.stderr.write(`${commandText("vp", args)} failed:\n${detail}\n`);
-    return {
-      command: commandText("vp", args),
-      status: "failed",
-      detail,
-    };
-  });
+  const passed = (result: CommandResult): boolean =>
+    result.status === 0 && result.error === undefined;
+  const runOne = (args: ReadonlyArray<string>): CommandResult => {
+    const result = runner.run("vp", args, { cwd: worktree, env, stream: true });
+    if (!passed(result))
+      process.stderr.write(`${commandText("vp", args)} failed:\n${checkFailureDetail(result)}\n`);
+    return result;
+  };
+  const previousUmask = process.umask(CI_UMASK);
+  try {
+    const checkRows = checkCommands().map((args): CheckRow => {
+      // The rehearsal head authors no commits, so the battery scopes the hook
+      // guard to the replayed fork delta: everything after the rehearsal
+      // target. Pull-request runs keep the merge-base rule inside fork:ci.
+      const scoped = args[1] === "fork:ci" ? [...args, "--since", target.sha] : args;
+      const result = runOne(scoped);
+      const command = commandText("vp", args);
+      return passed(result)
+        ? { command, status: "passed", detail: "" }
+        : { command, status: "failed", detail: checkFailureDetail(result) };
+    });
+    // A job stops at its first red step, as a CI job does.
+    const testRows = testJobs.map((job): CheckRow => {
+      const command = job.commands.map((args) => commandText("vp", args)).join(" && ");
+      for (const args of job.commands) {
+        const result = runOne(args);
+        if (!passed(result))
+          return { job: job.name, command, status: "failed", detail: checkFailureDetail(result) };
+      }
+      return { job: job.name, command, status: "passed", detail: "" };
+    });
+    return [...checkRows, ...testRows];
+  } finally {
+    process.umask(previousUmask);
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -1165,7 +1210,7 @@ export const failureIssueBody = (report: ForkSyncReport, previous?: string): str
           "",
           "| Check | Verdict |",
           "| --- | --- |",
-          ...report.checks.map((check) => `| \`${check.command}\` | ${check.status} |`),
+          ...report.checks.map((check) => `| ${checkLabel(check)} | ${check.status} |`),
         ]),
     ...(report.target.tag === ""
       ? []
@@ -1289,7 +1334,7 @@ export const renderReport = (report: ForkSyncReport): string => {
       : [
           "",
           ...report.checks.map(
-            (check) => `- ${check.status === "passed" ? "✅" : "❌"} \`${check.command}\``,
+            (check) => `- ${check.status === "passed" ? "✅" : "❌"} ${checkLabel(check)}`,
           ),
         ];
   const decision =
@@ -1533,7 +1578,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
             `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
           ].join("\n"),
         },
-        error: "the check battery is red",
+        error: `the check battery is red: ${checks
+          .filter((check) => check.status === "failed")
+          .map((check) => check.job ?? check.command)
+          .join(", ")}`,
       });
     }
 
