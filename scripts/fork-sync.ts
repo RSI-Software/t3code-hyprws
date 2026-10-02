@@ -47,7 +47,7 @@ import * as Schema from "effect/Schema";
 import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 
-import { FIXUP_PREFIX } from "./fork-delta.ts";
+import { FIXUP_PREFIX, fixupTarget } from "./fork-delta.ts";
 import { ciTestJobs } from "./lib/fork-ci-jobs.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
@@ -65,6 +65,7 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
+import { FIXUP_OWNERS_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -624,42 +625,66 @@ export type RebaseOutcome =
       readonly regenerating: ReadonlyArray<string>;
     };
 
-/** Subjects of the fork commits above `target` that a `fixup!` commit may name. */
+export interface SubjectCommit {
+  readonly sha: string;
+  readonly subject: string;
+}
+
+/** The fork commits above `target`, oldest first, that a `fixup!` commit may name. */
 export const forkSubjects = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
   oldSha: string,
-): ReadonlyArray<string> =>
-  lines(git(runner, root, ["log", "--format=%s", `${target.sha}..${oldSha}`]));
+): ReadonlyArray<SubjectCommit> =>
+  lines(
+    git(runner, root, ["log", "--reverse", "--format=%H%x1f%s", `${target.sha}..${oldSha}`]),
+  ).map((line) => {
+    const [sha = "", subject = ""] = line.split("\u001f");
+    return { sha, subject };
+  });
+
+export interface FixupResolution {
+  /** `[fixup sha, owner sha]`, oldest fixup first. */
+  readonly owners: ReadonlyArray<readonly [fixup: string, owner: string]>;
+  readonly refusals: ReadonlyArray<string>;
+}
 
 /**
- * The `fixup!` commits whose named subject is absent from, or named more than
- * once by, the fork stack above `target`. Either shape refuses before the
+ * Resolve each `fixup!` commit to the one fork commit above `target` it names.
+ * A name absent from, or named more than once by, the stack refuses before the
  * rebase starts: an orphan would silently become a regular commit, and an
  * ambiguous name could fold into the wrong commit.
  */
-export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const owners = subjects.filter((subject) => !subject.startsWith(FIXUP_PREFIX));
-  const counts = new Map<string, number>();
-  for (const owner of owners) counts.set(owner, (counts.get(owner) ?? 0) + 1);
-  return subjects
-    .filter((subject) => subject.startsWith(FIXUP_PREFIX))
-    .flatMap((subject) => {
-      const named = subject.slice(FIXUP_PREFIX.length);
-      const count = counts.get(named) ?? 0;
-      if (count === 0) return [`fixup "${subject}" names no fork commit above the target`];
-      if (count > 1) return [`fixup "${subject}" names ${count} fork commits above the target`];
-      return [];
-    });
+export const resolveFixups = (commits: ReadonlyArray<SubjectCommit>): FixupResolution => {
+  const ownerShas = new Map<string, Array<string>>();
+  for (const commit of commits) {
+    if (commit.subject.startsWith(FIXUP_PREFIX)) continue;
+    ownerShas.set(commit.subject, [...(ownerShas.get(commit.subject) ?? []), commit.sha]);
+  }
+  const owners: Array<readonly [string, string]> = [];
+  const refusals: Array<string> = [];
+  for (const { sha, subject } of commits) {
+    const named = fixupTarget(subject, ownerShas);
+    if (named === undefined) continue;
+    const shas = ownerShas.get(named) ?? [];
+    const [owner] = shas;
+    if (owner === undefined)
+      refusals.push(`fixup "${subject}" names no fork commit above the target`);
+    else if (shas.length > 1)
+      refusals.push(`fixup "${subject}" names ${shas.length} fork commits above the target`);
+    else owners.push([sha, owner]);
+  }
+  return { owners, refusals };
 };
 
 /**
  * Rebase `oldSha` onto `target` in a detached worktree. A fork landing that
- * amends a fork commit is titled `fixup! <subject>`; the rebase runs
- * interactive with `--autosquash` and a no-op sequence editor, so the fixup
- * folds into the commit it names and the series never carries fix-of-fix
- * (RSI-Software/t3code-hyprws#1179). Hook re-apply re-inserts the marked fork
+ * amends a fork commit is titled `fixup! <subject>`, with ` (#N)` appended
+ * when squash-landed; the rebase runs interactive with `--autosquash` and a
+ * sequence editor that places each resolved fixup under its owner, so the
+ * fixup folds into the commit it names and the series never carries
+ * fix-of-fix (RSI-Software/t3code-hyprws#1179, RSI-Software/t3code-hyprws#1508). Hook re-apply re-inserts the marked fork
  * hooks a conflicted file declares. A delete/modify whose deletion is on the
  * upstream side and whose fork edit nets to zero against the base the fork
  * stack sits on accepts the deletion outright. A path in
@@ -688,9 +713,14 @@ const replayOnto = (
   // run the previous release tag. Net-zero compares the fork trunk to it from
   // real refs, once per run, never from the worktree.
   const baseSha = git(runner, root, ["merge-base", target.sha, oldSha]);
-  const refusals = fixupRefusals(forkSubjects(runner, root, target, oldSha));
-  if (refusals.length > 0) throw new Error(refusals.join("; "));
-  const editorEnv = { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" };
+  const fixups = resolveFixups(forkSubjects(runner, root, target, oldSha));
+  if (fixups.refusals.length > 0) throw new Error(fixups.refusals.join("; "));
+  const editorEnv = {
+    ...process.env,
+    GIT_EDITOR: "true",
+    GIT_SEQUENCE_EDITOR: sequenceEditor(),
+    [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
+  };
   const rebaseArgs = ["rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha];
   const forkCommitCount = Number(
     git(runner, root, ["rev-list", "--count", `${target.sha}..${oldSha}`]),
