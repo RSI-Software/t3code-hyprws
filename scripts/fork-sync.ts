@@ -53,6 +53,7 @@ import {
 } from "./lib/fork-command.ts";
 import { deriveForkHooksIn } from "./lib/fork-hooks.ts";
 import { reapplyForkHooks } from "./lib/fork-hook-reapply.ts";
+import { mergeLicenseLists } from "./lib/fork-license-merge.ts";
 import {
   FORK_REPOSITORY,
   HYPRWS_BRANCH,
@@ -154,8 +155,8 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
 // Typed report
 // ---------------------------------------------------------------------------
 
-/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, or a manual resolution. */
-export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete"]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, regeneration, or a manual resolution. */
+export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete", "regenerate"]);
 
 /** The recorded reason when an upstream deletion meets a net-zero fork edit. */
 export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
@@ -175,7 +176,7 @@ export const ConflictRow = Schema.Struct({
   hooksReapplied: Schema.Array(Schema.String),
   /** Why hook re-apply refused the path; set on `manual` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
-  /** Why an automatic rule resolved the path; set on `net-zero-delete` rows. */
+  /** Why an automatic rule resolved the path; set on `net-zero-delete` and `regenerate` rows. */
   reason: Schema.optionalKey(Schema.String),
 });
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
@@ -466,13 +467,100 @@ const reapplyHooks = (
   return { reinserted: result.reinserted };
 };
 
+/**
+ * A generated path a conflict regenerates instead of stopping. A `generator`
+ * route reruns a `vp` command; `from: "root"` runs it from the trunk
+ * checkout's install against the replay worktree, which has no node_modules
+ * mid-rebase. A `merge` route has no generator: it merges the three stages and
+ * formats the result.
+ */
+export type RegenerationRoute =
+  | {
+      readonly path: string;
+      /** The `vp` argv that regenerates the path. */
+      readonly generator: ReadonlyArray<string>;
+      readonly from: "root" | "worktree";
+    }
+  | {
+      readonly path: string;
+      readonly merge: typeof mergeLicenseLists;
+      /** The key the merge unions entries on, as the runbook and report rows name it. */
+      readonly by: string;
+    };
+
+/**
+ * Every generated path the stop loop regenerates, in run order: the lockfile
+ * first. The Regenerable files table in docs/fork/operations/fork-sync.md
+ * lists the same rows.
+ */
+export const REGENERATION_ROUTES: ReadonlyArray<RegenerationRoute> = [
+  { path: "pnpm-lock.yaml", generator: ["install", "--lockfile-only"], from: "worktree" },
+  {
+    path: "third-party-licenses.config.json",
+    merge: mergeLicenseLists,
+    by: "package name",
+  },
+  {
+    path: "apps/web/src/routeTree.gen.ts",
+    generator: ["run", "fork:regenerate-route-tree"],
+    from: "root",
+  },
+];
+
+export const resolverText = (route: RegenerationRoute): string =>
+  "generator" in route ? commandText("vp", route.generator) : `merge by ${route.by}`;
+
+/**
+ * Resolve one generated path and stage it. A generator route restores the
+ * path from `HEAD` (the target plus the fork commits already replayed) and
+ * reruns its generator over the resolved sources; a merge route merges the
+ * conflict's stages and formats the result. Returns the failure detail, or
+ * `null` once staged.
+ */
+const regenerate = (
+  runner: CommandRunner,
+  root: string,
+  worktree: string,
+  route: RegenerationRoute,
+): string | null => {
+  if ("merge" in route) {
+    const merged = route.merge({
+      base: stageContent(runner, worktree, 1, route.path),
+      upstream: stageContent(runner, worktree, 2, route.path),
+      fork: stageContent(runner, worktree, 3, route.path),
+    });
+    if ("refuseReason" in merged) return merged.refuseReason;
+    NodeFS.writeFileSync(NodePath.join(worktree, route.path), merged.text);
+    const formatted = runner.run("vp", ["fmt", route.path], {
+      cwd: worktree,
+      env: verificationEnv(worktree),
+    });
+    if (formatted.status !== 0 || formatted.error !== undefined)
+      return checkFailureDetail(formatted);
+    git(runner, worktree, ["add", "--", route.path]);
+    return null;
+  }
+  git(runner, worktree, ["restore", "--source=HEAD", "--staged", "--worktree", "--", route.path]);
+  const cwd = route.from === "root" ? root : worktree;
+  const args = route.from === "root" ? [...route.generator, worktree] : route.generator;
+  const result = runner.run("vp", args, { cwd, env: verificationEnv(cwd) });
+  if (result.status !== 0 || result.error !== undefined) return checkFailureDetail(result);
+  git(runner, worktree, ["add", "--", route.path]);
+  return null;
+};
+
 export type RebaseOutcome =
   | {
       readonly status: "applied";
       readonly newSha: string;
       readonly conflicts: ReadonlyArray<ConflictRow>;
     }
-  | { readonly status: "blocked"; readonly conflicts: ReadonlyArray<ConflictRow> };
+  | {
+      readonly status: "blocked";
+      readonly conflicts: ReadonlyArray<ConflictRow>;
+      /** Generated paths left unmerged; the rerun regenerates them once the manual paths resolve. */
+      readonly regenerating: ReadonlyArray<string>;
+    };
 
 /** Subjects of the fork commits above `target` that a `fixup!` commit may name. */
 export const forkSubjects = (
@@ -512,7 +600,9 @@ export const fixupRefusals = (subjects: ReadonlyArray<string>): ReadonlyArray<st
  * (RSI-Software/t3code-hyprws#1179). Hook re-apply re-inserts the marked fork
  * hooks a conflicted file declares. A delete/modify whose deletion is on the
  * upstream side and whose fork edit nets to zero against the base the fork
- * stack sits on accepts the deletion outright. Any path left standing after
+ * stack sits on accepts the deletion outright. A path in
+ * `REGENERATION_ROUTES` regenerates once every other path in the stop has
+ * resolved (RSI-Software/t3code-hyprws#1488). Any path left standing after
  * those stops the run; its rows name the fork commit, the upstream commit, and
  * the worktree the rebase resumes in.
  *
@@ -577,8 +667,15 @@ export const rebaseOnto = (
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
     const manual: string[] = [];
+    const regenerable = new Map<string, { sha: string; subject: string }>();
     for (const path of unmerged) {
       const touch = upstreamTouch(runner, root, target.sha, path);
+      // A generated path waits for every source path to resolve: its
+      // generator reads them.
+      if (REGENERATION_ROUTES.some((route) => route.path === path)) {
+        regenerable.set(path, touch);
+        continue;
+      }
       // Delete/modify with the deletion on the upstream (rebase base) side:
       // when the fork trunk's final blob for the path equals the base blob,
       // the fork edit is net-zero and the deletion is accepted outright. Any
@@ -627,7 +724,37 @@ export const rebaseOnto = (
         hooksReapplied: [...applied.reinserted],
       });
     }
-    if (manual.length > 0) return { status: "blocked", conflicts };
+    if (manual.length > 0)
+      return { status: "blocked", conflicts, regenerating: [...regenerable.keys()] };
+    for (const route of REGENERATION_ROUTES) {
+      const touch = regenerable.get(route.path);
+      if (touch === undefined) continue;
+      const failure = regenerate(runner, root, worktree, route);
+      const row = {
+        path: route.path,
+        forkCommit,
+        forkSubject,
+        upstreamCommit: touch.sha,
+        upstreamSubject: touch.subject,
+        hooksReapplied: [],
+      };
+      if (failure === null) {
+        conflicts.push({
+          ...row,
+          via: "regenerate",
+          reason:
+            "merge" in route ? `merged by ${route.by}` : `regenerated by ${resolverText(route)}`,
+        });
+        continue;
+      }
+      manual.push(route.path);
+      conflicts.push({
+        ...row,
+        via: "manual",
+        refuseReason: `${resolverText(route)} failed: ${failure}`,
+      });
+    }
+    if (manual.length > 0) return { status: "blocked", conflicts, regenerating: [] };
     status = runner.run("git", [...REBASE_CONFIG, "rebase", "--continue"], {
       cwd: worktree,
       env: editorEnv,
@@ -1529,7 +1656,11 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           paths: manualPaths,
           resume: [
             `git -C ${worktree} add -- ${manualPaths.map((path) => `"${path}"`).join(" ")}`,
-            `git -C ${worktree} rebase --continue`,
+            // A generated path still unmerged refuses `rebase --continue`; the
+            // rerun regenerates it and continues.
+            rebase.regenerating.length === 0
+              ? `git -C ${worktree} rebase --continue`
+              : `# the rerun regenerates ${rebase.regenerating.join(", ")} and continues`,
             `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
           ].join("\n"),
         },
