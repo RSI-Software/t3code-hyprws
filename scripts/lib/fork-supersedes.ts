@@ -1,6 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
-// fork job step 5: supersedes declarations
-// Gate: none — declaration parsing; fork:scan turns refusals and undeclared contradictions into failures (fork:ci).
 
 // The `forkSupersedes({ upstream, reason, commit })` declaration a fork test sibling carries beside
 // a case that deliberately contradicts an upstream case: the only tool-read record of which case,
@@ -160,24 +158,21 @@ export const collectForkSupersedes = (
 };
 
 // A case opener: an `it`/`test`/`effectIt` call, including the dotted
-// effect forms (`it.effect`, `it.layer`) and a one-line `.each(...)` table,
+// effect forms (`it.effect`, `it.layer`) and a possibly multiline `.each(...)` table,
 // whose first argument is a string-literal title. Prettier wraps a long
 // opener so the title sits alone on the next line; that is the same case.
 const OPENER_HEAD =
-  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*?(?:\s*\.each\s*(?:<[^>]*>)?\s*\(.*?\))?\s*(?:<[^>]*>)?\s*\(\s*/
+  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*?(?:\s*\.each\s*(?:<[^>]*>)?\s*\([\s\S]*?\))?\s*(?:<[^>]*>)?\s*\(\s*/
     .source;
 const TITLE_LITERAL = /(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/.source;
 const SAME_LINE_OPENER = new RegExp(`${OPENER_HEAD}${TITLE_LITERAL}`);
-const WRAPPED_OPENER_HEAD = new RegExp(`${OPENER_HEAD}$`);
+const CASE_OPENER = new RegExp(`(${OPENER_HEAD})${TITLE_LITERAL}`, "gm");
 const LEADING_TITLE = new RegExp(`^\\s*${TITLE_LITERAL}`);
-
-const literalTitle = (match: RegExpExecArray | null): string | undefined =>
-  match?.slice(1).find((part) => part !== undefined);
 
 export interface CaseOpener {
   /** 0-based index of the line the opener call starts on. */
   readonly start: number;
-  /** 0-based index of the line carrying the title literal: `start`, or the next line when wrapped. */
+  /** 0-based index of the title literal's line, possibly after a multiline each-table. */
   readonly titleLine: number;
   readonly title: string;
 }
@@ -190,17 +185,18 @@ const splitLines = (text: string): Array<string> => text.replace(/\r\n/g, "\n").
  * the declaration judge never disagree about where a case starts.
  */
 export const caseOpeners = (text: string): ReadonlyArray<CaseOpener> => {
-  const lines = splitLines(text);
+  const source = text.replace(/\r\n/g, "\n");
   const openers: Array<CaseOpener> = [];
-  for (const [index, line] of lines.entries()) {
-    const sameLine = literalTitle(SAME_LINE_OPENER.exec(line));
-    if (sameLine !== undefined) {
-      openers.push({ start: index, titleLine: index, title: sameLine });
-      continue;
-    }
-    if (!WRAPPED_OPENER_HEAD.test(line)) continue;
-    const wrapped = literalTitle(LEADING_TITLE.exec(lines[index + 1] ?? ""));
-    if (wrapped !== undefined) openers.push({ start: index, titleLine: index + 1, title: wrapped });
+  for (const match of source.matchAll(CASE_OPENER)) {
+    const head = match[1]!;
+    const title = match.slice(2).find((part) => part !== undefined)!;
+    const startOffset = match.index + head.search(/\S/);
+    const titleOffset = match.index + head.length;
+    openers.push({
+      start: source.slice(0, startOffset).split("\n").length - 1,
+      titleLine: source.slice(0, titleOffset).split("\n").length - 1,
+      title,
+    });
   }
   return openers;
 };
@@ -325,12 +321,13 @@ const caseBodyForTitle = (text: string, title: string): ReadonlyArray<string> | 
 const caseBodyForRename = (text: string, title: string): ReadonlyArray<string> | null => {
   const opener = caseOpeners(text).find((candidate) => candidate.title === title);
   if (opener === undefined) return null;
-  const [head = "", ...rest] = caseSourceLines(text, title);
-  const stripped =
-    opener.titleLine === opener.start
-      ? [head.replace(SAME_LINE_OPENER, ""), ...rest]
-      : [(rest[0] ?? "").replace(LEADING_TITLE, ""), ...rest.slice(1)];
-  return significantLines(stripped.join("\n"));
+  const lines = [...caseSourceLines(text, title)];
+  const titleIndex = opener.titleLine - opener.start;
+  lines[titleIndex] = (lines[titleIndex] ?? "").replace(
+    titleIndex === 0 ? SAME_LINE_OPENER : LEADING_TITLE,
+    "",
+  );
+  return significantLines(lines.join("\n"));
 };
 
 /**
