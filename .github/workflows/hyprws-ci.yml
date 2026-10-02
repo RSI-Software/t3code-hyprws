@@ -178,6 +178,10 @@ jobs:
           fi
           echo "merge-tree clean: no head-only conflicts"
 
+  # `fork:sync` runs every `test*` job below before it pushes the trunk,
+  # reading each `vp` step from this file (scripts/lib/fork-ci-jobs.ts). Keep
+  # a test step one plain `vp` command; any other shape stops the sync.
+  #
   # Everything except `t3` (apps/server), `web`, and the fork's own
   # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
   # Four pooled suites share a GitHub-hosted runner, so the fork widens the
