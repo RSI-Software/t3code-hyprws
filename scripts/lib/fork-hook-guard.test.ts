@@ -32,6 +32,27 @@ it("flags an unmarked insertion on a marker-capable path", () => {
   assert.match(warnings[0] ?? "", /outside a marked hook/);
 });
 
+it("tells a comment above a hook to move inside the statement or go", () => {
+  const warnings = hookGuardWarnings(
+    input([
+      "// Each window installs its download handler.",
+      "const track = Effect.acquireRelease(",
+      "  Effect.sync(() => installers.add(install)),",
+      "); // fork-hook: multi-window/download-track",
+    ]),
+  );
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /move the comment inside the statement or drop it/);
+});
+
+it("keeps the wrap remedy when unmarked code sits beside a comment", () => {
+  const warnings = hookGuardWarnings(
+    input(["// The fork's own counter.", "export const forkThing = 1;"]),
+  );
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /wrap the insertion in a fork-hook marker/);
+});
+
 it("refuses an unmarked rewrap with no exemption", () => {
   // Any unmarked edit in range is refused, full stop: a formatter
   // rewrapping a landed line is marked by a human, not exempted.

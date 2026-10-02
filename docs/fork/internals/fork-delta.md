@@ -85,13 +85,50 @@ Decided per commit by the levers retire, reshape, automate, or accept; no gate c
 
 | Case           | Marker                                                                    |
 | -------------- | ------------------------------------------------------------------------- |
-| Single line    | trailing `// fork-hook: <domain>/<name>`                                  |
+| Statement      | trailing `// fork-hook: <domain>/<name>` or `/* fork-hook: … */`          |
 | Multi-line JSX | the pair `{/* fork-hook: <domain>/<name> */}` and `{/* fork-hook-end */}` |
-| Manifest       | every marker also listed in `FORK_HOOKS` in `scripts/lib/fork-hooks.ts`   |
 | Charging       | `scripts/lib/fork-hooks.ts` is fork-owned, so its edit is never charged   |
 
 **A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
 **A hook never removes or modifies an upstream line**, except that a marked JSX region may re-indent what it wraps, and an in-place substitution removes the line its marked replacement supplies.
+
+**A trailing marker covers the whole statement it closes.** `statementStartLine` in `scripts/lib/fork-hooks.ts` walks back from the marker line.
+
+| Line above, at the statement's own depth | Walk      |
+| ---------------------------------------- | --------- |
+| Inside an open bracket or literal        | continues |
+| Ends in `;`, `{`, `,`, or a closing `}`  | stops     |
+| Blank or comment-only                    | stops     |
+
+The hook guard, `scripts/lib/fork-hook-guard.ts`, refuses every added line outside the span, so comment placement decides the outcome.
+
+| Comment                   | Span                      | Guard   |
+| ------------------------- | ------------------------- | ------- |
+| Above the hook            | starts below the comment  | refuses |
+| Between `=>` and the body | starts at the body        | refuses |
+| Inside the call arguments | open bracket: walk passes | accepts |
+
+Refused: the comment stops the walk, leaving the `const` line and the comment unmarked.
+
+```ts
+const trackInstaller = (install: (session: Session) => void) =>
+  // Each window installs its download handler on every browser session.
+  Effect.acquireRelease(
+    Effect.sync(() => installers.add(install)),
+    () => Effect.sync(() => installers.delete(install)),
+  ); // fork-hook: multi-window/download-track
+```
+
+Accepted: the comment sits inside the open call.
+
+```ts
+const trackInstaller = (install: (session: Session) => void) =>
+  Effect.acquireRelease(
+    // Each window installs its download handler on every browser session.
+    Effect.sync(() => installers.add(install)),
+    () => Effect.sync(() => installers.delete(install)),
+  ); // fork-hook: multi-window/download-track
+```
 
 ### The removal rule
 
@@ -110,15 +147,15 @@ Zero sites, several, or an unplaceable end marker leaves an ordinary `conflict` 
 
 It refuses an addition outside a marked hook, a deletion outside the removal rule, or an unknown marker, and lives in `ADOPTED_AUTHORING_GUARDS`.
 
-| Aspect            | Rule                                                     |
-| ----------------- | -------------------------------------------------------- |
-| Fork side         | rebuilt from the upstream blob and the diff's positions  |
-| Unreconstructable | charged, never exempted                                  |
-| Removal gap       | every addition in it must be a line-kind marked hook     |
-| Formatter reflow  | same tokens either side: no addition charge              |
-| Outside the rule  | upstreamable `bugfix` commits, and generated paths       |
-| Generated files   | never reshape debt; a sync restores HEAD and regenerates |
-| Historical range  | advisory, so the woven trunk is unaffected               |
+| Aspect            | Rule                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| Fork side         | rebuilt from the upstream blob and the diff's positions                                            |
+| Unreconstructable | charged, never exempted                                                                            |
+| Removal gap       | every addition in it must be a line-kind marked hook                                               |
+| Formatter reflow  | same tokens either side: no `fork-hook-seam` addition charge; the hook guard has no such exemption |
+| Outside the rule  | upstreamable `bugfix` commits, and generated paths                                                 |
+| Generated files   | never reshape debt; a sync restores HEAD and regenerates                                           |
+| Historical range  | advisory, so the woven trunk is unaffected                                                         |
 
 It charges some seams the walk accepts, never the reverse.
 A scar rule directs the author to a fork-owned file, and the narrow call left behind still needs its own marker.
