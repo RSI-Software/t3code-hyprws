@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver bootstraps Git before any Effect runtime exists.
-// fork job steps 1-4: fetch tag, rebase with hooks, fold fixups, one issue
-// Gate: sync tip — the driver moves hyprws only after the check battery passes; a red battery or unresolvable seam stops the run.
-//
+
 // One driver, one run, one exit code, one report. `fork:sync [<tag>] [--dry-run]`
 // walks one upstream release tag end to end: target, fetch, rebase, check, push,
 // blocked, report. There is no state machine, no gates, no lanes, and no modes —
@@ -252,12 +250,7 @@ export const ForkSyncReport = Schema.Struct({
       title: Schema.String,
       blockingSha: Schema.String,
       publishError: Schema.NullOr(Schema.String),
-      /**
-       * Which CLI posted the write. Always `"gh"` on a run this driver writes;
-       * `"ghb"` only ever appears in a report file an earlier ghb-routed build
-       * wrote, and the decoder stays tolerant of it for that history.
-       */
-      publishedVia: Schema.NullOr(Schema.Literals(["ghb", "gh"])),
+      publishedVia: Schema.NullOr(Schema.Literal("gh")),
     }),
   ),
   /** The one failure issue a non-blocked failed run files; `null` otherwise. */
@@ -271,7 +264,7 @@ export const ForkSyncReport = Schema.Struct({
       /** The target tag, or the trunk sha before a tag resolved. */
       key: Schema.String,
       publishError: Schema.NullOr(Schema.String),
-      publishedVia: Schema.NullOr(Schema.Literals(["ghb", "gh"])),
+      publishedVia: Schema.NullOr(Schema.Literal("gh")),
     }),
   ),
   push: Schema.Struct({ pushed: Schema.Boolean, detail: Schema.String }),
@@ -954,15 +947,14 @@ export const dependencySetChanged = (
   0;
 
 /**
- * The Check-job half of the battery: the ledger gate, then everything the
- * fork's pull-request CI Check job runs — `vp run fork:ci` derives the pinned
- * scan flags from HEAD (scripts/lib/fork-ci-flags.ts) and runs the rebase scan,
+ * The Check-job half of the battery: everything the fork's pull-request CI
+ * Check job runs — `vp run fork:ci` runs the ledger check, derives the pinned
+ * scan flags from HEAD (scripts/lib/fork-ci-flags.ts), and runs the rebase scan,
  * `vp check`, and the whole scripts suite — then the Check job's unused-code,
  * `vpr typecheck`, and desktop build steps. The test-job half is never listed
  * here: `runChecks` derives it from the workflow (scripts/lib/fork-ci-jobs.ts).
  */
 export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
-  ["run", "fork:delta", "--check"],
   ["run", "fork:ci"],
   ["run", "knip:check"],
   ["run", "typecheck"],
