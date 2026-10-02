@@ -454,6 +454,62 @@ it("carries a reshape extra committed in the kept worktree into the pushed tip",
   );
 });
 
+it("keeps a green dry run's tip and the real run publishes exactly that tip", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      capture(() => run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root }));
+      const blocked = readReport(f.root, "v1.0.0");
+      NodeFS.writeFileSync(
+        NodePath.join(f.worktree, "shared.txt"),
+        "line1\nline2 resolved\nline3\n",
+      );
+      f.git(["add", "shared.txt"], f.worktree);
+      f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
+      // a repair committed after the resolution: rerere would not replay it
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "repair.txt"), "repair\n");
+      f.git(["add", "repair.txt"], f.worktree);
+      f.git(["commit", "--quiet", "-m", "repair"], f.worktree);
+
+      const dry = capture(() =>
+        run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root }),
+      );
+      assert.strictEqual(dry.value, 0);
+      const proven = readReport(f.root, "v1.0.0");
+      const tip = proven.trunk.after!;
+      // the proven tip stays in the kept worktree the report names
+      assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
+      assert.deepEqual(proven.decision, {
+        worktree: f.worktree,
+        tip,
+        paths: [],
+        resume: "vp run fork:sync v1.0.0",
+      });
+      assert.match(dry.output, new RegExp(`Tip: \`${tip}\``));
+
+      const real = exec();
+      const code = capture(() => run(["v1.0.0"], { runner: real.runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.lease.expectedOld, proven.lease.expectedOld);
+      assert.strictEqual(report.trunk.after, tip);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      // the dry run's stop still reports its row
+      assert.deepEqual(report.conflicts, blocked.conflicts);
+      // no second rebase; the battery checks the adopted tip again
+      assert.strictEqual(
+        real.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
+        false,
+      );
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
+      assert.strictEqual(NodeFS.existsSync(f.worktree), false);
+    },
+  );
+});
+
 it("recreates the kept worktree when the lease moves or the tag changes", () => {
   withFixture(
     {
