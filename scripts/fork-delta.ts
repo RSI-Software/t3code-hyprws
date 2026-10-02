@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
-// fork job step 5: PR CI trailer gate
-// Gate: pull-request — the Fork ledger step of the hyprws-ci Check job and the release workflow's Fork ledger step; --check refuses untagged commits.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
 // See docs/fork/internals/fork-delta.md for the conventions it enforces.
@@ -110,7 +108,6 @@ export const ForkLedger = Schema.Struct({
   head: Schema.String,
   commits: Schema.Array(ForkCommit),
   findings: Schema.Array(ForkFinding),
-  warnings: Schema.Array(Schema.String),
 });
 export type ForkLedger = typeof ForkLedger.Type;
 
@@ -193,13 +190,7 @@ export const buildLedger = (
   head,
   commits,
   findings: collectFindings(commits),
-  warnings: [],
 });
-
-export const buildSquashLedger = (base: string, head: string, body: string): ForkLedger => {
-  const commit = parseSquashBody("pull-request body", body);
-  return buildLedger(base, head, [commit]);
-};
 
 // Narrows the ledger to one domain so its commits can be extracted as a unit.
 // Returns null when no fork commit carries that domain.
@@ -242,18 +233,12 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
       .toSorted((left, right) => tierRank(left.tier) - tierRank(right.tier));
     lines.push(`## ${domain}`, "");
     lines.push("| Tier | Commit | Change | Upstreamable |");
-    lines.push("| --- | --- | --- | --- | --- |");
+    lines.push("| --- | --- | --- | --- |");
     for (const row of rows) {
       lines.push(
         `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} |`,
       );
     }
-    lines.push("");
-  }
-
-  if (ledger.warnings.length > 0) {
-    lines.push("## Warnings", "");
-    for (const warning of ledger.warnings) lines.push(`- ${warning}`);
     lines.push("");
   }
 
@@ -539,15 +524,11 @@ const command = Command.make(
   "fork-delta",
   {
     base: Flag.String("base").pipe(
-      Flag.withDescription(
-        "Base ref; defaults to upstream/main except --squash-body requires it explicitly.",
-      ),
+      Flag.withDescription("Base ref (default: upstream/main)."),
       Flag.optional,
     ),
     head: Flag.String("head").pipe(
-      Flag.withDescription(
-        "Head ref; defaults to HEAD except --squash-body requires it explicitly.",
-      ),
+      Flag.withDescription("Head ref (default: HEAD)."),
       Flag.optional,
     ),
     check: Flag.Boolean("check").pipe(
@@ -582,7 +563,7 @@ const command = Command.make(
     ),
     squashBody: Flag.String("squash-body").pipe(
       Flag.withDescription(
-        "With --check, verify the base-to-head squash and the pull-request body's final trailer block.",
+        "With --check, verify the pull-request body's final trailer block instead of the commit range.",
       ),
       Flag.optional,
     ),
@@ -590,26 +571,13 @@ const command = Command.make(
   ({ base, head, check, json, domain, shas, squashBody, inventory, upstream }) =>
     Effect.gen(function* () {
       if (Option.isSome(squashBody)) {
-        const missingRefs = [
-          ...(Option.isNone(base) ? ["--base"] : []),
-          ...(Option.isNone(head) ? ["--head"] : []),
-        ];
-        if (missingRefs.length > 0) {
-          process.stderr.write(
-            `failed: --squash-body requires explicit ${missingRefs.join(" and ")}\n`,
-          );
-          process.exitCode = 2;
-          return;
-        }
-        const squashBase = Option.getOrThrow(base);
-        const squashHead = Option.getOrThrow(head);
         const fileSystem = yield* FileSystem.FileSystem;
         const body = yield* fileSystem.readFileString(squashBody.value);
-        const ledger = buildSquashLedger(squashBase, squashHead, body);
-        for (const finding of ledger.findings) {
+        const findings = collectFindings([parseSquashBody("pull-request body", body)]);
+        for (const finding of findings) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
         }
-        if (ledger.findings.length > 0) {
+        if (findings.length > 0) {
           process.stderr.write(
             `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier (docs/fork/internals/fork-delta.md)\n`,
           );

@@ -199,6 +199,7 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
   const projectWindows = lines.indexOf("## multi-window");
   const forkMeta = lines.indexOf("## fork-meta");
   assert.ok(projectWindows !== -1 && forkMeta !== -1);
+  assert.strictEqual(lines[projectWindows + 3], "| --- | --- | --- | --- |");
   assert.strictEqual(
     lines[projectWindows + 4],
     "| core | `bbbbbbbbb` | feat(desktop): register windows \\| by identity |  |",
@@ -259,54 +260,30 @@ it("reads the trailer block a squash commit inherits from a pull-request body", 
   assert.strictEqual(commit.tier, "core");
 });
 
-it("requires explicit squash refs with a usage exit and stderr diagnostic", () => {
+it("checks a squash body alone, with no base or head ref", () => {
   const { root } = createGitFixture();
   try {
     const bodyPath = NodePath.join(root, "body.md");
     NodeFS.writeFileSync(bodyPath, squashBody);
-    const missingBoth = NodeChildProcess.spawnSync(
+    const result = NodeChildProcess.spawnSync(
       process.execPath,
       [forkDeltaScript, "--check", "--squash-body", bodyPath],
       { cwd: root, encoding: "utf8" },
     );
-    assert.strictEqual(missingBoth.status, 2);
-    assert.strictEqual(missingBoth.stdout, "");
-    assert.strictEqual(
-      missingBoth.stderr.trimEnd(),
-      "failed: --squash-body requires explicit --base and --head",
-    );
-
-    const missingHead = NodeChildProcess.spawnSync(
-      process.execPath,
-      [forkDeltaScript, "--check", "--base", "HEAD", "--squash-body", bodyPath],
-      { cwd: root, encoding: "utf8" },
-    );
-    assert.strictEqual(missingHead.status, 2);
-    assert.strictEqual(missingHead.stdout, "");
-    assert.strictEqual(
-      missingHead.stderr.trimEnd(),
-      "failed: --squash-body requires explicit --head",
-    );
+    assert.strictEqual(result.status, 0);
+    assert.strictEqual(result.stdout, "ok: prospective squash carries its fork trailers\n");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
-it("passes the live base ref and exact pull-request head to squash-body validation", () => {
+it("checks the pull-request body without commit refs in the Body workflow", () => {
   const workflow = NodeFS.readFileSync(
     NodePath.join(import.meta.dirname, "../.github/workflows/hyprws-body.yml"),
     "utf8",
   );
-  assert.include(workflow, "BASE_REF: origin/hyprws");
-  assert.include(workflow, "HEAD_SHA: ${{ github.event.pull_request.head.sha }}");
-  assert.notInclude(workflow, "github.event.pull_request.base.sha");
-  assert.include(
-    workflow,
-    'fork:delta --check --base "$BASE_REF" --head "$HEAD_SHA" --squash-body',
-  );
-  // No upstream remote is added here: with the budget projection retired, the
-  // body check resolves its merge base from --base and --head alone.
-  assert.notInclude(workflow, "git fetch --no-tags upstream main");
+  assert.include(workflow, 'fork:delta --check --squash-body "$RUNNER_TEMP/pull-request-body.md"');
+  assert.notInclude(workflow, "BASE_REF");
 });
 
 it("fails a pull-request body whose last paragraph is prose, not trailers", () => {
