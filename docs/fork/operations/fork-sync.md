@@ -24,6 +24,8 @@ It folds each `fixup! <subject>` landing into the one fork commit it names, and 
 
 A tag the fork already sits on reports `already applied`, after closing any open block or failure issue.
 `--dry-run` rebases and checks, then stops: no push, no issue, no close.
+A green dry run keeps its tip in the [sync worktree](#unblocking-by-hand); `decision.tip` names it.
+The real run on the same tag and lease adopts that tip, reruns the battery, and pushes it, with no second rebase.
 An applied run cuts the nightly by itself: `hyprws-ci.yml` completion triggers `hyprws-release.yml` through `workflow_run`.
 The release gate needs the current `origin/hyprws` tip with a green `hyprws CI`; a red battery cuts no release (RSI-Software/t3code-hyprws#1181).
 
@@ -70,7 +72,7 @@ Issue comments are projections of it: never parse one, and never treat an edit t
 | `trunk`       | Trunk before and after                                     |
 | `conflicts[]` | Every stop's path, fork and upstream commit, resolution    |
 | `checks[]`    | The check battery and each verdict                         |
-| `decision`    | A blocked run's worktree, paths, and resume commands       |
+| `decision`    | A blocked run's or kept tip's worktree, paths, and resume  |
 
 Decisions persist to the report before any comment posts.
 Never edit a report; a rerun supersedes it.
@@ -126,6 +128,7 @@ After the sync, the [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) re
 
 **Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed.
 It carries every stop's rows between runs, so the report keeps them.
+A green dry run keeps it, so its tip and repairs reach the real run.
 Rerun after each stop: the report records only the stops a run saw.
 
 ## Failure lifecycle
