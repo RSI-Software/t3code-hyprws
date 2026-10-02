@@ -15,6 +15,7 @@ import * as Electron from "electron";
 import {
   type DesktopStaticProtocolRegistrationInput,
   isDesktopStaticProtocolRegistration,
+  policyRegistration, // fork-hook: backend-attach/static-csp-import
   serveDesktopStaticRequest,
 } from "./ElectronProtocolStatic.fork.ts";
 
@@ -82,7 +83,7 @@ export class ElectronProtocol extends Context.Service<
   }
 >()("@t3tools/desktop/electron/ElectronProtocol") {}
 
-export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistration): string {
+export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInput): string {
   const clerkOrigin = input.clerkFrontendApiHostname
     ? `https://${input.clerkFrontendApiHostname}`
     : undefined;
@@ -280,7 +281,7 @@ export const make = Effect.gen(function* () {
     function* (input: DesktopProtocolRegistration) {
       if (yield* Ref.get(registered)) return;
 
-      const contentSecurityPolicy = makeDesktopContentSecurityPolicy(input);
+      const contentSecurityPolicy = makeDesktopContentSecurityPolicy(policyRegistration(input)); // fork-hook: backend-attach/static-csp
 
       yield* Effect.acquireRelease(
         Effect.try({

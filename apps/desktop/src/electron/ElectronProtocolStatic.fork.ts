@@ -4,7 +4,7 @@ import * as NodeURL from "node:url";
 
 import * as Electron from "electron";
 
-import { DESKTOP_HOST } from "./ElectronProtocol.ts";
+import { DESKTOP_HOST, type DesktopProtocolRegistrationInput } from "./ElectronProtocol.ts";
 
 /**
  * A client-only packaged launch has no backend of its own to proxy, so its scheme serves the
@@ -20,6 +20,21 @@ export interface DesktopStaticProtocolRegistrationInput {
 export const isDesktopStaticProtocolRegistration = (
   input: { readonly scheme: string } | DesktopStaticProtocolRegistrationInput,
 ): input is DesktopStaticProtocolRegistrationInput => "staticRoot" in input;
+
+/**
+ * Upstream's response policy reads only the scheme and the Clerk host, which the static shape
+ * carries too, so a static registration reaches it as the asset-directory case it serves like.
+ */
+export const policyRegistration = (
+  input: DesktopProtocolRegistrationInput | DesktopStaticProtocolRegistrationInput,
+): DesktopProtocolRegistrationInput =>
+  isDesktopStaticProtocolRegistration(input)
+    ? {
+        scheme: input.scheme,
+        clerkFrontendApiHostname: input.clerkFrontendApiHostname,
+        assetDirectory: input.staticRoot,
+      }
+    : input;
 
 const STATIC_CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
