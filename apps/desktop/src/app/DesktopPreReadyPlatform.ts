@@ -113,6 +113,12 @@ export const make = Effect.gen(function* () {
       if (linux.passwordStore !== null && linuxPasswordStoreCommandLine === null) {
         Electron.app.commandLine.appendSwitch("password-store", linux.passwordStore);
       }
+      // Electron reports basic text as unavailable unless plain text is opted into, which
+      // would leave saved environments unable to keep their credentials. An explicit
+      // `--password-store=basic` is that opt-in, for hosts with no keyring to unlock.
+      if (linuxPasswordStoreCommandLine === "basic") {
+        Electron.safeStorage.setUsePlainTextEncryption(true);
+      }
     }
 
     return { linux, linuxPasswordStoreCommandLine };
