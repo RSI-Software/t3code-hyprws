@@ -39,7 +39,6 @@ interface Contracts {
   readonly ServerConfigStreamEvent: Codec;
   readonly VcsStatusStreamEvent: Codec;
   readonly GitPreparePullRequestThreadResult: Codec;
-  readonly THREAD_ISSUE_EVENT_TYPES_FORK: ReadonlyArray<string>;
 }
 
 /**
@@ -290,6 +289,7 @@ const appThread = {
   settledAt: null,
   lastVisitedAt: null,
   deletedAt: null,
+  issues: [issue],
 };
 const threadShell = {
   ...appThread,
@@ -402,6 +402,18 @@ describe("an upstream client reading a fork server", () => {
       },
     );
     expect(pinned).toMatchObject({ kind: "event", event: { type: "thread.pinned" } });
+    // An issue link lands as upstream's metadata event; upstream drops the issues key.
+    const linked = acrossTheWire(
+      fork.OrchestrationV2ThreadStreamItem,
+      upstream.OrchestrationV2ThreadStreamItem,
+      {
+        kind: "event",
+        sequence: 3,
+        event: { ...eventBase, type: "thread.metadata-updated", payload: appThread },
+      },
+    );
+    expect(linked).toMatchObject({ kind: "event", event: { type: "thread.metadata-updated" } });
+    expect(JSON.stringify(linked)).not.toContain("acme/web");
     for (const name of [
       "OrchestrationV2ThreadDetailSnapshot",
       "OrchestrationV2ThreadBoundedSnapshot",
@@ -511,16 +523,14 @@ describe("an upstream client reading a fork server", () => {
 
   // V2 closes the shell streams but gives the thread stream a decode-only
   // unknown-event case, so a fork-only thread event is skipped upstream rather
-  // than failing the subscription. The fork's issue events are the standing case.
+  // than failing the subscription. Issue links ride upstream's
+  // `thread.metadata-updated`, so a probe type keeps the guard exercised.
   it("skips every fork-only thread event type instead of failing", () => {
     const upstreamTypes = domainEventTypes(upstream.OrchestrationV2DomainEvent);
     const forkOnly = [
-      ...new Set([
-        ...domainEventTypes(fork.OrchestrationV2DomainEvent),
-        ...fork.THREAD_ISSUE_EVENT_TYPES_FORK,
-      ]),
+      ...new Set([...domainEventTypes(fork.OrchestrationV2DomainEvent), "thread.fork-only-probe"]),
     ].filter((type) => !upstreamTypes.has(type));
-    expect(forkOnly).toEqual(expect.arrayContaining(["thread.issue-linked"]));
+    expect(forkOnly).toEqual(expect.arrayContaining(["thread.fork-only-probe"]));
     const decode = Schema.decodeUnknownSync(
       Schema.toCodecJson(upstream.OrchestrationV2ThreadStreamItem),
     );
