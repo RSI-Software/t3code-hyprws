@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -10,9 +11,16 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
+import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import * as ServerConfig from "../config.ts";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as CheckpointService from "./CheckpointService.ts";
+import * as IdAllocator from "./IdAllocator.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -37,6 +45,21 @@ const testLayer = Layer.mergeAll(
     ProviderAdapterRegistry.makeLayer([adapter]),
     { databaseLayer: database, runEffectWorker: false },
   ),
+);
+
+// The checkpoint service the turn start captures its baseline with, on real git.
+const checkpointLayer = CheckpointService.layer.pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(
+      IdAllocator.layer,
+      CheckpointStore.layer.pipe(
+        Layer.provide(VcsDriverRegistry.layer),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-checkout-move-test-" })),
+      ),
+    ),
+  ),
+  Layer.provideMerge(VcsProcess.layer),
+  Layer.provideMerge(NodeServices.layer),
 );
 
 const identity = (checkoutRoot: string, branch: string) => ({
@@ -124,6 +147,177 @@ it.effect("persists checkout move progress on the thread shell and commits the m
     assert.deepEqual(committed?.checkoutMove, move("committed"));
     const projection = yield* projections.getThreadProjection(threadId);
     assert.deepEqual(projection.thread.checkoutMove, move("committed"));
+  }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("re-scopes the checkpoint of a run its worktree recovery is committed for", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const checkpoints = yield* CheckpointService.CheckpointServiceV2;
+    const checkpointStore = yield* CheckpointStore.CheckpointStore;
+    const recovered = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+      prefix: "t3-checkout-recovered-",
+    });
+    const vcs = yield* VcsProcess.VcsProcess;
+    for (const args of [["init"], ["commit", "--allow-empty", "-m", "init"]])
+      yield* vcs.run({
+        operation: "Orchestrator.checkoutMove.fork.test.git",
+        command: "git",
+        cwd: recovered,
+        args: ["-c", "user.email=test@example.com", "-c", "user.name=Test", ...args],
+        timeoutMs: 10_000,
+      });
+    const threadId = ThreadId.make("thread:checkout-recovery-scope");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-checkout-recovery-scope"),
+      threadId,
+      projectId: ProjectId.make("project:checkout-recovery-scope"),
+      title: "Recover me",
+      modelSelection: { instanceId, model: "gpt-5.1-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "feature",
+      worktreePath: "/removed-worktree",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    // A non-client turn starts on a worktree removed outside T3.
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-on-removed-worktree"),
+      threadId,
+      messageId: MessageId.make("start-on-removed-worktree-input"),
+      text: "Keep working",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    // The turn-start gate recovers the thread before the turn opens its
+    // session. The test runtime policy resolves the thread's worktree path, so
+    // the recovered checkout stands in for the project root here.
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("recover-removed-worktree"),
+      threadId,
+      expectedWorktreePath: "/removed-worktree",
+      checkoutMove: { ...move("committed"), reason: "worktree-recovery" },
+      branch: "main",
+      worktreePath: recovered,
+    });
+
+    const projection = yield* projections.getThreadRecords(threadId, [
+      "runs",
+      "nodes",
+      "checkpointScopes",
+    ]);
+    const run = projection.runs.at(-1);
+    assert.equal(run?.status, "starting");
+    const rootNode = projection.nodes.find((node) => node.id === run?.rootNodeId);
+    const scope = projection.checkpointScopes.find(
+      (candidate) => candidate.id === rootNode?.checkpointScopeId,
+    );
+    assert.equal(scope?.cwd, recovered);
+    assert.ok(run && scope);
+    // The baseline the turn start captures from that scope.
+    const ordinalWithinScope = Math.max(0, run.ordinal - 1);
+    yield* checkpoints.captureBaseline({ scope, ordinalWithinScope });
+    assert.isTrue(
+      yield* checkpointStore.hasCheckpointRef({
+        cwd: recovered,
+        checkpointRef: CheckpointService.checkpointRefForScopeOrdinal({
+          scopeId: scope.id,
+          ordinalWithinScope,
+        }),
+      }),
+    );
+  }).pipe(Effect.provide(Layer.mergeAll(testLayer, checkpointLayer))),
+);
+
+it.effect("records one timeline notice for a committed worktree recovery, on its live run", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:checkout-recovery-notice");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-checkout-recovery-notice"),
+      threadId,
+      projectId: ProjectId.make("project:checkout-recovery-notice"),
+      title: "Recover me",
+      modelSelection: { instanceId, model: "gpt-5.1-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "feature",
+      worktreePath: "/removed-worktree",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    // The recovery is committed for the starting run, with another queued after it.
+    for (const [text, type] of [
+      ["live", "start_immediately"],
+      ["queued", "queue_after_active"],
+    ] as const) {
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`notice-${text}`),
+        threadId,
+        messageId: MessageId.make(`notice-${text}-input`),
+        text,
+        attachments: [],
+        dispatchMode: { type },
+        createdBy: "user",
+        creationSource: "web",
+      });
+    }
+    const recovery: ThreadCheckoutMove = {
+      ...move("committed"),
+      requestId: CommandId.make("server:worktree-checkout-recovery:notice"),
+      sourceThreadWorktreePath: "/removed-worktree",
+      reason: "worktree-recovery",
+      requestedPath: "/repo",
+      destination: identity("/repo", "main"),
+    };
+    const commit = (commandId: string, expectedWorktreePath: string | null) =>
+      orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(commandId),
+        threadId,
+        expectedWorktreePath,
+        checkoutMove: recovery,
+        branch: "main",
+        worktreePath: null,
+      });
+    yield* commit(recovery.requestId, "/removed-worktree");
+    // A retried dispatch, and a re-decided commit of the same move.
+    yield* commit(recovery.requestId, "/removed-worktree");
+    yield* commit("recommit-recovery", null);
+
+    const { turnItems, runs } = yield* projections.getThreadRecords(
+      threadId,
+      ["turnItems", "runs"],
+      { turnItemTypes: ["system_notice"] },
+    );
+    assert.deepEqual(
+      runs.map((run) => run.status),
+      ["starting", "queued"],
+    );
+    assert.deepEqual(
+      turnItems.map((item) => [
+        item.id,
+        item.runId,
+        item.type === "system_notice" ? item.message : item.type,
+      ]),
+      [
+        [
+          "fork:worktree-recovery:server:worktree-checkout-recovery:notice",
+          runs[0]?.id ?? null,
+          "Worktree /removed-worktree no longer exists; moved this thread to /repo on main",
+        ],
+      ],
+    );
   }).pipe(Effect.provide(testLayer)),
 );
 

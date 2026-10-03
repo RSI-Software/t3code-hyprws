@@ -2,13 +2,19 @@
 // `thread.metadata.update` command and the `AppThread` payload. The decider and
 // the shell projection reach this module through marked hooks, so upstream
 // keeps one metadata command and one thread payload.
-import type {
-  OrchestrationV2AppThread,
-  OrchestrationV2Run,
-  OrchestrationV2ServerCommand,
-  ThreadCheckoutMove,
+import {
+  type OrchestrationV2AppThread,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2Run,
+  type OrchestrationV2ServerCommand,
+  type ThreadCheckoutMove,
+  TurnItemId,
 } from "@t3tools/contracts";
+import type * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Ref from "effect/Ref";
+import type { CheckpointServiceV2Shape } from "./CheckpointService.ts";
+import type { RuntimePolicyV2Shape } from "./RuntimePolicy.ts";
 
 type MetadataUpdate = Extract<OrchestrationV2ServerCommand, { type: "thread.metadata.update" }>;
 
@@ -54,18 +60,14 @@ type RunRecords<E> = Effect.Effect<
   E
 >;
 
+const isLiveRun = (run: Pick<OrchestrationV2Run, "status">) =>
+  run.status === "preparing" ||
+  run.status === "starting" ||
+  run.status === "running" ||
+  run.status === "waiting";
+
 const hasLiveRun = <E>(readRuns: RunRecords<E>) =>
-  readRuns.pipe(
-    Effect.map(({ runs }) =>
-      runs.some(
-        (run) =>
-          run.status === "preparing" ||
-          run.status === "starting" ||
-          run.status === "running" ||
-          run.status === "waiting",
-      ),
-    ),
-  );
+  readRuns.pipe(Effect.map(({ runs }) => runs.some(isLiveRun)));
 
 /**
  * Refuses a committed checkout move while the thread has a live run. The move
@@ -87,6 +89,139 @@ export const refuseCheckoutMoveDuringRunFork = <E, E2>(
       live
         ? Effect.fail(refuse("A run started on this thread before its checkout move committed."))
         : Effect.void,
+    ),
+  );
+};
+/**
+ * Drops the decider's queued workspace-change session detach when its caller
+ * detaches inline. A removed-worktree recovery committed for a starting run
+ * detaches before that run opens its session; the queued detach effect would
+ * run after the turn start and tear the new session down.
+ */
+export const detachesCheckoutRecoveryInlineFork = <E, A>(
+  command: OrchestrationV2ServerCommand,
+  readRuns: RunRecords<E>,
+  effects: Ref.Ref<Array<A>>,
+  pendingEffect: A,
+): Effect.Effect<void, E> =>
+  committedCheckoutMove(command)?.reason !== "worktree-recovery"
+    ? Effect.void
+    : hasLiveRun(readRuns).pipe(
+        Effect.flatMap((live) =>
+          live
+            ? Ref.update(effects, (existing) =>
+                existing.filter((effect) => effect !== pendingEffect),
+              )
+            : Effect.void,
+        ),
+      );
+
+type CheckpointScopeCreated = Extract<
+  OrchestrationV2DomainEvent,
+  { type: "checkpoint-scope.created" }
+>;
+type TurnItemUpdated = Extract<OrchestrationV2DomainEvent, { type: "turn-item.updated" }>;
+
+/**
+ * Records a committed removed-worktree recovery on the thread: a timeline
+ * notice, and a fresh checkpoint scope for the run it is committed for. Every
+ * turn source commits recovery through this decider path, and the notice id
+ * derives from the move's request id, so a retried or replayed commit rewrites
+ * the one notice instead of stacking another.
+ *
+ * The notice joins the live run the recovery is committed for, or the latest
+ * run on an idle thread, because a turn item's position comes from its run: a
+ * run-less item sorts before the first run, and a paged client drops it.
+ *
+ * The run's scope still names the removed worktree, where no baseline can be
+ * captured, so the turn would end without a checkpoint. The scope id is per
+ * thread, so the re-emitted scope replaces the stale one before the turn start
+ * reads it, as a turn started on the recovered checkout would.
+ */
+export const recordCheckoutRecoveryFork = <E, E2>(input: {
+  readonly command: OrchestrationV2ServerCommand;
+  readonly thread: OrchestrationV2AppThread;
+  readonly readRuns: Effect.Effect<{ readonly runs: ReadonlyArray<OrchestrationV2Run> }, E>;
+  readonly runtimePolicy: RuntimePolicyV2Shape;
+  readonly checkpointService: CheckpointServiceV2Shape;
+  readonly emit: <Event extends CheckpointScopeCreated | TurnItemUpdated>(
+    event: Omit<Event, "id">,
+  ) => Effect.Effect<unknown, E2>;
+  readonly now: DateTime.Utc;
+}) => {
+  const { thread, now } = input;
+  const move = committedCheckoutMove(input.command);
+  if (move?.reason !== "worktree-recovery") return Effect.void;
+  const rescope = ({
+    id,
+    rootNodeId,
+    providerThreadId,
+    providerInstanceId,
+    modelSelection,
+  }: OrchestrationV2Run) =>
+    rootNodeId === null || providerThreadId === null
+      ? Effect.void
+      : input.runtimePolicy.resolve({ thread, modelSelection }).pipe(
+          Effect.flatMap((policy) =>
+            input.checkpointService.prepareRootRunScope({
+              threadId: thread.id,
+              runId: id,
+              rootNodeId,
+              providerThreadId,
+              cwd: policy.cwd ?? thread.worktreePath ?? process.cwd(),
+              createdAt: now,
+            }),
+          ),
+          Effect.flatMap((scope) =>
+            input.emit<CheckpointScopeCreated>({
+              type: "checkpoint-scope.created",
+              threadId: thread.id,
+              runId: id,
+              nodeId: rootNodeId,
+              providerInstanceId,
+              occurredAt: now,
+              payload: scope,
+            }),
+          ),
+        );
+  const destination = move.destination;
+  const notice = (runs: ReadonlyArray<OrchestrationV2Run>) => {
+    const byOrdinal = runs.toSorted((left, right) => left.ordinal - right.ordinal);
+    const run = byOrdinal.findLast(isLiveRun) ?? byOrdinal.at(-1);
+    return input.emit<TurnItemUpdated>({
+      type: "turn-item.updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        id: TurnItemId.make(`fork:worktree-recovery:${move.requestId}`),
+        threadId: thread.id,
+        runId: run?.id ?? null,
+        nodeId: run?.rootNodeId ?? null,
+        providerThreadId: run?.providerThreadId ?? null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        // The event sink assigns the real position on write.
+        ordinal: 0,
+        status: "completed",
+        title: "Worktree recovery",
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "system_notice",
+        message: `Worktree ${move.sourceThreadWorktreePath ?? move.expectedCheckoutRoot} no longer exists; moved this thread to ${destination?.checkoutRoot ?? move.requestedPath} on ${destination?.branch ?? "a detached HEAD"}`,
+      },
+    });
+  };
+  return input.readRuns.pipe(
+    Effect.tap(({ runs }) => notice(runs)),
+    Effect.flatMap(({ runs }) =>
+      Effect.forEach(
+        runs.filter((run) => run.status === "starting"),
+        rescope,
+        { discard: true },
+      ),
     ),
   );
 };
