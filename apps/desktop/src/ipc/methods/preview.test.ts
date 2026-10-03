@@ -15,12 +15,10 @@ import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewIpc from "./preview.ts";
 
-const { fromPartition, fromWebContents, fromId } = vi.hoisted(() => ({
+const { fromPartition } = vi.hoisted(() => ({
   fromPartition: vi.fn(() => {
     throw new Error("Session can only be received when app is ready");
   }),
-  fromWebContents: vi.fn(() => null as Electron.BrowserWindow | null),
-  fromId: vi.fn(() => null as Electron.WebContents | null),
 }));
 
 vi.mock("electron", () => ({
@@ -31,17 +29,13 @@ vi.mock("electron", () => ({
     fromPartition,
   },
   webContents: {
-    fromId,
+    fromId: vi.fn(() => null),
   },
 }));
 
 describe("preview IPC methods", () => {
   beforeEach(() => {
     fromPartition.mockClear();
-    fromWebContents.mockReset();
-    fromWebContents.mockReturnValue(null);
-    fromId.mockReset();
-    fromId.mockReturnValue(null);
   });
 
   it("does not access the Electron session while the module loads", async () => {
