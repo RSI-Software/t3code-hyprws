@@ -956,6 +956,12 @@ describe("openCodexThread", () => {
             sandbox: "workspace-write",
             approvalsReviewer: "auto_review",
             excludeTurns: true,
+          },
+        },
+      ]);
+    }),
+  );
+
   it.effect("rejects malformed required resume metadata without starting a fresh thread", () =>
     Effect.gen(function* () {
       for (const invalidMetadata of [

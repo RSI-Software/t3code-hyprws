@@ -1,11 +1,9 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ExecutionEnvironmentDescriptor, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
-const decodeWireThreadEnvMode = Schema.decodeUnknownSync(WireThreadEnvMode);
-const decodeThreadEnvMode = Schema.decodeUnknownSync(ThreadEnvMode);
 
 const descriptor = {
   environmentId: "environment-1",
@@ -63,5 +61,4 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.fileAttachments,
     ).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
   });
-
 });

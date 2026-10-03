@@ -20,7 +20,6 @@ import {
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
-  sortThreadActivities,
   togglePendingUserInputOptionSelection,
   workEntryRowLabel,
   type ThreadFeedActivity,

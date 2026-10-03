@@ -15,9 +15,6 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ApprovalRequestId,
-  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
-  CHILD_ITEM_RENDER_DIFF_MAX_CHARS,
-  ChildItemRenderDetail,
   ClaudeSettings,
   ProviderDriverKind,
   ProviderItemId,
@@ -56,11 +53,6 @@ import type { ClaudeScopedLimitNames } from "./claudeUsageLimits.ts";
 import { makeClaudeAdapter, type ClaudeAdapterLiveOptions } from "./ClaudeAdapter.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
-const encodeChildItemRenderDetailJson = Schema.encodeSync(
-  Schema.fromJsonString(ChildItemRenderDetail),
-);
-const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
-  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 
 // Test-local service tag so the rest of the file can keep using `yield* ClaudeAdapter`.
 class ClaudeAdapter extends Context.Service<ClaudeAdapter, ClaudeAdapterShape>()(
