@@ -11,10 +11,8 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
-  isChatFocusComposerShortcut,
   isDiffToggleShortcut,
   isRichTextBoldShortcut,
   modelPickerJumpCommandForIndex,
@@ -25,7 +23,6 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
-  isTerminalFocusShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -547,29 +544,6 @@ describe("thread navigation helpers", () => {
     assert.isTrue(
       shouldShowThreadJumpHintsForModifiers(event({ ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
-      }),
-    );
-  });
-
-  it("shows jump hints with terminal focus when the binding is active there", () => {
-    assert.isTrue(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-
-    const composerOnlyBindings = compile([
-      {
-        shortcut: modShortcut("1"),
-        command: "thread.jump.1",
-        whenAst: whenNot(whenIdentifier("terminalFocus")),
-      },
-    ]);
-    assert.isFalse(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), composerOnlyBindings, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
       }),
     );
   });

@@ -254,6 +254,24 @@ describe("TerminalCloseInput", () => {
 
 describe("TerminalSessionSnapshot", () => {
   const isoTimestamp = "2026-01-01T00:00:00.000Z";
+
+  it("accepts running snapshots", () => {
+    expect(
+      decodes(TerminalSessionSnapshot, {
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cwd: "/tmp/project",
+        worktreePath: null,
+        status: "running",
+        pid: 1234,
+        history: "hello\n",
+        exitCode: null,
+        exitSignal: null,
+        label: "Primary",
+        updatedAt: isoTimestamp,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("TerminalEvent", () => {
