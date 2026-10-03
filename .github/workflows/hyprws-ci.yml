@@ -1,0 +1,543 @@
+name: hyprws CI
+
+# Fork-only CI for RSI-Software/t3code-hyprws. Upstream's ci.yml targets
+# Blacksmith runners the fork does not have, so it stays disabled on the fork
+# (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
+# free for a public repository. The pin names the upstream ci.yml commit these steps
+# last matched; fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
+# fork-mirror: .github/workflows/ci.yml@c55db3e9c72fdf584f4b54192fb39beb88667b59
+
+on:
+  # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
+  # matrix has normally passed on this exact head before the draft is marked
+  # ready, and listing the event only discards those results and reruns them.
+  # No `branches` filter: a native stack layer targets the layer below it, not
+  # the trunk, and must still get the required checks before it lands.
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # A merge queue builds `gh-readonly-queue/<base>/**` and waits for the
+  # contexts the branch ruleset requires. Every one of them comes from this
+  # workflow, so without this trigger a queued entry reports nothing and sits
+  # until it times out.
+  merge_group:
+  # `fork:sync` pushes each rebased tip to `sync/candidate` and moves the
+  # trunk only once this workflow is green on that exact sha.
+  push:
+    branches:
+      - hyprws
+      - "release/**"
+      - sync/candidate
+
+concurrency:
+  group: hyprws-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/sync/candidate' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Upstream's gate: .github/scripts/ci-changes.cjs maps a pull request's files
+  # to affected packages and fails open. Pushes and merge groups run every job,
+  # except a hyprws push of a sha this workflow already passed on sync/candidate.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reuse: ${{ steps.reuse.outputs.reuse }}
+      typecheck: ${{ steps.detect.outputs.typecheck }}
+      build: ${{ steps.detect.outputs.build }}
+      test: ${{ steps.detect.outputs.test }}
+      test_packages: ${{ steps.detect.outputs.test_packages }}
+      test_web: ${{ steps.detect.outputs.test_web }}
+      test_server: ${{ steps.detect.outputs.test_server }}
+      # Fork-only: derived here so the shared ci-changes script stays upstream's.
+      test_mobile: ${{ steps.detect.outputs.test != 'false' && (steps.detect.outputs.test_packages == '' || contains(format(' {0} ', steps.detect.outputs.test_packages), ' @t3tools/mobile ')) }}
+    steps:
+      # `fork:sync` lands only a sha whose candidate push ran every job here,
+      # with this same workflow file. A failed lookup runs everything.
+      - name: Reuse a green sync/candidate run
+        id: reuse
+        if: github.event_name == 'push' && github.ref == 'refs/heads/hyprws'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hyprws-ci.yml/runs?head_sha=$GITHUB_SHA&branch=sync/candidate&event=push&status=success" --jq .total_count) || runs=0
+          if [[ "$runs" -gt 0 ]]; then
+            echo "hyprws CI already passed $GITHUB_SHA on sync/candidate; skipping every job."
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          sparse-checkout: |
+            /pnpm-workspace.yaml
+            /.github/scripts/ci-changes.cjs
+            /.github/actions/ci-changes/
+            /*/package.json
+            /*/*/package.json
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Detect affected jobs
+        id: detect
+        uses: ./.github/actions/ci-changes
+
+  # The fork ledger, knip, and format checks always run; typecheck and the
+  # desktop build run only when `changes` says a package needs them.
+  check:
+    name: Check
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: ./.github/actions/setup-ci-deps
+
+      # The ledger compares against upstream, which the fork checkout does not
+      # carry. On a pull request, inspect the branch head rather than the
+      # synthetic merge commit, which has no trailers. The flag derivation is
+      # not restated here: scripts/lib/fork-ci-flags.ts owns it, and
+      # `vp run fork:ci` calls the same helper locally; this step only
+      # provisions the remotes the derivation reads.
+      - name: Fork ledger
+        id: fork_ledger
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+          vp run fork:delta --check --head "$HEAD_SHA"
+          node scripts/lib/fork-ci-flags.ts ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      # Judge only this branch's commits: `since` is the ledger's trunk
+      # merge base, so the stack below it stays out of scope. A sync
+      # candidate authors none; every commit on it is replayed.
+      - name: Fork stale-delete check
+        if: steps.fork_ledger.outputs.rebased != 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
+        run: vp run fork:stale-delete --base "$SINCE" --head "$HEAD_SHA"
+
+      # A fixup! the sync would fold must fold now: the sync folds each one
+      # during its rebase, so a fixup that only applies at the branch tip
+      # would land green here and then block the next sync. The replay runs
+      # the trunk-plus-branch stack from the upstream base, the same commit
+      # the sync rebase starts from.
+      - name: Fork fixup fold check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ steps.fork_ledger.outputs.base }}
+        run: vp run fork:fixup-fold --base "$BASE" --head "$HEAD_SHA"
+
+      # Pin to the fork's own base: the rebase-scan table check judges this
+      # head against the upstream base it sits on, not live upstream/main.
+      # The argv comes from the shared helper; this step only replays it.
+      - name: Fork rebase scan
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mapfile -t SCAN_ARGS < <(node scripts/lib/fork-ci-flags.ts scan --head "$HEAD_SHA")
+          if [ "${#SCAN_ARGS[@]}" -eq 0 ]; then
+            echo "flag derivation produced no argv" >&2
+            exit 1
+          fi
+          vp run fork:scan "${SCAN_ARGS[@]}"
+
+      - name: Cache Electron download
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/.pnpm/electron@*/node_modules/electron/package.json') }}
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      # Files/dependencies are repo-wide; export checks cover clean workspaces only.
+      - name: Check unused code
+        run: vp run knip:check
+
+      - name: Check generated GitHub GraphQL operations
+        run: vp run --filter @t3tools/source-control-github generate --check
+
+      - name: Check generated Expo GraphQL operations
+        run: vp run --filter t3 generate --check
+
+      - name: Check
+        run: vp check
+
+      - name: Typecheck
+        if: needs.changes.outputs.typecheck != 'false'
+        run: vpr typecheck
+
+      - name: Install browser secret helper build libraries
+        if: needs.changes.outputs.build != 'false'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Build desktop pipeline
+        id: build
+        if: needs.changes.outputs.build != 'false'
+        run: vp run build:desktop
+
+      - name: Verify preload bundle output
+        if: needs.changes.outputs.build != 'false'
+        run: |
+          test -f apps/desktop/dist-electron/preload.cjs
+          grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
+          grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        id: chromium_cache
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium for the built web client boot check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' && steps.chromium_cache.outputs.cache-hit != 'true' }}
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+
+      - name: Install missing Chromium system dependencies
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            node apps/web/node_modules/playwright/cli.js install-deps chromium
+          fi
+
+      - name: Boot the built web client
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.test_web != 'false' }}
+        timeout-minutes: 3
+        run: node apps/web/scripts/verify-built-boot.ts
+
+  # Merge-tree conflict gate: head-only conflicts against live upstream/main
+  # red the job; scripts/fork-merge-tree.sh, which fork:ci also runs, owns
+  # the rule.
+  merge-tree:
+    name: merge-tree
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Merge-tree conflict check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git 2>/dev/null || true
+          git fetch --no-tags upstream main
+          git fetch --no-tags origin hyprws
+          bash scripts/fork-merge-tree.sh "$HEAD_SHA"
+
+  # Everything except `t3` (apps/server), `web`, `mobile`, and the fork's own
+  # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
+  # Four pooled suites share a GitHub-hosted runner, so the fork widens the
+  # per-test budget as it does for `web`: generation-heavy Schema tests pass
+  # upstream's 5 s default on Blacksmith but not here.
+  test:
+    name: Test
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # `changes` lists the affected packages, or nothing when all of them are.
+      # Test Scripts and Test Mobile own their packages, so a change that
+      # reaches only those stops here before the install.
+      - name: Select packages
+        id: select
+        env:
+          TEST_PACKAGES: ${{ needs.changes.outputs.test_packages }}
+        run: |
+          packages=""
+          for package in $TEST_PACKAGES; do
+            [[ "$package" == @t3tools/scripts || "$package" == @t3tools/mobile ]] || packages+="$package "
+          done
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          if [[ -n "$TEST_PACKAGES" && -z "$packages" ]]; then
+            echo "Only @t3tools/scripts or @t3tools/mobile is affected; their own jobs cover them."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.select.outputs.run != 'false'
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        if: steps.select.outputs.run != 'false'
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Cache Electron download
+        if: steps.select.outputs.run != 'false'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/.pnpm/electron@*/node_modules/electron/package.json') }}
+
+      - name: Ensure Electron runtime is installed
+        if: steps.select.outputs.run != 'false'
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        if: steps.select.outputs.run != 'false'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Test
+        if: steps.select.outputs.run != 'false'
+        env:
+          PACKAGES: ${{ steps.select.outputs.packages }}
+        run: |
+          filters=(--filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/mobile' --filter '!@t3tools/monorepo')
+          if [[ -n "$PACKAGES" ]]; then
+            filters=()
+            for package in $PACKAGES; do filters+=(--filter "$package"); done
+          fi
+          set -o pipefail
+          # The runner's trace writer can crash on surrogate pairs in test output.
+          vp run --parallel --concurrency-limit 4 "${filters[@]}" test --testTimeout=60000 2>&1 | python3 -u -c '
+          import sys
+          for line in sys.stdin:
+              sys.stdout.write(line.encode("ascii", "backslashreplace").decode("ascii"))
+          '
+
+  # `mobile` alone ran ~7 min of the pooled job's ~8.5 min, long after every
+  # other package finished, so it gets a runner of its own.
+  test_mobile:
+    name: Test Mobile
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test_mobile != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Test
+        run: vp run --filter @t3tools/mobile test
+
+  # `web` runs in its own shards: its editable-file highlighting tests sit close to
+  # upstream's 15 s per-test budget on a GitHub-hosted runner, and time
+  # out whenever the pooled job is under load (fork issue 1053). Upstream
+  # tunes that budget for Blacksmith, so the fork widens it here rather
+  # than in the shared vite config.
+  test_web:
+    name: Test Web ${{ matrix.shard }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test_web != 'false' }}
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        id: chromium_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium for web browser tests
+        if: steps.chromium_cache.outputs.cache-hit != 'true'
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+
+      - name: Install missing Chromium system dependencies
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            node apps/web/node_modules/playwright/cli.js install-deps chromium
+          fi
+
+      - name: Test
+        # Upstream's release-link tests assume `GITHUB_REPOSITORY` names upstream.
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
+        run: vp run --filter @t3tools/web test --testTimeout=60000 --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # The fork's scripts suite is large and does not shrink with the
+  # product; a dedicated job keeps it from holding a pooled slot while
+  # `web` queues behind it. It always runs: fork tooling reads docs/fork,
+  # which `changes` treats as inert.
+  test_scripts:
+    name: Test Scripts
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Cache Electron download
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/.pnpm/electron@*/node_modules/electron/package.json') }}
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      # upstream-client-compat.fork.test.ts decodes fork payloads with the
+      # contracts at `git merge-base HEAD upstream/main`.
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+
+      - name: Test
+        run: vp run --filter @t3tools/scripts test
+
+  # apps/server runs its files one at a time; sharding spreads them over
+  # runners instead of workers, exactly as upstream does. Shards gate their
+  # steps, not the job: a skipped matrix job reports an unexpanded name, which
+  # only a reused push run may do.
+  test_server:
+    name: Test Server ${{ matrix.shard }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
+    # Playwright 1.60 cannot install Chromium on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        if: needs.changes.outputs.test_server != 'false'
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Resolve Playwright version
+        id: playwright_version
+        if: needs.changes.outputs.test_server != 'false'
+        run: echo "version=$(node -p "require('./apps/server/node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Chromium
+        id: chromium_cache
+        if: needs.changes.outputs.test_server != 'false'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
+
+      - name: Install Chromium for server browser integration tests
+        if: needs.changes.outputs.test_server != 'false' && steps.chromium_cache.outputs.cache-hit != 'true'
+        run: node apps/server/node_modules/playwright-core/cli.js install --only-shell chromium
+
+      - name: Install missing Chromium system dependencies
+        if: needs.changes.outputs.test_server != 'false'
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            node apps/server/node_modules/playwright-core/cli.js install-deps chromium
+          fi
+
+      - name: Test
+        if: needs.changes.outputs.test_server != 'false'
+        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # The ruleset requires this job and `merge-tree` only: `ghb pr merge`
+  # refuses a required check that skipped. It fails when any job fails, is
+  # cancelled, or skipped without `changes` saying it was not needed.
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: [changes, check, test, test_mobile, test_web, test_scripts, test_server, merge-tree]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e '.changes.outputs as $gates
+            | all(to_entries[];
+                .value.result == "success"
+                or (.value.result == "skipped"
+                  and ($gates.reuse == "true" or $gates[.key] == "false")))' > /dev/null
