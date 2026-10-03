@@ -48,7 +48,10 @@ import {
 } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { providerSessionProjectId } from "../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/open-session-project-id-import
+import {
+  providerSessionProjectId,
+  withThreadProjects,
+} from "../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/open-session-project-id-import
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -1804,7 +1807,10 @@ export const layerWithOptions = (
               const eventSubscribers = yield* Ref.make<
                 ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
               >(new Map());
-              const exposedRuntime = decorateRuntime(runtime, eventSubscribers);
+              const exposedRuntime = decorateRuntime(
+                withThreadProjects(projectionStore, runtime),
+                eventSubscribers,
+              ); // fork-hook: upstream-fixes/thread-project-runtime
               const now = yield* Clock.currentTimeMillis;
               const entry: LiveSessionEntry = {
                 attachedThreadIds: new Set([input.threadId]),
