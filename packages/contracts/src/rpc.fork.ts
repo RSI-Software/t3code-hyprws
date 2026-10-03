@@ -129,31 +129,3 @@ export const githubIssuesRpcFork = {
     WsGitHubIssuesSyncThreadLinksRpcFork,
   ] as const,
 };
-
-// Fork-thread RPC registration for the same-provider thread fork. The payload,
-// result, and refusal errors live in `threadFork.fork.ts`; the handler and its
-// guards live in `apps/server/src/project/ThreadFork.fork.ts`.
-import { EnvironmentAuthorizationError as ThreadForkEnvironmentAuthorizationError } from "./auth.ts";
-import { ThreadForkError, ThreadForkInput, ThreadForkResult } from "./threadFork.fork.ts";
-
-const ThreadForkRpcErrorFork = Schema.Union([
-  ThreadForkError,
-  ThreadForkEnvironmentAuthorizationError,
-]);
-
-const WsThreadForkRpcFork = Rpc.make("thread.fork", {
-  payload: ThreadForkInput,
-  success: ThreadForkResult,
-  error: ThreadForkRpcErrorFork,
-});
-
-/**
- * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
- * marked hooks in `rpc.ts` (`thread-fork/rpc-methods`, `thread-fork/rpc-group`).
- */
-export const threadForkRpcFork = {
-  methodNames: {
-    threadFork: "thread.fork",
-  } as const,
-  rpcs: [WsThreadForkRpcFork] as const,
-};

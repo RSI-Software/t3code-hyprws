@@ -10,13 +10,15 @@ import { useRouter } from "@tanstack/react-router";
 
 import { buildThreadRouteParams } from "../threadRoutes";
 import {
+  buildLatestStableForkCommandFork,
   forkInFlight,
+  readForkSourceTitleFork,
   setForkInFlight,
   threadForkCommand,
   waitForChildShellFork,
 } from "../state/threadFork.fork";
 
-export { forkInFlight, readForkProviderFork } from "../state/threadFork.fork";
+export { forkInFlight, forkRefInFlightFork, readForkProviderFork } from "../state/threadFork.fork";
 export {
   forkThreadMenuStateFork,
   forkThreadStateTailFork,
@@ -59,16 +61,19 @@ export function reportResetOrderThreadAction(input: {
   return reportFailure("Failed to reset thread order", () => reorderActiveThread(threadRef, null));
 }
 
-/** One fork RPC from click to navigation; both menu surfaces share it. */
+/** One V2 `thread.fork` dispatch from click to navigation; both menu surfaces share it. */
 export async function forkThreadActionFork(input: {
   readonly threadRef: ScopedThreadRef;
   readonly navigate: (options: ThreadRouteTarget) => Promise<void> | void;
   readonly forkThread: ThreadForkCommandRun;
   /** Defaults to the real store wait; tests substitute a gate. */
   readonly waitForShell?: (ref: ScopedThreadRef) => Promise<boolean>;
+  /** Defaults to the shell store's title; tests substitute one. */
+  readonly readSourceTitle?: (ref: ScopedThreadRef) => string | null;
 }): Promise<void> {
   const { threadRef, navigate, forkThread } = input;
   const waitForShell = input.waitForShell ?? waitForChildShellFork;
+  const readSourceTitle = input.readSourceTitle ?? readForkSourceTitleFork;
   const threadKey = scopedThreadKey(threadRef);
   if (forkInFlight(threadKey)) return;
   const toastFailure = (cause: unknown) =>
@@ -79,27 +84,29 @@ export async function forkThreadActionFork(input: {
         description: cause instanceof Error ? cause.message : "An error occurred.",
       }),
     );
-  // The command target splits environment routing from the RPC payload; the
-  // payload itself is only {threadId}. Refusals surface as a Failure result,
+  // The command target splits environment routing from the dispatch payload,
+  // a V2 `thread.fork` from the latest stable run whose child id the client
+  // mints, so the reply needs no child id. Refusals surface as a Failure result,
   // defects (wire/schema crashes) as a rejected run, and interruption as an
   // interrupts-only cause — all paths clear the in-flight flag, and only
   // interruption stays silent.
   setForkInFlight(threadKey, true);
   try {
-    const result = await forkThread({
-      environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId },
+    const command = buildLatestStableForkCommandFork({
+      sourceThreadId: threadRef.threadId,
+      title: readSourceTitle(threadRef) ?? "Thread",
     });
+    const result = await forkThread({ environmentId: threadRef.environmentId, input: command });
     if (result._tag === "Failure") {
       if (isAtomCommandInterrupted(result)) return;
       throw squashAtomCommandFailure(result);
     }
-    // The child's shell can lag the RPC reply; landing first would read as
+    // The child's shell can lag the dispatch reply; landing first would read as
     // a missing thread and bounce to the index. Hold the in-flight flag and
     // wait for the store, but never hang: on timeout navigate anyway.
     const childRef: ScopedThreadRef = {
       environmentId: threadRef.environmentId,
-      threadId: result.value.childThreadId,
+      threadId: command.targetThreadId,
     };
     await waitForShell(childRef);
     try {
@@ -117,7 +124,7 @@ export async function forkThreadActionFork(input: {
 
 /**
  * Fork: the shared dispatch for the sidebar row menu and the chat-header
- * menu. Runs the fork RPC, toasts readable refusals and defects, and
+ * menu. Dispatches the fork, toasts readable refusals and defects, and
  * navigates to the child on success. One hook per surface keeps dispatch to a
  * one-line case.
  */
