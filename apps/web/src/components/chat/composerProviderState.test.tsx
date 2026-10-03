@@ -12,13 +12,10 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
-import { DraftId } from "../../composerDraftStore";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
 const MODEL = "test-model";
