@@ -1493,7 +1493,11 @@ export const createCodexAdapterV2 = (
     return makeCodexAdapterV2({
       instanceId,
       settings,
-      environment: mergeProviderInstanceEnvironment(environment, hostEnvironment),
+      environment: mergeProviderInstanceEnvironment(
+        environment,
+        CODEX_DRIVER_KIND,
+        hostEnvironment,
+      ), // fork-hook: upstream-fixes/codex-adapter-instance-env
       clientFactory,
       fileSystem,
       idAllocator,
