@@ -23,19 +23,28 @@ const threadId = "thread-1" as ThreadId;
 const projectId = "project-1" as ProjectId;
 const leaked = {
   PATH: "/bin",
+  T3CODE_PROVIDER_PROCESS: "1",
   T3CODE_PROJECT_ID: "parent-project",
   T3CODE_THREAD_ID: "parent-thread",
 };
 
 describe("provider session identity helpers", () => {
-  it("removes both ids from a process every thread shares", () => {
-    expect(withoutProviderSessionIdentity(leaked)).toEqual({ PATH: "/bin" });
+  it("removes both ids from a process every thread shares, keeping the host marker", () => {
+    expect(withoutProviderSessionIdentity(leaked)).toEqual({
+      PATH: "/bin",
+      T3CODE_PROVIDER_PROCESS: "1",
+    });
+    expect(withoutProviderSessionIdentity({ PATH: "/bin" })).toEqual({
+      PATH: "/bin",
+      T3CODE_PROVIDER_PROCESS: "1",
+    });
   });
 
   it("leaves a spawn without a session as built", () => {
     expect(withSessionIdentityWhenKnown(leaked, undefined)).toBe(leaked);
     expect(withSessionIdentityWhenKnown(leaked, { threadId, projectId })).toEqual({
       PATH: "/bin",
+      T3CODE_PROVIDER_PROCESS: "1",
       T3CODE_PROJECT_ID: "project-1",
       T3CODE_THREAD_ID: "thread-1",
     });
@@ -49,7 +58,7 @@ describe("provider session identity helpers", () => {
 });
 
 describe("stripInheritedProviderSessionIdentity", () => {
-  it.effect("drops the launcher's ids from the server's own environment", () =>
+  it.effect("drops the launcher's ids and host marker from the server's own environment", () =>
     Effect.gen(function* () {
       const environment: NodeJS.ProcessEnv = { ...leaked };
       yield* stripInheritedProviderSessionIdentity.pipe(

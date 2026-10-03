@@ -11,6 +11,7 @@ describe("withProviderSessionIdentity", () => {
     const env = withProviderSessionIdentity({ PATH: "/bin" }, { threadId, projectId });
     expect(env).toEqual({
       PATH: "/bin",
+      T3CODE_PROVIDER_PROCESS: "1",
       T3CODE_PROJECT_ID: "project-1",
       T3CODE_THREAD_ID: "thread-1",
     });
@@ -25,7 +26,11 @@ describe("withProviderSessionIdentity", () => {
       },
       { threadId },
     );
-    expect(env).toEqual({ PATH: "/bin", T3CODE_THREAD_ID: "thread-1" });
+    expect(env).toEqual({
+      PATH: "/bin",
+      T3CODE_PROVIDER_PROCESS: "1",
+      T3CODE_THREAD_ID: "thread-1",
+    });
   });
 
   it("does not mutate the base environment", () => {

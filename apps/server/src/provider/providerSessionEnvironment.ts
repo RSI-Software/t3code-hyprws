@@ -37,6 +37,18 @@ const PROVIDER_SESSION_IDENTITY_ENV = {
   threadId: "T3CODE_THREAD_ID",
 } as const;
 
+/**
+ * Boolean marker naming T3 Code as the host of a provider process, set to `1`
+ * on every provider spawn, shared or per session. It says only that T3 Code
+ * started the process, never which thread: a shared Codex or OpenCode 2
+ * server still serves many threads, and each thread's own id comes from its
+ * turn context. Hooks and plugins that run inside the provider process, which
+ * the per-thread ids cannot reach, read this to tell T3 Code from a terminal.
+ * Not `T3CODE_HOST`: that is the server's bind interface, and a T3 server an
+ * agent starts must not inherit a bogus one.
+ */
+const T3CODE_PROVIDER_PROCESS_ENV = "T3CODE_PROVIDER_PROCESS";
+
 export interface ProviderSessionIdentity {
   readonly projectId?: string | undefined;
   readonly threadId?: string | undefined;
@@ -46,13 +58,17 @@ export interface ProviderSessionIdentity {
  * Returns `baseEnv` (or the server's own env) with the session identity
  * applied. Ids the session does not know are removed rather than left alone:
  * a server launched from inside another T3-hosted agent would otherwise leak
- * that agent's identity into every child it spawns.
+ * that agent's identity into every child it spawns. The host marker is set
+ * whatever the identity, so a shared process carries it too.
  */
 export function withProviderSessionIdentity(
   baseEnv: NodeJS.ProcessEnv | undefined,
   identity: ProviderSessionIdentity,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...(baseEnv ?? process.env) };
+  const env: NodeJS.ProcessEnv = {
+    ...(baseEnv ?? process.env),
+    [T3CODE_PROVIDER_PROCESS_ENV]: "1",
+  };
   const apply = (name: string, value: string | undefined) => {
     if (value) env[name] = value;
     else delete env[name];
@@ -66,12 +82,14 @@ export function withProviderSessionIdentity(
  * Removes the session identity the server inherited from whatever launched it,
  * such as a shell inside another T3-hosted agent. Run once at server start:
  * in-process providers (the Cursor SDK) and terminals spawn from the server's
- * own environment, and would otherwise name that other thread as theirs.
+ * own environment, and would otherwise name that other thread as theirs. The
+ * host marker goes too: a user terminal is not a provider process.
  */
 export const stripInheritedProviderSessionIdentity = Effect.gen(function* () {
   const environment = yield* HostProcessEnvironment;
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.projectId];
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.threadId];
+  delete environment[T3CODE_PROVIDER_PROCESS_ENV];
 });
 
 /** Environment for a process every thread of an instance shares. */
