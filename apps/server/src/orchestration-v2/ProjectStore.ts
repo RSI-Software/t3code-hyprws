@@ -15,6 +15,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { ProjectRowThreadEnvModeFork } from "./ProjectStore.fork.ts"; // fork-hook: worktrunk-hooks/project-row-env-mode
 
 export class ProjectStoreV2Error extends Schema.TaggedError<ProjectStoreV2Error>()(
   "ProjectStoreV2Error",
@@ -51,6 +52,7 @@ const ProjectDbRow = Schema.Struct({
   autoPull: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(ProjectIconOverride)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
+  defaultThreadEnvMode: ProjectRowThreadEnvModeFork, // fork-hook: worktrunk-hooks/project-row-env-mode
 });
 
 /** Shell fields without workspace-derived enrichment such as repository identity. */
