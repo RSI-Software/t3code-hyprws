@@ -293,7 +293,11 @@ export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
       return makeAcpRegistryAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          ACP_REGISTRY_PROVIDER,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/acp-registry-adapter-instance-env
         childProcessSpawner,
         crypto,
         fileSystem,
