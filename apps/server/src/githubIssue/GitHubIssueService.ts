@@ -20,8 +20,10 @@ import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import {
   decodeGitHubIssueDetail,
@@ -105,12 +107,17 @@ function decodeError(operation: string, cause: unknown): GitHubIssueOperationErr
 
 export const make = Effect.gen(function* () {
   const cli = yield* GitHubCli.GitHubCli;
-  const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const projectService = yield* ProjectService.ProjectService;
+  const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
 
   const workspaceProjects = Effect.fn("GitHubIssueService.workspaceProjects")(function* (
     projectId?: GitHubIssueListInput["projectId"],
   ) {
-    const snapshot = yield* projections.getShellSnapshot().pipe(
+    const shells = yield* (
+      projectId === undefined
+        ? projectService.listShells()
+        : projectService.getShell(projectId).pipe(Effect.map(Option.toArray))
+    ).pipe(
       Effect.mapError(
         (cause) =>
           new GitHubIssueOperationErrorClass({
@@ -120,9 +127,20 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
+    // A shell resolves its repository in the background; an issue read cannot wait for that.
+    const resolved = yield* Effect.forEach(
+      shells,
+      (project) =>
+        project.repositoryIdentity != null
+          ? Effect.succeed(project)
+          : repositoryIdentities
+              .resolve(project.workspaceRoot)
+              .pipe(Effect.map((repositoryIdentity) => ({ ...project, repositoryIdentity }))),
+      { concurrency: PROJECT_CONCURRENCY },
+    );
     const seen = new Set<string>();
     const projects: GitHubProject[] = [];
-    for (const project of snapshot.projects) {
+    for (const project of resolved) {
       // Apply the logical-project filter before physical-repository de-duplication. Otherwise a
       // duplicate earlier in the snapshot can hide the project the caller explicitly selected.
       if (projectId !== undefined && project.id !== projectId) continue;
