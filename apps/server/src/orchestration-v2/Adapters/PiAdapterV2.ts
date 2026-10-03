@@ -2965,7 +2965,11 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
       return makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          PI_DRIVER_KIND,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/pi-adapter-instance-env
         spawner,
         fileSystem,
         idAllocator,

@@ -3712,7 +3712,11 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
       return makeOpenCodeAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          OPENCODE_PROVIDER,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/opencode-adapter-instance-env
         runtime: openCodeRuntime,
         idAllocator,
         serverConfig,
