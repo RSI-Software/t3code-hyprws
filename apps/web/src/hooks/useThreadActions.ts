@@ -52,7 +52,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { resolveThreadRouteFamily } from "../threadRoutes"; // fork-hook: multi-window/thread-route-family-import
+import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";
 import {
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
