@@ -1,14 +1,15 @@
+import type { ModelSelection, ServerProviderModel } from "@t3tools/contracts";
+import * as NodePath from "@effect/platform-node/NodePath";
 import {
-  type ServerProviderModel,
-  ModelSelection,
-  ProviderDriverKind,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
-import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+  createModelCapabilities,
+  createModelSelection,
+  getModelSelectionStringOptionValue,
+} from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { ProviderAdapterValidationError } from "../Errors.ts";
+import * as Schema from "effect/Schema";
+import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
 import { type CodexAgentDefinition, discoverCodexAgents } from "../Drivers/CodexAgents.ts";
 import { buildSelectOptionDescriptor } from "../providerSnapshot.ts";
 
@@ -78,53 +79,96 @@ export const makeCodexAgentOptionsDecorator = Effect.fn("makeCodexAgentOptionsDe
   },
 );
 
-export interface CodexSessionAgentRequest {
-  readonly modelSelection: ModelSelection | undefined;
-  readonly boundInstanceId: ProviderInstanceId;
-  readonly homePath?: string | undefined;
-  readonly environment?: NodeJS.ProcessEnv | undefined;
-  readonly cwd?: string | undefined;
-  readonly fileSystem: FileSystem.FileSystem;
-  readonly path: Path.Path;
+/** A turn selected a Codex custom agent that discovery no longer finds. */
+export class CodexCustomAgentUnavailableError extends Schema.TaggedError<CodexCustomAgentUnavailableError>()(
+  "CodexCustomAgentUnavailableError",
+  { agent: Schema.String },
+) {
+  override get message(): string {
+    return `Codex custom agent '${this.agent}' is no longer available.`;
+  }
+}
+
+function codexAgentStringConfig(
+  agent: CodexAgentDefinition | undefined,
+  key: string,
+): string | undefined {
+  const value = agent?.config[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 /**
- * Resolves the thread's custom-agent selection at session start. A missing
- * selection fails with the adapter's validation error; "default" and no
- * selection both resolve to no agent. Self-provides the filesystem services
- * `discoverCodexAgents` needs so the adapter keeps a single `yield*`.
+ * Overlays an agent's `model` and `model_reasoning_effort` config on the turn's
+ * selection. Codex applies a turn's model and effort to later turns too, so the
+ * agent's choice holds until a turn under another selection replaces it.
  */
-export const resolveCodexSessionAgentOption = Effect.fn("resolveCodexSessionAgentOption")(
-  function* (request: CodexSessionAgentRequest) {
-    const modelSelection =
-      request.modelSelection?.instanceId === request.boundInstanceId
-        ? request.modelSelection
-        : undefined;
-    const selectedAgentName = getModelSelectionStringOptionValue(modelSelection, "agent");
-    const cwd = request.cwd ?? process.cwd();
-    const agent =
-      selectedAgentName && selectedAgentName !== "default"
-        ? (yield* discoverCodexAgents({
-            ...(request.homePath !== undefined ? { homePath: request.homePath } : {}),
-            ...(request.environment ? { environment: request.environment } : {}),
-            cwd,
-          }).pipe(
-            Effect.provideService(FileSystem.FileSystem, request.fileSystem),
-            Effect.provideService(Path.Path, request.path),
-          )).find((candidate) => candidate.name.toLowerCase() === selectedAgentName.toLowerCase())
-        : undefined;
-    if (selectedAgentName && selectedAgentName !== "default" && !agent) {
-      return yield* new ProviderAdapterValidationError({
-        provider: ProviderDriverKind.make("codex"),
-        operation: "startSession",
-        issue: `Codex custom agent '${selectedAgentName}' is no longer available.`,
-      });
-    }
-    return { agent, cwd };
-  },
-);
-
-/** The `runtimeInput` spread a resolved agent contributes; empty without one. */
-export function codexAgentRuntimeInput(agent: CodexAgentDefinition | undefined) {
-  return agent ? { agent } : {};
+function withCodexAgentModelSelection(
+  selection: ModelSelection,
+  agent: CodexAgentDefinition | undefined,
+): ModelSelection {
+  const model = codexAgentStringConfig(agent, "model");
+  const effort = codexAgentStringConfig(agent, "model_reasoning_effort");
+  if (model === undefined && effort === undefined) return selection;
+  return createModelSelection(selection.instanceId, model ?? selection.model, [
+    ...(selection.options ?? []).filter(
+      (option) => effort === undefined || option.id !== "reasoningEffort",
+    ),
+    ...(effort === undefined ? [] : [{ id: "reasoningEffort", value: effort }]),
+  ]);
 }
+
+/**
+ * The agent's instructions as a `turn/start.additionalContext` entry, beside
+ * T3 Code's own. Codex resends an entry only when its value changes, so a
+ * thread that switches agent gets the new instructions on its next turn.
+ */
+export function codexAgentAdditionalContext(
+  additionalContext:
+    | Readonly<Record<string, V2TurnStartParams__AdditionalContextEntry>>
+    | undefined,
+  agentInstructions: string | undefined,
+): { readonly additionalContext?: Record<string, V2TurnStartParams__AdditionalContextEntry> } {
+  if (agentInstructions === undefined) return {};
+  return {
+    additionalContext: {
+      ...additionalContext,
+      t3_code_agent: { kind: "application", value: agentInstructions },
+    },
+  };
+}
+
+/**
+ * Resolves the turn's custom agent into the selection and instructions the
+ * turn starts with. "default" and no selection both mean no agent and read
+ * nothing from disk; a selected agent discovery no longer finds fails the turn.
+ */
+export const resolveCodexTurnAgent = Effect.fn("resolveCodexTurnAgent")(function* (request: {
+  readonly modelSelection: ModelSelection;
+  readonly settings: { readonly homePath?: string | undefined };
+  readonly environment: NodeJS.ProcessEnv;
+  readonly cwd: string | null;
+  readonly fileSystem: FileSystem.FileSystem;
+}) {
+  const selectedAgent = getModelSelectionStringOptionValue(request.modelSelection, "agent");
+  if (selectedAgent === undefined || selectedAgent === "default") {
+    return { modelSelection: request.modelSelection, agentInstructions: undefined };
+  }
+  const agents = yield* discoverCodexAgents({
+    ...(request.settings.homePath === undefined ? {} : { homePath: request.settings.homePath }),
+    environment: request.environment,
+    ...(request.cwd === null ? {} : { cwd: request.cwd }),
+  }).pipe(
+    Effect.provideService(FileSystem.FileSystem, request.fileSystem),
+    Effect.provide(NodePath.layer),
+  );
+  const agent = agents.find(
+    (candidate) => candidate.name.toLowerCase() === selectedAgent.toLowerCase(),
+  );
+  if (agent === undefined) {
+    return yield* new CodexCustomAgentUnavailableError({ agent: selectedAgent });
+  }
+  return {
+    modelSelection: withCodexAgentModelSelection(request.modelSelection, agent),
+    agentInstructions: agent.developerInstructions,
+  };
+});
