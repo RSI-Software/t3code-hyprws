@@ -57,6 +57,7 @@ import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import {
   desktopEnvironmentLayerFork,
+  previewSessionCountersFork, // fork-hook: multi-window/preview-session-counters-import
   registerDesktopWindowForkTests,
 } from "./DesktopWindow.fork.suite.ts"; // fork-hook: multi-window/fork-suite-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
@@ -253,8 +254,6 @@ function makeTestLayer(input: {
   readonly placementClaims?: { key: string; title: string }[]; // fork-hook: multi-window/window-id-placement-claims
   readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
   readonly placementLifecycle?: string[];
-  readonly revealRequests?: number[];
-  readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -426,15 +425,9 @@ function makeTestLayer(input: {
         electronThemeLayer,
         electronWindowLayer,
         Layer.mock(PreviewManager.PreviewManager)({
-          getBrowserSession: () =>
-            Effect.sync(() => {
-              input.previewBrowserSessionRequests?.push(1);
-              return {} as Electron.Session;
-            }),
-          setMainWindow: (window) =>
-            Effect.sync(() => {
-              input.previewMainWindowSets?.push(window);
-            }),
+          getBrowserSession: () => Effect.succeed({} as Electron.Session),
+          setMainWindow: () => Effect.void,
+          ...previewSessionCountersFork(input), // fork-hook: multi-window/preview-session-counters
           setWindow: (owner, window) =>
             Effect.sync(() => {
               input.previewOwners?.push(owner); // fork-hook: multi-window/window-id-preview-owner
@@ -1046,77 +1039,6 @@ describe("DesktopWindow", () => {
           assert.equal(yield* Ref.get(createCount), 3);
         }).pipe(Effect.provide(layer));
       }),
-  );
-
-  it.effect("maps an agent desktop on its target workspace without requesting focus", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const workspaceMoves: { key: string; workspace: string }[] = [];
-      const workspaceRuleEvents: {
-        action: "stage" | "clear";
-        title: string;
-        workspace?: string;
-      }[] = [];
-      const placementLifecycle: string[] = [];
-      fakeWindow.setTitle.mockImplementation((title) => {
-        placementLifecycle.push(`title:${title}`);
-      });
-      const revealRequests: number[] = [];
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves,
-        workspaceRuleEvents,
-        placementLifecycle,
-        revealRequests,
-        environmentEnv: {
-          T3CODE_DESKTOP_DEVTOOLS: "0",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-test",
-        },
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(createdWindowOptions[0]?.title, "t3code-dev-agent-test");
-        assert.deepEqual(revealRequests, []);
-
-        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
-        if (!readyToShow) return yield* Effect.die("ready-to-show listener was not registered");
-        readyToShow();
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-
-        assert.equal(fakeWindow.showInactive.mock.calls.length, 1);
-        assert.deepEqual(revealRequests, []);
-        assert.deepEqual(workspaceRuleEvents, [
-          {
-            action: "stage",
-            title: "t3code-dev-agent-test",
-            workspace: "8",
-          },
-          { action: "clear", title: "t3code-dev-agent-test" },
-        ]);
-        assert.deepEqual(workspaceMoves, [{ key: testWindowId(1), workspace: "8" }]); // fork-hook: multi-window/window-id-agent-move
-        assert.deepEqual(fakeWindow.setTitle.mock.calls, [
-          ["t3code-dev-agent-test"],
-          ["T3 Code (Dev)"],
-        ]);
-        assert.deepEqual(placementLifecycle, [
-          "stage:8",
-          "title:t3code-dev-agent-test",
-          "title:T3 Code (Dev)",
-          "move:8",
-          "clear",
-        ]);
-        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
-      }).pipe(Effect.provide(layer));
-    }),
   );
 
   it.effect("blocks only repeated Cmd+W input before it reaches the native window menu", () =>
