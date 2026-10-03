@@ -21,6 +21,15 @@ export function parseClaudeInitializationAgents(
   return [...agentsByName.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+// The probe's `agents` field. An init reply naming no agents omits it, so an
+// agentless probe keeps upstream's capability shape.
+export function claudeInitializationAgentsField(
+  agents: ReadonlyArray<ClaudeAgentInfo> | undefined,
+): { readonly agents?: ReadonlyArray<ClaudeAgentInfo> } {
+  const parsed = parseClaudeInitializationAgents(agents);
+  return parsed.length > 0 ? { agents: parsed } : {};
+}
+
 export function withClaudeAgentOptions(
   models: ReadonlyArray<ServerProviderModel>,
   agents: ReadonlyArray<ClaudeAgentInfo>,
