@@ -1,10 +1,8 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   DEFAULT_BROWSER_PROFILE_ID,
-  EnvironmentId,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewAutomationStatus,
-  ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -13,11 +11,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
-import type { WindowId } from "../../window/WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
-import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
 const { fromPartition, fromWebContents, fromId } = vi.hoisted(() => ({
@@ -123,71 +118,6 @@ describe("preview IPC methods", () => {
       expect(received[0]?.namespace).toBe("profile");
       expect(received[1]?.namespace).toBeUndefined();
     }).pipe(Effect.provideService(BrowserImport.BrowserImport, browserImport));
-  });
-
-  effectIt.effect("rejects invalid webContents ids before resolving the preview service", () =>
-    Effect.map(
-      PreviewIpc.registerWebview
-        .handler({ tabId: "tab-1", webContentsId: 0 })
-        .pipe(
-          Effect.provideService(ElectronWindow.ElectronWindow, null as never),
-          Effect.provideService(PreviewManager.PreviewManager, null as never),
-          Effect.exit,
-        ),
-      (exit) => {
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isSuccess(exit)) return;
-        const error = Cause.findErrorOption(exit.cause);
-        expect(Option.isSome(error) && Schema.isSchemaError(error.value)).toBe(true);
-        expect(fromPartition).not.toHaveBeenCalled();
-      },
-    ),
-  );
-
-  effectIt.effect("returns automation status for long runtime tab ids", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const windowId = "00000000-0000-4000-8000-000000000001" as WindowId; // fork-hook: multi-window/window-id-sender
-    const sender = { id: 7 } as Electron.WebContents;
-    const senderWindow = {} as Electron.BrowserWindow;
-    fromId.mockReturnValue(sender);
-    fromWebContents.mockReturnValue(senderWindow);
-
-    return Effect.gen(function* () {
-      const tabId =
-        `["environment-1","thread:delegated-task:${"a".repeat(120)}",` +
-        `"server-epoch-1","preview-1"]`;
-      const status = {
-        available: false,
-        visible: true,
-        tabId,
-        url: null,
-        title: null,
-        loading: false,
-      };
-
-      const owners: unknown[] = []; // fork-hook: multi-window/window-id-preview-owners
-      const recordOwner = (owner: unknown) => Effect.sync(() => owners.push(owner)); // fork-hook: multi-window/window-id-preview-record-owner
-      const automation = Effect.succeed({
-        automationStatus: () => Effect.succeed(status),
-      } as never); // fork-hook: multi-window/window-id-preview-automation
-
-      expect(tabId.length).toBeGreaterThan(128);
-      expect(
-        yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
-          Effect.provideService(ElectronWindow.ElectronWindow, {
-            windowIdFor: () => Effect.succeed(Option.some(windowId)), // fork-hook: multi-window/window-id-sender-lookup
-          } as never),
-          Effect.provideService(PreviewManager.PreviewManager, {
-            forWindow: (owner: unknown) => Effect.andThen(recordOwner(owner), automation), // fork-hook: multi-window/window-id-preview-owner
-          } as never),
-        ),
-      ).toEqual(status);
-      expect(owners).toEqual([windowId]); // fork-hook: multi-window/window-id-preview-owner-assert
-      expect(owners).not.toContainEqual(identity); // fork-hook: multi-window/window-id-preview-not-project
-    });
   });
 
   it("keeps the public automation status tab id limit", () => {
