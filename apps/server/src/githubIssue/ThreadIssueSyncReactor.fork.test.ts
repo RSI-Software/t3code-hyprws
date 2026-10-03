@@ -2,28 +2,26 @@ import {
   EventId,
   GitHubIssueOperationError,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
   type GitHubIssueRef,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2ServerCommand,
   type ThreadIssueLink,
 } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { ServerActivation } from "../serverActivation.ts";
 import { GitHubIssueService } from "./GitHubIssueService.ts";
 import type { GitHubIssueSummary } from "./gitHubIssueJson.ts";
@@ -32,7 +30,10 @@ import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 const NOW = "2026-09-30T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("issue-sync-project");
 
-type SyncCommand = Extract<OrchestrationCommand, { readonly type: "thread.issue-link.sync" }>;
+type SyncCommand = Extract<
+  OrchestrationV2ServerCommand,
+  { readonly type: "thread.issue-link.sync" }
+>;
 
 const testCrypto = Crypto.make({
   randomBytes: (size) => new Uint8Array(size).fill(1),
@@ -66,16 +67,19 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
     Effect.succeed(makeSummary(input)),
 ) {
   const activation = yield* Deferred.make<void>();
-  const events = yield* PubSub.unbounded<OrchestrationEvent>();
+  const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
   const reads = yield* Ref.make<ReadonlyArray<GitHubIssueRef>>([]);
   const syncs = yield* Ref.make<ReadonlyArray<SyncCommand>>([]);
   const started = yield* Queue.unbounded<void>();
-  const shell = makeThread("linked", []) as unknown as OrchestrationThreadShell;
+
+  const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) =>
+    command.type === "thread.issue-link.sync"
+      ? Ref.update(syncs, (all) => [...all, command]).pipe(
+          Effect.as({ sequence: 1, storedEvents: [] }),
+        )
+      : Effect.die(new Error(`Unexpected command: ${command.type}`));
 
   const dependencies = Layer.mergeAll(
-    Layer.mock(ProjectionSnapshotQuery)({
-      getThreadShellById: () => Effect.succeed(Option.some(shell)),
-    }),
     // Only the light read is implemented: a sync that reached for the full detail would fail.
     Layer.mock(GitHubIssueService)({
       summary: (input) =>
@@ -84,14 +88,9 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
           Effect.andThen(summary(input)),
         ),
     }),
-    Layer.mock(OrchestrationEngineService)({
-      dispatch: (command) =>
-        command.type === "thread.issue-link.sync"
-          ? Ref.update(syncs, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 }))
-          : Effect.die(new Error(`Unexpected command: ${command.type}`)),
-      subscribeDomainEvents: PubSub.subscribe(events).pipe(
-        Effect.map((subscription) => Stream.fromSubscription(subscription)),
-      ),
+    Layer.mock(Orchestrator.OrchestratorV2)({
+      dispatch,
+      streamDomainEvents: Stream.fromQueue(events),
     }),
     Layer.succeed(ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
@@ -105,19 +104,17 @@ const makeHarness = Effect.fn("makeThreadIssueSyncHarness")(function* (
   return { events, reads, syncs, started, reactor };
 });
 
-const linkedEvent = (link: ThreadIssueLink): OrchestrationEvent => ({
-  type: "thread.issue-linked",
-  sequence: 2,
-  eventId: EventId.make("issue-linked"),
-  aggregateKind: "thread",
-  aggregateId: ThreadId.make("linked"),
-  occurredAt: NOW,
-  commandId: null,
-  causationEventId: null,
-  correlationId: null,
-  metadata: {},
-  payload: { threadId: ThreadId.make("linked"), link, updatedAt: NOW },
-});
+// A link lands as `thread.metadata-updated` carrying the whole thread; the reactor reads only
+// the thread's project and links, so the rest of the payload is left out.
+const metadataUpdated = (issues: ReadonlyArray<ThreadIssueLink>): OrchestrationV2DomainEvent =>
+  ({
+    type: "thread.metadata-updated",
+    id: EventId.make(`metadata-updated:${issues.length}`),
+    threadId: ThreadId.make("linked"),
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    occurredAt: DateTime.makeUnsafe(NOW),
+    payload: { id: ThreadId.make("linked"), projectId: PROJECT_ID, issues },
+  }) as unknown as OrchestrationV2DomainEvent;
 
 describe("ThreadIssueSyncReactor", () => {
   it.effect("reads a live link at once, and nothing at boot", () =>
@@ -128,11 +125,19 @@ describe("ThreadIssueSyncReactor", () => {
         yield* fixture.reactor.drain;
         assert.lengthOf(yield* Ref.get(fixture.reads), 0);
 
-        yield* PubSub.publish(fixture.events, linkedEvent(makeLink(7)));
+        // An update that links nothing new reads nothing: a synced link, an older unread one.
+        yield* Queue.offerAll(fixture.events, [
+          metadataUpdated([makeLink(5, "2026-09-30T11:00:00.000Z"), makeLink(6)]),
+          metadataUpdated([makeLink(6), { ...makeLink(7), linkedAt: NOW }]),
+        ]);
         // The event is consumed on its own fiber; wait for its read, then for the worker.
         yield* Queue.take(fixture.started);
         yield* fixture.reactor.drain;
 
+        assert.deepStrictEqual(
+          (yield* Ref.get(fixture.reads)).map((read) => read.number),
+          [7],
+        );
         const [sync] = yield* Ref.get(fixture.syncs);
         assert.deepStrictEqual(sync?.snapshot, {
           title: "Issue 7",

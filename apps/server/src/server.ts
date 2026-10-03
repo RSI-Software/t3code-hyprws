@@ -43,7 +43,10 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
-import { gitHubIssueServiceLiveFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
+import {
+  gitHubIssueServiceLiveFork,
+  threadIssueSyncReactorLiveFork,
+} from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import * as SqlitePersistence from "./persistence/Layers/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -563,6 +566,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   ProviderUsageLimitsIngestionLive,
   ProviderInstallationRefreshLive,
   ReplayMarkers.layer,
+  threadIssueSyncReactorLiveFork, // fork-hook: github-issues/server-issue-sync-reactor
 ).pipe(
   // Core Services
   Layer.provideMerge(OrchestrationApplicationLayerLive),
