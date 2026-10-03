@@ -9,12 +9,9 @@ import {
 import {
   getComposerProviderState,
   getComposerReasoningStep,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
-import { DraftId } from "../../composerDraftStore";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
 const MODEL = "test-model";
@@ -139,23 +136,6 @@ describe("getComposerProviderState", () => {
 
     expect(state.promptEffort).toBe("high");
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
-  });
-
-  it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
-    const state = getComposerProviderState({
-      provider: PROVIDER,
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [
-          { id: "build", label: "Build", isDefault: true },
-          { id: "plan", label: "Plan" },
-        ]),
-      ]),
-      modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
-    });
-
-    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
   });
 
   it("preserves explicit options when the selected model is absent from the catalog", () => {
