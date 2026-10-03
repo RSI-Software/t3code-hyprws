@@ -139,6 +139,7 @@ export interface PullRequestProjectScopeChoice {
   readonly id: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
+  readonly repositoryIdentity?: { readonly canonicalKey?: string | undefined } | null | undefined;
   readonly faviconPath: ProjectFaviconPath | null;
   readonly projectIcon: ProjectIconOverride | null;
 }
@@ -146,8 +147,9 @@ export interface PullRequestProjectScopeChoice {
 export function pullRequestProjectScopeChoices<Project extends PullRequestProjectScopeChoice>(
   projects: ReadonlyArray<Project>,
   environmentLabels: ReadonlyMap<EnvironmentId, string>,
+  selectedProject?: { readonly id: ProjectId; readonly environmentId: EnvironmentId },
 ) {
-  return pullRequestFilterProjects(projects, environmentLabels);
+  return pullRequestFilterProjects(projects, environmentLabels, selectedProject);
 }
 
 export function normalizePullRequestProjectScopePatch<
