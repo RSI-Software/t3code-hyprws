@@ -17,11 +17,11 @@ const withAgent = (agent: string): ModelSelection => ({
   options: [{ id: "agent", value: agent }],
 });
 
-const queryOptions = (modelSelection: ModelSelection, launchArgs = "") =>
+const queryOptions = (modelSelection: ModelSelection, launchArgs = "", resume = false) =>
   ClaudeAdapterV2.makeClaudeQueryOptions({
     modelSelection,
     nativeThreadId: "agent-thread",
-    resume: false,
+    resume,
     cwd: "/workspace",
     settings: { ...SETTINGS, launchArgs },
   });
@@ -33,6 +33,12 @@ describe("Claude main-thread agent selection", () => {
       queryOptions(withAgent("reviewer"), "--agent configured").extraArgs?.agent,
       "reviewer",
     );
+  });
+
+  it("passes the selected agent when resuming the thread", () => {
+    const options = queryOptions(withAgent("reviewer"), "--agent configured", true);
+    assert.equal(options.resume, "agent-thread");
+    assert.equal(options.extraArgs?.agent, "reviewer");
   });
 
   it("clears a configured --agent when the selection is default", () => {
