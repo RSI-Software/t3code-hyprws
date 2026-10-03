@@ -13,7 +13,6 @@ import {
   ProjectCreatePayload,
   ProjectUpdatePayload,
   ProjectMutation,
-  ProjectListEntriesInput,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
