@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "@effect/vitest";
-import { type OrchestrationProject, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import { type Project, ProjectId, type ProjectScript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import {
@@ -15,6 +14,7 @@ import {
   refreshPersistedSetupScript,
   refreshPersistedSetupScripts,
 } from "./ProjectSetupScriptRunner.ts";
+import * as ProjectService from "./ProjectService.ts";
 
 const generatedSetupScripts = [
   {
@@ -110,10 +110,12 @@ describe("persisted fork setup script refresh", () => {
 const SETUP_OUTCOME_MARKER =
   " && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'";
 
-const makeProject = (scripts: OrchestrationProject["scripts"]): OrchestrationProject => ({
+const makeProject = (scripts: Project["scripts"]): Project => ({
   id: ProjectId.make("project-1"),
   title: "Project",
   workspaceRoot: "/repo/project",
+  repositoryIdentity: null,
+  faviconPath: null,
   defaultModelSelection: null,
   scripts,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -136,18 +138,18 @@ const runningTerminal = (terminalId: string) => ({
 });
 
 const testLayer = (
-  project: OrchestrationProject,
+  project: Project,
   terminal: Pick<TerminalManager.TerminalManager["Service"], "open" | "write">,
   settings = ServerSettings.layerTest(),
 ) =>
   projectSetupScriptRunnerLayer.pipe(
     Layer.provideMerge(
-      Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-        getActiveProjectByWorkspaceRoot: (workspaceRoot) =>
+      Layer.mock(ProjectService.ProjectService)({
+        getByWorkspaceRoot: (workspaceRoot) =>
           Effect.succeed(
             workspaceRoot === project.workspaceRoot ? Option.some(project) : Option.none(),
           ),
-        getProjectShellById: (projectId) =>
+        getById: (projectId) =>
           Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
       }),
     ),
@@ -177,6 +179,7 @@ describe("fork setup outcome marker", () => {
           T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
           NO_COLOR: "1",
           FORCE_COLOR: "0",
+          COLORTERM: "",
         },
       });
       expect(write).toHaveBeenCalledWith({
@@ -250,6 +253,7 @@ describe("fork setup outcome marker", () => {
         env: {
           NO_COLOR: "1",
           FORCE_COLOR: "0",
+          COLORTERM: "",
           T3CODE_PROJECT_ROOT: "/repo/project",
           T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
         },
