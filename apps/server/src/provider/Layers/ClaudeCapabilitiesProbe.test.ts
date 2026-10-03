@@ -111,7 +111,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           '  if (message.request?.subtype === "initialize") {',
           "    reply({",
           '      commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
-          '      agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],',
+          "      agents: [],",
           '      output_style: "default",',
           '      available_output_styles: ["default"],',
           "      models: [],",
@@ -150,7 +150,6 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         apiProvider: undefined,
-        agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],
         slashCommands: [
           {
             name: "review",
