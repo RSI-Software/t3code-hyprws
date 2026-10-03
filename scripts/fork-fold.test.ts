@@ -423,6 +423,7 @@ it("finds a memberless commit, stray paths, and orphaned or doubly-owned old com
   const none = commit("ffff0003", { subject: "feat: none" });
   assert.deepStrictEqual(memberFindings(stackOf(a, b, orphan), stackOf(stray, twice, none)), [
     "ffff0001 feat: aaaa1111: touches paths no member touched: residue.ts",
+    "ffff0002 feat: twice: cites 9999aaaa, which the old range never names",
     "ffff0003 feat: none: names no commit in the old range",
     "aaaa1111 feat: aaaa1111: belongs to several new commits: ffff0001, ffff0002",
     "cccc3333 feat: cccc3333: belongs to no new commit",
@@ -461,6 +462,38 @@ it("lets a mover split across owners only when every owner cites it", () => {
   assert.deepStrictEqual(
     memberFindings(stackOf(mover), stackOf(cites("aaaa1111", "feat: a", "a.ts"), silent)),
     ["eeee0000 test: move blocks: belongs to several new commits: aaaa1111, cccc3333"],
+  );
+});
+
+it("accepts an earlier fold's member the old range lists, and refuses a sha it never names", () => {
+  const earlier = commit("aaaa1111", {
+    message: "feat: aaaa1111\n\nSquashes:\n\n- 0123456789 feat: an older member\n",
+    files: ["a.ts"],
+  });
+  const kept = commit("ffff0001", { subject: earlier.subject, message: earlier.message });
+  assert.deepStrictEqual(memberFindings(stackOf(earlier), stackOf(kept)), []);
+  // A split head's replayed sha: on no published trunk, so no old commit names it.
+  const split = commit("ffff0002", {
+    subject: earlier.subject,
+    message: "feat: aaaa1111\n\nSquashes:\n\n- 4290da0ce0 feat: aaaa1111\n",
+  });
+  assert.deepStrictEqual(memberFindings(stackOf(earlier), stackOf(split)), [
+    "ffff0002 feat: aaaa1111: cites 4290da0ce0, which the old range never names",
+  ]);
+});
+
+it("cites a replayed member by its old sha, and refuses one the old range lacks", () => {
+  const lead = commit("aaaa1111");
+  const replayed = commit("bbbb2222", { cite: "cccc3333" });
+  assert.include(foldMessage({ members: [lead, replayed] }), "- cccc3333 feat: bbbb2222");
+  assert.throws(
+    () => foldMessage({ members: [lead, commit("dddd4444", { cite: null })] }),
+    /--old holds no commit with this subject/,
+  );
+  // A lone member keeps its message verbatim and cites nothing.
+  assert.strictEqual(
+    foldMessage({ members: [commit("dddd4444", { cite: null })] }),
+    "feat: dddd4444",
   );
 });
 
@@ -1065,7 +1098,16 @@ it("folds a split repair into its owners, provenance and residue included", () =
       NodePath.join(root, "plan.tsv"),
       [`${alpha}\t${alphaFixup}`, `${beta}\t${betaFixup}`, residue].join("\n"),
     );
-    const applied = cli(root, ["apply", "plan.tsv", "--base", base, "--head", splitHead]);
+    const applied = cli(root, [
+      "apply",
+      "plan.tsv",
+      "--base",
+      base,
+      "--head",
+      splitHead,
+      "--old",
+      head,
+    ]);
     assert.strictEqual(applied.status, 0, applied.stderr);
     const tip = applied.stdout.trim();
     assert.strictEqual(
@@ -1096,6 +1138,54 @@ it("folds a split repair into its owners, provenance and residue included", () =
     const residueBody = git(root, ["log", "-1", "--format=%B", tip]);
     assert.notInclude(residueBody, "Squashes:");
     assert.notInclude(residueBody, "Fork-Repair");
+  }));
+
+it("folds from a split head cite the old trunk shas of every replayed member", () =>
+  withSplitStack(({ root, base, alpha, beta, repair }) => {
+    // A commit after the repair: the split replays it onto a sha no trunk carries.
+    write(root, "alpha2.txt", "alpha follow-up\n");
+    const followUp = commitAll(
+      root,
+      "feat: alpha follow-up",
+      "Fork-Domain: fold-a\nFork-Tier: qol",
+    );
+    const old = followUp;
+    const listed = cli(root, ["list", "--base", base]);
+    const repairLine = listed.stdout.split("fixup line: ")[1]?.split("\n")[0] ?? "";
+    const { alphaFixup, betaFixup, residue } = splitRepair(root, repair, repairLine);
+    git(root, ["cherry-pick", followUp]);
+    const replayed = git(root, ["rev-parse", "HEAD"]);
+    assert.notStrictEqual(replayed, followUp);
+    assert.strictEqual(
+      git(root, ["rev-parse", `${replayed}^{tree}`]),
+      git(root, ["rev-parse", `${old}^{tree}`]),
+    );
+
+    NodeFS.writeFileSync(
+      NodePath.join(root, "plan.tsv"),
+      [`${alpha}\t${alphaFixup}\t${replayed}`, `${beta}\t${betaFixup}`, residue].join("\n"),
+    );
+    const apply = (extra: ReadonlyArray<string>) =>
+      cli(root, ["apply", "plan.tsv", "--base", base, "--head", replayed, ...extra]);
+    const refused = apply([]);
+    assert.strictEqual(refused.status, 1);
+    assert.include(refused.stderr, "pass --old <pre-split tip>");
+
+    const applied = apply(["--old", old]);
+    assert.strictEqual(applied.status, 0, applied.stderr);
+    const tip = applied.stdout.trim();
+    assert.strictEqual(
+      git(root, ["rev-parse", `${tip}^{tree}`]),
+      git(root, ["rev-parse", `${old}^{tree}`]),
+    );
+    const alphaBody = git(root, ["log", "-1", "--format=%B", `${tip}~2`]);
+    assert.include(alphaBody, `- ${followUp.slice(0, 7)} feat: alpha follow-up`);
+    assert.notInclude(alphaBody, replayed.slice(0, 7));
+    assert.deepStrictEqual(squashedMembers(alphaBody), [
+      alpha.slice(0, 7),
+      repair.slice(0, 7),
+      followUp.slice(0, 7),
+    ]);
   }));
 
 it("proves tree equality, the delta check, and the replay scan, failing on any", () =>
