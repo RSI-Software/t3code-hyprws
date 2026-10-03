@@ -1,6 +1,6 @@
 import type { AgentInfo as ClaudeAgentInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerProviderModel } from "@t3tools/contracts";
-import { createModelCapabilities } from "@t3tools/shared/model";
+import type { ModelSelection, ServerProviderModel } from "@t3tools/contracts";
+import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { buildSelectOptionDescriptor } from "../providerSnapshot.ts";
 
 // The SDK supplies Claude agents. Keep their normalization and presentation
@@ -66,11 +66,41 @@ export function withClaudeAgentOptions(
  * carry, and "default" clears it. Startup and resume build their launch args
  * from the same place, so a selection survives a resumed session.
  */
-export function withClaudeAgentLaunchArgs(
+function withClaudeAgentLaunchArgs(
   configured: Record<string, string | null>,
   selectedAgent: string | undefined,
 ): Record<string, string | null> {
   if (selectedAgent === undefined) return configured;
   const { agent: _configuredAgent, ...withoutAgent } = configured;
   return selectedAgent === "default" ? withoutAgent : { ...withoutAgent, agent: selectedAgent };
+}
+
+/**
+ * Applies the thread's agent selection in place to the launch args a query is
+ * built from, with the `withClaudeAgentLaunchArgs` precedence: a selected agent
+ * overrides a configured `--agent` and "default" clears it. Without a
+ * selection the configured args stay as they are.
+ */
+export function applyClaudeAgentLaunchArg(
+  extraArgs: Record<string, string | null>,
+  modelSelection: ModelSelection,
+): void {
+  const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
+  if (selectedAgent === undefined) return;
+  delete extraArgs.agent;
+  if (selectedAgent !== "default") extraArgs.agent = selectedAgent;
+}
+
+/**
+ * Folds the agent selection into a compiled selection's query identity, so a
+ * changed agent reopens the thread's query with resume. Without a selection
+ * the identity is upstream's.
+ */
+export function withClaudeAgentQueryIdentity<Compiled extends { readonly queryIdentity: string }>(
+  compiled: Compiled,
+  modelSelection: ModelSelection,
+): Compiled {
+  const agent = getModelSelectionStringOptionValue(modelSelection, "agent");
+  if (agent === undefined) return compiled;
+  return { ...compiled, queryIdentity: JSON.stringify([compiled.queryIdentity, { agent }]) };
 }
