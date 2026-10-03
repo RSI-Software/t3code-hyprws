@@ -45,6 +45,8 @@ Commands:
 Options:
   --base <ref>   Upstream base (default: upstream/main)
   --head <ref>   Stack head for list and apply (default: HEAD)
+  --old <ref>    apply: the pre-split tip whose shas a split head's folds cite;
+                 required when --head holds split repair pieces
   --json         list: print JSON instead of the table
   -h, --help     Show help
 
@@ -57,7 +59,9 @@ and a line's members never mix Fork-Domain values.
 
 A Fork-Repair commit is split before the run: each 'fixup! <owner subject>'
 piece joins its owner's line, and list prints the repair line to copy into
-every piece. .agents/skills/fork-fold/SKILL.md owns the procedure.
+every piece. The split replays every later commit, so apply takes the pre-split
+tip as --old and each fold cites a replayed member by its <old> sha.
+.agents/skills/fork-fold/SKILL.md owns the procedure.
 
 apply replays with merge-tree until a block refuses there; from that block on
 the remaining plan replays as one git rebase --autosquash in a throwaway
@@ -341,12 +345,47 @@ const FIXUP_SUBJECT = "fixup! ";
  */
 const firstSquashesLine = (message: string): string | undefined => squashesLines(message)[0];
 
+/** The shas a message's `Squashes:` member lines cite. */
+const squashesShas = (message: string): ReadonlyArray<string> =>
+  squashesLines(message).map((line) => line.slice(2).split(/\s/)[0] ?? "");
+
+/** A split piece of a repair: a `fixup!` carrying the repair's line under `Squashes:`. */
+const isSplitPiece = (commit: FoldCommit): boolean =>
+  commit.subject.startsWith(FIXUP_SUBJECT) && firstSquashesLine(commit.message) !== undefined;
+
+/**
+ * A repair split replays every commit after its first repair, so a split head
+ * carries shas no published trunk does. Each replayed commit cites its `<old>`
+ * counterpart instead: the same subject, oldest first, as fork:scan's replay
+ * match reads it. A commit `<old>` carries keeps its sha; a split piece already
+ * renders its repair line; a commit with no counterpart cites null, which a
+ * fold refuses to render.
+ */
+export const citeOld = (stack: FoldStack, old: FoldStack): FoldStack => {
+  const onHead = new Set(stack.commits.map(({ sha }) => sha));
+  const onOld = new Set(old.commits.map(({ sha }) => sha));
+  const counterparts = new Map<string, Array<FoldCommit>>();
+  for (const commit of old.commits) {
+    if (onHead.has(commit.sha)) continue;
+    counterparts.set(commit.subject, [...(counterparts.get(commit.subject) ?? []), commit]);
+  }
+  return {
+    ...stack,
+    commits: stack.commits.map((commit) =>
+      onOld.has(commit.sha) || isSplitPiece(commit)
+        ? commit
+        : { ...commit, cite: counterparts.get(commit.subject)?.shift()?.short ?? null },
+    ),
+  };
+};
+
 /**
  * One member line: the sha first (squashedMembers reads it), then the subject,
  * then every fork pull request the member cites, rendered full so the link
  * always stays on the fork. A split piece of a repair renders as the repair it
  * carries — never as the throwaway piece. A squash-landed fixup is a landing of
  * its own, so it renders like any member and its pull request link survives.
+ * A commit a split head replayed renders under its `<old>` sha.
  */
 const memberLine = (member: FoldCommit): string => {
   if (member.subject.startsWith(FIXUP_SUBJECT)) {
@@ -358,11 +397,16 @@ const memberLine = (member: FoldCommit): string => {
       );
     }
   }
+  if (member.cite === null) {
+    throw new FoldError(
+      `${member.short} ${member.subject}: --old holds no commit with this subject, so a fold cannot cite it; keep it a lone member without a plan link`,
+    );
+  }
   const links = forkPullRequests(member.message)
     .filter((ref) => !member.subject.includes(ref))
     .map((ref) => ` (${ref})`)
     .join("");
-  return `- ${member.short} ${member.subject}${links}`;
+  return `- ${member.cite ?? member.short} ${member.subject}${links}`;
 };
 
 /**
@@ -538,25 +582,32 @@ export const replay = (
 
 /**
  * Per-commit member guard: each new commit's members are the old commits its
- * `Squashes:` lines name (shas outside the old range cite earlier folds) plus
- * the old commit sharing its subject. Finds a new commit with no member, a new
- * commit touching a path no member touched, and an old commit owned by no new
- * commit or by several. A Fork-Repair commit may split across owners, and so
- * may any old commit every owner cites under `Squashes:`: a mover split back
- * into the owners whose blocks it moved.
+ * `Squashes:` lines name plus the old commit sharing its subject. Finds a
+ * `Squashes:` sha the old range never names — neither an old commit nor an
+ * earlier fold's member an old commit lists — such as a split head's replayed
+ * sha, a new commit with no member, a new commit touching a path no member
+ * touched, and an old commit owned by no new commit or by several. A
+ * Fork-Repair commit may split across owners, and so may any old commit every
+ * owner cites under `Squashes:`: a mover split back into the owners whose
+ * blocks it moved.
  */
 export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
   const findings: string[] = [];
   const owners = new Map<string, { short: string; cites: boolean }[]>(
     old.commits.map((commit) => [commit.sha, []]),
   );
+  const named = old.commits.flatMap((commit) => [commit.sha, ...squashesShas(commit.message)]);
   for (const commit of next.commits) {
-    const cited = squashesLines(commit.message).map((line) => line.slice(2).split(/\s/)[0] ?? "");
+    const cited = squashesShas(commit.message);
+    const label = `${commit.short} ${commit.subject}`;
+    for (const sha of cited) {
+      if (named.some((name) => name.startsWith(sha) || sha.startsWith(name))) continue;
+      findings.push(`${label}: cites ${sha}, which the old range never names`);
+    }
     const members = old.commits.filter(
       (member) =>
         member.subject === commit.subject || cited.some((sha) => member.sha.startsWith(sha)),
     );
-    const label = `${commit.short} ${commit.subject}`;
     if (members.length === 0) {
       findings.push(`${label}: names no commit in the old range`);
       continue;
@@ -760,12 +811,17 @@ export const run = (
       return 0;
     }
     if (subcommand === "apply") {
-      const args = parseArgs(rest, { values: ["--base", "--head"], positionals: 1 });
-      const stack = readStack(
-        git,
-        args.values.get("--base") ?? "upstream/main",
-        args.values.get("--head") ?? "HEAD",
-      );
+      const args = parseArgs(rest, { values: ["--base", "--head", "--old"], positionals: 1 });
+      const base = args.values.get("--base") ?? "upstream/main";
+      const head = readStack(git, base, args.values.get("--head") ?? "HEAD");
+      const oldRef = args.values.get("--old");
+      const piece = head.commits.find(isSplitPiece);
+      if (oldRef === undefined && piece !== undefined) {
+        throw new FoldError(
+          `${piece.short} ${piece.subject}: --head is a split head; pass --old <pre-split tip> so its folds cite <old> shas`,
+        );
+      }
+      const stack = oldRef === undefined ? head : citeOld(head, readStack(git, base, oldRef));
       const planPath = args.positionals[0] ?? "";
       const planText = readPlan(NodePath.resolve(cwd, planPath));
       const plan = parsePlan(planText);
