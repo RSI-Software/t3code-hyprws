@@ -18,7 +18,7 @@ import {
 } from "../components/threadActionMenu.logic";
 import { reportResetOrderThreadAction } from "./useThreadActionMenu.fork"; // fork-hook: thread-ordering/reset-order-dispatch-import
 import {
-  forkInFlight,
+  forkRefInFlightFork, // fork-hook: thread-fork/header-in-flight-import
   forkThreadMenuStateFork,
   forkThreadStateTailFork, // fork-hook: thread-fork/header-state-import
   readForkProviderFork,
@@ -165,7 +165,7 @@ export function useThreadActionMenu(input: {
           hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
           fork: forkThreadMenuStateFork(
             readForkProviderFork(threadRef, thread),
-            forkInFlight(scopedThreadKey(threadRef)),
+            forkRefInFlightFork(threadRef), // fork-hook: thread-fork/header-in-flight
             ...forkThreadStateTailFork(thread, now.toISOString()), // fork-hook: thread-fork/header-state
           ),
           openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state

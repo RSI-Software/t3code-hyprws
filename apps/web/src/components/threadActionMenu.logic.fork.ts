@@ -1,5 +1,8 @@
 import type { ContextMenuItem, ProviderDriverKind } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  threadRuntimeIsActive,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import { hasQueuedTurnStart } from "@t3tools/client-runtime/state/thread-settled";
 
 import type { ThreadActionMenuId, ThreadActionMenuState } from "./threadActionMenu.logic.ts";
@@ -30,9 +33,6 @@ export function openInNewWindowMenuItems(
     : [];
 }
 
-/** Providers whose native sessions the server can fork. */
-const FORKABLE_THREAD_PROVIDERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
-
 export interface ForkableThreadProviderState {
   readonly provider: ProviderDriverKind;
   /** A running or queued turn or a pending request blocks the fork client-side too. */
@@ -40,38 +40,35 @@ export interface ForkableThreadProviderState {
   readonly inFlight: boolean;
 }
 
-/**
- * Menu state for the Fork action: present only for Claude and Codex threads,
- * disabled while the thread is busy (the server guard stays authoritative)
- * or while a fork RPC for any thread is still in flight.
- */
 /** The quiescence slice of the shell the fork busy check reads. */
 export type ForkThreadShell = Pick<
   EnvironmentThreadShell,
-  "latestTurn" | "session" | "hasPendingApprovals" | "hasPendingUserInput" | "latestUserMessageAt"
+  "latestRun" | "runtime" | "hasPendingApprovals" | "hasPendingUserInput" | "latestUserMessageAt"
 >;
 
+/**
+ * Menu state for the Fork action. V2 `thread.fork` copies the thread from its
+ * latest stable run: natively when the provider can fork, otherwise as a
+ * portable context handoff, so any configured provider qualifies once the
+ * thread has run. Disabled while the thread is busy (the orchestrator stays
+ * authoritative) or while a fork for that thread is still in flight.
+ */
 export function forkThreadMenuStateFork(
   driver: ProviderDriverKind | null | undefined,
   inFlight: boolean,
   thread: ForkThreadShell,
   now: string,
 ): ForkableThreadProviderState | null {
-  if (driver === null || driver === undefined || !FORKABLE_THREAD_PROVIDERS.has(driver)) {
-    return null;
-  }
+  if (driver === null || driver === undefined || thread.latestRun === null) return null;
   const busy =
-    thread.latestTurn?.state === "running" ||
-    thread.session?.activeTurnId != null ||
-    thread.session?.status === "running" ||
-    thread.session?.status === "starting" ||
+    threadRuntimeIsActive(thread.runtime) ||
     thread.hasPendingApprovals ||
     thread.hasPendingUserInput ||
     hasQueuedTurnStart(
       {
         latestUserMessageAt: thread.latestUserMessageAt,
-        latestTurn: thread.latestTurn,
-        session: thread.session,
+        latestRun: thread.latestRun,
+        runtime: thread.runtime,
       },
       { now },
     );
@@ -88,7 +85,7 @@ export const forkThreadStateTailFork = (
   now: string,
 ): [thread: ForkThreadShell, now: string] => [thread, now];
 
-/** The Fork entry, hidden entirely for every other provider. */
+/** The Fork entry, hidden until the thread has a run to fork from. */
 export function forkThreadMenuItems(
   state: Pick<ThreadActionMenuState, "fork">,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
