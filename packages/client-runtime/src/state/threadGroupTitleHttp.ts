@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { HttpClient } from "effect/unstable/http";
 
+import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
@@ -22,16 +23,20 @@ export const fetchEnvironmentThreadGroupTitle = Effect.fn(
   readonly prepared: PreparedConnection;
   readonly request: ThreadGroupTitleGenerationInput;
   readonly signer: Option.Option<ManagedRelayDpopSigner["Service"]>;
+  readonly remoteAuthorization?: Option.Option<
+    RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization["Service"]
+  >;
   readonly timeoutMs?: number;
 }) {
   return yield* executeAuthenticatedEnvironmentHttpRequest({
     ...input,
+    group: "orchestration",
     method: "POST",
     url: (httpBaseUrl) =>
       environmentEndpointUrl(httpBaseUrl, "/api/orchestration/thread-group-title"),
     timeoutMs: input.timeoutMs ?? DEFAULT_THREAD_GROUP_TITLE_TIMEOUT_MS,
     request: ({ client, headers }) =>
-      client.orchestration.generateThreadGroupTitle({ payload: input.request, headers }),
+      client.generateThreadGroupTitle({ payload: input.request, headers }),
   });
 });
 
@@ -54,9 +59,12 @@ export const threadGroupTitleLoaderLayer: Layer.Layer<
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
     const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
+    const remoteAuthorization = yield* Effect.serviceOption(
+      RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+    );
     return ThreadGroupTitleLoader.of({
       generate: (prepared, request) =>
-        fetchEnvironmentThreadGroupTitle({ prepared, request, signer }).pipe(
+        fetchEnvironmentThreadGroupTitle({ prepared, request, signer, remoteAuthorization }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
         ),
     });
