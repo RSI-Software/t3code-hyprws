@@ -2,10 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
 
-import {
-  allEnvironmentShellsBootstrappedAtom,
-  environmentShellBootstrappedAtom,
-} from "../../state/shell";
+import { allEnvironmentShellsBootstrappedAtom } from "../../state/shell";
+import { environmentShellBootstrappedAtom } from "../../state/windowProjectBootstrap.fork";
 import {
   type WindowProjectListScope,
   type WindowProjectScopeParam,

@@ -19,14 +19,17 @@ import * as Option from "effect/Option";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import {
   formatClearWorkspaceWindowRule,
+  formatMoveToWorkspaceRequest,
   formatSuppressActivationWindowRule,
   formatWorkspaceArgument,
   formatWorkspaceWindowRule,
   parseHyprlandClients,
   readHyprlandSocketEnvironment,
   requestHyprland,
+  resolveHyprlandWindowRuleGrammar,
   selectClientForWindow,
   type HyprlandSocketEnvironment,
+  type HyprlandWindowRuleGrammar,
   type HyprlandWorkspaceRef,
 } from "./hyprland.ts";
 
@@ -71,6 +74,7 @@ export const make = (options: {
     const isAvailable = (options.environment.instanceSignature?.trim() ?? "").length > 0;
     const claimAttempts = options.claimAttempts ?? CLAIM_ATTEMPTS;
     const claimIntervalMs = options.claimIntervalMs ?? CLAIM_INTERVAL_MS;
+    let windowRuleGrammar: HyprlandWindowRuleGrammar | undefined;
 
     const request = (payload: string) =>
       Effect.tryPromise(() => requestHyprland(options.environment, payload)).pipe(Effect.option);
@@ -78,6 +82,20 @@ export const make = (options: {
     const readClients = request("j/clients").pipe(
       Effect.map((payload) => (Option.isSome(payload) ? parseHyprlandClients(payload.value) : [])),
     );
+
+    const resolveWindowRuleGrammar = Effect.fn("desktop.hyprland.windowRuleGrammar")(function* () {
+      if (windowRuleGrammar !== undefined) return windowRuleGrammar;
+      const version = yield* request("j/version");
+      const status = yield* request("j/status");
+      windowRuleGrammar =
+        Option.isSome(version) && Option.isSome(status)
+          ? resolveHyprlandWindowRuleGrammar({
+              versionPayload: version.value,
+              statusPayload: status.value,
+            })
+          : "legacy";
+      return windowRuleGrammar;
+    });
 
     const claim = Effect.fn("desktop.hyprland.claim")(function* (key: string, title: string) {
       if (!isAvailable || addressesByKey.has(key)) return;
@@ -120,12 +138,12 @@ export const make = (options: {
       workspace: HyprlandWorkspaceRef,
     ) {
       if (!isAvailable) return false;
-      const workspacePayload = formatWorkspaceWindowRule(workspace, title);
-      const suppressionPayload = formatSuppressActivationWindowRule(title);
+      const grammar = yield* resolveWindowRuleGrammar();
+      const workspacePayload = formatWorkspaceWindowRule(workspace, title, grammar);
+      const suppressionPayload = formatSuppressActivationWindowRule(title, grammar);
       if (workspacePayload === null || suppressionPayload === null) return false;
-      // The exact worktree title keeps the activation guard safe to retain.
-      // Hyprland has no single-runtime-rule removal; retaining it also covers
-      // every Electron restart owned by the development watcher.
+      // The exact worktree title keeps the activation guard safe to retain,
+      // which also covers every Electron restart owned by the development watcher.
       const workspaceResult = yield* request(workspacePayload);
       const suppressionResult = yield* request(suppressionPayload);
       return Option.isSome(workspaceResult) && Option.isSome(suppressionResult);
@@ -135,7 +153,8 @@ export const make = (options: {
       title: string,
     ) {
       if (!isAvailable) return;
-      const payload = formatClearWorkspaceWindowRule(title);
+      const grammar = yield* resolveWindowRuleGrammar();
+      const payload = formatClearWorkspaceWindowRule(title, grammar);
       if (payload !== null) yield* request(payload);
     });
 
@@ -145,8 +164,9 @@ export const make = (options: {
     ) {
       const address = addressesByKey.get(key);
       if (!isAvailable || address === undefined) return;
+      const grammar = yield* resolveWindowRuleGrammar();
       const target = formatWorkspaceArgument(workspace);
-      yield* request(`/dispatch movetoworkspacesilent ${target},address:${address}`);
+      yield* request(formatMoveToWorkspaceRequest(workspace, address, grammar));
       yield* logPlacementDebug("window returned to workspace", { key, workspace: target });
     });
 
