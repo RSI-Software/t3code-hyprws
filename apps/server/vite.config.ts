@@ -94,6 +94,13 @@ export default mergeConfig(
           command: "effect-tsgo tsrs --noEmit",
           cache: { input: [{ auto: true }, "!*.tsbuildinfo"] },
         },
+        // Development-only server refresh: reuses the packed bin without
+        // cleaning (dist/client survives) and without the web build
+        // dependency (the desktop renderer is the Vite dev server).
+        "dev:bundle": {
+          command: "node --run build:bundle:dev",
+          cache: false,
+        },
       },
     },
     pack: {
