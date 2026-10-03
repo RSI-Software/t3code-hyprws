@@ -29,14 +29,20 @@ export function ShowIgnoredFilesButton(props: { shown: boolean; onToggle: () => 
 }
 
 /**
+ * The show-ignored-files client setting as an explicit boolean. The lazy directory
+ * entries hook reads it, so its upstream signature stays unchanged and every
+ * entries input carries `includeIgnored` (false when hiding).
+ */
+export function useShowIgnoredFiles(): boolean {
+  return useClientSettings((settings) => settings.showIgnoredFiles) === true;
+}
+
+/**
  * Fork-owned preference binding for the file browser: reads the show-ignored-files
- * client setting and hands the panel the updater for its toggle. The listing itself
- * stays target-owned — the panel threads the preference into its lazy directory
- * entries hook, which sends an explicit `includeIgnored` boolean (false when
- * hiding) on every entries input.
+ * client setting and hands the panel the updater for its toggle.
  */
 export function useIgnoredFilesPreference() {
-  const showIgnoredFiles = useClientSettings((settings) => settings.showIgnoredFiles);
+  const showIgnoredFiles = useShowIgnoredFiles();
   const updateClientSettings = useUpdateClientSettings();
   return { showIgnoredFiles, updateClientSettings };
 }
