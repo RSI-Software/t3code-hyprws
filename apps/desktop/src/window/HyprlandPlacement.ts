@@ -63,7 +63,7 @@ export class HyprlandPlacement extends Context.Service<
   }
 >()("@t3tools/desktop/window/HyprlandPlacement") {}
 
-export const make = (options: {
+const make = (options: {
   readonly environment: HyprlandSocketEnvironment;
   readonly pid: number;
   readonly claimAttempts?: number;
