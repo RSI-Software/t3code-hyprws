@@ -6,6 +6,7 @@ export * from "./background.ts";
 export * from "./auth.ts";
 export * from "./environment.ts";
 export * from "./environment.fork.ts";
+export * from "./environmentHttp.fork.ts"; // fork-hook: custom-agents/environment-http-reexport
 export * from "./environmentHttp.ts";
 export * from "./localServerDiscovery.ts";
 export * from "./relayClient.ts";

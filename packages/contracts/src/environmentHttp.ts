@@ -32,6 +32,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ForkResourceNotFoundReason } from "./environmentHttp.fork.ts"; // fork-hook: custom-agents/not-found-reason-import
 import {
   ClientOrchestrationCommand,
   DispatchResult,
@@ -199,16 +200,19 @@ export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInte
 
 export const EnvironmentResourceNotFoundReason = Schema.Literals([
   "thread_not_found",
-  "agent_not_found",
   "project_not_found",
 ]);
 export type EnvironmentResourceNotFoundReason = typeof EnvironmentResourceNotFoundReason.Type;
+const ForkNotFoundReason = Schema.Union([
+  EnvironmentResourceNotFoundReason,
+  ForkResourceNotFoundReason,
+]); // fork-hook: custom-agents/not-found-reason
 
 export class EnvironmentResourceNotFoundError extends Schema.TaggedError<EnvironmentResourceNotFoundError>()(
   "EnvironmentResourceNotFoundError",
   {
     code: Schema.Literal("not_found"),
-    reason: EnvironmentResourceNotFoundReason,
+    reason: ForkNotFoundReason, // fork-hook: custom-agents/not-found-reason-field
     traceId: TrimmedNonEmptyString,
   },
   { httpApiStatus: 404 },
