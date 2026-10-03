@@ -210,6 +210,24 @@ it("renders a fixup member as the repair it carries, once per repair, and refuse
   );
 });
 
+it("lists a squash-landed fixup as a member, keeping its pull request link", () => {
+  const owner = commit("aaaa1111", {
+    subject: "feat: alpha feature (#31)",
+    message: "feat: alpha feature (#31)\n",
+  });
+  const landed = commit("cccc2222", {
+    subject: "fixup! feat: alpha feature (#31) (#1567)",
+    message: "fixup! feat: alpha feature (#31) (#1567)\n\nFork-Domain: fold-a\nFork-Tier: core",
+  });
+  const folded = foldMessage({ members: [owner, landed] });
+  assert.include(folded, "- cccc2222 fixup! feat: alpha feature (#31) (#1567)");
+  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "cccc2222"]);
+  assert.deepStrictEqual(forkPullRequests(folded), [
+    "RSI-Software/t3code-hyprws#31",
+    "RSI-Software/t3code-hyprws#1567",
+  ]);
+});
+
 it("carries an earlier fold's links into the next fold", () => {
   const earlier = commit("cccc3333", {
     subject: "feat(web): folded (#1355)",
