@@ -260,6 +260,7 @@ function layerTest(input: {
   readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
   readonly workspaceMoves?: { key: string; workspace: string }[];
   readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
+  readonly placementLifecycle?: string[];
   readonly revealRequests?: number[];
   readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
@@ -305,15 +306,18 @@ function layerTest(input: {
     workspaceOf: () => Effect.succeed(Option.none()),
     stageWorkspaceRule: (title, workspace) =>
       Effect.sync(() => {
+        input.placementLifecycle?.push(`stage:${workspace.name}`);
         input.workspaceRuleEvents?.push({ action: "stage", title, workspace: workspace.name });
         return true;
       }),
     clearWorkspaceRule: (title) =>
       Effect.sync(() => {
+        input.placementLifecycle?.push("clear");
         input.workspaceRuleEvents?.push({ action: "clear", title });
       }),
     moveToWorkspace: (key, workspace) =>
       Effect.sync(() => {
+        input.placementLifecycle?.push(`move:${workspace.name}`);
         input.workspaceMoves?.push({ key, workspace: workspace.name });
       }),
   } satisfies HyprlandPlacement.HyprlandPlacement["Service"]);
@@ -1074,6 +1078,10 @@ describe("DesktopWindow", () => {
         title: string;
         workspace?: string;
       }[] = [];
+      const placementLifecycle: string[] = [];
+      fakeWindow.setTitle.mockImplementation((title) => {
+        placementLifecycle.push(`title:${title}`);
+      });
       const revealRequests: number[] = [];
       const layer = makeTestLayer({
         window: fakeWindow.window,
@@ -1082,6 +1090,7 @@ describe("DesktopWindow", () => {
         createdWindowOptions,
         workspaceMoves,
         workspaceRuleEvents,
+        placementLifecycle,
         revealRequests,
         environmentEnv: {
           T3CODE_DESKTOP_DEVTOOLS: "0",
@@ -1115,6 +1124,13 @@ describe("DesktopWindow", () => {
         assert.deepEqual(fakeWindow.setTitle.mock.calls, [
           ["t3code-dev-agent-test"],
           ["T3 Code (Dev)"],
+        ]);
+        assert.deepEqual(placementLifecycle, [
+          "stage:8",
+          "title:t3code-dev-agent-test",
+          "title:T3 Code (Dev)",
+          "move:8",
+          "clear",
         ]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
