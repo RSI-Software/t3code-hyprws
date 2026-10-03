@@ -9529,7 +9529,7 @@ export default function ChatView(props: ChatViewProps) {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
-                      ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}),
+                      ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send
                     },
                     runSetupScript: true,
                   }
