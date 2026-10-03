@@ -2713,7 +2713,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const targetDir = worktreePath ?? input.cwd;
     const expectedMatch = worktreePath === null ? "workspace-main" : "worktree";
     const spawnEnv = stripInheritedTmuxEnv(
-      createTerminalSpawnEnv(baseEnv, normalizedRuntimeEnv(input.env)),
+      createTerminalSpawnEnv(baseEnv, normalizedRuntimeEnv(input.env), platform), // fork-hook: zmux-estate/retarget-spawn-env-platform
     );
     const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
     if (!resolved.candidate || !resolved.target) {
