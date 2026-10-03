@@ -12,11 +12,14 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, vi } from "vite-plus/test";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
+import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
 import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
 
@@ -361,5 +364,85 @@ describe("fork preview IPC ownership", () => {
         });
       }),
     );
+  });
+
+  // Fork handlers resolve the sender's window before any preview state (commit `70240ecf8e5`).
+  forkSupersedes({
+    upstream:
+      "apps/desktop/src/ipc/methods/preview.test.ts > rejects invalid webContents ids before resolving the preview service",
+    reason:
+      "fork preview handlers resolve the sender window first, so they require the ElectronWindow service the upstream case never provides",
+    commit: "70240ecf8e5",
+  });
+  effectIt.effect("rejects invalid webContents ids before resolving the sender window", () =>
+    Effect.map(
+      PreviewIpc.registerWebview
+        .handler({ tabId: "tab-1", webContentsId: 0 })
+        .pipe(
+          Effect.provideService(ElectronWindow.ElectronWindow, null as never),
+          Effect.provideService(PreviewManager.PreviewManager, null as never),
+          Effect.exit,
+        ),
+      (exit) => {
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isSuccess(exit)) return;
+        const error = Cause.findErrorOption(exit.cause);
+        expect(Option.isSome(error) && Schema.isSchemaError(error.value)).toBe(true);
+        expect(fromPartition).not.toHaveBeenCalled();
+      },
+    ),
+  );
+
+  // Fork automation status reads the sender window's own preview manager (commit `70240ecf8e5`).
+  forkSupersedes({
+    upstream:
+      "apps/desktop/src/ipc/methods/preview.test.ts > returns automation status for long runtime tab ids",
+    reason:
+      "fork automation status resolves the sender window's preview manager, so it needs a sender and the ElectronWindow service the upstream case never provides",
+    commit: "70240ecf8e5",
+  });
+  effectIt.effect("returns automation status for long tab ids from the sender's window", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const sender = { id: 7 } as Electron.WebContents;
+    const senderWindow = {} as Electron.BrowserWindow;
+    fromId.mockReturnValue(sender);
+    fromWebContents.mockReturnValue(senderWindow);
+
+    return Effect.gen(function* () {
+      const tabId =
+        `["environment-1","thread:delegated-task:${"a".repeat(120)}",` +
+        `"server-epoch-1","preview-1"]`;
+      const status = {
+        available: false,
+        visible: true,
+        tabId,
+        url: null,
+        title: null,
+        loading: false,
+      };
+
+      const owners: unknown[] = [];
+      const recordOwner = (owner: unknown) => Effect.sync(() => owners.push(owner));
+      const automation = Effect.succeed({
+        automationStatus: () => Effect.succeed(status),
+      } as never);
+
+      expect(tabId.length).toBeGreaterThan(128);
+      expect(
+        yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
+          Effect.provideService(ElectronWindow.ElectronWindow, {
+            windowIdFor: () => Effect.succeed(Option.some(hubWindowId)),
+          } as never),
+          Effect.provideService(PreviewManager.PreviewManager, {
+            forWindow: (owner: unknown) => Effect.andThen(recordOwner(owner), automation),
+          } as never),
+        ),
+      ).toEqual(status);
+      expect(owners).toEqual([hubWindowId]);
+      expect(owners).not.toContainEqual(identity);
+    });
   });
 });
