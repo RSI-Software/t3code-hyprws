@@ -119,7 +119,12 @@ import {
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
-import { checkoutMoveMetadataFork, refuseCheckoutMoveDuringRunFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
+import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
+import {
+  checkoutMoveMetadataFork,
+  detachesCheckoutRecoveryInlineFork,
+  refuseCheckoutMoveDuringRunFork,
+} from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -3138,6 +3143,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: updatedThread,
     });
+    yield* recordCheckoutRecoveryFork({
+      command,
+      thread: updatedThread,
+      readRuns: projectionStore.getThreadRecords(command.threadId, ["runs"]),
+      runtimePolicy,
+      checkpointService,
+      emit: emit(events, command),
+      now,
+    }).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-record
 
     if (command.type === "thread.metadata.update" && command.regenerateTitle === true) {
       yield* Ref.update(effects, (existing) => [
@@ -3291,6 +3305,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               },
             } satisfies PendingOrchestrationEffectV2;
             yield* Ref.update(effects, (existing) => [...existing, pendingEffect]);
+            yield* detachesCheckoutRecoveryInlineFork(
+              command,
+              projectionStore.getThreadRecords(command.threadId, ["runs"]),
+              effects,
+              pendingEffect,
+            ).pipe(mapDispatchError(command)); // fork-hook: zmux-estate/decider-recovery-inline-detach
           }),
         { concurrency: 1, discard: true },
       );

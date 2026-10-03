@@ -1,6 +1,6 @@
-// Fork-only (zmux-estate): the physical identity of a checkout, and the leased
-// re-verification a checkout move commits under.
-import { type CheckoutPhysicalIdentity } from "@t3tools/contracts";
+// Fork-only (zmux-estate): the physical identity of a checkout, which threads
+// are busy on one, and the leased re-verification a checkout move commits under.
+import { type CheckoutPhysicalIdentity, type OrchestrationV2ThreadShell } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
@@ -13,6 +13,17 @@ export class CheckoutMoveValidationError extends Schema.TaggedError<CheckoutMove
   "CheckoutMoveValidationError",
   { reason: Schema.String },
 ) {}
+
+/**
+ * A thread is busy on its checkout from the moment its run is queued until the
+ * run settles; a run waiting on a runtime request still owns the checkout.
+ */
+export const isThreadBusyOnCheckoutFork = (
+  thread: Pick<OrchestrationV2ThreadShell, "activeRunId" | "activityRunStatus" | "status">,
+) =>
+  thread.activeRunId !== null ||
+  (thread.activityRunStatus ?? null) !== null ||
+  thread.status === "queued";
 
 export const sameCheckoutIdentity = (
   left: CheckoutPhysicalIdentity,
