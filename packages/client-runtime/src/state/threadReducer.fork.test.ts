@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EventId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import type { OrchestrationThread } from "@t3tools/contracts";
 import { applyThreadDetailEvent } from "./threadReducer.ts";
+import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
 const baseEventFields = {
   eventId: EventId.make("event-1"),
   commandId: null,
@@ -156,6 +157,59 @@ describe("applyThreadDetailEvent", () => {
           "activity-live-running",
         ]);
         expect(result.thread.activities[2]?.sequence).toBe(12);
+      }
+    });
+    forkSupersedes({
+      upstream:
+        "packages/client-runtime/src/state/threadReducer.test.ts > repairs snapshot ordering before fast-path appends engage",
+      reason:
+        "unsequenced activities predate server-side sequencing, so the fork orders them before sequenced ones instead of last",
+      commit: "060b0670edf",
+    });
+    it("repairs snapshot ordering before fast-path appends engage, unsequenced rows first", () => {
+      const makeActivity = (id: string, sequence: number | null) => ({
+        id: EventId.make(id),
+        tone: "tool" as const,
+        kind: "command",
+        summary: `Ran ${id}`,
+        payload: {},
+        turnId: TurnId.make("turn-1"),
+        ...(sequence === null ? {} : { sequence }),
+        createdAt: "2026-04-01T11:00:00.000Z",
+      });
+      // A snapshot arrives in DB order, which can transpose sequenced rows and
+      // leads with the unsequenced ones; an in-order live append must repair
+      // that whole prefix rather than freeze it behind the fast path.
+      const result = applyThreadDetailEvent(
+        {
+          ...baseThread,
+          activities: [
+            makeActivity("activity-null", null),
+            makeActivity("activity-b", 2),
+            makeActivity("activity-a", 1),
+          ],
+        },
+        {
+          ...baseEventFields,
+          sequence: 135,
+          occurredAt: "2026-04-01T11:01:00.000Z",
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          type: "thread.activity-appended",
+          payload: {
+            threadId: ThreadId.make("thread-1"),
+            activity: makeActivity("activity-c", 3),
+          },
+        },
+      );
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.activities.map((activity) => activity.id)).toEqual([
+          "activity-null",
+          "activity-a",
+          "activity-b",
+          "activity-c",
+        ]);
       }
     });
   });
