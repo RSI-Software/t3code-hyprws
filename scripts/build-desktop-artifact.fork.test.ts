@@ -1,8 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 
-import { createBuildConfig, resolveDesktopUpdateChannel } from "./build-desktop-artifact.ts";
+import {
+  createBuildConfig,
+  resolveDesktopUpdateChannel,
+  resolveGitHubPublishConfig,
+} from "./build-desktop-artifact.ts";
+import { forkSupersedes } from "./lib/fork-supersedes.ts";
 
 it("resolves updater channels for upstream and fork release versions", () => {
   assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
@@ -36,3 +42,39 @@ it.layer(NodeServices.layer)((it) => {
     }),
   );
 });
+
+// electron-updater names the channel file after the release tag's first
+// prerelease identifier, so fork nightlies publish to `hyprws-nightly`.
+forkSupersedes({
+  upstream:
+    "scripts/build-desktop-artifact.test.ts > resolves GitHub desktop publish config from Effect config",
+  reason:
+    "fork nightly tags carry the hyprws-nightly prerelease identifier, so the nightly feed publishes to that channel instead of upstream's nightly",
+  commit: "13e0dffa54c",
+});
+it.effect("publishes fork nightlies to the hyprws-nightly update channel", () =>
+  Effect.gen(function* () {
+    const publishConfig = (channel: "latest" | "nightly") =>
+      resolveGitHubPublishConfig(channel).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "RSI-Software/t3code-hyprws" } }),
+          ),
+        ),
+      );
+
+    assert.deepStrictEqual(yield* publishConfig("latest"), {
+      provider: "github",
+      owner: "RSI-Software",
+      repo: "t3code-hyprws",
+      releaseType: "release",
+    });
+    assert.deepStrictEqual(yield* publishConfig("nightly"), {
+      provider: "github",
+      owner: "RSI-Software",
+      repo: "t3code-hyprws",
+      releaseType: "prerelease",
+      channel: "hyprws-nightly",
+    });
+  }),
+);
