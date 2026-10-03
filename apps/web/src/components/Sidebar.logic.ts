@@ -1047,16 +1047,7 @@ export function resolveScopedNewThreadProjectRef<
   );
 }
 
-export function isProjectInSidebarScope(
-  projectRef: ScopedProjectRef,
-  forcedProjectRef: ScopedProjectRef | null,
-): boolean {
-  return (
-    forcedProjectRef === null ||
-    (projectRef.environmentId === forcedProjectRef.environmentId &&
-      projectRef.projectId === forcedProjectRef.projectId)
-  );
-}
+export { isProjectInSidebarScope } from "./sidebar/SidebarPhysicalScope";
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
