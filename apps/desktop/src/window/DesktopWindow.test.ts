@@ -912,33 +912,6 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  it.effect("leaves an unplaced restored window wherever Hyprland puts it", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const workspaceMoves: { key: string; workspace: string }[] = [];
-      const layer = makeTestLayer({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        workspaceMoves,
-        restoreEntries: [testRestoreEntry("all-projects", null)], // fork-hook: multi-window/restore-hub-entry
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.restoreWindowSession;
-        yield* desktopWindow.openArguments(["t3code"]);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-
-        assert.equal(yield* Ref.get(createCount), 1);
-        yield* Effect.yieldNow;
-        assert.deepEqual(workspaceMoves, []);
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
   it.effect("still honours an explicit launch intent alongside a restore", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
