@@ -112,6 +112,7 @@ import {
 } from "../../provider/Layers/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { withoutProviderSessionIdentity } from "../../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/codex-shared-identity-import
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -1396,8 +1397,9 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
       open: (input) =>
         Effect.gen(function* () {
           const scope = yield* Scope.Scope;
+          const forkSharedEnvironment = withoutProviderSessionIdentity(input.environment); // fork-hook: upstream-fixes/codex-shared-identity
           const environment = {
-            ...input.environment,
+            ...forkSharedEnvironment, // fork-hook: upstream-fixes/codex-shared-identity-env
             ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
           };
           const command = yield* makeCodexAppServerSpawnCommand({

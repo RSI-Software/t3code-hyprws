@@ -31,6 +31,10 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { signalProcessGroup } from "../../process/processGroup.ts";
+import {
+  type ProviderSessionIdentity,
+  withSessionIdentityWhenKnown,
+} from "../providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/acp-session-identity-import
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
 import {
   collectSessionConfigOptionValues,
@@ -94,6 +98,7 @@ export interface AcpSpawnInput {
 
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-session-identity-option
   readonly cwd: string;
   readonly resumeSessionId?: string;
   readonly resumeMethod?: "load" | "resume";
@@ -1588,11 +1593,15 @@ export const make = (
             ELECTRON_RUN_AS_NODE: "1",
             T3_ACP_CGROUP_WRAPPER: "1",
           };
+    const forkSpawnEnv = withSessionIdentityWhenKnown(
+      spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment },
+      options.sessionIdentity,
+    ); // fork-hook: upstream-fixes/acp-session-identity
     const child = yield* spawner
       .spawn(
         ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
           ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
-          env: spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment }, // fork-hook: upstream-fixes/acp-spawn-environment
+          env: forkSpawnEnv, // fork-hook: upstream-fixes/acp-session-identity-env
           extendEnv: false,
           ...(options.ownDetachedProcessGroup === undefined
             ? {}

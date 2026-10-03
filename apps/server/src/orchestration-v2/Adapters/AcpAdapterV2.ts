@@ -64,6 +64,10 @@ import {
 } from "../../mcp/AcpMcpOverAcpBridge.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
+  providerSessionIdentity,
+  type ProviderSessionIdentity,
+} from "../../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/acp-adapter-session-identity-import
+import {
   applyAcpAgentTerminalUpdate,
   acpContentBlockDisplayText,
   embeddedTerminalIdsFromSessionUpdate,
@@ -138,6 +142,7 @@ export interface AcpAdapterV2RuntimeInput {
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Scoped credentials for terminal fallback when an ACP agent drops `mcpServers`. */
   readonly processEnvironment?: NodeJS.ProcessEnv;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-adapter-session-identity-field
   readonly resumeSessionId?: string;
   readonly interruptPromptOnCancel?: boolean;
   readonly clientCapabilities: EffectAcpSchema.InitializeRequest["clientCapabilities"];
@@ -2012,6 +2017,7 @@ export function makeAcpAdapterV2(
             handleRuntimeTerminationAtGeneration(runtimeGeneration),
         ): AcpAdapterV2RuntimeInput => {
           const mcpContext = acpMcpContext(threadId, self);
+          const forkSessionIdentity = providerSessionIdentity(input); // fork-hook: upstream-fixes/acp-adapter-session-identity
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
@@ -2020,6 +2026,7 @@ export function makeAcpAdapterV2(
             ...(mcpContext.processEnvironment === undefined
               ? {}
               : { processEnvironment: mcpContext.processEnvironment }),
+            sessionIdentity: forkSessionIdentity, // fork-hook: upstream-fixes/acp-adapter-session-identity-input
             ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
             interruptPromptOnCancel: flavor.interruptPromptOnCancel ?? false,
             clientCapabilities: {

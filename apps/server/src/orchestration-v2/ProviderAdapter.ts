@@ -383,6 +383,7 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly initialNativeThreadId?: string;
   /** Preserves provider item identity across eager activation of a persisted thread. */
   readonly initialProviderItemIdentityVersion?: 2;
+  readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/open-session-project-id
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {
