@@ -26,10 +26,6 @@ export function windowIdentityKey(identity: WindowIdentity): string {
     : `project:${encodeURIComponent(identity.ref.environmentId)}:${encodeURIComponent(identity.ref.projectId)}`;
 }
 
-export function windowIdentityEquals(left: WindowIdentity, right: WindowIdentity): boolean {
-  return windowIdentityKey(left) === windowIdentityKey(right);
-}
-
 export function readProjectWindowPreloadRef(argv: readonly string[]): ScopedProjectRef | null {
   const parts = readProjectWindowPreloadParts(argv);
   return parts === null
