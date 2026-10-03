@@ -220,6 +220,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
+import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -3800,6 +3801,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               // mutation invalidates the HTTP diff cache that every client reads from.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
+              Layer.provide(sharedCheckoutWsLayerFork), // fork-hook: zmux-estate/ws-shared-checkout-lease
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

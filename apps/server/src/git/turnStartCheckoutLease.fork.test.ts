@@ -54,7 +54,7 @@ describe("resolveTurnCheckoutFork", () => {
         },
         "/repo",
       ).pipe(Effect.flip);
-      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+      expect(error._tag).toBe("TurnStartCheckoutUnresolvedError");
       expect(error.detail).toContain("/repo");
       expect(error.cause).toBeInstanceOf(VcsProcessSpawnError);
     }),
