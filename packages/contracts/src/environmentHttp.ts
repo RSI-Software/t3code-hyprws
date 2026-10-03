@@ -198,10 +198,7 @@ export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInte
   }
 }
 
-export const EnvironmentResourceNotFoundReason = Schema.Literals([
-  "thread_not_found",
-  "project_not_found",
-]);
+export const EnvironmentResourceNotFoundReason = Schema.Literals(["thread_not_found"]);
 export type EnvironmentResourceNotFoundReason = typeof EnvironmentResourceNotFoundReason.Type;
 const ForkNotFoundReason = Schema.Union([
   EnvironmentResourceNotFoundReason,
