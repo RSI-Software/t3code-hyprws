@@ -342,11 +342,10 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
-  state?: OrchestrationLatestTurn["state"];
 }): OrchestrationLatestTurn {
   return {
     turnId: "turn-1" as never,
-    state: overrides?.state ?? "completed",
+    state: "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
     startedAt:
