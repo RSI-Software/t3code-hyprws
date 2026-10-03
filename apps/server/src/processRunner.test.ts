@@ -16,8 +16,6 @@ type ChildProcessCommand = {
   readonly args: ReadonlyArray<string>;
   readonly options: {
     readonly shell?: boolean | string;
-    readonly env?: NodeJS.ProcessEnv;
-    readonly extendEnv?: boolean;
   };
 };
 
