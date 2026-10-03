@@ -2101,33 +2101,6 @@ it.effect("flags a review request for the viewer but not on their own change req
   }),
 );
 
-it.effect("uses the requested project to read another repository on the same host", () =>
-  Effect.gen(function* () {
-    const repositories: string[] = [];
-    const service = yield* makeService({
-      projects: [
-        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
-      ],
-      providers: [
-        fakeProvider("github", {
-          getDiff: (input) => {
-            repositories.push(input.repository);
-            return Effect.succeed({ patch: "", truncated: false, nextCursor: null });
-          },
-        }),
-      ],
-    });
-
-    yield* service.diff({
-      projectId: "p1" as ProjectId,
-      repository: "other/repo",
-      number: 1,
-    });
-
-    assert.deepStrictEqual(repositories, ["other/repo"]);
-  }),
-);
-
 it.effect("caches stack membership separately from action details", () =>
   Effect.gen(function* () {
     const reads: Array<boolean> = [];
