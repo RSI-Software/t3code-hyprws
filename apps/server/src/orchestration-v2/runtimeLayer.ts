@@ -250,6 +250,7 @@ const threadLaunchProvided = threadLaunchServiceLayer.pipe(
       threadManagementProvided,
       commandReceiptStoreProvided,
       idAllocatorLayer,
+      eventSinkProvided, // fork-hook: zmux-estate/launch-worktree-integration-notice-sink
     ),
   ),
 );
