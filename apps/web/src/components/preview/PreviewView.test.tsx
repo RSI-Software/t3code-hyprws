@@ -50,12 +50,12 @@ const STUB_BROWSER_DEFAULTS = {
   profileId: DEFAULT_BROWSER_PROFILE_ID,
 };
 
-vi.mock("~/browserHistoryStore", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("~/browserHistoryStore")>()),
+vi.mock("~/browserHistoryStore", () => ({
   recordVisitForThread: mocks.recordVisitForThread,
   setTitleForThreadUrl: vi.fn(),
   removeUrlForThread: vi.fn(),
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT: 50,
+  normalizeHistoryUrl: (url: string) => url, // fork-hook: browser-bookmarks/history-url-mock
   useThreadBrowserProjectKey: () => null,
   useThreadRecentHistory: () => EMPTY_HISTORY,
 }));
