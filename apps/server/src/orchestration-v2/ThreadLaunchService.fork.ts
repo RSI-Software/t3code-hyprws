@@ -1,25 +1,29 @@
 // Fork-owned post-create step for a thread worktree a V2 launch provisions:
-// bind the checkout's managed zmux session.
+// bind the checkout's managed zmux session, then run the project's Worktrunk
+// create hooks when the client launched in Worktrunk mode.
 //
-// V2 has no thread activity log, so the outcome lands on the worktree setup
+// V2 has no thread activity log, so each outcome lands on the worktree setup
 // card's checkout stage, the surface that already narrates this launch, and in
-// the server log. It never fails the launch: a worktree without its zmux
-// session is still a working thread.
+// the server log. Neither step fails the launch: a worktree without its zmux
+// session or hooks is still a working thread.
 //
-// The binder is looked up optionally so the seam adds no requirement to
+// The services are looked up optionally so the seam adds no requirement to
 // `ThreadLaunchService.layer` and upstream harnesses keep upstream text. The
-// production runtime provides it through `GitWorkflowLayerLive`.
+// production runtime provides both through `GitWorkflowLayerLive`.
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 
 interface ThreadWorktreeCreatedFork {
   readonly threadId: ThreadId;
   readonly projectCwd: string;
   readonly worktreePath: string;
+  /** A `worktree` strategy with `worktrunk` set is a Worktrunk worktree: run its create hooks. */
+  readonly strategy: { readonly type: string; readonly worktrunk?: boolean | undefined };
 }
 
 type ThreadWorktreeIntegrationsFork = (input: ThreadWorktreeCreatedFork) => Effect.Effect<void>;
@@ -28,6 +32,7 @@ type ThreadWorktreeIntegrationsFork = (input: ThreadWorktreeCreatedFork) => Effe
 export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
   const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
   const zmux = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
+  const worktrunk = yield* Effect.serviceOption(WorktrunkHookRunner.WorktrunkHookRunner);
 
   const integrate: ThreadWorktreeIntegrationsFork = Effect.fn(
     "ThreadLaunchService.fork.worktreeIntegrations",
@@ -53,6 +58,22 @@ export const makeThreadWorktreeIntegrationsFork = Effect.gen(function* () {
           target: bound.target,
           outcome: bound.outcome,
         });
+      }
+    }
+
+    if (input.strategy.type === "worktree" && input.strategy.worktrunk === true) {
+      if (Option.isNone(worktrunk)) {
+        warning = true;
+        notes.push("Worktrunk hooks unavailable on this server");
+      } else {
+        const hooks = yield* worktrunk.value.runCreateHooks({
+          projectCwd: input.projectCwd,
+          worktreePath: input.worktreePath,
+        });
+        if (hooks.status === "failed") {
+          warning = true;
+          notes.push(`Worktrunk ${hooks.operation} hook failed: ${hooks.detail}`);
+        }
       }
     }
 
