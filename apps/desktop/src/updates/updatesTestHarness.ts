@@ -251,12 +251,13 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       }),
   });
 
+  const installStepsBeforeCapture: number[] = []; // fork-hook: multi-window/updates-capture-order
   const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
     capture: (identities, reason) =>
       Effect.sync(() => {
         capturedSessions.push({ windows: [...identities], reason }); // fork-hook: multi-window/window-id-capture
-        installSteps.push("capture");
-      }).pipe(Effect.ensuring(Effect.sync(() => installSteps.pop()))), // fork-hook: multi-window/route-nav-capture-bridge
+        installStepsBeforeCapture.push(installSteps.length); // fork-hook: multi-window/updates-capture-order-step
+      }),
     consume: Effect.succeed([]),
   } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
 
@@ -287,6 +288,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     installSteps,
     updateRestartMarkers,
     capturedSessions,
+    installStepsBeforeCapture, // fork-hook: multi-window/updates-capture-order-result
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
     channels: () => channels,

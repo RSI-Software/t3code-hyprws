@@ -5,11 +5,6 @@ import type {
   DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
 } from "@t3tools/contracts";
-export {
-  DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
-  type DesktopPreviewRecordingFrame,
-  type DesktopPreviewRecordingInputEvent,
-} from "@t3tools/contracts"; // fork-hook: multi-window/route-nav-contracts-bridge
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
