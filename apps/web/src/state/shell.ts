@@ -49,10 +49,14 @@ export function useEnvironmentShellHasSnapshot(environmentId: EnvironmentId | nu
   );
 }
 
-export const environmentShellBootstrappedAtom = Atom.family((environmentId: EnvironmentId) =>
-  Atom.make((get) => {
+export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
+  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
+  if (Option.isNone(catalog)) {
+    return false;
+  }
+  for (const environmentId of enabledEnvironmentIds(catalog.value)) {
     if (Option.isSome(get(environmentShell.stateValueAtom(environmentId)).snapshot)) {
-      return true;
+      continue;
     }
     const connection = Option.getOrElse(
       AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
@@ -61,17 +65,9 @@ export const environmentShellBootstrappedAtom = Atom.family((environmentId: Envi
     if (connectionProjectionPhase(connection) !== "disconnected") {
       return false;
     }
-    return !(connection.phase === "backoff" && connection.desired && connection.attempt <= 2);
-  }).pipe(Atom.withLabel(`web-environment-shell-bootstrapped:${environmentId}`)),
-);
-
-export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
-  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
-  if (Option.isNone(catalog)) {
-    return false;
-  }
-  for (const environmentId of enabledEnvironmentIds(catalog.value)) {
-    if (!get(environmentShellBootstrappedAtom(environmentId))) return false;
+    if (connection.phase === "backoff" && connection.desired && connection.attempt <= 2) {
+      return false;
+    }
   }
   return true;
 }).pipe(Atom.withLabel("web-all-environment-shells-bootstrapped"));
