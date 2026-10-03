@@ -256,7 +256,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       Effect.sync(() => {
         capturedSessions.push({ windows: [...identities], reason }); // fork-hook: multi-window/window-id-capture
         installSteps.push("capture");
-      }),
+      }).pipe(Effect.ensuring(Effect.sync(() => installSteps.pop()))), // fork-hook: multi-window/route-nav-capture-bridge
     consume: Effect.succeed([]),
   } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
 

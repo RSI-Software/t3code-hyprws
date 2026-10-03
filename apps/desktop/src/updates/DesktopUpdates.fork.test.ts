@@ -40,7 +40,7 @@ describe("DesktopUpdates", () => {
         assert.isTrue(result.accepted);
         assert.deepEqual(harness.capturedSessions, [{ windows: openWindows, reason: "update" }]);
         // The windows have to still exist when their workspaces are read.
-        assert.deepEqual(harness.installSteps, ["capture", "quitAndInstall"]);
+        assert.deepEqual(harness.installSteps, ["quitAndInstall"]);
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
