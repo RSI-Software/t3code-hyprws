@@ -12,7 +12,8 @@ import type {
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
 import { PullRequestProviderError, type PullRequestProviderApi } from "./PullRequestProvider.ts";
@@ -136,13 +137,16 @@ function makeService(input: {
           resolveHandle:
             input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
         }),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-          getProjectShells: (projectIds) =>
+        Layer.mock(ProjectService.ProjectService)({
+          listShells: (options) =>
             Effect.succeed(
-              input.projects.filter((project) => projectIds?.includes(project.id) ?? true),
+              input.projects.filter((project) => options?.projectIds?.includes(project.id) ?? true),
             ),
-          getProjectShellById: (projectId) =>
+          getShell: (projectId) =>
             Effect.succeed(Option.fromNullishOr(input.projects.find((p) => p.id === projectId))),
+        }),
+        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+          resolve: () => Effect.succeed(null),
         }),
         Layer.mock(PullRequestFilesViewedRepository)({
           list: () => Effect.die("unused"),
