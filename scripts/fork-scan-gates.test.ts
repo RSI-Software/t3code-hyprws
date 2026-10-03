@@ -544,6 +544,45 @@ it("passes a declared-superseded deletion and still fails an undeclared one", ()
   );
 });
 
+it("passes a declared-superseded deletion of a wrapped case", () => {
+  // Prettier wraps a long opener so its title sits on the next line; the
+  // declaration still names that case and excuses its head and title lines.
+  const removedCase = [
+    "abc1234",
+    "--- a/apps/web/src/thing.test.ts",
+    "+++ b/apps/web/src/thing.test.ts",
+    "@@ -1,4 +1,0 @@",
+    "-it.effect(",
+    '-  "a title long enough that prettier wraps it",',
+    "-  () => Effect.sync(() => expect(keep).toBe(2)),",
+    "-);",
+    "",
+  ].join("\n");
+  const upstreamText =
+    'it.effect(\n  "a title long enough that prettier wraps it",\n  () => Effect.sync(() => expect(keep).toBe(2)),\n);\n';
+  const sibling =
+    'forkSupersedes({ upstream: "apps/web/src/thing.test.ts > a title long enough that prettier wraps it", reason: "the fork inverts it", commit: "abc1234" });\n' +
+    'it("replacement", () => {\n  expect(keep).toBe(3);\n});\n';
+  const result = buildScanResult(
+    baseInput({
+      commits: [{ sha: "abc1234", short: "abc1234", domain: "example" }],
+      filesBySha: new Map([["abc1234", ["apps/web/src/thing.test.ts"]]]),
+      patchesBySha: parseCommitPatches(removedCase),
+      upstreamFiles: new Set(["apps/web/src/thing.test.ts"]),
+      upstreamTestFiles: new Set(["apps/web/src/thing.test.ts"]),
+      upstreamTestLines: new Map([
+        ["apps/web/src/thing.test.ts", significantTestLines(upstreamText)],
+      ]),
+      upstreamTestTexts: new Map([["apps/web/src/thing.test.ts", upstreamText]]),
+      siblingTexts: new Map([["apps/web/src/thing.fork.test.ts", sibling]]),
+    }),
+  );
+  assert.deepStrictEqual(
+    scanFailures(result).filter((failure) => failure.startsWith("upstream-test:")),
+    [],
+  );
+});
+
 it("fails a replaced export matched by name across files", () => {
   const raw = [
     "abc1234",
