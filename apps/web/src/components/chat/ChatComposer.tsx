@@ -5307,7 +5307,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
-    ...agentRestingBlock(providerAgentPicker, composerControlsInStrip), // fork-hook: custom-agents/composer-agent-resting-block
+    ...agentRestingBlock(providerAgentPicker, composerControlsCollapsed), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
