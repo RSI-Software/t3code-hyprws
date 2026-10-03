@@ -146,48 +146,80 @@ export const collectForkSupersedes = (
   return { declarations, refusals };
 };
 
-// A case title: the first string literal of an `it`/`test`/`effectIt`
-// opener, including the dotted effect forms (`it.effect`, `it.layer`).
-const TITLE_OPENER =
-  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
+// A case opener: an `it`/`test`/`effectIt` call, including the dotted
+// effect forms (`it.effect`, `it.layer`) and a one-line `.each(...)` table,
+// whose first argument is a string-literal title. Prettier wraps a long
+// opener so the title sits alone on the next line; that is the same case.
+const OPENER_HEAD =
+  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*?(?:\s*\.each\s*(?:<[^>]*>)?\s*\(.*?\))?\s*(?:<[^>]*>)?\s*\(\s*/
+    .source;
+const TITLE_LITERAL = /(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/.source;
+const SAME_LINE_OPENER = new RegExp(`${OPENER_HEAD}${TITLE_LITERAL}`);
+const WRAPPED_OPENER_HEAD = new RegExp(`${OPENER_HEAD}$`);
+const LEADING_TITLE = new RegExp(`^\\s*${TITLE_LITERAL}`);
 
-/** Every case title a test file's text declares, in source order. */
-export const testCaseTitles = (text: string): ReadonlyArray<string> => {
-  const titles: Array<string> = [];
-  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
-    const title = TITLE_OPENER.exec(line)
-      ?.slice(1)
-      .find((part) => part !== undefined);
-    if (title !== undefined) titles.push(title);
-  }
-  return titles;
-};
+const literalTitle = (match: RegExpExecArray | null): string | undefined =>
+  match?.slice(1).find((part) => part !== undefined);
+
+export interface CaseOpener {
+  /** 0-based index of the line the opener call starts on. */
+  readonly start: number;
+  /** 0-based index of the line carrying the title literal: `start`, or the next line when wrapped. */
+  readonly titleLine: number;
+  readonly title: string;
+}
+
+const splitLines = (text: string): Array<string> => text.replace(/\r\n/g, "\n").split("\n");
 
 /**
- * The 1-based lines opening a sibling test case (`it`/`test`/`effectIt`
- * with a string-literal title), in source order. A forkSupersedes call
- * belongs to the case whose opener is nearest at-or-after its own
- * line — the doc-comment convention in the tree puts the declaration
- * immediately before the case it documents. A declaration after the
- * last case opener belongs to none.
+ * Every case opener in a test file's text, in source order. The one parse
+ * every reader of case titles shares, so the scan, the additive gate, and
+ * the declaration judge never disagree about where a case starts.
  */
-export const siblingCaseOpenerLines = (text: string): ReadonlyArray<number> => {
-  const openers: Array<number> = [];
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+export const caseOpeners = (text: string): ReadonlyArray<CaseOpener> => {
+  const lines = splitLines(text);
+  const openers: Array<CaseOpener> = [];
   for (const [index, line] of lines.entries()) {
-    if (TITLE_OPENER.test(line)) openers.push(index + 1);
+    const sameLine = literalTitle(SAME_LINE_OPENER.exec(line));
+    if (sameLine !== undefined) {
+      openers.push({ start: index, titleLine: index, title: sameLine });
+      continue;
+    }
+    if (!WRAPPED_OPENER_HEAD.test(line)) continue;
+    const wrapped = literalTitle(LEADING_TITLE.exec(lines[index + 1] ?? ""));
+    if (wrapped !== undefined) openers.push({ start: index, titleLine: index + 1, title: wrapped });
   }
   return openers;
 };
 
 /**
- * The upstream titles a sibling text declares as superseded for one upstream
- * path, excused one per documented sibling case. Declarations resolve to
- * the nearest case opener at-or-after their own line; each documented case
- * excuses exactly one declaration, so five declarations stacked before one
- * case excuse one deletion and a declaration after the last opener excuses
- * none (RSI-Software/t3code-hyprws#1208). Additive-only reader over
- * `collectForkSupersedes`; the parser itself is untouched.
+ * The source lines of the first case carrying `title`: its opener through
+ * the line before the next opener, or end of file. Empty when no case
+ * carries the title.
+ */
+export const caseSourceLines = (text: string, title: string): ReadonlyArray<string> => {
+  const openers = caseOpeners(text);
+  const index = openers.findIndex((opener) => opener.title === title);
+  if (index === -1) return [];
+  return splitLines(text).slice(openers[index]!.start, openers[index + 1]?.start);
+};
+
+/** Every case title a test file's text declares, in source order. */
+export const testCaseTitles = (text: string): ReadonlyArray<string> =>
+  caseOpeners(text).map((opener) => opener.title);
+
+/**
+ * The 1-based lines opening a sibling test case (`it`/`test`/`effectIt` with a literal title), in
+ * order. A forkSupersedes call belongs to the nearest opener at-or-after its line, since it sits
+ * right before the case it documents; a declaration after the last opener belongs to none.
+ */
+export const siblingCaseOpenerLines = (text: string): ReadonlyArray<number> =>
+  caseOpeners(text).map((opener) => opener.start + 1);
+
+/**
+ * The upstream titles a sibling declares superseded for one upstream path, excused one per
+ * documented case: each declaration resolves to the nearest opener at-or-after it, so five stacked
+ * before one case excuse one deletion and one after the last opener excuses none.
  */
 export const enclosedSupersededTitles = (text: string, path: string): ReadonlyArray<string> => {
   const openers = siblingCaseOpenerLines(text);
@@ -253,11 +285,6 @@ export interface SupersedesAssessment {
   readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
 }
 
-const openerTitle = (line: string): string | undefined =>
-  TITLE_OPENER.exec(line)
-    ?.slice(1)
-    .find((part) => part !== undefined);
-
 const significantLines = (text: string): Array<string> =>
   stripDeclarationCalls(text)
     .replace(/\r\n/g, "\n")
@@ -268,18 +295,12 @@ const significantLines = (text: string): Array<string> =>
     );
 
 /**
- * The significant lines of the named case in a test file's text: from its
- * opener to the next case opener (or end of file). Null when no case
- * carries the title. A declaration names one upstream case, so validation
- * reads that case — never the whole file
- * (RSI-Software/t3code-hyprws#1206).
+ * The significant lines of the named case: its opener to the next opener or end of file, or null
+ * when no case carries the title. A declaration names one case, so validation reads only that.
  */
 const caseBodyForTitle = (text: string, title: string): ReadonlyArray<string> | null => {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => openerTitle(line) === title);
-  if (start === -1) return null;
-  const next = lines.findIndex((line, index) => index > start && openerTitle(line) !== undefined);
-  return significantLines(lines.slice(start, next === -1 ? lines.length : next).join("\n"));
+  const lines = caseSourceLines(text, title);
+  return lines.length === 0 ? null : significantLines(lines.join("\n"));
 };
 
 /**
@@ -289,18 +310,14 @@ const caseBodyForTitle = (text: string, title: string): ReadonlyArray<string> | 
  * Null when no case carries the title.
  */
 const caseBodyForRename = (text: string, title: string): ReadonlyArray<string> | null => {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => openerTitle(line) === title);
-  if (start === -1) return null;
-  const openerStripped = lines
-    .slice(start, start + 1)
-    .join("\n")
-    .replace(TITLE_OPENER, "");
-  const rest = lines.slice(start + 1);
-  const next = rest.findIndex((line) => openerTitle(line) !== undefined);
-  return significantLines(
-    [openerStripped, ...rest.slice(0, next === -1 ? rest.length : next)].join("\n"),
-  );
+  const opener = caseOpeners(text).find((candidate) => candidate.title === title);
+  if (opener === undefined) return null;
+  const [head = "", ...rest] = caseSourceLines(text, title);
+  const stripped =
+    opener.titleLine === opener.start
+      ? [head.replace(SAME_LINE_OPENER, ""), ...rest]
+      : [(rest[0] ?? "").replace(LEADING_TITLE, ""), ...rest.slice(1)];
+  return significantLines(stripped.join("\n"));
 };
 
 /**

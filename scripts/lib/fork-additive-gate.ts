@@ -10,7 +10,7 @@
 import * as NodePath from "node:path";
 
 import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { enclosedSupersededTitles } from "./fork-supersedes.ts";
+import { caseSourceLines, enclosedSupersededTitles } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -264,31 +264,8 @@ export const upstreamTestPath = (sibling: string): string =>
 // The significant lines one upstream case carries: the opener line naming
 // the title through the next case opener. Line-based, the way
 // `significantLines` is — a case body is what the lost-line multiset counts.
-const TITLE_OF =
-  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
-
-const caseLines = (text: string, title: string): ReadonlyArray<string> => {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const started: Array<string> = [];
-  let inside = false;
-  for (const line of lines) {
-    const current =
-      TITLE_OF.exec(line)
-        ?.slice(1)
-        .find((part) => part !== undefined) ?? null;
-    if (current !== null) {
-      if (current === title && !inside) {
-        inside = true;
-        started.push(line.trim());
-        continue;
-      }
-      if (inside) break;
-      continue;
-    }
-    if (inside) started.push(line);
-  }
-  return significantLines(started.join("\n"));
-};
+const caseLines = (text: string, title: string): ReadonlyArray<string> =>
+  significantLines(caseSourceLines(text, title).join("\n"));
 
 const testFindings = (
   runner: CommandRunner,
