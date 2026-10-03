@@ -327,7 +327,10 @@ const squashesLines = (message: string): ReadonlyArray<string> => {
 
 /**
  * A `fixup!` subject marks a split piece of a Fork-Repair commit, or a fixup
- * landed by squash pull request, which carries its ` (#N)` marker instead.
+ * landed by squash pull request. A piece carries its repair line under
+ * `Squashes:`; a landed fixup carries its ` (#N)` marker instead. The repair
+ * line decides, since a piece's subject repeats an owner subject that may end
+ * in a marker of its own.
  */
 const FIXUP_SUBJECT = "fixup! ";
 
@@ -346,14 +349,14 @@ const firstSquashesLine = (message: string): string | undefined => squashesLines
  * its own, so it renders like any member and its pull request link survives.
  */
 const memberLine = (member: FoldCommit): string => {
-  if (member.subject.startsWith(FIXUP_SUBJECT) && !SQUASH_MARKER.test(member.subject.trim())) {
+  if (member.subject.startsWith(FIXUP_SUBJECT)) {
     const repair = firstSquashesLine(member.message);
-    if (repair === undefined) {
+    if (repair !== undefined) return repair;
+    if (!SQUASH_MARKER.test(member.subject.trim())) {
       throw new FoldError(
         `${member.short} ${member.subject}: a fixup! member carries no repair line under Squashes:`,
       );
     }
-    return repair;
   }
   const links = forkPullRequests(member.message)
     .filter((ref) => !member.subject.includes(ref))
