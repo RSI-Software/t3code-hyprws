@@ -4,9 +4,11 @@ import { assert, describe, it, vi } from "@effect/vitest";
 import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import { SUB_ISSUE_REASONS_QUERY } from "./subIssueCloseReasons.fork.ts";
@@ -53,15 +55,15 @@ function makeService(
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(GitHubCli.GitHubCli)({ execute }),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-          getShellSnapshot: () =>
-            Effect.succeed({
-              snapshotSequence: 1,
-              projects,
-              threads: [],
-              updatedAt: "2026-08-21T00:00:00Z",
-            }),
+        Layer.mock(ProjectService.ProjectService)({
+          listShells: () => Effect.succeed(projects),
+          getShell: (projectId) =>
+            Effect.succeed(
+              Option.fromNullishOr(projects.find((project) => project.id === projectId)),
+            ),
         }),
+        // Every fixture project carries its identity, so none is resolved on demand.
+        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
       ),
     ),
   );

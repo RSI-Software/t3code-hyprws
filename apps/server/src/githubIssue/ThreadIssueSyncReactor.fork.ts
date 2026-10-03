@@ -4,7 +4,7 @@
 // `thread.issue-link.sync`, so replay rebuilds the same projection.
 import {
   CommandId,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type ProjectId,
   type ThreadId,
   type ThreadIssueKey,
@@ -21,9 +21,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { normalizeThreadIssueKey } from "../orchestration/threadIssues.fork.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import { normalizeThreadIssueKey } from "../orchestration-v2/ThreadIssues.fork.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 
@@ -55,7 +54,7 @@ export class ThreadIssueSyncReactor extends Context.Service<
     readonly drain: Effect.Effect<void>;
     /** Queue reads for a thread's links: the stale ones, or every one. */
     readonly syncThread: (
-      thread: Pick<OrchestrationThreadShell, "id" | "projectId" | "issues">,
+      thread: Pick<OrchestrationV2ThreadShell, "id" | "projectId" | "issues">,
       scope: ThreadIssueSyncScope,
     ) => Effect.Effect<void>;
   }
@@ -63,8 +62,7 @@ export class ThreadIssueSyncReactor extends Context.Service<
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const engine = yield* Orchestrator.OrchestratorV2;
   const githubIssues = yield* GitHubIssueService.GitHubIssueService;
   const crypto = yield* Crypto.Crypto;
 
@@ -165,34 +163,24 @@ export const make = Effect.gen(function* () {
     });
 
   // Starts with its layer, parked until the server activates. Live events only: a server start
-  // replays nothing here, so boot rereads no historical link.
-  const events = yield* engine.subscribeDomainEvents;
+  // replays nothing here, so boot rereads no historical link. A link lands as the upstream
+  // `thread.metadata-updated` event; the link it just made is the unread one stamped with the
+  // event's own time, so any other thread update reads nothing.
   yield* forkParked(
-    Stream.runForEach(events, (event) =>
-      event.type !== "thread.issue-linked"
-        ? Effect.void
-        : snapshots.getThreadShellById(event.payload.threadId).pipe(
-            Effect.flatMap((thread) =>
-              Option.match(thread, {
-                onNone: () => Effect.void,
-                onSome: (shell) =>
-                  Effect.sync(() => request(shell.projectId, shell.id, event.payload.link)).pipe(
-                    Effect.andThen(worker.enqueue(undefined)),
-                  ),
-              }),
-            ),
-            Effect.catchCause(logSkipped("linked issue read not queued", {})),
-          ),
-    ),
+    Stream.runForEach(engine.streamDomainEvents, (event) => {
+      if (event.type !== "thread.metadata-updated") return Effect.void;
+      const linkedAt = DateTime.formatIso(event.occurredAt);
+      const added = (event.payload.issues ?? []).filter(
+        (link) => link.snapshot === null && link.linkedAt === linkedAt,
+      );
+      if (added.length === 0) return Effect.void;
+      return Effect.sync(() => {
+        for (const link of added) request(event.payload.projectId, event.threadId, link);
+      }).pipe(Effect.andThen(worker.enqueue(undefined)));
+    }).pipe(Effect.catchCause(logSkipped("linked issue event stream failed", {}))),
   );
 
   return { drain: worker.drain, syncThread } satisfies ThreadIssueSyncReactor["Service"];
 });
 
 export const layer = Layer.effect(ThreadIssueSyncReactor, make);
-
-/** Reads nothing: for harnesses that serve the RPC without GitHub. */
-export const layerInert = Layer.succeed(ThreadIssueSyncReactor, {
-  drain: Effect.void,
-  syncThread: () => Effect.void,
-});
