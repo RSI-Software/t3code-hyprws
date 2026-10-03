@@ -39,6 +39,7 @@ import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
+import { reconcileSetupScriptsFork } from "./serverRuntimeStartup.fork.ts"; // fork-hook: upstream-fixes/startup-setup-scripts-import
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -526,6 +527,7 @@ const make = (options?: StartupOptions) =>
         ).pipe(Effect.map((targets): AutoBootstrapWelcomeTargets => targets)),
       });
       yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
+      yield* runStartupPhase("project-setup-scripts.reconcile", reconcileSetupScriptsFork); // fork-hook: upstream-fixes/startup-setup-scripts
       yield* runStartupPhase(
         "projects.auto-pull",
         Effect.gen(function* () {
