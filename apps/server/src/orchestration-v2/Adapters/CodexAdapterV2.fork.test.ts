@@ -26,7 +26,11 @@ const withAgent = (agent: string): ModelSelection => ({
 });
 
 it.layer(NodeServices.layer)("Codex main-thread agent selection", (it) => {
-  const turnParams = (modelSelection: ModelSelection, hasT3Mcp: boolean) =>
+  const turnParams = (
+    modelSelection: ModelSelection,
+    hasT3Mcp: boolean,
+    interactionMode: "default" | "plan" = "default",
+  ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -52,7 +56,7 @@ it.layer(NodeServices.layer)("Codex main-thread agent selection", (it) => {
       return yield* CodexAdapterV2.buildCodexTurnStartParams({
         nativeThreadId: "native-agent",
         codexInput: [{ type: "text", text: "review this" }],
-        runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null },
+        runtimePolicy: { runtimeMode: "full-access", interactionMode, cwd: null },
         modelSelection: agent.modelSelection,
         hasT3Mcp,
         agentInstructions: agent.agentInstructions,
@@ -71,6 +75,19 @@ it.layer(NodeServices.layer)("Codex main-thread agent selection", (it) => {
       assert.property(params.additionalContext ?? {}, "t3_code_orchestration");
       const withoutT3Mcp = yield* turnParams(withAgent("reviewer"), false);
       assert.deepEqual(Object.keys(withoutT3Mcp.additionalContext ?? {}), ["t3_code_agent"]);
+    }),
+  );
+
+  it.effect("keeps the agent's instructions and model in plan mode", () =>
+    Effect.gen(function* () {
+      const params = yield* turnParams(withAgent("reviewer"), true, "plan");
+      assert.equal(params.collaborationMode?.mode, "plan");
+      assert.equal(params.collaborationMode?.settings.model, "gpt-review");
+      assert.equal(params.collaborationMode?.settings.reasoning_effort, "high");
+      assert.deepEqual(params.additionalContext?.t3_code_agent, {
+        kind: "application",
+        value: "Inspect before editing.",
+      });
     }),
   );
 
