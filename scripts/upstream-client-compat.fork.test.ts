@@ -3,8 +3,6 @@
 // server (RSI-Software/t3code-hyprws#1435). These cases encode fork payloads
 // with the fork contracts and decode them with the contracts at the upstream
 // base, `git merge-base HEAD upstream/main`, extracted into a gitignored cache.
-// The server half of the event rule lives in
-// `apps/server/src/ws.threadIssues.fork.suite.ts`.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -15,27 +13,54 @@ import * as SchemaAST from "effect/SchemaAST";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 type Codec = Schema.Codec<unknown, unknown>;
+type DomainEventUnion = Codec & {
+  readonly members: ReadonlyArray<{
+    readonly fields: {
+      readonly type: { readonly literal?: string; readonly literals?: ReadonlyArray<string> };
+    };
+  }>;
+};
 
 /** The contract exports these cases read, typed loosely so neither tree joins this program. */
 interface Contracts {
-  readonly OrchestrationShellStreamItem: Codec;
-  readonly OrchestrationThreadStreamItem: Codec;
+  readonly OrchestrationV2ShellStreamItem: Codec;
+  readonly OrchestrationV2ArchivedShellStreamItem: Codec;
+  readonly OrchestrationV2ThreadStreamItem: Codec;
+  readonly OrchestrationV2ShellSnapshot: Codec;
+  readonly OrchestrationV2ThreadDetailSnapshot: Codec;
+  readonly OrchestrationV2ThreadBoundedSnapshot: Codec;
+  readonly OrchestrationV2ThreadHistoryPage: Codec;
+  readonly OrchestrationV2DomainEvent: DomainEventUnion;
   readonly ExecutionEnvironmentDescriptor: Codec;
-  readonly OrchestrationEvent: Codec;
-  readonly OrchestrationEventType: Codec & { readonly literals: ReadonlyArray<string> };
+  readonly EnvironmentInternalError: Codec;
+  readonly ProjectSnapshot: Codec;
+  readonly PullRequestDiffResult: Codec;
   readonly ServerConfig: Codec;
   readonly ServerConfigStreamEvent: Codec;
   readonly VcsStatusStreamEvent: Codec;
   readonly GitPreparePullRequestThreadResult: Codec;
+  readonly THREAD_ISSUE_EVENT_TYPES_FORK: ReadonlyArray<string>;
 }
 
-/** Every schema an upstream client decodes from a fork server, by export name. */
+/**
+ * Every schema an upstream client decodes from a fork server, by export name:
+ * the WebSocket streams plus the HTTP snapshot routes V2 serves beside them
+ * (`EnvironmentOrchestrationHttpApi` in `packages/contracts/src/environmentHttp.ts`).
+ */
 const wireSchemas = [
   "ServerConfig",
   "ServerConfigStreamEvent",
-  "OrchestrationShellStreamItem",
-  "OrchestrationThreadStreamItem",
+  "OrchestrationV2ShellStreamItem",
+  "OrchestrationV2ArchivedShellStreamItem",
+  "OrchestrationV2ThreadStreamItem",
+  "OrchestrationV2ShellSnapshot",
+  "OrchestrationV2ThreadDetailSnapshot",
+  "OrchestrationV2ThreadBoundedSnapshot",
+  "OrchestrationV2ThreadHistoryPage",
   "ExecutionEnvironmentDescriptor",
+  "EnvironmentInternalError",
+  "ProjectSnapshot",
+  "PullRequestDiffResult",
   "VcsStatusStreamEvent",
   "GitPreparePullRequestThreadResult",
 ] as const;
@@ -79,24 +104,25 @@ const loadUpstreamContracts = async () => {
 const loadForkContracts = async () =>
   (await import(NodePath.join(repoRoot, contractsEntry))) as Contracts;
 
-/** Fork encode, JSON wire, upstream decode: the path an upstream client reads. */
-const acrossTheWire = (fork: Codec, upstream: Codec, value: unknown) => {
-  const encoded = Schema.encodeUnknownSync(Schema.toCodecJson(fork))(
-    Schema.decodeUnknownSync(fork)(value),
-  );
+/**
+ * Fork encode, JSON wire, upstream decode: the path an upstream client reads.
+ * Fixtures are JSON, so the fork codec first decodes them to its own values.
+ */
+const acrossTheWire = (fork: Codec, upstream: Codec, json: unknown) => {
+  const forkJson = Schema.toCodecJson(fork);
+  const encoded = Schema.encodeUnknownSync(forkJson)(Schema.decodeUnknownSync(forkJson)(json));
   return Schema.decodeUnknownSync(Schema.toCodecJson(upstream))(
     JSON.parse(JSON.stringify(encoded)),
   );
 };
 
 /**
- * Slots the schema admits but the server never sends. The thread stream
- * forwards only thread-detail events (`isThreadDetailEvent` in
- * `apps/server/src/ws.ts`), and the shell stream turns project events into a
- * `project-upserted` read model.
+ * Slots the schema admits but the server never sends to an upstream client.
+ * The fork's internal error reason belongs to the fork-only
+ * `generateThreadGroupTitle` route, which an upstream client never calls.
  */
 const sentNever = new Set([
-  '$<event>.event<project.meta-updated>.payload.defaultThreadEnvMode: "worktrunk"',
+  '$<EnvironmentInternalError>.reason: "thread_group_title_generation_failed"',
 ]);
 
 /** Literal values a wire slot admits, keyed by path; `open` when it also admits any string. */
@@ -160,6 +186,56 @@ const forkOnlyLiterals = (forkSchema: Codec, upstreamSchema: Codec) =>
     });
   });
 
+const tagFields = ["type", "kind", "_tag"];
+
+/** Union member tags per union path and tag field, read from `collectLiterals` keys. */
+const unionTags = (slots: LiteralSlots) => {
+  const unions = new Map<string, Set<string>>();
+  for (const [path, slot] of slots) {
+    const field = tagFields.find((name) => path.endsWith(`>.${name}`));
+    if (!field) continue;
+    const member = path.slice(0, -field.length - 1);
+    const open = member.lastIndexOf("<");
+    const tag = member.slice(open + 1, -1);
+    if (!slot.literals.has(tag)) continue;
+    const union = `${member.slice(0, open)}.${field}`;
+    let tags = unions.get(union);
+    if (!tags) unions.set(union, (tags = new Set()));
+    tags.add(tag);
+  }
+  return unions;
+};
+
+/**
+ * Fork union members an upstream client cannot decode: a tag upstream's union
+ * at the same path lacks, unless one of its members takes any tag there (the
+ * V2 thread stream's unknown-event case). `forkOnlyLiterals` misses these,
+ * since each member keys its own paths. Encoded side only: a member upstream
+ * takes on the wire decodes, even when it decodes to a skip case.
+ */
+const forkOnlyMembers = (forkSchema: Codec, upstreamSchema: Codec) => {
+  const upstreamSlots = collectLiterals(SchemaAST.toEncoded(upstreamSchema.ast));
+  const upstreamUnions = unionTags(upstreamSlots);
+  return [...unionTags(collectLiterals(SchemaAST.toEncoded(forkSchema.ast)))].flatMap(
+    ([union, forkTags]) => {
+      const upstreamTags = upstreamUnions.get(union);
+      // A member tagged by several literals keys no path of its own: its tags sit in this slot.
+      const shared = upstreamSlots.get(union);
+      if (!upstreamTags || shared?.open) return [];
+      return [...forkTags]
+        .filter((tag) => !upstreamTags.has(tag) && !shared?.literals.has(tag))
+        .map((tag) => `${union}: ${JSON.stringify(tag)}`);
+    },
+  );
+};
+
+const domainEventTypes = (events: DomainEventUnion) =>
+  new Set(
+    events.members.flatMap(({ fields: { type } }) =>
+      type.literals ? [...type.literals] : type.literal ? [type.literal] : [],
+    ),
+  );
+
 const now = "2026-01-01T00:00:00.000Z";
 const issue = {
   host: "github.com",
@@ -170,25 +246,12 @@ const issue = {
   linkedAt: now,
   snapshot: { title: "Crash on open", state: "open", syncedAt: now },
 };
-const checkoutMove = {
-  requestId: "command-compat",
-  source: { repositoryRoot: "/repo", checkoutRoot: "/repo", revision: "abc123", branch: "main" },
-  requestedPath: "/repo-worktree",
-  destination: null,
-  expectedCheckoutRoot: "/repo",
-  status: "queued",
-  completedSteps: [],
-  effectiveProvider: null,
-  requestedAt: now,
-  updatedAt: now,
-};
 const project = {
   id: "project-compat",
   title: "Compat project",
   workspaceRoot: "/repo",
   defaultModelSelection: null,
   defaultThreadEnvMode: "worktree",
-  defaultThreadEnvModeFork: "worktrunk",
   scripts: [],
   createdAt: now,
   updatedAt: now,
@@ -204,41 +267,70 @@ const forkSettings = {
     [project.id]: { defaultThreadEnvMode: "worktree", defaultThreadEnvModeFork: "worktrunk" },
   },
 };
-const threadCore = {
+const appThread = {
+  createdBy: "user",
+  creationSource: "web",
   id: "thread-compat",
-  projectId: "project-compat",
+  projectId: project.id,
   title: "Compat thread",
+  providerInstanceId: "codex",
   modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
   runtimeMode: "full-access",
   interactionMode: "default",
   branch: null,
   worktreePath: null,
   pullRequests: [],
-  issues: [issue],
-  checkoutMove,
-  latestTurn: null,
+  activeProviderThreadId: null,
+  lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: "thread-compat" },
+  forkedFrom: null,
   createdAt: now,
   updatedAt: now,
   archivedAt: null,
   settledOverride: null,
   settledAt: null,
-  session: null,
-};
-const threadShell = {
-  ...threadCore,
-  latestUserMessageAt: null,
-  hasPendingApprovals: false,
-  hasPendingUserInput: false,
-  hasActionableProposedPlan: false,
-};
-const threadDetail = {
-  ...threadCore,
-  messages: [],
-  activities: [],
-  proposedPlans: [],
-  checkpoints: [],
+  lastVisitedAt: null,
   deletedAt: null,
 };
+const threadShell = {
+  ...appThread,
+  latestRunId: null,
+  activeRunId: null,
+  status: "idle",
+  pendingRuntimeRequest: null,
+  latestVisibleMessage: null,
+  latestUserMessageAt: null,
+  hasActionableProposedPlan: false,
+  itemCount: 0,
+  visibleItemCount: 0,
+};
+const projection = {
+  thread: appThread,
+  runs: [],
+  attempts: [],
+  nodes: [],
+  subagents: [],
+  providerSessions: [],
+  providerThreads: [],
+  providerTurns: [],
+  runtimeRequests: [],
+  messages: [],
+  plans: [],
+  turnItems: [],
+  checkpointScopes: [],
+  checkpoints: [],
+  contextHandoffs: [],
+  contextTransfers: [],
+  visibleTurnItems: [],
+  updatedAt: now,
+};
+const shellSnapshot = {
+  schemaVersion: 1,
+  snapshotSequence: 1,
+  projects: [project],
+  threads: [threadShell],
+  archivedThreads: [],
+};
+const eventBase = { id: "event-compat", threadId: appThread.id, occurredAt: now };
 
 let fork: Contracts;
 let upstream: Contracts;
@@ -248,37 +340,81 @@ beforeAll(async () => {
 }, 60_000);
 
 describe("an upstream client reading a fork server", () => {
-  it("decodes shell items and thread snapshots that carry issues", () => {
+  it("decodes every shell stream item and the shell snapshot route", () => {
     const items = [
-      {
-        kind: "snapshot",
-        snapshot: {
-          snapshotSequence: 1,
-          projects: [project],
-          threads: [threadShell],
-          updatedAt: now,
-        },
-      },
-      { kind: "project-upserted", sequence: 2, project },
-      { kind: "thread-upserted", sequence: 3, thread: threadShell },
+      { kind: "synchronized" },
+      { kind: "snapshot", snapshot: shellSnapshot },
+      { kind: "project.updated", sequence: 2, project },
+      { kind: "thread.updated", sequence: 3, location: "active", thread: threadShell },
+      { kind: "thread.removed", sequence: 4, location: "archive", threadId: appThread.id },
+      { kind: "project.removed", sequence: 5, projectId: project.id },
     ];
     for (const item of items) {
       const decoded = acrossTheWire(
-        fork.OrchestrationShellStreamItem,
-        upstream.OrchestrationShellStreamItem,
+        fork.OrchestrationV2ShellStreamItem,
+        upstream.OrchestrationV2ShellStreamItem,
         item,
       );
-      const wire = JSON.stringify(decoded);
-      for (const key of ["issues", "checkoutMove", "Fork", "worktrunk"]) {
-        expect(wire).not.toContain(key);
-      }
+      expect(decoded).toMatchObject({ kind: item.kind });
     }
-    const detail = acrossTheWire(
-      fork.OrchestrationThreadStreamItem,
-      upstream.OrchestrationThreadStreamItem,
-      { kind: "snapshot", snapshot: { snapshotSequence: 1, thread: threadDetail } },
+    const archived = [
+      {
+        kind: "snapshot",
+        snapshot: { schemaVersion: 1, snapshotSequence: 1, projects: [project], threads: [] },
+      },
+      { kind: "thread.updated", sequence: 2, thread: threadShell },
+      { kind: "thread.removed", sequence: 3, threadId: appThread.id },
+    ];
+    for (const item of archived) {
+      const decoded = acrossTheWire(
+        fork.OrchestrationV2ArchivedShellStreamItem,
+        upstream.OrchestrationV2ArchivedShellStreamItem,
+        item,
+      );
+      expect(decoded).toMatchObject({ kind: item.kind });
+    }
+    expect(
+      acrossTheWire(
+        fork.OrchestrationV2ShellSnapshot,
+        upstream.OrchestrationV2ShellSnapshot,
+        shellSnapshot,
+      ),
+    ).toMatchObject({ threads: [{ id: appThread.id }], projects: [{ id: project.id }] });
+  });
+
+  it("decodes thread snapshots and known thread events", () => {
+    const snapshot = acrossTheWire(
+      fork.OrchestrationV2ThreadStreamItem,
+      upstream.OrchestrationV2ThreadStreamItem,
+      { kind: "snapshot", snapshotSequence: 1, projection },
     );
-    expect(detail).toMatchObject({ kind: "snapshot", snapshot: { thread: { id: threadCore.id } } });
+    expect(snapshot).toMatchObject({
+      kind: "snapshot",
+      projection: { thread: { id: appThread.id } },
+    });
+    const pinned = acrossTheWire(
+      fork.OrchestrationV2ThreadStreamItem,
+      upstream.OrchestrationV2ThreadStreamItem,
+      {
+        kind: "event",
+        sequence: 2,
+        event: { ...eventBase, type: "thread.pinned", payload: { ...appThread, pinnedAt: now } },
+      },
+    );
+    expect(pinned).toMatchObject({ kind: "event", event: { type: "thread.pinned" } });
+    for (const name of [
+      "OrchestrationV2ThreadDetailSnapshot",
+      "OrchestrationV2ThreadBoundedSnapshot",
+    ] as const) {
+      const decoded = acrossTheWire(fork[name], upstream[name], {
+        snapshotSequence: 1,
+        projection,
+        historyCursor: null,
+        hasMoreHistory: false,
+        latestLocalTurnOrdinal: null,
+      });
+      expect(decoded, name).toMatchObject({ projection: { thread: { id: appThread.id } } });
+    }
   });
 
   it("decodes an environment descriptor that advertises fork capabilities", () => {
@@ -373,29 +509,59 @@ describe("an upstream client reading a fork server", () => {
     }
   });
 
-  it("rejects every fork-only event type, so the server must never send one", () => {
-    const upstreamTypes = new Set(upstream.OrchestrationEventType.literals);
-    const forkOnly = fork.OrchestrationEventType.literals.filter(
-      (type) => !upstreamTypes.has(type),
-    );
+  // V2 closes the shell streams but gives the thread stream a decode-only
+  // unknown-event case, so a fork-only thread event is skipped upstream rather
+  // than failing the subscription. The fork's issue events are the standing case.
+  it("skips every fork-only thread event type instead of failing", () => {
+    const upstreamTypes = domainEventTypes(upstream.OrchestrationV2DomainEvent);
+    const forkOnly = [
+      ...new Set([
+        ...domainEventTypes(fork.OrchestrationV2DomainEvent),
+        ...fork.THREAD_ISSUE_EVENT_TYPES_FORK,
+      ]),
+    ].filter((type) => !upstreamTypes.has(type));
     expect(forkOnly).toEqual(expect.arrayContaining(["thread.issue-linked"]));
-    const linked = {
-      sequence: 2,
-      eventId: "event-compat",
-      aggregateKind: "thread",
-      aggregateId: threadCore.id,
-      occurredAt: now,
-      commandId: null,
-      causationEventId: null,
-      correlationId: null,
-      metadata: {},
-      type: "thread.issue-linked",
-      payload: { threadId: threadCore.id, link: issue, updatedAt: now },
-    };
-    expect(() =>
-      acrossTheWire(fork.OrchestrationEvent, upstream.OrchestrationEvent, linked),
-    ).toThrow();
-    const decodeType = Schema.decodeUnknownExit(upstream.OrchestrationEventType);
-    for (const type of forkOnly) expect(decodeType(type)._tag, type).toBe("Failure");
+    const decode = Schema.decodeUnknownSync(
+      Schema.toCodecJson(upstream.OrchestrationV2ThreadStreamItem),
+    );
+    for (const [index, type] of forkOnly.entries()) {
+      const item = {
+        kind: "event",
+        sequence: index + 2,
+        event: { ...eventBase, type, payload: { threadId: appThread.id, link: issue } },
+      };
+      expect(decode(JSON.parse(JSON.stringify(item))), type).toEqual({
+        kind: "unknown-event",
+        sequence: index + 2,
+        eventType: type,
+      });
+    }
+  });
+
+  // Durable guard: a fork member in a closed union upstream decodes fails here,
+  // since such a client fails the whole subscription on it.
+  it("adds no member to a closed union an upstream client decodes", () => {
+    for (const name of wireSchemas) {
+      expect(forkOnlyMembers(fork[name], upstream[name]), name).toEqual([]);
+    }
+    // The guard flags a fork member of a closed union and passes one of an open union.
+    const issueMember = (tagField: "kind" | "type") =>
+      Schema.Struct({ [tagField]: Schema.Literal("thread.issue-linked"), threadId: Schema.String });
+    const widenedShell = Schema.Union([
+      upstream.OrchestrationV2ShellStreamItem,
+      issueMember("kind"),
+    ]) as unknown as Codec;
+    expect(forkOnlyMembers(widenedShell, upstream.OrchestrationV2ShellStreamItem)).toEqual([
+      '$.kind: "thread.issue-linked"',
+    ]);
+    const widenedThread = Schema.Union([
+      upstream.OrchestrationV2ThreadStreamItem,
+      Schema.Struct({
+        kind: Schema.Literal("event"),
+        sequence: Schema.Number,
+        event: issueMember("type"),
+      }),
+    ]) as unknown as Codec;
+    expect(forkOnlyMembers(widenedThread, upstream.OrchestrationV2ThreadStreamItem)).toEqual([]);
   });
 });
