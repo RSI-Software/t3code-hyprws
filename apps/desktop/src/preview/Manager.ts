@@ -5435,6 +5435,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
 
   return PreviewManager.of({
     ...ownership.app, // fork-hook: multi-window/preview-app-owner
+    prepareWebview: ownership.prepareWebview, // fork-hook: multi-window/preview-prepare-host-window
     setMainWindow: (window) => ownership.setWindow(PreviewWindowPolicy.APP_PREVIEW_OWNER, window), // fork-hook: multi-window/preview-app-owner-main
     setWindow: ownership.setWindow,
     disposeWindow: ownership.disposeWindow,
