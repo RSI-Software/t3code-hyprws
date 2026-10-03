@@ -1,25 +1,15 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Authoring guards for `vp run fork:scan`. Each rule names a
-// shape a later rebase pays for, at the moment a fork commit creates it:
-//
-// - upstream-test: the commit adds a fork test block to an upstream-owned test
-//   file instead of its `*.fork.test.ts` sibling, or rewrites an upstream
-//   assertion in place (a same-size swap nets to zero added blocks, so the
-//   removed side is the whole shape).
-// - replaced-export: the commit deletes an upstream-owned exported declaration
-import { enclosedSupersededTitles, supersededTitlesByPath } from "./lib/fork-supersedes.ts";
+// Authoring guards for `vp run fork:scan`, each naming a shape a later rebase pays for:
+// upstream-test (a fork block added to an upstream test file instead of its `*.fork.test.ts`
+// sibling, or an upstream assertion rewritten in place) and replaced-export (an upstream export
+// deleted and re-declared). `--since` range warnings fail the scan; the historical range is advisory.
 
-// A case title: the first string literal of an `it`/`test`/`effectIt`
-// opener, including the dotted effect forms (`it.effect`, `it.layer`).
-// Mirrors the additive gate's opener; kept local so this module stays
-// runnable without the gate's git runner.
-//   and re-declares it, so every later upstream edit to it lands invisibly.
-//
-// (RSI-Software/t3code-hyprws#1190: smallest form of the old authoring-guard
-// cluster; footprint, lockfile, boundary, seam, and reshape rules do not come
-// back.) Warnings on commits in the `--since` range fail the scan; historical
-// range stays advisory.
+import {
+  caseSourceLines,
+  enclosedSupersededTitles,
+  supersededTitlesByPath,
+} from "./lib/fork-supersedes.ts";
 
 export type ScanAuthoringRule = "upstream-test" | "replaced-export";
 
@@ -259,9 +249,6 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
 export const TEST_FILE = /\.test\.tsx?$/;
 const FORK_TEST_FILE = /\.fork\.test\.tsx?$/;
 
-const TITLE_OF =
-  /^\s*(?:it|test|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)/;
-
 /** The paths whose target-tree text the upstream-test rule measures this patch against. */
 export const upstreamTestPaths = (patch: CommitPatch): ReadonlyArray<string> => [
   ...patch.removedTestLines.keys(),
@@ -288,28 +275,8 @@ const significantLines = (text: string): ReadonlyArray<string> =>
  * that kept the body of the case it replaced exempts by its own case,
  * never by whole-file line membership (RSI-Software/t3code-hyprws#1208).
  */
-const caseLines = (text: string, title: string): ReadonlySet<string> => {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const started: Array<string> = [];
-  let inside = false;
-  for (const line of lines) {
-    const current =
-      TITLE_OF.exec(line)
-        ?.slice(1)
-        .find((part) => part !== undefined) ?? null;
-    if (current !== null) {
-      if (current === title && !inside) {
-        inside = true;
-        started.push(line.trim());
-        continue;
-      }
-      if (inside) break;
-      continue;
-    }
-    if (inside) started.push(line);
-  }
-  return new Set(significantLines(started.join("\n")));
-};
+const caseLines = (text: string, title: string): ReadonlySet<string> =>
+  new Set(significantLines(caseSourceLines(text, title).join("\n")));
 
 /**
  * The target-tree lines of every case the scanned head's sibling declares
