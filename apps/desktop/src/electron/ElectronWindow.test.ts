@@ -4,7 +4,6 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import type * as Electron from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
@@ -57,15 +56,6 @@ vi.mock("electron", () => ({
 }));
 
 import * as ElectronWindow from "./ElectronWindow.ts";
-import {
-  HUB_WINDOW_IDENTITY,
-  PROJECT_WINDOW_PRELOAD_ARGUMENT,
-  isProjectWindowPreload,
-  projectWindowIdentity,
-  projectWindowPreloadArgument,
-  readProjectWindowPreloadRef,
-} from "../window/WindowIdentity.ts";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 const layerTestFor = (platform: NodeJS.Platform) =>
   ElectronWindow.layer.pipe(Layer.provide(Layer.succeed(HostProcess.Platform, platform)));
@@ -73,14 +63,10 @@ const layerTestFor = (platform: NodeJS.Platform) =>
 const layerTest = layerTestFor("linux");
 
 function makeBrowserWindow(input: { readonly id: number; readonly destroyed: boolean }) {
-  const listeners = new Map<string, () => void>();
   return {
     id: input.id,
     isDestroyed: vi.fn(() => input.destroyed),
-    once: vi.fn((event: string, listener: () => void) => listeners.set(event, listener)),
-    close: vi.fn(() => listeners.get("closed")?.()),
-    __emit: (event: string) => listeners.get(event)?.(),
-  } as unknown as Electron.BrowserWindow & { readonly __emit: (event: string) => void };
+  } as unknown as Electron.BrowserWindow;
 }
 
 function makeWindowsRevealWindow() {
