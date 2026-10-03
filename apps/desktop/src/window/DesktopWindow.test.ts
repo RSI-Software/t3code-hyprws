@@ -56,6 +56,10 @@ import {
 } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import {
+  desktopEnvironmentLayerFork,
+  registerDesktopWindowForkTests,
+} from "./DesktopWindow.fork.suite.ts"; // fork-hook: multi-window/fork-suite-import
 import * as DesktopWindowSession from "./DesktopWindowSession.ts";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -209,21 +213,17 @@ const electronThemeLayer = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const makeDesktopEnvironmentLayer = (env: Record<string, string | undefined> = {}) =>
-  DesktopEnvironment.layer(environmentInput).pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        DesktopConfig.layerTest({
-          T3CODE_PORT: "3773",
-          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-          ...env,
-        }),
-      ),
+const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      NodeServices.layer,
+      DesktopConfig.layerTest({
+        T3CODE_PORT: "3773",
+        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+      }),
     ),
-  );
-
-const desktopEnvironmentLayer = makeDesktopEnvironmentLayer();
+  ),
+);
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
@@ -416,9 +416,8 @@ function makeTestLayer(input: {
     Layer.provide(
       Layer.mergeAll(
         desktopAssetsLayer,
-        input.environmentEnv
-          ? makeDesktopEnvironmentLayer(input.environmentEnv)
-          : desktopEnvironmentLayer,
+        desktopEnvironmentLayer,
+        desktopEnvironmentLayerFork(environmentInput, input.environmentEnv), // fork-hook: multi-window/environment-env
         desktopAppSettingsLayer,
         desktopClientSettingsLayer,
         desktopServerExposureLayer,
@@ -2242,4 +2241,10 @@ describe("DesktopWindow", () => {
       }).pipe(Effect.provide(layer));
     }),
   );
+  registerDesktopWindowForkTests({ makeFakeBrowserWindow, makeTestLayer }); // fork-hook: multi-window/fork-suite-register
 });
+
+export type DesktopWindowHarnessFork = {
+  makeFakeBrowserWindow: typeof makeFakeBrowserWindow;
+  makeTestLayer: typeof makeTestLayer;
+}; // fork-hook: multi-window/fork-suite-harness
