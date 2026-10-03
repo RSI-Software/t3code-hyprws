@@ -7,11 +7,14 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { describe, expect } from "vite-plus/test";
 
 import * as AcpSessionRuntime from "./acp/AcpSessionRuntime.ts";
+import type { ProviderAdapterV2SessionRuntime } from "../orchestration-v2/ProviderAdapter.ts";
 import {
+  codexThreadIdentityConfig,
   providerSessionIdentity,
   providerSessionProjectId,
   withoutProviderSessionIdentity,
   withSessionIdentityWhenKnown,
+  withThreadProjects,
 } from "./providerSessionEnvironment.ts";
 
 const threadId = "thread-1" as ThreadId;
@@ -64,6 +67,79 @@ describe("providerSessionProjectId", () => {
       expect(
         yield* providerSessionProjectId(projections(Effect.fail("projection down")), threadId),
       ).toEqual({});
+    }),
+  );
+});
+
+describe("codexThreadIdentityConfig", () => {
+  it("sets both ids for the thread's shell commands", () => {
+    expect(codexThreadIdentityConfig({ threadId, projectId })).toEqual({
+      shell_environment_policy: {
+        set: { T3CODE_PROJECT_ID: "project-1", T3CODE_THREAD_ID: "thread-1" },
+      },
+    });
+  });
+
+  it("sets only the thread id when the project is unknown, and nothing without a thread", () => {
+    expect(codexThreadIdentityConfig({ threadId })).toEqual({
+      shell_environment_policy: { set: { T3CODE_THREAD_ID: "thread-1" } },
+    });
+    expect(codexThreadIdentityConfig({})).toEqual({});
+  });
+});
+
+describe("withThreadProjects", () => {
+  type Runtime = Pick<
+    ProviderAdapterV2SessionRuntime,
+    "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
+  >;
+  const otherThreadId = "thread-2" as ThreadId;
+  const providerThread = (appThreadId: ThreadId | null) => ({ appThreadId }) as never;
+
+  // One shared runtime, two threads from different projects, one thread unknown.
+  const makeRuntime = () => {
+    const seen: Array<{ readonly call: string; readonly projectId: unknown }> = [];
+    const record = (call: string) => (input: { readonly projectId?: unknown }) => {
+      seen.push({ call, projectId: input.projectId });
+      return Effect.succeed(null);
+    };
+    const runtime = {
+      ensureThread: record("ensure"),
+      resumeThread: record("resume"),
+      forkThread: record("fork"),
+      rollbackThread: record("rollback"),
+    } as unknown as Runtime;
+    const projections = {
+      getThreadShell: (id: ThreadId) => Effect.succeed(id === threadId ? { projectId } : null),
+    };
+    return { seen, wrapped: withThreadProjects(projections, runtime) };
+  };
+
+  it.effect("gives each thread call its own thread's project", () =>
+    Effect.gen(function* () {
+      const { seen, wrapped } = makeRuntime();
+      yield* wrapped.ensureThread({ threadId } as never);
+      yield* wrapped.resumeThread({ providerThread: providerThread(threadId) } as never);
+      yield* wrapped.forkThread({ targetThreadId: threadId } as never);
+      yield* wrapped.rollbackThread({ providerThread: providerThread(threadId) } as never);
+      expect(seen).toEqual([
+        { call: "ensure", projectId },
+        { call: "resume", projectId },
+        { call: "fork", projectId },
+        { call: "rollback", projectId },
+      ]);
+    }),
+  );
+
+  it.effect("passes no project for an unknown thread or one without an app thread", () =>
+    Effect.gen(function* () {
+      const { seen, wrapped } = makeRuntime();
+      yield* wrapped.ensureThread({ threadId: otherThreadId } as never);
+      yield* wrapped.resumeThread({ providerThread: providerThread(null) } as never);
+      expect(seen).toEqual([
+        { call: "ensure", projectId: undefined },
+        { call: "resume", projectId: undefined },
+      ]);
     }),
   );
 });
