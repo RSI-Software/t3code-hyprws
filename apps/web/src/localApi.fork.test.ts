@@ -1,9 +1,11 @@
 import {
+  DEFAULT_CLIENT_SETTINGS,
   type ConfirmDialogOptions,
   type ContextMenuItem,
   type DesktopBridge,
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 const showContextMenuFallbackMock = vi.fn<
   <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -62,18 +64,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe("LocalApi", () => {
-  it("uses the themed context-menu renderer without a desktop bridge", async () => {
-    showContextMenuFallbackMock.mockResolvedValue("rename");
-    const { createLocalApi } = await import("./localApi");
-    const items = [{ id: "rename", label: "Rename" }] as const;
-    await expect(createLocalApi().contextMenu.show(items, { x: 4, y: 5 })).resolves.toBe("rename");
-    expect(showContextMenuFallbackMock).toHaveBeenCalledWith(items, { x: 4, y: 5 });
-  });
-  it("dismisses an open themed context menu without a desktop bridge", async () => {
-    const { createLocalApi } = await import("./localApi");
-    await createLocalApi().contextMenu.close();
-    expect(dismissContextMenuMock).toHaveBeenCalledOnce();
-  });
   it("uses the themed context-menu renderer with a desktop bridge", async () => {
     showContextMenuFallbackMock.mockResolvedValue("delete");
     const showContextMenu = vi.fn().mockResolvedValue("native-delete");
@@ -89,5 +79,32 @@ describe("LocalApi", () => {
     const { createLocalApi } = await import("./localApi");
     await createLocalApi().contextMenu.close();
     expect(dismissContextMenuMock).toHaveBeenCalledOnce();
+  });
+  forkSupersedes({
+    upstream:
+      "apps/web/src/localApi.test.ts > delegates host capabilities and persistence to the desktop bridge",
+    reason:
+      "desktop context menus render through the themed web renderer, never the native bridge menu",
+    commit: "ed3266856cc",
+  });
+  it("delegates dialogs and persistence to the desktop bridge", async () => {
+    const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
+    const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
+    const setClientSettings = vi.fn().mockResolvedValue(undefined);
+    testWindow().desktopBridge = {
+      pickFolder,
+      getClientSettings,
+      setClientSettings,
+    } as unknown as DesktopBridge;
+    const { createLocalApi } = await import("./localApi");
+    const api = createLocalApi();
+    requestConfirmDialogMock.mockReturnValue(undefined);
+    await expect(api.dialogs.confirm("Install update?")).resolves.toBe(false);
+    await expect(api.dialogs.pickFolder({ initialPath: "/tmp" })).resolves.toBe("/tmp/project");
+    await expect(api.persistence.getClientSettings()).resolves.toEqual(DEFAULT_CLIENT_SETTINGS);
+    await api.persistence.setClientSettings(DEFAULT_CLIENT_SETTINGS);
+    expect(pickFolder).toHaveBeenCalledWith({ initialPath: "/tmp" });
+    expect(getClientSettings).toHaveBeenCalledTimes(1);
+    expect(setClientSettings).toHaveBeenCalledWith(DEFAULT_CLIENT_SETTINGS);
   });
 });

@@ -121,30 +121,6 @@ describe("LocalApi", () => {
     );
   });
 
-  it("delegates host capabilities and persistence to the desktop bridge", async () => {
-    const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
-    const getClientSettings = vi.fn().mockResolvedValue(DEFAULT_CLIENT_SETTINGS);
-    const setClientSettings = vi.fn().mockResolvedValue(undefined);
-    testWindow().desktopBridge = {
-      pickFolder,
-      getClientSettings,
-      setClientSettings,
-    } as unknown as DesktopBridge;
-
-    const { createLocalApi } = await import("./localApi");
-    const api = createLocalApi();
-
-    requestConfirmDialogMock.mockReturnValue(undefined);
-    await expect(api.dialogs.confirm("Install update?")).resolves.toBe(false);
-    await expect(api.dialogs.pickFolder({ initialPath: "/tmp" })).resolves.toBe("/tmp/project");
-    await expect(api.persistence.getClientSettings()).resolves.toEqual(DEFAULT_CLIENT_SETTINGS);
-    await api.persistence.setClientSettings(DEFAULT_CLIENT_SETTINGS);
-
-    expect(pickFolder).toHaveBeenCalledWith({ initialPath: "/tmp" });
-    expect(getClientSettings).toHaveBeenCalledTimes(1);
-    expect(setClientSettings).toHaveBeenCalledWith(DEFAULT_CLIENT_SETTINGS);
-  });
-
   it("persists client settings in browser storage", async () => {
     const { createLocalApi } = await import("./localApi");
     const api = createLocalApi();
