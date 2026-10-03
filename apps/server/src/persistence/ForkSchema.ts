@@ -10,10 +10,11 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
  * idempotent pass: each one is checked with `PRAGMA table_info` and added when
  * missing, whatever the migration table says.
  */
-const FORK_COLUMNS = [
-  // Durable checkout-move state machine for the zmux-estate domain.
-  { table: "projection_threads", column: "checkout_move_json", definition: "TEXT" },
-] as const;
+const FORK_COLUMNS: ReadonlyArray<{
+  readonly table: string;
+  readonly column: string;
+  readonly definition: string;
+}> = [];
 
 /**
  * Fork-owned tables, created idempotently after the upstream migrations for
@@ -66,7 +67,8 @@ const FORK_TABLES = [
  * so that stale fork row would make upstream's real 048
  * (`ProjectionThreadBranchPullRequest`) skip: latest id 48 is not below 48.
  * Delete exactly that row before `runMigrations` so upstream's guarded 048
- * runs; the post-migration pass below then re-adds the fork column.
+ * runs. Checkout moves now ride on the V2 thread payload, so no fork column
+ * replaces it; databases that already carry `checkout_move_json` keep it unread.
  */
 export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRow")(function* () {
   const sql = yield* SqlClient.SqlClient;

@@ -11,7 +11,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -75,7 +74,7 @@ const makeHarness = (input: {
       Effect.succeed({ repository: { rootPath: rootOf(cwd) } }),
   } as unknown as VcsDriverRegistry.VcsDriverRegistry["Service"];
   const projects = {
-    getShell: () => Effect.succeed(Option.some({ id: projectId, workspaceRoot: "/repo" })),
+    getShell: () => Effect.succeedSome({ id: projectId, workspaceRoot: "/repo" }),
   } as unknown as ProjectStore.ProjectStoreV2["Service"];
 
   return sharedCheckoutWsLayerFork.pipe(
@@ -162,5 +161,35 @@ describe("sharedCheckoutWsLayerFork", () => {
         expect(log).toEqual(["switch:start", "switch:end", "dispatch"]);
       }).pipe(Effect.provide(layer));
     });
+  });
+
+  it.effect("refuses a turn start while the thread's checkout move is in flight", () => {
+    const log: string[] = [];
+    const moving = {
+      ...shellThread("root", null, false),
+      checkoutMove: { status: "queued" },
+    } as unknown as OrchestrationV2ThreadShell;
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const error = yield* threads.dispatch(messageDispatch("root")).pipe(Effect.flip);
+      expect(String(error.cause)).toContain("has a checkout move in progress");
+      expect(log).toEqual([]);
+    }).pipe(Effect.provide(makeHarness({ threads: [moving], log })));
+  });
+
+  it.effect("refuses client-forged checkout move state", () => {
+    const log: string[] = [];
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const forged = {
+        type: "thread.metadata.update",
+        commandId: CommandId.make("forged"),
+        threadId: ThreadId.make("root"),
+        checkoutMove: { status: "committed" },
+      } as unknown as OrchestrationV2Command;
+      const error = yield* threads.dispatch(forged).pipe(Effect.flip);
+      expect(String(error.cause)).toContain("thread.checkoutMove.request");
+      expect(log).toEqual([]);
+    }).pipe(Effect.provide(makeHarness({ threads: [shellThread("root", null, false)], log })));
   });
 });
