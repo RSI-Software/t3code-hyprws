@@ -2606,6 +2606,7 @@ export const OrchestrationV2Command = Schema.Union([
     worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     expectedWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
     checkoutMove: Schema.optional(ThreadCheckoutMove), // fork-hook: zmux-estate/metadata-update-checkout-move
+    expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)), // fork-hook: zmux-estate/metadata-update-expected-branch
     /** Reject unless no message or run has landed on this thread. */
     expectedEmpty: Schema.optional(Schema.Boolean),
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),

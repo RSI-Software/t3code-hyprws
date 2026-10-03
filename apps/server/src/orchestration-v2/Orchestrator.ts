@@ -125,6 +125,7 @@ import {
   detachesCheckoutRecoveryInlineFork,
   refuseCheckoutMoveDuringRunFork,
 } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
+import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -2394,6 +2395,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause,
         }),
     ); // fork-hook: zmux-estate/decider-checkout-move-run-guard
+    yield* refuseStaleBranchFork(
+      command,
+      thread.branch,
+      (cause) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        }),
+    ); // fork-hook: zmux-estate/decider-expected-branch
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
