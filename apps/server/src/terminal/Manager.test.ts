@@ -115,59 +115,6 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
 }
 
-class FakeProcessRunner {
-  readonly inputs: ProcessRunner.ProcessRunInput[] = [];
-  private readonly result:
-    | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
-    | ((
-        input: ProcessRunner.ProcessRunInput,
-      ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>);
-
-  constructor(
-    result:
-      | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
-      | ((
-          input: ProcessRunner.ProcessRunInput,
-        ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>),
-  ) {
-    this.result = result;
-  }
-
-  readonly service = ProcessRunner.ProcessRunner.of({
-    run: (input) => {
-      this.inputs.push(input);
-      return typeof this.result === "function" ? this.result(input) : this.result;
-    },
-  });
-}
-
-function processResult(
-  overrides: Partial<ProcessRunner.ProcessRunOutput> = {},
-): ProcessRunner.ProcessRunOutput {
-  return {
-    stdout: "",
-    stderr: "",
-    code: ChildProcessSpawner.ExitCode(0),
-    timedOut: false,
-    stdoutTruncated: false,
-    stderrTruncated: false,
-    stdoutInvalidUtf8: false,
-    stderrInvalidUtf8: false,
-    ...overrides,
-  };
-}
-
-function resolvedZmuxProcessRunner(): FakeProcessRunner {
-  return new FakeProcessRunner(
-    Effect.succeed(
-      processResult({
-        stdout:
-          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
-      }),
-    ),
-  );
-}
-
 class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
@@ -294,8 +241,6 @@ interface CreateManagerOptions {
   registerTerminalProcesses?: Parameters<
     typeof TerminalManager.makeWithOptions
   >[0]["registerTerminalProcesses"];
-  managedAttachmentSuspendGraceMs?: number;
-  managedAttachmentFirstAttachDeadlineMs?: number;
   maxRetainedInactiveSessions?: number;
   historyByteLimit?: number;
   ptyAdapter?: FakePtyAdapter;
@@ -304,7 +249,6 @@ interface CreateManagerOptions {
   >[0]["resolveProviderInstanceEnvironment"];
   managedBinaryCacheDir?: string;
   managedBinaryToolsDir?: string;
-  terminalSessionMode?: "shell" | "zmux";
 }
 
 interface ManagerFixture {
@@ -350,15 +294,6 @@ const createManager = (
         ...(options.registerTerminalProcesses !== undefined
           ? { registerTerminalProcesses: options.registerTerminalProcesses }
           : {}),
-        ...(options.managedAttachmentSuspendGraceMs !== undefined
-          ? { managedAttachmentSuspendGraceMs: options.managedAttachmentSuspendGraceMs }
-          : {}),
-        ...(options.managedAttachmentFirstAttachDeadlineMs !== undefined
-          ? {
-              managedAttachmentFirstAttachDeadlineMs:
-                options.managedAttachmentFirstAttachDeadlineMs,
-            }
-          : {}),
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
           : {}),
@@ -371,9 +306,6 @@ const createManager = (
               managedBinaryCacheDir: options.managedBinaryCacheDir,
               managedBinaryToolsDir: options.managedBinaryToolsDir,
             }),
-        ...(options.terminalSessionMode !== undefined
-          ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
-          : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
       const unsubscribe = yield* manager.subscribe((event) =>
@@ -1169,9 +1101,6 @@ it.layer(
           PORT: "5173",
           T3CODE_PORT: "3773",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
-          TMUX: "/tmp/tmux-1000/default,123,0",
-          TMUX_PANE: "%42",
-          TMUX_TMPDIR: "/tmp/tmux-1000",
           TEST_TERMINAL_KEEP: "keep-me",
           TMUX: "/tmp/tmux-1000/default,1234,0",
           TMUX_PANE: "%3",
@@ -1188,9 +1117,6 @@ it.layer(
       expect(spawnInput.env.PORT).toBeUndefined();
       expect(spawnInput.env.T3CODE_PORT).toBeUndefined();
       expect(spawnInput.env.VITE_DEV_SERVER_URL).toBeUndefined();
-      expect(spawnInput.env.TMUX).toBeUndefined();
-      expect(spawnInput.env.TMUX_PANE).toBeUndefined();
-      expect(spawnInput.env.TMUX_TMPDIR).toBeUndefined();
       expect(spawnInput.env.TEST_TERMINAL_KEEP).toBe("keep-me");
       expect(spawnInput.env.TMUX).toBeUndefined();
       expect(spawnInput.env.TMUX_PANE).toBeUndefined();
