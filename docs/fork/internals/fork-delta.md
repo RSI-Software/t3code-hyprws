@@ -142,7 +142,7 @@ const trackInstaller = (install: (session: Session) => void) =>
 | [distribution](#distribution)           | Active | core              | Never, while the fork ships builds        |
 | [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Per commit, on the upstream fix           |
 | [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named groups               |
-| [thread-fork](#thread-fork)             | Active | core              | Upstream ships same-provider thread fork  |
+| [thread-fork](#thread-fork)             | Active | core              | Upstream ships a thread-menu fork entry   |
 | [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach externally      |
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
 
@@ -602,41 +602,29 @@ Upstream ships named thread groups with persistent membership, plus a control th
 
 ### Shape
 
-**Fork thread** in a thread's menu fires `thread.fork`; the sidebar and header menus share one dispatch that navigates to the child.
+**Fork thread** in the sidebar and header menus dispatches V2 `thread.fork` from `latest_stable`, then navigates to the child.
+Upstream forks only from an assistant message; the fork adds the thread-level entry.
 
-The server handler drives the import pipeline's own commands:
-
-1. Guard: quiescent, no pending requests
-2. Guard: usable cursor, not deleted or archived
-3. Binding insert-ignore
-4. `thread.create` with `historyImport: true`
-5. `thread.history.import`, fresh `import:` ids
-6. `thread.unsettle`
-
-| Aspect    | Rule                                                                                                        |
-| --------- | ----------------------------------------------------------------------------------------------------------- |
-| Claude    | Eager native fork at click; child cursor seeded from the clone's human-prompt UUIDs                         |
-| Codex     | Lazy fork at the child's first start (`thread/fork` from the source's latest completed turn)                |
-| Cursor    | Handler writes it, runtime reads it; the runtime's fork branch fails closed with no `thread/start` fallback |
-| Parent    | Binding and cursor are read-only during a fork; the source thread is never rewritten                        |
-| Providers | Claude and Codex only; every other driver refuses with `ThreadForkUnsupportedProviderError`                 |
+| Aspect    | Rule                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------- |
+| Native    | The orchestrator picks native or portable fork (`CommandPolicy.ts` `decideForkExecution`) |
+| Providers | Any configured provider with a finished run                                               |
+| Busy      | Disabled while running, waiting, or holding a pending request or queued turn              |
+| Title     | `X (fork)`; forking a fork does not stack the suffix                                      |
 
 Tracked by RSI-Software/t3code-hyprws#1310.
-`ClaudeHistoryCommand.fork.ts` mirrors `runScopedHistoryCommand` in `ClaudeAdapter.ts` on purpose: rebase safety beats DRY.
 
 ### Retirement condition
 
-A tagged upstream release ships same-provider thread fork for Claude and Codex.
+A tagged upstream release ships a thread-level fork entry in the thread menu.
 
 ### Rebase scan
 
-| Path                                                                                                                                                                                                                                                                                                                                     | Why it matters                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `packages/contracts/src/threadFork.fork.ts`, `packages/contracts/src/rpc.fork.ts`, `packages/contracts/src/rpc.ts`                                                                                                                                                                                                                       | Shared contracts and wire schemas |
-| `apps/server/src/project/ThreadFork.fork.ts`, `apps/server/src/ws.ts`, `apps/server/src/auth/RpcAuthorization.ts`                                                                                                                                                                                                                        | Handler, wiring, and auth scope   |
-| `apps/server/src/provider/Layers/ClaudeHistoryCommand.fork.ts`, `apps/server/src/provider/Layers/ClaudeThreadFork.fork.ts`                                                                                                                                                                                                               | Claude fork path                  |
-| `apps/server/src/provider/Layers/CodexThreadFork.fork.ts`, `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                                                                                                                                                      | Codex fork-on-open path           |
-| `apps/web/src/state/threadFork.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`, `apps/web/src/components/threadActionMenu.logic.ts`, `apps/web/src/hooks/useThreadActionMenu.ts`, `apps/web/src/hooks/useThreadActionMenu.fork.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/contextMenuFallback.fork.ts` | Shared web surfaces               |
+| Path                                                                                                                                                                             | Why it matters                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/web/src/state/threadFork.fork.ts`, `apps/web/src/components/threadActionMenu.logic.fork.ts`, `apps/web/src/components/threadActionMenu.logic.ts`                           | Command and menu state                          |
+| `apps/web/src/hooks/useThreadActionMenu.ts`, `apps/web/src/hooks/useThreadActionMenu.fork.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/contextMenuFallback.fork.ts` | Shared web surfaces                             |
+| `apps/server/src/orchestration-v2/CommandPolicy.ts`, `apps/server/src/orchestration-v2/Orchestrator.ts`                                                                          | Upstream fork policy and `latest_stable` source |
 
 ## upstream-fixes
 

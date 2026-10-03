@@ -4,7 +4,7 @@ import { Cause } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { EnvironmentId, ProviderDriverKind, ThreadForkError, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
@@ -19,6 +19,21 @@ const THREAD_REF: ScopedThreadRef = {
 const failureResult = (cause: Cause.Cause<unknown>): AtomCommandResult<never, unknown> =>
   AsyncResult.failure(cause) as AtomCommandResult<never, unknown>;
 
+type ForkTarget = {
+  readonly environmentId: string;
+  readonly input: {
+    readonly type: string;
+    readonly sourceThreadId: string;
+    readonly targetThreadId: string;
+  };
+};
+
+/** The dispatch RPC answers with the committed sequence only. */
+const dispatched = AsyncResult.success({ sequence: 1 }) as unknown as AtomCommandResult<
+  unknown,
+  unknown
+>;
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -27,13 +42,8 @@ describe("forkThreadActionFork failure surfaces", () => {
   it("toasts a refused fork with the server's reason", async () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
     const navigate = vi.fn(async () => undefined);
-    // A real coded refusal: the toast copies the server's reason message.
-    const refusal = new ThreadForkError({
-      threadId: THREAD_REF.threadId,
-      reason: "instance-mismatch",
-      provider: ProviderDriverKind.make("claudeAgent"),
-      detail: "Provider instance 'claudeAgent' is not an available Claude instance.",
-    });
+    // An orchestrator refusal: the toast copies the server's message.
+    const refusal = new Error("Thread 'thread-1' has no stable run to fork.");
     await forkThreadActionFork({
       threadRef: THREAD_REF,
       navigate,
@@ -42,7 +52,7 @@ describe("forkThreadActionFork failure surfaces", () => {
     expect(add).toHaveBeenCalledTimes(1);
     const toast = add.mock.calls[0]?.[0];
     expect(toast?.title).toBe("Could not fork thread");
-    expect(toast?.description).toContain("not an available Claude instance");
+    expect(toast?.description).toContain("no stable run to fork");
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -69,31 +79,38 @@ describe("forkThreadActionFork failure surfaces", () => {
     expect(add).not.toHaveBeenCalled();
   });
 
-  it("navigates to the child on success without toasting", async () => {
+  it("dispatches a latest-stable V2 fork and navigates to the minted child", async () => {
     const add = vi.spyOn(toastManager, "add").mockReturnValue("fork-error-toast");
     const navigate = vi.fn(async () => undefined);
-    const forkThread = vi.fn((target: { environmentId: string; input: { threadId: string } }) => {
-      // The command target splits environment routing from the payload.
-      expect(target).toEqual({
-        environmentId: "environment-1",
-        input: { threadId: "thread-1" },
-      });
-      return Promise.resolve(
-        AsyncResult.success({
-          childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
-        }) as unknown as AtomCommandResult<unknown, unknown>,
-      );
+    const targets: Array<ForkTarget> = [];
+    const forkThread = vi.fn((target: ForkTarget) => {
+      targets.push(target);
+      return Promise.resolve(dispatched);
     });
     await forkThreadActionFork({
       threadRef: THREAD_REF,
       navigate,
       forkThread: forkThread as never,
       waitForShell: async () => true,
+      readSourceTitle: () => "Sidebar polish (fork)",
     });
     expect(add).not.toHaveBeenCalled();
+    const target = targets[0]!;
+    // The command target splits environment routing from the dispatch payload.
+    expect(target.environmentId).toBe("environment-1");
+    expect(target.input).toMatchObject({
+      type: "thread.fork",
+      createdBy: "user",
+      creationSource: "web",
+      sourceThreadId: "thread-1",
+      sourcePoint: { type: "latest_stable" },
+      // Forking a fork does not stack the suffix.
+      title: "Sidebar polish (fork)",
+    });
+    expect(target.input.targetThreadId).not.toBe("thread-1");
     expect(navigate).toHaveBeenCalledWith({
       to: "/$environmentId/$threadId",
-      params: { environmentId: "environment-1", threadId: "import:claudeAgent:fork-child" },
+      params: { environmentId: "environment-1", threadId: target.input.targetThreadId },
     });
   });
 
@@ -105,12 +122,7 @@ describe("forkThreadActionFork failure surfaces", () => {
     await forkThreadActionFork({
       threadRef: THREAD_REF,
       navigate,
-      forkThread: (() =>
-        Promise.resolve(
-          AsyncResult.success({
-            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
-          }) as unknown as AtomCommandResult<unknown, unknown>,
-        )) as never,
+      forkThread: (() => Promise.resolve(dispatched)) as never,
     });
     // The child exists server-side; a navigation failure must not read as a
     // failed fork.
@@ -133,11 +145,7 @@ describe("forkThreadActionFork failure surfaces", () => {
       navigate,
       forkThread: (() => {
         order.push("rpc");
-        return Promise.resolve(
-          AsyncResult.success({
-            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
-          }) as unknown as AtomCommandResult<unknown, unknown>,
-        );
+        return Promise.resolve(dispatched);
       }) as never,
       waitForShell: () => {
         order.push("wait");
@@ -160,12 +168,7 @@ describe("forkThreadActionFork failure surfaces", () => {
     await forkThreadActionFork({
       threadRef: THREAD_REF,
       navigate,
-      forkThread: (() =>
-        Promise.resolve(
-          AsyncResult.success({
-            childThreadId: ThreadId.make("import:claudeAgent:fork-child"),
-          }) as unknown as AtomCommandResult<unknown, unknown>,
-        )) as never,
+      forkThread: (() => Promise.resolve(dispatched)) as never,
       waitForShell: async () => false,
     });
     // Timeout is never a stuck spinner or a false error toast.

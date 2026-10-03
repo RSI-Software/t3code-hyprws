@@ -1,7 +1,7 @@
-// Fork-only: the Fork menu item is built only for Claude and Codex threads,
-// disabled while the thread is busy (running/queued turn or pending request)
-// or while a fork RPC is in flight.
-import { ProviderDriverKind } from "@t3tools/contracts";
+// Fork-only: the Fork menu item is built once the thread has run on a
+// configured provider, disabled while the thread is busy (active run or
+// pending request) or while a fork is in flight.
+import { ProviderDriverKind, ProviderInstanceId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ThreadActionMenuState } from "./threadActionMenu.logic.ts";
@@ -14,7 +14,8 @@ import {
 } from "./threadActionMenu.logic.fork.ts";
 
 const CODEX = ProviderDriverKind.make("codex");
-const CLAUDE = ProviderDriverKind.make("claudeAgent");
+const OPENCODE = ProviderDriverKind.make("opencode");
+const NOW = "2026-08-20T00:00:00.000Z";
 
 /** Mirror of the upstream test's base state, with the fork slice filled in. */
 const baseFork: ForkableThreadProviderState = {
@@ -25,62 +26,66 @@ const baseFork: ForkableThreadProviderState = {
 
 const baseState: Pick<ThreadActionMenuState, "fork"> = { fork: baseFork };
 
-/** Minimal shell doubles: the busy check only reads the quiescence slice. */
-const shell = (overrides: {
-  readonly latestTurn?: unknown;
-  readonly session?: unknown;
-  readonly hasPendingApprovals?: boolean;
-  readonly hasPendingUserInput?: boolean;
-  readonly latestUserMessageAt?: string | null;
-}): ForkThreadShell =>
-  ({
-    latestTurn: overrides.latestTurn ?? null,
-    session: overrides.session ?? null,
-    hasPendingApprovals: overrides.hasPendingApprovals ?? false,
-    hasPendingUserInput: overrides.hasPendingUserInput ?? false,
-    latestUserMessageAt: overrides.latestUserMessageAt ?? null,
-  }) as ForkThreadShell;
+const completedRun: NonNullable<ForkThreadShell["latestRun"]> = {
+  runId: RunId.make("run-1"),
+  status: "completed",
+  requestedAt: "2026-08-19T23:00:00.000Z",
+  startedAt: "2026-08-19T23:00:01.000Z",
+  completedAt: "2026-08-19T23:05:00.000Z",
+  assistantMessageId: null,
+};
+
+const runtime = (
+  status: NonNullable<ForkThreadShell["runtime"]>["status"],
+): ForkThreadShell["runtime"] => ({
+  status,
+  activeRunId: status === "idle" ? null : RunId.make("run-2"),
+  providerInstanceId: ProviderInstanceId.make("codex"),
+  providerName: null,
+  lastError: null,
+  updatedAt: NOW,
+});
+
+/** The quiescence slice the busy check reads: a quiet thread with one finished run. */
+const shell = (overrides: Partial<ForkThreadShell> = {}): ForkThreadShell => ({
+  latestRun: completedRun,
+  runtime: runtime("idle"),
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
+  latestUserMessageAt: null,
+  ...overrides,
+});
 
 describe("forkThreadMenuStateFork", () => {
-  it("builds state only for Claude and Codex threads", () => {
-    expect(forkThreadMenuStateFork(CODEX, false, shell({}), "2026-08-20T00:00:00Z")).toMatchObject({
+  it("builds state for any configured provider once the thread has run", () => {
+    expect(forkThreadMenuStateFork(CODEX, false, shell(), NOW)).toEqual({
       provider: CODEX,
       busy: false,
       inFlight: false,
     });
-    expect(
-      forkThreadMenuStateFork(CLAUDE, false, shell({}), "2026-08-20T00:00:00Z"),
-    ).not.toBeNull();
-    expect(
-      forkThreadMenuStateFork(ProviderDriverKind.make("opencode"), false, shell({}), "x"),
-    ).toBeNull();
-    expect(forkThreadMenuStateFork(null, false, shell({}), "x")).toBeNull();
+    // V2 forks portably where the provider cannot fork natively.
+    expect(forkThreadMenuStateFork(OPENCODE, false, shell(), NOW)).not.toBeNull();
+    expect(forkThreadMenuStateFork(null, false, shell(), NOW)).toBeNull();
+    expect(forkThreadMenuStateFork(CODEX, false, shell({ latestRun: null }), NOW)).toBeNull();
   });
 
   it.each([
-    { name: "a running turn", shell: shell({ latestTurn: { state: "running" } }) },
-    { name: "a running session", shell: shell({ session: { status: "running" } }) },
-    { name: "a starting session", shell: shell({ session: { status: "starting" } }) },
-    {
-      name: "a session holding an active turn",
-      shell: shell({ session: { status: "stopped", activeTurnId: "turn-1" } }),
-    },
+    { name: "a running run", shell: shell({ runtime: runtime("running") }) },
+    { name: "a starting run", shell: shell({ runtime: runtime("starting") }) },
+    { name: "a queued run", shell: shell({ runtime: runtime("queued") }) },
+    { name: "a run waiting on the user", shell: shell({ runtime: runtime("waiting") }) },
     { name: "a pending approval", shell: shell({ hasPendingApprovals: true }) },
     { name: "a pending user input", shell: shell({ hasPendingUserInput: true }) },
     {
-      name: "a queued user message",
-      shell: shell({ latestUserMessageAt: new Date().toISOString() }),
+      name: "an unadopted user message",
+      shell: shell({ latestUserMessageAt: "2026-08-19T23:59:30.000Z" }),
     },
   ])("marks the thread busy for $name", ({ shell: busyShell }) => {
-    expect(forkThreadMenuStateFork(CODEX, false, busyShell, new Date().toISOString())?.busy).toBe(
-      true,
-    );
+    expect(forkThreadMenuStateFork(CODEX, false, busyShell, NOW)?.busy).toBe(true);
   });
 
   it("passes the in-flight flag through", () => {
-    expect(forkThreadMenuStateFork(CODEX, true, shell({}), "2026-08-20T00:00:00Z")?.inFlight).toBe(
-      true,
-    );
+    expect(forkThreadMenuStateFork(CODEX, true, shell(), NOW)?.inFlight).toBe(true);
   });
 });
 
@@ -93,7 +98,7 @@ describe("forkThreadMenuItems", () => {
     expect(forkThreadMenuItems({ fork: { ...baseFork, inFlight: true } })[0]?.disabled).toBe(true);
   });
 
-  it("omits the item entirely for other providers", () => {
+  it("omits the item entirely without fork state", () => {
     expect(forkThreadMenuItems({ fork: null })).toEqual([]);
     expect(forkThreadMenuItems({})).toEqual([]);
   });
