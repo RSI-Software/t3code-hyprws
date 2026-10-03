@@ -133,6 +133,7 @@ import {
 import { KeybindingsConfigError } from "./keybindings.ts";
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
+import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
 import {
   OrchestrationSearchThreadsError,
   OrchestrationSearchThreadsInput,
@@ -481,6 +482,7 @@ export const WS_METHODS = {
   cloudInstallRelayClient: "cloud.installRelayClient",
 
   ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
+  ...checkoutMoveRpcFork.methodNames, // fork-hook: zmux-estate/checkout-move-rpc-methods
   // Pull request methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -1746,6 +1748,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
+  ...checkoutMoveRpcFork.rpcs, // fork-hook: zmux-estate/checkout-move-rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsSummaryRpc,

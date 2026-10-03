@@ -115,6 +115,7 @@ const makeSharedCheckoutBranchGuardFork = Effect.gen(function* () {
 /**
  * Wraps a client message dispatch in the lease of the checkout its thread runs
  * in, so a turn start and a branch change on the same checkout never overlap.
+ * A thread with a checkout move in flight refuses new turns.
  */
 const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
   const { registry, coordinator, threadCwd } = yield* makeSharedCheckout;
@@ -134,6 +135,10 @@ const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
     return Effect.gen(function* () {
       const thread = yield* threads.getThreadShell(command.threadId);
       if (thread === null) return yield* dispatch;
+      // A move waits for the thread to go idle; a new turn would starve it.
+      if (thread.checkoutMove?.status === "queued" || thread.checkoutMove?.status === "preparing") {
+        return yield* reject(`Thread ${thread.id} has a checkout move in progress.`);
+      }
       const cwd = yield* threadCwd(thread).pipe(Effect.mapError(reject));
       if (cwd === undefined) return yield* dispatch;
       const checkout = yield* resolveTurnCheckoutFork(registry, cwd).pipe(Effect.mapError(reject));
@@ -144,8 +149,8 @@ const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
 
 /**
  * Supplies the WebSocket handlers with lease-aware thread dispatch and Git
- * branch mutations. Only the client transport is wrapped, as before the
- * Orchestrator V2 port.
+ * branch mutations, and refuses client-forged checkout move state. Only the
+ * client transport is wrapped, as before the Orchestrator V2 port.
  */
 export const sharedCheckoutWsLayerFork = Layer.mergeAll(
   Layer.effect(
@@ -155,7 +160,17 @@ export const sharedCheckoutWsLayerFork = Layer.mergeAll(
       const withTurnStartLease = yield* makeTurnStartCheckoutLeaseFork;
       return ThreadManagement.ThreadManagementService.of({
         ...inner,
-        dispatch: (command) => withTurnStartLease(inner, command, inner.dispatch(command)),
+        dispatch: (command) =>
+          // Move state is server-resolved; a client may only request a move.
+          command.type === "thread.metadata.update" && command.checkoutMove !== undefined
+            ? Effect.fail(
+                new Orchestrator.OrchestratorCommandRejectedError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause: "Checkout moves are requested through thread.checkoutMove.request.",
+                }),
+              )
+            : withTurnStartLease(inner, command, inner.dispatch(command)),
       });
     }),
   ),

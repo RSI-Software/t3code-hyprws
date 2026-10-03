@@ -221,6 +221,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
+import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/ws-checkout-move-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -1216,6 +1217,7 @@ const makeWsRpcLayer = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
+      const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork; // fork-hook: zmux-estate/ws-checkout-move-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -2875,6 +2877,7 @@ const makeWsRpcLayer = (
             },
           ),
         ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect, sql), // fork-hook: github-issues/ws-rpc-handlers
+        ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves, observeRpcEffect), // fork-hook: zmux-estate/ws-checkout-move-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlLookupRepository,
