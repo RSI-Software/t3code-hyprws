@@ -53,7 +53,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { resolveThreadRouteFamily } from "../threadRoutes"; // fork-hook: multi-window/thread-route-family-import
+import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";
 import {
   formatWorktreePathForDisplay,
   getOrphanedWorktreePathForThread,
@@ -637,17 +637,15 @@ export function useThreadActions() {
           ? readThreadShell(scopeThreadRef(threadRef.environmentId, fallbackThreadId))
           : null;
         await navigateAfterThreadDeletion(() =>
-          fallbackThread
-            ? router.navigate({
-                ...resolveThreadRouteFamily(getCurrentRouteParams()).thread(
-                  scopeThreadRef(fallbackThread.environmentId, fallbackThread.id),
-                ),
-                replace: true,
-              })
-            : router.navigate({
-                ...resolveThreadRouteFamily(getCurrentRouteParams()).index(),
-                replace: true,
-              }),
+          router.navigate({
+            ...resolveThreadRouteDeparture(
+              getCurrentRouteParams(),
+              fallbackThread
+                ? scopeThreadRef(fallbackThread.environmentId, fallbackThread.id)
+                : null,
+            ),
+            replace: true,
+          }),
         );
       }
 
