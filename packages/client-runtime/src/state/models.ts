@@ -18,6 +18,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 
 import { formatSubagentDisplayTitle } from "./subagentDisplay.ts";
+import { checkoutMoveShellFieldsFork } from "./checkoutMove.ts"; // fork-hook: zmux-estate/shell-checkout-move-import
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
   readonly environmentId: EnvironmentId;
@@ -131,6 +132,7 @@ export interface EnvironmentThreadShell {
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
   readonly issues?: OrchestrationV2ThreadShell["issues"]; // fork-hook: github-issues/client-shell-issues-field
+  readonly checkoutMove?: import("@t3tools/contracts").ThreadCheckoutMove; // fork-hook: zmux-estate/shell-checkout-move-field
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -237,6 +239,7 @@ export function presentThreadShell(
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
     ...(thread.issues === undefined ? {} : { issues: thread.issues }), // fork-hook: github-issues/client-shell-issues
+    ...checkoutMoveShellFieldsFork(thread), // fork-hook: zmux-estate/shell-checkout-move
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     activeProviderThreadId: thread.activeProviderThreadId,

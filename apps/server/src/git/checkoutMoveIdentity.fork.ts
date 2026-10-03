@@ -1,16 +1,27 @@
+// Fork-only (zmux-estate): the physical identity of a checkout, and the leased
+// re-verification a checkout move commits under.
 import { type CheckoutPhysicalIdentity } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { CheckoutMutationCoordinator } from "../git/CheckoutMutationCoordinator.ts";
+import { CheckoutMutationCoordinator } from "./CheckoutMutationCoordinator.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 export class CheckoutMoveValidationError extends Schema.TaggedError<CheckoutMoveValidationError>()(
   "CheckoutMoveValidationError",
   { reason: Schema.String },
 ) {}
+
+export const sameCheckoutIdentity = (
+  left: CheckoutPhysicalIdentity,
+  right: CheckoutPhysicalIdentity,
+): boolean =>
+  left.repositoryRoot === right.repositoryRoot &&
+  left.checkoutRoot === right.checkoutRoot &&
+  left.revision === right.revision &&
+  left.branch === right.branch;
 
 export const resolveCheckoutPhysicalIdentity = Effect.fn(
   "CheckoutMoveCoordinator.resolveCheckoutPhysicalIdentity",

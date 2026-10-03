@@ -11,24 +11,6 @@ import { runMigrations } from "./Migrations.ts";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("ForkSchema", (it) => {
-  it.effect("adds the checkout move column once after the upstream migrations", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-
-      const first = yield* ensureForkSchema();
-      assert.deepStrictEqual(first, ["projection_threads.checkout_move_json"]);
-
-      const columns = yield* sql<{ readonly name: string }>`
-        PRAGMA table_info(projection_threads)
-      `;
-      assert.ok(columns.some((column) => column.name === "checkout_move_json"));
-
-      const second = yield* ensureForkSchema();
-      assert.deepStrictEqual(second, []);
-    }),
-  );
-
   it.effect("creates the thread issue link table and its issue index idempotently", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

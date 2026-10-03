@@ -191,7 +191,7 @@ export function useSelectedThreadGitActions() {
           nextWorktreePath !== undefined &&
           nextWorktreePath !== input.thread.worktreePath &&
           selectedThreadProject !== null;
-        const updateResult =
+        const updateResult: AtomCommandResult<unknown, unknown> = // fork-hook: zmux-estate/checkout-move-update-result
           checkoutMoveRequested && selectedThreadProject
             ? await moveThreadCheckout({
                 environmentId: input.thread.environmentId,
