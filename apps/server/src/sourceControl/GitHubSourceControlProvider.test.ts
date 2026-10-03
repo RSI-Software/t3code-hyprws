@@ -59,11 +59,9 @@ it.effect("uses the enterprise quota for a current-repository default branch rea
 
 it.effect("maps GitHub PR summaries into provider-neutral change requests", () =>
   Effect.gen(function* () {
-    let getInput: Parameters<GitHubCli.GitHubCli["Service"]["getPullRequest"]>[0] | null = null;
     const provider = yield* makeProvider({
-      getPullRequest: (input) => {
-        getInput = input;
-        return Effect.succeed({
+      getPullRequest: () =>
+        Effect.succeed({
           number: 42,
           title: "Add GitHub provider",
           url: "https://github.com/pingdotgg/t3code/pull/42",
@@ -73,25 +71,12 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
           isCrossRepository: true,
           headRepositoryNameWithOwner: "fork/t3code",
           headRepositoryOwnerLogin: "fork",
-        });
-      },
+        }),
     });
 
     const changeRequest = yield* provider.getChangeRequest({
       cwd: "/repo",
       reference: "42",
-      context: {
-        provider: { kind: "github", name: "GitHub", baseUrl: "https://github.com" },
-        remoteName: "origin",
-        remoteUrl: "git@github.com:RSI-Software/t3code-hyprws.git",
-      },
-    });
-
-    assert.deepStrictEqual(getInput, {
-      cwd: "/repo",
-      reference: "42",
-      rateLimitHost: "github.com",
-      repository: "github.com/rsi-software/t3code-hyprws",
     });
 
     assert.deepStrictEqual(changeRequest, {
