@@ -81,9 +81,10 @@ Split each one on a detached copy of the head (`git worktree add --detach <dir> 
 3. One inseparable remainder: a single `upstream-fixes` commit naming the upstream change it adapts to, without `Fork-Repair`.
 4. `git rebase --continue`. The split head is tree-equal to the old tip.
 
-Run the fold with `--head <split head>`: each fixup joins its owner's plan line and squashes there, so the owner's `Squashes:` lists its own old sha, the repair sha, and the repair's references.
+Run the fold with `--head <split head> --old <old>`: each fixup joins its owner's plan line and squashes there, so the owner's `Squashes:` lists its own old sha, the repair sha, and the repair's references.
+A replayed member cites its `<old>` counterpart by subject, since its split sha sits on no trunk.
 `prove` and `publish` take the pre-split tip as `<old>`; a tree-equal fold needs no retest.
-`prove` also refuses a dropped PR link, a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or by several, unless it carries `Fork-Repair` or every owner cites it under `Squashes:`.
+`prove` also refuses a dropped PR link, a `Squashes:` sha `<old>` never names, a commit naming no `<old>` member or touching a path none of its members touched, and an old commit owned by no new commit or by several, unless it carries `Fork-Repair` or every owner cites it under `Squashes:`.
 
 ## Stops
 
@@ -92,6 +93,7 @@ Run the fold with `--head <split head>`: each fixup joins its owner's plan line 
 | `does not apply at its plan position`    | Reorder or split that line               |
 | `plan does not cover the stack`          | Fix the listed shas                      |
 | `a fixup! member carries no repair line` | Copy `list`'s fixup line into that piece |
+| `--head is a split head`                 | Pass the pre-split tip as `--old`        |
 | `publish` refuses                        | Read the reason; nothing pushed          |
 
 ## Cadence
