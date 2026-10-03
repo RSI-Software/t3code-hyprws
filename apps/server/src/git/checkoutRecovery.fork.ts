@@ -106,7 +106,9 @@ export const makeCheckoutRecoveryFork = Effect.gen(function* () {
         const owner = yield* activeOnCheckout(thread.id, [root.checkoutRoot]);
         yield* threads.dispatch({
           type: "thread.metadata.update",
-          commandId: requestId,
+          // The turn-start gate retries a run under one recovery id; a refusal
+          // sharing the commit's command id would replay the commit as a no-op.
+          commandId: owner === null ? requestId : CommandId.make(`${recoveryId}:refused`),
           threadId: thread.id,
           expectedWorktreePath: deadPath as OrchestrationV2ThreadShell["worktreePath"],
           ...(owner === null
