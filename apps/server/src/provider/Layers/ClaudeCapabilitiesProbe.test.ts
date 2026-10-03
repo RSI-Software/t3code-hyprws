@@ -23,7 +23,6 @@ import {
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
   probeClaudeCapabilities,
   probeClaudeWorkspaceSnapshot,
-  withClaudeAgentOptions,
 } from "./ClaudeProvider.ts";
 import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
 
