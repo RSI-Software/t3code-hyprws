@@ -45,6 +45,8 @@ export class DesktopEnvironment extends Context.Service<
     readonly isPackaged: boolean;
     readonly isDevelopment: boolean;
     readonly devToolsEnabled: boolean; // fork-hook: multi-window/devtools-enabled
+    // Development-only: isolates Electron/Clerk state and the single-instance lock.
+    readonly userDataDirectoryOverride: Option.Option<string>;
     // Development-only map-time placement requested by dev:desktop:agent.
     readonly devAgentPlacement: Option.Option<DesktopDevAgentPlacement>;
     readonly appVersion: string;
@@ -222,6 +224,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     isPackaged: input.isPackaged,
     isDevelopment,
     devToolsEnabled: config.devToolsEnabled, // fork-hook: multi-window/devtools-enabled
+    userDataDirectoryOverride: isDevelopment ? config.userDataDirectoryOverride : Option.none(),
     devAgentPlacement,
     appVersion: input.appVersion,
     appPath: input.appPath,
