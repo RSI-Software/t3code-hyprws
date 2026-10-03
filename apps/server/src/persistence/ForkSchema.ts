@@ -21,8 +21,9 @@ const FORK_COLUMNS = [
  * and an upgraded one both simply have them afterwards.
  */
 const FORK_TABLES = [
-  // Thread ↔ GitHub issue links for the github-issues domain, shaped like
-  // upstream's `projection_thread_pull_requests`.
+  // V1 thread ↔ GitHub issue links for the github-issues domain. V2 keeps links
+  // on the thread payload; only the legacy import reads this table, so it stays
+  // for databases that predate V2 and fresh ones alike.
   `CREATE TABLE IF NOT EXISTS projection_thread_issues (
     thread_id TEXT NOT NULL,
     host TEXT NOT NULL,
