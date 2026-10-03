@@ -1,5 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off - fs.watch exposes the synchronous acquisition receipt required before checkout mutations can be observed safely.
-import * as NodeFS from "node:fs";
 import {
   CommandId,
   type CheckpointRef,
@@ -51,6 +49,7 @@ import * as ZmuxSessionBinder from "../../zmux/ZmuxSessionBinder.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import { CheckoutMutationCoordinator } from "../../git/CheckoutMutationCoordinator.ts";
+import { CheckoutDirectoryWatch } from "../../git/CheckoutDirectoryWatch.fork.ts"; // fork-hook: zmux-estate/checkout-directory-watch-import
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -88,9 +87,8 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
   }
 }
 
-export const makeCheckpointReactor = Effect.fn("makeCheckpointReactor")(function* (
-  watchDirectory: typeof NodeFS.watch = NodeFS.watch,
-) {
+const make = Effect.gen(function* () {
+  const watchDirectory = yield* CheckoutDirectoryWatch; // fork-hook: zmux-estate/checkout-directory-watch
   const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
   const crypto = yield* Crypto.Crypto;
   const randomUUID = crypto.randomUUIDv4;
@@ -1243,7 +1241,5 @@ export const makeCheckpointReactor = Effect.fn("makeCheckpointReactor")(function
     ),
   } satisfies CheckpointReactorShape;
 });
-
-const make = makeCheckpointReactor();
 
 export const CheckpointReactorLive = Layer.effect(CheckpointReactor, make);
