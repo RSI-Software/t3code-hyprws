@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { mergeProviderInstanceEnvironment } from "./ProviderInstanceEnvironment.ts";
+import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
 describe("mergeProviderInstanceEnvironment", () => {
   it("strips inherited tmux environment without changing unrelated values", () => {
     expect(
@@ -70,6 +71,29 @@ describe("mergeProviderInstanceEnvironment", () => {
       CODEX_THREAD_ID: "4784c777",
       PATH: "/bin",
     });
+  });
+  forkSupersedes({
+    upstream:
+      "apps/server/src/provider/ProviderInstanceEnvironment.test.ts > leaves inherited provider homes unchanged",
+    reason:
+      "a spawn keeps only its own provider's home, so an inherited home of another harness is dropped",
+    commit: "309345644af",
+  });
+  // Split by driver kind because a spawn keeps only its own provider's home:
+  // the inherited value still goes through untouched, which is what this covers.
+  it.each([
+    { ownDriverKind: "codex", kept: { CODEX_HOME: "~/.codex" } },
+    { ownDriverKind: "claudeAgent", kept: { CLAUDE_CONFIG_DIR: "~\\.claude" } },
+  ])("leaves the inherited $ownDriverKind provider home unchanged", ({ ownDriverKind, kept }) => {
+    const baseEnv = { CODEX_HOME: "~/.codex", CLAUDE_CONFIG_DIR: "~\\.claude" };
+
+    expect(
+      mergeProviderInstanceEnvironment(
+        [{ name: "CUSTOM_VALUE", value: "~/.custom", sensitive: false }],
+        ownDriverKind,
+        baseEnv,
+      ),
+    ).toEqual({ ...kept, CUSTOM_VALUE: "~/.custom" });
   });
   it("drops codex identity from a claude spawn, the reciprocal of the codex case", () => {
     expect(
