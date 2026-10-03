@@ -1,7 +1,7 @@
 import {
   CommandId,
-  ORCHESTRATION_WS_METHODS,
-  type ClientOrchestrationCommand,
+  ORCHESTRATION_V2_WS_METHODS,
+  type OrchestrationV2Command,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -15,7 +15,7 @@ import { request } from "../rpc/client.ts";
  */
 type ThreadIssueCommandType = "thread.issue.link" | "thread.issue.unlink";
 type ThreadIssueCommandInput<T extends ThreadIssueCommandType> = Omit<
-  Extract<ClientOrchestrationCommand, { readonly type: T }>,
+  Extract<OrchestrationV2Command, { readonly type: T }>,
   "type" | "commandId"
 >;
 
@@ -30,7 +30,7 @@ const newCommandId = Effect.gen(function* () {
 export const linkThreadIssue = Effect.fn("EnvironmentCommands.linkThreadIssue")(function* (
   input: LinkThreadIssueInput,
 ) {
-  return yield* request(ORCHESTRATION_WS_METHODS.dispatchCommand, {
+  return yield* request(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, {
     ...input,
     type: "thread.issue.link",
     commandId: yield* newCommandId,
@@ -40,7 +40,7 @@ export const linkThreadIssue = Effect.fn("EnvironmentCommands.linkThreadIssue")(
 export const unlinkThreadIssue = Effect.fn("EnvironmentCommands.unlinkThreadIssue")(function* (
   input: UnlinkThreadIssueInput,
 ) {
-  return yield* request(ORCHESTRATION_WS_METHODS.dispatchCommand, {
+  return yield* request(ORCHESTRATION_V2_WS_METHODS.dispatchCommand, {
     ...input,
     type: "thread.issue.unlink",
     commandId: yield* newCommandId,
