@@ -5,6 +5,8 @@ import * as Schema from "effect/Schema";
 
 export type ServerRuntimeStateVariant = "userdata" | "dev";
 
+// Reader-side copy of the server's `serverRuntimeState.ts` declarations, for
+// clients that cannot import the server. Keep the schema in step with it.
 export const PersistedServerRuntimeState = Schema.Struct({
   version: Schema.Literal(1),
   pid: Schema.Int,
