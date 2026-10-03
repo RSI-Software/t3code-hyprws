@@ -4,11 +4,13 @@ import {
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
+} from "./Sidebar.logic";
+import {
   formatSidebarRelativeTimeLabel,
   resolveCompletedTurnTiming,
   shouldShowSidebarDoneStatus,
-} from "./Sidebar.logic";
-import { makeLatestTurn } from "./Sidebar.logic.test.ts";
+} from "./Sidebar.completedTiming.fork";
+import { makeLatestRun } from "./Sidebar.logic.test.ts";
 
 describe("sidebar thread groups", () => {
   const threads = [
@@ -123,8 +125,8 @@ describe("sidebar thread groups", () => {
 });
 
 describe("resolveCompletedTurnTiming", () => {
-  it("freezes duration between the latest turn's start and completion", () => {
-    expect(resolveCompletedTurnTiming({ latestTurn: makeLatestTurn() })).toEqual({
+  it("freezes duration between the latest run's start and completion", () => {
+    expect(resolveCompletedTurnTiming({ latestRun: makeLatestRun() })).toEqual({
       completedAt: "2026-03-09T10:05:00.000Z",
       durationMs: 5 * 60_000,
     });
@@ -133,7 +135,7 @@ describe("resolveCompletedTurnTiming", () => {
   it("falls back to the request time when startedAt is missing or malformed", () => {
     expect(
       resolveCompletedTurnTiming({
-        latestTurn: makeLatestTurn({ startedAt: "not-a-date" }),
+        latestRun: makeLatestRun({ startedAt: "not-a-date" }),
       }),
     ).toEqual({
       completedAt: "2026-03-09T10:05:00.000Z",
@@ -142,20 +144,20 @@ describe("resolveCompletedTurnTiming", () => {
   });
 
   it("returns null for missing, malformed, or reversed completion intervals", () => {
-    expect(resolveCompletedTurnTiming({ latestTurn: null })).toBeNull();
+    expect(resolveCompletedTurnTiming({ latestRun: null })).toBeNull();
     expect(
       resolveCompletedTurnTiming({
-        latestTurn: { ...makeLatestTurn(), state: "error" },
+        latestRun: { ...makeLatestRun(), status: "failed" },
       }),
     ).toBeNull();
     expect(
       resolveCompletedTurnTiming({
-        latestTurn: makeLatestTurn({ completedAt: "not-a-date" }),
+        latestRun: makeLatestRun({ completedAt: "not-a-date" }),
       }),
     ).toBeNull();
     expect(
       resolveCompletedTurnTiming({
-        latestTurn: makeLatestTurn({ completedAt: "2026-03-09T09:59:00.000Z" }),
+        latestRun: makeLatestRun({ completedAt: "2026-03-09T09:59:00.000Z" }),
       }),
     ).toBeNull();
   });
