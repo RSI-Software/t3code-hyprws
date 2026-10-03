@@ -228,6 +228,22 @@ it("lists a squash-landed fixup as a member, keeping its pull request link", () 
   ]);
 });
 
+it("renders a piece of an owner whose subject ends in a marker as its repair line", () => {
+  const owner = commit("aaaa1111", {
+    subject: "fix(server): beta (#108)",
+    message: "fix(server): beta (#108)\n",
+  });
+  const repairLine = "- 9999999 test(fork): mover";
+  const piece = commit("cccc2222", {
+    subject: "fixup! fix(server): beta (#108)",
+    message: `fixup! fix(server): beta (#108)\n\nSquashes:\n\n${repairLine}\n`,
+  });
+  const folded = foldMessage({ members: [owner, piece] });
+  assert.include(folded, repairLine);
+  assert.notInclude(folded, "cccc2222");
+  assert.deepStrictEqual(squashedMembers(folded), ["aaaa1111", "9999999"]);
+});
+
 it("carries an earlier fold's links into the next fold", () => {
   const earlier = commit("cccc3333", {
     subject: "feat(web): folded (#1355)",
