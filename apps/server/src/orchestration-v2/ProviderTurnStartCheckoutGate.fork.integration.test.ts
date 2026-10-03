@@ -264,6 +264,29 @@ const noticeInRecoveredTurn: RecoveryCase["timeline"] = [
   ["checkpoint", 2],
 ];
 
+/** Runs the worker until the thread's newest run settles, then drains what follows. */
+const settleRunOn = (threadId: ThreadId, afterSequence: number) =>
+  Effect.gen(function* () {
+    const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+    const settled = yield* (yield* EventSink.EventSinkV2)
+      .stream({ threadId, afterSequence, eventType: "run.updated" })
+      .pipe(
+        Stream.filter(
+          ({ event }) =>
+            event.type === "run.updated" && terminalRunStatuses.has(event.payload.status),
+        ),
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
+    while (true) {
+      yield* worker.drain();
+      if (settled.pollUnsafe() !== undefined) break;
+      yield* Effect.raceFirst(worker.awaitWork, Fiber.await(settled));
+    }
+    yield* worker.drain();
+  });
+
 const recoveries: ReadonlyArray<RecoveryCase> = [
   // An MCP, scheduled or queued turn finds the worktree gone at its start.
   {
@@ -389,27 +412,8 @@ it.live.each(recoveries)(
             ),
           );
 
-          /** Runs the worker until the thread's newest run settles, then drains what follows. */
           const settleRun = (afterSequence: number, runThreadId = threadId) =>
-            Effect.gen(function* () {
-              const settled = yield* eventSink
-                .stream({ threadId: runThreadId, afterSequence, eventType: "run.updated" })
-                .pipe(
-                  Stream.filter(
-                    ({ event }) =>
-                      event.type === "run.updated" && terminalRunStatuses.has(event.payload.status),
-                  ),
-                  Stream.take(1),
-                  Stream.runDrain,
-                  Effect.forkScoped,
-                );
-              while (true) {
-                yield* worker.drain();
-                if (settled.pollUnsafe() !== undefined) break;
-                yield* Effect.raceFirst(worker.awaitWork, Fiber.await(settled));
-              }
-              yield* worker.drain();
-            });
+            settleRunOn(runThreadId, afterSequence);
           const send = (text: string, sendThreadId = threadId) =>
             orchestrator.dispatch({
               type: "message.dispatch",
@@ -567,4 +571,97 @@ it.live.each(recoveries)(
         );
       }).pipe(Effect.provide(NodeServices.layer)),
     ),
+);
+
+// The turn-start gate retries a run under one recovery id. A recovery refused
+// because another thread runs in the project root must not swallow the retry
+// that finds the root idle.
+it.live("commits a recovery retried after the project root went idle", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* checkpointWorkspace("worktree-recovery-retry-root");
+      const base = yield* fileSystem.realPath(
+        yield* fileSystem.makeTempDirectoryScoped({ prefix: "worktree-recovery-retry-" }),
+      );
+      const feature = `${base}/feature`;
+      yield* git(root, ["worktree", "add", "-b", "feature", feature]);
+      const threadId = ThreadId.make("thread:worktree-recovery-retry");
+      const rootThreadId = ThreadId.make("thread:worktree-recovery-retry:root");
+      const log = yield* Ref.make<SessionLog>({ opened: [], turns: [], closed: 0, unloaded: 0 });
+      const registry = ProviderAdapterRegistry.makeSingleLayer(
+        makeFixedCwdAdapter(log, root, ClaudeProviderCapabilitiesV2),
+      );
+
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const recovery = yield* makeCheckoutRecoveryFork.pipe(
+          Effect.provide(Layer.mergeAll(threadManagementFromOrchestrator, checkoutServices(root))),
+        );
+        for (const [id, worktreePath] of [
+          [threadId, feature],
+          [rootThreadId, null],
+        ] as const) {
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`command:${id}:create`),
+            threadId: id,
+            projectId,
+            title: "Worktree recovery retry",
+            modelSelection: selection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath,
+          });
+        }
+        const rootTurn = yield* eventSink.latestSequence();
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("command:worktree-recovery-retry:root-turn"),
+          threadId: rootThreadId,
+          messageId: MessageId.make("message:worktree-recovery-retry:root-turn"),
+          text: "busy in the root",
+          attachments: [],
+          modelSelection: selection,
+          dispatchMode: { type: "start_immediately" },
+        });
+        yield* fileSystem.remove(feature, { recursive: true });
+        const rootThread = yield* orchestrator.getThreadShell(rootThreadId);
+        assert.isNotNull(rootThread?.activeRunId ?? null);
+
+        const recover = Effect.gen(function* () {
+          const thread = yield* orchestrator.getThreadShell(threadId);
+          assert.isNotNull(thread);
+          return yield* recovery.recoverRemovedWorktree(thread!, {
+            recoveryId: "server:worktree-checkout-recovery:retried-run",
+            duringRun: true,
+          });
+        });
+        assert.isFalse((yield* recover).moved);
+        assert.equal(
+          (yield* orchestrator.getThreadShell(threadId))?.checkoutMove?.status,
+          "failed",
+        );
+
+        yield* settleRunOn(rootThreadId, rootTurn);
+        assert.isTrue((yield* recover).moved);
+        const recovered = yield* orchestrator.getThreadShell(threadId);
+        assert.isNull(recovered?.worktreePath);
+        assert.equal(recovered?.checkoutMove?.status, "committed");
+      }).pipe(
+        Effect.provide(
+          makeOrchestratorV2ReplayLayerWithRegistry({ name: "worktree-recovery-retry" }, registry, {
+            runEffectWorker: false,
+            wrapTurnStartFork: withCheckoutGate(root),
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  ),
 );
