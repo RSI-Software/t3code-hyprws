@@ -9285,7 +9285,9 @@ export default function ChatView(props: ChatViewProps) {
     }
     beginLocalDispatch({
       preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
-      preparingWorktrunk: Boolean(baseBranchForWorktree) && sendEnvMode === "worktrunk", // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-begin
+      preparingWorktrunk:
+        (multipleModelSelections !== null || Boolean(baseBranchForWorktree)) &&
+        sendEnvMode === "worktrunk", // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-begin
       // Only a draft has a background submission to hide behind its hero.
       submissionIntent:
         submissionIntent === "background" && !isLocalDraftThread ? "foreground" : submissionIntent,
@@ -9418,6 +9420,7 @@ export default function ChatView(props: ChatViewProps) {
                       baseBranch: activeThreadBranch!,
                       requireWorktree: true,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send-multiple
                     },
                     runSetupScript: true,
                   },
