@@ -1,4 +1,5 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
+import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 
 import type { ProviderAdapterV2SessionRuntime } from "../orchestration-v2/ProviderAdapter.ts";
@@ -60,6 +61,18 @@ export function withProviderSessionIdentity(
   apply(PROVIDER_SESSION_IDENTITY_ENV.threadId, identity.threadId);
   return env;
 }
+
+/**
+ * Removes the session identity the server inherited from whatever launched it,
+ * such as a shell inside another T3-hosted agent. Run once at server start:
+ * in-process providers (the Cursor SDK) and terminals spawn from the server's
+ * own environment, and would otherwise name that other thread as theirs.
+ */
+export const stripInheritedProviderSessionIdentity = Effect.gen(function* () {
+  const environment = yield* HostProcessEnvironment;
+  delete environment[PROVIDER_SESSION_IDENTITY_ENV.projectId];
+  delete environment[PROVIDER_SESSION_IDENTITY_ENV.threadId];
+});
 
 /** Environment for a process every thread of an instance shares. */
 export function withoutProviderSessionIdentity(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
