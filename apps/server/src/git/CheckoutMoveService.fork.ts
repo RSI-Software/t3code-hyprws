@@ -20,26 +20,27 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import { makeKeyedSerialExecutor } from "../orchestration-v2/KeyedSerialExecutor.ts";
+import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { CheckoutMutationCoordinator } from "./CheckoutMutationCoordinator.ts";
 import {
   CheckoutMoveValidationError,
+  isThreadBusyOnCheckoutFork,
   resolveCheckoutPhysicalIdentity,
   sameCheckoutIdentity,
   withVerifiedCheckoutMove,
 } from "./checkoutMoveIdentity.fork.ts";
-import { isThreadBusyOnCheckoutFork } from "./sharedCheckoutGuard.fork.ts";
+import { isCheckoutMoveInFlightFork, makeCheckoutRecoveryFork } from "./checkoutRecovery.fork.ts";
 
-export const isCheckoutMoveInFlightFork = (move: ThreadCheckoutMove | undefined) =>
-  move?.status === "queued" || move?.status === "preparing";
+export { isCheckoutMoveInFlightFork };
 
 export class CheckoutMoveServiceFork extends Context.Service<
   CheckoutMoveServiceFork,
@@ -47,6 +48,14 @@ export class CheckoutMoveServiceFork extends Context.Service<
     readonly request: (
       input: ThreadCheckoutMoveRequestInput,
     ) => Effect.Effect<ThreadCheckoutMoveRequestResult, ThreadCheckoutMoveError>;
+    /**
+     * Recovers an idle thread whose worktree was removed outside T3 before a
+     * client turn starts there: recreates it from its branch, or moves the
+     * thread to its project root. Returns the shell the turn runs on.
+     */
+    readonly recoverRemovedWorktree: (
+      thread: OrchestrationV2ThreadShell,
+    ) => Effect.Effect<OrchestrationV2ThreadShell>;
     /** Resolves once every move enqueued so far was processed. */
     readonly drain: Effect.Effect<void>;
   }
@@ -64,9 +73,11 @@ const failureDetail = (cause: Cause.Cause<unknown>): string => {
 
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const projects = yield* ProjectStore.ProjectStoreV2;
+  const eventSink = yield* EventSink.EventSinkV2;
   const fileSystem = yield* FileSystem.FileSystem;
   const crypto = yield* Crypto.Crypto;
+  const { workspaceRootOf, activeOnCheckout, recoverRemovedWorktree } =
+    yield* makeCheckoutRecoveryFork;
   // The identity helpers resolve these per call; capture them once so the
   // service methods need nothing from their caller.
   const services = yield* Effect.context<
@@ -85,12 +96,6 @@ const make = Effect.gen(function* () {
     left === right
       ? Effect.succeed(true)
       : Effect.all([realPath(left), realPath(right)]).pipe(Effect.map(([a, b]) => a === b));
-  const workspaceRootOf = (thread: Pick<OrchestrationV2ThreadShell, "projectId">) =>
-    projects.getShell(thread.projectId).pipe(
-      Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
-      Effect.orElseSucceed(() => undefined),
-    );
-
   /** Writes the move, checked against the worktree the caller last read. */
   const writeMove = Effect.fn("CheckoutMoveServiceFork.writeMove")(function* (
     thread: Pick<OrchestrationV2ThreadShell, "id" | "worktreePath">,
@@ -111,23 +116,6 @@ const make = Effect.gen(function* () {
             worktreePath: checkout.worktreePath as OrchestrationV2ThreadShell["worktreePath"],
           }),
     });
-  });
-
-  const activeOnCheckout = Effect.fn("CheckoutMoveServiceFork.activeOnCheckout")(function* (
-    threadId: ThreadId,
-    checkoutRoots: ReadonlyArray<string>,
-  ) {
-    const shell = yield* threads.getShellSnapshot({ location: "active" });
-    for (const candidate of shell.threads) {
-      if (candidate.id === threadId || !isThreadBusyOnCheckoutFork(candidate)) continue;
-      const cwd = candidate.worktreePath ?? (yield* workspaceRootOf(candidate));
-      if (cwd === undefined) continue;
-      const identity = yield* resolveCheckoutPhysicalIdentity(cwd).pipe(
-        Effect.orElseSucceed(() => null),
-      );
-      if (identity !== null && checkoutRoots.includes(identity.checkoutRoot)) return candidate.id;
-    }
-    return null;
   });
 
   const commit = Effect.fn("CheckoutMoveServiceFork.commit")(function* (
@@ -178,7 +166,10 @@ const make = Effect.gen(function* () {
             workspaceRoot !== undefined &&
             (yield* samePath(destination.checkoutRoot, workspaceRoot));
           // One update moves the thread; the decider detaches its provider
-          // sessions, so the next turn starts in the destination.
+          // sessions, so the next turn starts in the destination. A turn from
+          // a starter outside the client lease (queue, MCP, schedule, wake)
+          // can still begin after the idle check: the decider then refuses
+          // the commit and the move waits for that run.
           yield* writeMove(
             owned,
             {
@@ -192,9 +183,60 @@ const make = Effect.gen(function* () {
               branch: destination.branch,
               worktreePath: toProjectRoot ? null : destination.checkoutRoot,
             },
+          ).pipe(
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                const latest = yield* threads.getThreadShell(threadId);
+                if (
+                  latest === null ||
+                  latest.checkoutMove?.requestId !== move.requestId ||
+                  !isThreadBusyOnCheckoutFork(latest)
+                ) {
+                  return yield* error;
+                }
+                yield* writeMove(latest, { ...move, status: "queued", updatedAt: yield* nowIso });
+              }),
+            ),
           );
         }),
     });
+  });
+
+  /** Records a move that could not proceed, unless another request replaced it. */
+  const recordFailure = (
+    threadId: ThreadId,
+    move: ThreadCheckoutMove,
+    cause: Cause.Cause<unknown>,
+  ) =>
+    Effect.gen(function* () {
+      const latest = yield* threads.getThreadShell(threadId);
+      if (latest === null || latest.checkoutMove?.requestId !== move.requestId) return;
+      if (!isCheckoutMoveInFlightFork(latest.checkoutMove)) return;
+      yield* writeMove(latest, {
+        ...move,
+        status: "failed",
+        detail: failureDetail(cause) as NonNullable<ThreadCheckoutMove["detail"]>,
+        updatedAt: yield* nowIso,
+      });
+    });
+
+  const advance = Effect.fn("CheckoutMoveServiceFork.advance")(function* (
+    thread: OrchestrationV2ThreadShell,
+    move: ThreadCheckoutMove & {
+      readonly destination: NonNullable<ThreadCheckoutMove["destination"]>;
+    },
+  ) {
+    if (isThreadBusyOnCheckoutFork(thread)) {
+      if (move.status === "preparing") {
+        yield* writeMove(thread, { ...move, status: "queued", updatedAt: yield* nowIso });
+      }
+      return;
+    }
+    const preparing = { ...move, status: "preparing" as const };
+    if (move.status === "queued") {
+      yield* writeMove(thread, { ...preparing, updatedAt: yield* nowIso });
+    }
+    yield* commit(thread.id, preparing);
   });
 
   const process = Effect.fn("CheckoutMoveServiceFork.process")(function* (threadId: ThreadId) {
@@ -209,30 +251,13 @@ const make = Effect.gen(function* () {
       pending.delete(threadId);
       return;
     }
-    if (isThreadBusyOnCheckoutFork(thread)) {
-      if (move.status === "preparing") {
-        yield* writeMove(thread, { ...move, status: "queued", updatedAt: yield* nowIso });
-      }
-      return;
-    }
-    const preparing = { ...move, destination, status: "preparing" as const };
-    if (move.status === "queued") {
-      yield* writeMove(thread, { ...preparing, updatedAt: yield* nowIso });
-    }
-    yield* commit(threadId, preparing).pipe(
-      Effect.catchCauseIf(
-        (cause) => !Cause.hasInterruptsOnly(cause),
-        (cause) =>
-          Effect.gen(function* () {
-            const latest = yield* threads.getThreadShell(threadId);
-            if (latest === null || latest.checkoutMove?.requestId !== move.requestId) return;
-            yield* writeMove(latest, {
-              ...preparing,
-              status: "failed",
-              detail: failureDetail(cause) as NonNullable<ThreadCheckoutMove["detail"]>,
-              updatedAt: yield* nowIso,
-            });
-          }),
+    // Every step records its failure on the move: a move left in flight
+    // refuses the thread's next turn and any other move request.
+    yield* advance(thread, { ...move, destination }).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.interrupt
+          : recordFailure(threadId, { ...move, destination }, cause),
       ),
     );
     const settled = yield* threads.getThreadShell(threadId);
@@ -258,6 +283,8 @@ const make = Effect.gen(function* () {
       return worker.enqueue(threadId);
     });
 
+  // One request per thread at a time, from its in-flight check to its write.
+  const requests = yield* makeKeyedSerialExecutor<ThreadId>();
   const request = Effect.fn("CheckoutMoveServiceFork.request")(function* (
     input: ThreadCheckoutMoveRequestInput,
   ) {
@@ -283,6 +310,8 @@ const make = Effect.gen(function* () {
       ) {
         return yield* refuse("Checkout move request identity was reused with different input")();
       }
+      // A replay also resumes a move whose processing was lost.
+      if (isCheckoutMoveInFlightFork(current)) yield* enqueue(thread.id);
       return { requestId: current.requestId, status: current.status };
     }
     if (isCheckoutMoveInFlightFork(current)) {
@@ -342,29 +371,40 @@ const make = Effect.gen(function* () {
     return { requestId, status: move.status };
   });
 
-  // Resume moves left in flight by a restart, then follow run completions.
+  // Resume moves left in flight by a restart, archived threads included so
+  // one unarchived later is not stuck; then follow run completions. One fiber
+  // reads the event cursor before the scan, so a run that settles between the
+  // scan's busy check and the subscription still reaches the listener.
   yield* forkParked(
     Effect.gen(function* () {
-      const shell = yield* threads.getShellSnapshot({ location: "active" });
-      yield* Effect.forEach(
-        shell.threads.filter((thread) => isCheckoutMoveInFlightFork(thread.checkoutMove)),
-        (thread) => enqueue(thread.id),
-        { discard: true },
+      const afterSequence = yield* eventSink.latestSequence();
+      yield* Effect.all([
+        threads.getShellSnapshot({ location: "active" }),
+        threads.getShellSnapshot({ location: "archive" }),
+      ]).pipe(
+        Effect.flatMap((shells) =>
+          Effect.forEach(
+            shells
+              .flatMap((shell) => shell.threads)
+              .filter((thread) => isCheckoutMoveInFlightFork(thread.checkoutMove)),
+            (thread) => enqueue(thread.id),
+            { discard: true },
+          ),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("checkout move recovery skipped", { cause: Cause.pretty(cause) }),
+        ),
+      );
+      yield* Stream.runForEach(
+        eventSink.stream({ afterSequence, eventType: "run.updated" }),
+        ({ event }) =>
+          event.type === "run.updated" &&
+          ThreadManagement.isTerminalRunStatus(event.payload.status) &&
+          pending.has(event.threadId)
+            ? worker.enqueue(event.threadId)
+            : Effect.void,
       );
     }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("checkout move recovery skipped", { cause: Cause.pretty(cause) }),
-      ),
-    ),
-  );
-  yield* forkParked(
-    Stream.runForEach(threads.streamDomainEvents, (event) =>
-      event.type === "run.updated" &&
-      ThreadManagement.isTerminalRunStatus(event.payload.status) &&
-      pending.has(event.threadId)
-        ? worker.enqueue(event.threadId)
-        : Effect.void,
-    ).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("checkout move event stream failed", { cause: Cause.pretty(cause) }),
       ),
@@ -372,13 +412,33 @@ const make = Effect.gen(function* () {
   );
 
   return CheckoutMoveServiceFork.of({
-    request: (input) => request(input).pipe(Effect.provide(services)),
+    request: (input) =>
+      requests.withLock(input.threadId, request(input).pipe(Effect.provide(services))),
+    recoverRemovedWorktree: (thread) =>
+      newUuid.pipe(
+        Effect.flatMap((uuid) =>
+          recoverRemovedWorktree(thread, {
+            recoveryId: `server:worktree-checkout-recovery:${uuid}`,
+            duringRun: false,
+          }),
+        ),
+        Effect.map((recovered) => recovered.thread),
+      ),
     drain: worker.drain,
   });
 });
 
-/** Server-lifetime service: one queue and one event subscription for every client. */
-export const checkoutMoveServiceLiveFork = Layer.effect(CheckoutMoveServiceFork, make);
+/** The service over a caller-provided event sink. */
+export const checkoutMoveServiceLayerFork = Layer.effect(CheckoutMoveServiceFork, make);
+
+/**
+ * Server-lifetime service: one queue and one event subscription for every
+ * client. The listener reads its cursor from the orchestrator's own event sink;
+ * layer memoization shares that one instance.
+ */
+export const checkoutMoveServiceLiveFork = checkoutMoveServiceLayerFork.pipe(
+  Layer.provide(OrchestrationV2EventSinkLayerLive),
+);
 
 type ObserveRpcEffect = <A, E, R>(
   method: string,

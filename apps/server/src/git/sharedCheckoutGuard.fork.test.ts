@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { CheckoutMoveServiceFork } from "./CheckoutMoveService.fork.ts";
 import * as CheckoutMutationCoordinator from "./CheckoutMutationCoordinator.ts";
 import * as GitWorkflow from "./GitWorkflowService.ts";
 import { sharedCheckoutWsLayerFork } from "./sharedCheckoutGuard.fork.ts";
@@ -76,6 +77,15 @@ const makeHarness = (input: {
   const projects = {
     getShell: () => Effect.succeedSome({ id: projectId, workspaceRoot: "/repo" }),
   } as unknown as ProjectStore.ProjectStoreV2["Service"];
+  // A worktree under /repo-wt-gone was removed; recovery moves it to the root.
+  const checkoutMoves = {
+    recoverRemovedWorktree: (thread: OrchestrationV2ThreadShell) =>
+      Effect.sync(() => {
+        if (thread.worktreePath?.startsWith("/repo-wt-gone") !== true) return thread;
+        input.log.push("recover");
+        return { ...thread, worktreePath: null };
+      }),
+  } as unknown as CheckoutMoveServiceFork["Service"];
 
   return sharedCheckoutWsLayerFork.pipe(
     Layer.provide(
@@ -84,6 +94,7 @@ const makeHarness = (input: {
         Layer.succeed(GitWorkflow.GitWorkflowService, gitWorkflow),
         Layer.succeed(VcsDriverRegistry.VcsDriverRegistry, registry),
         Layer.succeed(ProjectStore.ProjectStoreV2, projects),
+        Layer.succeed(CheckoutMoveServiceFork, checkoutMoves),
         CheckoutMutationCoordinator.layer,
       ),
     ),
@@ -159,6 +170,39 @@ describe("sharedCheckoutWsLayerFork", () => {
         yield* Fiber.join(switching);
         yield* Fiber.join(dispatching);
         expect(log).toEqual(["switch:start", "switch:end", "dispatch"]);
+      }).pipe(Effect.provide(layer));
+    });
+  });
+
+  it.effect("recovers a removed worktree before leasing the project checkout", () => {
+    const log: string[] = [];
+    return Effect.gen(function* () {
+      const switchGate = yield* Deferred.make<void>();
+      const switchEntered = yield* Deferred.make<void>();
+      const layer = makeHarness({
+        threads: [shellThread("stranded", "/repo-wt-gone", false)],
+        log,
+        switchGate,
+        switchEntered,
+      });
+      yield* Effect.gen(function* () {
+        const git = yield* GitWorkflow.GitWorkflowService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const switching = yield* git
+          .switchRef({ cwd: "/repo", refName: "main" })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(switchEntered);
+        const dispatching = yield* threads
+          .dispatch(messageDispatch("stranded"))
+          .pipe(Effect.forkChild);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        // Recovered to the project root, the turn waits on that checkout's lease.
+        expect(log).toEqual(["switch:start", "recover"]);
+        yield* Deferred.succeed(switchGate, undefined);
+        yield* Fiber.join(switching);
+        yield* Fiber.join(dispatching);
+        expect(log).toEqual(["switch:start", "recover", "switch:end", "dispatch"]);
       }).pipe(Effect.provide(layer));
     });
   });

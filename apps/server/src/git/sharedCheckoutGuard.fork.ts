@@ -12,20 +12,11 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { CheckoutMoveServiceFork, isCheckoutMoveInFlightFork } from "./CheckoutMoveService.fork.ts";
+import { isThreadBusyOnCheckoutFork } from "./checkoutMoveIdentity.fork.ts";
 import { CheckoutMutationCoordinator } from "./CheckoutMutationCoordinator.ts";
 import * as GitWorkflow from "./GitWorkflowService.ts";
 import { resolveTurnCheckoutFork } from "./turnStartCheckoutLease.fork.ts";
-
-/**
- * A thread is busy on its checkout from the moment its run is queued until the
- * run settles; a run waiting on a runtime request still owns the checkout.
- */
-export const isThreadBusyOnCheckoutFork = (
-  thread: Pick<OrchestrationV2ThreadShell, "activeRunId" | "activityRunStatus" | "status">,
-) =>
-  thread.activeRunId !== null ||
-  (thread.activityRunStatus ?? null) !== null ||
-  thread.status === "queued";
 
 const guardError = (cwd: string, detail: string, cause?: unknown) =>
   new GitCommandError({
@@ -115,10 +106,12 @@ const makeSharedCheckoutBranchGuardFork = Effect.gen(function* () {
 /**
  * Wraps a client message dispatch in the lease of the checkout its thread runs
  * in, so a turn start and a branch change on the same checkout never overlap.
- * A thread with a checkout move in flight refuses new turns.
+ * A thread with a checkout move in flight refuses new turns, and a thread
+ * whose worktree was removed moves to the project root first.
  */
 const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
   const { registry, coordinator, threadCwd } = yield* makeSharedCheckout;
+  const checkoutMoves = yield* CheckoutMoveServiceFork;
 
   return <A, R>(
     threads: Pick<ThreadManagement.ThreadManagementService["Service"], "getThreadShell">,
@@ -133,12 +126,13 @@ const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
         cause,
       });
     return Effect.gen(function* () {
-      const thread = yield* threads.getThreadShell(command.threadId);
-      if (thread === null) return yield* dispatch;
+      const current = yield* threads.getThreadShell(command.threadId);
+      if (current === null) return yield* dispatch;
       // A move waits for the thread to go idle; a new turn would starve it.
-      if (thread.checkoutMove?.status === "queued" || thread.checkoutMove?.status === "preparing") {
-        return yield* reject(`Thread ${thread.id} has a checkout move in progress.`);
+      if (isCheckoutMoveInFlightFork(current.checkoutMove)) {
+        return yield* reject(`Thread ${current.id} has a checkout move in progress.`);
       }
+      const thread = yield* checkoutMoves.recoverRemovedWorktree(current);
       const cwd = yield* threadCwd(thread).pipe(Effect.mapError(reject));
       if (cwd === undefined) return yield* dispatch;
       const checkout = yield* resolveTurnCheckoutFork(registry, cwd).pipe(Effect.mapError(reject));
