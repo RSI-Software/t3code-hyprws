@@ -325,7 +325,10 @@ const squashesLines = (message: string): ReadonlyArray<string> => {
   return members;
 };
 
-/** A `fixup!` subject marks a split piece of a Fork-Repair commit. */
+/**
+ * A `fixup!` subject marks a split piece of a Fork-Repair commit, or a fixup
+ * landed by squash pull request, which carries its ` (#N)` marker instead.
+ */
 const FIXUP_SUBJECT = "fixup! ";
 
 /**
@@ -338,11 +341,12 @@ const firstSquashesLine = (message: string): string | undefined => squashesLines
 /**
  * One member line: the sha first (squashedMembers reads it), then the subject,
  * then every fork pull request the member cites, rendered full so the link
- * always stays on the fork. A `fixup!` member is a split piece of a repair, so
- * it renders as the repair it carries — never as the throwaway piece.
+ * always stays on the fork. A split piece of a repair renders as the repair it
+ * carries — never as the throwaway piece. A squash-landed fixup is a landing of
+ * its own, so it renders like any member and its pull request link survives.
  */
 const memberLine = (member: FoldCommit): string => {
-  if (member.subject.startsWith(FIXUP_SUBJECT)) {
+  if (member.subject.startsWith(FIXUP_SUBJECT) && !SQUASH_MARKER.test(member.subject.trim())) {
     const repair = firstSquashesLine(member.message);
     if (repair === undefined) {
       throw new FoldError(
