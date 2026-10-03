@@ -1,21 +1,18 @@
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
+
+const encodePayload = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.effect("finds every readable thread linked to exactly one issue, across projects, by host", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const createdAt = "2026-09-01T00:00:00.000Z";
     const laterAt = "2026-09-03T00:00:00.000Z";
-    for (const projectId of ["project-1", "project-2"]) {
-      yield* sql`
-          INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
-          VALUES (${projectId}, ${projectId}, ${`/tmp/${projectId}`}, '[]', ${createdAt}, ${createdAt})
-        `;
-    }
     const fixtures = [
       {
         id: "active",
@@ -61,22 +58,41 @@ it.effect("finds every readable thread linked to exactly one issue, across proje
       },
     ];
     for (const fixture of fixtures) {
+      const payload = yield* encodePayload({
+        issues: [
+          {
+            host: fixture.host,
+            repository: fixture.repository,
+            number: fixture.number,
+            url: `https://${fixture.host}/${fixture.repository}/issues/${fixture.number}`,
+            source: "manual",
+            linkedAt: createdAt,
+            snapshot: null,
+          },
+        ],
+      });
       yield* sql`
-          INSERT INTO projection_threads (
-            thread_id, project_id, title, model_selection_json, created_at, updated_at, archived_at, deleted_at
-          ) VALUES (
-            ${fixture.id}, ${fixture.projectId}, ${fixture.id}, '{"instanceId":"codex","model":"gpt-5.4"}',
-            ${createdAt}, ${fixture.id === "archived" ? laterAt : createdAt},
-            ${fixture.id === "archived" ? laterAt : null},
-            ${fixture.id === "deleted" ? laterAt : null}
-          )
-        `;
-      yield* sql`
-          INSERT INTO projection_thread_issues (thread_id, host, repository, number, url, source, linked_at)
-          VALUES (${fixture.id}, ${fixture.host}, ${fixture.repository}, ${fixture.number},
-            ${`https://${fixture.host}/${fixture.repository}/issues/${fixture.number}`}, 'manual', ${createdAt})
-        `;
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, archived_at, deleted_at, payload_json
+        ) VALUES (
+          ${fixture.id}, ${fixture.projectId}, ${fixture.id}, 'codex', 'full-access', 'default',
+          ${createdAt}, ${fixture.id === "archived" ? laterAt : createdAt},
+          ${fixture.id === "archived" ? laterAt : null},
+          ${fixture.id === "deleted" ? laterAt : null}, ${payload}
+        )
+      `;
     }
+    // A thread from before issue links has no `issues` key at all.
+    yield* sql`
+      INSERT INTO orchestration_v2_projection_threads (
+        thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+        created_at, updated_at, payload_json
+      ) VALUES (
+        'pre-feature', 'project-1', 'pre-feature', 'codex', 'full-access', 'default',
+        ${createdAt}, ${createdAt}, '{"pullRequests":[]}'
+      )
+    `;
 
     expect(
       yield* listLinkedIssueThreadsFork({ host: "GitHub.com", repository: "ACME/Web", number: 7 }),

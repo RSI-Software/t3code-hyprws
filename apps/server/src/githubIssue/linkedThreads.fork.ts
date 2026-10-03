@@ -1,6 +1,6 @@
 // Fork-only reverse lookup for thread ↔ GitHub issue links
 // (RSI-Software/t3code-hyprws#1431), mirroring upstream's pull request
-// `linkedThreads.ts` against the fork-owned `projection_thread_issues` table.
+// `linkedThreads.ts`: links live in the V2 thread payload's `issues` array.
 // The key is host-qualified, so one issue linked from two projects answers
 // with both threads; deleted threads are never returned.
 import {
@@ -15,14 +15,13 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   normalizeThreadIssueKey,
   threadIssueKeysEqual,
-} from "../orchestration/threadIssues.fork.ts";
+} from "../orchestration-v2/ThreadIssues.fork.ts";
 
 const decodeLinkedThreads = Schema.decodeUnknownEffect(PullRequestLinkedThreadsResult);
 
 export const listLinkedIssueThreadsFork = Effect.fn("listLinkedIssueThreadsFork")(
   function* (input: ThreadIssueKey) {
     const key = normalizeThreadIssueKey(input);
-    const hostname = key.host.replace(/:\d+$/u, "");
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<{
       id: string;
@@ -34,12 +33,12 @@ export const listLinkedIssueThreadsFork = Effect.fn("listLinkedIssueThreadsFork"
       number: number;
     }>`
       SELECT t.thread_id AS id, t.project_id AS "projectId", t.title,
-        t.archived_at AS "archivedAt", link.host, link.repository, link.number
-      FROM projection_thread_issues AS link
-      JOIN projection_threads AS t ON t.thread_id = link.thread_id
-      WHERE (link.host = ${key.host} OR link.host = ${hostname})
-        AND link.repository = ${key.repository}
-        AND link.number = ${key.number}
+        t.archived_at AS "archivedAt", json_extract(link.value, '$.host') AS host,
+        json_extract(link.value, '$.repository') AS repository,
+        json_extract(link.value, '$.number') AS number
+      FROM orchestration_v2_projection_threads AS t
+      JOIN json_each(t.payload_json, '$.issues') AS link
+      WHERE json_extract(link.value, '$.number') = ${key.number}
         AND t.deleted_at IS NULL
       ORDER BY t.updated_at DESC, t.thread_id ASC
     `;

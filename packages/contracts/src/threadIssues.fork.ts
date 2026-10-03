@@ -1,7 +1,9 @@
 // Fork-owned thread ↔ GitHub issue links (RSI-Software/t3code-hyprws#1431), shaped
-// like the thread ↔ pull request links in `orchestration.ts`. That upstream file
-// carries only marked hooks that spread the schemas below into its thread read
-// model, command unions, event-type literals and event union.
+// like the thread ↔ pull request links in `orchestrationV2.ts`. That upstream file
+// carries only marked hooks that spread the schemas below into its app thread,
+// thread shell and command unions. Issue changes ride the upstream
+// `thread.metadata-updated` event, whose payload is the whole thread, so the fork
+// adds no event type an upstream client would reject.
 import * as Schema from "effect/Schema";
 
 import {
@@ -98,56 +100,3 @@ export const threadIssueClientCommandsFork = [
 
 /** Spread into the internal command union: only the server reads issue state. */
 export const threadIssueInternalCommandsFork = [ThreadIssueLinkSyncCommand] as const;
-
-export const ThreadIssueLinkedPayload = Schema.Struct({
-  threadId: ThreadId,
-  link: ThreadIssueLink,
-  updatedAt: IsoDateTime,
-});
-export type ThreadIssueLinkedPayload = typeof ThreadIssueLinkedPayload.Type;
-
-export const ThreadIssueUnlinkedPayload = Schema.Struct({
-  threadId: ThreadId,
-  ...ThreadIssueKey.fields,
-  updatedAt: IsoDateTime,
-});
-export type ThreadIssueUnlinkedPayload = typeof ThreadIssueUnlinkedPayload.Type;
-
-export const ThreadIssueSyncedPayload = Schema.Struct({
-  threadId: ThreadId,
-  ...ThreadIssueKey.fields,
-  snapshot: ThreadIssueSnapshot,
-  updatedAt: IsoDateTime,
-});
-export type ThreadIssueSyncedPayload = typeof ThreadIssueSyncedPayload.Type;
-
-/** Spread into `OrchestrationEventType`. */
-export const THREAD_ISSUE_EVENT_TYPES_FORK = [
-  "thread.issue-linked",
-  "thread.issue-unlinked",
-  "thread.issue-synced",
-] as const;
-
-/**
- * The event structs, built over the upstream event base fields passed in, so
- * this sibling never imports `orchestration.ts` back. Spread into
- * `OrchestrationEvent`.
- */
-export const threadIssueEventsFork = <const Base extends Schema.Struct.Fields>(base: Base) =>
-  [
-    Schema.Struct({
-      ...base,
-      type: Schema.Literal("thread.issue-linked"),
-      payload: ThreadIssueLinkedPayload,
-    }),
-    Schema.Struct({
-      ...base,
-      type: Schema.Literal("thread.issue-unlinked"),
-      payload: ThreadIssueUnlinkedPayload,
-    }),
-    Schema.Struct({
-      ...base,
-      type: Schema.Literal("thread.issue-synced"),
-      payload: ThreadIssueSyncedPayload,
-    }),
-  ] as const;
