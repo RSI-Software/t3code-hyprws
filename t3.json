@@ -9,6 +9,21 @@
       "runOnWorktreeCreate": true
     },
     {
+      "name": "Dev Web",
+      "command": "vp run dev:app --preview",
+      "icon": "debug"
+    },
+    {
+      "name": "Dev Web (External)",
+      "command": "vp run dev:app --external",
+      "icon": "debug"
+    },
+    {
+      "name": "Dev Desktop",
+      "command": "vp run dev:app --desktop",
+      "icon": "debug"
+    },
+    {
       "name": "Dev Desktop Agent",
       "command": "vp run dev:desktop:agent",
       "icon": "debug"
