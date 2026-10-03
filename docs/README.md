@@ -49,6 +49,10 @@ anything.
 
 ### Internals (in reading order)
 
+- [Fork development](./internals/fork-development.md)
+- [Fork delta](./internals/fork-delta.md)
+- [Fork strategy](./internals/fork-strategy.md) and its [scorecard](./internals/fork-strategy-scorecard.md)
+
 - [00 · Glossary](./internals/00_glossary.md)
 - [01 · Architecture](./internals/01_architecture.md)
 - [02 · Effect services](./internals/02_effect-services.md)
@@ -69,6 +73,8 @@ anything.
 - [17 · Scripts](./internals/17_scripts.md)
 
 ### Runbooks
+
+- [Fork sync](./operations/fork-sync.md)
 
 - [00 · Development and local builds](./operations/00_development.md)
 - [01 · Dev container](./operations/01_devcontainer.md)
