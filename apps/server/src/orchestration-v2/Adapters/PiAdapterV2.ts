@@ -62,6 +62,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { withProviderSessionIdentity } from "../../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/pi-session-identity-import
 import {
   expandPiSkillReference,
   parsePiCompactCommand,
@@ -412,9 +413,10 @@ export function makePiAdapterV2(
       if (!resolvedLaunchArgs.ok) {
         return yield* protocolError(resolvedLaunchArgs.message);
       }
+      const forkSessionEnvironment = withProviderSessionIdentity(options.environment, input); // fork-hook: upstream-fixes/pi-session-identity
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
-        environment: options.environment,
+        environment: forkSessionEnvironment, // fork-hook: upstream-fixes/pi-session-identity-env
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
