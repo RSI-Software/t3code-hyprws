@@ -4,9 +4,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 
-import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopUserData from "./DesktopUserData.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -20,27 +20,37 @@ const environmentInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
+// Resolves the profile the way DesktopAppIdentity and DesktopClerk do: from the
+// configured DesktopEnvironment, with legacy-profile probes counted.
 function resolveUserDataPath(
-  environment: Readonly<Record<string, string | undefined>>,
+  env: Readonly<Record<string, string | undefined>>,
   legacyPathExists: boolean,
   onLegacyProbe: () => void,
 ) {
-  const environmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
-    Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest(environment))),
-  );
-  const fileSystemLayer = FileSystem.layerNoop({
-    exists: () =>
-      Effect.sync(() => {
-        onLegacyProbe();
-        return legacyPathExists;
+  return Effect.gen(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    return yield* DesktopUserData.resolveUserDataPath(environment);
+  }).pipe(
+    Effect.provide(
+      DesktopEnvironment.layer(environmentInput).pipe(
+        Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest(env))),
+      ),
+    ),
+    Effect.provideService(
+      FileSystem.FileSystem,
+      FileSystem.makeNoop({
+        exists: () =>
+          Effect.sync(() => {
+            onLegacyProbe();
+            return legacyPathExists;
+          }),
       }),
-  });
-  return DesktopAppIdentity.resolveUserDataPath.pipe(
-    Effect.provide(Layer.merge(environmentLayer, fileSystemLayer)),
+    ),
+    Effect.provide(NodeServices.layer),
   );
 }
 
-describe("DesktopAppIdentity fork user-data isolation", () => {
+describe("DesktopUserData fork user-data isolation", () => {
   it.effect("uses separate explicit development profiles without probing legacy state", () =>
     Effect.gen(function* () {
       let legacyProbes = 0;
@@ -66,19 +76,31 @@ describe("DesktopAppIdentity fork user-data isolation", () => {
     }),
   );
 
-  it.effect("ignores the override outside development and preserves legacy resolution", () =>
+  it.effect("keeps legacy development resolution when no override is set", () =>
     Effect.gen(function* () {
       let legacyProbes = 0;
       const path = yield* resolveUserDataPath(
-        { T3CODE_DESKTOP_USER_DATA_DIR: "/work/release/.t3/electron" },
+        { VITE_DEV_SERVER_URL: "http://localhost:5173" },
         true,
         () => {
           legacyProbes += 1;
         },
       );
 
-      assert.equal(path, "/Users/alice/Library/Application Support/T3 Code (Alpha)");
+      assert.equal(path, "/Users/alice/Library/Application Support/T3 Code (Dev)");
       assert.equal(legacyProbes, 1);
+    }),
+  );
+
+  it.effect("ignores the override outside development", () =>
+    Effect.gen(function* () {
+      const path = yield* resolveUserDataPath(
+        { T3CODE_DESKTOP_USER_DATA_DIR: "/work/release/.t3/electron" },
+        true,
+        () => {},
+      );
+
+      assert.equal(path, "/Users/alice/Library/Application Support/t3code-v2");
     }),
   );
 });
