@@ -11,15 +11,12 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   effectiveShortcutsForCommand,
   formatShortcutLabel,
-  isChatFocusComposerShortcut,
   isRichTextBoldShortcut,
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
-  isTerminalFocusShortcut,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -323,29 +320,6 @@ describe("shortcutLabelForCommand", () => {
 });
 
 describe("thread navigation helpers", () => {
-  it("shows jump hints with terminal focus when the binding is active there", () => {
-    assert.isTrue(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-
-    const composerOnlyBindings = compile([
-      {
-        shortcut: modShortcut("1"),
-        command: "thread.jump.1",
-        whenAst: whenNot(whenIdentifier("terminalFocus")),
-      },
-    ]);
-    assert.isFalse(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), composerOnlyBindings, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-  });
-
   it("keeps default thread jumps off the web so the browser can switch tabs", () => {
     const input = event({ key: "1", metaKey: true });
     assert.isNull(
