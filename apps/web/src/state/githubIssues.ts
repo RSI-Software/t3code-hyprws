@@ -20,7 +20,8 @@ import {
 } from "../components/githubIssue/githubIssueListKeep.logic";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { createMergedEnvironmentQuery, type EnvironmentQueryTarget } from "./pullRequests";
-import { allEnvironmentShellsBootstrappedAtom, environmentShellBootstrappedAtom } from "./shell";
+import { allEnvironmentShellsBootstrappedAtom } from "./shell";
+import { environmentShellBootstrappedAtom } from "./windowProjectBootstrap.fork";
 
 export const githubIssueEnvironment = createGitHubIssueEnvironmentAtoms(connectionAtomRuntime);
 
@@ -32,9 +33,7 @@ export function githubIssueShellBootstrappedAtom(environmentId: EnvironmentId | 
     : environmentShellBootstrappedAtom(environmentId);
 }
 
-export function useGitHubIssueEnvironmentShellBootstrapped(
-  environmentId: EnvironmentId | null,
-): boolean {
+function useGitHubIssueEnvironmentShellBootstrapped(environmentId: EnvironmentId | null): boolean {
   return useAtomValue(githubIssueShellBootstrappedAtom(environmentId));
 }
 
