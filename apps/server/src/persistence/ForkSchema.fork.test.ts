@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { ensureForkSchema, repairStaleForkMigrationRow } from "./ForkSchema.ts";
 import { runMigrations } from "./Migrations.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("ForkSchema", (it) => {
   it.effect("adds the checkout move column once after the upstream migrations", () =>
@@ -28,7 +28,13 @@ layer("ForkSchema", (it) => {
       assert.deepStrictEqual(second, []);
     }),
   );
+});
 
+// A separate top-level `layer(...)` block gets its own memo map, so its own in-memory database.
+// A shared one would already be migrated past 048 by the earlier test, so `runMigrations` would
+// have nothing left to run against the shipped-nightly state this models: a fresh database at
+// 047 plus the stale fork row.
+layer("ForkSchema repair", (it) => {
   it.effect("repairs a stale fork migration row so upstream 048 still runs", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
