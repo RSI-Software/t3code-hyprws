@@ -112,6 +112,7 @@ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import { checkoutMoveServiceLiveFork } from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/server-checkout-move-import
+import { checkoutHeadFollowLiveFork } from "./git/CheckoutHeadFollow.fork.ts"; // fork-hook: zmux-estate/server-checkout-head-follow-import
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
@@ -569,6 +570,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
   ReplayMarkers.layer,
   threadIssueSyncReactorLiveFork, // fork-hook: github-issues/server-issue-sync-reactor
   checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
+  checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
 ).pipe(
   // Core Services
   Layer.provideMerge(OrchestrationApplicationLayerLive),
