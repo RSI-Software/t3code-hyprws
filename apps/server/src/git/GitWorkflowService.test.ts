@@ -14,28 +14,9 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
-
-const gitHandle = {
-  kind: "git" as const,
-  repository: {
-    kind: "git" as const,
-    rootPath: "/repo",
-    metadataPath: null,
-    freshness: {
-      source: "live-local" as const,
-      observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
-      expiresAt: Option.none(),
-    },
-  },
-  driver: {} as VcsDriver.VcsDriver["Service"],
-} satisfies VcsDriverRegistry.VcsDriverHandle;
-
-const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
-  Effect.succeed(gitHandle);
 
 const makeWorktrunkHookRunnerLayer = (
   overrides: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]> = {},
