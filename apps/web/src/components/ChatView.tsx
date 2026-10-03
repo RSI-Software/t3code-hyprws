@@ -241,9 +241,18 @@ import {
   setActivePreviewTab,
   useThreadPreviewState,
 } from "../previewStateStore";
-import { BrowserSettingsReadError, openUrlInPreview } from "../browser/openFileInPreview";
 import { resolveDiscoveredServerUrl } from "../browser/browserTargetResolver";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
+import {
+  armDevAppPreviewHandoff,
+  DevAppPreviewHandoffCancelledError,
+  DevAppPreviewInvocationLifecycle,
+  devAppPreviewActionBlockReason,
+  devAppPreviewActionCommandForRuntime,
+  isDevAppPreviewActionCommand,
+  type DevAppPreviewHandoff,
+} from "../browser/devAppPreviewHandoff";
+import { BrowserSettingsReadError, openUrlInPreview } from "../browser/openFileInPreview";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "./preview/usePreviewSession";
@@ -1621,6 +1630,25 @@ export default function ChatView(props: ChatViewProps) {
     container: workspaceLayoutElement,
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
+  const devAppPreviewScopeRef = useRef<{
+    readonly threadKey: string | null;
+    readonly lifecycle: DevAppPreviewInvocationLifecycle;
+    readonly handoffs: Set<DevAppPreviewHandoff>;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const scope = {
+      threadKey: activeThreadKey,
+      lifecycle: new DevAppPreviewInvocationLifecycle(),
+      handoffs: new Set<DevAppPreviewHandoff>(),
+    };
+    devAppPreviewScopeRef.current = scope;
+    return () => {
+      if (devAppPreviewScopeRef.current === scope) devAppPreviewScopeRef.current = null;
+      scope.lifecycle.dispose();
+      for (const handoff of scope.handoffs) handoff.cancel();
+      scope.handoffs.clear();
+    };
+  }, [activeThreadKey]);
   const activeThreadShell = useQuietThreadShell(isServerThread ? activeThreadRef : null);
   const terminalFocusRequestId = nextTerminalFocusRequestId(
     terminalFocusRequests.threadKey,
@@ -3495,6 +3523,19 @@ export default function ChatView(props: ChatViewProps) {
     },
   ) => {
     if (!hasTerminalWriteAccess() || !activeThreadId || !activeProject || !activeThread) return;
+    const previewScope = devAppPreviewScopeRef.current;
+    if (previewScope?.threadKey !== activeThreadKey) return;
+    const previewBlockReason = devAppPreviewActionBlockReason(
+      script.command,
+      readPreparedConnection(environmentId),
+    );
+    if (previewBlockReason) {
+      setThreadError(activeThreadId, previewBlockReason);
+      return;
+    }
+    const invocation = previewScope.lifecycle.begin();
+    const isInvocationActive = () =>
+      devAppPreviewScopeRef.current === previewScope && invocation.isActive();
     if (options?.rememberAsLastInvoked !== false) {
       setLastInvokedScriptByProjectId((current) => {
         if (current[activeProject.id] === script.id) return current;
@@ -3540,11 +3581,15 @@ export default function ChatView(props: ChatViewProps) {
         ? { size: { cols: SCRIPT_TERMINAL_COLS, rows: SCRIPT_TERMINAL_ROWS } }
         : { terminalId: reusableTerminalId }),
       location: { cwd: targetCwd, worktreePath: targetWorktreePath },
-      ...(options?.env ? { extraEnv: options.env } : {}),
+      extraEnv: {
+        ...options?.env,
+        T3CODE_PROJECT_ID: activeProject.id,
+      },
     });
     if (!launched) return;
     const targetTerminalId = launched.terminalId;
     const openResult = await launched.result;
+    if (!isInvocationActive()) return;
     if (openResult._tag === "Failure") {
       if (!isAtomCommandInterrupted(openResult)) {
         const error = squashAtomCommandFailure(openResult);
@@ -3553,16 +3598,85 @@ export default function ChatView(props: ChatViewProps) {
           error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
         );
       }
+      invocation.cancel();
       return;
     }
 
-    const writeResult = await terminalActions.writeToTerminal(
-      targetTerminalId,
-      options?.shellHistory === "preserve"
-        ? `${script.command}\r`
-        : projectScriptTerminalInput(script.command),
-    );
+    const isDevAppPreviewAction = isDevAppPreviewActionCommand(script.command);
+    const previewSupported = isPreviewSupportedInRuntime();
+    let previewHandoff: DevAppPreviewHandoff | null = null;
+    if (isDevAppPreviewAction && previewSupported) {
+      previewHandoff = armDevAppPreviewHandoff({
+        environmentId,
+        terminal: { threadId: activeThreadId, terminalId: targetTerminalId }, // fork-hook: fork-meta/dev-app-preview-terminal
+        onPreviewUrl: async (url) => {
+          if (!previewHandoff || !previewScope.handoffs.delete(previewHandoff)) {
+            return;
+          }
+          const previewResult = await openUrlInPreview({
+            threadRef: activeThreadRef,
+            url,
+            openPreview,
+          });
+          if (previewResult._tag === "Failure" && !isAtomCommandInterrupted(previewResult)) {
+            const error = squashAtomCommandFailure(previewResult);
+            setThreadError(
+              activeThreadId,
+              error instanceof Error ? error.message : "Failed to open the dev app preview.",
+            );
+          }
+        },
+        onError: (message) => {
+          if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+          setThreadError(activeThreadId, message);
+        },
+      });
+      previewScope.handoffs.add(previewHandoff);
+      try {
+        await previewHandoff.ready;
+      } catch (error: unknown) {
+        previewScope.handoffs.delete(previewHandoff);
+        if (!(error instanceof DevAppPreviewHandoffCancelledError)) {
+          setThreadError(
+            activeThreadId,
+            error instanceof Error ? error.message : "Failed to watch for the dev app preview.",
+          );
+        }
+        previewHandoff = null;
+      }
+    }
+    if (
+      !isInvocationActive() ||
+      (isDevAppPreviewAction &&
+        previewSupported &&
+        (previewHandoff === null || !previewHandoff.isActive()))
+    ) {
+      previewHandoff?.cancel();
+      if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+      invocation.cancel();
+      return;
+    }
+
+    const command = devAppPreviewActionCommandForRuntime(script.command, previewSupported);
+
+    if (!isInvocationActive() || (previewHandoff !== null && !previewHandoff.isActive())) {
+      previewHandoff?.cancel();
+      if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+      invocation.cancel();
+      return;
+    }
+
+    const writeResult = await terminalActions.writeToTerminal(targetTerminalId, `${command}\r`); // fork-hook: fork-meta/dev-app-preview-command
     if (!writeResult) return;
+    if (!isInvocationActive()) {
+      previewHandoff?.cancel();
+      if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+      return;
+    }
+    if (writeResult._tag === "Failure" && previewHandoff) {
+      previewHandoff.cancel();
+      previewScope.handoffs.delete(previewHandoff);
+    }
     if (writeResult._tag === "Failure") {
       if (!isAtomCommandInterrupted(writeResult)) {
         const error = squashAtomCommandFailure(writeResult);
@@ -3590,6 +3704,7 @@ export default function ChatView(props: ChatViewProps) {
         );
       }
     }
+    invocation.cancel();
   };
   const runProjectScriptStable = useStableCallback(runProjectScript);
 
