@@ -1,4 +1,3 @@
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyTerminalAttachStreamEvent,
@@ -9,49 +8,11 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 
 import {
-  type KeybindingCommand,
-  type ResolvedKeybindingsConfig,
-  THREAD_JUMP_KEYBINDING_COMMANDS,
-} from "@t3tools/contracts";
-import { type ShortcutEventLike } from "../keybindings";
-import {
-  isTerminalAttachmentDemanded,
-  resolveTerminalWindowDemand,
   shouldClearTerminalSelectionAction,
-  shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
-  shouldHandleTerminalFocusRequest,
-  shouldRestoreTerminalFocusAfterResume,
   synchronizeTerminalOutput,
   synchronizeTerminalSession,
 } from "./ThreadTerminalDrawer";
-
-function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
-  return {
-    key: "x",
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...overrides,
-  };
-}
-
-function binding(command: KeybindingCommand): ResolvedKeybindingsConfig {
-  return [
-    {
-      command,
-      shortcut: {
-        key: "x",
-        metaKey: false,
-        ctrlKey: false,
-        shiftKey: false,
-        altKey: false,
-        modKey: true,
-      },
-    },
-  ];
-}
 
 describe("terminal selection actions", () => {
   it("does not let an old selection popup cancel its replacement right-click menu", () => {
