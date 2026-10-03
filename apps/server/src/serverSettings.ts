@@ -63,6 +63,7 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import { foldLegacyWorktrunkEnvModeFork } from "./serverSettings.fork.ts"; // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode-import
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -614,6 +615,7 @@ function foldLegacyProjectSettings(
     if (row.defaultThreadEnvMode === "local" || row.defaultThreadEnvMode === "worktree") {
       set(row.projectId, "defaultThreadEnvMode", row.defaultThreadEnvMode);
     }
+    foldLegacyWorktrunkEnvModeFork(entries, row); // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode
     if (row.autoPull === 1) set(row.projectId, "defaultAutoPull", true);
     const scripts = decodeProjectScriptsJson(row.scripts);
     if (Option.isSome(scripts) && scripts.value.length > 0 && !resetScripts.has(row.projectId)) {
