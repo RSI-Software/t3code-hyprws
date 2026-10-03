@@ -92,10 +92,8 @@ function renderTabs(
       onAddPullRequests={() => undefined}
       onAddDiff={() => undefined}
       onAddFiles={() => undefined}
-      onAddAgents={() => undefined}
       onAddIssues={() => undefined}
       onAddDevice={() => undefined}
-      liveAgentCount={0}
       browserAvailable
       terminalAvailable={false}
       diffAvailable={false}
@@ -103,7 +101,6 @@ function renderTabs(
       pullRequestAvailable={false}
       pullRequestsAvailable={false}
       issuesAvailable={options.issuesAvailable ?? false}
-      agentsAvailable={false}
       deviceAvailable={false}
     >
       <div>content</div>

@@ -597,7 +597,6 @@ export function GitHubIssuesPage({
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
             onAddIssues={() => undefined}
-            onAddAgents={() => undefined}
             onAddDevice={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
@@ -606,9 +605,7 @@ export function GitHubIssuesPage({
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
             issuesAvailable={false}
-            agentsAvailable={false}
             deviceAvailable={false}
-            liveAgentCount={0}
           >
             <div className="min-h-0 flex-1 overflow-y-auto">{detail}</div>
           </RightPanelTabs>
