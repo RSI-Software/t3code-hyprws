@@ -394,3 +394,52 @@ it.effect("refuses to commit a checkout move under a live run", () =>
     );
   }).pipe(Effect.provide(testLayer)),
 );
+
+it.effect("refuses a branch update whose expected branch is stale", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:expected-branch");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-expected-branch"),
+      threadId,
+      projectId: ProjectId.make("project:expected-branch"),
+      title: "Follow me",
+      modelSelection: { instanceId, model: "gpt-5.1-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "main",
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    // A rename lands after checkout HEAD follow read the thread on `main`.
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("rename-branch"),
+      threadId,
+      branch: "renamed",
+    });
+    const stale = yield* Effect.exit(
+      orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("follow-stale"),
+        threadId,
+        expectedBranch: "main",
+        branch: "followed",
+      }),
+    );
+    assert.equal(stale._tag, "Failure");
+    assert.equal((yield* projections.getThreadShell(threadId))?.branch, "renamed");
+
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("follow-current"),
+      threadId,
+      expectedBranch: "renamed",
+      branch: "followed",
+    });
+    assert.equal((yield* projections.getThreadShell(threadId))?.branch, "followed");
+  }).pipe(Effect.provide(testLayer)),
+);
