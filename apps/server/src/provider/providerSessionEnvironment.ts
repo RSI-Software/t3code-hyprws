@@ -1,6 +1,8 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import type { ProviderAdapterV2SessionRuntime } from "../orchestration-v2/ProviderAdapter.ts";
+
 /**
  * Environment variables every provider subprocess receives so tooling the
  * agent runs (shells, browser grounders, window resolvers) can name the
@@ -15,10 +17,17 @@ import * as Effect from "effect/Effect";
  * - OpenCode 1.x spawns one server per session and receives it; a configured
  *   external `serverUrl` is a server T3 never spawns.
  * - Codex and OpenCode 2.x run one process per instance that every thread
- *   shares, so they receive neither id: a shared process cannot name one
- *   thread, and naming none beats misattributing work. Codex could still carry
- *   it per thread through `shell_environment_policy.set` in its `thread/start`
- *   config overrides, which would need the project id on its thread inputs.
+ *   shares, so that process receives neither id: a shared process cannot name
+ *   one thread, and naming none beats misattributing work.
+ * - Codex carries the identity per thread instead, through
+ *   `shell_environment_policy.set` in the config overrides of `thread/start`,
+ *   `thread/resume` and `thread/fork` (see `codexThreadIdentityConfig`). In
+ *   codex-rs 0.159.3 that policy reaches the agent's exec/shell tool commands
+ *   (`core/src/unified_exec/process_manager.rs`) and user `!` commands
+ *   (`core/src/tasks/user_shell.rs`). It does not reach hooks, which replay the
+ *   app-server's own environment (`hooks/src/registry.rs`), MCP stdio servers,
+ *   which start from a fixed allowlist of it (`rmcp-client/src/utils.rs`), or a
+ *   thread already running when the overrides arrive, which Codex ignores.
  * - Cursor runs its SDK agent inside the T3 server process, and the local SDK
  *   takes no environment, so it is not supported.
  */
@@ -74,15 +83,32 @@ export function withSessionIdentityWhenKnown(
 }
 
 /**
+ * Codex thread config overrides that give the thread's shell commands its
+ * identity. Codex deep-merges them over `config.toml`, so a user's own
+ * `shell_environment_policy` keeps its other keys. A thread without a known
+ * project carries only its thread id, as every other adapter's env does.
+ */
+export function codexThreadIdentityConfig(identity: ProviderSessionIdentity): {
+  readonly shell_environment_policy?: { readonly set: Readonly<Record<string, string>> };
+} {
+  const set: Record<string, string> = {};
+  if (identity.projectId) set[PROVIDER_SESSION_IDENTITY_ENV.projectId] = identity.projectId;
+  if (identity.threadId) set[PROVIDER_SESSION_IDENTITY_ENV.threadId] = identity.threadId;
+  return Object.keys(set).length === 0 ? {} : { shell_environment_policy: { set } };
+}
+
+type ThreadShellProjections<E> = {
+  readonly getThreadShell: (
+    threadId: ThreadId,
+  ) => Effect.Effect<{ readonly projectId: ProjectId } | null, E>;
+};
+
+/**
  * The owning project of `threadId`, as an `OpenSessionInput` fragment. A thread
  * the projection cannot read opens without one, which removes any inherited id.
  */
 export const providerSessionProjectId = <E>(
-  projections: {
-    readonly getThreadShell: (
-      threadId: ThreadId,
-    ) => Effect.Effect<{ readonly projectId: ProjectId } | null, E>;
-  },
+  projections: ThreadShellProjections<E>,
   threadId: ThreadId,
 ): Effect.Effect<{ readonly projectId?: ProjectId }> =>
   projections.getThreadShell(threadId).pipe(
@@ -91,3 +117,40 @@ export const providerSessionProjectId = <E>(
     ),
     Effect.orElseSucceed(() => ({})),
   );
+
+type ThreadProjectRuntime = Pick<
+  ProviderAdapterV2SessionRuntime,
+  "ensureThread" | "resumeThread" | "forkThread" | "rollbackThread"
+>;
+
+/**
+ * `runtime` with each thread call given its app thread's project id. A shared
+ * runtime serves threads of many projects, so the id the session opened with
+ * cannot stand in for the thread being started, resumed, forked, or reloaded.
+ */
+export const withThreadProjects = <R extends ThreadProjectRuntime, E>(
+  projections: ThreadShellProjections<E>,
+  runtime: R,
+): R => {
+  const projectOf = (threadId: ThreadId | null | undefined) =>
+    threadId == null ? Effect.succeed({}) : providerSessionProjectId(projections, threadId);
+  return {
+    ...runtime,
+    ensureThread: (input) =>
+      projectOf(input.threadId).pipe(
+        Effect.flatMap((project) => runtime.ensureThread({ ...input, ...project })),
+      ),
+    resumeThread: (input) =>
+      projectOf(input.threadId ?? input.providerThread.appThreadId).pipe(
+        Effect.flatMap((project) => runtime.resumeThread({ ...input, ...project })),
+      ),
+    forkThread: (input) =>
+      projectOf(input.targetThreadId).pipe(
+        Effect.flatMap((project) => runtime.forkThread({ ...input, ...project })),
+      ),
+    rollbackThread: (input) =>
+      projectOf(input.providerThread.appThreadId).pipe(
+        Effect.flatMap((project) => runtime.rollbackThread({ ...input, ...project })),
+      ),
+  };
+};
