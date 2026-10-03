@@ -83,13 +83,15 @@ const makeOperationsFactory = (
   setMainWindow: (window: Electron.BrowserWindow) => Effect.Effect<void> = () => Effect.void,
 ) => {
   const tabSets: Set<string>[] = [];
+  // Which operations instance (by creation order) prepared each guest.
+  const prepared: Array<{ readonly instance: number; readonly guest: Electron.WebContents }> = [];
   const stateListeners: Array<(tabId: string, state: PreviewTabState) => Effect.Effect<void>> = [];
   let stateListenerRemovals = 0;
 
   const create = (scope: Scope.Closeable) =>
     Effect.gen(function* () {
       const tabs = new Set<string>();
-      tabSets.push(tabs);
+      const instance = tabSets.push(tabs) - 1;
       yield* Scope.addFinalizer(
         scope,
         Effect.sync(() => tabs.clear()),
@@ -106,6 +108,8 @@ const makeOperationsFactory = (
             return state;
           }),
         closeTab: (tabId: string) => Effect.sync(() => void tabs.delete(tabId)),
+        prepareWebview: (guest: Electron.WebContents) =>
+          Effect.sync(() => void prepared.push({ instance, guest })),
         setMainWindow,
         subscribeStateChanges: (listener: typeof stateListener) =>
           Effect.acquireRelease(
@@ -126,6 +130,7 @@ const makeOperationsFactory = (
 
   return {
     create,
+    prepared,
     stateListeners,
     tabSets,
     get stateListenerRemovals() {
@@ -414,6 +419,40 @@ describe("desktop preview window policy", () => {
       expect(operations.tabSets).toHaveLength(2); // eager hub plus the retained project window
       expect(operations.tabSets[1]?.has("replacement-tab")).toBe(true);
       expect(operations.stateListenerRemovals).toBe(0);
+    }).pipe(Effect.scoped);
+  });
+
+  effectIt.effect("prepares an attached guest in the window that hosts it", () => {
+    const operations = makeOperationsFactory();
+    const hostedWindow = (webContents: Electron.WebContents) =>
+      ({
+        webContents,
+        isDestroyed: () => false,
+        once: vi.fn(),
+      }) as unknown as Electron.BrowserWindow;
+    const firstRenderer = { id: 11 } as Electron.WebContents;
+    const secondRenderer = { id: 12 } as Electron.WebContents;
+    const guestOf = (hostWebContents: Electron.WebContents | null) =>
+      ({ hostWebContents }) as unknown as Electron.WebContents;
+
+    return Effect.gen(function* () {
+      const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
+      yield* policy.setWindow(firstWindowId, hostedWindow(firstRenderer));
+      yield* policy.setWindow(secondWindowId, hostedWindow(secondRenderer));
+      const secondGuest = guestOf(secondRenderer);
+      const firstGuest = guestOf(firstRenderer);
+      const orphanGuest = guestOf(null);
+
+      yield* policy.prepareWebview(secondGuest);
+      yield* policy.prepareWebview(firstGuest);
+      yield* policy.prepareWebview(orphanGuest);
+
+      // Instance 0 is the eager app instance; windows follow in setWindow order.
+      expect(operations.prepared).toEqual([
+        { instance: 2, guest: secondGuest },
+        { instance: 1, guest: firstGuest },
+        { instance: 0, guest: orphanGuest },
+      ]);
     }).pipe(Effect.scoped);
   });
 

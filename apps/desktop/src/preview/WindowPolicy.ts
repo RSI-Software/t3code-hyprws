@@ -302,6 +302,29 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     });
   });
 
+  // Upstream prepares every attached guest through its window-less manager, but
+  // a guest belongs to the window whose renderer hosts it. That window's
+  // operations must open the guest's control session: one opened by the app
+  // instance would leave the window's own registerWebview facing an attached
+  // debugger it does not own.
+  const prepareWebview = Effect.fn("PreviewWindowPolicy.prepareWebview")(function* (
+    guest: Electron.WebContents,
+  ) {
+    const host: Electron.WebContents | null = guest.hostWebContents;
+    const owned =
+      host === null
+        ? undefined
+        : Array.from(entries.values()).find(
+            (entry) =>
+              entry.owner !== APP_PREVIEW_OWNER &&
+              entry.window !== undefined &&
+              !entry.window.isDestroyed() &&
+              entry.window.webContents === host,
+          );
+    const entry = owned ?? (yield* getEntry(APP_PREVIEW_OWNER));
+    yield* entry.operations.prepareWebview(guest);
+  });
+
   const app = yield* forWindow(APP_PREVIEW_OWNER);
   yield* Effect.addFinalizer(() =>
     Effect.forEach(Array.from(entries.values()), (entry) => Scope.close(entry.scope, Exit.void), {
@@ -314,6 +337,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     setWindow,
     disposeWindow,
     forWindow,
+    prepareWebview,
     subscribeOwnedStateChanges: (listener: OwnedStateListener) =>
       subscribe(ownedStateListenersRef, listener),
     subscribeOwnedPointerEvents: (listener: OwnedPointerEventListener) =>
