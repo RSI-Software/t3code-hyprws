@@ -25,6 +25,11 @@ export interface FoldCommit extends ParsedForkCommit {
   readonly files: ReadonlyArray<string>;
   /** Full commit message (`%B`), so fold messages can carry each member's PR links. */
   readonly message: string;
+  /**
+   * The `<old>` short sha a fold names a commit that a split head replayed,
+   * or null when `<old>` holds no counterpart; absent, a fold names the commit itself.
+   */
+  readonly cite?: string | null;
 }
 
 export interface FoldStack {
