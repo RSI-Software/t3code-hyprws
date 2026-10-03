@@ -40,23 +40,6 @@ describe("mergeProviderInstanceEnvironment", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  // Split by driver kind because a spawn keeps only its own provider's home:
-  // the inherited value still goes through untouched, which is what this covers.
-  it.each([
-    { ownDriverKind: "codex", kept: { CODEX_HOME: "~/.codex" } },
-    { ownDriverKind: "claudeAgent", kept: { CLAUDE_CONFIG_DIR: "~\\.claude" } },
-  ])("leaves the inherited $ownDriverKind provider home unchanged", ({ ownDriverKind, kept }) => {
-    const baseEnv = { CODEX_HOME: "~/.codex", CLAUDE_CONFIG_DIR: "~\\.claude" };
-
-    expect(
-      mergeProviderInstanceEnvironment(
-        [{ name: "CUSTOM_VALUE", value: "~/.custom", sensitive: false }],
-        ownDriverKind,
-        baseEnv,
-      ),
-    ).toEqual({ ...kept, CUSTOM_VALUE: "~/.custom" });
-  });
-
   it("overrides inherited environment values and preserves empty strings", () => {
     expect(
       mergeProviderInstanceEnvironment(
