@@ -23,6 +23,9 @@ vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("../state/shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/shell")>()),
   allEnvironmentShellsBootstrappedAtom: { kind: "all" },
+}));
+
+vi.mock("../state/windowProjectBootstrap.fork", () => ({
   environmentShellBootstrappedAtom: (environmentId: EnvironmentId) => {
     mocks.shellEnvironmentIds.push(environmentId);
     return { kind: "environment", environmentId };
