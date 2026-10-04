@@ -73,6 +73,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as HyprlandPlacement from "../window/HyprlandPlacement.ts"; // fork-hook: multi-window/desktop-app-test-placement-import
 
 interface StubbedDesktop {
   readonly localEnvironmentEnabled: boolean;
@@ -231,6 +232,7 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           Layer.mock(ElectronTheme.ElectronTheme, {}),
           Layer.mock(ElectronWindow.ElectronWindow, {}),
           Layer.mock(MacPermissions.MacPermissions, {}),
+          Layer.mock(HyprlandPlacement.HyprlandPlacement, { isAvailable: false }), // fork-hook: multi-window/desktop-app-test-placement
           Layer.mock(PreviewManager.PreviewManager, {
             isBrowserPartition: () => {
               throw new Error("unexpected browser partition lookup");
