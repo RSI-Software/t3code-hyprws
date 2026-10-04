@@ -82,6 +82,7 @@ it("runs delta, stale-delete, scan, check, and suite in order when every step pa
     assert.deepStrictEqual(calls, [
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:stale-delete", "--base", `${head}^`, "--head", head],
+      ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
       [
         "vp",
         "run",
@@ -115,10 +116,11 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
       return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
     };
     assert.strictEqual(run([], root, step), 1);
-    const [delta, staleDelete, scan, check] = calls;
-    assert.strictEqual(calls.length, 4);
+    const [delta, staleDelete, fixupFold, scan, check] = calls;
+    assert.strictEqual(calls.length, 5);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(check, ["vp", "check"]);
   } finally {
