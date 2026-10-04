@@ -15,14 +15,19 @@ import {
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
+import { PullRequestProviderError } from "../pullRequest/PullRequestProvider.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -31,6 +36,8 @@ import { evaluatePullRequestWatch, pullRequestWatchMessage } from "./pullRequest
 
 /** Passes in a row that could not read a pull request before its watch ends (one a minute). */
 const READ_FAILURE_LIMIT = 15;
+/** How long an unchanged pull request's conversation is reused before it is read again. */
+const CONVERSATION_REFRESH = Duration.minutes(10);
 
 const logFailure =
   (message: string, fields: Record<string, unknown>) =>
@@ -47,6 +54,33 @@ interface WatchTarget {
 
 const failureKey = ({ thread, link, watch }: WatchTarget) =>
   `${thread.id} ${threadPullRequestKeyOf(link)} ${watch.startedAt}`;
+
+// Threads in one project read one pull request through the same host credentials.
+const readKey = ({ thread, link }: WatchTarget) =>
+  `${thread.projectId} ${threadPullRequestKeyOf(link)}`;
+
+interface Conversation {
+  readonly updatedAt: string;
+  readonly readAt: number;
+  readonly activity: PullRequestActivity;
+}
+
+// Matches the degraded read `check` skips remarks on, so it is read again rather than reused.
+const isDegraded = (activity: PullRequestActivity) =>
+  activity.commentsTruncated &&
+  (activity.reviewThreadsTruncated !== false ||
+    !activity.reviewThreads.some((reviewThread) => reviewThread.nextCommentsCursor !== undefined));
+
+const isPullRequestProviderError = Schema.is(PullRequestProviderError);
+
+const isRateLimited = (cause: Cause.Cause<PullRequestService.PullRequestError>) =>
+  Option.exists(
+    Cause.findErrorOption(cause),
+    (error) =>
+      error._tag === "PullRequestOperationError" &&
+      isPullRequestProviderError(error.cause) &&
+      error.cause.reason === "rate-limited",
+  );
 
 function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatch): boolean {
   return (
@@ -82,6 +116,8 @@ export const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
+  // The last conversation read per watched pull request, so an unchanged one is not read again.
+  const conversations = new Map<string, Conversation>();
 
   // Passes in a row that failed, per watch. Kept in memory: a restart only delays the stop.
   const readFailures = new Map<string, number>();
@@ -97,6 +133,37 @@ export const make = Effect.gen(function* () {
     host: normalizeThreadPullRequestKey(link).host,
     repository: link.repository,
     number: link.number,
+  });
+
+  /**
+   * One host read of a watched pull request. The conversation costs far more than the rest
+   * (GitHub's review thread query), and every comment and review moves the pull request's
+   * `updatedAt`, so an unchanged pull request reuses its last conversation for a while.
+   */
+  const readPullRequest = Effect.fn("PullRequestWatchReactor.read")(function* (
+    key: string,
+    reference: PullRequestRef,
+  ) {
+    const detail = yield* pullRequests.detail({ ...reference, allowStale: false });
+    const now = yield* Clock.currentTimeMillis;
+    const refresh = Duration.toMillis(CONVERSATION_REFRESH);
+    for (const [known, conversation] of conversations) {
+      if (now - conversation.readAt >= refresh) conversations.delete(known);
+    }
+    const known = conversations.get(key);
+    if (known?.updatedAt === detail.updatedAt) return [detail, known.activity] as const;
+    const activity = yield* pullRequests.activity(reference);
+    if (isDegraded(activity)) conversations.delete(key);
+    else conversations.set(key, { updatedAt: detail.updatedAt, readAt: now, activity });
+    return [detail, activity] as const;
+  });
+  // Every thread watching one pull request shares its host read for the pass.
+  const passReads = new Map<string, ReturnType<typeof readPullRequest>>();
+  const sharedRead = Effect.fnUntraced(function* (key: string, reference: PullRequestRef) {
+    const read = yield* Effect.cached(readPullRequest(key, reference));
+    const shared = passReads.get(key) ?? read;
+    passReads.set(key, shared);
+    return yield* shared;
   });
 
   /**
@@ -198,19 +265,18 @@ export const make = Effect.gen(function* () {
     if (thread.settledOverride === "settled" || thread.settledAt !== null) return;
 
     const reference = { projectId: thread.projectId, ...pullRequest };
-    const read = yield* Effect.exit(
-      Effect.all(
-        [
-          pullRequests.detail({ ...reference, allowStale: false }),
-          pullRequests.activity(reference),
-        ],
-        { concurrency: 2 },
-      ),
-    );
+    const read = yield* Effect.exit(sharedRead(readKey(target), reference));
     // Only host reads count towards giving up; a refused wake is not the host's fault.
     const key = failureKey(target);
     if (Exit.isFailure(read)) {
       if (Cause.hasInterruptsOnly(read.cause)) return yield* Effect.failCause(read.cause);
+      // T3 Code holding its own reads back is not the pull request being unreadable.
+      if (isRateLimited(read.cause)) {
+        return yield* Effect.logInfo("pull request watch read waits for the host rate limit", {
+          threadId: thread.id,
+          pullRequest: threadPullRequestKeyOf(link),
+        });
+      }
       const failures = (readFailures.get(key) ?? 0) + 1;
       readFailures.set(key, failures);
       // The count stays until the stop lands, so a failed stop is tried again next pass.
@@ -244,6 +310,7 @@ export const make = Effect.gen(function* () {
   });
 
   const sweep = Effect.gen(function* () {
+    passReads.clear();
     const threads = yield* projections.getThreadsWithPullRequests();
     const targets = threads.flatMap((thread) =>
       visibleThreadPullRequests(thread.pullRequests ?? []).flatMap((link) =>
