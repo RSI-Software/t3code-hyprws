@@ -94,8 +94,9 @@ export const forkScanArguments = (flags: ForkCiFlags): ReadonlyArray<string> => 
   "--no-typecheck",
 ];
 
-/** The GitHub Actions `since=` line the stale-delete step reads, for `>> "$GITHUB_OUTPUT"`. */
-export const renderForkCiOutputs = (flags: ForkCiFlags): string => `since=${flags.since}\n`;
+/** The GitHub Actions `since=` and `base=` lines the stale-delete and fixup fold steps read, for `>> "$GITHUB_OUTPUT"`. */
+export const renderForkCiOutputs = (flags: ForkCiFlags): string =>
+  `base=${flags.base}\nsince=${flags.since}\n`;
 
 /** The scan argv one token per line, for the workflow's `mapfile -t SCAN_ARGS`. */
 export const renderForkCiScanArguments = (flags: ForkCiFlags): string =>
@@ -126,7 +127,7 @@ Derives the fork:scan flags the hyprws CI pull-request Check job runs.
 The workflow calls this file; vp run fork:ci imports the same functions.
 
 Modes:
-  ledger   the GitHub output line since=<ref>
+  ledger   the GitHub output lines base=<ref> and since=<ref>
   scan     the fork:scan argv, one token per line
 `;
 
