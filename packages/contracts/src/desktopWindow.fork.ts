@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 
+import { EnvironmentId, ProjectId } from "./baseSchemas.ts";
 import { ScopedProjectRef } from "./environment.ts";
 
 /**
@@ -43,3 +44,29 @@ export function windowCommandRequest(
   if (command === "window.new") return { kind: "new-window" };
   return projectRef ? { kind: "project-link", ref: projectRef } : null;
 }
+
+/**
+ * One project a window's filter shows, with the checkout it lives in on its
+ * environment's host. Tools outside the app match a caller's checkout against
+ * `workspaceRoot`; the ids still name the project exactly.
+ */
+export const DesktopWindowProject = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  workspaceRoot: Schema.String,
+});
+export type DesktopWindowProject = typeof DesktopWindowProject.Type;
+
+/** A window's project filter: every project, or the listed ones. */
+export const DesktopWindowProjectScope = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("all") }),
+  Schema.Struct({ kind: Schema.Literal("projects"), projects: Schema.Array(DesktopWindowProject) }),
+]);
+export type DesktopWindowProjectScope = typeof DesktopWindowProjectScope.Type;
+
+/** A renderer reporting its own window's project filter to the desktop shell. */
+export const DesktopWindowProjects = Schema.Struct({
+  windowId: Schema.String,
+  scope: DesktopWindowProjectScope,
+});
+export type DesktopWindowProjects = typeof DesktopWindowProjects.Type;

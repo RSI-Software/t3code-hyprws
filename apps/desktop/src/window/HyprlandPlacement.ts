@@ -10,11 +10,18 @@
  * Every operation is best-effort. Off Hyprland, or with the socket gone, each
  * one becomes a no-op instead of an error -- window restore must not depend on
  * a compositor being present.
+ *
+ * The same address map, joined with each window's published project filter, is
+ * written out for tools outside the app (`WindowProjectManifest.fork.ts`).
  */
+import type { DesktopWindowProjectScope } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Semaphore from "effect/Semaphore";
 
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import {
@@ -34,8 +41,16 @@ import {
   type HyprlandWorkspaceRef,
 } from "./hyprland.ts";
 import type { WindowId } from "./WindowId.fork.ts";
+import {
+  buildWindowProjectManifest,
+  removeWindowProjectManifest,
+  windowProjectManifestPath,
+  writeWindowProjectManifest,
+  type WindowProjectManifest,
+} from "./WindowProjectManifest.fork.ts";
 
-const { logDebug: logPlacementDebug } = makeComponentLogger("desktop.hyprland");
+const { logDebug: logPlacementDebug, logWarning: logPlacementWarning } =
+  makeComponentLogger("desktop.hyprland");
 
 // A window is mapped a beat after Electron shows it. Poll briefly rather than
 // racing the compositor; giving up just means this window has no remembered
@@ -59,6 +74,11 @@ export class HyprlandPlacement extends Context.Service<
     /** Our client addresses now; taken before a show, it lets a retitled window be claimed. */
     readonly snapshotAddresses: Effect.Effect<ReadonlySet<string>>;
     readonly forget: (windowId: WindowId) => Effect.Effect<void>;
+    /** Records the projects a window's filter shows, for the window manifest. */
+    readonly publishScope: (
+      windowId: WindowId,
+      scope: DesktopWindowProjectScope,
+    ) => Effect.Effect<void>;
     readonly workspaceOf: (
       windowId: WindowId,
     ) => Effect.Effect<Option.Option<HyprlandWorkspaceRef>>;
@@ -99,9 +119,14 @@ export const make = (options: {
     environment: HyprlandSocketEnvironment,
     payload: string,
   ) => Promise<string>;
+  /** Where the window manifest goes; omitted or null writes none. */
+  readonly manifestPath?: string | null;
+  /** Required with `manifestPath`; the layer supplies the file system write. */
+  readonly writeManifest?: (path: string, manifest: WindowProjectManifest) => Effect.Effect<void>;
 }) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     const addressesByWindowId = new Map<WindowId, string>();
+    const scopesByWindowId = new Map<WindowId, DesktopWindowProjectScope>();
     // Titles with a staged rule: their windows claim by exact title only.
     const stagedTitles = new Set<string>();
     const isAvailable = (options.environment.instanceSignature?.trim() ?? "").length > 0;
@@ -109,6 +134,26 @@ export const make = (options: {
     const claimIntervalMs = options.claimIntervalMs ?? CLAIM_INTERVAL_MS;
     let windowRuleGrammar: HyprlandWindowRuleGrammar | undefined;
     const send = options.requestHyprland ?? requestHyprland;
+    const manifestPath = isAvailable ? (options.manifestPath ?? null) : null;
+    const writeManifest = options.writeManifest;
+    // One write at a time, each built from the maps as they stand when it runs,
+    // so the file always ends at the latest state.
+    const manifestLock = yield* Semaphore.make(1);
+    const publishManifest =
+      manifestPath === null || writeManifest === undefined
+        ? Effect.void
+        : manifestLock.withPermits(1)(
+            Effect.suspend(() =>
+              writeManifest(
+                manifestPath,
+                buildWindowProjectManifest({
+                  pid: options.pid,
+                  addresses: addressesByWindowId,
+                  scopes: scopesByWindowId,
+                }),
+              ),
+            ),
+          );
 
     const request = (payload: string) =>
       Effect.tryPromise(() => send(options.environment, payload)).pipe(Effect.option);
@@ -152,6 +197,7 @@ export const make = (options: {
         });
         if (client !== null) {
           addressesByWindowId.set(windowId, client.address);
+          yield* publishManifest;
           yield* logPlacementDebug("window claimed", {
             windowId,
             address: client.address,
@@ -239,7 +285,15 @@ export const make = (options: {
       isAvailable,
       claim,
       snapshotAddresses: isAvailable ? snapshotAddresses : Effect.succeed(new Set<string>()),
-      forget: (windowId) => Effect.sync(() => void addressesByWindowId.delete(windowId)),
+      forget: (windowId) =>
+        Effect.sync(() => {
+          addressesByWindowId.delete(windowId);
+          scopesByWindowId.delete(windowId);
+        }).pipe(Effect.andThen(publishManifest)),
+      publishScope: (windowId, scope) =>
+        Effect.sync(() => void scopesByWindowId.set(windowId, scope)).pipe(
+          Effect.andThen(publishManifest),
+        ),
       workspaceOf,
       stageWorkspaceRule,
       clearWorkspaceRule,
@@ -249,5 +303,49 @@ export const make = (options: {
 
 export const layer = Layer.effect(
   HyprlandPlacement,
-  Effect.suspend(() => make({ environment: readHyprlandSocketEnvironment(), pid: process.pid })),
+  Effect.gen(function* () {
+    const environment = readHyprlandSocketEnvironment();
+    const manifestPath = windowProjectManifestPath(environment.runtimeDirectory, process.pid);
+    const fileSystem = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
+    // Best-effort like every placement operation: a failed write is logged once, never raised.
+    let warned = false;
+    const withFiles = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
+      effect.pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.asVoid,
+        Effect.catchCause((cause) => {
+          if (warned) return Effect.void;
+          warned = true;
+          return logPlacementWarning("window manifest update failed", { cause: String(cause) });
+        }),
+      );
+    // Removal shares the writes' lock and stops later ones, so a write still in
+    // flight from a closing window cannot land after it.
+    const fileLock = yield* Semaphore.make(1);
+    let closed = false;
+    const placement = yield* make({
+      environment,
+      pid: process.pid,
+      manifestPath,
+      writeManifest: (path, manifest) =>
+        fileLock.withPermits(1)(
+          Effect.suspend(() =>
+            closed ? Effect.void : withFiles(writeWindowProjectManifest(path, manifest)),
+          ),
+        ),
+    });
+    if (placement.isAvailable && manifestPath !== null) {
+      yield* Effect.addFinalizer(() =>
+        fileLock.withPermits(1)(
+          Effect.suspend(() => {
+            closed = true;
+            return withFiles(removeWindowProjectManifest(manifestPath));
+          }),
+        ),
+      );
+    }
+    return placement;
+  }),
 );
