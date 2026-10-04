@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 
+import { EnvironmentId, ProjectId } from "./baseSchemas.ts";
 import { ScopedProjectRef } from "./environment.ts";
 
 /**
@@ -50,8 +51,8 @@ export function windowCommandRequest(
  * `workspaceRoot`; the ids still name the project exactly.
  */
 export const DesktopWindowProject = Schema.Struct({
-  environmentId: Schema.String,
-  projectId: Schema.String,
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
   workspaceRoot: Schema.String,
 });
 export type DesktopWindowProject = typeof DesktopWindowProject.Type;

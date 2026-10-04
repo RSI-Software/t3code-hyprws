@@ -7,8 +7,8 @@
  * from titles, which carry user-editable display names and truncate at three.
  *
  * One file per app process, `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json`,
- * replaced atomically on every change and removed on quit. A crashed process
- * leaves its file behind; readers only consult the file for a pid that still
+ * replaced atomically on every change and removed on a clean quit, best-effort.
+ * A crashed or interrupted process leaves its file behind; readers only consult the file for a pid that still
  * owns a live client, so a stale one is never joined.
  */
 import { DesktopWindowProjectScope } from "@t3tools/contracts";
@@ -23,7 +23,7 @@ const WINDOW_PROJECT_MANIFEST_VERSION = 1;
 
 export const WindowProjectManifest = Schema.Struct({
   version: Schema.Literal(WINDOW_PROJECT_MANIFEST_VERSION),
-  pid: Schema.Number,
+  pid: Schema.Int,
   windows: Schema.Array(
     Schema.Struct({
       windowId: Schema.String,
@@ -69,13 +69,18 @@ export function buildWindowProjectManifest(input: {
   };
 }
 
+const stagingPath = (path: string) => `${path}.tmp`;
+
 /** Write-then-rename, so a reader never sees a partial file. */
 export const writeWindowProjectManifest = Effect.fn("desktop.windowProjectManifest.write")(
   function* (path: string, manifest: WindowProjectManifest) {
     const fileSystem = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
-    yield* fileSystem.makeDirectory(pathService.dirname(path), { recursive: true, mode: 0o700 });
-    const staging = `${path}.tmp`;
+    const directory = pathService.dirname(path);
+    yield* fileSystem.makeDirectory(directory, { recursive: true, mode: 0o700 });
+    // The mode only applies on creation; an existing directory is narrowed too.
+    yield* fileSystem.chmod(directory, 0o700);
+    const staging = stagingPath(path);
     const payload = yield* encodeWindowProjectManifestJson(manifest);
     yield* fileSystem.writeFileString(staging, `${payload}\n`, { mode: 0o600 });
     yield* fileSystem.rename(staging, path);
@@ -86,5 +91,7 @@ export const removeWindowProjectManifest = Effect.fn("desktop.windowProjectManif
   function* (path: string) {
     const fileSystem = yield* FileSystem.FileSystem;
     yield* fileSystem.remove(path, { force: true });
+    // A write that failed between write and rename leaves its staging file.
+    yield* fileSystem.remove(stagingPath(path), { force: true });
   },
 );

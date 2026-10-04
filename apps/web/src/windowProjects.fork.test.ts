@@ -2,7 +2,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { windowProjectScope } from "./windowProjects.fork";
+import { publishedWindowScope, windowProjectScope } from "./windowProjects.fork";
 
 const local = EnvironmentId.make("environment:local");
 const remote = EnvironmentId.make("environment:remote");
@@ -64,6 +64,41 @@ describe("windowProjectScope", () => {
     expect(scope).toEqual({
       kind: "projects",
       projects: [{ environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" }],
+    });
+  });
+});
+
+describe("publishedWindowScope", () => {
+  const apiOnly = {
+    entries: [{ key: "api", members: [{ environmentId: local, projectId: api }] }],
+  };
+
+  it("publishes nothing while projects load", () => {
+    expect(
+      publishedWindowScope({ filter: apiOnly, pendingSeed: null, settled: false, projects }),
+    ).toBeNull();
+  });
+
+  it("publishes the window's own filter once settled", () => {
+    expect(
+      publishedWindowScope({ filter: apiOnly, pendingSeed: null, settled: true, projects }),
+    ).toEqual({
+      kind: "projects",
+      projects: [{ environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" }],
+    });
+  });
+
+  it("publishes a pending seed project over the unseeded filter", () => {
+    expect(
+      publishedWindowScope({
+        filter: { entries: [] },
+        pendingSeed: { environmentId: remote, projectId: web },
+        settled: true,
+        projects,
+      }),
+    ).toEqual({
+      kind: "projects",
+      projects: [{ environmentId: remote, projectId: web, workspaceRoot: "/srv/web" }],
     });
   });
 });

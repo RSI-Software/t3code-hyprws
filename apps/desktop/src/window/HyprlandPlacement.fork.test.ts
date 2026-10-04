@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -165,7 +166,13 @@ describe("HyprlandPlacement", () => {
       });
       const scope = {
         kind: "projects",
-        projects: [{ environmentId: "env", projectId: "web", workspaceRoot: "/src/web" }],
+        projects: [
+          {
+            environmentId: EnvironmentId.make("env"),
+            projectId: ProjectId.make("web"),
+            workspaceRoot: "/src/web",
+          },
+        ],
       } as const;
 
       yield* placement.claim(first, "T3 Code");

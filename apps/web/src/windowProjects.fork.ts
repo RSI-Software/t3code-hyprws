@@ -3,11 +3,15 @@
 // (`apps/desktop/src/window/WindowProjectManifest.fork.ts`).
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
-import type { DesktopBridge, DesktopWindowProjectScope } from "@t3tools/contracts";
-import { useEffect, useMemo } from "react";
+import type {
+  DesktopBridge,
+  DesktopWindowProjectScope,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { useProjectChooserHostValue } from "./projectChooser.fork";
-import { useProjects } from "./state/entities";
+import { useAllEnvironmentProjectSnapshotsReady, useProjects } from "./state/entities";
+import { pendingWindowScopeSeed, windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
  * The scope a window's filter shows: every project when the filter is empty,
@@ -41,17 +45,44 @@ export function windowProjectScope(
   return { kind: "projects", projects: shown };
 }
 
-/** Publishes this window's scope whenever it changes; a no-op off desktop. */
+/**
+ * The scope to publish, or `null` while projects load: before then a member's
+ * checkout is unknown, and a partial scope would turn its window away. A seed
+ * project still pending is what the window shows (`windowLandingProjects`).
+ */
+export function publishedWindowScope(input: {
+  readonly filter: ProjectFilter;
+  readonly pendingSeed: ScopedProjectRef | null;
+  readonly settled: boolean;
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+}): DesktopWindowProjectScope | null {
+  if (!input.settled) return null;
+  const filter =
+    input.pendingSeed === null
+      ? input.filter
+      : { entries: [{ key: "seed", members: [input.pendingSeed] }] };
+  return windowProjectScope(filter, input.projects);
+}
+
+/**
+ * Publishes this window's scope whenever it changes; a no-op off desktop. Reads
+ * the window's own filter, which holds with or without the sidebar mounted.
+ */
 export function usePublishWindowProjectsFork(
   bridge: DesktopBridge | undefined = window.desktopBridge,
 ): void {
-  const filter = useProjectChooserHostValue()?.filter ?? null;
+  const state = windowProjectFilterState();
+  const filter = useSyncExternalStore(state.subscribe, state.get);
+  const settled = useAllEnvironmentProjectSnapshotsReady();
   const projects = useProjects();
+  // Read on each change of the inputs: the seed only ever goes from pending to
+  // applied, and applying it changes `filter`.
+  const pendingSeed = pendingWindowScopeSeed();
   // Keyed by content, so a project update that changes no checkout never republishes.
-  const payload = useMemo(
-    () => (filter === null ? null : JSON.stringify(windowProjectScope(filter, projects))),
-    [filter, projects],
-  );
+  const payload = useMemo(() => {
+    const scope = publishedWindowScope({ filter, pendingSeed, settled, projects });
+    return scope === null ? null : JSON.stringify(scope);
+  }, [filter, pendingSeed, settled, projects]);
   const windowId = bridge?.windowId;
   const publish = bridge?.publishWindowProjects;
   useEffect(() => {

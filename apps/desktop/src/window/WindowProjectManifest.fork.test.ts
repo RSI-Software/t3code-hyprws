@@ -41,11 +41,12 @@ describe("WindowProjectManifest", () => {
     });
   });
 
-  it.effect("replaces the file whole and removes it", () =>
+  it.effect("replaces the file whole, narrows its directory, and removes it", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "window-manifest-" });
       const path = windowProjectManifestPath(root, 77)!;
+      yield* fileSystem.makeDirectory(`${root}/t3code`, { mode: 0o755 });
       const manifest = buildWindowProjectManifest({
         pid: 77,
         addresses: new Map([[first, "0xa"]]),
@@ -60,9 +61,11 @@ describe("WindowProjectManifest", () => {
         manifest,
       );
       assert.deepEqual(yield* fileSystem.readDirectory(`${root}/t3code`), ["windows-77.json"]);
+      assert.equal((yield* fileSystem.stat(`${root}/t3code`)).mode & 0o777, 0o700);
+      yield* fileSystem.writeFileString(`${path}.tmp`, "partial");
       yield* removeWindowProjectManifest(path);
       yield* removeWindowProjectManifest(path);
-      assert.isFalse(yield* fileSystem.exists(path));
+      assert.deepEqual(yield* fileSystem.readDirectory(`${root}/t3code`), []);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

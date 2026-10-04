@@ -49,7 +49,8 @@ import {
   type WindowProjectManifest,
 } from "./WindowProjectManifest.fork.ts";
 
-const { logDebug: logPlacementDebug } = makeComponentLogger("desktop.hyprland");
+const { logDebug: logPlacementDebug, logWarning: logPlacementWarning } =
+  makeComponentLogger("desktop.hyprland");
 
 // A window is mapped a beat after Electron shows it. Poll briefly rather than
 // racing the compositor; giving up just means this window has no remembered
@@ -307,24 +308,43 @@ export const layer = Layer.effect(
     const manifestPath = windowProjectManifestPath(environment.runtimeDirectory, process.pid);
     const fileSystem = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
-    // Best-effort like every placement operation: a failed write is logged, never raised.
+    // Best-effort like every placement operation: a failed write is logged once, never raised.
+    let warned = false;
     const withFiles = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
       effect.pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, pathService),
         Effect.asVoid,
-        Effect.catchCause((cause) =>
-          logPlacementDebug("window manifest update failed", { cause: String(cause) }),
-        ),
+        Effect.catchCause((cause) => {
+          if (warned) return Effect.void;
+          warned = true;
+          return logPlacementWarning("window manifest update failed", { cause: String(cause) });
+        }),
       );
+    // Removal shares the writes' lock and stops later ones, so a write still in
+    // flight from a closing window cannot land after it.
+    const fileLock = yield* Semaphore.make(1);
+    let closed = false;
     const placement = yield* make({
       environment,
       pid: process.pid,
       manifestPath,
-      writeManifest: (path, manifest) => withFiles(writeWindowProjectManifest(path, manifest)),
+      writeManifest: (path, manifest) =>
+        fileLock.withPermits(1)(
+          Effect.suspend(() =>
+            closed ? Effect.void : withFiles(writeWindowProjectManifest(path, manifest)),
+          ),
+        ),
     });
     if (placement.isAvailable && manifestPath !== null) {
-      yield* Effect.addFinalizer(() => withFiles(removeWindowProjectManifest(manifestPath)));
+      yield* Effect.addFinalizer(() =>
+        fileLock.withPermits(1)(
+          Effect.suspend(() => {
+            closed = true;
+            return withFiles(removeWindowProjectManifest(manifestPath));
+          }),
+        ),
+      );
     }
     return placement;
   }),
