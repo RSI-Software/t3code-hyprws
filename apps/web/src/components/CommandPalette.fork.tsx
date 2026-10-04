@@ -64,7 +64,7 @@ export function buildLinkGitHubIssueActionItemFork(
   return {
     kind: "action",
     value: "action:link-github-issue",
-    searchTerms: ["link", "issue", "github", "attach", "track"],
+    searchTerms: ["link issue to thread", "github", "attach", "track"],
     title: "Link GitHub issue to thread",
     icon: <LinkIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
