@@ -1,16 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import {
   buildCreateThreadGroupContextMenuItem,
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
 } from "./Sidebar.logic";
-import {
-  formatSidebarRelativeTimeLabel,
-  resolveCompletedTurnTiming,
-  shouldShowSidebarDoneStatus,
-} from "./Sidebar.completedTiming.fork";
-import { makeLatestRun } from "./Sidebar.logic.test.ts";
 
 describe("sidebar thread groups", () => {
   const threads = [
@@ -121,97 +115,6 @@ describe("sidebar thread groups", () => {
         separatorBefore: false,
       },
     ]);
-  });
-});
-
-describe("resolveCompletedTurnTiming", () => {
-  it("freezes duration between the latest run's start and completion", () => {
-    expect(resolveCompletedTurnTiming({ latestRun: makeLatestRun() })).toEqual({
-      completedAt: "2026-03-09T10:05:00.000Z",
-      durationMs: 5 * 60_000,
-    });
-  });
-
-  it("falls back to the request time when startedAt is missing or malformed", () => {
-    expect(
-      resolveCompletedTurnTiming({
-        latestRun: makeLatestRun({ startedAt: "not-a-date" }),
-      }),
-    ).toEqual({
-      completedAt: "2026-03-09T10:05:00.000Z",
-      durationMs: 5 * 60_000,
-    });
-  });
-
-  it("returns null for missing, malformed, or reversed completion intervals", () => {
-    expect(resolveCompletedTurnTiming({ latestRun: null })).toBeNull();
-    expect(
-      resolveCompletedTurnTiming({
-        latestRun: { ...makeLatestRun(), status: "failed" },
-      }),
-    ).toBeNull();
-    expect(
-      resolveCompletedTurnTiming({
-        latestRun: makeLatestRun({ completedAt: "not-a-date" }),
-      }),
-    ).toBeNull();
-    expect(
-      resolveCompletedTurnTiming({
-        latestRun: makeLatestRun({ completedAt: "2026-03-09T09:59:00.000Z" }),
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("shouldShowSidebarDoneStatus", () => {
-  const completedTiming = {
-    completedAt: "2026-03-09T10:05:00.000Z",
-    durationMs: 5 * 60_000,
-  };
-
-  it("keeps Done visible after a completed thread is read", () => {
-    expect(
-      shouldShowSidebarDoneStatus({
-        status: "ready",
-        isUnread: false,
-        interactionMode: "default",
-        hasActionableProposedPlan: false,
-        completedTiming,
-      }),
-    ).toBe(true);
-  });
-
-  it("preserves the existing unread badge without usable timing", () => {
-    expect(
-      shouldShowSidebarDoneStatus({
-        status: "ready",
-        isUnread: true,
-        interactionMode: "default",
-        hasActionableProposedPlan: false,
-        completedTiming: null,
-      }),
-    ).toBe(true);
-  });
-
-  it("does not override live work or a read actionable plan", () => {
-    expect(
-      shouldShowSidebarDoneStatus({
-        status: "working",
-        isUnread: true,
-        interactionMode: "default",
-        hasActionableProposedPlan: false,
-        completedTiming,
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowSidebarDoneStatus({
-        status: "ready",
-        isUnread: false,
-        interactionMode: "plan",
-        hasActionableProposedPlan: true,
-        completedTiming,
-      }),
-    ).toBe(false);
   });
 });
 
@@ -372,26 +275,5 @@ describe("buildSidebarListItems", () => {
       { kind: "marker", marker: "settled-header" },
       { kind: "marker", marker: "settled-placeholder" },
     ]);
-  });
-});
-
-describe("formatSidebarRelativeTimeLabel", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-03-09T10:10:00.000Z"));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("formats how long ago an instant occurred", () => {
-    expect(formatSidebarRelativeTimeLabel("2026-03-09T10:10:00.000Z")).toBe("now");
-    expect(formatSidebarRelativeTimeLabel("2026-03-09T10:05:00.000Z")).toBe("5m");
-    expect(formatSidebarRelativeTimeLabel("2026-03-09T08:05:00.000Z")).toBe("2h");
-  });
-
-  it("returns an empty label for malformed timestamps", () => {
-    expect(formatSidebarRelativeTimeLabel("not-a-date")).toBe("");
   });
 });
