@@ -90,7 +90,6 @@ import {
 } from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
-  RichMarkdownEditIcon,
   RichMarkdownPreviewBoundary,
   resolveRichMarkdownPreviewMode,
 } from "./RichMarkdownPreviewBoundary"; // fork-hook: markdown-editing/rich-preview-import
@@ -1170,6 +1169,7 @@ export default function FilePreviewPanel({
               <MorphIcon
                 className="size-3.5"
                 icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+                {...richMarkdownPreview.iconProps} /* fork-hook: markdown-editing/rich-preview-icon */
               />
             </FileSurfaceAction>
           ) : null}
