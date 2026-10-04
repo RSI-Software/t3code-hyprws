@@ -167,6 +167,7 @@ Fork-only paths need no granularity curation.
 Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a rebase conflict is solved once.
 The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
 Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
+A `fixup!` that only applies at the branch tip lands green and blocks the next sync; [`fork:fixup-fold`](../../../scripts/fork-fixup-fold.ts) proves each fixup folds at its owner in `fork:ci`.
 A fold is tree-equal but rewrites commit boundaries: the release delta revision changes, and a nightly may republish the same tree.
 
 | Gate        | Detail                                                        |

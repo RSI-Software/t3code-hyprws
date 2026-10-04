@@ -78,6 +78,17 @@ jobs:
           SINCE: ${{ steps.fork_ledger.outputs.since }}
         run: vp run fork:stale-delete --base "$SINCE" --head "$HEAD_SHA"
 
+      # A fixup! the sync would fold must fold now: the sync folds each one
+      # during its rebase, so a fixup that only applies at the branch tip
+      # would land green here and then block the next sync. The replay runs
+      # the trunk-plus-branch stack from the upstream base, the same commit
+      # the sync rebase starts from.
+      - name: Fork fixup fold check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ steps.fork_ledger.outputs.base }}
+        run: vp run fork:fixup-fold --base "$BASE" --head "$HEAD_SHA"
+
       # Pin to the fork's own base: the rebase-scan table check judges this
       # head against the upstream base it sits on, not live upstream/main.
       # The argv comes from the shared helper; this step only replays it.
