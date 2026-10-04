@@ -107,24 +107,25 @@ const makeStartupDrainImpl = Effect.gen(function* () {
 
   // Whether any restored window opened: when none did, the cold-start
   // fallback below still opens one window.
-  const drainPendingRestore = (openers: WindowOpeners) =>
-    Effect.gen(function* () {
-      const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
-      if (entries.length === 0) return false;
-      let opened = 0;
-      for (const entry of entries) {
-        const exit = yield* Effect.exit(openers.restore()(entry));
-        if (Exit.isFailure(exit)) {
-          yield* logWindowWarning("failed to restore window", {
-            seeded: entry.seed !== "all-projects",
-          });
-          continue;
-        }
-        opened += 1;
+  const drainPendingRestore = Effect.fn("DesktopStartupDrain.drainPendingRestore")(function* (
+    openers: WindowOpeners,
+  ) {
+    const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
+    if (entries.length === 0) return false;
+    let opened = 0;
+    for (const entry of entries) {
+      const exit = yield* Effect.exit(openers.restore()(entry));
+      if (Exit.isFailure(exit)) {
+        yield* logWindowWarning("failed to restore window", {
+          seeded: entry.seed !== "all-projects",
+        });
+        continue;
       }
-      yield* logWindowInfo("window session reopened", { windows: opened, of: entries.length });
-      return opened > 0;
-    });
+      opened += 1;
+    }
+    yield* logWindowInfo("window session reopened", { windows: opened, of: entries.length });
+    return opened > 0;
+  });
 
   /**
    * Opens the consumed restore (first pass only) plus every queued intent, in
