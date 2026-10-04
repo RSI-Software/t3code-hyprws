@@ -53,6 +53,12 @@ export function makeSubagentChildThread(input: {
 }): OrchestrationV2AppThread {
   return {
     ...input.parentThread,
+    // The parent keeps its watches; a copy would read the pull request and wake again per child.
+    ...(input.parentThread.pullRequests === undefined
+      ? {}
+      : {
+          pullRequests: input.parentThread.pullRequests.map(({ watch: _watch, ...link }) => link),
+        }),
     createdBy: input.createdBy,
     creationSource: input.creationSource,
     id: input.childThreadId,
