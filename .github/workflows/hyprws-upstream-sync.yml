@@ -158,14 +158,25 @@ jobs:
           set -e
           exit "$code"
 
+      # GitHub rejects a step summary over 1024k, and a run that reaches the
+      # battery logs more. The driver prints its rendered report last, so the
+      # log's tail carries the outcome, target, and battery rows.
       - name: Summarize the run
         if: always()
         run: |
+          log="$RUNNER_TEMP/fork-sync.log"
+          limit=900000
           {
             printf '## hyprws upstream sync\n\n'
-            if [ -f "$RUNNER_TEMP/fork-sync.log" ]; then
+            if [ -f "$log" ] && [ "$(stat -c %s "$log")" -gt "$limit" ]; then
+              printf 'Log tail only; the step output keeps the full log.\n\n'
               printf '```\n'
-              cat "$RUNNER_TEMP/fork-sync.log"
+              # Drop the tail's first line: the byte cut can split it.
+              tail -c "$limit" "$log" | tail -n +2
+              printf '```\n'
+            elif [ -f "$log" ]; then
+              printf '```\n'
+              cat "$log"
               printf '```\n'
             else
               printf 'The sync driver never ran; see the earlier steps.\n'
