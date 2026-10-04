@@ -294,6 +294,7 @@ function makeTestLayer(input: {
     claim: (key, title) => Effect.sync(() => void input.placementClaims?.push({ key, title })), // fork-hook: multi-window/window-id-claim
     snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
     forget: () => Effect.void,
+    publishScope: () => Effect.void, // fork-hook: multi-window/window-projects-fake
     workspaceOf: () => Effect.succeed(Option.none()),
     stageWorkspaceRule: (title, workspace) =>
       Effect.sync(() => {
@@ -563,6 +564,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             claim: () => Effect.void,
             snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
             forget: () => Effect.void,
+            publishScope: () => Effect.void, // fork-hook: multi-window/window-projects-fake
             workspaceOf: () => Effect.succeed(Option.none()),
             stageWorkspaceRule: () => Effect.succeed(false),
             clearWorkspaceRule: () => Effect.void,
