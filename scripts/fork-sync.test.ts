@@ -2314,6 +2314,7 @@ it("runs every single-command step of the CI Check job before a direct trunk pus
   const coveredElsewhere = new Set([
     "vp run --filter @t3tools/desktop ensure:electron",
     "vp run fork:stale-delete",
+    "vp run fork:fixup-fold",
     "vp check",
   ]);
   const workflow = NodeFS.readFileSync(
