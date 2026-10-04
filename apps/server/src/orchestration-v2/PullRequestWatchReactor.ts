@@ -34,7 +34,11 @@ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import { evaluatePullRequestWatch, pullRequestWatchMessage } from "./pullRequestWatch.ts";
+import {
+  evaluatePullRequestWatch,
+  pullRequestWatchMessage,
+  pullRequestWatchWakePrefix,
+} from "./pullRequestWatch.ts";
 
 /** Checks take minutes; faster sweeps waste the account's shared host quota. */
 const SWEEP_MINUTES = 2;
@@ -274,7 +278,12 @@ export const make = Effect.gen(function* () {
       ...(endedWatch === undefined ? {} : { endedWatch }),
       ...(wake === undefined
         ? {}
-        : { wake: { ...wake, messageId: MessageId.make(`message:pr-watch:${uuid}`) } }),
+        : {
+            wake: {
+              ...wake,
+              messageId: MessageId.make(`${pullRequestWatchWakePrefix(target.link)}${uuid}`),
+            },
+          }),
     });
   });
 
