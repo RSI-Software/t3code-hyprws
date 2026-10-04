@@ -500,7 +500,6 @@ function makeLatestRun(overrides?: {
       overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
-export { makeLatestRun }; // fork-hook: upstream-fixes/sidebar-latest-run-export
 
 describe("hasUnseenCompletion", () => {
   it("returns true when a thread completed after its last visit", () => {
