@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 
 import type { WindowId } from "./WindowId.fork.ts";
 
-export const WINDOW_PROJECT_MANIFEST_VERSION = 1;
+const WINDOW_PROJECT_MANIFEST_VERSION = 1;
 
 export const WindowProjectManifest = Schema.Struct({
   version: Schema.Literal(WINDOW_PROJECT_MANIFEST_VERSION),
