@@ -262,8 +262,11 @@ export const foldTrailers = (members: ReadonlyArray<FoldCommit>): string => {
   return lines.join("\n");
 };
 
-/** Drops an earlier fold's `Squashes:` list so fork:scan reads only this fold's members. */
-const withoutSquashes = (prose: string): string =>
+/**
+ * Drops an earlier fold's `Squashes:` list so fork:scan reads only this fold's members.
+ * The sync reuses it when it re-renders an owner that an earlier sync fold already listed.
+ */
+export const withoutSquashes = (prose: string): string =>
   prose
     .split("\n\n")
     .filter((paragraph) => {
@@ -315,7 +318,7 @@ const memberLineRefs = (line: string): ReadonlyArray<string> =>
   [...line.matchAll(MEMBER_LINE_REF)].map((match) => `${FORK_REPO}#${match[1] ?? match[2]}`);
 
 /** The trimmed `- <sha> …` member lines under a message's first `Squashes:` heading. */
-const squashesLines = (message: string): ReadonlyArray<string> => {
+export const squashesLines = (message: string): ReadonlyArray<string> => {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
   const start = lines.findIndex((line) => line.trim() === "Squashes:");
   if (start < 0) return [];
@@ -387,7 +390,7 @@ export const citeOld = (stack: FoldStack, old: FoldStack): FoldStack => {
  * its own, so it renders like any member and its pull request link survives.
  * A commit a split head replayed renders under its `<old>` sha.
  */
-const memberLine = (member: FoldCommit): string => {
+export const memberLine = (member: FoldCommit): string => {
   if (member.subject.startsWith(FIXUP_SUBJECT)) {
     const repair = firstSquashesLine(member.message);
     if (repair !== undefined) return repair;
