@@ -69,6 +69,7 @@ function makeLayer(baseDir: string, workspaces: Record<string, HyprlandWorkspace
     claim: () => Effect.void,
     snapshotAddresses: Effect.succeed(new Set<string>()),
     forget: () => Effect.void,
+    publishScope: () => Effect.void,
     workspaceOf: (key) => Effect.succeed(Option.fromNullishOr(workspaces[key])),
     stageWorkspaceRule: () => Effect.succeed(false),
     clearWorkspaceRule: () => Effect.void,
