@@ -6,9 +6,10 @@
 // The config is authored input: `vp run licenses:sync` reads it and never
 // reproduces it, so no generator can rebuild a conflicted copy. Both sides
 // append entries to the same arrays instead, which is a union keyed on each
-// entry's `name`. Every array keeps upstream's order, then the fork's
-// additions in the fork's order. A name both sides changed, a delete of an
-// entry the other side changed, or an entry without a unique `name` refuses.
+// entry's `name`, or its `repositoryUrl` when it has no name. Every array keeps
+// upstream's order, then the fork's additions in the fork's order. A key both
+// sides changed, a delete of an entry the other side changed, or an entry
+// without a unique key refuses.
 
 import * as NodeUtil from "node:util";
 
@@ -26,11 +27,19 @@ const pick = (base: Json, upstream: Json, fork: Json, what: string): Json => {
   throw new Refusal(`both sides changed ${what}`);
 };
 
+/** An entry's identity: its `name`, or its `repositoryUrl` when upstream omits the name. */
+const identity = (entry: Json): unknown => {
+  const { name, repositoryUrl } =
+    (entry as { readonly name?: unknown; readonly repositoryUrl?: unknown } | null) ?? {};
+  return name ?? repositoryUrl;
+};
+
 const byName = (entries: ReadonlyArray<Json>, key: string): Map<string, Json> => {
   const named = new Map<string, Json>();
   for (const entry of entries) {
-    const name = (entry as { readonly name?: unknown } | null)?.name;
-    if (typeof name !== "string") throw new Refusal(`a ${key} entry has no string name`);
+    const name = identity(entry);
+    if (typeof name !== "string")
+      throw new Refusal(`a ${key} entry has no string name or repositoryUrl`);
     if (named.has(name)) throw new Refusal(`${key} names "${name}" twice`);
     named.set(name, entry);
   }
