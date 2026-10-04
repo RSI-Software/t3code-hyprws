@@ -3,9 +3,11 @@ import type {
   PullRequestCheck,
   PullRequestComment,
   PullRequestDetail,
+  ThreadPullRequestLink,
   ThreadPullRequestWatch,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import { threadPullRequestKeyOf } from "@t3tools/shared/threadPullRequests";
 
 /**
  * Wakes in a row that bring only comments. Check, conflict, or push news resets the count, so
@@ -217,6 +219,13 @@ const SUMMARY: Record<PullRequestWatchChange["kind"], string> = {
   "no-checks": "no checks reported",
   conflicting: "merge conflict",
 };
+
+/**
+ * Starts the message id of every wake for a pull request, so the wakes still queued behind a
+ * busy turn can be found when its watch ends.
+ */
+export const pullRequestWatchWakePrefix = (link: ThreadPullRequestLink) =>
+  `message:pr-watch:${threadPullRequestKeyOf(link)}:`;
 
 export function pullRequestWatchMessage(input: {
   readonly number: number;
