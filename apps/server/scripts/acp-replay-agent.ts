@@ -56,9 +56,12 @@ let nextAgentRequestId = 1;
 const pendingClientRequestIds = new Map<string, string | number>();
 const pendingAgentRequestMethods = new Map<string, string>();
 
+// The adapter reads the status while this process may still be writing it or
+// being killed, so a write replaces the whole file or nothing.
 function writeStatus(failure?: unknown): void {
+  const pendingStatusPath = `${replayStatusPath}.pending`;
   NodeFS.writeFileSync(
-    replayStatusPath,
+    pendingStatusPath,
     JSON.stringify({
       scenario: transcript.scenario,
       cursor,
@@ -67,6 +70,7 @@ function writeStatus(failure?: unknown): void {
     }),
     "utf8",
   );
+  NodeFS.renameSync(pendingStatusPath, replayStatusPath);
 }
 
 function stableStringify(value: unknown): string {
