@@ -131,12 +131,39 @@ export const bodyProse = (body: string): string => {
   return paragraphs.map((paragraph) => paragraph.join("\n")).join("\n\n");
 };
 
+const isTrailerParagraph = (paragraph: ReadonlyArray<string>): boolean =>
+  paragraph.some((line) => TRAILER_LINE.test(line)) &&
+  paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line));
+
 export const trailerBlock = (body: string): string => {
-  const paragraphs = bodyParagraphs(body);
-  const paragraph = paragraphs.at(-1) ?? [];
-  if (!paragraph.some((line) => TRAILER_LINE.test(line))) return "";
-  if (!paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line))) return "";
+  const paragraph = bodyParagraphs(body).at(-1) ?? [];
+  if (!isTrailerParagraph(paragraph)) return "";
   return paragraph.filter((line) => TRAILER_LINE.test(line)).join("\n");
+};
+
+/**
+ * The body split at its trailer block: the paragraphs above it, then the
+ * trailer paragraph verbatim — tail lines such as `Co-authored-by:` inside it
+ * included — when the body ends with one. `trailerBlock` reads only the
+ * `Key: value` lines, so a writer that must keep the message's tail intact
+ * (the sync lifting a `Squashes:` section above an untouched trailer block)
+ * splits with this instead and renders the trailers half back verbatim.
+ */
+export const splitTrailerBlock = (
+  body: string,
+): { readonly head: string; readonly trailers: string } => {
+  const normalized = body.replace(/\r\n/g, "\n");
+  const paragraphs = bodyParagraphs(normalized);
+  const last = paragraphs.at(-1);
+  if (last === undefined || !isTrailerParagraph(last))
+    return { head: normalized.trim(), trailers: "" };
+  return {
+    head: paragraphs
+      .slice(0, -1)
+      .map((paragraph) => paragraph.join("\n"))
+      .join("\n\n"),
+    trailers: last.join("\n"),
+  };
 };
 
 /**
