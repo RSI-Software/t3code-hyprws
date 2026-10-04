@@ -12,12 +12,15 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
 /**
  * The bridge members a desktop window needs on top of the upstream bridge:
  * which window this is, the project filter it was seeded with, whether it is
- * still demanded, and how to open another one. They are optional in the contract, so the upstream
- * bridge literal stays exactly as upstream wrote it and this is the only place
- * the fork adds to it.
+ * still demanded, how to open another one, and how to report what it shows.
+ * They are optional in the contract, so the upstream bridge literal stays
+ * exactly as upstream wrote it and this is the only place the fork adds to it.
  */
 export type ProjectWindowCapabilities = Required<
-  Pick<DesktopBridge, "requestWindow" | "getWindowDemandState" | "onWindowDemandStateChange">
+  Pick<
+    DesktopBridge,
+    "requestWindow" | "publishWindowProjects" | "getWindowDemandState" | "onWindowDemandStateChange"
+  >
 > &
   Pick<DesktopBridge, "windowId" | "windowScopeSeed">;
 
@@ -42,6 +45,8 @@ ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unkno
 
 const projectWindowCapabilities = (): ProjectWindowCapabilities => ({
   requestWindow: (request) => ipcRenderer.invoke(IpcChannels.REQUEST_WINDOW_CHANNEL, request),
+  publishWindowProjects: (projects) =>
+    ipcRenderer.invoke(IpcChannels.PUBLISH_WINDOW_PROJECTS_CHANNEL, projects),
   // Main passes every app window its id; a window main did not create has none.
   ...windowIdCapability(),
   // Branded ids are plain strings at runtime; the preload cannot import the
