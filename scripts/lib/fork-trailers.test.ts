@@ -8,6 +8,7 @@ import {
   forkLogArguments,
   parseForkLog,
   parseForkTrailers,
+  splitTrailerBlock,
 } from "./fork-trailers.ts";
 
 const trailerBlock = [
@@ -198,4 +199,28 @@ it("two disagreeing fork trailers inside one block still throw, even with tail m
 it("forkLogArguments still targets base..head", () => {
   const args = forkLogArguments("base", "head");
   NodeAssert.ok(args.includes("base..head"));
+});
+
+it("splitTrailerBlock keeps the trailer paragraph verbatim, tail lines included", () => {
+  const block = [
+    "Fork-Domain: fork-meta",
+    "Fork-Tier: core",
+    "Co-authored-by: a <a@b.invalid>",
+  ].join("\n");
+  const split = splitTrailerBlock(["feat: owned", "", block].join("\n"));
+  NodeAssert.equal(split.head, "feat: owned");
+  NodeAssert.equal(split.trailers, block);
+});
+
+it("splitTrailerBlock keeps a trailer-only body an empty head", () => {
+  const split = splitTrailerBlock(`Fork-Domain: fork-meta\nFork-Tier: core`);
+  NodeAssert.equal(split.head, "");
+  NodeAssert.equal(split.trailers, "Fork-Domain: fork-meta\nFork-Tier: core");
+});
+
+it("splitTrailerBlock reports no trailers when the last paragraph is prose", () => {
+  const body = "feat: owned\n\nA sentence mentioning Fork-Tier: in passing.";
+  const split = splitTrailerBlock(body);
+  NodeAssert.equal(split.head, body);
+  NodeAssert.equal(split.trailers, "");
 });
