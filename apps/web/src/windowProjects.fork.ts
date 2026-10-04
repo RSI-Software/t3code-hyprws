@@ -15,8 +15,8 @@ import { pendingWindowScopeSeed, windowProjectFilterState } from "./windowSideba
 
 /**
  * The scope a window's filter shows: every project when the filter is empty,
- * else each member project the client knows, with its checkout. A member whose
- * environment is offline has no known checkout and is left out.
+ * else each member project the client knows, with its checkout. A member the
+ * client does not know, such as a removed project, is left out.
  */
 export function windowProjectScope(
   filter: ProjectFilter,
@@ -46,9 +46,11 @@ export function windowProjectScope(
 }
 
 /**
- * The scope to publish, or `null` while projects load: before then a member's
- * checkout is unknown, and a partial scope would turn its window away. A seed
- * project still pending is what the window shows (`windowLandingProjects`).
+ * The scope to publish, or `null` while a member's checkout is still unknown:
+ * a partial scope would turn its window away. Only an unknown member waits for
+ * every environment to settle, so one unreachable environment never holds back
+ * a window that does not show it. A seed project still pending is what the
+ * window shows (`windowLandingProjects`).
  */
 export function publishedWindowScope(input: {
   readonly filter: ProjectFilter;
@@ -56,11 +58,19 @@ export function publishedWindowScope(input: {
   readonly settled: boolean;
   readonly projects: ReadonlyArray<EnvironmentProject>;
 }): DesktopWindowProjectScope | null {
-  if (!input.settled) return null;
   const filter =
     input.pendingSeed === null
       ? input.filter
       : { entries: [{ key: "seed", members: [input.pendingSeed] }] };
+  const known = filter.entries.every((entry) =>
+    entry.members.every((member) =>
+      input.projects.some(
+        (project) =>
+          project.environmentId === member.environmentId && project.id === member.projectId,
+      ),
+    ),
+  );
+  if (!known && !input.settled) return null;
   return windowProjectScope(filter, input.projects);
 }
 

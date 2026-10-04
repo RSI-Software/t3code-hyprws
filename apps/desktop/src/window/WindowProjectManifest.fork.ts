@@ -8,8 +8,9 @@
  *
  * One file per app process, `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json`,
  * replaced atomically on every change and removed on a clean quit, best-effort.
- * A crashed or interrupted process leaves its file behind; readers only consult the file for a pid that still
- * owns a live client, so a stale one is never joined.
+ * A crashed or interrupted process leaves its file behind; readers only consult
+ * the file for a pid that still owns a live client, so a stale one is never
+ * joined.
  */
 import { DesktopWindowProjectScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -82,7 +83,9 @@ export const writeWindowProjectManifest = Effect.fn("desktop.windowProjectManife
     yield* fileSystem.chmod(directory, 0o700);
     const staging = stagingPath(path);
     const payload = yield* encodeWindowProjectManifestJson(manifest);
-    yield* fileSystem.writeFileString(staging, `${payload}\n`, { mode: 0o600 });
+    // Created fresh, so `0o600` always applies and a leftover never redirects the write.
+    yield* fileSystem.remove(staging, { force: true });
+    yield* fileSystem.writeFileString(staging, `${payload}\n`, { flag: "wx", mode: 0o600 });
     yield* fileSystem.rename(staging, path);
   },
 );

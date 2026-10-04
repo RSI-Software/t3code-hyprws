@@ -73,10 +73,36 @@ describe("publishedWindowScope", () => {
     entries: [{ key: "api", members: [{ environmentId: local, projectId: api }] }],
   };
 
-  it("publishes nothing while projects load", () => {
+  it("holds a member whose checkout is unknown until every environment settles", () => {
+    const loading = projects.filter((candidate) => candidate.id !== api);
+    expect(
+      publishedWindowScope({
+        filter: apiOnly,
+        pendingSeed: null,
+        settled: false,
+        projects: loading,
+      }),
+    ).toBeNull();
+  });
+
+  it("publishes known members while another environment is unreachable", () => {
     expect(
       publishedWindowScope({ filter: apiOnly, pendingSeed: null, settled: false, projects }),
-    ).toBeNull();
+    ).toEqual({
+      kind: "projects",
+      projects: [{ environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" }],
+    });
+  });
+
+  it("publishes an all-projects window before environments settle", () => {
+    expect(
+      publishedWindowScope({
+        filter: { entries: [] },
+        pendingSeed: null,
+        settled: false,
+        projects: [],
+      }),
+    ).toEqual({ kind: "all" });
   });
 
   it("publishes the window's own filter once settled", () => {

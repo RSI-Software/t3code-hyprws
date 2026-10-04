@@ -47,6 +47,7 @@ describe("WindowProjectManifest", () => {
       const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "window-manifest-" });
       const path = windowProjectManifestPath(root, 77)!;
       yield* fileSystem.makeDirectory(`${root}/t3code`, { mode: 0o755 });
+      yield* fileSystem.writeFileString(`${path}.tmp`, "stale", { mode: 0o644 });
       const manifest = buildWindowProjectManifest({
         pid: 77,
         addresses: new Map([[first, "0xa"]]),
@@ -62,6 +63,7 @@ describe("WindowProjectManifest", () => {
       );
       assert.deepEqual(yield* fileSystem.readDirectory(`${root}/t3code`), ["windows-77.json"]);
       assert.equal((yield* fileSystem.stat(`${root}/t3code`)).mode & 0o777, 0o700);
+      assert.equal((yield* fileSystem.stat(path)).mode & 0o777, 0o600);
       yield* fileSystem.writeFileString(`${path}.tmp`, "partial");
       yield* removeWindowProjectManifest(path);
       yield* removeWindowProjectManifest(path);
