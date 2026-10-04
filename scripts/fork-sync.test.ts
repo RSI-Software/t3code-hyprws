@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
+import type { FoldCommit } from "./fork-fold.ts";
 import {
   blockedIssueBody,
   checkCommands,
@@ -15,6 +16,8 @@ import {
   dependencySetChanged,
   failureIssueBody,
   failureMarker,
+  foldSyncMessages,
+  refuseDroppedLinks,
   resolveFixups,
   publishBlock,
   publishFailure,
@@ -35,7 +38,7 @@ import { deriveCiTestJobs, workflowJobIds } from "./lib/fork-ci-jobs.ts";
 import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
-import { placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
+import { FOLD_MESSAGES_ENV, placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
 
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
 const refused = (stderr: string): CommandResult => ({ status: 1, stdout: "", stderr });
@@ -1893,6 +1896,62 @@ it("resolves a squash-landed fixup to the owner it names, keeping an owner's own
   );
 });
 
+/** A minimal stack member: foldSyncMessages reads subject, short, and message. */
+const foldCommit = (sha: string, message: string): FoldCommit => ({
+  sha,
+  short: sha.slice(0, 7),
+  authorDate: "",
+  subject: message.split("\n")[0] ?? "",
+  message,
+  files: [],
+});
+
+it("folds a squash-landed fixup's link into the owner's message as a fold's Squashes section", () => {
+  const owner = foldCommit(
+    "aaaa1111111",
+    "feat: x\n\nFork-Domain: fork-meta\nFork-Tier: core\nCo-authored-by: a <a@b.invalid>",
+  );
+  const fixup = foldCommit("cccc2222222", "fixup! feat: x (#16)");
+  assert.deepStrictEqual(
+    [...foldSyncMessages([owner, fixup], [["cccc2222222", "aaaa1111111"]])],
+    [
+      [
+        "aaaa1111111",
+        [
+          "feat: x",
+          "",
+          "Squashes:",
+          "",
+          "- aaaa111 feat: x",
+          "- cccc222 fixup! feat: x (#16) (RSI-Software/t3code-hyprws#16)",
+          "",
+          "Fork-Domain: fork-meta",
+          "Fork-Tier: core",
+          "Co-authored-by: a <a@b.invalid>",
+        ].join("\n"),
+      ],
+    ],
+  );
+});
+
+it("keeps an owner with no link-carrying fixup a plain git fold", () => {
+  const owner = foldCommit("aaaa1111111", "feat: x");
+  const fixup = foldCommit("cccc2222222", "fixup! feat: x");
+  assert.strictEqual(foldSyncMessages([owner, fixup], [["cccc2222222", "aaaa1111111"]]).size, 0);
+});
+
+it("separates a folded owner's subject from its existing prose", () => {
+  const owner = foldCommit(
+    "aaaa1111111",
+    "feat: x\n\nExisting behavior.\n\nFork-Domain: fork-meta\nFork-Tier: core",
+  );
+  const fixup = foldCommit("cccc2222222", "fixup! feat: x (#16)");
+  const folded = foldSyncMessages([owner, fixup], [[fixup.sha, owner.sha]]).get(owner.sha);
+  assert.isDefined(folded);
+  assert.strictEqual(folded?.split("\n\n")[0], owner.subject);
+  assert.include(folded, "\n\nExisting behavior.\n\nSquashes:");
+});
+
 it("places each resolved fixup under its owner in git's generated todo", () => {
   const todo = [
     "pick aaaa111 feat: a",
@@ -1924,6 +1983,40 @@ it("places each resolved fixup under its owner in git's generated todo", () => {
   );
 });
 
+it("amends an owner with its folded message after the owner's last fixup", () => {
+  const todo = [
+    "pick aaaa111 feat: a",
+    "pick cccc333 fixup! feat: a (#9)",
+    "pick dddd444 fixup! feat: a (#10)",
+    "pick bbbb222 feat: b",
+  ].join("\n");
+  assert.strictEqual(
+    placeFixups(
+      todo,
+      [
+        ["cccc3333333", "aaaa1111111"],
+        ["dddd4444444", "aaaa1111111"],
+      ],
+      new Map([["aaaa1111111", "/sync/folds/aaaa1111111.msg"]]),
+    ),
+    [
+      "pick aaaa111 feat: a",
+      "fixup cccc333 fixup! feat: a (#9)",
+      "fixup dddd444 fixup! feat: a (#10)",
+      "exec git commit --amend --no-verify -F '/sync/folds/aaaa1111111.msg'",
+      "pick bbbb222 feat: b",
+    ].join("\n"),
+  );
+});
+
+it("writes no exec line when no owner carries a folded message", () => {
+  const todo = ["pick aaaa111 feat: a", "pick cccc333 fixup! feat: a (#9)"].join("\n");
+  assert.strictEqual(
+    placeFixups(todo, [["cccc3333333", "aaaa1111111"]]),
+    ["pick aaaa111 feat: a", "fixup cccc333 fixup! feat: a (#9)"].join("\n"),
+  );
+});
+
 it("starts the sync rebase interactive with autosquash and the fixup-placing sequence editor", () => {
   withFoldFixture((f) => {
     const seen: Array<{
@@ -1951,10 +2044,11 @@ it("starts the sync rebase interactive with autosquash and the fixup-placing seq
     assert.ok(initial!.args.includes("--autosquash"));
     assert.strictEqual(initial!.env?.GIT_EDITOR, "true");
     assert.strictEqual(initial!.env?.GIT_SEQUENCE_EDITOR, sequenceEditor());
+    assert.strictEqual(initial!.env?.[FOLD_MESSAGES_ENV], "[]");
   });
 });
 
-it("folds a squash-landed fixup into its owner at the sync rebase", () => {
+it("folds a squash-landed fixup into its owner, keeping its link above the trailers", () => {
   withFoldFixture((f) => {
     const target = { tag: "v1.0.0", sha: f.git(["rev-parse", "v1.0.0"], f.root) };
     const outcome = rebaseOnto(realRunner, f.root, target, f.git(["rev-parse", "hyprws"], f.root));
@@ -1968,6 +2062,43 @@ it("folds a squash-landed fixup into its owner at the sync rebase", () => {
       f.git(["show", `${outcome.newSha}:shared.txt`], f.root),
       "fork line1 fixed\nline2\nline3 upstream",
     );
+    // The pre-rebase shas the member lines cite: origin/hyprws still names
+    // them, since only the detached worktree moved.
+    const fixup = f.git(["rev-parse", "origin/hyprws"], f.root);
+    const fixupShort = f.git(["log", "-1", "--format=%h", fixup], f.root);
+    const ownerShort = f.git(["log", "-1", "--format=%h", "origin/hyprws^"], f.root);
+    const body = f.git(["log", "-1", "--format=%B", outcome.newSha], f.root);
+    const bodyLines = body.split("\n").map((line) => line.trim());
+    assert.ok(
+      bodyLines.includes(
+        `- ${fixupShort} fixup! feat(fork): owned change (#1600) (RSI-Software/t3code-hyprws#1600)`,
+      ),
+      `the folded message keeps the fixup's PR link: ${body}`,
+    );
+    assert.ok(
+      bodyLines.includes(`- ${ownerShort} feat(fork): owned change`),
+      `the folded message lists its members: ${body}`,
+    );
+    // The owner's own trailers survive verbatim as the final block.
+    const trailers = f.git(["log", "-1", "--format=%(trailers)", outcome.newSha], f.root);
+    assert.match(trailers, /Fork-Domain: fork-meta/);
+    assert.match(trailers, /Co-authored-by: fork <fork@example\.invalid>/);
+    assert.strictEqual(body.trimEnd().endsWith(trailers.trimEnd()), true);
+  }, "fixup! feat(fork): owned change (#1600)");
+});
+
+it("refuses a rebased tip that drops a squash landing's pull request link", () => {
+  withFoldFixture((f) => {
+    const target = { tag: "v1.0.0", sha: f.git(["rev-parse", "v1.0.0"], f.root) };
+    const oldSha = f.git(["rev-parse", "hyprws"], f.root);
+    // A tip folded the pre-#1592 way: the fixup's changes land, its link does
+    // not. The cherry-picked owner keeps its own message and loses #1600.
+    f.git(["checkout", "--quiet", "--detach", "v1.0.0"], f.root);
+    f.git(["cherry-pick", "--quiet", `${oldSha}^`], f.root);
+    const dropped = f.git(["rev-parse", "HEAD"], f.root);
+    assert.throws(() => refuseDroppedLinks(f.root, target, oldSha, dropped), /t3code-hyprws#1600/);
+    // The rebase that keeps the link passes the same guard.
+    assert.strictEqual(rebaseOnto(realRunner, f.root, target, oldSha).status, "applied");
   }, "fixup! feat(fork): owned change (#1600)");
 });
 

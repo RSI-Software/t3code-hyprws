@@ -48,6 +48,16 @@ import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 
 import { FIXUP_PREFIX, fixupTarget } from "./fork-delta.ts";
+import {
+  forkPullRequests,
+  linkFindings,
+  memberLine,
+  readStack,
+  squashesLines,
+  systemFoldGit,
+  withoutSquashes,
+  type FoldCommit,
+} from "./fork-fold.ts";
 import { ciTestJobs } from "./lib/fork-ci-jobs.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
@@ -65,7 +75,8 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
-import { FIXUP_OWNERS_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
+import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
+import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -630,20 +641,6 @@ export interface SubjectCommit {
   readonly subject: string;
 }
 
-/** The fork commits above `target`, oldest first, that a `fixup!` commit may name. */
-export const forkSubjects = (
-  runner: CommandRunner,
-  root: string,
-  target: ReleaseTag,
-  oldSha: string,
-): ReadonlyArray<SubjectCommit> =>
-  lines(
-    git(runner, root, ["log", "--reverse", "--format=%H%x1f%s", `${target.sha}..${oldSha}`]),
-  ).map((line) => {
-    const [sha = "", subject = ""] = line.split("\u001f");
-    return { sha, subject };
-  });
-
 export interface FixupResolution {
   /** `[fixup sha, owner sha]`, oldest fixup first. */
   readonly owners: ReadonlyArray<readonly [fixup: string, owner: string]>;
@@ -679,17 +676,104 @@ export const resolveFixups = (commits: ReadonlyArray<SubjectCommit>): FixupResol
 };
 
 /**
+ * The message each owner carries after the sync folds its fixups: the owner's
+ * own message with one `Squashes:` section inserted above the trailer block,
+ * listing the owner and every fixup it absorbs exactly as fork:fold renders a
+ * fold's members (RSI-Software/t3code-hyprws#1591), so a squash landing's PR
+ * link survives the fold on the owner's message (RSI-Software/t3code-hyprws#1592). A fixup that
+ * cites no fork pull request — a walk-authored fixup — keeps nothing, so its
+ * owner is absent from the map and folds as git's plain `fixup`, its message
+ * untouched.
+ */
+export const foldSyncMessages = (
+  commits: ReadonlyArray<FoldCommit>,
+  owners: ReadonlyArray<readonly [fixup: string, owner: string]>,
+): ReadonlyMap<string, string> => {
+  const bySha = new Map(commits.map((commit) => [commit.sha, commit] as const));
+  const fixupsOf = new Map<string, Array<FoldCommit>>();
+  for (const [fixup, owner] of owners) {
+    const commit = bySha.get(fixup);
+    if (commit === undefined) throw new Error(`fixup ${fixup} is not a commit above the target`);
+    fixupsOf.set(owner, [...(fixupsOf.get(owner) ?? []), commit]);
+  }
+  const messages = new Map<string, string>();
+  for (const [owner, fixups] of fixupsOf) {
+    if (!fixups.some((fixup) => forkPullRequests(fixup.message).length > 0)) continue;
+    const ownerCommit = bySha.get(owner);
+    if (ownerCommit === undefined)
+      throw new Error(`fixup owner ${owner} is not a commit above the target`);
+    messages.set(owner, foldedOwnerMessage(ownerCommit, fixups));
+  }
+  return messages;
+};
+
+/**
+ * One folded owner message: the owner's subject and prose, then the `Squashes:`
+ * section — this fold's members first, an earlier sync fold's member lines kept
+ * listed after them (a refold keeps every link an earlier fold gathered) — then
+ * the trailer block verbatim, `Co-authored-by:` included. The section shape is
+ * foldMessage's, so no second rendering exists.
+ */
+const foldedOwnerMessage = (owner: FoldCommit, fixups: ReadonlyArray<FoldCommit>): string => {
+  const [subject = "", ...rest] = owner.message.replace(/\r\n/g, "\n").split("\n");
+  const { head, trailers } = splitTrailerBlock(rest.join("\n"));
+  const members = [
+    ...new Set([
+      memberLine(owner),
+      ...fixups.map((fixup) => memberLine(fixup)),
+      ...squashesLines(owner.message),
+    ]),
+  ];
+  const prose = withoutSquashes(head);
+  return [
+    subject,
+    ...(prose.length === 0 ? [] : ["", prose]),
+    "",
+    "Squashes:",
+    "",
+    ...members,
+    ...(trailers.length === 0 ? [] : ["", trailers]),
+  ].join("\n");
+};
+
+/**
+ * The link guard: a sync rewrites the trunk directly, so the rebased tip is
+ * the only place a dropped link could hide. fork:fold's link guard reads both
+ * stacks and refuses the rebase when a pull request an old fork commit cites
+ * is cited by no new commit (RSI-Software/t3code-hyprws#1592).
+ */
+export const refuseDroppedLinks = (
+  root: string,
+  target: ReleaseTag,
+  oldSha: string,
+  newSha: string,
+): void => {
+  const stackGit = systemFoldGit(root);
+  const findings = linkFindings(
+    readStack(stackGit, target.sha, oldSha),
+    readStack(stackGit, target.sha, newSha),
+  );
+  if (findings.length > 0)
+    throw new Error(
+      `the rebased tip dropped ${findings.length} pull request link(s):\n${findings.join("\n")}`,
+    );
+};
+
+/**
  * Rebase `oldSha` onto `target` in a detached worktree. A fork landing that
  * amends a fork commit is titled `fixup! <subject>`, with ` (#N)` appended
  * when squash-landed; the rebase runs interactive with `--autosquash` and a
  * sequence editor that places each resolved fixup under its owner, so the
  * fixup folds into the commit it names and the series never carries
- * fix-of-fix (RSI-Software/t3code-hyprws#1179, RSI-Software/t3code-hyprws#1508). Hook re-apply re-inserts the marked fork
- * hooks a conflicted file declares. A delete/modify whose deletion is on the
- * upstream side and whose fork edit nets to zero against the base the fork
- * stack sits on accepts the deletion outright. A path in
- * `REGENERATION_ROUTES` regenerates once every other path in the stop has
- * resolved (RSI-Software/t3code-hyprws#1488). Any path left standing after
+ * fix-of-fix (RSI-Software/t3code-hyprws#1179, RSI-Software/t3code-hyprws#1508). A squash-landed fixup keeps its PR
+ * link: the editor appends an `exec` that amends the folded owner with the
+ * `Squashes:` rendering fork:fold writes (RSI-Software/t3code-hyprws#1591, RSI-Software/t3code-hyprws#1592), and the link
+ * guard refuses the rebased tip when it dropped a link. Hook re-apply
+ * re-inserts the marked fork hooks a conflicted file declares. A delete/modify
+ * whose deletion is on the upstream side and whose fork edit nets to zero
+ * against the base the fork stack sits on accepts the deletion outright. A
+ * path in `REGENERATION_ROUTES` regenerates once every other path in the stop
+ * has resolved (RSI-Software/t3code-hyprws#1488). Any path left standing after
  * those stops the run; its rows name the fork commit, the upstream commit, and
  * the worktree the rebase resumes in.
  *
@@ -713,13 +797,31 @@ const replayOnto = (
   // run the previous release tag. Net-zero compares the fork trunk to it from
   // real refs, once per run, never from the worktree.
   const baseSha = git(runner, root, ["merge-base", target.sha, oldSha]);
-  const fixups = resolveFixups(forkSubjects(runner, root, target, oldSha));
+  const stack = readStack(systemFoldGit(root), target.sha, oldSha);
+  const fixups = resolveFixups(stack.commits);
   if (fixups.refusals.length > 0) throw new Error(fixups.refusals.join("; "));
+  // Each owner absorbing a squash-landed fixup amends its folded message after
+  // the rebase writes it, so the fixup's PR link survives as a `Squashes:`
+  // member line. The message files live in the worktree's git dir: an exec
+  // line a rerun's kept todo still holds must find its file.
+  const foldDir = git(runner, worktree, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-path",
+    "fork-sync-folds",
+  ]);
+  NodeFS.mkdirSync(foldDir, { recursive: true });
+  const foldFiles = [...foldSyncMessages(stack.commits, fixups.owners)].map(([owner, message]) => {
+    const path = NodePath.join(foldDir, `${owner}.msg`);
+    NodeFS.writeFileSync(path, message);
+    return [owner, path] as const;
+  });
   const editorEnv = {
     ...process.env,
     GIT_EDITOR: "true",
     GIT_SEQUENCE_EDITOR: sequenceEditor(),
     [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
+    [FOLD_MESSAGES_ENV]: JSON.stringify(foldFiles),
   };
   const rebaseArgs = ["rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha];
   const forkCommitCount = Number(
@@ -735,6 +837,7 @@ const replayOnto = (
       throw new Error(
         `the kept sync worktree at ${worktree} holds ${head.slice(0, 7)}, which does not contain ${target.tag}; reset it to a rebased tip and rerun`,
       );
+    refuseDroppedLinks(root, target, oldSha, head);
     return { status: "applied", newSha: head, conflicts: [] };
   }
   // An adopted rebase in progress enters the stop loop as if it had just stopped.
@@ -847,9 +950,11 @@ const replayOnto = (
       env: editorEnv,
     });
   }
+  const newSha = git(runner, worktree, ["rev-parse", "HEAD"]);
+  refuseDroppedLinks(root, target, oldSha, newSha);
   return {
     status: "applied",
-    newSha: git(runner, worktree, ["rev-parse", "HEAD"]),
+    newSha,
     conflicts,
   };
 };
