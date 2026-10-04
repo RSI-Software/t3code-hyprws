@@ -1,8 +1,13 @@
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { browseInputEndPaddingClass, type CommandPaletteActionItem } from "./CommandPalette.logic";
 import {
+  browseInputEndPaddingClass,
+  filterCommandPaletteGroups,
+  type CommandPaletteActionItem,
+} from "./CommandPalette.logic";
+import {
+  buildLinkGitHubIssueActionItemFork,
   refreshNewThreadInViewFork,
   scopePaletteProjectEntriesFork,
   withProjectScopeToggleFork,
@@ -88,5 +93,25 @@ describe("palette project scope", () => {
     expect(withProjectScopeToggleFork(results, { projectKeys: null, toggle: null }, null)).toBe(
       results,
     );
+  });
+});
+
+describe("link GitHub issue action", () => {
+  const linkItem = buildLinkGitHubIssueActionItemFork(
+    { environmentId: EnvironmentId.make("local"), id: ThreadId.make("thread-1") },
+    { threadIssues: true },
+  );
+  const search = (query: string) =>
+    filterCommandPaletteGroups({
+      activeGroups: [{ value: "actions", label: "Actions", items: linkItem ? [linkItem] : [] }],
+      query,
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+    }).flatMap((group) => group.items.map((item) => item.value));
+
+  it("matches its own title and its short query", () => {
+    expect(search("link github issue to thread")).toEqual(["action:link-github-issue"]);
+    expect(search("link github issue")).toEqual(["action:link-github-issue"]);
   });
 });
