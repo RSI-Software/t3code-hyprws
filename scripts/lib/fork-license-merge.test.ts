@@ -72,6 +72,26 @@ it("merges top-level keys three ways and appends the fork's new keys", () => {
   );
 });
 
+it("keys an entry without a name on its repositoryUrl", () => {
+  const url = (repositoryUrl: string, license?: string) => ({ repositoryUrl, license });
+  const overrides = (packageOverrides: ReadonlyArray<object>) =>
+    `${JSON.stringify({ packageOverrides }, null, 2)}\n`;
+  assert.deepStrictEqual(
+    merged({
+      base: overrides([url("https://x/a")]),
+      upstream: overrides([url("https://x/a", "MIT"), url("https://x/up")]),
+      fork: overrides([url("https://x/a"), { name: "fork" }]),
+    }),
+    {
+      packageOverrides: [
+        { repositoryUrl: "https://x/a", license: "MIT" },
+        { repositoryUrl: "https://x/up" },
+        { name: "fork" },
+      ],
+    },
+  );
+});
+
 it("refuses an entry both sides changed apart", () => {
   assert.strictEqual(
     refusal({
@@ -105,7 +125,7 @@ it("refuses a deleted file, an unnamed or duplicate entry, and invalid JSON", ()
   );
   assert.strictEqual(
     refusal({ base, upstream: base, fork: `{"customNotices":[{"license":"MIT"}]}` }),
-    "a customNotices entry has no string name",
+    "a customNotices entry has no string name or repositoryUrl",
   );
   assert.match(refusal({ base, upstream: base, fork: "{" }), /JSON/);
 });
