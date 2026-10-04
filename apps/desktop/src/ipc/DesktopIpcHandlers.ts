@@ -66,6 +66,7 @@ import {
   showContextMenu,
 } from "./methods/window.ts";
 import { requestWindow } from "./methods/window.fork.ts"; // fork-hook: multi-window/dispatch-request-ipc
+import { publishWindowProjects } from "./methods/window.fork.ts"; // fork-hook: multi-window/window-projects-ipc
 import {
   acknowledgeSnapShot,
   checkSnapShotShortcut,
@@ -176,6 +177,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(revealWindow);
   yield* ipc.handle(syncHtmlFullscreen);
   yield* ipc.handle(requestWindow); // fork-hook: multi-window/dispatch-request-ipc
+  yield* ipc.handle(publishWindowProjects); // fork-hook: multi-window/window-projects-ipc
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
