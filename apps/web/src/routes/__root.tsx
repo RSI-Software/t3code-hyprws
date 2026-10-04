@@ -59,8 +59,7 @@ import { readProject } from "../state/entities";
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { isChunkLoadError } from "../lib/chunkReloadGuard";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
-import { useProjectChooserHostValue } from "../projectChooser.fork"; // fork-hook: workspaces/window-title-import
-import { composeFilteredWindowTitle } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
+import { WindowProjectsPublishFork } from "../windowProjects.fork"; // fork-hook: multi-window/window-projects-import
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -194,6 +193,7 @@ function RootRouteBranch() {
       <CustomSnoozeDialogHost />
       <GuestShareDialogHost />
       <ProjectCloneToastCoordinator />
+      <WindowProjectsPublishFork /> {/* fork-hook: multi-window/window-projects-publish */}
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />
       {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}
