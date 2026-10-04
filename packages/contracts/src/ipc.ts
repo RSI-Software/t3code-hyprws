@@ -20,6 +20,7 @@ import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
 import type { DesktopWindowRequest } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/request-window-import
+import type { DesktopWindowProjects } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/window-projects-import
 import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
@@ -1159,6 +1160,7 @@ export interface DesktopBridge {
   cancelProviderAuthCallback?: (authorizationUrl: string) => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;
   requestWindow?: (request: DesktopWindowRequest) => Promise<void>; // fork-hook: multi-window/request-window-bridge
+  publishWindowProjects?: (projects: DesktopWindowProjects) => Promise<void>; // fork-hook: multi-window/window-projects-bridge
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
   windowId?: string; // fork-hook: multi-window/window-id-bridge
