@@ -42,6 +42,9 @@ vi.mock("electron", () => ({
   protocol: {
     registerSchemesAsPrivileged: registerSchemesMock,
   },
+  safeStorage: {
+    setUsePlainTextEncryption: vi.fn(),
+  },
 }));
 
 vi.mock("node:fs", () => ({
