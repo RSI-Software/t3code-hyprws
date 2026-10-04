@@ -1,10 +1,18 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import type { WindowId } from "./WindowId.fork.ts";
 import { windowClaimTitle } from "./WindowPlacement.fork.ts";
+import {
+  type WindowProjectManifest,
+  windowProjectManifestPath,
+} from "./WindowProjectManifest.fork.ts";
 
 const PID = 4242;
 const first = "00000000-0000-4000-8000-000000000001" as WindowId;
@@ -147,5 +155,105 @@ describe("HyprlandPlacement", () => {
 
       assert.isTrue(Option.isNone(yield* placement.workspaceOf(first)));
     }),
+  );
+
+  it.effect("writes each window's address and published scope, and drops it on forget", () =>
+    Effect.gen(function* () {
+      const writes: WindowProjectManifest[] = [];
+      const placement = yield* HyprlandPlacement.make({
+        ...options,
+        manifestPath: "/manifest.json",
+        writeManifest: (path, manifest) =>
+          Effect.sync(() => {
+            assert.strictEqual(path, "/manifest.json");
+            writes.push(manifest);
+          }),
+        requestHyprland: listClients(() => [client("0xaaa", "T3 Code")]),
+      });
+      const scope = {
+        kind: "projects",
+        projects: [
+          {
+            environmentId: EnvironmentId.make("env"),
+            projectId: ProjectId.make("web"),
+            workspaceRoot: "/src/web",
+          },
+        ],
+      } as const;
+
+      yield* placement.claim(first, "T3 Code");
+      yield* placement.publishScope(first, scope);
+      yield* placement.publishScope(second, { kind: "all" });
+      yield* placement.forget(first);
+
+      assert.deepEqual(
+        writes.map((manifest) => manifest.windows),
+        [
+          [{ windowId: first, address: "0xaaa", scope: null }],
+          [{ windowId: first, address: "0xaaa", scope }],
+          [
+            { windowId: first, address: "0xaaa", scope },
+            { windowId: second, address: null, scope: { kind: "all" } },
+          ],
+          [{ windowId: second, address: null, scope: { kind: "all" } }],
+        ],
+      );
+      assert.isTrue(writes.every((manifest) => manifest.pid === PID && manifest.version === 1));
+    }),
+  );
+
+  it.effect("writes no manifest off Hyprland or without a path", () =>
+    Effect.gen(function* () {
+      const writes: unknown[] = [];
+      const record = (_path: string, manifest: WindowProjectManifest) =>
+        Effect.sync(() => void writes.push(manifest));
+      const offHyprland = yield* HyprlandPlacement.make({
+        ...options,
+        environment: { instanceSignature: undefined, runtimeDirectory: "/run/user/1000" },
+        manifestPath: "/manifest.json",
+        writeManifest: record,
+      });
+      const pathless = yield* HyprlandPlacement.make({ ...options, writeManifest: record });
+
+      yield* offHyprland.publishScope(first, { kind: "all" });
+      yield* pathless.publishScope(first, { kind: "all" });
+
+      assert.deepEqual(writes, []);
+    }),
+  );
+
+  it.effect("removes its manifest on close and writes none after", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "placement-layer-" });
+      const keys = ["HYPRLAND_INSTANCE_SIGNATURE", "XDG_RUNTIME_DIR"] as const;
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const saved = keys.map((key) => [key, process.env[key]] as const);
+          process.env.HYPRLAND_INSTANCE_SIGNATURE = "test";
+          process.env.XDG_RUNTIME_DIR = root;
+          return saved;
+        }),
+        (saved) =>
+          Effect.sync(() => {
+            for (const [key, value] of saved) {
+              if (value === undefined) delete process.env[key];
+              else process.env[key] = value;
+            }
+          }),
+      );
+      const path = windowProjectManifestPath(root, process.pid)!;
+
+      const placement = yield* Effect.gen(function* () {
+        const open = yield* HyprlandPlacement.HyprlandPlacement;
+        yield* open.publishScope(first, { kind: "all" });
+        assert.isTrue(yield* fileSystem.exists(path));
+        return open;
+      }).pipe(Effect.provide(HyprlandPlacement.layer.pipe(Layer.provide(NodeServices.layer))));
+
+      assert.isFalse(yield* fileSystem.exists(path));
+      yield* placement.publishScope(second, { kind: "all" });
+      assert.isFalse(yield* fileSystem.exists(path));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });
