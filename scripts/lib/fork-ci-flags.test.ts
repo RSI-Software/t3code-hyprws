@@ -87,13 +87,16 @@ it("passes the whole CI shape to fork:scan, replay-of included only when it reso
   ]);
 });
 
-it("renders only the since output the workflow consumes", () => {
-  assert.strictEqual(renderForkCiOutputs(deriveForkCiFlags(fakeGit({}), HEAD)), `since=${TRUNK}\n`);
+it("renders the base and since outputs the workflow consumes", () => {
+  assert.strictEqual(
+    renderForkCiOutputs(deriveForkCiFlags(fakeGit({}), HEAD)),
+    `base=${BASE}\nsince=${TRUNK}\n`,
+  );
   assert.strictEqual(
     renderForkCiOutputs(
       deriveForkCiFlags(fakeGit({ trunkResolves: false, trunkMergeBase: null }), HEAD),
     ),
-    `since=${HEAD}^\n`,
+    `base=${BASE}\nsince=${HEAD}^\n`,
   );
 });
 

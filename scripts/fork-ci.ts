@@ -11,11 +11,11 @@
 // and the scripts workspace suite runs whole, the way the Test Scripts job
 // does, so a local green run cannot be greener than CI
 // (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
-// the Fork stale-delete check, the Fork rebase scan, the `vp check` step,
-// and the Test Scripts job of hyprws-ci.yml. The advisory Body job's
-// squash-body check needs the pull-request body, and knip, typecheck, the
-// desktop build, the product test jobs, and the release and sync workflows
-// run separately.
+// the Fork stale-delete check, the Fork fixup fold check, the Fork rebase
+// scan, the `vp check` step, and the Test Scripts job of hyprws-ci.yml. The
+// advisory Body job's squash-body check needs the pull-request body, and
+// knip, typecheck, the desktop build, the product test jobs, and the release
+// and sync workflows run separately.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
@@ -30,16 +30,19 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
   3. vp run fork:stale-delete --base <since> --head <head>: no branch
      commit deletes an upstream line a later one restores
      (scripts/lib/fork-stale-delete.ts); skipped under --since
-  4. vp run fork:scan with exactly those flags (--no-typecheck included),
+  4. vp run fork:fixup-fold --base <upstream base> --head <head>: every
+     fixup! commit folds into the commit it names, proved by a replay
+     from the upstream base in a throwaway worktree (scripts/fork-fixup-fold.ts)
+  5. vp run fork:scan with exactly those flags (--no-typecheck included),
      which carries the additive gate: files, migrations, tests
      intact (scripts/lib/fork-additive-gate.ts), the hook guard (marked
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  5. vp check, the exact form the workflow's Check step runs
+  6. vp check, the exact form the workflow's Check step runs
      (scripts/fork-ci.ts never passes --fix: the fixer reformats files
      outside branch scope on this trunk)
-  6. the whole @t3tools/scripts test suite
+  7. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -116,6 +119,20 @@ export const run = (
     return 1;
   }
 
+  // The sync folds each fixup! into the commit it names during its rebase, so
+  // a fixup that only applies at the branch tip would land green here and
+  // then block the next sync (RSI-Software/t3code-hyprws#1554); the replay
+  // proves the folds from the same upstream base the sync rebase starts from.
+  const fixupFold = step(
+    "vp",
+    ["run", "fork:fixup-fold", "--base", flags.base, "--head", flags.head],
+    root,
+  );
+  if (fixupFold !== 0) {
+    process.stderr.write("fork:ci: fixup fold check failed; fix above before pushing\n");
+    return 1;
+  }
+
   const scan = step("vp", ["run", "fork:scan", ...forkScanArguments(flags)], root);
   if (scan !== 0) {
     process.stderr.write("fork:ci: rebase scan failed; fix above before pushing\n");
@@ -135,7 +152,7 @@ export const run = (
   }
 
   process.stdout.write(
-    "fork:ci: ok; the delta check, stale-delete check, rebase scan, vp check, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, rebase scan, vp check, and scripts suite are green on this head\n",
   );
   return 0;
 };
