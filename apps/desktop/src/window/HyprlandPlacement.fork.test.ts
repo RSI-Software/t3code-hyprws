@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import type { WindowId } from "./WindowId.fork.ts";
 import { windowClaimTitle } from "./WindowPlacement.fork.ts";
+import type { WindowProjectManifest } from "./WindowProjectManifest.fork.ts";
 
 const PID = 4242;
 const first = "00000000-0000-4000-8000-000000000001" as WindowId;
@@ -146,6 +147,65 @@ describe("HyprlandPlacement", () => {
       yield* placement.claim(first, `t3code-window-${first}`);
 
       assert.isTrue(Option.isNone(yield* placement.workspaceOf(first)));
+    }),
+  );
+
+  it.effect("writes each window's address and published scope, and drops it on forget", () =>
+    Effect.gen(function* () {
+      const writes: WindowProjectManifest[] = [];
+      const placement = yield* HyprlandPlacement.make({
+        ...options,
+        manifestPath: "/manifest.json",
+        writeManifest: (path, manifest) =>
+          Effect.sync(() => {
+            assert.strictEqual(path, "/manifest.json");
+            writes.push(manifest);
+          }),
+        requestHyprland: listClients(() => [client("0xaaa", "T3 Code")]),
+      });
+      const scope = {
+        kind: "projects",
+        projects: [{ environmentId: "env", projectId: "web", workspaceRoot: "/src/web" }],
+      } as const;
+
+      yield* placement.claim(first, "T3 Code");
+      yield* placement.publishScope(first, scope);
+      yield* placement.publishScope(second, { kind: "all" });
+      yield* placement.forget(first);
+
+      assert.deepEqual(
+        writes.map((manifest) => manifest.windows),
+        [
+          [{ windowId: first, address: "0xaaa", scope: null }],
+          [{ windowId: first, address: "0xaaa", scope }],
+          [
+            { windowId: first, address: "0xaaa", scope },
+            { windowId: second, address: null, scope: { kind: "all" } },
+          ],
+          [{ windowId: second, address: null, scope: { kind: "all" } }],
+        ],
+      );
+      assert.isTrue(writes.every((manifest) => manifest.pid === PID && manifest.version === 1));
+    }),
+  );
+
+  it.effect("writes no manifest off Hyprland or without a path", () =>
+    Effect.gen(function* () {
+      const writes: unknown[] = [];
+      const record = (_path: string, manifest: WindowProjectManifest) =>
+        Effect.sync(() => void writes.push(manifest));
+      const offHyprland = yield* HyprlandPlacement.make({
+        ...options,
+        environment: { instanceSignature: undefined, runtimeDirectory: "/run/user/1000" },
+        manifestPath: "/manifest.json",
+        writeManifest: record,
+      });
+      const pathless = yield* HyprlandPlacement.make({ ...options, writeManifest: record });
+
+      yield* offHyprland.publishScope(first, { kind: "all" });
+      yield* pathless.publishScope(first, { kind: "all" });
+
+      assert.deepEqual(writes, []);
     }),
   );
 });

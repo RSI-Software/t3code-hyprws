@@ -1,0 +1,69 @@
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import { windowProjectScope } from "./windowProjects.fork";
+
+const local = EnvironmentId.make("environment:local");
+const remote = EnvironmentId.make("environment:remote");
+const web = ProjectId.make("project:web");
+const api = ProjectId.make("project:api");
+
+const project = (environmentId: EnvironmentId, id: ProjectId, workspaceRoot: string) =>
+  ({ environmentId, id, workspaceRoot }) as unknown as EnvironmentProject;
+
+const projects = [
+  project(local, web, "/home/me/src/web"),
+  project(local, api, "/home/me/src/api"),
+  project(remote, web, "/srv/web"),
+];
+
+describe("windowProjectScope", () => {
+  it("reports every project for an empty filter", () => {
+    expect(windowProjectScope({ entries: [] }, projects)).toEqual({ kind: "all" });
+  });
+
+  it("reports each member with its environment's checkout", () => {
+    const scope = windowProjectScope(
+      {
+        entries: [
+          {
+            key: "github.com/acme/web",
+            members: [
+              { environmentId: local, projectId: web },
+              { environmentId: remote, projectId: web },
+            ],
+          },
+        ],
+      },
+      projects,
+    );
+    expect(scope).toEqual({
+      kind: "projects",
+      projects: [
+        { environmentId: local, projectId: web, workspaceRoot: "/home/me/src/web" },
+        { environmentId: remote, projectId: web, workspaceRoot: "/srv/web" },
+      ],
+    });
+  });
+
+  it("leaves out members with no known checkout and repeats", () => {
+    const member = { environmentId: local, projectId: api };
+    const scope = windowProjectScope(
+      {
+        entries: [
+          { key: "api", members: [member, member] },
+          {
+            key: "offline",
+            members: [{ environmentId: remote, projectId: ProjectId.make("project:gone") }],
+          },
+        ],
+      },
+      projects,
+    );
+    expect(scope).toEqual({
+      kind: "projects",
+      projects: [{ environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" }],
+    });
+  });
+});

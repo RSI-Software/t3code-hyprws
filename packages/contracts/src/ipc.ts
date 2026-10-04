@@ -29,6 +29,7 @@ import { ExecutionEnvironmentDescriptor, type ScopedProjectRef } from "./environ
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { DesktopWindowRequest } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/request-window-import
+import type { DesktopWindowProjects } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/window-projects-import
 import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
@@ -1262,6 +1263,7 @@ export interface DesktopBridge {
   cancelProviderAuthCallback?: (authorizationUrl: string) => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;
   requestWindow?: (request: DesktopWindowRequest) => Promise<void>; // fork-hook: multi-window/request-window-bridge
+  publishWindowProjects?: (projects: DesktopWindowProjects) => Promise<void>; // fork-hook: multi-window/window-projects-bridge
   /**
    * Open a System Settings pane by identifier. Optional: older desktop builds
    * lack it, and callers no-op when it is missing.
