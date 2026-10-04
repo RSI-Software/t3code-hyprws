@@ -159,17 +159,18 @@ A domain is a reason the fork exists, not a feature area.
 
 A window registry keyed by an opaque `WindowId`, sender-owned dispatch, and a manifest restore with one entry per window.
 
-| Seam     | Fork boundary                                                                             |
-| -------- | ----------------------------------------------------------------------------------------- |
-| Identity | `WindowId` minted in main at create, carried as a preload argument                        |
-| Dispatch | `main`-window consumers resolve to the sender or most recent window                       |
-| Requests | One table in `WindowDispatch.fork.ts` maps each window request to create, reuse, or focus |
-| Startup  | A bounded intent queue drained once the renderer can load                                 |
-| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace                   |
-| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it                         |
-| Legacy   | Old `#/project/…` links and routes decode to ordinary ones (`legacyProjectLink.fork.ts`)  |
-| Drafts   | Project-route drafts fold into route-free buckets once (`projectDraftMigration.fork.ts`)  |
-| Provider | `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID` name the work, never a window                  |
+| Seam     | Fork boundary                                                                                |
+| -------- | -------------------------------------------------------------------------------------------- |
+| Identity | `WindowId` minted in main at create, carried as a preload argument                           |
+| Dispatch | `main`-window consumers resolve to the sender or most recent window                          |
+| Requests | One table in `WindowDispatch.fork.ts` maps each window request to create, reuse, or focus    |
+| Startup  | A bounded intent queue drained once the renderer can load                                    |
+| Restore  | Manifest v2, one entry per window: `windowId`, route, bounds, workspace                      |
+| Scope    | Sidebar project scope per `WindowId`; a preload argument seeds it                            |
+| Legacy   | Old `#/project/…` links and routes decode to ordinary ones (`legacyProjectLink.fork.ts`)     |
+| Drafts   | Project-route drafts fold into route-free buckets once (`projectDraftMigration.fork.ts`)     |
+| Provider | `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID` name the work, never a window                     |
+| Projects | `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json` maps each Hyprland address to its project scope |
 
 Hyprland places windows; update restore only puts each back on its recorded workspace, and is a no-op off Hyprland.
 
