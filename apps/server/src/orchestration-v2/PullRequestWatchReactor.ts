@@ -52,6 +52,7 @@ import {
   PULL_REQUEST_WATCH_NO_CHECKS_MS,
   pullRequestWatchEndMessage,
   pullRequestWatchMessage,
+  pullRequestWatchWakePrefix,
 } from "./pullRequestWatch.ts";
 
 /** Checks take minutes; faster sweeps waste the account's shared host quota. */
@@ -354,7 +355,12 @@ export const make = Effect.gen(function* () {
       ...(endedWatch === undefined ? {} : { endedWatch }),
       ...(wake === undefined
         ? {}
-        : { wake: { ...wake, messageId: MessageId.make(`message:pr-watch:${uuid}`) } }),
+        : {
+            wake: {
+              ...wake,
+              messageId: MessageId.make(`${pullRequestWatchWakePrefix(target.link)}${uuid}`),
+            },
+          }),
     });
   });
 
