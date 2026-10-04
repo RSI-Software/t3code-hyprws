@@ -119,6 +119,7 @@ import {
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
+import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
 import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
 import {
@@ -2319,6 +2320,48 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  // A wake queued behind a busy turn would report on a watch that has since ended, often on a
+  // pull request that merged meanwhile. A watch's own last wake is queued after this runs.
+  const cancelEndedWatchWakes = Effect.fn("orchestrationV2.dispatch.cancelEndedWatchWakes")(
+    function* (
+      command: OrchestrationV2ServerCommand,
+      thread: OrchestrationV2AppThread,
+      updatedThread: OrchestrationV2AppThread,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      const next = threadPullRequestsOf(updatedThread);
+      const prefixes = threadPullRequestsOf(thread)
+        .filter(
+          (link) =>
+            link.watch !== undefined &&
+            next.find((candidate) => threadPullRequestKeysEqual(candidate, link))?.watch ===
+              undefined,
+        )
+        .map(pullRequestWatchWakePrefix);
+      if (prefixes.length === 0) return;
+      const { runs } = yield* projectionStore
+        .getThreadRecords(thread.id, ["runs"])
+        .pipe(mapDispatchError(command));
+      for (const run of runs) {
+        if (
+          run.status !== "queued" ||
+          !prefixes.some((prefix) => run.userMessageId.startsWith(prefix))
+        ) {
+          continue;
+        }
+        yield* dispatchQueuedRunCancel(
+          {
+            type: "queued-run.cancel",
+            commandId: command.commandId,
+            threadId: thread.id,
+            runId: run.id,
+          },
+          events,
+        );
+      }
+    },
+  );
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
@@ -3176,6 +3219,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "regenerate",
         }),
       ]);
+    }
+
+    if (
+      command.type === "thread.pull-request.unlink" ||
+      command.type === "thread.pull-request.watch" ||
+      command.type === "thread.pull-request-watch.sync"
+    ) {
+      yield* cancelEndedWatchWakes(command, thread, updatedThread, events);
     }
 
     if (command.type === "thread.archive") {
