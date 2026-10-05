@@ -54,6 +54,7 @@ export * from "./threadTags.ts";
 export * from "./threadTitle.ts";
 export * from "./threadIssues.fork.ts"; // fork-hook: github-issues/thread-issues-reexport
 export * from "./desktopWindow.fork.ts"; // fork-hook: multi-window/contracts-reexport
+export * from "./externalMcpSettlement.fork.ts"; // fork-hook: device-auth/external-settlement-export
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
