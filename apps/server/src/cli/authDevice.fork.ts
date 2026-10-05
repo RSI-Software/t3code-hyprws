@@ -1,4 +1,10 @@
-import { AuthAdministrativeScopes, type AuthEnvironmentScope } from "@t3tools/contracts";
+import {
+  AuthAdministrativeScopes,
+  type AuthEnvironmentScope,
+  ProjectId,
+  ProviderInteractionMode,
+  RuntimeMode,
+} from "@t3tools/contracts";
 import { parseAllowedOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Console from "effect/Console";
 import * as Duration from "effect/Duration";
@@ -9,6 +15,7 @@ import * as References from "effect/References";
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import * as DeviceAuthorization from "../auth/DeviceAuthorization.fork.ts";
+import type * as ExternalMcpGrant from "../auth/ExternalMcpGrant.fork.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import {
@@ -107,6 +114,45 @@ const deviceListCommand = Command.make("list", {
   ),
 );
 
+/**
+ * Builds the external MCP policy from the approve flags: `undefined` when no
+ * MCP flag is set, a message when they do not form a policy.
+ */
+export const externalMcpPolicyFromFlags = (flags: {
+  readonly mcpProject: ReadonlyArray<string>;
+  readonly mcpAllProjects: boolean;
+  readonly mcpCoordinate: boolean;
+  readonly mcpMaxRuntimeMode: Option.Option<RuntimeMode>;
+  readonly mcpMaxInteractionMode: Option.Option<ProviderInteractionMode>;
+  readonly scope: Option.Option<string>;
+}): ExternalMcpGrant.ExternalMcpPolicy | string | undefined => {
+  const anyMcpFlag =
+    flags.mcpProject.length > 0 ||
+    flags.mcpAllProjects ||
+    flags.mcpCoordinate ||
+    Option.isSome(flags.mcpMaxRuntimeMode) ||
+    Option.isSome(flags.mcpMaxInteractionMode);
+  if (!anyMcpFlag) return undefined;
+  if (Option.isSome(flags.scope)) {
+    return "An external MCP grant carries no scopes; drop --scope.";
+  }
+  if (flags.mcpAllProjects === flags.mcpProject.length > 0) {
+    return "Name the reachable projects with --mcp-project <id>, or pass --mcp-all-projects.";
+  }
+  return {
+    projectIds: flags.mcpAllProjects ? "*" : flags.mcpProject.map((id) => ProjectId.make(id)),
+    coordinate: flags.mcpCoordinate,
+    maxRuntimeMode: Option.getOrElse(flags.mcpMaxRuntimeMode, () => "approval-required" as const),
+    maxInteractionMode: Option.getOrElse(flags.mcpMaxInteractionMode, () => "plan" as const),
+  };
+};
+
+const formatMcpPolicy = (policy: ExternalMcpGrant.ExternalMcpPolicy) => [
+  `External MCP projects: ${policy.projectIds === "*" ? "all" : policy.projectIds.join(" ")}`,
+  `External MCP coordination: ${policy.coordinate ? "create, send, interrupt" : "read only"}`,
+  `External MCP ceilings: runtime ${policy.maxRuntimeMode}, interaction ${policy.maxInteractionMode}`,
+];
+
 const deviceApproveCommand = Command.make("approve", {
   ...authLocationFlags,
   userCode: userCodeArgument,
@@ -121,6 +167,37 @@ const deviceApproveCommand = Command.make("approve", {
     ),
     Flag.optional,
   ),
+  mcpProject: Flag.String("mcp-project").pipe(
+    Flag.withDescription(
+      "Grant an external MCP client instead of environment scopes, reaching this project. Repeat for more.",
+    ),
+    Flag.atLeast(0),
+  ),
+  mcpAllProjects: Flag.Boolean("mcp-all-projects").pipe(
+    Flag.withDescription("Grant an external MCP client reaching every project."),
+    Flag.withDefault(false),
+  ),
+  mcpCoordinate: Flag.Boolean("mcp-coordinate").pipe(
+    Flag.withDescription(
+      "Let the external MCP client create, send to, and interrupt threads. Default read only.",
+    ),
+    Flag.withDefault(false),
+  ),
+  mcpMaxRuntimeMode: Flag.Literals("mcp-max-runtime-mode", RuntimeMode.literals).pipe(
+    Flag.withDescription(
+      "Highest runtime mode an external MCP client's threads may use. Default approval-required.",
+    ),
+    Flag.optional,
+  ),
+  mcpMaxInteractionMode: Flag.Literals(
+    "mcp-max-interaction-mode",
+    ProviderInteractionMode.literals,
+  ).pipe(
+    Flag.withDescription(
+      "Highest interaction mode an external MCP client's threads may use. Default plan.",
+    ),
+    Flag.optional,
+  ),
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
@@ -131,6 +208,8 @@ const deviceApproveCommand = Command.make("approve", {
       flags,
       (store) =>
         Effect.gen(function* () {
+          const mcpPolicy = externalMcpPolicyFromFlags(flags);
+          if (typeof mcpPolicy === "string") return yield* Console.log(`${mcpPolicy}\n`);
           const scopes = Option.map(flags.scope, (value) =>
             parseAllowedOAuthScope({ value, allowedScopes: ENVIRONMENT_SCOPES }),
           );
@@ -144,13 +223,21 @@ const deviceApproveCommand = Command.make("approve", {
               userCode: flags.userCode,
               ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
               ...(Option.isSome(scopes) && scopes.value ? { scopes: scopes.value } : {}),
+              ...(mcpPolicy ? { mcpPolicy } : {}),
             })
             .pipe(
-              Effect.catchTag("DeviceAuthorizationScopeError", (error) =>
-                Console.log(
-                  `The client did not request that scope. Grantable: ${error.allowedScopes.join(" ")}\n`,
-                ).pipe(Effect.as(undefined)),
-              ),
+              Effect.catchTags({
+                DeviceAuthorizationScopeError: (error) =>
+                  Console.log(
+                    `The client did not request that scope. Grantable: ${error.allowedScopes.join(" ")}\n`,
+                  ).pipe(Effect.as(undefined)),
+                DeviceAuthorizationMcpPolicyError: (error) =>
+                  Console.log(
+                    error.reason === "unbound-request"
+                      ? "An external MCP grant needs a DPoP-bound request; this client sent no proof key.\n"
+                      : "An external MCP grant carries no scopes; drop --scope.\n",
+                  ).pipe(Effect.as(undefined)),
+              }),
             );
           if (approved === undefined) return;
           if (Option.isNone(approved)) {
@@ -167,10 +254,12 @@ const deviceApproveCommand = Command.make("approve", {
                   scopes: value.scopes,
                   ttlMs: Duration.toMillis(value.ttl),
                   proofKeyThumbprint: value.proofKeyThumbprint,
+                  mcpPolicy: value.mcpPolicy,
                 })
               : [
                   `Approved ${value.userCode} for ${quoted(value.client.label)}.`,
-                  `Scopes: ${value.scopes.join(" ")}`,
+                  `Scopes: ${value.scopes.join(" ") || "none"}`,
+                  ...(value.mcpPolicy ? formatMcpPolicy(value.mcpPolicy) : []),
                   `Lifetime: ${Duration.format(value.ttl)} from the client's next poll`,
                   `Key thumbprint: ${value.proofKeyThumbprint ?? "none (bearer)"}`,
                   "Revoke later with `t3 auth session list` and `t3 auth session revoke <id>`.",
