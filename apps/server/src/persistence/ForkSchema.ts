@@ -17,6 +17,8 @@ const FORK_COLUMNS: ReadonlyArray<{
 }> = [
   // The external MCP policy an owner attached to a device approval.
   { table: "auth_device_authorizations", column: "mcp_policy_json", definition: "TEXT" },
+  // The run an external MCP interrupt committed to, read back by its retry.
+  { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
 ];
 
 /**
@@ -68,14 +70,12 @@ const FORK_TABLES = [
     created_at TEXT NOT NULL
   )`,
   // External MCP retry keys: each binds one request's fingerprint to the
-  // target it committed to and the result it produced, so a retry replays it
-  // instead of acting again.
+  // result it produced, so a retry replays it instead of acting again.
   `CREATE TABLE IF NOT EXISTS auth_external_mcp_requests (
     session_id TEXT NOT NULL,
     operation TEXT NOT NULL,
     client_request_id TEXT NOT NULL,
     request_hash TEXT NOT NULL,
-    pinned_target TEXT,
     result_json TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (session_id, operation, client_request_id)
