@@ -26,7 +26,7 @@ import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { ENVIRONMENT_RECONNECT_WARNING_GRACE_MS } from "../ChatView.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
-import { ServerUpdateAction, serverUpdateStageLabel } from "../ServerUpdateAction";
+import { ServerUpdateAction, ServerUpdateDetail, serverUpdateVerb } from "../ServerUpdateAction"; // fork-hook: upstream-fixes/server-update-completed-banner
 import { useAutoBalanceUpdateBanner } from "./useAutoBalanceUpdateBanner";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 import {
@@ -246,42 +246,33 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       !serverUpdateFailureDismissed
     ) {
       const updateFailed = serverUpdateState.status === "failed";
+      const updateSettled = updateFailed || serverUpdateState.status === "completed"; // fork-hook: upstream-fixes/server-update-completed-dismiss
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
         group: "environment",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
-        title:
-          versionMismatchServerName !== null
-            ? updateFailed
-              ? gt("Could not update {environment} server", {
-                  environment: versionMismatchServerName,
-                })
-              : gt("Updating {environment} server", { environment: versionMismatchServerName })
-            : updateFailed
-              ? gt("Could not update server")
-              : gt("Updating server"),
-        description:
-          serverUpdateState.status === "failed"
-            ? serverUpdateState.message
-            : serverUpdateStageLabel(serverUpdateState.stage, messages),
-        actions: !updateFailed ? (
-          disconnectAction
-        ) : !versionMismatch ||
-          (versionMismatchSelfUpdate === "desktop-managed" &&
-            !versionMismatchDesktopAppUpdate) ? undefined : (
-          <ServerUpdateAction
-            environmentId={serverUpdateEnvironmentId}
-            serverLabel={versionMismatchServerLabel}
-            selfUpdate={versionMismatchSelfUpdate}
-            installation={versionMismatchInstallation}
-            desktopAppUpdate={versionMismatchDesktopAppUpdate}
-            targetVersion={versionMismatch.clientVersion}
-            label={gt("Retry", { $context: "verb, retries the server update" })}
-            variant="ghost"
-          />
-        ),
-        ...(updateFailed
+        title: `${serverUpdateVerb(serverUpdateState.status)} ${versionMismatchServerLabel}`, // fork-hook: upstream-fixes/server-update-completed-banner
+        description: <ServerUpdateDetail state={serverUpdateState} />, // fork-hook: upstream-fixes/server-update-completed-banner
+        actions:
+          serverUpdateState.status === "running" ? ( // fork-hook: upstream-fixes/server-update-completed-actions
+            disconnectAction
+          ) : serverUpdateState.status === "completed" || // fork-hook: upstream-fixes/server-update-completed-actions
+            !versionMismatch ||
+            (versionMismatchSelfUpdate === "desktop-managed" &&
+              !versionMismatchDesktopAppUpdate) ? undefined : (
+            <ServerUpdateAction
+              environmentId={serverUpdateEnvironmentId}
+              serverLabel={versionMismatchServerLabel}
+              selfUpdate={versionMismatchSelfUpdate}
+              installation={versionMismatchInstallation}
+              desktopAppUpdate={versionMismatchDesktopAppUpdate}
+              targetVersion={versionMismatch.clientVersion}
+              label={gt("Retry", { $context: "verb, retries the server update" })}
+              variant="ghost"
+            />
+          ),
+        ...(updateSettled // fork-hook: upstream-fixes/server-update-completed-dismiss
           ? {
               dismissLabel: gt("Dismiss update notice"),
               onDismiss: () => {
