@@ -18,6 +18,7 @@ import {
   SERVICE_LAUNCHER_PROTOCOL,
   type SupportedLauncherProtocol,
 } from "./serviceProtocol.ts";
+import { serviceMigrationPreflightFork } from "./serviceMigrationPreflight.fork.ts"; // fork-hook: upstream-fixes/migration-preflight
 
 // A staged runtime's cold start can take over a minute on a loaded, swapping host.
 const PREFLIGHT_TIMEOUT = Duration.minutes(3);
@@ -29,6 +30,7 @@ export type ServicePreflightResult =
       readonly version: string;
       /** The launcher protocol the server named; it accepts no other in reply. */
       readonly launcherProtocol: SupportedLauncherProtocol;
+      readonly pendingMigrationsFork?: boolean; // fork-hook: upstream-fixes/migration-preflight
     }
   | {
       readonly status: "blocked";
@@ -89,7 +91,12 @@ export function runServicePreflight(input: {
     };
   }
 
-  return { status: "ready", version, launcherProtocol };
+  return {
+    status: "ready",
+    version,
+    launcherProtocol,
+    ...serviceMigrationPreflightFork(input.databasePath),
+  }; // fork-hook: upstream-fixes/migration-preflight
 }
 
 function decodeServicePreflightResult(
@@ -105,7 +112,14 @@ function decodeServicePreflightResult(
     record.launcherProtocol === launcherProtocol &&
     typeof record.version === "string"
   ) {
-    return { status: "ready", version: record.version, launcherProtocol };
+    return {
+      status: "ready",
+      version: record.version,
+      launcherProtocol,
+      ...(typeof record.pendingMigrationsFork === "boolean"
+        ? { pendingMigrationsFork: record.pendingMigrationsFork }
+        : {}),
+    }; // fork-hook: upstream-fixes/migration-backup-label
   }
   if (
     record.status === "blocked" &&
