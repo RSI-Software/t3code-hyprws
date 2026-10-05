@@ -39,6 +39,7 @@ import {
   type ProviderSessionId,
   resolveProjectProviderInstanceEnabled,
   RunId,
+  type RunAttemptId, // fork-hook: device-auth/send-steer-attempt-type
   type ScheduledTaskId,
   ThreadId,
   type TurnItemId,
@@ -70,6 +71,11 @@ import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimi
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import {
+  type ExpectedModesFork,
+  pinSteerTargetFork,
+  sendGuardFieldsFork,
+} from "./steerTarget.fork.ts"; // fork-hook: device-auth/send-steer-target-import
 import { ThreadWorktreeRestore } from "../workspace/restoreMissingWorktree.ts";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
@@ -157,6 +163,8 @@ export interface ThreadManagementSendInput {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
+  readonly steerTarget?: RunAttemptId | null; // fork-hook: device-auth/send-steer-target-input
+  readonly expectedModes?: ExpectedModesFork; // fork-hook: device-auth/send-expected-modes-input
   /** Start a new provider session; the orchestrator queues it instead of steering. */
   readonly freshContext?: boolean;
   readonly createdBy: OrchestrationV2Actor;
@@ -904,6 +912,12 @@ const make = Effect.gen(function* () {
         type: mode === "queue" ? "queue_after_active" : "start_immediately",
       };
     }
+    dispatchMode = yield* pinSteerTargetFork(
+      input,
+      target.runs,
+      dispatchMode,
+      (mode) => new ThreadManagementNoSteerableRunError({ threadId: input.threadId, mode }),
+    ); // fork-hook: device-auth/send-steer-target
 
     // Turn start would fail on its own after the send reported success; a replay keeps its answer.
     // A live steer and a receipt replay without a target turn need no workspace.
@@ -939,6 +953,7 @@ const make = Effect.gen(function* () {
       ...(input.freshContext ? { freshContext: true } : {}),
       dispatchMode,
       ...(mode === "auto" ? { deliveryIntent: "auto" } : {}),
+      ...sendGuardFieldsFork(input), // fork-hook: device-auth/send-steer-attempt
       createdBy: input.createdBy,
       creationSource: input.creationSource,
     });
