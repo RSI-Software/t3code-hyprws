@@ -113,6 +113,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
+import * as ExternalMcpServer from "./mcp/external/ExternalMcpServer.fork.ts"; // fork-hook: device-auth/server-external-mcp-import
 import * as DeviceAuthorizationRoutes from "./auth/DeviceAuthorization.fork.ts"; // fork-hook: device-auth/server-routes-import
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
@@ -873,6 +874,9 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
+    ExternalMcpServer.routeLayer.pipe(
+      Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
+    ), // fork-hook: device-auth/server-external-mcp
     DeviceAuthorizationRoutes.routeLayer, // fork-hook: device-auth/server-routes
     speechStreamRouteLayer,
   ),
