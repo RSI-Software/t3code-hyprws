@@ -15,6 +15,7 @@ import { managedUpdatesDenial } from "@t3tools/client-runtime/contract-labels";
 import { sessionPermissionsUnavailableMessage } from "@t3tools/shared/authScopeOptions";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
+import { serverUpdateRestartLabelFork } from "@t3tools/client-runtime/state/server-update-backup"; // fork-hook: upstream-fixes/migration-backup-label
 import { AsyncResult } from "effect/reactivity";
 import { useRef, useState } from "react";
 import { View } from "react-native";
@@ -274,7 +275,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                     {running ? (
                       <Text className="text-sm text-foreground-muted">
                         {updateState.stage === "resuming"
-                          ? gt("Restarting and reconnecting…")
+                          ? serverUpdateRestartLabelFork(
+                              updateState,
+                              "Restarting and reconnecting…",
+                            ) // fork-hook: upstream-fixes/migration-backup-label
                           : gt("Downloading update…")}
                       </Text>
                     ) : updateState.status === "failed" ? (
