@@ -17,7 +17,7 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
-  RunId,
+  RunAttemptId,
   type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
@@ -85,6 +85,12 @@ const makeAdapter = () => {
   const steered: Array<string> = [];
   const finishers = new Map<ThreadId, Effect.Effect<void>>();
   let held: Deferred.Deferred<void> | undefined;
+  const steerSignals = new Map<string, Deferred.Deferred<void>>();
+  const steerSignal = (text: string) => {
+    const signal = steerSignals.get(text) ?? Deferred.makeUnsafe<void>();
+    steerSignals.set(text, signal);
+    return signal;
+  };
   const adapter: ProviderAdapterV2Shape = {
     instanceId,
     driver,
@@ -181,7 +187,7 @@ const makeAdapter = () => {
               started.push(turn.message.text);
               const at = yield* DateTime.now;
               const providerTurnId = ProviderTurnId.make(
-                `provider-turn:${turn.threadId}:${turn.runOrdinal}`,
+                `provider-turn:${turn.threadId}:${turn.runOrdinal}:${turn.attemptId}`,
               );
               turnInputs.set(providerTurnId, turn);
               finishers.set(turn.threadId, finish(providerTurnId, "completed"));
@@ -204,8 +210,9 @@ const makeAdapter = () => {
               ]);
             }),
           steerTurn: (steer) =>
-            Effect.sync(() => {
+            Effect.suspend(() => {
               steered.push(steer.message.text);
+              return Deferred.succeed(steerSignal(steer.message.text), undefined);
             }),
           interruptTurn: ({ providerTurnId }) => finish(providerTurnId, "interrupted"),
           respondToRuntimeRequest: () => Effect.void,
@@ -230,7 +237,9 @@ const makeAdapter = () => {
       });
     }),
   );
-  return { adapter, started, steered, complete, holdStarts };
+  /** Waits until the provider has received the steer carrying `text`. */
+  const steerReached = (text: string) => Deferred.await(steerSignal(text));
+  return { adapter, started, steered, complete, holdStarts, steerReached };
 };
 
 const waitForProjection = (
@@ -642,13 +651,14 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
     ),
   );
 
-  it.live("joins only the run its caller vetted", () =>
+  it.live("joins only the attempt its caller vetted, even after a restart", () =>
     harness("external-mcp-steer-target", ({ orchestrator, threadManagement, provider }) =>
       Effect.gen(function* () {
         const threadId = ThreadId.make("thread:owner-target");
         yield* startElevated(orchestrator, threadId);
         const running = yield* waitForProjection(orchestrator, threadId, hasRun("running"));
-        const send = (key: string, mode: "auto" | "steer", steerTarget: RunId | null) =>
+        const vetted = running.runs[0]!.activeAttemptId!;
+        const send = (key: string, mode: "auto" | "steer", steerTarget: RunAttemptId | null) =>
           threadManagement.sendToThread({
             projectId,
             commandId: CommandId.make(`command:target:${key}`),
@@ -662,13 +672,66 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
             creationSource: "mcp",
           });
 
-        // A caller that saw no run, or another run, never joins this one.
+        // A caller that saw no attempt, or another one, never joins this one.
         assert.equal((yield* send("none", "auto", null)).delivery, "queued");
-        const stale = yield* send("stale", "steer", RunId.make("run:stale")).pipe(Effect.flip);
+        const stale = yield* send("stale", "steer", RunAttemptId.make("attempt:stale")).pipe(
+          Effect.flip,
+        );
         assert.equal(stale._tag, "ThreadManagementNoSteerableRunError");
         assert.deepEqual(provider.steered, []);
-        assert.equal((yield* send("vetted", "auto", running.runs[0]!.id)).delivery, "steered");
+        assert.equal((yield* send("vetted", "auto", vetted)).delivery, "steered");
+        yield* provider.steerReached("vetted");
         assert.deepEqual(provider.steered, ["vetted"]);
+
+        // The owner restarts the run: same run id, new attempt.
+        const runId = running.runs[0]!.id;
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("command:owner:restart"),
+          threadId,
+          messageId: MessageId.make("message:owner:restart"),
+          text: "restart",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "restart_active", targetRunId: runId },
+        });
+        const restarted = yield* waitForProjection(orchestrator, threadId, (projection) => {
+          const attempt = projection.runs[0]?.activeAttemptId;
+          return (
+            attempt !== vetted &&
+            projection.providerTurns.some(
+              (turn) => turn.runAttemptId === attempt && turn.status === "running",
+            )
+          );
+        });
+        assert.equal(restarted.runs[0]?.id, runId);
+        assert.equal((yield* send("after-restart", "auto", vetted)).delivery, "queued");
+        const refused = yield* send("restart-steer", "steer", vetted).pipe(Effect.flip);
+        assert.equal(refused._tag, "ThreadManagementNoSteerableRunError");
+        // Dispatch itself refuses the old pin, so a send that vetted before the
+        // restart cannot join the replacement attempt.
+        const late = yield* orchestrator
+          .dispatch({
+            type: "message.dispatch",
+            createdBy: "agent",
+            creationSource: "mcp",
+            commandId: CommandId.make("command:target:late"),
+            threadId,
+            messageId: MessageId.make("message:target:late"),
+            text: "late",
+            attachments: [],
+            dispatchMode: { type: "steer_active", targetRunId: runId },
+            steerAttemptId: vetted,
+          })
+          .pipe(Effect.flip);
+        assert.equal(late._tag, "OrchestratorDispatchError");
+        assert.deepEqual(provider.steered, ["vetted"]);
+        const current = restarted.runs[0]!.activeAttemptId!;
+        assert.equal((yield* send("current", "auto", current)).delivery, "steered");
+        yield* provider.steerReached("current");
+        assert.deepEqual(provider.steered, ["vetted", "current"]);
       }),
     ),
   );

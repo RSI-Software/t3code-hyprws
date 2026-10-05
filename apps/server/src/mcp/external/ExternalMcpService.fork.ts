@@ -26,6 +26,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
   type ProjectId,
+  RunAttemptId,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -662,16 +663,30 @@ const make = Effect.gen(function* () {
               yield* requireWithinCeiling(principal, target.thread);
               // Steering joins a running turn, so a capped credential is held to
               // turns requested under the thread's current modes; `auto` queues
-              // instead. The vetted run is the only one the send may join, and
-              // dispatch refuses it once another run is active.
+              // instead. The send may join only the attempt vetted here, whose
+              // modes its running provider turn fixed. Dispatch refuses that pin
+              // under the thread lock once the run moves to another attempt.
               const capped =
                 principal.policy.maxRuntimeMode !== "full-access" ||
                 principal.policy.maxInteractionMode !== "default";
               let delivery = mode;
-              let steerTarget: RunId | null | undefined;
+              let steerTarget: RunAttemptId | null | undefined;
               if (capped && (mode === "steer" || mode === "auto")) {
                 const run = ThreadManagementService.latestActiveRun(target);
-                steerTarget = run?.id ?? null;
+                const { providerTurns } = yield* threadManagement
+                  .getProjectThreadRecords(
+                    { projectId: target.thread.projectId, threadId: input.threadId },
+                    ["providerTurns"],
+                  )
+                  .pipe(Effect.mapError(threadManagementFailureFork));
+                steerTarget =
+                  run?.activeAttemptId != null &&
+                  providerTurns.some(
+                    (turn) =>
+                      turn.runAttemptId === run.activeAttemptId && turn.status === "running",
+                  )
+                    ? run.activeAttemptId
+                    : null;
                 if (run !== undefined && (yield* modesChangedSince(input.threadId, run))) {
                   if (mode === "steer") {
                     return yield* failure(

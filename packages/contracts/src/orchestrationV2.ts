@@ -2731,6 +2731,7 @@ export const OrchestrationV2Command = Schema.Union([
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
     /** Resolve untargeted delivery against the server's serialized thread state. */
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),
+    steerAttemptId: Schema.optional(RunAttemptId), // fork-hook: device-auth/message-dispatch-steer-attempt
     delegatedCompletion: Schema.optional(
       Schema.Struct({
         parentRunId: RunId,
