@@ -690,10 +690,12 @@ The domain retires when it is empty.
 
 ### Rebase scan
 
-| Path                           | Why it matters                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `native/libghostty-vt/VERSION` | Moved: rebuild `ghostty-sprite.wasm`; Ghostty `76e568b` or later needs a `global.zig` stub and Zig 0.16 |
-| `**`                           | Other shared paths                                                                                      |
+| Path                                  | Why it matters                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `native/libghostty-vt/VERSION`        | Moved: rebuild `ghostty-sprite.wasm`; Ghostty `76e568b` or later needs a `global.zig` stub and Zig 0.16                |
+| `apps/server/src/cloud/selfUpdate.ts` | Launcher repoint runs after the handoff is accepted; retire once a client update repoints `install.sh`'s `t3` upstream |
+| `apps/server/src/cli/update.ts`       | `repointLauncher` and its ownership rule are reused, not copied                                                        |
+| `**`                                  | Other shared paths                                                                                                     |
 
 ## zmux-estate
 
