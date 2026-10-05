@@ -488,7 +488,23 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
           clientRequestId: "create",
         });
         assert.equal(recreated.runId, created.runId);
-        assert.deepEqual(provider.started, ["first", "second", "third"]);
+
+        // An interrupt that found no active run keeps that answer.
+        const idle = { threadId, clientRequestId: "idle" } as const;
+        const none = { threadId, runId: null, status: "no_active_run" } as const;
+        assert.deepEqual(yield* service.interruptThread(principal, idle), none);
+        yield* loseResults;
+        const fourth = yield* service.sendToThread(principal, {
+          threadId,
+          message: "fourth",
+          clientRequestId: "fourth",
+        });
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        assert.deepEqual(yield* service.interruptThread(principal, idle), none);
+        const latest = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(latest.runs.at(-1)?.id, fourth.runId);
+        assert.equal(latest.runs.at(-1)?.status, "running");
+        assert.deepEqual(provider.started, ["first", "second", "third", "fourth"]);
       }),
     ),
   );

@@ -67,6 +67,8 @@ const DEFAULT_THREAD_ITEM_MAX_CHARS = 20_000;
 // stays well under common proxy and client timeouts.
 const DEFAULT_WAIT_TIMEOUT_MS = 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
+// An interrupt pin recording that no run was active; no run id is empty.
+const NO_ACTIVE_RUN_PIN = "";
 
 /** The authenticated external client one `/api/mcp/external` request acts for. */
 export interface ExternalMcpPrincipal {
@@ -725,13 +727,20 @@ const make = Effect.gen(function* () {
           (pin) =>
             Effect.gen(function* () {
               const target = yield* loadThread(principal, input.threadId);
-              // The run an earlier attempt committed to stays the target, so a
-              // retry never reaches a run that started after it.
-              let runId = pin.recorded === null ? input.runId : RunId.make(pin.recorded);
+              // The run an earlier attempt committed to, or its finding that
+              // none was active, stays the answer, so a retry never reaches a
+              // run that started after it.
+              let runId =
+                pin.recorded === null || pin.recorded === NO_ACTIVE_RUN_PIN
+                  ? input.runId
+                  : RunId.make(pin.recorded);
               if (pin.recorded === null) {
                 yield* requireWithinCeiling(principal, target.thread);
                 runId ??= ThreadManagementService.latestActiveRun(target)?.id;
-                if (runId !== undefined) yield* pin.record(runId);
+                yield* pin.record(runId ?? NO_ACTIVE_RUN_PIN);
+              }
+              if (runId === undefined) {
+                return { threadId: input.threadId, runId: null, status: "no_active_run" } as const;
               }
               yield* audit(principal, "thread.interrupt", { threadId: input.threadId, runId });
               const result = yield* threadManagement
@@ -741,7 +750,7 @@ const make = Effect.gen(function* () {
                     `command:${stableId(principal, "interrupt", input.clientRequestId)}`,
                   ),
                   threadId: input.threadId,
-                  ...(runId === undefined ? {} : { runId }),
+                  runId,
                   ...(input.reason === undefined ? {} : { reason: input.reason }),
                 })
                 .pipe(Effect.mapError(threadManagementFailureFork));
