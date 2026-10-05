@@ -9,6 +9,7 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationProjectShell,
+  type OrchestrationV2ServerCommand,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ThreadProjection,
@@ -270,6 +271,11 @@ const harness = <A, E>(
     readonly provider: ReturnType<typeof makeAdapter>;
     /** Forgets every recorded result, as a crash after each commit would. */
     readonly loseResults: Effect.Effect<void>;
+    /** Runs `step` once, just before the service's next matching command reaches the orchestrator. */
+    readonly interleave: (
+      matches: (command: OrchestrationV2ServerCommand) => boolean,
+      step: Effect.Effect<void>,
+    ) => void;
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.scoped(
@@ -299,10 +305,37 @@ const harness = <A, E>(
         workspaceRoot: cwd,
         defaultModelSelection: modelSelection,
       } as unknown as OrchestrationProjectShell;
+      let pending:
+        | {
+            readonly matches: (command: OrchestrationV2ServerCommand) => boolean;
+            readonly step: Effect.Effect<void>;
+          }
+        | undefined;
+      const interleave = (
+        matches: (command: OrchestrationV2ServerCommand) => boolean,
+        step: Effect.Effect<void>,
+      ) => {
+        pending = { matches, step };
+      };
+      const threadManagementLayer = Layer.effect(
+        ThreadManagementService.ThreadManagementService,
+        Effect.gen(function* () {
+          const inner = yield* ThreadManagementService.ThreadManagementService;
+          return {
+            ...inner,
+            dispatch: (command: OrchestrationV2ServerCommand) =>
+              Effect.suspend(() => {
+                const due = pending?.matches(command) ? pending : undefined;
+                if (due !== undefined) pending = undefined;
+                return due === undefined ? Effect.void : due.step;
+              }).pipe(Effect.andThen(inner.dispatch(command))),
+          };
+        }),
+      ).pipe(Layer.provide(ThreadManagementService.layer), Layer.provide(orchestratorLayer));
       const layer = Layer.merge(
         orchestratorLayer,
         ExternalMcpService.layer.pipe(
-          Layer.provideMerge(ThreadManagementService.layer.pipe(Layer.provide(orchestratorLayer))),
+          Layer.provideMerge(threadManagementLayer),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               getShell: () => Effect.succeed(Option.some(shell)),
@@ -328,6 +361,7 @@ const harness = <A, E>(
           threadManagement,
           provider: fake,
           loseResults,
+          interleave,
         });
       }).pipe(Effect.provide(layer));
     }),
@@ -400,6 +434,48 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         const projection = yield* orchestrator.getThreadProjection(lost);
         assert.equal(projection.runs.length, 0);
         assert.equal((yield* orchestrator.getThreadProjection(created.threadId)).runs.length, 0);
+        assert.deepEqual(provider.started, []);
+      }),
+    ),
+  );
+
+  it.live("never starts a created thread's prompt once the owner raised it mid-create", () =>
+    harness("external-mcp-create-race", ({ service, orchestrator, provider, interleave }) =>
+      Effect.gen(function* () {
+        // The owner's raise wins the thread lock after the service vetted the
+        // new thread and before its prompt commits.
+        interleave(
+          (command) => command.type === "message.dispatch",
+          Effect.gen(function* () {
+            const threadId = ThreadId.make("thread:mcp-external:session-external:create:race");
+            yield* orchestrator.dispatch({
+              type: "thread.runtime-mode.set",
+              commandId: CommandId.make("command:owner:raise-race"),
+              threadId,
+              runtimeMode: "full-access",
+            });
+            yield* waitForProjection(
+              orchestrator,
+              threadId,
+              (projection) => projection.thread.runtimeMode === "full-access",
+            );
+          }).pipe(Effect.orDie),
+        );
+        const raced = yield* service
+          .createThread(principal, { projectId, prompt: "go", clientRequestId: "race" })
+          .pipe(Effect.flip);
+        assert.equal(raced.code, "orchestration_error");
+        const projection = yield* orchestrator.getThreadProjection(
+          ThreadId.make("thread:mcp-external:session-external:create:race"),
+        );
+        assert.equal(projection.thread.runtimeMode, "full-access");
+        assert.equal(projection.runs.length, 0);
+        assert.deepEqual(provider.started, []);
+        // A retry vets the raised thread and refuses it outright.
+        const retried = yield* service
+          .createThread(principal, { projectId, prompt: "go", clientRequestId: "race" })
+          .pipe(Effect.flip);
+        assert.equal(retried.code, "runtime_mode_escalation_denied");
         assert.deepEqual(provider.started, []);
       }),
     ),

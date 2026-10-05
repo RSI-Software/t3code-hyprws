@@ -23,6 +23,7 @@ import {
   type OrchestratorMcpThreadReadResult,
   OrchestratorMcpThreadSendResult,
   type OrchestratorMcpThreadWaitResult,
+  type OrchestrationV2AppThread,
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
   type ProjectId,
@@ -213,6 +214,28 @@ const requireWithinCeiling = (
       ),
     ),
   });
+
+/** Whether the grant caps either mode below the owner's own. */
+const isCapped = (principal: ExternalMcpPrincipal) =>
+  principal.policy.maxRuntimeMode !== "full-access" ||
+  principal.policy.maxInteractionMode !== "default";
+
+/**
+ * Holds a thread to the grant's ceilings before a message reaches it. A capped
+ * grant also gets the vetted modes, which its `message.dispatch` carries so the
+ * orchestrator refuses it under the thread lock once the owner changed them.
+ */
+const vetThreadModes = (
+  principal: ExternalMcpPrincipal,
+  thread: Pick<OrchestrationV2AppThread, "runtimeMode" | "interactionMode">,
+) =>
+  requireWithinCeiling(principal, thread).pipe(
+    Effect.as(
+      isCapped(principal)
+        ? { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode }
+        : undefined,
+    ),
+  );
 
 /** How a delivered message reached its run, read the way `sendToThread` reports it. */
 const deliveryOf = (
@@ -565,7 +588,8 @@ const make = Effect.gen(function* () {
               // An earlier attempt may have created the thread, or also sent its
               // prompt, and the owner may have changed it since: a sent prompt
               // is reported, and an unsent one goes only to a thread that still
-              // sits in this project and under the grant's ceilings.
+              // sits in this project and under the grant's ceilings when the
+              // prompt commits.
               const actual = yield* loadThread(principal, threadId);
               if (actual.thread.projectId !== input.projectId) {
                 return yield* threadUnavailable(threadId);
@@ -575,8 +599,8 @@ const make = Effect.gen(function* () {
                 input.prompt === undefined
                   ? null
                   : yield* dispatchedMessage(input.projectId, threadId, promptId);
-              if (sent === null) yield* requireWithinCeiling(principal, actual.thread);
               if (input.prompt !== undefined && sent === null) {
+                const expectedModes = yield* vetThreadModes(principal, actual.thread);
                 yield* threadManagement
                   .dispatch({
                     type: "message.dispatch",
@@ -591,6 +615,7 @@ const make = Effect.gen(function* () {
                     attachments: [],
                     modelSelection,
                     dispatchMode: { type: "start_immediately" },
+                    ...(expectedModes === undefined ? {} : { expectedModes }),
                   })
                   .pipe(
                     Effect.mapError((error) =>
@@ -660,7 +685,7 @@ const make = Effect.gen(function* () {
                   delivery: deliveryOf(sent.turnItem, mode),
                 } satisfies OrchestratorMcpThreadSendResult;
               }
-              yield* requireWithinCeiling(principal, target.thread);
+              const expectedModes = yield* vetThreadModes(principal, target.thread);
               // Steering joins a running turn, so a capped credential is held to
               // turns requested under the thread's current modes; `auto` queues
               // instead. The send may join only the attempt vetted here, whose
@@ -668,9 +693,7 @@ const make = Effect.gen(function* () {
               // under the thread lock once the run moves to another attempt or
               // the modes vetted above change before it commits. Modes the owner
               // sets after that govern later turns, as for any queued message.
-              const capped =
-                principal.policy.maxRuntimeMode !== "full-access" ||
-                principal.policy.maxInteractionMode !== "default";
+              const capped = isCapped(principal);
               let delivery = mode;
               let steerTarget: RunAttemptId | null | undefined;
               if (capped && (mode === "steer" || mode === "auto")) {
@@ -712,14 +735,7 @@ const make = Effect.gen(function* () {
                   attachments: [],
                   mode: delivery,
                   ...(steerTarget === undefined ? {} : { steerTarget }),
-                  ...(capped
-                    ? {
-                        expectedModes: {
-                          runtimeMode: target.thread.runtimeMode,
-                          interactionMode: target.thread.interactionMode,
-                        },
-                      }
-                    : {}),
+                  ...(expectedModes === undefined ? {} : { expectedModes }),
                   createdBy: "agent",
                   creationSource: "mcp",
                 })
