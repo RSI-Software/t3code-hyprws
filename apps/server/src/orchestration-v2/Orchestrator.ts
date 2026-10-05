@@ -138,6 +138,7 @@ import {
 } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
 import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { refuseStaleExternalSendFork } from "./steerTarget.fork.ts"; // fork-hook: device-auth/dispatch-send-guard-import
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -4932,6 +4933,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               payload: { ...sourcePlan, status: "completed" },
             });
 
+      yield* refuseStaleExternalSendFork(
+        command,
+        projection,
+        dispatchMode,
+        (cause) =>
+          new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause,
+          }),
+      ); // fork-hook: device-auth/dispatch-send-guard
       if (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active") {
         yield* dispatchSteerIntoRun({
           command,
