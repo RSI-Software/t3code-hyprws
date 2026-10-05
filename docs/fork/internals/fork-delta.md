@@ -446,7 +446,8 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 
 | Aspect      | Rule                                                                                    |
 | ----------- | --------------------------------------------------------------------------------------- |
-| Credential  | DPoP device session only; scopes `[]`, so no RPC or route accepts it                    |
+| Credential  | DPoP device session only; scopes `[]`, so scope-checked routes and RPCs refuse it       |
+| WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it      |
 | Policy      | `auth_external_mcp_grants`, keyed by session                                            |
 | Reads       | Projects, threads, timelines, waits in granted projects                                 |
 | Mutations   | Create, send, interrupt; `--mcp-coordinate` only                                        |
