@@ -1,3 +1,4 @@
+import { DEVICE_AUTH_FEEDBACK_COMMANDS_FORK } from "./FeedbackReport.fork.ts"; // fork-hook: device-auth/feedback-commands-import
 import { AgentFeedbackKind, AgentFeedbackTrace } from "@t3tools/contracts";
 import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 import * as Effect from "effect/Effect";
@@ -125,6 +126,7 @@ export const FEEDBACK_CLI_CLIENT_LABEL = "t3 feedback cli";
 
 /** Listed `t3` command paths a report may name. A CLI test keeps this in step with binCli. */
 export const T3_CLI_COMMANDS: ReadonlyArray<string> = [
+  ...DEVICE_AUTH_FEEDBACK_COMMANDS_FORK, // fork-hook: device-auth/feedback-commands
   "t3",
   "t3 help",
   "t3 serve",
