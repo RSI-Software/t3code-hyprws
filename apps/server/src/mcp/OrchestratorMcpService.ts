@@ -3111,3 +3111,11 @@ export const layer: Layer.Layer<
   | ServerSettings.ServerSettingsService
   | RemoteDelegation.RemoteDelegation
 > = Layer.effect(OrchestratorMcpService, make);
+
+export {
+  listItemFromShell as listItemFromShellFork,
+  threadDetail as threadDetailFork,
+  threadRun as threadRunFork,
+  timelineItem as timelineItemFork,
+  threadManagementFailure as threadManagementFailureFork,
+}; // fork-hook: device-auth/mcp-external-helpers
