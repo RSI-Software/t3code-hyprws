@@ -92,6 +92,7 @@ import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerOwnership from "./serverOwnership.ts";
 import * as DeviceAuthorizationRoutes from "./auth/DeviceAuthorization.fork.ts"; // fork-hook: device-auth/server-routes-import
+import * as ExternalMcpServer from "./mcp/external/ExternalMcpServer.fork.ts"; // fork-hook: device-auth/server-external-mcp-import
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import * as ServerSettings from "./serverSettings.ts";
@@ -738,6 +739,9 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
     DeviceAuthorizationRoutes.routeLayer, // fork-hook: device-auth/server-routes
+    ExternalMcpServer.routeLayer.pipe(
+      Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
+    ), // fork-hook: device-auth/server-external-mcp
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
