@@ -1875,3 +1875,5 @@ export const layerMilestoneEvents = Layer.effectDiscard(
 export const layer = layerMcpTransport(
   Layer.mergeAll(layerTools, layerToolSearch, layerMilestoneEvents),
 );
+
+export { normalizeMcpHttpResponse }; // fork-hook: device-auth/mcp-response-normalize-export
