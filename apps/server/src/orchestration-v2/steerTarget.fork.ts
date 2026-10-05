@@ -1,17 +1,23 @@
-// Fork-owned steer pin (RSI-Software/t3code-hyprws device-auth domain). A
-// caller that vetted one provider attempt sets `steerTarget` on
-// `ThreadManagementService.sendToThread`, so its message never joins another
-// attempt: not a later run, and not a restart of the same run. `auto` queues
-// instead and `steer` or `restart` fails. The pin rides on `message.dispatch`
-// as `steerAttemptId`, and the orchestrator refuses it under the thread lock
-// once the run has moved to another attempt.
-import type { OrchestrationV2Command, OrchestrationV2Run, RunAttemptId } from "@t3tools/contracts";
+// Fork-owned send guards (RSI-Software/t3code-hyprws device-auth domain) for a
+// caller that vetted a thread before sending to it. `steerTarget` on
+// `ThreadManagementService.sendToThread` names the one provider attempt the
+// message may join: `auto` queues instead of joining another, and `steer` or
+// `restart` fails. `expectedModes` names the thread modes the caller vetted.
+// Both ride on `message.dispatch`, and the orchestrator refuses the send under
+// the thread lock once the run has moved to another attempt or the modes have
+// changed, so a turn the send starts or restarts never runs under unvetted modes.
+import type {
+  OrchestrationV2AppThread,
+  OrchestrationV2Command,
+  OrchestrationV2Run,
+  RunAttemptId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-type DispatchMode = Extract<
-  OrchestrationV2Command,
-  { readonly type: "message.dispatch" }
->["dispatchMode"];
+type MessageDispatch = Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>;
+type DispatchMode = MessageDispatch["dispatchMode"];
+
+export type ExpectedModesFork = NonNullable<MessageDispatch["expectedModes"]>;
 
 const targetAttempt = (runs: ReadonlyArray<OrchestrationV2Run>, dispatchMode: DispatchMode) =>
   dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active"
@@ -34,18 +40,34 @@ export const pinSteerTargetFork = <E>(
     : Effect.succeed({ type: "queue_after_active" });
 };
 
-/** The `message.dispatch` field that carries a send's pin to the orchestrator. */
-export const steerAttemptFieldFork = (input: { readonly steerTarget?: RunAttemptId | null }) =>
-  input.steerTarget == null ? {} : { steerAttemptId: input.steerTarget };
+/** The `message.dispatch` fields that carry a send's guards to the orchestrator. */
+export const sendGuardFieldsFork = (input: {
+  readonly steerTarget?: RunAttemptId | null;
+  readonly expectedModes?: ExpectedModesFork;
+}) => ({
+  ...(input.steerTarget == null ? {} : { steerAttemptId: input.steerTarget }),
+  ...(input.expectedModes === undefined ? {} : { expectedModes: input.expectedModes }),
+});
 
-/** Refuses a pinned steer once its run has moved to another attempt. */
-export const refuseStaleSteerAttemptFork = <E>(
-  command: { readonly steerAttemptId?: RunAttemptId | undefined },
-  runs: ReadonlyArray<OrchestrationV2Run>,
+/** Refuses a guarded send once the thread modes or its pinned attempt changed. */
+export const refuseStaleExternalSendFork = <E>(
+  command: Pick<MessageDispatch, "steerAttemptId" | "expectedModes">,
+  projection: {
+    readonly thread: Pick<OrchestrationV2AppThread, "runtimeMode" | "interactionMode">;
+    readonly runs: ReadonlyArray<OrchestrationV2Run>;
+  },
   dispatchMode: DispatchMode,
   refuse: (cause: string) => E,
 ): Effect.Effect<void, E> => {
-  const attempt = targetAttempt(runs, dispatchMode);
+  const modes = command.expectedModes;
+  if (
+    modes !== undefined &&
+    (modes.runtimeMode !== projection.thread.runtimeMode ||
+      modes.interactionMode !== projection.thread.interactionMode)
+  ) {
+    return Effect.fail(refuse("The thread's modes changed after this send was vetted."));
+  }
+  const attempt = targetAttempt(projection.runs, dispatchMode);
   return command.steerAttemptId === undefined ||
     attempt === undefined ||
     attempt === command.steerAttemptId

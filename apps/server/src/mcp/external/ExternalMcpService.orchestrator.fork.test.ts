@@ -18,6 +18,7 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   RunAttemptId,
+  type RunId,
   type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
@@ -644,6 +645,76 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         assert.equal(
           starting.runs[0]?.id,
           (yield* orchestrator.getThreadProjection(threadId)).runs[0]?.id,
+        );
+        assert.deepEqual(provider.started, ["elevated"]);
+        assert.deepEqual(provider.steered, []);
+      }),
+    ),
+  );
+
+  it.live("refuses a vetted send once the owner changed the thread's modes", () =>
+    harness("external-mcp-expected-modes", ({ orchestrator, provider }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-modes");
+        yield* startElevated(orchestrator, threadId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        yield* lowerModes(orchestrator, threadId);
+        const vetted = yield* orchestrator.getThreadProjection(threadId);
+        const attempt = vetted.runs[0]!.activeAttemptId!;
+        const vettedModes = {
+          runtimeMode: vetted.thread.runtimeMode,
+          interactionMode: vetted.thread.interactionMode,
+        };
+        // The owner raises the thread after the send was vetted. A steer that
+        // fell back to interrupt-and-restart would start a full-access attempt.
+        yield* orchestrator.dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("command:owner:raise"),
+          threadId,
+          runtimeMode: "full-access",
+        });
+        yield* waitForProjection(
+          orchestrator,
+          threadId,
+          (projection) => projection.thread.runtimeMode === "full-access",
+        );
+        const send = (
+          key: string,
+          dispatchMode:
+            | { readonly type: "steer_active"; readonly targetRunId: RunId }
+            | { readonly type: "queue_after_active" },
+          expectedModes: typeof vettedModes,
+        ) =>
+          orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "agent",
+            creationSource: "mcp",
+            commandId: CommandId.make(`command:modes:${key}`),
+            threadId,
+            messageId: MessageId.make(`message:modes:${key}`),
+            text: key,
+            attachments: [],
+            dispatchMode,
+            ...(dispatchMode.type === "steer_active" ? { steerAttemptId: attempt } : {}),
+            expectedModes,
+          });
+
+        const steer = { type: "steer_active", targetRunId: vetted.runs[0]!.id } as const;
+        const steered = yield* send("steer", steer, vettedModes).pipe(Effect.flip);
+        assert.equal(steered._tag, "OrchestratorDispatchError");
+        const queued = yield* send("queue", { type: "queue_after_active" }, vettedModes).pipe(
+          Effect.flip,
+        );
+        assert.equal(queued._tag, "OrchestratorDispatchError");
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        assert.isFalse(
+          projection.messages.some((message) => message.id.startsWith("message:modes")),
+        );
+        // The same send vetted under the current modes goes through.
+        yield* send(
+          "current",
+          { type: "queue_after_active" },
+          { runtimeMode: "full-access", interactionMode: "plan" },
         );
         assert.deepEqual(provider.started, ["elevated"]);
         assert.deepEqual(provider.steered, []);

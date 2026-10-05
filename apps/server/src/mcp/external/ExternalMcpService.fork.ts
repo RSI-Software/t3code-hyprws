@@ -664,8 +664,10 @@ const make = Effect.gen(function* () {
               // Steering joins a running turn, so a capped credential is held to
               // turns requested under the thread's current modes; `auto` queues
               // instead. The send may join only the attempt vetted here, whose
-              // modes its running provider turn fixed. Dispatch refuses that pin
-              // under the thread lock once the run moves to another attempt.
+              // modes its running provider turn fixed. Dispatch refuses the send
+              // under the thread lock once the run moves to another attempt or
+              // the modes vetted above change, so a turn the send starts or
+              // restarts never runs under unvetted modes.
               const capped =
                 principal.policy.maxRuntimeMode !== "full-access" ||
                 principal.policy.maxInteractionMode !== "default";
@@ -710,6 +712,14 @@ const make = Effect.gen(function* () {
                   attachments: [],
                   mode: delivery,
                   ...(steerTarget === undefined ? {} : { steerTarget }),
+                  ...(capped
+                    ? {
+                        expectedModes: {
+                          runtimeMode: target.thread.runtimeMode,
+                          interactionMode: target.thread.interactionMode,
+                        },
+                      }
+                    : {}),
                   createdBy: "agent",
                   creationSource: "mcp",
                 })

@@ -37,7 +37,11 @@ import * as Schema from "effect/Schema";
 import * as Orchestrator from "./Orchestrator.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
-import { pinSteerTargetFork, steerAttemptFieldFork } from "./steerTarget.fork.ts"; // fork-hook: device-auth/send-steer-target-import
+import {
+  type ExpectedModesFork,
+  pinSteerTargetFork,
+  sendGuardFieldsFork,
+} from "./steerTarget.fork.ts"; // fork-hook: device-auth/send-steer-target-import
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -112,6 +116,7 @@ export interface ThreadManagementSendInput {
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
   readonly steerTarget?: RunAttemptId | null; // fork-hook: device-auth/send-steer-target-input
+  readonly expectedModes?: ExpectedModesFork; // fork-hook: device-auth/send-expected-modes-input
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -585,7 +590,7 @@ const make = Effect.gen(function* () {
         attachments: input.attachments,
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         dispatchMode,
-        ...steerAttemptFieldFork(input), // fork-hook: device-auth/send-steer-attempt
+        ...sendGuardFieldsFork(input), // fork-hook: device-auth/send-steer-attempt
         createdBy: input.createdBy,
         creationSource: input.creationSource,
       });
