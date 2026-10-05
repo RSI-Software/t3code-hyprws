@@ -177,6 +177,7 @@ import {
 import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import { refuseStaleExternalSendFork } from "./steerTarget.fork.ts"; // fork-hook: device-auth/dispatch-send-guard-import
 
 const isMessageQuestionAnswer = Schema.is(
   Schema.Union([TrimmedNonEmptyString, Schema.NonEmptyArray(TrimmedNonEmptyString)]),
@@ -5578,6 +5579,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             payload: { ...sourcePlan, status: "completed" },
           });
 
+    yield* refuseStaleExternalSendFork(
+      command,
+      projection,
+      dispatchMode,
+      (cause) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        }),
+    ); // fork-hook: device-auth/dispatch-send-guard
     if (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active") {
       yield* dispatchSteerIntoRun({
         command,
