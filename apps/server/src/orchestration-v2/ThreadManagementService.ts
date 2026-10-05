@@ -31,6 +31,7 @@ import {
   ProviderInstanceId,
   resolveProjectProviderInstanceEnabled,
   RunId,
+  type RunAttemptId, // fork-hook: device-auth/send-steer-attempt-type
   type ScheduledTaskId,
   ThreadId,
   type TurnItemId,
@@ -56,6 +57,11 @@ import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimi
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import {
+  type ExpectedModesFork,
+  pinSteerTargetFork,
+  sendGuardFieldsFork,
+} from "./steerTarget.fork.ts"; // fork-hook: device-auth/send-steer-target-import
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -129,6 +135,8 @@ export interface ThreadManagementSendInput {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
+  readonly steerTarget?: RunAttemptId | null; // fork-hook: device-auth/send-steer-target-input
+  readonly expectedModes?: ExpectedModesFork; // fork-hook: device-auth/send-expected-modes-input
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -780,6 +788,12 @@ const make = Effect.gen(function* () {
         type: input.mode === "queue" ? "queue_after_active" : "start_immediately",
       };
     }
+    dispatchMode = yield* pinSteerTargetFork(
+      input,
+      target.runs,
+      dispatchMode,
+      (mode) => new ThreadManagementNoSteerableRunError({ threadId: input.threadId, mode }),
+    ); // fork-hook: device-auth/send-steer-target
 
     const dispatched = yield* dispatch({
       type: "message.dispatch",
@@ -792,6 +806,7 @@ const make = Effect.gen(function* () {
       attachments: input.attachments,
       ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
       dispatchMode,
+      ...sendGuardFieldsFork(input), // fork-hook: device-auth/send-steer-attempt
       createdBy: input.createdBy,
       creationSource: input.creationSource,
     });
