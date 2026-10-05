@@ -96,6 +96,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { ExternalSendModesFork } from "./externalMcpSend.fork.ts"; // fork-hook: device-auth/message-dispatch-expected-modes-import
 import * as ThreadIssuesFork from "./threadIssues.fork.ts"; // fork-hook: github-issues/orchestration-v2-import
 import { ThreadCheckoutMove } from "./checkoutMove.ts"; // fork-hook: zmux-estate/orchestration-v2-checkout-move-import
 
@@ -3409,6 +3410,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     expectedLatestRunId: Schema.optional(RunId),
     settledAt: Schema.optional(Schema.DateTimeUtc),
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/settle-expected-modes
   }),
   /** Rejects changes since snapshotAt or any explicit settled override to preserve user actions. */
   Schema.Struct({
@@ -3423,6 +3425,7 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     reason: Schema.Literal("user"),
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/unsettle-expected-modes
     // Undo of a settle restores the Active anchor it cleared instead of moving the thread to the top.
     restoreUnsettledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   }),
@@ -3645,6 +3648,8 @@ export const OrchestrationV2Command = Schema.Union([
     steerFollowUpAfterRunOrdinal: Schema.optional(NonNegativeInt),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),
+    steerAttemptId: Schema.optional(RunAttemptId), // fork-hook: device-auth/message-dispatch-steer-attempt
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/message-dispatch-expected-modes
     delegatedCompletion: Schema.optional(
       Schema.Struct({
         parentRunId: RunId,
