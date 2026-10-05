@@ -1254,3 +1254,5 @@ export const layerTools = Layer.mergeAll(
 );
 
 export const layer = layerMcpTransport(layerTools);
+
+export { normalizeMcpHttpResponse }; // fork-hook: device-auth/mcp-response-normalize-export
