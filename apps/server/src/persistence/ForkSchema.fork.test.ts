@@ -63,3 +63,33 @@ layer("ForkSchema repair", (it) => {
     }),
   );
 });
+
+layer("ForkSchema columns", (it) => {
+  it.effect("adds the interrupt pin to a request table created without it", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`
+        CREATE TABLE auth_external_mcp_requests (
+          session_id TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          client_request_id TEXT NOT NULL,
+          request_hash TEXT NOT NULL,
+          result_json TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (session_id, operation, client_request_id)
+        )
+      `;
+      yield* sql`
+        INSERT INTO auth_external_mcp_requests
+          (session_id, operation, client_request_id, request_hash, result_json, created_at)
+        VALUES ('s', 'interrupt', 'k', 'h', NULL, '2026-10-05T00:00:00.000Z')
+      `;
+      assert.include(yield* ensureForkSchema(), "auth_external_mcp_requests.pinned_target");
+      const rows = yield* sql<{ readonly pinned: string | null }>`
+        SELECT pinned_target AS "pinned" FROM auth_external_mcp_requests
+      `;
+      assert.deepStrictEqual(rows, [{ pinned: null }]);
+    }),
+  );
+});
