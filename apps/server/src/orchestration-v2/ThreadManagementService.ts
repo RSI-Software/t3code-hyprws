@@ -36,6 +36,7 @@ import * as Schema from "effect/Schema";
 import * as Orchestrator from "./Orchestrator.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
+import { pinSteerTargetFork } from "./ThreadManagementSteerTarget.fork.ts"; // fork-hook: device-auth/send-steer-target-import
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -109,6 +110,7 @@ export interface ThreadManagementSendInput {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly modelSelection?: ModelSelection;
   readonly mode: ThreadManagementSendMode;
+  readonly steerTarget?: RunId | null; // fork-hook: device-auth/send-steer-target-input
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -564,6 +566,7 @@ const make = Effect.gen(function* () {
           type: input.mode === "queue" ? "queue_after_active" : "start_immediately",
         };
       }
+      dispatchMode = yield* pinSteerTargetFork(input, dispatchMode); // fork-hook: device-auth/send-steer-target
 
       const dispatch = yield* orchestrator.dispatch({
         type: "message.dispatch",

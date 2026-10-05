@@ -662,16 +662,17 @@ const make = Effect.gen(function* () {
               yield* requireWithinCeiling(principal, target.thread);
               // Steering joins a running turn, so a capped credential is held to
               // turns requested under the thread's current modes; `auto` queues
-              // instead.
+              // instead. The vetted run is the only one the send may join, and
+              // dispatch refuses it once another run is active.
               const capped =
                 principal.policy.maxRuntimeMode !== "full-access" ||
                 principal.policy.maxInteractionMode !== "default";
               let delivery = mode;
+              let steerTarget: RunId | null | undefined;
               if (capped && (mode === "steer" || mode === "auto")) {
-                for (const run of target.runs.filter(
-                  (candidate) => candidate.status === "running",
-                )) {
-                  if (!(yield* modesChangedSince(input.threadId, run))) continue;
+                const run = ThreadManagementService.latestActiveRun(target);
+                steerTarget = run?.id ?? null;
+                if (run !== undefined && (yield* modesChangedSince(input.threadId, run))) {
                   if (mode === "steer") {
                     return yield* failure(
                       "runtime_mode_escalation_denied",
@@ -693,6 +694,7 @@ const make = Effect.gen(function* () {
                   text: input.message,
                   attachments: [],
                   mode: delivery,
+                  ...(steerTarget === undefined ? {} : { steerTarget }),
                   createdBy: "agent",
                   creationSource: "mcp",
                 })
@@ -739,10 +741,13 @@ const make = Effect.gen(function* () {
                 runId ??= ThreadManagementService.latestActiveRun(target)?.id;
                 yield* pin.record(runId ?? NO_ACTIVE_RUN_PIN);
               }
+              yield* audit(principal, "thread.interrupt", {
+                threadId: input.threadId,
+                runId: runId ?? null,
+              });
               if (runId === undefined) {
                 return { threadId: input.threadId, runId: null, status: "no_active_run" } as const;
               }
-              yield* audit(principal, "thread.interrupt", { threadId: input.threadId, runId });
               const result = yield* threadManagement
                 .interruptThread({
                   projectId: target.thread.projectId,

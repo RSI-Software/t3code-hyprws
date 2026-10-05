@@ -17,10 +17,12 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
+  RunId,
   type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -82,6 +84,7 @@ const makeAdapter = () => {
   const started: Array<string> = [];
   const steered: Array<string> = [];
   const finishers = new Map<ThreadId, Effect.Effect<void>>();
+  let held: Deferred.Deferred<void> | undefined;
   const adapter: ProviderAdapterV2Shape = {
     instanceId,
     driver,
@@ -174,6 +177,7 @@ const makeAdapter = () => {
           resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
           startTurn: (turn) =>
             Effect.gen(function* () {
+              if (held !== undefined) yield* Deferred.await(held);
               started.push(turn.message.text);
               const at = yield* DateTime.now;
               const providerTurnId = ProviderTurnId.make(
@@ -216,7 +220,17 @@ const makeAdapter = () => {
   };
   /** Completes the thread's running turn, as the provider finishing would. */
   const complete = (threadId: ThreadId) => finishers.get(threadId) ?? Effect.void;
-  return { adapter, started, steered, complete };
+  /** Holds every later turn in its start until the returned release runs. */
+  const holdStarts = Deferred.make<void>().pipe(
+    Effect.map((gate) => {
+      held = gate;
+      return Effect.suspend(() => {
+        held = undefined;
+        return Deferred.succeed(gate, undefined);
+      });
+    }),
+  );
+  return { adapter, started, steered, complete, holdStarts };
 };
 
 const waitForProjection = (
@@ -242,6 +256,7 @@ const harness = <A, E>(
   body: (input: {
     readonly service: ExternalMcpService.ExternalMcpServiceShape;
     readonly orchestrator: Orchestrator.OrchestratorV2Shape;
+    readonly threadManagement: ThreadManagementService.ThreadManagementServiceShape;
     readonly provider: ReturnType<typeof makeAdapter>;
     /** Forgets every recorded result, as a crash after each commit would. */
     readonly loseResults: Effect.Effect<void>;
@@ -277,7 +292,7 @@ const harness = <A, E>(
       const layer = Layer.merge(
         orchestratorLayer,
         ExternalMcpService.layer.pipe(
-          Layer.provide(ThreadManagementService.layer.pipe(Layer.provide(orchestratorLayer))),
+          Layer.provideMerge(ThreadManagementService.layer.pipe(Layer.provide(orchestratorLayer))),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               getShell: () => Effect.succeed(Option.some(shell)),
@@ -291,12 +306,19 @@ const harness = <A, E>(
       return yield* Effect.gen(function* () {
         const service = yield* ExternalMcpService.ExternalMcpServiceFork;
         const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const threadManagement = yield* ThreadManagementService.ThreadManagementService;
         const sql = yield* SqlClient.SqlClient;
         const loseResults = sql`UPDATE auth_external_mcp_requests SET result_json = NULL`.pipe(
           Effect.asVoid,
           Effect.orDie,
         );
-        return yield* body({ service, orchestrator, provider: fake, loseResults });
+        return yield* body({
+          service,
+          orchestrator,
+          threadManagement,
+          provider: fake,
+          loseResults,
+        });
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -509,55 +531,66 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
     ),
   );
 
+  /** An owner thread whose elevated turn has been requested. */
+  const startElevated = (orchestrator: Orchestrator.OrchestratorV2Shape, threadId: ThreadId) =>
+    Effect.gen(function* () {
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:owner:create"),
+        threadId,
+        projectId,
+        title: "owner",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:owner:start"),
+        threadId,
+        messageId: MessageId.make("message:owner:start"),
+        text: "elevated",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+    });
+
+  /** The owner lowers the thread while its elevated turn goes on. */
+  const lowerModes = (orchestrator: Orchestrator.OrchestratorV2Shape, threadId: ThreadId) =>
+    Effect.gen(function* () {
+      yield* orchestrator.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.make("command:owner:lower"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.interaction-mode.set",
+        commandId: CommandId.make("command:owner:plan"),
+        threadId,
+        interactionMode: "plan",
+      });
+      yield* waitForProjection(
+        orchestrator,
+        threadId,
+        (projection) => projection.thread.interactionMode === "plan",
+      );
+    });
+
   it.live("never steers a turn that started before the owner changed the modes", () =>
     harness("external-mcp-steer-downgrade", ({ service, orchestrator, provider }) =>
       Effect.gen(function* () {
         const threadId = ThreadId.make("thread:owner-elevated");
-        yield* orchestrator.dispatch({
-          type: "thread.create",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make("command:owner:create"),
-          threadId,
-          projectId,
-          title: "owner",
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-        });
-        yield* orchestrator.dispatch({
-          type: "message.dispatch",
-          createdBy: "user",
-          creationSource: "web",
-          commandId: CommandId.make("command:owner:start"),
-          threadId,
-          messageId: MessageId.make("message:owner:start"),
-          text: "elevated",
-          attachments: [],
-          modelSelection,
-          dispatchMode: { type: "start_immediately" },
-        });
+        yield* startElevated(orchestrator, threadId);
         yield* waitForProjection(orchestrator, threadId, hasRun("running"));
-        // The owner lowers the thread while its elevated turn keeps running.
-        yield* orchestrator.dispatch({
-          type: "thread.runtime-mode.set",
-          commandId: CommandId.make("command:owner:lower"),
-          threadId,
-          runtimeMode: "approval-required",
-        });
-        yield* orchestrator.dispatch({
-          type: "thread.interaction-mode.set",
-          commandId: CommandId.make("command:owner:plan"),
-          threadId,
-          interactionMode: "plan",
-        });
-        yield* waitForProjection(
-          orchestrator,
-          threadId,
-          (projection) => projection.thread.interactionMode === "plan",
-        );
+        yield* lowerModes(orchestrator, threadId);
 
         const refused = yield* service
           .sendToThread(principal, { threadId, message: "x", mode: "steer", clientRequestId: "s" })
@@ -570,6 +603,72 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         });
         assert.equal(queued.delivery, "queued");
         assert.deepEqual(provider.steered, []);
+      }),
+    ),
+  );
+
+  it.live("never steers an elevated turn that was still starting when the modes changed", () =>
+    harness("external-mcp-steer-starting", ({ service, orchestrator, provider }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-starting");
+        const release = yield* provider.holdStarts;
+        yield* startElevated(orchestrator, threadId);
+        const starting = yield* waitForProjection(
+          orchestrator,
+          threadId,
+          (projection) => projection.runs.length === 1 && projection.providerTurns.length === 0,
+        );
+        yield* lowerModes(orchestrator, threadId);
+
+        const refused = yield* service
+          .sendToThread(principal, { threadId, message: "x", mode: "steer", clientRequestId: "s" })
+          .pipe(Effect.flip);
+        assert.equal(refused.code, "runtime_mode_escalation_denied");
+        yield* release;
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        const queued = yield* service.sendToThread(principal, {
+          threadId,
+          message: "later",
+          clientRequestId: "a",
+        });
+        assert.equal(queued.delivery, "queued");
+        assert.equal(
+          starting.runs[0]?.id,
+          (yield* orchestrator.getThreadProjection(threadId)).runs[0]?.id,
+        );
+        assert.deepEqual(provider.started, ["elevated"]);
+        assert.deepEqual(provider.steered, []);
+      }),
+    ),
+  );
+
+  it.live("joins only the run its caller vetted", () =>
+    harness("external-mcp-steer-target", ({ orchestrator, threadManagement, provider }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-target");
+        yield* startElevated(orchestrator, threadId);
+        const running = yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        const send = (key: string, mode: "auto" | "steer", steerTarget: RunId | null) =>
+          threadManagement.sendToThread({
+            projectId,
+            commandId: CommandId.make(`command:target:${key}`),
+            threadId,
+            messageId: MessageId.make(`message:target:${key}`),
+            text: key,
+            attachments: [],
+            mode,
+            steerTarget,
+            createdBy: "agent",
+            creationSource: "mcp",
+          });
+
+        // A caller that saw no run, or another run, never joins this one.
+        assert.equal((yield* send("none", "auto", null)).delivery, "queued");
+        const stale = yield* send("stale", "steer", RunId.make("run:stale")).pipe(Effect.flip);
+        assert.equal(stale._tag, "ThreadManagementNoSteerableRunError");
+        assert.deepEqual(provider.steered, []);
+        assert.equal((yield* send("vetted", "auto", running.runs[0]!.id)).delivery, "steered");
+        assert.deepEqual(provider.steered, ["vetted"]);
       }),
     ),
   );
