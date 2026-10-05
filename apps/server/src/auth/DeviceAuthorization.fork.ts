@@ -22,6 +22,7 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as UrlParams from "effect/unstable/http/UrlParams";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import * as ExternalMcpGrant from "./ExternalMcpGrant.fork.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 
@@ -79,6 +80,16 @@ export class DeviceAuthorizationScopeError extends Data.TaggedError(
   readonly allowedScopes: ReadonlyArray<AuthEnvironmentScope>;
 }> {}
 
+/**
+ * An external MCP policy needs a key-bound request: the endpoint only accepts
+ * DPoP, so a bearer grant would be unusable, and scopes would widen it.
+ */
+export class DeviceAuthorizationMcpPolicyError extends Data.TaggedError(
+  "DeviceAuthorizationMcpPolicyError",
+)<{
+  readonly reason: "unbound-request" | "scopes-with-policy";
+}> {}
+
 export interface DeviceAuthorizationStart {
   readonly deviceCode: string;
   readonly userCode: string;
@@ -102,6 +113,7 @@ export interface DeviceAuthorizationApproval {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly ttl: Duration.Duration;
   readonly proofKeyThumbprint: string | null;
+  readonly mcpPolicy: ExternalMcpGrant.ExternalMcpPolicy | null;
 }
 
 export type DeviceAuthorizationPollResult =
@@ -126,17 +138,21 @@ export class DeviceAuthorizationStore extends Context.Service<
       DeviceAuthorizationStoreError
     >;
     /**
-     * Grants `scopes` when given, else the requested scopes, else the standard
-     * client scopes. `scopes` may narrow a request but never widen it; with no
-     * request it may name any environment scope.
+     * Grants `scopes` when given, else the requested scopes, else the standard client scopes.
+     * `scopes` may narrow a request but never widen it; with no request it may name any
+     * environment scope. `mcpPolicy` instead grants an external MCP client no scopes, with the
+     * policy as the session's only authority.
      */
     readonly approve: (input: {
       readonly userCode: string;
       readonly ttl?: Duration.Duration;
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+      readonly mcpPolicy?: ExternalMcpGrant.ExternalMcpPolicy;
     }) => Effect.Effect<
       Option.Option<DeviceAuthorizationApproval>,
-      DeviceAuthorizationStoreError | DeviceAuthorizationScopeError
+      | DeviceAuthorizationStoreError
+      | DeviceAuthorizationScopeError
+      | DeviceAuthorizationMcpPolicyError
     >;
     readonly deny: (userCode: string) => Effect.Effect<boolean, DeviceAuthorizationStoreError>;
     readonly poll: (input: {
@@ -163,6 +179,7 @@ interface DeviceAuthorizationRow {
   readonly lastPolledAt: string | null;
   readonly grantedScopes: string | null;
   readonly grantedTtlMs: number | null;
+  readonly mcpPolicyJson: string | null;
 }
 
 const ScopesJson = Schema.fromJsonString(AuthEnvironmentScopes);
@@ -192,7 +209,8 @@ const ROW_COLUMNS = `
   expires_at AS "expiresAt",
   last_polled_at AS "lastPolledAt",
   granted_scopes AS "grantedScopes",
-  granted_ttl_ms AS "grantedTtlMs"
+  granted_ttl_ms AS "grantedTtlMs",
+  mcp_policy_json AS "mcpPolicyJson"
 `;
 
 const isoNow = DateTime.now.pipe(Effect.map((now) => DateTime.formatIso(DateTime.toUtc(now))));
@@ -295,16 +313,29 @@ const make = Effect.gen(function* () {
       `;
       if (row === undefined) return Option.none<DeviceAuthorizationApproval>();
       const request = toRequest(row);
-      const allowedScopes = request.requestedScopes ?? AuthAdministrativeScopes;
+      const mcpPolicy = input.mcpPolicy ?? null;
+      if (mcpPolicy !== null && input.scopes !== undefined) {
+        return yield* new DeviceAuthorizationMcpPolicyError({ reason: "scopes-with-policy" });
+      }
+      if (mcpPolicy !== null && request.proofKeyThumbprint === null) {
+        return yield* new DeviceAuthorizationMcpPolicyError({ reason: "unbound-request" });
+      }
+      const allowedScopes = request.requestedScopes ?? AuthStandardClientScopes;
       if (input.scopes?.some((scope) => !allowedScopes.includes(scope))) {
         return yield* new DeviceAuthorizationScopeError({ allowedScopes });
       }
-      const scopes = input.scopes ?? request.requestedScopes ?? AuthStandardClientScopes;
+      const scopes: ReadonlyArray<AuthEnvironmentScope> =
+        mcpPolicy !== null
+          ? []
+          : (input.scopes ?? request.requestedScopes ?? AuthStandardClientScopes);
       const updated = yield* sql<{ readonly userCode: string }>`
         UPDATE auth_device_authorizations
         SET status = 'approved',
             granted_scopes = ${encodeScopes(scopes)},
             granted_ttl_ms = ${Duration.toMillis(ttl)},
+            mcp_policy_json = ${
+              mcpPolicy === null ? null : ExternalMcpGrant.encodeExternalMcpPolicy(mcpPolicy)
+            },
             decided_at = ${nowIso}
         WHERE user_code = ${row.userCode} AND status = 'pending'
         RETURNING user_code AS "userCode"
@@ -316,6 +347,7 @@ const make = Effect.gen(function* () {
         scopes,
         ttl,
         proofKeyThumbprint: request.proofKeyThumbprint,
+        mcpPolicy,
       });
     }).pipe(
       Effect.catchTag("SqlError", (cause) => Effect.fail(fail("approve")(cause))),
@@ -397,6 +429,14 @@ const make = Effect.gen(function* () {
         UPDATE auth_device_authorizations SET session_id = ${session.sessionId}
         WHERE device_code_hash = ${deviceCodeHash}
       `;
+        if (claimed.mcpPolicyJson !== null) {
+          yield* ExternalMcpGrant.recordExternalMcpGrant({
+            sessionId: session.sessionId,
+            policy: ExternalMcpGrant.decodeExternalMcpPolicy(claimed.mcpPolicyJson),
+            clientLabel: session.client.label ?? null,
+            createdAt: nowIso,
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+        }
         return { _tag: "Issued", session } as const;
       }).pipe(sql.withTransaction);
     }).pipe(
@@ -553,7 +593,8 @@ const deviceTokenRoute = (store: DeviceAuthorizationStore["Service"]) =>
             0,
             Math.floor((session.expiresAt.epochMilliseconds - now.epochMilliseconds) / 1_000),
           ),
-          scope: encodeOAuthScope(session.scopes),
+          // An external MCP grant carries no scopes, and OAuth has no empty scope.
+          ...(session.scopes.length > 0 ? { scope: encodeOAuthScope(session.scopes) } : {}),
         },
         { headers: CREDENTIAL_HEADERS },
       );
