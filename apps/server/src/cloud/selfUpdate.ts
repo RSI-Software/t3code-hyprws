@@ -42,6 +42,7 @@ import {
   PinnedRuntimePreflightBlockedError,
   prunePinnedRuntimes,
 } from "./pinnedRuntime.ts";
+import { repointLaunchersFork } from "./launcherRepoint.fork.ts"; // fork-hook: upstream-fixes/launcher-repoint-import
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
@@ -306,6 +307,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
             ),
           ),
           Effect.tap(() => onHandoffAccepted()),
+          Effect.tap(() => repointLaunchersFork(fs, path, serverConfig.baseDir, targetVersion)), // fork-hook: upstream-fixes/launcher-repoint
         ),
       );
 
