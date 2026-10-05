@@ -8,6 +8,8 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import { acquireServiceSelectionLock } from "./cloud/serviceSelectionLock.ts";
+import { backupDatabaseForMigrationsFork } from "./serviceLauncherBackup.fork.ts"; // fork-hook: upstream-fixes/migration-backup
+import { abortableBackupFork, backupAbortSignalFork } from "./serviceLauncherBackupAbort.fork.ts"; // fork-hook: upstream-fixes/migration-backup-stop
 
 import type {
   PendingServiceUpdate,
@@ -290,8 +292,11 @@ async function syncDirectory(directory: string): Promise<void> {
 }
 
 function runCp(args: ReadonlyArray<string>): Promise<boolean> {
-  return new Promise((resolve) => {
-    NodeChildProcess.execFile("cp", args, (error) => resolve(error === null));
+  const signal = backupAbortSignalFork(); // fork-hook: upstream-fixes/migration-backup-stop
+  return new Promise((resolve, reject) => {
+    NodeChildProcess.execFile("cp", args, { signal }, (error) =>
+      signal?.aborted ? reject(signal.reason) : resolve(error === null),
+    );
   });
 }
 
@@ -309,7 +314,10 @@ async function copyDatabaseFile(source: string, destination: string): Promise<vo
       : platform === "linux"
         ? ["--reflink=auto", source, destination]
         : undefined;
-  if (args === undefined || !(await runCp(args))) await NodeFSP.copyFile(source, destination);
+  if (args === undefined || !(await runCp(args))) {
+    backupAbortSignalFork()?.throwIfAborted(); // fork-hook: upstream-fixes/migration-backup-stop
+    await NodeFSP.copyFile(source, destination);
+  }
 }
 
 const GIB = 1024 ** 3;
@@ -503,6 +511,7 @@ async function backupDatabaseOnce(baseDir: string, pending: PendingServiceUpdate
       await copyDatabaseFile(source, destination);
       await syncFile(destination);
     }
+    backupAbortSignalFork()?.throwIfAborted(); // fork-hook: upstream-fixes/migration-backup-stop
     await NodeFSP.rename(stagingDir, backupDir);
     await syncDirectory(NodePath.dirname(backupDir));
   } catch (cause) {
@@ -749,6 +758,7 @@ export class Launcher {
   #timer: NodeJS.Timeout | undefined;
   #transitions: Promise<void> = Promise.resolve();
   #stopRequested = false;
+  readonly #stopAbort = new AbortController(); // fork-hook: upstream-fixes/migration-backup-stop
   #stopping = false;
   #done = false;
   readonly #completion = Promise.withResolvers<void>();
@@ -863,6 +873,7 @@ export class Launcher {
       return;
     }
     this.#stopRequested = true;
+    this.#stopAbort.abort(); // fork-hook: upstream-fixes/migration-backup-stop
     this.#clearTimer();
     this.#enqueue(async () => {
       // Let in-progress updates start replacements first; replacements observe the marker and own pre-activation tunnel cleanup.
@@ -956,8 +967,14 @@ export class Launcher {
 
   async #startTrial(pending: PendingServiceUpdate): Promise<void> {
     try {
-      await backupDatabaseOnce(this.#baseDir, pending);
+      await backupDatabaseForMigrationsFork(
+        this.#baseDir,
+        pending,
+        runtimePaths(this.#baseDir, pending.targetVersion).entryPath,
+        abortableBackupFork(this.#stopAbort.signal, backupDatabaseOnce),
+      ); // fork-hook: upstream-fixes/migration-backup
     } catch {
+      if (this.#stopRequested) return; // fork-hook: upstream-fixes/migration-backup-stop
       await this.#returnToPrevious(pending, "failed", "db-backup-failed");
       return;
     }

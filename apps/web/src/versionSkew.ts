@@ -24,11 +24,15 @@ const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "t3code:version-mismatch-dismiss
 const dismissedServerUpdateFailures = new WeakSet<ServerUpdateState>();
 
 export function isServerUpdateFailureDismissed(state: ServerUpdateState): boolean {
-  return state.status === "failed" && dismissedServerUpdateFailures.has(state);
+  return (
+    (state.status === "failed" || state.status === "completed") &&
+    dismissedServerUpdateFailures.has(state)
+  );
 }
 
 export function dismissServerUpdateFailure(state: ServerUpdateState): void {
-  if (state.status === "failed") dismissedServerUpdateFailures.add(state);
+  if (state.status === "failed" || state.status === "completed")
+    dismissedServerUpdateFailures.add(state);
 }
 
 const VersionMismatchDismissalsSchema = Schema.Struct({

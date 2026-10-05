@@ -12,6 +12,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Deferred from "effect/Deferred";
@@ -74,6 +75,14 @@ export type ServerUpdateState =
       readonly stage: ServerUpdateStage;
       readonly fromVersion: string;
       readonly targetVersion: string;
+      /** First transport drop for this attempt, retained across reconnects. */
+      readonly restartStartedAt?: number;
+      readonly databaseBackupBytesFork?: number; // fork-hook: upstream-fixes/migration-backup-label
+    }
+  | {
+      readonly status: "completed";
+      readonly fromVersion: string;
+      readonly targetVersion: string;
     }
   | {
       readonly status: "failed";
@@ -94,6 +103,7 @@ const EMPTY_SERVER_UPDATE_STATE_ATOM = Atom.make<ServerUpdateState>(IDLE_SERVER_
 );
 export const serverUpdateStateAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make<ServerUpdateState>(IDLE_SERVER_UPDATE_STATE).pipe(
+    Atom.keepAlive,
     Atom.withLabel(`environment-data:server:update-state:${environmentId}`),
   ),
 );
@@ -133,6 +143,8 @@ export class ServerUpdateTerminalError extends Schema.TaggedError<ServerUpdateTe
     return this.reason ?? `The t3@${this.targetVersion} update ${this.status}.`;
   }
 }
+
+const isServerUpdateTerminalError = Schema.is(ServerUpdateTerminalError);
 
 // Covers the service launcher's 30-minute trial deadline (PREPARED_TIMEOUT_MS)
 // and a final restart of the previous version when the trial rolls back.
@@ -306,6 +318,9 @@ export function serverUpdateStateForProgressEvent(
   };
 }
 
+// Terminal states are published only once config reports the version the
+// server settled on, so any other version, even a return to fromVersion,
+// supersedes the outcome.
 export function serverUpdateStateForServerVersion(
   state: ServerUpdateState,
   serverVersion: string | null,
@@ -313,12 +328,94 @@ export function serverUpdateStateForServerVersion(
   return state.status === "idle" ||
     state.status === "running" ||
     serverVersion === null ||
-    state.fromVersion === serverVersion
+    serverVersion === serverUpdateSettledVersion(state)
     ? state
     : IDLE_SERVER_UPDATE_STATE;
 }
 
+type TerminalServerUpdateState = Extract<ServerUpdateState, { status: "completed" | "failed" }>;
+
+function serverUpdateSettledVersion(state: TerminalServerUpdateState): string {
+  return state.status === "completed" ? state.targetVersion : state.fromVersion;
+}
+
+// Config can trail a restart's ready event; past this, publish regardless.
+const SERVER_UPDATE_CONFIG_SETTLE_TIMEOUT = Duration.seconds(5);
+
+/** Publishes a terminal state once config reports its settled version. */
+export function publishSettledServerUpdateState(
+  atomRegistry: AtomRegistry.AtomRegistry,
+  stateAtom: Atom.Writable<ServerUpdateState>,
+  configAtom: Atom.Atom<{ readonly environment: { readonly serverVersion: string } } | null>,
+  state: TerminalServerUpdateState,
+): Effect.Effect<void> {
+  const pending = atomRegistry.get(stateAtom);
+  return AtomRegistry.toStream(atomRegistry, configAtom).pipe(
+    Stream.filter((config) => {
+      const version = config?.environment.serverVersion;
+      return version === undefined || version === serverUpdateSettledVersion(state);
+    }),
+    Stream.runHead,
+    Effect.timeoutOption(SERVER_UPDATE_CONFIG_SETTLE_TIMEOUT),
+    Effect.andThen(
+      Effect.sync(() => {
+        const current = atomRegistry.get(stateAtom);
+        // A newer attempt started while config settled.
+        if (current !== pending && current.status === "running") return;
+        atomRegistry.set(stateAtom, state);
+        retireServerUpdateStateWhenSuperseded(atomRegistry, stateAtom, configAtom, state);
+      }),
+    ),
+  );
+}
+
+// Once config has reported the settled version, the first other version
+// retires the stored outcome so a later return cannot resurrect it. The watch
+// ends as soon as the stored state is no longer this outcome.
+function retireServerUpdateStateWhenSuperseded(
+  atomRegistry: AtomRegistry.AtomRegistry,
+  stateAtom: Atom.Writable<ServerUpdateState>,
+  configAtom: Atom.Atom<{ readonly environment: { readonly serverVersion: string } } | null>,
+  state: TerminalServerUpdateState,
+): void {
+  const settledVersion = serverUpdateSettledVersion(state);
+  let settled = atomRegistry.get(configAtom)?.environment.serverVersion === settledVersion;
+  const stopConfig = atomRegistry.subscribe(configAtom, (config) => {
+    const version = config?.environment.serverVersion;
+    if (version === settledVersion) settled = true;
+    else if (version !== undefined && settled)
+      atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
+  });
+  const stopState = atomRegistry.subscribe(stateAtom, (current) => {
+    if (current === state) return;
+    stopConfig();
+    stopState();
+  });
+}
+
+export function serverUpdateRestartElapsedSeconds(
+  state: ServerUpdateState,
+  now: number,
+): number | null {
+  return state.status === "running" &&
+    state.stage === "resuming" &&
+    state.restartStartedAt !== undefined
+    ? Math.max(0, Math.floor((now - state.restartStartedAt) / 1000))
+    : null;
+}
+
+export function serverUpdateRestartStartedAt(
+  previous: number | undefined,
+  phase: string,
+  now: number,
+): number | undefined {
+  return previous ?? (phase === "connected" ? undefined : now);
+}
+
 export function serverUpdateFailureMessage(error: unknown): string {
+  if (isServerUpdateTerminalError(error) && error.status === "rolled-back") {
+    return `Update rolled back: ${error.message}`;
+  }
   return error instanceof Error ? error.message : "Server update failed.";
 }
 
@@ -945,13 +1042,22 @@ export function createServerEnvironmentAtoms<R, E>(
     concurrency: configConcurrency,
     execute: Effect.fn("ServerUpdate.updateServer")(function (target, atomRegistry) {
       const stateAtom = serverUpdateStateAtom(target.environmentId);
+      const configAtom = configValueAtom(target.environmentId);
       let targetVersion = target.input.targetVersion;
       let fromVersion =
         atomRegistry.get(configValueAtom(target.environmentId))?.environment.serverVersion ??
         targetVersion;
       let currentStage: ServerUpdateStage = "downloading";
       let desktopCommitLostTransport = false;
-      atomRegistry.set(stateAtom, {
+      let restartStartedAt: number | undefined;
+      let backupFork: Pick<ServerSelfUpdateResult, "databaseBackupBytesFork"> = {}; // fork-hook: upstream-fixes/migration-backup-label
+      const setRunningState = (state: Extract<ServerUpdateState, { status: "running" }>) =>
+        atomRegistry.set(stateAtom, {
+          ...state,
+          ...(restartStartedAt === undefined ? {} : { restartStartedAt }),
+          ...backupFork, // fork-hook: upstream-fixes/migration-backup-label
+        });
+      setRunningState({
         status: "running",
         stage: currentStage,
         fromVersion,
@@ -960,6 +1066,35 @@ export function createServerEnvironmentAtoms<R, E>(
 
       return Effect.gen(function* () {
         const environmentRegistry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        // Arm before the RPC: legacy servers may drop before acknowledging handoff.
+        const restartObserverArmed = yield* Deferred.make<
+          void,
+          EnvironmentRegistry.EnvironmentNotRegisteredError
+        >();
+        yield* environmentRegistry.stateChanges(target.environmentId).pipe(
+          Stream.onStart(Deferred.succeed(restartObserverArmed, undefined)),
+          Stream.runForEach((connection) =>
+            Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis;
+              const state = atomRegistry.get(stateAtom);
+              if (restartStartedAt === undefined && state.status === "running") {
+                restartStartedAt = serverUpdateRestartStartedAt(
+                  restartStartedAt,
+                  connection.phase,
+                  now,
+                );
+                if (restartStartedAt !== undefined) setRunningState(state);
+              }
+            }),
+          ),
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Deferred.failCause(restartObserverArmed, exit.cause)
+              : Deferred.succeed(restartObserverArmed, undefined),
+          ),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(restartObserverArmed);
         const desktopCommitStarting = yield* Deferred.make<void>();
         const desktopReconnectObserverArmed = yield* Deferred.make<void>();
         const desktopReconnected = yield* Deferred.make<void>();
@@ -994,7 +1129,7 @@ export function createServerEnvironmentAtoms<R, E>(
           Effect.gen(function* () {
             const currentConfig = atomRegistry.get(configValueAtom(target.environmentId));
             fromVersion = currentConfig?.environment.serverVersion ?? targetVersion;
-            atomRegistry.set(stateAtom, {
+            setRunningState({
               status: "running",
               stage: currentStage,
               fromVersion,
@@ -1056,7 +1191,7 @@ export function createServerEnvironmentAtoms<R, E>(
                             event,
                           );
                           currentStage = state.stage;
-                          atomRegistry.set(stateAtom, state);
+                          setRunningState(state);
                         }).pipe(
                           Effect.andThen(
                             event.type === "complete"
@@ -1129,9 +1264,11 @@ export function createServerEnvironmentAtoms<R, E>(
             }
 
             targetVersion = updateResult.targetVersion;
+            if (updateResult.databaseBackupBytesFork !== undefined)
+              backupFork = { databaseBackupBytesFork: updateResult.databaseBackupBytesFork }; // fork-hook: upstream-fixes/migration-backup-label
 
             currentStage = "resuming";
-            atomRegistry.set(stateAtom, {
+            setRunningState({
               status: "running",
               stage: currentStage,
               fromVersion,
@@ -1208,25 +1345,27 @@ export function createServerEnvironmentAtoms<R, E>(
         yield* validateServerUpdateReadyEvent(result, resumed);
 
         atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
+        yield* Effect.forkDetach(
+          publishSettledServerUpdateState(atomRegistry, stateAtom, configAtom, {
+            status: "completed",
+            fromVersion,
+            targetVersion: resumed.payload.environment.serverVersion,
+          }),
+        ); // fork-hook: upstream-fixes/server-update-completed-publish
         return result;
       }).pipe(
         Effect.onExit((exit) =>
-          Effect.sync(() => {
-            if (Exit.isSuccess(exit)) {
-              return;
-            }
-            if (Cause.hasInterruptsOnly(exit.cause)) {
-              atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE);
-              return;
-            }
-            atomRegistry.set(stateAtom, {
-              status: "failed",
-              stage: currentStage,
-              fromVersion,
-              targetVersion,
-              message: serverUpdateFailureMessage(Cause.squash(exit.cause)),
-            });
-          }),
+          Exit.isSuccess(exit)
+            ? Effect.void
+            : Cause.hasInterruptsOnly(exit.cause)
+              ? Effect.sync(() => atomRegistry.set(stateAtom, IDLE_SERVER_UPDATE_STATE))
+              : publishSettledServerUpdateState(atomRegistry, stateAtom, configAtom, {
+                  status: "failed",
+                  stage: currentStage,
+                  fromVersion,
+                  targetVersion,
+                  message: serverUpdateFailureMessage(Cause.squash(exit.cause)),
+                }),
         ),
       );
     }),
