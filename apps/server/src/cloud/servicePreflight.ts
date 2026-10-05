@@ -7,6 +7,7 @@ import {
   SERVICE_LAUNCHER_PROTOCOL,
   type SupportedLauncherProtocol,
 } from "./serviceProtocol.ts";
+import { serviceMigrationPreflightFork } from "./serviceMigrationPreflight.fork.ts"; // fork-hook: upstream-fixes/migration-preflight
 
 export type ServicePreflightResult =
   | {
@@ -14,6 +15,7 @@ export type ServicePreflightResult =
       readonly version: string;
       /** The launcher protocol the server named; it accepts no other in reply. */
       readonly launcherProtocol: SupportedLauncherProtocol;
+      readonly pendingMigrationsFork?: boolean; // fork-hook: upstream-fixes/migration-preflight
     }
   | {
       readonly status: "blocked";
@@ -74,7 +76,12 @@ export function runServicePreflight(input: {
     };
   }
 
-  return { status: "ready", version, launcherProtocol };
+  return {
+    status: "ready",
+    version,
+    launcherProtocol,
+    ...serviceMigrationPreflightFork(input.databasePath),
+  }; // fork-hook: upstream-fixes/migration-preflight
 }
 
 export function decodeServicePreflightResult(
@@ -90,7 +97,14 @@ export function decodeServicePreflightResult(
     record.launcherProtocol === launcherProtocol &&
     typeof record.version === "string"
   ) {
-    return { status: "ready", version: record.version, launcherProtocol };
+    return {
+      status: "ready",
+      version: record.version,
+      launcherProtocol,
+      ...(typeof record.pendingMigrationsFork === "boolean"
+        ? { pendingMigrationsFork: record.pendingMigrationsFork }
+        : {}),
+    }; // fork-hook: upstream-fixes/migration-backup-label
   }
   if (
     record.status === "blocked" &&
