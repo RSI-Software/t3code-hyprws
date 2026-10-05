@@ -421,6 +421,46 @@ it.live("delivers a DPoP-bound token over the HTTP routes after owner approval",
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.live("delivers an external MCP grant's scopeless token without a scope field", () =>
+  Effect.gen(function* () {
+    const { send, store, sessions } = yield* makeHarness;
+    const now = Math.floor((yield* Clock.currentTimeMillis) / 1_000);
+    const key = makeKey(now);
+    const tokenUrl = `${ORIGIN}${DeviceAuthorization.DEVICE_TOKEN_PATH}`;
+    const started = yield* send(
+      form(
+        DeviceAuthorization.DEVICE_AUTHORIZATION_PATH,
+        { client_label: "dot cloud" },
+        { dpop: key.proof("POST", `${ORIGIN}${DeviceAuthorization.DEVICE_AUTHORIZATION_PATH}`) },
+      ),
+    );
+    yield* store.approve({
+      userCode: started.body.user_code as string,
+      mcpPolicy: {
+        projectIds: "*",
+        coordinate: false,
+        maxRuntimeMode: "approval-required",
+        maxInteractionMode: "plan",
+      },
+    });
+
+    const issued = yield* send(
+      form(
+        DeviceAuthorization.DEVICE_TOKEN_PATH,
+        {
+          grant_type: DeviceAuthorization.DEVICE_CODE_GRANT_TYPE,
+          device_code: started.body.device_code as string,
+        },
+        { dpop: key.proof("POST", tokenUrl) },
+      ),
+    );
+    expect(issued.status).toBe(200);
+    expect(issued.body.token_type).toBe("DPoP");
+    expect(issued.body).not.toHaveProperty("scope");
+    expect((yield* sessions.verify(issued.body.access_token as string)).scopes).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.live("keeps unauthenticated callers from growing state past the request cap", () =>
   Effect.gen(function* () {
     const { send, markerCount, rowCount } = yield* makeHarness;

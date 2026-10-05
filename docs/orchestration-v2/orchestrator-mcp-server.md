@@ -45,10 +45,11 @@ Before `ProviderSessionManager` opens a new V2 provider session, it asks
 - the concrete provider instance; and
 - the provider session.
 
-The credential grants `preview` and `orchestration` capabilities. Credentials
-expire after a maximum lifetime, expire when idle, and are revoked when the
-provider session is released. The raw token is not persisted in orchestration
-state.
+The credential grants `orchestration`, `worktree`, and `pull-requests`
+capabilities, plus `preview` when browser tools are available. Credentials have
+no maximum lifetime: they expire after 24 hours without MCP traffic or a
+provider turn, and are revoked when the provider session is released. The raw
+token is not persisted in orchestration state.
 
 The MCP HTTP server resolves the bearer token and supplies the resulting
 `McpInvocationScope` to tool handlers. Orchestration handlers additionally
