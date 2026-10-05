@@ -33,8 +33,24 @@ The fork encodes none of that policy.
 | `mod+alt+o`   | Reuse a window showing this project, else open |
 
 - **Filter:** narrows lists, never hides live work
+- **Same thread:** **Open in New Window**, both live
 - **Update:** back on their Hyprland workspaces
 - **Old links:** `#/project/...` links still open
+
+https://github.com/user-attachments/assets/13204279-65d2-4599-b111-9c5043ca98fd
+
+<details>
+<summary>More clips</summary>
+
+**One thread in two windows, streaming in both**
+
+https://github.com/user-attachments/assets/61675d70-4b33-4337-b322-d7c86a20c2c7
+
+**Relaunch: windows return to their workspaces**
+
+https://github.com/user-attachments/assets/426db6b1-9a38-4719-9911-6d3bcb4a017b
+
+</details>
 
 ## What else the fork adds
 
@@ -47,6 +63,17 @@ The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and bound
 - **Select:** one as the main thread
 - **Persist:** across new and resumed sessions
 
+https://github.com/user-attachments/assets/29c94d1c-cbf2-477f-b4ea-52193ccc5b5a
+
+<details>
+<summary>More clips</summary>
+
+**The project agent behind it: `.claude/agents/pirate.md`**
+
+https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
+
+</details>
+
 ### Rich Markdown editing
 
 - **Modes:** Rich and Source for Markdown files
@@ -54,18 +81,44 @@ The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and bound
 - **MDX:** stays a read-only preview
 - [Guide](docs/fork/user/markdown-editing.md)
 
+https://github.com/user-attachments/assets/f3b4c546-8c33-4f11-97bc-1c2eff67d195
+
+<details>
+<summary>More clips</summary>
+
+**Rich and Source views of an existing file**
+
+https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
+
+</details>
+
 ### Managed `zmux` terminals
 
 - **Attach:** terminals join the checkout session
 - **Worktrees:** new ones join the same session
 - **Shared:** visible from T3 Code and the CLI
+- **Enable:** **Terminal session** in Appearance
 - [Guide](docs/fork/user/managed-terminals.md)
+
+https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
 
 ### Worktrunk worktrees
 
 - **Mode:** **New worktrunk** for a thread
 - **Hooks:** `wt` hooks on create and remove
+- **Proof:** `pre-start` writes `.env.local`
 - **Fallback:** plain worktrees without `wt`
+
+https://github.com/user-attachments/assets/1758bb95-19f6-4ed1-a8d8-56366444f62f
+
+<details>
+<summary>More clips</summary>
+
+**Removal runs `pre-remove`**
+
+https://github.com/user-attachments/assets/0dfb8ebb-2145-4a81-92b5-d9c3b3a02a16
+
+</details>
 
 ### GitHub issues
 
@@ -73,10 +126,14 @@ The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and bound
 - **Detail:** filters, comments, and tabs
 - **Hand off:** one issue to a new thread as a draft
 
+https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
+
 ### Threads
 
 - **Group:** related active threads in the sidebar
 - **Fork:** continue a copy on the same provider
+
+https://github.com/user-attachments/assets/532802d4-4ddc-473e-b337-4f2c5906d3f8
 
 ### Browser bookmarks
 
@@ -85,12 +142,22 @@ The [fork delta](docs/fork/internals/fork-delta.md) owns the full list and bound
 - **New tab:** bookmarks listed first
 - [Guide](docs/fork/user/browser.md)
 
+https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
+
 ### Workspace files
 
 - **Reveal:** gitignored agent artifacts on demand
 - **Default:** hidden, remembered per device
 - **Safety:** containment holds unless trusted
 - [Guide](docs/fork/user/workspace-files.md)
+
+https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
+
+### Device approval
+
+- **Grant:** RFC 8628-style device flow
+- **Approve:** on the host, `t3 auth device approve`
+- **Token:** never passes through a person
 
 ### Backend attach
 
