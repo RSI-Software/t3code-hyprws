@@ -439,17 +439,44 @@ An RFC 8628-style device grant, approved by the owner on the host.
 | Revocation  | The issued session, through `t3 auth session revoke`                     |
 | Abuse cap   | 20 open requests; 10-minute expiry                                       |
 
+### External MCP clients
+
+`approve --mcp-project <id>` or `--mcp-all-projects` grants an MCP policy instead of scopes.
+The client then calls `/api/mcp/external`, a second MCP server with its own `t3_external_*` catalog.
+
+| Aspect      | Rule                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------- |
+| Credential  | DPoP device session only; scopes `[]`, so scope-checked routes and RPCs refuse it       |
+| WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it      |
+| Policy      | `auth_external_mcp_grants`, keyed by session                                            |
+| Reads       | Projects, threads, timelines, waits in granted projects                                 |
+| Mutations   | Create, send, interrupt; `--mcp-coordinate` only                                        |
+| Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                  |
+| Retries     | `auth_external_mcp_requests` binds each key to its request and result                   |
+| Lost result | A retry reports the delivered message's run, the pinned interrupt run, or no active run |
+| Steering    | A capped grant joins only the provider attempt it vetted                                |
+| Dispatch    | Refuses a capped send or create prompt once its vetted attempt or thread modes changed  |
+| Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns           |
+| Failures    | MCP `isError: true`, text led by the failure code                                       |
+| Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                       |
+| Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                           |
+
 ### Retirement condition
 
 A tagged upstream release ships owner-approved native client authorization.
+When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#15220`), feed its authenticator from device grants and keep only the project and mode policy.
 
 ### Rebase scan
 
-| Path                                                                                                    | Why it matters              |
-| ------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`            | Fork-owned grant and CLI    |
-| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts` | Route, command, table hooks |
-| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                  | Reused issue and proof APIs |
+| Path                                                                                                                                              | Why it matters                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                            |
+| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                         |
+| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                         |
+| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                |
+| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer       |
+| `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                        |
+| `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and `expectedModes` dispatch check |
 
 ## distribution
 
