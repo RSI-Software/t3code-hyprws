@@ -1,10 +1,12 @@
 // Retries against the real orchestrator: a replayed request never acts on a
-// thread the owner has since changed, and never reports a later run as its own.
+// thread the owner has since changed, and never reports a later run as its own,
+// even when the attempt it retries committed and then lost its result.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   CommandId,
+  MessageId,
   type ModelSelection,
   type OrchestrationProjectShell,
   type OrchestrationV2ProviderSession,
@@ -24,6 +26,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -240,6 +243,8 @@ const harness = <A, E>(
     readonly service: ExternalMcpService.ExternalMcpServiceShape;
     readonly orchestrator: Orchestrator.OrchestratorV2Shape;
     readonly provider: ReturnType<typeof makeAdapter>;
+    /** Forgets every recorded result, as a crash after each commit would. */
+    readonly loseResults: Effect.Effect<void>;
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.scoped(
@@ -261,6 +266,7 @@ const harness = <A, E>(
           },
         },
         registryLayer,
+        { databaseLayer: SqlitePersistenceMemory },
       );
       const shell = {
         id: projectId,
@@ -279,13 +285,18 @@ const harness = <A, E>(
           ),
           Layer.provide(registryLayer),
           Layer.provide(makeProviderRegistryLayer([provider])),
-          Layer.provide(Layer.fresh(SqlitePersistenceMemory)),
+          Layer.provideMerge(SqlitePersistenceMemory),
         ),
       ).pipe(Layer.provide(NodeServices.layer));
       return yield* Effect.gen(function* () {
         const service = yield* ExternalMcpService.ExternalMcpServiceFork;
         const orchestrator = yield* Orchestrator.OrchestratorV2;
-        return yield* body({ service, orchestrator, provider: fake });
+        const sql = yield* SqlClient.SqlClient;
+        const loseResults = sql`UPDATE auth_external_mcp_requests SET result_json = NULL`.pipe(
+          Effect.asVoid,
+          Effect.orDie,
+        );
+        return yield* body({ service, orchestrator, provider: fake, loseResults });
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -411,6 +422,138 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
             .length,
           1,
         );
+      }),
+    ),
+  );
+
+  it.live("recovers a send and an interrupt that committed but lost their result", () =>
+    harness("external-mcp-crash-window", ({ service, orchestrator, provider, loseResults }) =>
+      Effect.gen(function* () {
+        const created = yield* service.createThread(principal, {
+          projectId,
+          prompt: "first",
+          clientRequestId: "create",
+        });
+        const threadId = created.threadId;
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+
+        const steer = { threadId, message: "steer", mode: "steer", clientRequestId: "s" } as const;
+        const steered = yield* service.sendToThread(principal, steer);
+        yield* provider.complete(threadId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("completed"));
+        yield* loseResults;
+        // The message already reached the ended run; the retry reports that run.
+        assert.deepEqual(yield* service.sendToThread(principal, steer), {
+          ...steered,
+          status: "completed",
+        });
+        assert.deepEqual(provider.steered, ["steer"]);
+
+        const next = yield* service.sendToThread(principal, {
+          threadId,
+          message: "second",
+          clientRequestId: "second",
+        });
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        const interrupt = { threadId, clientRequestId: "i" } as const;
+        const interrupted = yield* service.interruptThread(principal, interrupt);
+        assert.equal(interrupted.runId, next.runId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("interrupted"));
+        const third = yield* service.sendToThread(principal, {
+          threadId,
+          message: "third",
+          clientRequestId: "third",
+        });
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        yield* loseResults;
+        // The retry stays on the run it pinned and leaves the later one running.
+        const retried = yield* service.interruptThread(principal, interrupt);
+        assert.deepEqual(retried, { threadId, runId: next.runId, status: "interrupted" });
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(after.runs.at(-1)?.id, third.runId);
+        assert.equal(after.runs.at(-1)?.status, "running");
+        assert.equal(
+          after.messages.filter((message) => message.role === "user" && message.text === "steer")
+            .length,
+          1,
+        );
+
+        // A create that sent its prompt reports that run, not the latest one.
+        yield* provider.complete(threadId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("completed"));
+        yield* loseResults;
+        const recreated = yield* service.createThread(principal, {
+          projectId,
+          prompt: "first",
+          clientRequestId: "create",
+        });
+        assert.equal(recreated.runId, created.runId);
+        assert.deepEqual(provider.started, ["first", "second", "third"]);
+      }),
+    ),
+  );
+
+  it.live("never steers a turn that started before the owner changed the modes", () =>
+    harness("external-mcp-steer-downgrade", ({ service, orchestrator, provider }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-elevated");
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("command:owner:create"),
+          threadId,
+          projectId,
+          title: "owner",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make("command:owner:start"),
+          threadId,
+          messageId: MessageId.make("message:owner:start"),
+          text: "elevated",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "start_immediately" },
+        });
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        // The owner lowers the thread while its elevated turn keeps running.
+        yield* orchestrator.dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("command:owner:lower"),
+          threadId,
+          runtimeMode: "approval-required",
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.interaction-mode.set",
+          commandId: CommandId.make("command:owner:plan"),
+          threadId,
+          interactionMode: "plan",
+        });
+        yield* waitForProjection(
+          orchestrator,
+          threadId,
+          (projection) => projection.thread.interactionMode === "plan",
+        );
+
+        const refused = yield* service
+          .sendToThread(principal, { threadId, message: "x", mode: "steer", clientRequestId: "s" })
+          .pipe(Effect.flip);
+        assert.equal(refused.code, "runtime_mode_escalation_denied");
+        const queued = yield* service.sendToThread(principal, {
+          threadId,
+          message: "later",
+          clientRequestId: "a",
+        });
+        assert.equal(queued.delivery, "queued");
+        assert.deepEqual(provider.steered, []);
       }),
     ),
   );

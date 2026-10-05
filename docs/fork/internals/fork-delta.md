@@ -444,17 +444,19 @@ An RFC 8628-style device grant, approved by the owner on the host.
 `approve --mcp-project <id>` or `--mcp-all-projects` grants an MCP policy instead of scopes.
 The client then calls `/api/mcp/external`, a second MCP server with its own `t3_external_*` catalog.
 
-| Aspect     | Rule                                                                   |
-| ---------- | ---------------------------------------------------------------------- |
-| Credential | DPoP device session only; scopes `[]`, so no RPC or route accepts it   |
-| Policy     | `auth_external_mcp_grants`, keyed by session                           |
-| Reads      | Projects, threads, timelines, waits in granted projects                |
-| Mutations  | Create, send, interrupt; `--mcp-coordinate` only                       |
-| Ceilings   | Runtime and interaction modes; defaults `approval-required` and `plan` |
-| Retries    | `auth_external_mcp_requests` binds each key to its request and result  |
-| Failures   | MCP `isError: true`, text led by the failure code                      |
-| Provenance | `createdBy: agent`, `creationSource: mcp`, plus an audit log line      |
-| Isolation  | Built in one `Layer.fresh`, so `/mcp` never lists these tools          |
+| Aspect      | Rule                                                                        |
+| ----------- | --------------------------------------------------------------------------- |
+| Credential  | DPoP device session only; scopes `[]`, so no RPC or route accepts it        |
+| Policy      | `auth_external_mcp_grants`, keyed by session                                |
+| Reads       | Projects, threads, timelines, waits in granted projects                     |
+| Mutations   | Create, send, interrupt; `--mcp-coordinate` only                            |
+| Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`      |
+| Retries     | `auth_external_mcp_requests` binds each key to its request and result       |
+| Lost result | A retry reports the delivered message's run or the pinned interrupt run     |
+| Steering    | A capped grant steers no turn requested before a mode change; `auto` queues |
+| Failures    | MCP `isError: true`, text led by the failure code                           |
+| Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line           |
+| Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools               |
 
 ### Retirement condition
 

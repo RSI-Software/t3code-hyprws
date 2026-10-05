@@ -23,8 +23,10 @@ import {
   type OrchestratorMcpThreadReadResult,
   OrchestratorMcpThreadSendResult,
   type OrchestratorMcpThreadWaitResult,
+  type OrchestrationV2Run,
+  type OrchestrationV2TurnItem,
   type ProjectId,
-  type RunId,
+  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -32,11 +34,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 
 import {
   externalMcpPolicyAllowsProject,
   type ExternalMcpPolicy,
 } from "../../auth/ExternalMcpGrant.fork.ts";
+import * as EventStore from "../../orchestration-v2/EventStore.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
@@ -207,7 +211,21 @@ const requireWithinCeiling = (
     ),
   });
 
+/** How a delivered message reached its run, read the way `sendToThread` reports it. */
+const deliveryOf = (
+  turnItem: Extract<OrchestrationV2TurnItem, { readonly type: "user_message" }> | null,
+  mode: "auto" | "queue" | "steer" | "restart",
+): OrchestratorMcpThreadSendResult["delivery"] =>
+  turnItem === null || turnItem.inputIntent === "queued_turn"
+    ? "queued"
+    : turnItem.inputIntent === "turn_start"
+      ? "started"
+      : mode === "restart"
+        ? "restarted"
+        : "steered";
+
 const make = Effect.gen(function* () {
+  const events = yield* EventStore.EventStoreV2;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -245,6 +263,54 @@ const make = Effect.gen(function* () {
       if (target.thread.deletedAt !== null) return yield* threadUnavailable(threadId);
       return target;
     });
+
+  /**
+   * The message an earlier attempt already dispatched under its stable id, with
+   * the run it reached, so a retry reports that run instead of acting again.
+   */
+  const dispatchedMessage = (projectId: ProjectId, threadId: ThreadId, messageId: MessageId) =>
+    threadManagement
+      .getProjectThreadRecords({ projectId, threadId }, ["runs", "messages", "turnItems"], {
+        messageIds: [messageId],
+        turnItemTypes: ["user_message"],
+      })
+      .pipe(
+        Effect.mapError(threadManagementFailureFork),
+        Effect.map((records) => {
+          const runId = records.messages.find((message) => message.id === messageId)?.runId;
+          const run = records.runs.find((candidate) => candidate.id === runId);
+          if (run === undefined) return null;
+          const turnItem =
+            records.turnItems.find(
+              (item): item is Extract<OrchestrationV2TurnItem, { readonly type: "user_message" }> =>
+                item.type === "user_message" && item.messageId === messageId,
+            ) ?? null;
+          return { run, turnItem };
+        }),
+      );
+
+  /**
+   * A provider turn keeps the modes it started with, so after the owner
+   * changes a thread's modes its running turn may sit above what the thread
+   * now shows. True when a mode changed since `run` was requested.
+   */
+  const modesChangedSince = (threadId: ThreadId, run: OrchestrationV2Run) =>
+    Effect.forEach(
+      ["thread.runtime-mode-updated", "thread.interaction-mode-updated"] as const,
+      (eventType) =>
+        events.read({ threadId, eventType }).pipe(
+          Stream.filter(
+            (stored) =>
+              DateTime.toEpochMillis(stored.event.occurredAt) >=
+              DateTime.toEpochMillis(run.requestedAt),
+          ),
+          Stream.runHead,
+          Effect.map(Option.isSome),
+        ),
+    ).pipe(
+      Effect.map((changed) => changed.some(Boolean)),
+      Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
+    );
 
   const audit = (principal: ExternalMcpPrincipal, operation: string, detail: object) =>
     Effect.logInfo("external MCP mutation", {
@@ -458,83 +524,97 @@ const make = Effect.gen(function* () {
             fingerprint,
             result: OrchestratorMcpCreatedThread,
           },
-          Effect.gen(function* () {
-            const project = yield* loadProject(principal, input.projectId);
-            const modes = yield* requireWithinCeiling(principal, {
-              runtimeMode: input.runtimeMode,
-              interactionMode: input.interactionMode,
-            });
-            const modelSelection = yield* resolveModelSelection(project, input.target);
-            const key = input.clientRequestId;
-            const threadId = ThreadId.make(`thread:${stableId(principal, "create", key)}`);
-            const detail = input.title?.trim() || input.prompt?.trim() || "External MCP thread";
-            yield* audit(principal, "thread.create", { projectId: input.projectId, threadId });
-            yield* threadManagement
-              .dispatch({
-                type: "thread.create",
-                createdBy: "agent",
-                creationSource: "mcp",
-                commandId: CommandId.make(`command:${stableId(principal, "create", key)}`),
-                threadId,
-                projectId: input.projectId,
-                title: detail.length > 80 ? `${detail.slice(0, 77)}...` : detail,
-                modelSelection,
-                runtimeMode: modes.runtimeMode,
-                interactionMode: modes.interactionMode,
-                branch: null,
-                worktreePath: null,
-              })
-              .pipe(
-                Effect.mapError((error) =>
-                  failure("orchestration_error", `Unable to create thread: ${errorMessage(error)}`),
-                ),
-              );
-            // An earlier attempt may have created the thread and the owner may
-            // have changed it since, so the prompt goes only to a thread that
-            // still sits in this project and under the grant's ceilings.
-            const actual = yield* loadThread(principal, threadId);
-            if (actual.thread.projectId !== input.projectId) {
-              return yield* threadUnavailable(threadId);
-            }
-            yield* requireWithinCeiling(principal, actual.thread);
-            if (input.prompt !== undefined) {
+          () =>
+            Effect.gen(function* () {
+              const project = yield* loadProject(principal, input.projectId);
+              const modes = yield* requireWithinCeiling(principal, {
+                runtimeMode: input.runtimeMode,
+                interactionMode: input.interactionMode,
+              });
+              const modelSelection = yield* resolveModelSelection(project, input.target);
+              const key = input.clientRequestId;
+              const threadId = ThreadId.make(`thread:${stableId(principal, "create", key)}`);
+              const detail = input.title?.trim() || input.prompt?.trim() || "External MCP thread";
+              yield* audit(principal, "thread.create", { projectId: input.projectId, threadId });
               yield* threadManagement
                 .dispatch({
-                  type: "message.dispatch",
+                  type: "thread.create",
                   createdBy: "agent",
                   creationSource: "mcp",
-                  commandId: CommandId.make(
-                    `command:${stableId(principal, "create-dispatch", key)}`,
-                  ),
+                  commandId: CommandId.make(`command:${stableId(principal, "create", key)}`),
                   threadId,
-                  messageId: MessageId.make(`message:${stableId(principal, "create", key)}`),
-                  text: input.prompt,
-                  attachments: [],
+                  projectId: input.projectId,
+                  title: detail.length > 80 ? `${detail.slice(0, 77)}...` : detail,
                   modelSelection,
-                  dispatchMode: { type: "start_immediately" },
+                  runtimeMode: modes.runtimeMode,
+                  interactionMode: modes.interactionMode,
+                  branch: null,
+                  worktreePath: null,
                 })
                 .pipe(
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to start thread: ${errorMessage(error)}`,
+                      `Unable to create thread: ${errorMessage(error)}`,
                     ),
                   ),
                 );
-            }
-            const created = yield* loadThread(principal, threadId);
-            const run = created.runs.at(-1);
-            return {
-              threadId,
-              runId: run?.id ?? null,
-              status: run?.status ?? "idle",
-              title: created.thread.title,
-              createdBy: created.thread.createdBy,
-              creationSource: created.thread.creationSource,
-              providerInstanceId: created.thread.modelSelection.instanceId,
-              model: created.thread.modelSelection.model,
-            } satisfies OrchestratorMcpCreatedThread;
-          }),
+              // An earlier attempt may have created the thread, or also sent its
+              // prompt, and the owner may have changed it since: a sent prompt
+              // is reported, and an unsent one goes only to a thread that still
+              // sits in this project and under the grant's ceilings.
+              const actual = yield* loadThread(principal, threadId);
+              if (actual.thread.projectId !== input.projectId) {
+                return yield* threadUnavailable(threadId);
+              }
+              const promptId = MessageId.make(`message:${stableId(principal, "create", key)}`);
+              const sent =
+                input.prompt === undefined
+                  ? null
+                  : yield* dispatchedMessage(input.projectId, threadId, promptId);
+              if (sent === null) yield* requireWithinCeiling(principal, actual.thread);
+              if (input.prompt !== undefined && sent === null) {
+                yield* threadManagement
+                  .dispatch({
+                    type: "message.dispatch",
+                    createdBy: "agent",
+                    creationSource: "mcp",
+                    commandId: CommandId.make(
+                      `command:${stableId(principal, "create-dispatch", key)}`,
+                    ),
+                    threadId,
+                    messageId: promptId,
+                    text: input.prompt,
+                    attachments: [],
+                    modelSelection,
+                    dispatchMode: { type: "start_immediately" },
+                  })
+                  .pipe(
+                    Effect.mapError((error) =>
+                      failure(
+                        "orchestration_error",
+                        `Unable to start thread: ${errorMessage(error)}`,
+                      ),
+                    ),
+                  );
+              }
+              const created = yield* loadThread(principal, threadId);
+              const run =
+                input.prompt === undefined
+                  ? undefined
+                  : ((yield* dispatchedMessage(input.projectId, threadId, promptId))?.run ??
+                    undefined);
+              return {
+                threadId,
+                runId: run?.id ?? null,
+                status: run?.status ?? "idle",
+                title: created.thread.title,
+                createdBy: created.thread.createdBy,
+                creationSource: created.thread.creationSource,
+                providerInstanceId: created.thread.modelSelection.instanceId,
+                model: created.thread.modelSelection.model,
+              } satisfies OrchestratorMcpCreatedThread;
+            }),
         );
       }),
 
@@ -555,36 +635,74 @@ const make = Effect.gen(function* () {
             fingerprint,
             result: OrchestratorMcpThreadSendResult,
           },
-          Effect.gen(function* () {
-            const target = yield* loadThread(principal, input.threadId);
-            yield* requireWithinCeiling(principal, target.thread);
-            const messageId = MessageId.make(
-              `message:${stableId(principal, "send", input.clientRequestId)}`,
-            );
-            yield* audit(principal, "thread.send", { threadId: input.threadId, messageId });
-            const result = yield* threadManagement
-              .sendToThread({
-                projectId: target.thread.projectId,
-                commandId: CommandId.make(
-                  `command:${stableId(principal, "send", input.clientRequestId)}`,
-                ),
+          () =>
+            Effect.gen(function* () {
+              const target = yield* loadThread(principal, input.threadId);
+              const messageId = MessageId.make(
+                `message:${stableId(principal, "send", input.clientRequestId)}`,
+              );
+              // An earlier attempt that delivered the message is reported as it
+              // landed, whatever the thread has done since.
+              const sent = yield* dispatchedMessage(
+                target.thread.projectId,
+                input.threadId,
+                messageId,
+              );
+              if (sent !== null) {
+                return {
+                  threadId: input.threadId,
+                  messageId,
+                  runId: sent.run.id,
+                  status: sent.run.status,
+                  delivery: deliveryOf(sent.turnItem, mode),
+                } satisfies OrchestratorMcpThreadSendResult;
+              }
+              yield* requireWithinCeiling(principal, target.thread);
+              // Steering joins a running turn, so a capped credential is held to
+              // turns requested under the thread's current modes; `auto` queues
+              // instead.
+              const capped =
+                principal.policy.maxRuntimeMode !== "full-access" ||
+                principal.policy.maxInteractionMode !== "default";
+              let delivery = mode;
+              if (capped && (mode === "steer" || mode === "auto")) {
+                for (const run of target.runs.filter(
+                  (candidate) => candidate.status === "running",
+                )) {
+                  if (!(yield* modesChangedSince(input.threadId, run))) continue;
+                  if (mode === "steer") {
+                    return yield* failure(
+                      "runtime_mode_escalation_denied",
+                      `Run ${run.id} started before this thread's modes changed, so this credential cannot steer it; send with mode queue.`,
+                    );
+                  }
+                  delivery = "queue";
+                }
+              }
+              yield* audit(principal, "thread.send", { threadId: input.threadId, messageId });
+              const result = yield* threadManagement
+                .sendToThread({
+                  projectId: target.thread.projectId,
+                  commandId: CommandId.make(
+                    `command:${stableId(principal, "send", input.clientRequestId)}`,
+                  ),
+                  threadId: input.threadId,
+                  messageId,
+                  text: input.message,
+                  attachments: [],
+                  mode: delivery,
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                })
+                .pipe(Effect.mapError(threadManagementFailureFork));
+              return {
                 threadId: input.threadId,
                 messageId,
-                text: input.message,
-                attachments: [],
-                mode,
-                createdBy: "agent",
-                creationSource: "mcp",
-              })
-              .pipe(Effect.mapError(threadManagementFailureFork));
-            return {
-              threadId: input.threadId,
-              messageId,
-              runId: result.run.id,
-              status: result.run.status,
-              delivery: result.delivery,
-            } satisfies OrchestratorMcpThreadSendResult;
-          }),
+                runId: result.run.id,
+                status: result.run.status,
+                delivery: result.delivery,
+              } satisfies OrchestratorMcpThreadSendResult;
+            }),
         );
       }),
 
@@ -604,34 +722,44 @@ const make = Effect.gen(function* () {
             fingerprint,
             result: OrchestratorMcpThreadInterruptResult,
           },
-          Effect.gen(function* () {
-            const target = yield* loadThread(principal, input.threadId);
-            yield* requireWithinCeiling(principal, target.thread);
-            yield* audit(principal, "thread.interrupt", { threadId: input.threadId });
-            const result = yield* threadManagement
-              .interruptThread({
-                projectId: target.thread.projectId,
-                commandId: CommandId.make(
-                  `command:${stableId(principal, "interrupt", input.clientRequestId)}`,
-                ),
+          (pin) =>
+            Effect.gen(function* () {
+              const target = yield* loadThread(principal, input.threadId);
+              // The run an earlier attempt committed to stays the target, so a
+              // retry never reaches a run that started after it.
+              let runId = pin.recorded === null ? input.runId : RunId.make(pin.recorded);
+              if (pin.recorded === null) {
+                yield* requireWithinCeiling(principal, target.thread);
+                runId ??= ThreadManagementService.latestActiveRun(target)?.id;
+                if (runId !== undefined) yield* pin.record(runId);
+              }
+              yield* audit(principal, "thread.interrupt", { threadId: input.threadId, runId });
+              const result = yield* threadManagement
+                .interruptThread({
+                  projectId: target.thread.projectId,
+                  commandId: CommandId.make(
+                    `command:${stableId(principal, "interrupt", input.clientRequestId)}`,
+                  ),
+                  threadId: input.threadId,
+                  ...(runId === undefined ? {} : { runId }),
+                  ...(input.reason === undefined ? {} : { reason: input.reason }),
+                })
+                .pipe(Effect.mapError(threadManagementFailureFork));
+              if (result.type === "no_active_run") {
+                return { threadId: input.threadId, runId: null, status: "no_active_run" } as const;
+              }
+              return {
                 threadId: input.threadId,
-                ...(input.runId === undefined ? {} : { runId: input.runId }),
-                ...(input.reason === undefined ? {} : { reason: input.reason }),
-              })
-              .pipe(Effect.mapError(threadManagementFailureFork));
-            if (result.type === "no_active_run") {
-              return { threadId: input.threadId, runId: null, status: "no_active_run" } as const;
-            }
-            return {
-              threadId: input.threadId,
-              runId: result.run.id,
-              status:
-                result.type === "already_terminal" ? result.run.status : "interrupt_requested",
-            } satisfies OrchestratorMcpThreadInterruptResult;
-          }),
+                runId: result.run.id,
+                status:
+                  result.type === "already_terminal" ? result.run.status : "interrupt_requested",
+              } satisfies OrchestratorMcpThreadInterruptResult;
+            }),
         );
       }),
   });
 });
 
-export const layer = Layer.effect(ExternalMcpServiceFork, make);
+export const layer = Layer.effect(ExternalMcpServiceFork, make).pipe(
+  Layer.provide(EventStore.layer),
+);

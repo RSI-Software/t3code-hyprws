@@ -97,6 +97,8 @@ const makeHarness = () => {
         creationSource: "mcp",
       },
       runs: [],
+      messages: [],
+      turnItems: [],
       runtimeRequests: [],
       contextTransfers: [],
     } as unknown as OrchestrationV2ThreadProjection;

@@ -68,12 +68,14 @@ const FORK_TABLES = [
     created_at TEXT NOT NULL
   )`,
   // External MCP retry keys: each binds one request's fingerprint to the
-  // result it produced, so a retry replays it instead of acting again.
+  // target it committed to and the result it produced, so a retry replays it
+  // instead of acting again.
   `CREATE TABLE IF NOT EXISTS auth_external_mcp_requests (
     session_id TEXT NOT NULL,
     operation TEXT NOT NULL,
     client_request_id TEXT NOT NULL,
     request_hash TEXT NOT NULL,
+    pinned_target TEXT,
     result_json TEXT,
     created_at TEXT NOT NULL,
     PRIMARY KEY (session_id, operation, client_request_id)
