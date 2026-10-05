@@ -18,6 +18,7 @@ import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapter
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import type { ExternalMcpPolicy } from "../../auth/ExternalMcpGrant.fork.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 
@@ -65,6 +66,8 @@ const principal = (
 const makeHarness = () => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const sent: Array<ThreadManagementService.ThreadManagementSendInput> = [];
+  // Flipped to make a send fail after it, as a thread whose run has ended would.
+  const state = { sendFails: false };
   const threads = new Map<
     string,
     { projectId: ProjectId; runtimeMode: string; interactionMode: string }
@@ -122,12 +125,13 @@ const makeHarness = () => {
               return {} as never;
             }),
           sendToThread: (input) =>
-            Effect.sync(() => {
+            Effect.suspend(() => {
+              if (state.sendFails) return Effect.die("send reached a terminal thread");
               sent.push(input);
-              return {
+              return Effect.succeed({
                 run: { id: RunId.make("run:1"), status: "running" },
                 delivery: "started",
-              } as never;
+              } as never);
             }),
         }),
         Layer.mock(ProjectService.ProjectService)({
@@ -138,10 +142,11 @@ const makeHarness = () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([instanceId]),
         }),
+        Layer.fresh(SqlitePersistenceMemory),
       ),
     ),
   );
-  return { dispatched, sent, layer };
+  return { dispatched, sent, state, layer };
 };
 
 const run = <A, E>(
@@ -220,7 +225,7 @@ describe("ExternalMcpServiceFork", () => {
           .createThread(principal(), {
             projectId: granted,
             interactionMode: "default",
-            clientRequestId: "a",
+            clientRequestId: "b",
           })
           .pipe(Effect.flip);
         assert.equal(interaction.code, "interaction_mode_escalation_denied");
@@ -236,9 +241,14 @@ describe("ExternalMcpServiceFork", () => {
         assert.equal(harness.dispatched.length, 0);
         assert.equal(harness.sent.length, 0);
 
+        // A refused request still binds its key, so a changed request needs a new one.
+        const reused = yield* service
+          .createThread(principal(), { projectId: granted, clientRequestId: "a" })
+          .pipe(Effect.flip);
+        assert.equal(reused.code, "invalid_request");
         const created = yield* service.createThread(principal(), {
           projectId: granted,
-          clientRequestId: "a",
+          clientRequestId: "c",
         });
         const create = harness.dispatched[0];
         assert.equal(create?.type, "thread.create");
@@ -253,40 +263,59 @@ describe("ExternalMcpServiceFork", () => {
     );
   });
 
-  it.effect("derives retry-stable ids from the session and request key", () => {
+  it.effect("replays a retried request and refuses a reused key", () => {
     const harness = makeHarness();
     const threadId = ThreadId.make("thread:granted");
     return run(harness, (service) =>
       Effect.gen(function* () {
-        const create = (sessionId: string, clientRequestId: string) =>
+        const create = (sessionId: string, clientRequestId: string, prompt = "start") =>
           service.createThread(principal({}, sessionId), {
             projectId: granted,
-            prompt: "start",
+            prompt,
             clientRequestId,
           });
         const first = yield* create("session-a", "req-1");
+        // thread.create and message.dispatch.
+        assert.equal(harness.dispatched.length, 2);
         const retried = yield* create("session-a", "req-1");
+        assert.deepEqual(retried, first);
+        assert.equal(harness.dispatched.length, 2);
+        const changed = yield* create("session-a", "req-1", "other").pipe(Effect.flip);
+        assert.equal(changed.code, "invalid_request");
+        assert.equal(harness.dispatched.length, 2);
         const next = yield* create("session-a", "req-2");
         const otherSession = yield* create("session-b", "req-1");
-        assert.equal(first.threadId, retried.threadId);
         assert.notEqual(first.threadId, next.threadId);
         assert.notEqual(first.threadId, otherSession.threadId);
-        const commandIds = harness.dispatched.map((command) => command.commandId);
-        // thread.create and message.dispatch each, per call.
-        assert.equal(commandIds.length, 8);
-        assert.equal(commandIds[0], commandIds[2]);
-        assert.equal(commandIds[1], commandIds[3]);
-        assert.notEqual(commandIds[0], commandIds[1]);
-        assert.equal(new Set(commandIds).size, 6);
+        assert.equal(new Set(harness.dispatched.map((command) => command.commandId)).size, 6);
 
-        const send = (clientRequestId: string) =>
-          service.sendToThread(principal(), { threadId, message: "hi", clientRequestId });
+        const send = (clientRequestId: string, message = "hi") =>
+          service.sendToThread(principal(), { threadId, message, clientRequestId });
         const sentFirst = yield* send("req-1");
-        const sentRetry = yield* send("req-1");
-        assert.equal(sentFirst.messageId, sentRetry.messageId);
-        assert.equal(harness.sent[0]?.commandId, harness.sent[1]?.commandId);
         assert.equal(harness.sent[0]?.createdBy, "agent");
         assert.equal(harness.sent[0]?.creationSource, "mcp");
+        // The retry replays the stored result even once the thread could no longer take it.
+        harness.state.sendFails = true;
+        const sentRetry = yield* send("req-1");
+        assert.deepEqual(sentRetry, sentFirst);
+        assert.equal(harness.sent.length, 1);
+        assert.equal((yield* send("req-1", "changed").pipe(Effect.flip)).code, "invalid_request");
+      }),
+    );
+  });
+
+  it.effect("holds interrupt under the grant's ceilings", () => {
+    const harness = makeHarness();
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const interrupt = yield* service
+          .interruptThread(principal(), {
+            threadId: ThreadId.make("thread:full"),
+            clientRequestId: "a",
+          })
+          .pipe(Effect.flip);
+        assert.equal(interrupt.code, "runtime_mode_escalation_denied");
+        assert.equal(harness.dispatched.length, 0);
       }),
     );
   });

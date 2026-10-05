@@ -1,7 +1,10 @@
 // Fork-owned handlers for the external MCP tools: each reads the request's
-// principal and calls one `ExternalMcpServiceFork` method.
+// principal and calls one `ExternalMcpServiceFork` method. A refusal is a tool
+// error (`isError: true`) whose text leads with the failure code, since the
+// MCP server reports only the failure's message.
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import { OrchestratorMcpFailure } from "@t3tools/contracts";
 
 import {
   type ExternalMcpPrincipal,
@@ -13,10 +16,20 @@ import { ExternalMcpToolkitFork } from "./tools.fork.ts";
 export const ExternalMcpToolkitHandlersLiveFork = ExternalMcpToolkitFork.toLayer(
   Effect.gen(function* () {
     const service = yield* ExternalMcpServiceFork;
-    const withPrincipal = <A, E>(run: (principal: ExternalMcpPrincipal) => Effect.Effect<A, E>) =>
+    const withPrincipal = <A>(
+      run: (principal: ExternalMcpPrincipal) => Effect.Effect<A, OrchestratorMcpFailure>,
+    ) =>
       Effect.gen(function* () {
         return yield* run(yield* ExternalMcpPrincipalFork);
-      });
+      }).pipe(
+        Effect.mapError(
+          (error) =>
+            new OrchestratorMcpFailure({
+              code: error.code,
+              message: `${error.code}: ${error.message}`,
+            }),
+        ),
+      );
 
     return ExternalMcpToolkitFork.of({
       t3_external_whoami: () =>

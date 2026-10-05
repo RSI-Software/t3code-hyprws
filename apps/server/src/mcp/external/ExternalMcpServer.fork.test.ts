@@ -28,6 +28,13 @@ const policy: ExternalMcpGrant.ExternalMcpPolicy = {
   maxInteractionMode: "plan",
 };
 
+const readerPolicy: ExternalMcpGrant.ExternalMcpPolicy = {
+  projectIds: "*",
+  coordinate: false,
+  maxRuntimeMode: "approval-required",
+  maxInteractionMode: "plan",
+};
+
 const deviceSession = (sessionId: string): EnvironmentAuth.AuthenticatedSession => ({
   sessionId: AuthSessionId.make(sessionId),
   subject: DEVICE_AUTHORIZATION_SUBJECT,
@@ -40,6 +47,7 @@ const deviceSession = (sessionId: string): EnvironmentAuth.AuthenticatedSession 
 const sessionsByToken: Record<string, EnvironmentAuth.AuthenticatedSession> = {
   granted: deviceSession("session-granted"),
   ungranted: deviceSession("session-ungranted"),
+  reader: deviceSession("session-reader"),
   browser: {
     sessionId: AuthSessionId.make("session-browser"),
     subject: "browser",
@@ -91,6 +99,12 @@ const makeHarness = Effect.gen(function* () {
     sessionId: AuthSessionId.make("session-granted"),
     policy,
     clientLabel: "dot cloud",
+    createdAt: "2026-10-05T00:00:00.000Z",
+  }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+  yield* ExternalMcpGrant.recordExternalMcpGrant({
+    sessionId: AuthSessionId.make("session-reader"),
+    policy: readerPolicy,
+    clientLabel: "reader",
     createdAt: "2026-10-05T00:00:00.000Z",
   }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const web = yield* Effect.acquireRelease(
@@ -218,5 +232,39 @@ it.live("keeps its tools out of the provider-session catalog", () =>
     const { rpc, connect } = yield* makeHarness;
     const listed = yield* rpc("/mcp", "tools/list", listTools, yield* connect("/mcp", {}));
     expect(listed.body?.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["ping"]);
+  }).pipe(Effect.scoped),
+);
+
+it.live("answers each request as the principal that sent it, on a shared MCP session", () =>
+  Effect.gen(function* () {
+    const { rpc, connect } = yield* makeHarness;
+    const session = yield* connect(external, { authorization: "DPoP granted" });
+    const call = (authorization: string, name: string, args: Record<string, unknown>) =>
+      rpc(external, "tools/call", { name, arguments: args }, { ...session, authorization });
+
+    const reader = yield* call("DPoP reader", "t3_external_whoami", {});
+    expect(reader.body?.result.structuredContent).toMatchObject({
+      sessionId: "session-reader",
+      clientLabel: "reader",
+      policy: readerPolicy,
+    });
+    const granted = yield* call("DPoP granted", "t3_external_whoami", {});
+    expect(granted.body?.result.structuredContent).toMatchObject({
+      sessionId: "session-granted",
+      policy,
+    });
+
+    // A refusal is an MCP tool error, led by its failure code.
+    const create = { projectId: "project:granted", clientRequestId: "k" };
+    const denied = yield* call("DPoP reader", "t3_external_thread_create", create);
+    expect(denied.status).toBe(200);
+    expect(denied.body?.result.isError).toBe(true);
+    expect(denied.body?.result.content[0].text).toMatch(/^capability_denied: /);
+    const outside = yield* call("DPoP granted", "t3_external_thread_create", {
+      ...create,
+      projectId: "project:other",
+    });
+    expect(outside.body?.result.isError).toBe(true);
+    expect(outside.body?.result.content[0].text).toMatch(/^invalid_request: /);
   }).pipe(Effect.scoped),
 );

@@ -36,7 +36,7 @@ const dependencies = [ExternalMcpPrincipalFork, ExternalMcpServiceFork];
 /** Required on every mutation: the retry key that makes it idempotent. */
 const ClientRequestId = TrimmedNonEmptyString.check(Schema.isMaxLength(256)).annotate({
   description:
-    "Caller-chosen key, stable across retries of one request and distinct between requests. A retry with the same key replays the first result instead of acting twice.",
+    "Caller-chosen key, stable across retries of one request and distinct between requests. A retry with the same key and request replays the first result instead of acting twice; the same key with a different request is refused.",
 });
 
 const WhoamiResult = Schema.Struct({
@@ -90,7 +90,6 @@ const WhoamiTool = Tool.make("t3_external_whoami", {
     "Report this credential's identity and grant: session, client label, expiry, the projects it reaches, whether it may coordinate threads, and its runtime and interaction mode ceilings.",
   success: WhoamiResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Describe this credential")
@@ -102,7 +101,6 @@ const ProjectListTool = Tool.make("t3_external_project_list", {
   description: "List the T3 projects this credential may read and, when granted, coordinate.",
   success: ProjectListResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "List T3 projects")
@@ -116,7 +114,6 @@ const ThreadListTool = Tool.make("t3_external_thread_list", {
   parameters: ThreadListInput,
   success: ThreadListResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "List T3 threads")
@@ -130,7 +127,6 @@ const ThreadReadTool = Tool.make("t3_external_thread_read", {
   parameters: OrchestratorMcpThreadReadInput,
   success: OrchestratorMcpThreadReadResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Read a T3 thread")
@@ -144,7 +140,6 @@ const ThreadWaitTool = Tool.make("t3_external_thread_wait", {
   parameters: OrchestratorMcpThreadWaitInput,
   success: OrchestratorMcpThreadWaitResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Wait for a T3 thread")
@@ -158,7 +153,6 @@ const ThreadCreateTool = Tool.make("t3_external_thread_create", {
   parameters: ThreadCreateInput,
   success: OrchestratorMcpCreatedThread,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Create a T3 thread")
@@ -172,7 +166,6 @@ const ThreadSendTool = Tool.make("t3_external_thread_send", {
   parameters: ThreadSendInput,
   success: OrchestratorMcpThreadSendResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Send to a T3 thread")
@@ -186,7 +179,6 @@ const ThreadInterruptTool = Tool.make("t3_external_thread_interrupt", {
   parameters: ThreadInterruptInput,
   success: OrchestratorMcpThreadInterruptResult,
   failure: OrchestratorMcpFailure,
-  failureMode: "return",
   dependencies,
 })
   .annotate(Tool.Title, "Interrupt a T3 thread")

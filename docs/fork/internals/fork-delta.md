@@ -451,7 +451,8 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 | Reads      | Projects, threads, timelines, waits in granted projects                |
 | Mutations  | Create, send, interrupt; `--mcp-coordinate` only                       |
 | Ceilings   | Runtime and interaction modes; defaults `approval-required` and `plan` |
-| Retries    | `clientRequestId` derives command ids, so a retry replays              |
+| Retries    | `auth_external_mcp_requests` binds each key to its request and result  |
+| Failures   | MCP `isError: true`, text led by the failure code                      |
 | Provenance | `createdBy: agent`, `creationSource: mcp`, plus an audit log line      |
 | Isolation  | Built in one `Layer.fresh`, so `/mcp` never lists these tools          |
 
