@@ -5,7 +5,8 @@
 // `restart` fails. `expectedModes` names the thread modes the caller vetted.
 // Both ride on `message.dispatch`, and the orchestrator refuses the send under
 // the thread lock once the run has moved to another attempt or the modes have
-// changed, so a turn the send starts or restarts never runs under unvetted modes.
+// changed. The guard holds at dispatch commit; modes the owner sets afterwards
+// govern turns that resolve their runtime policy later, as for any message.
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2Command,

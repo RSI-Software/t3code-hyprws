@@ -666,8 +666,8 @@ const make = Effect.gen(function* () {
               // instead. The send may join only the attempt vetted here, whose
               // modes its running provider turn fixed. Dispatch refuses the send
               // under the thread lock once the run moves to another attempt or
-              // the modes vetted above change, so a turn the send starts or
-              // restarts never runs under unvetted modes.
+              // the modes vetted above change before it commits. Modes the owner
+              // sets after that govern later turns, as for any queued message.
               const capped =
                 principal.policy.maxRuntimeMode !== "full-access" ||
                 principal.policy.maxInteractionMode !== "default";

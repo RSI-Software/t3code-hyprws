@@ -455,6 +455,7 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 | Lost result | A retry reports the delivered message's run, the pinned interrupt run, or no active run |
 | Steering    | A capped grant joins only the provider attempt it vetted                                |
 | Dispatch    | Refuses a capped send once its vetted attempt or the thread modes changed               |
+| Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns           |
 | Failures    | MCP `isError: true`, text led by the failure code                                       |
 | Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                       |
 | Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                           |
