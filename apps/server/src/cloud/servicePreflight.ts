@@ -18,6 +18,7 @@ import {
   SERVICE_LAUNCHER_PROTOCOL,
   type SupportedLauncherProtocol,
 } from "./serviceProtocol.ts";
+import { serviceMigrationPreflightFork } from "./serviceMigrationPreflight.fork.ts"; // fork-hook: upstream-fixes/migration-preflight
 
 // A staged runtime's cold start can take over a minute on a loaded, swapping host.
 const PREFLIGHT_TIMEOUT = Duration.minutes(3);
@@ -29,6 +30,7 @@ export type ServicePreflightResult =
       readonly version: string;
       /** The launcher protocol the server named; it accepts no other in reply. */
       readonly launcherProtocol: SupportedLauncherProtocol;
+      readonly pendingMigrationsFork?: boolean; // fork-hook: upstream-fixes/migration-preflight
     }
   | {
       readonly status: "blocked";
@@ -89,7 +91,12 @@ export function runServicePreflight(input: {
     };
   }
 
-  return { status: "ready", version, launcherProtocol };
+  return {
+    status: "ready",
+    version,
+    launcherProtocol,
+    ...serviceMigrationPreflightFork(input.databasePath),
+  }; // fork-hook: upstream-fixes/migration-preflight
 }
 
 function decodeServicePreflightResult(
@@ -105,7 +112,14 @@ function decodeServicePreflightResult(
     record.launcherProtocol === launcherProtocol &&
     typeof record.version === "string"
   ) {
-    return { status: "ready", version: record.version, launcherProtocol };
+    return {
+      status: "ready",
+      version: record.version,
+      launcherProtocol,
+      ...(typeof record.pendingMigrationsFork === "boolean"
+        ? { pendingMigrationsFork: record.pendingMigrationsFork }
+        : {}),
+    }; // fork-hook: upstream-fixes/migration-backup-label
   }
   if (
     record.status === "blocked" &&
@@ -125,6 +139,7 @@ export const runStagedServicePreflight = Effect.fn("cloud.service_preflight.run_
     readonly targetVersion: string;
     readonly databasePath: string;
     readonly launcherProtocol: SupportedLauncherProtocol;
+    readonly onPreflightFork?: (preflight: ServicePreflightResult | undefined) => void; // fork-hook: upstream-fixes/migration-backup-label
   }) {
     const step = "running the staged service preflight";
     const command = pinnedRuntimeCommand(input.runtime);
@@ -157,6 +172,7 @@ export const runStagedServicePreflight = Effect.fn("cloud.service_preflight.run_
       ),
     );
     const preflight = decodeServicePreflightResult(parsed, input.launcherProtocol);
+    input.onPreflightFork?.(preflight); // fork-hook: upstream-fixes/migration-backup-label
     if (preflight === undefined || preflight.version !== input.targetVersion) {
       return yield* new PinnedRuntimeInstallError({
         step: "verifying the staged service preflight",

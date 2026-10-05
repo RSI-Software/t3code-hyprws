@@ -4,6 +4,7 @@ import * as NodeSea from "node:sea";
 import * as NodeURL from "node:url";
 
 import { isEntrypoint } from "./entrypoint.ts";
+import { takeServiceLauncherContextFork } from "./cloud/serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 // Loads the CLI outside the launcher's module graph. Packaged builds embed it as a raw asset.
 async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
@@ -39,6 +40,7 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
+  takeServiceLauncherContextFork(); // fork-hook: upstream-fixes/launcher-context-env
   // Logs go to stdout and stderr, which may be a closed desktop launcher pipe or a log file on
   // a full disk. Node emits a failed write as an unhandled stream error that crashes the process
   // and skips shutdown, so drop the line instead.
