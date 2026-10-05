@@ -14,7 +14,10 @@ const FORK_COLUMNS: ReadonlyArray<{
   readonly table: string;
   readonly column: string;
   readonly definition: string;
-}> = [];
+}> = [
+  // The external MCP policy an owner attached to a device approval.
+  { table: "auth_device_authorizations", column: "mcp_policy_json", definition: "TEXT" },
+];
 
 /**
  * Fork-owned tables, created idempotently after the upstream migrations for
@@ -56,6 +59,14 @@ const FORK_TABLES = [
     decided_at TEXT,
     session_id TEXT
   )`,
+  // External MCP policies for device-authorized sessions, keyed by the session
+  // the grant issued; the session's own expiry and revocation end the grant.
+  `CREATE TABLE IF NOT EXISTS auth_external_mcp_grants (
+    session_id TEXT PRIMARY KEY,
+    policy_json TEXT NOT NULL,
+    client_label TEXT,
+    created_at TEXT NOT NULL
+  )`,
 ] as const;
 
 /**
@@ -83,15 +94,16 @@ export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const added: string[] = [];
 
+  // Tables first, so a column can extend a fork table on a fresh database.
+  for (const statement of FORK_TABLES) {
+    yield* sql.unsafe(statement);
+  }
+
   for (const { table, column, definition } of FORK_COLUMNS) {
     const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(${sql.literal(table)})`;
     if (columns.some((existing) => existing.name === column)) continue;
     yield* sql`ALTER TABLE ${sql.literal(table)} ADD COLUMN ${sql.literal(column)} ${sql.literal(definition)}`;
     added.push(`${table}.${column}`);
-  }
-
-  for (const statement of FORK_TABLES) {
-    yield* sql.unsafe(statement);
   }
 
   if (added.length > 0) {

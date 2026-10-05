@@ -1963,3 +1963,11 @@ export const layer: Layer.Layer<
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2
   | ScheduledTaskService.ScheduledTaskService
 > = Layer.effect(OrchestratorMcpService, make);
+
+export {
+  listItemFromShell as listItemFromShellFork,
+  threadDetail as threadDetailFork,
+  threadRun as threadRunFork,
+  timelineItem as timelineItemFork,
+  threadManagementFailure as threadManagementFailureFork,
+}; // fork-hook: device-auth/mcp-external-helpers

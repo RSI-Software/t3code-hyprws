@@ -439,17 +439,36 @@ An RFC 8628-style device grant, approved by the owner on the host.
 | Revocation  | The issued session, through `t3 auth session revoke`                     |
 | Abuse cap   | 20 open requests; 10-minute expiry                                       |
 
+### External MCP clients
+
+`approve --mcp-project <id>` or `--mcp-all-projects` grants an MCP policy instead of scopes.
+The client then calls `/api/mcp/external`, a second MCP server with its own `t3_external_*` catalog.
+
+| Aspect     | Rule                                                                   |
+| ---------- | ---------------------------------------------------------------------- |
+| Credential | DPoP device session only; scopes `[]`, so no RPC or route accepts it   |
+| Policy     | `auth_external_mcp_grants`, keyed by session                           |
+| Reads      | Projects, threads, timelines, waits in granted projects                |
+| Mutations  | Create, send, interrupt; `--mcp-coordinate` only                       |
+| Ceilings   | Runtime and interaction modes; defaults `approval-required` and `plan` |
+| Retries    | `clientRequestId` derives command ids, so a retry replays              |
+| Provenance | `createdBy: agent`, `creationSource: mcp`, plus an audit log line      |
+| Isolation  | Built in one `Layer.fresh`, so `/mcp` never lists these tools          |
+
 ### Retirement condition
 
 A tagged upstream release ships owner-approved native client authorization.
+When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#15220`), feed its authenticator from device grants and keep only the project and mode policy.
 
 ### Rebase scan
 
-| Path                                                                                                    | Why it matters              |
-| ------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`            | Fork-owned grant and CLI    |
-| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts` | Route, command, table hooks |
-| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                  | Reused issue and proof APIs |
+| Path                                                                                                                       | Why it matters                                |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                               | Fork-owned grant and CLI                      |
+| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                    | Route, command, table hooks                   |
+| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                     | Reused issue and proof APIs                   |
+| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/` | Fork-owned MCP policy, server, tools          |
+| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                    | Reused thread helpers and response normalizer |
 
 ## distribution
 
