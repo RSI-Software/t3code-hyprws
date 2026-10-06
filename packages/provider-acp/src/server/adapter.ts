@@ -649,6 +649,9 @@ function acpMcpContext(
     return { servers: [], acpServers: [] };
   }
   // codex-acp 1.2.0 and pi-acp drop injected HTTP servers; bridge through stdio instead.
+  // The managed Cua Driver is already stdio, so it is listed in both forms: an agent with
+  // MCP-over-ACP receives only `acpServers`.
+  const cua = McpProviderSession.cuaAcpMcpServers(session);
   return {
     servers: [
       {
@@ -661,8 +664,9 @@ function acpMcpContext(
           { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
         ],
       },
+      ...cua,
     ],
-    acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }],
+    acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }, ...cua],
     endpoint: session.endpoint,
     authorization: session.authorizationHeader,
     processEnvironment: {
@@ -7344,6 +7348,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               text: buildRuntimeInstructions({
                 harness: flavor.runtimeHarness ?? driver,
                 model: turnInput.modelSelection.model,
+                computerUse: mcpSession?.cuaDriver !== undefined,
               }),
             });
           }
