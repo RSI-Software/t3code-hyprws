@@ -1101,6 +1101,12 @@ export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
   ["run", "build:desktop"],
 ];
 
+const CHECK_MARK: Readonly<Record<CheckRow["status"], string>> = {
+  passed: "✅",
+  failed: "❌",
+  skipped: "⏭️",
+};
+
 /** A check row as a report line names it: the CI test job first, when it has one. */
 export const checkLabel = (check: CheckRow): string =>
   check.job === undefined ? `\`${check.command}\`` : `${check.job} · \`${check.command}\``;
@@ -1122,8 +1128,9 @@ export const checkFailureDetail = (
  * The check battery, in the CI shape: `checkCommands`, then every hyprws CI
  * test job the replayed workflow declares, matrix cells included. A direct
  * push to the trunk has no pull request to gate it, so the driver runs the
- * whole battery itself, and any red row keeps the push from happening. There
- * is no flag that drops a row.
+ * whole battery itself, and any red row keeps the push from happening. A red
+ * `fork:ci` already decides the run, so every later row is `skipped` instead
+ * of spending the battery. There is no flag that drops a row.
  *
  * `installed` is the commit whose dependency set the worktree setup step
  * installed. The battery installs again only when the rebased tip changed that
@@ -1155,22 +1162,31 @@ export const runChecks = (
       process.stderr.write(`${commandText("vp", args)} failed:\n${checkFailureDetail(result)}\n`);
     return result;
   };
+  let gateFailed = false;
+  const skipped = (command: string, job?: string): CheckRow => ({
+    ...(job === undefined ? {} : { job }),
+    command,
+    status: "skipped",
+    detail: "fork:ci failed",
+  });
   const previousUmask = process.umask(CI_UMASK);
   try {
     const checkRows = checkCommands().map((args): CheckRow => {
+      const command = commandText("vp", args);
+      if (gateFailed) return skipped(command);
       // The rehearsal head authors no commits, so the battery scopes the hook
       // guard to the replayed fork delta: everything after the rehearsal
       // target. Pull-request runs keep the merge-base rule inside fork:ci.
-      const scoped = args[1] === "fork:ci" ? [...args, "--since", target.sha] : args;
-      const result = runOne(scoped);
-      const command = commandText("vp", args);
-      return passed(result)
-        ? { command, status: "passed", detail: "" }
-        : { command, status: "failed", detail: checkFailureDetail(result) };
+      const gate = args[1] === "fork:ci";
+      const result = runOne(gate ? [...args, "--since", target.sha] : args);
+      if (passed(result)) return { command, status: "passed", detail: "" };
+      gateFailed = gate;
+      return { command, status: "failed", detail: checkFailureDetail(result) };
     });
     // A job stops at its first red step, as a CI job does.
     const testRows = testJobs.map((job): CheckRow => {
       const command = job.commands.map((args) => commandText("vp", args)).join(" && ");
+      if (gateFailed) return skipped(command, job.name);
       for (const args of job.commands) {
         const result = runOne(args);
         if (!passed(result))
@@ -1663,12 +1679,7 @@ export const renderReport = (report: ForkSyncReport): string => {
   const checks =
     report.checks.length === 0
       ? []
-      : [
-          "",
-          ...report.checks.map(
-            (check) => `- ${check.status === "passed" ? "✅" : "❌"} ${checkLabel(check)}`,
-          ),
-        ];
+      : ["", ...report.checks.map((check) => `- ${CHECK_MARK[check.status]} ${checkLabel(check)}`)];
   const decision =
     report.decision.worktree === ""
       ? []
@@ -1921,7 +1932,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     if (dryRun) {
       // The worktree stays: the real run on the same tag and lease adopts the
       // proven tip instead of rebasing again, since rerere replays resolutions
-      // but not the repairs committed after them (RSI-Software/t3code-hyprws#1495).
+      // but not the tip fixups committed after them (RSI-Software/t3code-hyprws#1495).
       const worktree = worktreePath(root);
       return finish(
         frame({
@@ -1945,14 +1956,27 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       `${newSha}:${HYPRWS_BRANCH}`,
       `--force-with-lease=${HYPRWS_BRANCH}:${expectedOld}`,
     ]);
-    const pushRefused = pushed.status !== 0 || pushed.error !== undefined;
-    dropWorktree(runner, root);
-    if (pushRefused)
+    if (pushed.status !== 0 || pushed.error !== undefined) {
+      // The worktree stays: a rerun on the same lease adopts the green tip, and
+      // a moved lease rebases again, so the report names the tip and any tip
+      // fixups to carry over before the rerun drops it.
+      const worktree = worktreePath(root);
       return fail({
         conflicts: [...rebase.recorded],
         checks,
+        decision: {
+          worktree,
+          tip: newSha,
+          paths: [],
+          resume: [
+            `# inspect origin/${HYPRWS_BRANCH}; carry any tip fixups from ${newSha.slice(0, 10)}`,
+            `vp run fork:sync ${target.tag}`,
+          ].join("\n"),
+        },
         error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
       });
+    }
+    dropWorktree(runner, root);
 
     // a clean run closes the block issues it made stale, whether the rebase
     // moved the trunk or the trunk already sat on the target
