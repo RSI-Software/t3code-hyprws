@@ -2618,6 +2618,7 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     settledAt: Schema.optional(Schema.DateTimeUtc),
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/settle-expected-modes
   }),
   /**
    * Rejected when the thread changed after `snapshotAt` or carries any explicit
@@ -2636,6 +2637,7 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     reason: Schema.Literal("user"),
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/unsettle-expected-modes
   }),
   Schema.Struct({
     type: Schema.Literal("thread.snooze"),
