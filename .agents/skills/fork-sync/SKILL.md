@@ -19,6 +19,7 @@ vp run fork:sync <tag> --dry-run
 
 `--dry-run` rebases and checks, then stops: no push, no issue, no publication.
 Any other flag is a defect.
+Name a tag only when the user names one; otherwise run with no tag.
 
 A green dry run keeps its tip in the sync worktree for the real run:
 
@@ -47,10 +48,6 @@ Post-push recovery reads this file, never a comment.
 
 Never edit a report; a rerun supersedes it.
 
-## After
-
-A repairing sync — the rebased trunk carries `Fork-Repair` commits — ends with [`/fork-fold`](../fork-fold/SKILL.md) once trunk is green: its [repair split](../fork-fold/SKILL.md#repair-split) dissolves each repair into its owners. A sync with no repairs needs no fold.
-
 ## Stops
 
 | Report                          | Stop                            |
@@ -76,11 +73,12 @@ Resolve each seam by verdict, then follow Unblock.
 | ------- | ----------------------------------------------------------- |
 | Keep    | Only upstream moved; upstream stands, hook returns verbatim |
 | Reshape | Fork side moved too; resolve minimally, adapt at the tip    |
-| Retire  | Upstream owns it now; traced verdict, drop at rebase        |
+| Retire  | Upstream owns it now; its own commit, never inside a fixup  |
 
 ### Check battery
 
 The battery is red; the worktree keeps the rebased tip.
+A red `fork:ci` skips every later row.
 
 - **Red job**: `checks[].job` names it
 - **Trunk-green fix**: by pull request
@@ -90,8 +88,11 @@ The battery is red; the worktree keeps the rebased tip.
 ### Lease refusal
 
 The expected-old lease lost; someone landed first.
+The worktree keeps the green tip; `decision.tip` names it.
 
 - **Inspect**: the trunk
+- **Carry**: tip fixups from `decision.tip`
+- **Moved lease**: the rerun rebases again
 - **Rerun**: never `--force`
 
 ## Unblock
@@ -103,13 +104,21 @@ In the rebase, resolve minimally: upstream's text stands, and a marked fork hook
 Upstream deleted and the fork edit is net-zero: the deletion stands.
 A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates; when one is pending, skip `git rebase --continue` and rerun.
 Never adapt inside a replayed commit: the hook guard refuses it.
-Adaptation lands once, in one `Fork-Repair` commit at the tip; [`/fork-fold`](../fork-fold/SKILL.md) dissolves it afterward.
+Adaptation lands at the tip, one commit per owner:
+
+| Change           | Commit                                                 |
+| ---------------- | ------------------------------------------------------ |
+| Owner adaptation | `fixup! <owner subject>` with the owner's trailers     |
+| No single owner  | one `upstream-fixes` commit naming the upstream change |
+| Retirement       | its own commit; a fixup body is discarded at the fold  |
+
+The next sync folds each fixup into its owner; no `/fork-fold` follows a sync.
 
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
 3. Resolve each path by the rule above.
 4. `git add` them; `git rebase --continue`.
-5. Commit any adaptation there as one `Fork-Repair` commit at the tip.
+5. Commit any adaptation at the tip, per the table.
 6. Rerun `vp run fork:sync <tag>`.
 
 The worktree ran the `t3.json` setup step, so it builds and tests.
