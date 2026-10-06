@@ -21,6 +21,7 @@ import {
   RunAttemptId,
   type RunId,
   type ServerProvider,
+  type ServerSettings as ServerSettingsValue,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -47,6 +48,7 @@ import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../orchestration-v
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 
 const projectId = ProjectId.make("project:external-granted");
@@ -277,6 +279,7 @@ const harness = <A, E>(
       step: Effect.Effect<void>,
     ) => void;
   }) => Effect.Effect<A, E>,
+  settings: Partial<ServerSettingsValue> = {},
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -303,7 +306,7 @@ const harness = <A, E>(
         id: projectId,
         title: "granted",
         workspaceRoot: cwd,
-        defaultModelSelection: modelSelection,
+        defaultModelSelection: null,
       } as unknown as OrchestrationProjectShell;
       let pending:
         | {
@@ -343,6 +346,9 @@ const harness = <A, E>(
           ),
           Layer.provide(registryLayer),
           Layer.provide(makeProviderRegistryLayer([provider])),
+          Layer.provide(
+            ServerSettings.layerTest({ defaultModelSelection: modelSelection, ...settings }),
+          ),
           Layer.provideMerge(SqlitePersistenceMemory),
         ),
       ).pipe(Layer.provide(NodeServices.layer));
@@ -368,6 +374,35 @@ const harness = <A, E>(
   );
 
 describe("ExternalMcpServiceFork on the orchestrator", () => {
+  it.live.each(["environment", "project"] as const)(
+    "persists inherited high effort from %s settings when no target is supplied",
+    (scope) => {
+      const high = {
+        ...modelSelection,
+        options: [{ id: "reasoningEffort", value: "high" }],
+      } satisfies ModelSelection;
+      return harness(
+        `external-mcp-${scope}-default`,
+        ({ service, orchestrator }) =>
+          Effect.gen(function* () {
+            const created = yield* service.createThread(principal, {
+              projectId,
+              clientRequestId: "inherited-effort",
+            });
+            const persisted = yield* orchestrator.getThreadProjection(created.threadId);
+            assert.deepEqual(persisted.thread.modelSelection, high);
+            assert.isNull(created.runId);
+          }),
+        {
+          projectSettingsFolded: true,
+          ...(scope === "environment"
+            ? { defaultModelSelection: high }
+            : { projectSettingsOverrides: { [projectId]: { defaultModelSelection: high } } }),
+        },
+      );
+    },
+  );
+
   it.live("never prompts a created thread the owner has since raised", () =>
     harness("external-mcp-create-replay", ({ service, orchestrator, provider }) =>
       Effect.gen(function* () {
