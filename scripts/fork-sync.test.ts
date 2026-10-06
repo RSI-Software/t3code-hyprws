@@ -415,6 +415,19 @@ it("refuses the push when the check battery is red and records the failing comma
       assert.match(red!.detail, /exit 1/);
       // the rendered report shows the red row
       assert.match(printed.output, /❌ `vp run fork:ci`/);
+      // a red fork:ci decides the run: every later row is skipped, never run
+      assert.strictEqual(report.checks.length, BATTERY_ROWS);
+      assert.deepStrictEqual(
+        report.checks.slice(1).map((check) => check.status),
+        Array.from({ length: BATTERY_ROWS - 1 }, () => "skipped"),
+      );
+      assert.deepStrictEqual(
+        recording.calls
+          .filter(({ command, args }) => command === "vp" && args[0] === "run")
+          .map(({ args }) => args[1]),
+        ["fork:ci"],
+      );
+      assert.match(printed.output, /⏭️ `vp run typecheck`/);
       // a red battery never reaches the push
       assert.strictEqual(
         recording.calls.some(({ command, args }) => command === "git" && args[0] === "push"),
@@ -473,7 +486,7 @@ it("keeps a green dry run's tip and the real run publishes exactly that tip", ()
       );
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
-      // a repair committed after the resolution: rerere would not replay it
+      // a tip fixup committed after the resolution: rerere would not replay it
       NodeFS.writeFileSync(NodePath.join(f.worktree, "repair.txt"), "repair\n");
       f.git(["add", "repair.txt"], f.worktree);
       f.git(["commit", "--quiet", "-m", "repair"], f.worktree);
@@ -619,6 +632,44 @@ it("pushes the rebased tip after a green battery", () => {
       assert.notStrictEqual(push, undefined);
       assert.match(push!.args.join(" "), /--force-with-lease=hyprws:/);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), report.trunk.after);
+    },
+  );
+});
+
+it("keeps the green tip on a refused push, and a rerun on the same lease publishes it", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const shas = forkShas(f);
+      const green = exec();
+      const refusing: CommandRunner = {
+        run: (command, args, spec) =>
+          command === "git" && args[0] === "push"
+            ? refused("! [rejected] hyprws (stale info)\n")
+            : green.runner.run(command, args, spec),
+      };
+      assert.strictEqual(
+        capture(() => run(["v1.0.0"], { runner: refusing, root: f.root })).value,
+        1,
+      );
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "failed");
+      assert.match(report.error ?? "", /push refused: .*stale info/);
+      assert.strictEqual(report.decision.worktree, f.worktree);
+      const tip = report.decision.tip;
+      assert.notStrictEqual(tip, undefined);
+      assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+
+      const code = capture(() => run(["v1.0.0"], { runner: exec().runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const pushed = readReport(f.root, "v1.0.0");
+      assert.strictEqual(pushed.outcome, "applied");
+      assert.strictEqual(pushed.trunk.after, tip);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
     },
   );
 });
@@ -1503,8 +1554,8 @@ it("files one governed failure issue when the check battery goes red", () => {
     );
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `check` step/);
-    assert.match(body, /```\nthe check battery is red: vp run fork:ci, .*Test Server 2\n```/);
-    assert.match(body, /\| Test Server 2 · `vp run --filter t3 test --shard 2\/2` \| failed \|/);
+    assert.match(body, /```\nthe check battery is red: vp run fork:ci\n```/);
+    assert.match(body, /\| Test Server 2 · `vp run --filter t3 test --shard 2\/2` \| skipped \|/);
     assert.match(body, /\| `vp run fork:ci` \| failed \|/);
     assert.include(body, failureMarker("check", "v1.0.0"));
   });
@@ -1932,6 +1983,24 @@ it("folds a squash-landed fixup's link into the owner's message as a fold's Squa
       ],
     ],
   );
+});
+
+it("lists a sync's plain fixup beside a squash-landed one under the same owner", () => {
+  const owner = foldCommit("aaaa1111111", "feat: x\n\nFork-Domain: fork-meta\nFork-Tier: core");
+  const landed = foldCommit("cccc2222222", "fixup! feat: x (#16)");
+  const plain = foldCommit(
+    "dddd3333333",
+    "fixup! feat: x\n\nFork-Domain: fork-meta\nFork-Tier: core",
+  );
+  const folded = foldSyncMessages(
+    [owner, landed, plain],
+    [
+      ["cccc2222222", "aaaa1111111"],
+      ["dddd3333333", "aaaa1111111"],
+    ],
+  ).get("aaaa1111111");
+  assert.include(folded, "- cccc222 fixup! feat: x (#16) (RSI-Software/t3code-hyprws#16)");
+  assert.include(folded, "- dddd333 fixup! feat: x\n");
 });
 
 it("keeps an owner with no link-carrying fixup a plain git fold", () => {
