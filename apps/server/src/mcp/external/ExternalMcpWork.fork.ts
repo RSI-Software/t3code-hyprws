@@ -41,7 +41,7 @@ export const ExternalMcpThreadWork = Schema.Struct({
   updatedAt: IsoDateTime,
 }).annotate({
   description:
-    "What the thread is doing now, beyond its runs. state: awaiting_response when a request waits on a person; running while a run or native turn is active; waiting_on_background when no turn runs but work a turn started still runs and holds the thread open (subagents, monitors, background tasks); idle otherwise. background lists that work; a command, such as a dev server, may stay listed while idle because it does not hold the thread. updatedAt is the last change T3 recorded: T3 learns of background work from the provider and does not poll it, so an old updatedAt means no news, not proof of progress.",
+    "What the thread is doing now, beyond its runs. state: awaiting_response when a request waits on a person; running while a run is queued or active, or a native turn is active; waiting_on_background when no turn runs but work a turn started still runs and holds the thread open (subagents, monitors, background tasks); idle otherwise. background lists that work; a command, such as a dev server, may stay listed while idle because it does not hold the thread. updatedAt is the last change T3 recorded: T3 learns of background work from the provider and does not poll it, so an old updatedAt means no news, not proof of progress.",
 });
 export type ExternalMcpThreadWork = typeof ExternalMcpThreadWork.Type;
 
@@ -53,6 +53,7 @@ type WorkShell = Pick<
   OrchestrationV2ThreadShell,
   | "lineage"
   | "creationSource"
+  | "status"
   | "activityRunStatus"
   | "pendingRuntimeRequest"
   | "pendingBackgroundTasks"
@@ -95,10 +96,12 @@ export const threadWork = (
   const runStatus = shell.activityRunStatus ?? null;
   // As in client-runtime's shellRuntime, held background work outranks a run
   // waiting on its checkpoint; the roster is empty while a run can be interrupted.
+  // A queued latest run is one the queue will deliver: the shell skips held queues.
   const state =
     shell.pendingRuntimeRequest !== null
       ? "awaiting_response"
       : (runStatus !== null && runStatus !== "waiting") ||
+          shell.status === "queued" ||
           (nativeTurn !== null && isOrchestrationV2WorkActive(nativeTurn.status))
         ? "running"
         : backgroundWorkHoldsCompletion(tasks)
@@ -116,6 +119,11 @@ export const threadWork = (
       holdsCompletion: backgroundWorkHoldsCompletion([task]),
     })),
     nativeTurn,
-    updatedAt: DateTime.formatIso(shell.updatedAt),
+    // Nodes are read after the shell, so a turn that ended between the reads
+    // carries a newer time than the shell; report the latest.
+    updatedAt: [DateTime.formatIso(shell.updatedAt), nativeTurn?.startedAt, nativeTurn?.completedAt]
+      .filter((time) => time != null)
+      .toSorted()
+      .at(-1)!,
   };
 };

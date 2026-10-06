@@ -41,8 +41,16 @@ const owner = ThreadId.make("thread:owner");
 const ownerRun = RunId.make(`run:${owner}:ordinal:2`);
 const childIds = [1, 2, 3, 4, 5].map((index) => ThreadId.make(`thread:child-${index}`));
 
-type NodeStatus = "pending" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
-type RunStatus = "running" | "waiting" | "completed" | "interrupted";
+type NodeStatus =
+  | "idle"
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "interrupted"
+  | "rolled_back";
+type RunStatus = "queued" | "running" | "waiting" | "completed" | "interrupted";
 
 const projectionOf = (input: {
   readonly id: ThreadId;
@@ -100,10 +108,10 @@ const projectionOf = (input: {
     updatedAt: runEnd,
   }) as unknown as OrchestrationV2ThreadProjection;
 
-const run = (threadId: ThreadId, id: RunId, status: RunStatus) => ({
+const run = (threadId: ThreadId, id: RunId, status: RunStatus, ordinal = 2) => ({
   id,
   threadId,
-  ordinal: 2,
+  ordinal,
   providerInstanceId: instanceId,
   modelSelection,
   providerThreadId: null,
@@ -113,7 +121,7 @@ const run = (threadId: ThreadId, id: RunId, status: RunStatus) => ({
   status,
   requestedAt: runStart,
   startedAt: runStart,
-  completedAt: status === "running" ? null : runEnd,
+  completedAt: status === "running" || status === "queued" ? null : runEnd,
   checkpointId: null,
   contextHandoffId: null,
 });
@@ -168,7 +176,7 @@ const rootTurn = (threadId: ThreadId, status: NodeStatus) => ({
   status,
   countsForRun: false,
   startedAt: runStart,
-  completedAt: status === "pending" || status === "running" ? null : runEnd,
+  completedAt: ["idle", "pending", "running"].includes(status) ? null : runEnd,
 });
 
 const childProjection = (threadId: ThreadId, status: NodeStatus) =>
@@ -244,7 +252,13 @@ describe("external MCP thread work", () => {
   });
 
   it("reports each terminal native outcome explicitly", () => {
-    for (const status of ["completed", "failed", "cancelled", "interrupted"] as const) {
+    for (const status of [
+      "completed",
+      "failed",
+      "cancelled",
+      "interrupted",
+      "rolled_back",
+    ] as const) {
       const work = workOfProjection(childProjection(childIds[0]!, status));
       assert.strictEqual(work.state, "idle");
       assert.deepStrictEqual(work.nativeTurn, {
@@ -253,6 +267,41 @@ describe("external MCP thread work", () => {
         completedAt: "2026-10-06T09:57:59.000Z",
       });
     }
+  });
+
+  it("reads a native turn that has not started as idle", () => {
+    const work = workOfProjection(childProjection(childIds[0]!, "idle"));
+    assert.strictEqual(work.state, "idle");
+    assert.strictEqual(work.nativeTurn?.status, "idle");
+  });
+
+  it("dates work by a native turn that ended after the shell was read", () => {
+    const projection = childProjection(childIds[0]!, "running");
+    const shell = threadShellFromProjection(projection);
+    const ended = {
+      ...rootTurn(childIds[0]!, "failed"),
+      completedAt: at("2026-10-06T10:20:00.000Z"),
+    };
+    const work = threadWork(shell, nativeTurnOf([ended] as never));
+    assert.deepStrictEqual([work.state, work.nativeTurn?.status], ["idle", "failed"]);
+    assert.strictEqual(work.updatedAt, "2026-10-06T10:20:00.000Z");
+  });
+
+  it("reads a run the queue will deliver as running, and a held queue as idle", () => {
+    const next = RunId.make(`run:${owner}:ordinal:3`);
+    const queued = (queueHeld: boolean) =>
+      workOfProjection(
+        projectionOf({
+          id: owner,
+          runs: [
+            run(owner, ownerRun, "completed"),
+            { ...run(owner, next, "queued", 3), queueHeld },
+          ],
+        }),
+      ).state;
+    // Between the run's terminal commit and queue promotion nothing is active yet.
+    assert.strictEqual(queued(false), "running");
+    assert.strictEqual(queued(true), "idle");
   });
 
   it("reads the last runless root turn, not one that belongs to a run", () => {
@@ -394,6 +443,29 @@ describe("ExternalMcpServiceFork work", () => {
             ...childIds.map((id) => [id, "idle", "running"]),
           ],
         );
+      }),
+    );
+  });
+
+  it.effect("a filtered page carries each row's own work", () => {
+    const harness = makeHarness();
+    harness.projections.set(childIds[1]!, childProjection(childIds[1]!, "failed"));
+    return harness.withService((service) =>
+      Effect.gen(function* () {
+        const page = yield* service.listThreads(principal, {
+          projectId: granted,
+          statuses: ["idle"],
+          cursor: 1,
+          limit: 2,
+        });
+        assert.deepStrictEqual(
+          page.threads.map((thread) => [thread.threadId, thread.work.nativeTurn?.status]),
+          [
+            [childIds[1], "failed"],
+            [childIds[2], "running"],
+          ],
+        );
+        assert.deepStrictEqual([page.total, page.nextCursor], [5, 3]);
       }),
     );
   });
