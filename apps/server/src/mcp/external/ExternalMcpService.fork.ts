@@ -7,6 +7,7 @@
 import {
   type AuthSessionId,
   CommandId,
+  ExternalMcpSettlementResultFork,
   isProviderAvailable,
   MessageId,
   type ModelSelection,
@@ -40,6 +41,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
 import {
@@ -128,6 +130,14 @@ export interface ExternalMcpThreadWaitResult extends OrchestratorMcpThreadWaitRe
 }
 
 export interface ExternalMcpServiceShape {
+  readonly settleThread: (
+    principal: ExternalMcpPrincipal,
+    input: {
+      readonly threadId: ThreadId;
+      readonly settled: boolean;
+      readonly clientRequestId: string;
+    },
+  ) => Effect.Effect<ExternalMcpSettlementResultFork, OrchestratorMcpFailure>;
   readonly listProjects: (
     principal: ExternalMcpPrincipal,
   ) => Effect.Effect<ReadonlyArray<ExternalMcpProject>, OrchestratorMcpFailure>;
@@ -503,6 +513,79 @@ const make = Effect.gen(function* () {
     });
 
   return ExternalMcpServiceFork.of({
+    settleThread: (principal, input) =>
+      Effect.gen(function* () {
+        yield* requireCoordinate(principal);
+        // Revalidate project access even on a cached replay; a key grants no authority.
+        yield* loadThread(principal, input.threadId);
+        const commandId = CommandId.make(
+          `command:${stableId(principal, "settle", input.clientRequestId)}`,
+        );
+        const committed = () =>
+          events.readByCommandId({ commandId }).pipe(
+            Stream.filterMap((stored) =>
+              stored.event.type === "thread.settled" || stored.event.type === "thread.unsettled"
+                ? Result.succeed({ payload: stored.event.payload, sequence: stored.sequence })
+                : Result.fail(stored),
+            ),
+            Stream.runHead,
+            Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
+          );
+        return yield* ledger.run(
+          {
+            sessionId: principal.sessionId,
+            operation: "settle",
+            clientRequestId: input.clientRequestId,
+            fingerprint: requestFingerprint([
+              ["threadId", input.threadId],
+              ["settled", input.settled],
+            ]),
+            result: ExternalMcpSettlementResultFork,
+          },
+          () =>
+            Effect.gen(function* () {
+              let event = yield* committed();
+              // A crash after commit but before recording the result must recover the
+              // original event, even if the owner has since reversed the settlement.
+              if (Option.isNone(event)) {
+                const target = yield* loadThread(principal, input.threadId);
+                const expectedModes = yield* vetThreadModes(principal, target.thread);
+                yield* audit(principal, "thread.settle", {
+                  threadId: input.threadId,
+                  settled: input.settled,
+                  commandId,
+                });
+                const common = {
+                  commandId,
+                  threadId: input.threadId,
+                  ...(expectedModes === undefined ? {} : { expectedModes }),
+                };
+                yield* threadManagement
+                  .dispatch(
+                    input.settled
+                      ? { ...common, type: "thread.settle" }
+                      : { ...common, type: "thread.unsettle", reason: "user" },
+                  )
+                  .pipe(Effect.mapError(threadManagementFailureFork));
+                event = yield* committed();
+              }
+              if (Option.isNone(event)) {
+                return yield* failure(
+                  "orchestration_error",
+                  "Settlement command has no committed event.",
+                );
+              }
+              const thread = event.value.payload;
+              return {
+                threadId: input.threadId,
+                commandId,
+                sequence: event.value.sequence,
+                settled: thread.settledOverride === "settled",
+                settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+              };
+            }),
+        );
+      }),
     listProjects: (principal) =>
       projects
         .listShells(
