@@ -32,6 +32,7 @@ import * as ThreadManagementService from "../../orchestration-v2/ThreadManagemen
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpServer from "./ExternalMcpServer.fork.ts";
 
 // A web `Request` carries no Host header, so the server derives `localhost`.
@@ -74,6 +75,7 @@ const dependencies = Layer.mergeAll(
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+  ServerSettings.layerTest(),
 ).pipe(
   Layer.provideMerge(
     HttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer), Layer.provide(Etag.layerWeak)),
