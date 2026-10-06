@@ -18,6 +18,7 @@ import {
   type OrchestratorMcpTarget,
   OrchestratorMcpThreadInterruptResult,
   type OrchestratorMcpThreadListInput,
+  type OrchestratorMcpThreadDetail,
   type OrchestratorMcpThreadListItem,
   type OrchestratorMcpThreadReadInput,
   type OrchestratorMcpThreadReadResult,
@@ -25,6 +26,7 @@ import {
   type OrchestratorMcpThreadWaitResult,
   type OrchestrationV2AppThread,
   type OrchestrationV2Run,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
   type ProjectId,
   RunAttemptId,
@@ -34,6 +36,7 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -59,6 +62,13 @@ import {
   timelineItemFork,
 } from "../OrchestratorMcpService.ts";
 import {
+  type ExternalMcpThreadWork,
+  hasNativeTurn,
+  isWorkSettled,
+  nativeTurnOf,
+  threadWork,
+} from "./ExternalMcpWork.fork.ts";
+import {
   makeExternalMcpRequestLedger,
   requestFingerprint,
 } from "./ExternalMcpRequestLedger.fork.ts";
@@ -71,6 +81,9 @@ const DEFAULT_THREAD_ITEM_MAX_CHARS = 20_000;
 // stays well under common proxy and client timeouts.
 const DEFAULT_WAIT_TIMEOUT_MS = 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
+const WORK_POLL_INTERVAL_MS = 500;
+// Native subagent rows on one list page whose turn is read at once.
+const NATIVE_TURN_READ_CONCURRENCY = 4;
 // An interrupt pin recording that no run was active; no run id is empty.
 const NO_ACTIVE_RUN_PIN = "";
 
@@ -96,9 +109,22 @@ export interface ExternalMcpProject {
 
 export interface ExternalMcpThreadListResult {
   readonly projectId: ProjectId;
-  readonly threads: ReadonlyArray<OrchestratorMcpThreadListItem>;
+  readonly threads: ReadonlyArray<
+    OrchestratorMcpThreadListItem & { readonly work: ExternalMcpThreadWork }
+  >;
   readonly nextCursor: number | null;
   readonly total: number;
+}
+
+export interface ExternalMcpThreadReadResult extends Omit<
+  OrchestratorMcpThreadReadResult,
+  "thread"
+> {
+  readonly thread: OrchestratorMcpThreadDetail & { readonly work: ExternalMcpThreadWork };
+}
+
+export interface ExternalMcpThreadWaitResult extends OrchestratorMcpThreadWaitResult {
+  readonly work: ExternalMcpThreadWork;
 }
 
 export interface ExternalMcpServiceShape {
@@ -112,15 +138,16 @@ export interface ExternalMcpServiceShape {
   readonly readThread: (
     principal: ExternalMcpPrincipal,
     input: OrchestratorMcpThreadReadInput,
-  ) => Effect.Effect<OrchestratorMcpThreadReadResult, OrchestratorMcpFailure>;
+  ) => Effect.Effect<ExternalMcpThreadReadResult, OrchestratorMcpFailure>;
   readonly waitForThread: (
     principal: ExternalMcpPrincipal,
     input: {
       readonly threadId: ThreadId;
       readonly runId?: RunId | undefined;
       readonly timeoutMs?: number | undefined;
+      readonly until?: "run" | "work" | undefined;
     },
-  ) => Effect.Effect<OrchestratorMcpThreadWaitResult, OrchestratorMcpFailure>;
+  ) => Effect.Effect<ExternalMcpThreadWaitResult, OrchestratorMcpFailure>;
   readonly createThread: (
     principal: ExternalMcpPrincipal,
     input: {
@@ -274,14 +301,24 @@ const make = Effect.gen(function* () {
     });
 
   /** A thread outside the grant reads as missing, so its existence does not leak. */
-  const loadThread = (principal: ExternalMcpPrincipal, threadId: ThreadId) =>
+  const loadShell = (principal: ExternalMcpPrincipal, threadId: ThreadId) =>
     Effect.gen(function* () {
       const shell = yield* threadManagement
         .getThreadShell(threadId)
         .pipe(Effect.mapError((error) => failure("orchestration_error", errorMessage(error))));
-      if (shell === null || !externalMcpPolicyAllowsProject(principal.policy, shell.projectId)) {
+      if (
+        shell === null ||
+        shell.deletedAt !== null ||
+        !externalMcpPolicyAllowsProject(principal.policy, shell.projectId)
+      ) {
         return yield* threadUnavailable(threadId);
       }
+      return shell;
+    });
+
+  const loadThread = (principal: ExternalMcpPrincipal, threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const shell = yield* loadShell(principal, threadId);
       const target = yield* threadManagement
         .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [
           "runs",
@@ -291,6 +328,49 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(threadManagementFailureFork));
       if (target.thread.deletedAt !== null) return yield* threadUnavailable(threadId);
       return target;
+    });
+
+  /** Only a provider-native subagent thread reads its nodes; every other thread has runs. */
+  const workOf = (shell: OrchestrationV2ThreadShell) =>
+    hasNativeTurn(shell)
+      ? threadManagement.getThreadRecords(shell.id, ["nodes"]).pipe(
+          Effect.map((records) => threadWork(shell, nativeTurnOf(records.nodes))),
+          Effect.mapError(threadManagementFailureFork),
+        )
+      : Effect.succeed(threadWork(shell, null));
+
+  const currentWork = (principal: ExternalMcpPrincipal, threadId: ThreadId) =>
+    loadShell(principal, threadId).pipe(
+      Effect.flatMap((shell) => workOf(shell).pipe(Effect.map((work) => ({ shell, work })))),
+    );
+
+  /**
+   * Waits until nothing runs and no background work holds the thread, or a
+   * request waits on a person. Never pins a run: background work outlives the
+   * run that started it.
+   */
+  const waitForWork = (principal: ExternalMcpPrincipal, threadId: ThreadId, timeoutMs: number) =>
+    Effect.gen(function* () {
+      const settled = Effect.gen(function* () {
+        while (true) {
+          const current = yield* currentWork(principal, threadId);
+          if (isWorkSettled(current.work)) return current;
+          yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
+        }
+      }).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)));
+      const waited = yield* settled;
+      // As with a run wait, the final read decides, so work that settled while
+      // the timeout won the race does not count as timed out.
+      const { shell, work } = Option.isSome(waited)
+        ? waited.value
+        : yield* currentWork(principal, threadId);
+      return {
+        threadId,
+        runId: shell.latestRunId,
+        status: shell.activityRunStatus ?? shell.status,
+        timedOut: !isWorkSettled(work),
+        work,
+      } satisfies ExternalMcpThreadWaitResult;
     });
 
   /**
@@ -455,19 +535,24 @@ const make = Effect.gen(function* () {
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
         const filtered = projectThreads
-          .map(listItemFromShellFork)
-          .filter((thread) => statuses === null || statuses.has(thread.status))
-          .filter((thread) => input.settled === undefined || thread.settled === input.settled)
+          .map((shell) => ({ shell, thread: listItemFromShellFork(shell) }))
+          .filter(({ thread }) => statuses === null || statuses.has(thread.status))
+          .filter(({ thread }) => input.settled === undefined || thread.settled === input.settled)
           .filter(
-            (thread) =>
+            ({ thread }) =>
               titleContains === undefined ||
               thread.title.toLocaleLowerCase().includes(titleContains),
           );
         const cursor = input.cursor ?? 0;
         const page = filtered.slice(cursor, cursor + (input.limit ?? DEFAULT_THREAD_LIST_LIMIT));
+        const threads = yield* Effect.forEach(
+          page,
+          ({ shell, thread }) => workOf(shell).pipe(Effect.map((work) => ({ ...thread, work }))),
+          { concurrency: NATIVE_TURN_READ_CONCURRENCY },
+        );
         return {
           projectId: input.projectId,
-          threads: page,
+          threads,
           nextCursor: cursor + page.length < filtered.length ? cursor + page.length : null,
           total: filtered.length,
         };
@@ -476,6 +561,7 @@ const make = Effect.gen(function* () {
     readThread: (principal, input) =>
       Effect.gen(function* () {
         const target = yield* loadThread(principal, input.threadId);
+        const { work } = yield* currentWork(principal, input.threadId);
         const maxChars = input.maxCharsPerItem ?? DEFAULT_THREAD_ITEM_MAX_CHARS;
         const timeline = yield* threadManagement
           .getTimelinePage(input.threadId, {
@@ -504,7 +590,7 @@ const make = Effect.gen(function* () {
           ),
         );
         return {
-          thread: threadDetailFork(target, timeline.totalItems),
+          thread: { ...threadDetailFork(target, timeline.totalItems), work },
           recentRuns: target.runs
             .toSorted((left, right) => right.ordinal - left.ordinal)
             .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT)
@@ -519,29 +605,42 @@ const make = Effect.gen(function* () {
           ),
           nextPosition: timeline.items.at(-1)?.position ?? null,
           hasMore: timeline.hasMore,
-        } satisfies OrchestratorMcpThreadReadResult;
+        } satisfies ExternalMcpThreadReadResult;
       }),
 
     waitForThread: (principal, input) =>
       Effect.gen(function* () {
+        const timeoutMs = Math.min(
+          MAX_WAIT_TIMEOUT_MS,
+          Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
+        );
+        if (input.until === "work") {
+          if (input.runId !== undefined) {
+            return yield* failure(
+              "invalid_request",
+              "runId waits on one run; until=work waits on the whole thread. Pass one, not both.",
+            );
+          }
+          return yield* waitForWork(principal, input.threadId, timeoutMs);
+        }
         const target = yield* loadThread(principal, input.threadId);
         const result = yield* threadManagement
           .waitForThread({
             projectId: target.thread.projectId,
             threadId: input.threadId,
             ...(input.runId === undefined ? {} : { runId: input.runId }),
-            timeoutMs: Math.min(
-              MAX_WAIT_TIMEOUT_MS,
-              Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
-            ),
+            timeoutMs,
           })
           .pipe(Effect.mapError(threadManagementFailureFork));
+        // The run's outcome stands; work reports what still runs after it.
+        const { work } = yield* currentWork(principal, input.threadId);
         return {
           threadId: input.threadId,
           runId: result.run?.id ?? null,
           status: result.run?.status ?? "idle",
           timedOut: result.timedOut,
-        } satisfies OrchestratorMcpThreadWaitResult;
+          work,
+        } satisfies ExternalMcpThreadWaitResult;
       }),
 
     createThread: (principal, input) =>
