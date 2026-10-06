@@ -448,6 +448,8 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 | WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it      |
 | Policy      | `auth_external_mcp_grants`, keyed by session                                            |
 | Reads       | Projects, threads, timelines, waits in granted projects                                 |
+| Work        | Reads add `work`: background work and native subagent turns that run status misses      |
+| Work wait   | `until=work` waits for that work; a pinned `runId` wait keeps its run outcome           |
 | Mutations   | Create, send, interrupt; `--mcp-coordinate` only                                        |
 | Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                  |
 | Retries     | `auth_external_mcp_requests` binds each key to its request and result                   |
@@ -466,15 +468,16 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 
 ### Rebase scan
 
-| Path                                                                                                                                              | Why it matters                                      |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                            |
-| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                         |
-| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                         |
-| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                |
-| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer       |
-| `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                        |
-| `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and `expectedModes` dispatch check |
+| Path                                                                                                                                              | Why it matters                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                                  |
+| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                               |
+| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                               |
+| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                      |
+| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer             |
+| `packages/shared/src/orchestrationV2PendingBackgroundWork.ts`, `packages/contracts/src/orchestrationV2.ts`                                        | Background roster and native subagent test read by `work` |
+| `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                              |
+| `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and `expectedModes` dispatch check       |
 
 ## distribution
 
