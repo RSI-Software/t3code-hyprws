@@ -1,13 +1,17 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
   type OrchestrationProjectShell,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadProjection,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   RunId,
   type ServerProvider,
+  type ServerSettings as ServerSettingsValue,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -20,6 +24,7 @@ import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import type { ExternalMcpPolicy } from "../../auth/ExternalMcpGrant.fork.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 
 const granted = ProjectId.make("project:granted");
@@ -27,12 +32,15 @@ const other = ProjectId.make("project:other");
 const instanceId = ProviderInstanceId.make("codex");
 const modelSelection = { instanceId, model: "gpt-test" };
 
-const projectShell = (id: ProjectId) =>
+const projectShell = (
+  id: ProjectId,
+  defaultModelSelection: ModelSelection | null = modelSelection,
+) =>
   ({
     id,
     title: String(id),
     workspaceRoot: `/work/${id}`,
-    defaultModelSelection: modelSelection,
+    defaultModelSelection,
   }) as unknown as OrchestrationProjectShell;
 
 const provider = {
@@ -63,11 +71,15 @@ const principal = (
 });
 
 /** Threads live in a map keyed by id; `thread.create` adds one, so a reload finds it. */
-const makeHarness = () => {
+const makeHarness = (
+  settings: Partial<ServerSettingsValue> = {},
+  legacySelection: ModelSelection | null = modelSelection,
+  providers: ReadonlyArray<ServerProvider> = [provider],
+) => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const sent: Array<ThreadManagementService.ThreadManagementSendInput> = [];
   // Flipped to make a send fail after it, as a thread whose run has ended would.
-  const state = { sendFails: false };
+  const state = { sendFails: false, settings: { ...DEFAULT_SERVER_SETTINGS, ...settings } };
   const threads = new Map<
     string,
     { projectId: ProjectId; runtimeMode: string; interactionMode: string }
@@ -137,12 +149,16 @@ const makeHarness = () => {
             }),
         }),
         Layer.mock(ProjectService.ProjectService)({
-          getShell: (projectId) => Effect.succeed(Option.some(projectShell(projectId))),
+          getShell: (projectId) =>
+            Effect.succeed(Option.some(projectShell(projectId, legacySelection))),
           listShells: () => Effect.succeed([projectShell(granted), projectShell(other)]),
         }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([provider]) }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed(providers) }),
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
-          list: () => Effect.succeed([instanceId]),
+          list: () => Effect.succeed(providers.map((entry) => entry.instanceId)),
+        }),
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          getSettings: Effect.sync(() => state.settings),
         }),
         Layer.fresh(SqlitePersistenceMemory),
       ),
@@ -160,6 +176,137 @@ const run = <A, E>(
   );
 
 describe("ExternalMcpServiceFork", () => {
+  it.effect(
+    "inherits environment effort for a migrated project and reads changes on each launch",
+    () => {
+      const high = {
+        instanceId,
+        model: "gpt-6.1-sol",
+        options: [{ id: "reasoningEffort", value: "high" }],
+      } satisfies ModelSelection;
+      const medium = { ...high, options: [{ id: "reasoningEffort", value: "medium" }] };
+      const harness = makeHarness(
+        { defaultModelSelection: medium, projectSettingsFolded: true },
+        null,
+        [
+          {
+            ...provider,
+            models: [{ slug: high.model, name: high.model, isCustom: false, capabilities: null }],
+          },
+        ],
+      );
+      return run(harness, (service) =>
+        Effect.gen(function* () {
+          yield* service.createThread(principal(), {
+            projectId: granted,
+            clientRequestId: "medium",
+          });
+          harness.state.settings = { ...harness.state.settings, defaultModelSelection: high };
+          yield* service.createThread(principal(), { projectId: granted, clientRequestId: "high" });
+          const selections = harness.dispatched.flatMap((command) =>
+            command.type === "thread.create" ? [command.modelSelection] : [],
+          );
+          assert.deepEqual(selections, [medium, high]);
+        }),
+      );
+    },
+  );
+
+  it.effect(
+    "uses the current project provider and all its options over environment and legacy defaults",
+    () => {
+      const claudeId = ProviderInstanceId.make("claudeAgent");
+      const high = {
+        instanceId: claudeId,
+        model: "claude-opus-5-5",
+        options: [
+          { id: "effort", value: "high" },
+          { id: "contextWindow", value: "200k" },
+        ],
+      } satisfies ModelSelection;
+      const harness = makeHarness(
+        {
+          defaultModelSelection: modelSelection,
+          projectSettingsFolded: true,
+          projectSettingsOverrides: { [granted]: { defaultModelSelection: high } },
+        },
+        modelSelection,
+        [
+          provider,
+          {
+            ...provider,
+            instanceId: claudeId,
+            driver: ProviderDriverKind.make("claudeAgent"),
+            models: [{ slug: high.model, name: high.model, isCustom: false, capabilities: null }],
+          },
+        ],
+      );
+      return run(harness, (service) =>
+        Effect.gen(function* () {
+          yield* service.createThread(principal(), {
+            projectId: granted,
+            clientRequestId: "project",
+          });
+          const command = harness.dispatched[0];
+          assert.equal(command?.type, "thread.create");
+          if (command?.type !== "thread.create") return;
+          assert.deepEqual(command.modelSelection, high);
+        }),
+      );
+    },
+  );
+
+  it.effect("keeps external model option overrides unsupported", () => {
+    const harness = makeHarness();
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const error = yield* service
+          .createThread(principal(), {
+            projectId: granted,
+            clientRequestId: "options",
+            target: { options: [{ id: "reasoningEffort", value: "high" }] },
+          })
+          .pipe(Effect.flip);
+        assert.equal(error.code, "invalid_request");
+        assert.equal(harness.dispatched.length, 0);
+      }),
+    );
+  });
+
+  it.effect.each(["missing", "signed out"] as const)(
+    "falls back to a usable provider when the inherited default's provider is %s",
+    (state) => {
+      const claudeId = ProviderInstanceId.make("claudeAgent");
+      const harness = makeHarness(
+        {
+          defaultModelSelection: { instanceId: claudeId, model: "claude-opus-5-5" },
+          projectSettingsFolded: true,
+        },
+        null,
+        state === "missing"
+          ? [provider]
+          : [
+              provider,
+              {
+                ...provider,
+                instanceId: claudeId,
+                driver: ProviderDriverKind.make("claudeAgent"),
+                auth: { status: "unauthenticated" },
+              } as ServerProvider,
+            ],
+      );
+      return run(harness, (service) =>
+        Effect.gen(function* () {
+          yield* service.createThread(principal(), { projectId: granted, clientRequestId: "gone" });
+          const command = harness.dispatched[0];
+          assert.equal(command?.type, "thread.create");
+          if (command?.type !== "thread.create") return;
+          assert.deepEqual(command.modelSelection, modelSelection);
+        }),
+      );
+    },
+  );
+
   it.effect("reaches only the projects and threads the grant names", () => {
     const harness = makeHarness();
     return run(harness, (service) =>
