@@ -50,7 +50,15 @@ it("keeps the wrap remedy when unmarked code sits beside a comment", () => {
     input(["// The fork's own counter.", "export const forkThing = 1;"]),
   );
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? "", /wrap the insertion in a fork-hook marker/);
+  assert.match(
+    warnings[0] ?? "",
+    /mark a complete added statement whose opening context is also added/,
+  );
+  // A sync names the tip route instead of an edit inside a replayed commit.
+  assert.match(
+    warnings[0] ?? "",
+    /adapt in a tip `fixup!` of the owner, never inside a replayed commit/,
+  );
 });
 
 it("refuses an unmarked rewrap with no exemption", () => {
