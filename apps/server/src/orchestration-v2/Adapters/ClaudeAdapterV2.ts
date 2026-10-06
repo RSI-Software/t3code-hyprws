@@ -4214,6 +4214,16 @@ export function makeClaudeAdapterV2(
             });
           }
 
+          yield* emitProviderEvent({
+            type: "subagent.updated",
+            driver: CLAUDE_PROVIDER,
+            subagent: task,
+            ...(input.reopen === true &&
+            input.status === "running" &&
+            existingSubagent !== undefined
+              ? { parentProviderThreadId: input.context.input.providerThread.id }
+              : {}),
+          });
           if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
@@ -4244,6 +4254,8 @@ export function makeClaudeAdapterV2(
                 completedAt: task.completedAt,
               },
             });
+          }
+          if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
               driver: CLAUDE_PROVIDER,
@@ -4310,11 +4322,6 @@ export function makeClaudeAdapterV2(
               turnItem: promptArtifacts.turnItem,
             });
           }
-          yield* emitProviderEvent({
-            type: "subagent.updated",
-            driver: CLAUDE_PROVIDER,
-            subagent: task,
-          });
           yield* emitProviderEvent({
             type: "turn_item.updated",
             driver: CLAUDE_PROVIDER,

@@ -2253,6 +2253,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               type: "subagent.updated",
               driver: CODEX_PROVIDER,
               subagent: task,
+              ...(input.reopen
+                ? { parentProviderThreadId: input.subagent.parentContext.providerThread.id }
+                : {}),
             });
             yield* emitProviderEvent({
               type: "turn_item.updated",
