@@ -45,6 +45,7 @@ type NodeStatus =
   | "idle"
   | "pending"
   | "running"
+  | "waiting"
   | "completed"
   | "failed"
   | "cancelled"
@@ -176,7 +177,7 @@ const rootTurn = (threadId: ThreadId, status: NodeStatus) => ({
   status,
   countsForRun: false,
   startedAt: runStart,
-  completedAt: ["idle", "pending", "running"].includes(status) ? null : runEnd,
+  completedAt: ["idle", "pending", "running", "waiting"].includes(status) ? null : runEnd,
 });
 
 const childProjection = (threadId: ThreadId, status: NodeStatus) =>
@@ -249,6 +250,13 @@ describe("external MCP thread work", () => {
       startedAt: "2026-10-06T09:57:21.000Z",
       completedAt: null,
     });
+  });
+
+  it("reads a pending or waiting native turn as running", () => {
+    for (const status of ["pending", "waiting"] as const) {
+      const work = workOfProjection(childProjection(childIds[0]!, status));
+      assert.deepStrictEqual([work.state, work.nativeTurn?.status], ["running", status]);
+    }
   });
 
   it("reports each terminal native outcome explicitly", () => {
@@ -508,6 +516,53 @@ describe("ExternalMcpServiceFork work", () => {
     );
   });
 
+  it.effect("a work wait counts work that settled while the timeout won the race", () => {
+    const harness = makeHarness();
+    return harness.withService((service) =>
+      Effect.gen(function* () {
+        // The timeout is shorter than one poll, so only the final read sees the change.
+        const fiber = yield* service
+          .waitForThread(principal, { threadId: childIds[0]!, until: "work", timeoutMs: 300 })
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust("100 millis");
+        harness.projections.set(childIds[0]!, childProjection(childIds[0]!, "completed"));
+        yield* TestClock.adjust("1 second");
+        const result = yield* Fiber.join(fiber);
+        assert.deepStrictEqual(
+          [result.timedOut, result.work.state, result.work.nativeTurn?.status],
+          [false, "idle", "completed"],
+        );
+      }),
+    );
+  });
+
+  it.effect("a work wait returns when a request starts waiting on a person", () => {
+    const harness = makeHarness();
+    return harness.withService((service) =>
+      Effect.gen(function* () {
+        const fiber = yield* service
+          .waitForThread(principal, { threadId: owner, until: "work", timeoutMs: 10_000 })
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust("1 second");
+        harness.projections.set(
+          owner,
+          projectionOf({
+            id: owner,
+            runs: [run(owner, ownerRun, "completed")],
+            turnItems: [subagentItem(1, "running")],
+            runtimeRequests: [pendingApproval],
+          }),
+        );
+        yield* TestClock.adjust("1 second");
+        const result = yield* Fiber.join(fiber);
+        assert.deepStrictEqual(
+          [result.timedOut, result.work.state, result.work.background.length],
+          [false, "awaiting_response", 1],
+        );
+      }),
+    );
+  });
+
   it.effect("a pinned run wait keeps the run's outcome and adds the work after it", () => {
     const harness = makeHarness();
     return harness.withService((service) =>
@@ -551,6 +606,28 @@ describe("ExternalMcpServiceFork work", () => {
           .pipe(Effect.flip);
         assert.strictEqual(read.code, wait.code);
         assert.strictEqual(read.message, wait.message);
+      }),
+    );
+  });
+
+  it.effect("a deleted thread reads as missing to read and work wait", () => {
+    const harness = makeHarness();
+    const deleted = childIds[0]!;
+    const projection = childProjection(deleted, "running");
+    harness.projections.set(deleted, {
+      ...projection,
+      thread: { ...projection.thread, deletedAt: runEnd },
+    });
+    return harness.withService((service) =>
+      Effect.gen(function* () {
+        const read = yield* service.readThread(principal, { threadId: deleted }).pipe(Effect.flip);
+        const wait = yield* service
+          .waitForThread(principal, { threadId: deleted, until: "work", timeoutMs: 1 })
+          .pipe(Effect.flip);
+        assert.deepStrictEqual(
+          [read.code, wait.code, read.message, wait.message],
+          ["thread_not_found", "thread_not_found", read.message, read.message],
+        );
       }),
     );
   });

@@ -41,7 +41,7 @@ export const ExternalMcpThreadWork = Schema.Struct({
   updatedAt: IsoDateTime,
 }).annotate({
   description:
-    "What the thread is doing now, beyond its runs. state: awaiting_response when a request waits on a person; running while a run is queued or active, or a native turn is active; waiting_on_background when no turn runs but work a turn started still runs and holds the thread open (subagents, monitors, background tasks); idle otherwise. background lists that work; a command, such as a dev server, may stay listed while idle because it does not hold the thread. updatedAt is the last change T3 recorded: T3 learns of background work from the provider and does not poll it, so an old updatedAt means no news, not proof of progress.",
+    "What the thread is doing now, beyond its runs. state: awaiting_response when a request waits on a person; running while a run is active or queued to be delivered (a held queue is idle), or a native turn is active; waiting_on_background when work a turn started still runs and holds the thread open (subagents, monitors, background tasks), which outranks a run waiting only on its checkpoint; idle otherwise. background lists that work; a command, such as a dev server, may stay listed while idle because it does not hold the thread. updatedAt is the last change T3 recorded: T3 learns of background work from the provider and does not poll it, so an old updatedAt means no news, not proof of progress.",
 });
 export type ExternalMcpThreadWork = typeof ExternalMcpThreadWork.Type;
 
