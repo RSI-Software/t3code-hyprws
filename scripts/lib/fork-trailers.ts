@@ -29,11 +29,6 @@ export interface ForkTrailers {
   readonly domain?: string;
   readonly tier?: string;
   readonly upstreamable?: string;
-  /**
-   * The upstream tag whose walk appended this commit. Only the sync walk writes it, and it is the
-   * marker that keeps a walk repair out of the replayed fork series the replay proofs compare.
-   */
-  readonly repair?: string;
 }
 
 export interface ParsedForkCommit extends ForkTrailers {
@@ -205,12 +200,10 @@ export const parseForkTrailers = (body: string): ForkTrailers => {
   const domain = read("Fork-Domain");
   const tier = read("Fork-Tier");
   const upstreamable = read("Fork-Upstreamable");
-  const repair = read("Fork-Repair");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
     ...(upstreamable === undefined ? {} : { upstreamable }),
-    ...(repair === undefined ? {} : { repair }),
   };
 };
 
