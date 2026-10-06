@@ -31,6 +31,7 @@ import {
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -47,6 +48,7 @@ import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapter
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import {
   listItemFromShellFork,
   resolveInteractionMode,
@@ -256,6 +258,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const ledger = yield* makeExternalMcpRequestLedger;
 
   const loadProject = (principal: ExternalMcpPrincipal, projectId: ProjectId) =>
@@ -368,7 +371,17 @@ const make = Effect.gen(function* () {
           isProviderAvailable(provider) &&
           provider.auth.status !== "unauthenticated",
       );
-      const projectDefault = project.defaultModelSelection;
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
+      );
+      // Like the composer, a default whose instance cannot run falls back to a usable one.
+      const scopedDefault = resolveProjectSettings(settings, project.id, project).settings
+        .defaultModelSelection;
+      const projectDefault =
+        scopedDefault !== null &&
+        usable.some((provider) => provider.instanceId === scopedDefault.instanceId)
+          ? scopedDefault
+          : null;
       const instanceId =
         target?.providerInstanceId ??
         (target?.driverKind === undefined
