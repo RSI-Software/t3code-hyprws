@@ -32,6 +32,8 @@ export const ExternalMcpToolkitHandlersLiveFork = ExternalMcpToolkitFork.toLayer
       );
 
     return ExternalMcpToolkitFork.of({
+      t3_external_thread_settle: (input) =>
+        withPrincipal((principal) => service.settleThread(principal, input)),
       t3_external_whoami: () =>
         withPrincipal((principal) =>
           Effect.succeed({

@@ -442,24 +442,24 @@ An RFC 8628-style device grant, approved by the owner on the host.
 `approve --mcp-project <id>` or `--mcp-all-projects` grants an MCP policy instead of scopes.
 The client then calls `/api/mcp/external`, a second MCP server with its own `t3_external_*` catalog.
 
-| Aspect      | Rule                                                                                    |
-| ----------- | --------------------------------------------------------------------------------------- |
-| Credential  | DPoP device session only; scopes `[]`, so scope-checked routes and RPCs refuse it       |
-| WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it      |
-| Policy      | `auth_external_mcp_grants`, keyed by session                                            |
-| Reads       | Projects, threads, timelines, waits in granted projects                                 |
-| Work        | Reads add `work`: background work and native subagent turns that run status misses      |
-| Work wait   | `until=work` waits for that work; a pinned `runId` wait keeps its run outcome           |
-| Mutations   | Create, send, interrupt; `--mcp-coordinate` only                                        |
-| Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                  |
-| Retries     | `auth_external_mcp_requests` binds each key to its request and result                   |
-| Lost result | A retry reports the delivered message's run, the pinned interrupt run, or no active run |
-| Steering    | A capped grant joins only the provider attempt it vetted                                |
-| Dispatch    | Refuses a capped send or create prompt once its vetted attempt or thread modes changed  |
-| Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns           |
-| Failures    | MCP `isError: true`, text led by the failure code                                       |
-| Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                       |
-| Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                           |
+| Aspect      | Rule                                                                                   |
+| ----------- | -------------------------------------------------------------------------------------- |
+| Credential  | DPoP device session only; scopes `[]`, so scope-checked routes and RPCs refuse it      |
+| WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it     |
+| Policy      | `auth_external_mcp_grants`, keyed by session                                           |
+| Reads       | Projects, threads, timelines, waits in granted projects                                |
+| Work        | Reads add `work`: background work and native subagent turns that run status misses     |
+| Work wait   | `until=work` waits for that work; a pinned `runId` wait keeps its run outcome          |
+| Mutations   | Create, send, interrupt, settle/unsettle; `--mcp-coordinate` only                      |
+| Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                 |
+| Retries     | `auth_external_mcp_requests` binds each key to its request and result                  |
+| Lost result | Replays the delivered message, pinned interrupt, or original settlement event          |
+| Steering    | A capped grant joins only the provider attempt it vetted                               |
+| Dispatch    | Refuses a capped send or create prompt once its vetted attempt or thread modes changed |
+| Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns          |
+| Failures    | MCP `isError: true`, text led by the failure code                                      |
+| Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                      |
+| Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                          |
 
 ### Retirement condition
 
@@ -468,16 +468,17 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 
 ### Rebase scan
 
-| Path                                                                                                                                              | Why it matters                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                                  |
-| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                               |
-| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                               |
-| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                      |
-| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer             |
-| `packages/shared/src/orchestrationV2PendingBackgroundWork.ts`, `packages/contracts/src/orchestrationV2.ts`                                        | Background roster and native subagent test read by `work` |
-| `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                              |
-| `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and `expectedModes` dispatch check       |
+| Path                                                                                                                                              | Why it matters                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `apps/server/src/auth/DeviceAuthorization.fork.ts`, `apps/server/src/cli/authDevice.fork.ts`                                                      | Fork-owned grant and CLI                                             |
+| `apps/server/src/server.ts`, `apps/server/src/cli/auth.ts`, `apps/server/src/persistence/ForkSchema.ts`                                           | Route, command, table hooks                                          |
+| `apps/server/src/auth/SessionStore.ts`, `apps/server/src/auth/dpop.ts`                                                                            | Reused issue and proof APIs                                          |
+| `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                                 |
+| `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer                        |
+| `packages/shared/src/orchestrationV2PendingBackgroundWork.ts`, `packages/contracts/src/orchestrationV2.ts`                                        | Background roster and native subagent test read by `work`            |
+| `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                                         |
+| `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and send/settlement `expectedModes` dispatch checks |
+| `apps/server/src/orchestration-v2/externalSettlement.fork.ts`, `packages/contracts/src/externalMcpSettlement.fork.ts`                             | Settlement commit guard and acknowledgement                          |
 
 ## distribution
 
