@@ -92,7 +92,6 @@ export const ForkCommit = Schema.Struct({
   domain: OptionalTrailer,
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
-  repair: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
 
@@ -340,10 +339,6 @@ export const buildInventory = (input: {
       files: stats.files.length,
       overlaps: overlapPaths(stats.files, input.forkChanged, input.upstreamChanged).length,
     });
-    // A walk repair commit is the walk's own bookkeeping, not a domain's change:
-    // it stays visible in the per-commit table but its lines never count toward
-    // the domain sums.
-    if (commit.repair !== undefined) continue;
     for (const path of stats.files) distinctFiles.add(path);
     if (commit.domain === undefined) continue;
     const bucket = buckets.get(commit.domain) ?? {
