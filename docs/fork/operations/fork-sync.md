@@ -41,6 +41,7 @@ A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the
 | Test jobs | every `test*` job in `hyprws-ci.yml`, one row per matrix cell     |
 | Derived   | read from the replayed workflow; an unreadable step stops the run |
 | No skip   | no flag drops a row                                               |
+| Fail fast | a red `fork:ci` marks every later row `skipped`                   |
 | Push      | only when every row is green; a red row leaves `hyprws` unmoved   |
 | Report    | each row names its CI job; the run's error lists every red one    |
 | Env       | umask `022`; no `T3_*` or `T3CODE_*` variable reaches a check     |
@@ -125,12 +126,20 @@ Rerere replays content resolutions but records nothing for a delete/modify: the 
 
 **Reshape.** Resolve minimally in the rebase: upstream's text plus marked hooks verbatim.
 Adaptation never lands inside a replayed commit; the hook guard (`scripts/lib/fork-hook-guard.ts`, run by `fork:ci`) refuses it.
-Commit it once, as one `Fork-Repair` commit at the tip of the kept sync worktree; a rerun on the same tag and lease adopts it.
-After the sync, the [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) repair split dissolves it into its owners.
+Commit it at the tip of the kept sync worktree; a rerun on the same tag and lease adopts it.
+
+| Change           | Commit                                                   |
+| ---------------- | -------------------------------------------------------- |
+| Owner adaptation | `fixup! <owner subject>` with the owner's trailers       |
+| No single owner  | one standalone `upstream-fixes` commit naming the change |
+| Retirement       | its own commit, never inside a fixup body                |
+
+The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there.
+Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
 **Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed.
 It carries every stop's rows between runs, so the report keeps them.
-A green dry run keeps it, so its tip and repairs reach the real run.
+A green dry run or a refused push keeps it, so its tip and tip fixups reach the next run.
 Rerun after each stop: the report records only the stops a run saw.
 
 ## Failure lifecycle
@@ -241,7 +250,7 @@ T3 Connect stays dark unless all four repository variables exist:
 | Failure                     | Response                                                         |
 | --------------------------- | ---------------------------------------------------------------- |
 | **Mirror fails**            | Recreate the token. Someone wrote `main`; never force            |
-| **Trunk lease rejected**    | Inspect and rerun; never swap in `--force`                       |
+| **Trunk lease rejected**    | `decision.tip` keeps the tip; inspect, rerun; never `--force`    |
 | **A blocked issue remains** | Unblock by hand. Retirement needs a traced decision              |
 | **A failure issue remains** | Inspect the report, fix, and rerun; the next clean run closes it |
 | **Check battery red**       | Fix by pull request; never weaken a check                        |
