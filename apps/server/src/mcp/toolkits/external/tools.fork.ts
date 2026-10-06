@@ -4,6 +4,7 @@
 // catalog at `/mcp`, whose tools act relative to a calling T3 thread.
 import {
   AuthSessionId,
+  ExternalMcpSettlementResultFork,
   OrchestratorMcpCreatedThread,
   OrchestratorMcpFailure,
   OrchestratorMcpInteractionMode,
@@ -21,6 +22,7 @@ import {
   OrchestratorMcpThreadWaitInput,
   OrchestratorMcpThreadWaitResult,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -108,6 +110,23 @@ const ThreadInterruptInput = Schema.Struct({
   ...OrchestratorMcpThreadInterruptInput.fields,
   clientRequestId: ClientRequestId,
 });
+
+const ThreadSettleTool = Tool.make("t3_external_thread_settle", {
+  description:
+    "Set settled=true to settle one explicit thread, or false to unsettle it and keep it active, using the UI's lifecycle rules. Settling refuses active root runs and blocking callback approvals/input, cancels message-capable async questions and queued automatic wakeups, clears pins and PR watches, and detaches provider sessions. Unsettling reverses the settled state without restoring those side effects. The existing predicate does not inspect native/background children. Archived threads cannot be settled. Requires coordination, a granted project and thread modes within this credential's ceilings. Retry with the same clientRequestId and arguments to replay the original acknowledgement; use thread read/list for current settled and settledAt state.",
+  parameters: Schema.Struct({
+    threadId: ThreadId,
+    settled: Schema.Boolean,
+    clientRequestId: ClientRequestId,
+  }),
+  success: ExternalMcpSettlementResultFork,
+  failure: OrchestratorMcpFailure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Set a T3 thread's settlement")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true);
 
 const WhoamiTool = Tool.make("t3_external_whoami", {
   description:
@@ -218,4 +237,5 @@ export const ExternalMcpToolkitFork = Toolkit.make(
   ThreadCreateTool,
   ThreadSendTool,
   ThreadInterruptTool,
+  ThreadSettleTool,
 );
