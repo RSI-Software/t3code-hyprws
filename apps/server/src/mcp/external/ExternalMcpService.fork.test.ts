@@ -122,7 +122,11 @@ const makeHarness = (
           getThreadShell: (threadId) =>
             Effect.succeed(
               threads.has(threadId)
-                ? ({ id: threadId, projectId: threads.get(threadId)!.projectId } as never)
+                ? ({
+                    id: threadId,
+                    projectId: threads.get(threadId)!.projectId,
+                    deletedAt: null,
+                  } as never)
                 : null,
             ),
           getProjectThreadRecords: (input) => Effect.succeed(projection(input.threadId) as never),
