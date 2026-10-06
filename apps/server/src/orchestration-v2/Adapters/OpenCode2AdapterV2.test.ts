@@ -86,6 +86,7 @@ const mcpRules = [
   { action: "t3-code-*", resource: "*", effect: "deny" },
   { action: "t3-code-thread_opencode2-adapter_*", resource: "*", effect: "allow" },
   { action: "cua-driver-*", resource: "*", effect: "deny" },
+  { action: "chrome-devtools-*", resource: "*", effect: "deny" },
 ];
 const t3Rules = [{ action: "*", resource: "*", effect: "allow" }, ...mcpRules];
 const TITLE = "Prime check";
@@ -2448,6 +2449,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
               { action: "t3-code-*", resource: "*", effect: "deny" },
               { action: `${server}_*`, resource: "*", effect: "allow" },
               { action: "cua-driver-*", resource: "*", effect: "deny" },
+              { action: "chrome-devtools-*", resource: "*", effect: "deny" },
             ],
           }),
         ),
@@ -3881,6 +3883,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
             { action: "t3-code-*", resource: "*", effect: "deny" },
             { action: "t3-code-thread_opencode2-adapter_fork_*", resource: "*", effect: "allow" },
             { action: "cua-driver-*", resource: "*", effect: "deny" },
+            { action: "chrome-devtools-*", resource: "*", effect: "deny" },
           ],
         }),
         reply("session.update", null),
