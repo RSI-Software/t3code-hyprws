@@ -9,6 +9,7 @@ import {
   OrchestratorMcpInteractionMode,
   OrchestratorMcpRuntimeMode,
   OrchestratorMcpTarget,
+  OrchestratorMcpThreadDetail,
   OrchestratorMcpThreadInterruptInput,
   OrchestratorMcpThreadInterruptResult,
   OrchestratorMcpThreadListInput,
@@ -26,6 +27,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
 import { ExternalMcpPolicy } from "../../../auth/ExternalMcpGrant.fork.ts";
+import { ExternalMcpThreadWork } from "../../external/ExternalMcpWork.fork.ts";
 import {
   ExternalMcpPrincipalFork,
   ExternalMcpServiceFork,
@@ -60,9 +62,31 @@ const ThreadListInput = Schema.Struct({
 
 const ThreadListResult = Schema.Struct({
   projectId: ProjectId,
-  threads: Schema.Array(OrchestratorMcpThreadListItem),
+  threads: Schema.Array(
+    Schema.Struct({ ...OrchestratorMcpThreadListItem.fields, work: ExternalMcpThreadWork }),
+  ),
   nextCursor: Schema.NullOr(Schema.Number),
   total: Schema.Number,
+});
+
+const ThreadReadResult = Schema.Struct({
+  ...OrchestratorMcpThreadReadResult.fields,
+  thread: Schema.Struct({ ...OrchestratorMcpThreadDetail.fields, work: ExternalMcpThreadWork }),
+});
+
+const ThreadWaitInput = Schema.Struct({
+  ...OrchestratorMcpThreadWaitInput.fields,
+  until: Schema.optional(
+    Schema.Literals(["run", "work"]).annotate({
+      description:
+        "run (default) waits for one run to end. work waits until nothing runs and no background work holds the thread, or a request waits on a person; it takes no runId.",
+    }),
+  ),
+});
+
+const ThreadWaitResult = Schema.Struct({
+  ...OrchestratorMcpThreadWaitResult.fields,
+  work: ExternalMcpThreadWork,
 });
 
 const ThreadCreateInput = Schema.Struct({
@@ -110,7 +134,7 @@ const ProjectListTool = Tool.make("t3_external_project_list", {
 
 const ThreadListTool = Tool.make("t3_external_thread_list", {
   description:
-    "List threads in one granted project, newest first. Filter by run status, title, or settled state and paginate with the returned cursor.",
+    "List threads in one granted project, newest first. Filter by run status, title, or settled state and paginate with the returned cursor. Each thread's work shows what run status misses: background work an ended turn left running, and the turn of a subagent thread the provider started itself.",
   parameters: ThreadListInput,
   success: ThreadListResult,
   failure: OrchestratorMcpFailure,
@@ -123,9 +147,9 @@ const ThreadListTool = Tool.make("t3_external_thread_list", {
 
 const ThreadReadTool = Tool.make("t3_external_thread_read", {
   description:
-    "Read a thread's durable state and a paginated timeline. The messages view returns user and assistant messages and proposed plans; activity returns every summarized item. Continue with afterPosition=nextPosition, and recover long text with itemId and textOffset=nextTextOffset.",
+    "Read a thread's durable state and a paginated timeline. thread.status is run status; thread.work adds background work and a provider-native subagent's turn. The messages view returns user and assistant messages and proposed plans; activity returns every summarized item. Continue with afterPosition=nextPosition, and recover long text with itemId and textOffset=nextTextOffset.",
   parameters: OrchestratorMcpThreadReadInput,
-  success: OrchestratorMcpThreadReadResult,
+  success: ThreadReadResult,
   failure: OrchestratorMcpFailure,
   dependencies,
 })
@@ -136,9 +160,9 @@ const ThreadReadTool = Tool.make("t3_external_thread_read", {
 
 const ThreadWaitTool = Tool.make("t3_external_thread_wait", {
   description:
-    "Wait up to timeoutMs (default 60s, at most 10 minutes) for a thread run to reach a terminal state. Without runId the latest run is selected; an idle thread returns at once. A timeout interrupts nothing, so call again after timedOut=true.",
-  parameters: OrchestratorMcpThreadWaitInput,
-  success: OrchestratorMcpThreadWaitResult,
+    "Wait up to timeoutMs (default 60s, at most 10 minutes) for a thread run to reach a terminal state. Without runId the latest run is selected; an idle thread returns at once. A run can end while work it started still runs: the result's work says so, and until=work waits for that work too. A timeout interrupts nothing, so call again after timedOut=true.",
+  parameters: ThreadWaitInput,
+  success: ThreadWaitResult,
   failure: OrchestratorMcpFailure,
   dependencies,
 })
