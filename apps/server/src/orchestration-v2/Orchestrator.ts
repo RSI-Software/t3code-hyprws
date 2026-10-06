@@ -138,6 +138,7 @@ import {
 import { refuseStaleBranchFork } from "./metadataBranchGuard.fork.ts"; // fork-hook: zmux-estate/decider-expected-branch-import
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { refuseStaleExternalSendFork } from "./steerTarget.fork.ts"; // fork-hook: device-auth/dispatch-send-guard-import
+import { refuseStaleExternalSettlementFork } from "./externalSettlement.fork.ts"; // fork-hook: device-auth/settlement-guard-import
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -2469,6 +2470,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} is deleted.`,
       });
     }
+    yield* refuseStaleExternalSettlementFork(
+      command,
+      thread,
+      (cause) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        }),
+    ); // fork-hook: device-auth/settlement-mode-guard
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&

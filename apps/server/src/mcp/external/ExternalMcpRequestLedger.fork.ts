@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export type ExternalMcpOperation = "create" | "send" | "interrupt";
+export type ExternalMcpOperation = "create" | "send" | "interrupt" | "settle";
 
 /** The target an attempt committed to before it dispatched, read back by a retry. */
 export interface ExternalMcpPin {
