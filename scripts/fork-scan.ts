@@ -491,7 +491,7 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
 ];
 
 // The two gap classes need different repairs: a ledger gap is an entry the human adds, and a
-// typecheck gap is a silent seam the walk fixes in its appended `Fork-Repair` commit. No replayed
+// typecheck gap is a silent seam the sync fixes in a tip fixup of its owner. No replayed
 // fork commit is ever amended, so the summary must never send the operator back into one.
 export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> => {
   const summary: Array<string> = [];
