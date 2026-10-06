@@ -118,7 +118,7 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     // more cannot cover it; only moving or dropping the comment can.
     const remedy = code.every((line) => COMMENT_LINE.test(line.trim()))
       ? "a comment-only line stops the marker's walk, so move the comment inside the statement or drop it"
-      : "wrap the insertion in a fork-hook marker";
+      : "mark a complete added statement whose opening context is also added; in a sync, adapt in a tip `fixup!` of the owner, never inside a replayed commit";
     details.push(
       `${path}: ${code.length} added line(s) outside a marked hook (first: ${sample.join(" / ")}); ${remedy}`,
     );
