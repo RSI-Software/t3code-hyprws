@@ -57,15 +57,13 @@ A retirement is recorded by the retire commit itself, not a ledger.
 
 ## Trailers
 
-| Trailer             | Values                        | Required on            |
-| ------------------- | ----------------------------- | ---------------------- |
-| `Fork-Domain`       | A domain from the index below | Every fork commit      |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit      |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`         |
-| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair |
+| Trailer             | Values                        | Required on       |
+| ------------------- | ----------------------------- | ----------------- |
+| `Fork-Domain`       | A domain from the index below | Every fork commit |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
 
 `Fork-Upstreamable: yes` is a tracking tag, never authorization to post upstream; `AGENTS.md` owns that rule.
-`Fork-Repair` marks a repair the next fold absorbs.
 `vp run fork:delta --check` enforces the table on every push, and a rebase preserves trailers.
 
 **Squash-body mode.** The advisory `hyprws Body` workflow runs `--check --squash-body <file>`; it is not a required check.
