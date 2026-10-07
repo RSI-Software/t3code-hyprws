@@ -39,6 +39,10 @@ import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import {
+  guardSubagentOwnershipFork,
+  type SubagentOwnerGuardFork,
+} from "./SubagentOwnerFence.fork.ts";
 
 export class EventSinkWriteError extends Schema.TaggedError<EventSinkWriteError>()(
   "EventSinkWriteError",
@@ -115,6 +119,7 @@ export interface EventSinkV2Shape {
       OrchestrationV2ProviderThread,
       "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
     >;
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
@@ -129,12 +134,14 @@ export interface EventSinkV2Shape {
       OrchestrationV2ProviderThread,
       "driver" | "providerInstanceId" | "appThreadId" | "nativeThreadRef"
     >;
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
     readonly effects: ReadonlyArray<EffectOutbox.PendingOrchestrationEffectV2>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeIfRunCurrent: (input: {
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly threadId: ThreadId;
@@ -518,10 +525,14 @@ const layerBase: Layer.Layer<
           const events = input.updateDelegatedCompletionOnly
             ? yield* updateDelegatedCompletionOnly(input.events, () => true)
             : input.events;
+          const ownedEvents =
+            input.guardSubagentOwnership === undefined
+              ? events
+              : yield* guardSubagentOwnershipFork(sql, events, input.guardSubagentOwnership);
           const normalized = yield* normalizeEvents(
             input.guardPendingUserInputCancellations === true
-              ? yield* guardUserInputCancellations(events)
-              : events,
+              ? yield* guardUserInputCancellations(ownedEvents)
+              : ownedEvents,
           );
           const committed = yield* eventStore.append({
             ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
@@ -596,10 +607,18 @@ const layerBase: Layer.Layer<
               }
             }
 
+            const ownedEvents =
+              input.guardSubagentOwnership === undefined
+                ? input.events
+                : yield* guardSubagentOwnershipFork(
+                    sql,
+                    input.events,
+                    input.guardSubagentOwnership,
+                  );
             const normalized = yield* normalizeEvents(
               input.guardPendingUserInputCancellations === true
-                ? yield* guardUserInputCancellations(input.events)
-                : input.events,
+                ? yield* guardUserInputCancellations(ownedEvents)
+                : ownedEvents,
             );
             const storedEvents = yield* eventStore.append({
               ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
