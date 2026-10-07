@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { WS_METHODS } from "@t3tools/contracts";
 import * as Stream from "effect/Stream";
-import type { HttpClient } from "effect/unstable/http";
+import type { HttpClient } from "effect/http"; // fork-hook: backend-attach/http-client-import
 import { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";

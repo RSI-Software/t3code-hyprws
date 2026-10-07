@@ -4093,7 +4093,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   const streamSession = (
     input: TerminalObserveInput,
-    initial: Effect.Effect<TerminalSessionSnapshot, TerminalError>,
+    initial: (
+      onAttachmentAcquired: () => void,
+    ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>, // fork-hook: zmux-estate/stream-attachment-initial
     listener: (event: TerminalAttachStreamEvent) => Effect.Effect<void>,
   ) => {
     let unsubscribe: (() => void) | null = null;
@@ -4131,7 +4133,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         return attachEvent ? listener(attachEvent) : Effect.void;
       });
 
-      const initialSnapshot = yield* initial;
+      const initialSnapshot = yield* initial(() => {
+        attachmentAcquired = true;
+      }); // fork-hook: zmux-estate/stream-attachment-acquired
 
       yield* listener({
         type: "snapshot",
@@ -4172,7 +4176,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   };
 
   const attachStream: TerminalManager["Service"]["attachStream"] = (input, listener) =>
-    streamSession(input, openOrAttachForStream(input), listener);
+    streamSession(
+      input,
+      (onAttachmentAcquired) => openOrAttachForStream(input, onAttachmentAcquired),
+      listener,
+    ); // fork-hook: zmux-estate/stream-attachment-open
 
   const observeStream: TerminalManager["Service"]["observeStream"] = (input, listener) =>
     streamSession(

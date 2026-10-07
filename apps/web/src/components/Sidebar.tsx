@@ -1673,18 +1673,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 
   const title =
     isRenaming && canOperateThread ? (
-      <input
-        autoFocus
-        value={renamingTitle}
-        aria-label="Thread title"
-        onChange={(event) => onRenameTitleChange(event.target.value)}
-        onFocus={(event) => event.currentTarget.select()}
-        onKeyDown={handleRenameKeyDown}
-        onBlur={handleRenameBlur}
-        onClick={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
-        className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
-      />
+      <>
+        {/* fork-hook: thread-ordering/rename-input */}
+        <SidebarRenameInput
+          value={renamingTitle}
+          ariaLabel="Thread title"
+          onValueChange={onRenameTitleChange}
+          onCommit={() => onCommitRename(threadRef, renamingTitle, thread.title)}
+          onCancel={onCancelRename}
+        />
+        {/* fork-hook-end */}
+      </>
     ) : (
       <span
         aria-hidden
@@ -4828,6 +4827,7 @@ export default function Sidebar() {
           currentGroupId: currentGroup?.id ?? null,
         });
         const threadActionItems = buildThreadActionMenuItems({
+          canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope), // fork-hook: thread-ordering/thread-action-operate
           branch: thread.branch ?? null,
           projectFilter: threadProjectGroup
             ? {
