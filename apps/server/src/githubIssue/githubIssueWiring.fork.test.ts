@@ -27,7 +27,6 @@ const shell = {
 
 const handlers = gitHubIssueRpcHandlersFork(
   {} as GitHubIssueService.GitHubIssueService["Service"],
-  (_method, effect) => effect,
   {} as SqlClient.SqlClient,
 );
 
