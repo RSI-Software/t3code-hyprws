@@ -44,6 +44,7 @@ vi.mock("../state/terminal", () => ({ terminalEnvironment: { resize: "resize", w
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: (command: string) => (command === "resize" ? state.resize : state.otherCommand),
 }));
+vi.mock("../terminalAttachmentIdentity", () => ({ terminalAttachmentId: () => undefined })); // fork-hook: zmux-estate/terminal-attachment-id
 vi.mock("../state/terminalSessions", () => ({
   useAttachedTerminalSession: () => session,
 }));
@@ -123,6 +124,8 @@ it("rechecks the target terminal grant when a retained surface callback reports 
         resizeEpoch={0}
         drawerHeight={200}
         keybindings={[]}
+        attached // fork-hook: zmux-estate/terminal-attachment-props
+        restoreFocusOnReattach // fork-hook: zmux-estate/terminal-attachment-props
       />,
       { createNodeMock: () => ({ closest: () => null, contains: () => false }) },
     );
