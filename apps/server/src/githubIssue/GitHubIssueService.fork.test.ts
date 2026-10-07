@@ -5,11 +5,10 @@ import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { ChildProcessSpawner } from "effect/process";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import * as GitHubApi from "../sourceControl/GitHubApi.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import { SUB_ISSUE_REASONS_QUERY } from "./subIssueCloseReasons.fork.ts";
 
@@ -37,24 +36,14 @@ function project(id: string): OrchestrationProjectShell {
   };
 }
 
-function output(stdout: string) {
-  return {
-    exitCode: ChildProcessSpawner.ExitCode(0),
-    stdout,
-    stderr: "",
-    stdoutTruncated: false,
-    stderrTruncated: false,
-  };
-}
-
 function makeService(
   projects: ReadonlyArray<OrchestrationProjectShell>,
-  execute: GitHubCli.GitHubCli["Service"]["execute"],
+  graphql: GitHubApi.GitHubApi["Service"]["graphql"],
 ) {
   return GitHubIssueService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
-        Layer.mock(GitHubCli.GitHubCli)({ execute }),
+        Layer.mock(GitHubApi.GitHubApi)({ graphql }),
         Layer.mock(ProjectService.ProjectService)({
           listShells: () => Effect.succeed(projects),
           getShell: (projectId) =>
@@ -72,14 +61,18 @@ function makeService(
 describe("GitHubIssueService summary", () => {
   it.effect("reads only the fields a linked-issue sync stores", () =>
     Effect.gen(function* () {
-      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>(() =>
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
         Effect.succeed(
-          output(
-            JSON.stringify({ title: "Issue 42", state: "CLOSED", stateReason: "NOT_PLANNED" }),
-          ),
+          JSON.stringify({
+            data: {
+              repository: {
+                issue: { title: "Issue 42", state: "CLOSED", stateReason: "NOT_PLANNED" },
+              },
+            },
+          }),
         ),
       );
-      const service = yield* makeService([project("p1")], execute);
+      const service = yield* makeService([project("p1")], graphql);
 
       const summary = yield* service.summary({
         projectId: "p1" as ProjectId,
@@ -87,15 +80,10 @@ describe("GitHubIssueService summary", () => {
         number: 42,
       });
 
-      assert.deepStrictEqual(execute.mock.calls[0]?.[0].args, [
-        "issue",
-        "view",
-        "42",
-        "--repo",
-        "github.com/acme/web",
-        "--json",
-        "title,state,stateReason",
-      ]);
+      const call = graphql.mock.calls[0]?.[0];
+      assert.strictEqual(call?.host, "github.com");
+      assert.include(call?.query ?? "", "title state stateReason");
+      assert.deepStrictEqual(call?.variables, { owner: "acme", name: "web", number: 42 });
       assert.deepStrictEqual(summary, {
         title: "Issue 42",
         state: "closed",
@@ -105,22 +93,32 @@ describe("GitHubIssueService summary", () => {
   );
 });
 
-// One GraphQL read attaches the children's close reasons `gh` omits, fired only when a closed
-// child exists (RSI-Software/t3code-hyprws#1461).
+// One GraphQL read attaches the children's close reasons the detail read omits, fired only when
+// a closed child exists (RSI-Software/t3code-hyprws#1461).
 describe("GitHubIssueService detail sub-issue reasons", () => {
   const detailPayload = (children: ReadonlyArray<Record<string, unknown>>) =>
     JSON.stringify({
-      number: 42,
-      title: "Parent",
-      url: "https://github.com/acme/web/issues/42",
-      author: null,
-      assignees: [],
-      labels: [],
-      state: "OPEN",
-      createdAt: "2026-08-20T00:00:00Z",
-      updatedAt: "2026-08-21T00:00:00Z",
-      closedAt: null,
-      subIssues: { nodes: children },
+      data: {
+        repository: {
+          issue: {
+            number: 42,
+            title: "Parent",
+            url: "https://github.com/acme/web/issues/42",
+            author: null,
+            assignees: { nodes: [] },
+            labels: { nodes: [] },
+            issueType: null,
+            state: "OPEN",
+            stateReason: null,
+            createdAt: "2026-08-20T00:00:00Z",
+            updatedAt: "2026-08-21T00:00:00Z",
+            reactionGroups: null,
+            closedAt: null,
+            comments: { totalCount: 0, nodes: [] },
+            subIssues: { nodes: children },
+          },
+        },
+      },
     });
 
   const closedChild = {
@@ -136,8 +134,8 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
     state: "OPEN",
   };
 
-  const makeDetailService = (execute: GitHubCli.GitHubCli["Service"]["execute"]) =>
-    makeService([project("p1")], execute).pipe(
+  const makeDetailService = (graphql: GitHubApi.GitHubApi["Service"]["graphql"]) =>
+    makeService([project("p1")], graphql).pipe(
       Effect.flatMap((service) =>
         service.detail({ projectId: "p1" as ProjectId, repository: "acme/web", number: 42 }),
       ),
@@ -145,37 +143,26 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("attaches a closed child's reason with exactly one graphql read", () =>
     Effect.gen(function* () {
-      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>((input) =>
-        input.args[0] === "issue"
-          ? Effect.succeed(output(detailPayload([closedChild, openChild])))
-          : Effect.succeed(
-              output(
-                JSON.stringify({
-                  data: {
-                    repository: {
-                      issue: { subIssues: { nodes: [{ number: 43, stateReason: "NOT_PLANNED" }] } },
-                    },
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+        call.query.includes("subIssues(first:100)")
+          ? Effect.succeed(
+              JSON.stringify({
+                data: {
+                  repository: {
+                    issue: { subIssues: { nodes: [{ number: 43, stateReason: "NOT_PLANNED" }] } },
                   },
-                }),
-              ),
-            ),
+                },
+              }),
+            )
+          : Effect.succeed(detailPayload([closedChild, openChild])),
       );
-      const detail = yield* makeDetailService(execute);
+      const detail = yield* makeDetailService(graphql);
 
-      assert.deepStrictEqual(execute.mock.calls[1]?.[0].args, [
-        "api",
-        "graphql",
-        "--hostname",
-        "github.com",
-        "-f",
-        `query=${SUB_ISSUE_REASONS_QUERY}`,
-        "-f",
-        "owner=acme",
-        "-f",
-        "name=web",
-        "-F",
-        "number=42",
-      ]);
+      assert.strictEqual(graphql.mock.calls.length, 2);
+      const reasonsCall = graphql.mock.calls[1]?.[0];
+      assert.strictEqual(reasonsCall?.query, SUB_ISSUE_REASONS_QUERY);
+      assert.strictEqual(reasonsCall?.host, "github.com");
+      assert.deepStrictEqual(reasonsCall?.variables, { owner: "acme", name: "web", number: 42 });
       assert.deepStrictEqual(detail.subIssues, [
         { ...closedChild, state: "closed", closeReason: "not planned" },
         { ...openChild, state: "open", closeReason: null },
@@ -185,12 +172,12 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("skips the graphql read when no sub-issue is closed", () =>
     Effect.gen(function* () {
-      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>(() =>
-        Effect.succeed(output(detailPayload([openChild]))),
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+        Effect.succeed(detailPayload([openChild])),
       );
-      const detail = yield* makeDetailService(execute);
+      const detail = yield* makeDetailService(graphql);
 
-      assert.lengthOf(execute.mock.calls, 1);
+      assert.lengthOf(graphql.mock.calls, 1);
       assert.deepStrictEqual(detail.subIssues, [
         { ...openChild, state: "open", closeReason: null },
       ]);
@@ -199,16 +186,20 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("keeps the detail when the graphql read fails, reason unknown", () =>
     Effect.gen(function* () {
-      const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>((input) =>
-        input.args[0] === "issue"
-          ? Effect.succeed(output(detailPayload([closedChild])))
-          : Effect.fail(
-              new GitHubCli.GitHubCliCommandError({ command: "gh", cwd: "/web", cause: "boom" }),
-            ),
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+        call.query.includes("subIssues(first:100)")
+          ? Effect.fail(
+              new GitHubApi.GitHubApiResponseError({
+                host: "github.com",
+                operation: "subIssueCloseReasons",
+                status: 500,
+              }),
+            )
+          : Effect.succeed(detailPayload([closedChild])),
       );
-      const detail = yield* makeDetailService(execute);
+      const detail = yield* makeDetailService(graphql);
 
-      assert.lengthOf(execute.mock.calls, 2);
+      assert.lengthOf(graphql.mock.calls, 2);
       assert.deepStrictEqual(detail.subIssues, [
         { ...closedChild, state: "closed", closeReason: null },
       ]);
