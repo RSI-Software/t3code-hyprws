@@ -4,7 +4,7 @@ import {
   type TerminalOutputState,
 } from "@t3tools/client-runtime/state/terminal";
 import { EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { PrimaryConnectionTarget, SshConnectionTarget } from "@t3tools/client-runtime/connection";
 import { describe, expect, it, vi } from "vite-plus/test";
 
