@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -11,7 +12,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -21,16 +21,16 @@ import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import { listLinkedIssueThreadsFork } from "../githubIssue/linkedThreads.fork.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
-import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
-import { OrchestrationV2LayerLive } from "./runtimeLayer.ts";
+import * as RuntimeLayer from "./runtimeLayer.ts";
 import type { ThreadIssueCommandFork } from "./ThreadIssues.fork.ts";
 
 const PlatformTestLayer = Layer.merge(
@@ -55,6 +55,7 @@ const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
 const EmptyProviderInstanceRegistry = Layer.succeed(
   ProviderInstanceRegistry.ProviderInstanceRegistry,
   {
+    // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
     getInstance: () => Effect.succeed(undefined),
     listInstances: Effect.succeed([]),
     listUnavailable: Effect.succeed([]),
@@ -63,9 +64,10 @@ const EmptyProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-const TestLayer = OrchestrationV2LayerLive.pipe(
+const TestLayer = RuntimeLayer.layer.pipe(
+  Layer.provide(McpProviderSessions.layer),
   Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provideMerge(SqlitePersistenceMemory),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),
   Layer.provide(ServerSettings.layerTest()),
@@ -78,7 +80,7 @@ const TestLayer = OrchestrationV2LayerLive.pipe(
   ),
   Layer.provide(
     Layer.mock(ProjectService.ProjectService)({
-      getById: () => Effect.succeed(Option.none()),
+      getById: () => Effect.succeedNone,
     }),
   ),
   Layer.provide(PlatformTestLayer),
