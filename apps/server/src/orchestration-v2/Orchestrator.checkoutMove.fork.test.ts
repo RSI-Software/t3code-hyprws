@@ -11,12 +11,13 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as CheckpointService from "./CheckpointService.ts";
@@ -26,7 +27,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
+import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
 const adapter = {
@@ -36,13 +37,13 @@ const adapter = {
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
   openSession: () => Effect.die("No provider process needed for checkout moves"),
 } as ProviderAdapterV2Shape;
-const database = SqlitePersistenceMemory;
+const database = SqlitePersistence.layerMemory;
 const testLayer = Layer.mergeAll(
   database,
   ProjectionStore.layer.pipe(Layer.provide(database)),
-  makeOrchestratorV2ReplayLayerWithRegistry(
+  layerWithRegistry(
     { name: "checkout-move" },
-    ProviderAdapterRegistry.makeLayer([adapter]),
+    ProviderAdapterRegistry.layerFromAdapters([adapter]),
     { databaseLayer: database, runEffectWorker: false },
   ),
 );
@@ -223,14 +224,15 @@ it.effect("re-scopes the checkpoint of a run its worktree recovery is committed 
     assert.ok(run && scope);
     // The baseline the turn start captures from that scope.
     const ordinalWithinScope = Math.max(0, run.ordinal - 1);
+    const crypto = yield* Crypto.Crypto;
     yield* checkpoints.captureBaseline({ scope, ordinalWithinScope });
     assert.isTrue(
       yield* checkpointStore.hasCheckpointRef({
         cwd: recovered,
-        checkpointRef: CheckpointService.checkpointRefForScopeOrdinal({
+        checkpointRef: yield* CheckpointService.checkpointRefForScopeOrdinal({
           scopeId: scope.id,
           ordinalWithinScope,
-        }),
+        }).pipe(Effect.provideService(Crypto.Crypto, crypto)),
       }),
     );
   }).pipe(Effect.provide(Layer.mergeAll(testLayer, checkpointLayer))),

@@ -14,21 +14,57 @@ const git = (cwd: string, args: ReadonlyArray<string>) =>
     });
   }).pipe(Effect.provide(ProcessRunner.layer));
 it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
-  it.effect("prefers origin over upstream when both remotes are configured", () =>
+  it.effect.each([null, "origin", "upstream"] as const)(
+    "prefers origin unless gh explicitly selects a remote: %s",
+    (selected) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-repository-identity-origin-test-",
+        });
+        yield* git(cwd, ["init"]);
+        yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/t3code.git"]);
+        yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/t3code.git"]);
+        if (selected !== null)
+          yield* git(cwd, ["config", `remote.${selected}.gh-resolved`, "base"]);
+        const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+        const identity = yield* resolver.resolve(cwd);
+        expect(identity).not.toBeNull();
+        expect(identity?.locator.remoteName).toBe(selected ?? "origin");
+        expect(identity?.canonicalKey).toBe(
+          selected === "upstream" ? "github.com/t3tools/t3code" : "github.com/julius/t3code",
+        );
+        expect(identity?.displayName).toBe(
+          selected === "upstream" ? "T3Tools/t3code" : "julius/t3code",
+        );
+      }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
+  forkSupersedes({
+    upstream:
+      "apps/server/src/project/RepositoryIdentityResolver.test.ts > reports a fork's own remote as origin next to the upstream identity",
+    reason:
+      "the fork keeps origin as the primary remote, so a fork's origin is the identity and no separate origin is reported",
+    commit: "d089901e993",
+  });
+  it.effect("reports a fork's own remote as the identity next to an upstream remote", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const cwd = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-repository-identity-origin-test-",
+        prefix: "t3-repository-identity-fork-test-",
       });
+
       yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/t3code.git"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/t3code-fork.git"]);
       yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/t3code.git"]);
+
       const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const identity = yield* resolver.resolve(cwd);
-      expect(identity).not.toBeNull();
+
       expect(identity?.locator.remoteName).toBe("origin");
-      expect(identity?.canonicalKey).toBe("github.com/julius/t3code");
-      expect(identity?.displayName).toBe("julius/t3code");
+      expect(identity?.canonicalKey).toBe("github.com/julius/t3code-fork");
+      expect(identity?.displayName).toBe("julius/t3code-fork");
+      expect(identity?.origin).toBeUndefined();
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
