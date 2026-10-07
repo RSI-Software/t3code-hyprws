@@ -220,7 +220,7 @@ const make = Effect.fn("makeProviderInstallation")(function* () {
         }
         const binaryPath = entry.config.binaryPath.trim();
         const resolved = yield* resolveCommandPath(binaryPath, {
-          env: yield* mergeProviderInstanceEnvironment(entry.environment),
+          env: yield* mergeProviderInstanceEnvironment(entry.environment, entry.driver), // fork-hook: upstream-fixes/provider-instance-environment
         }).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
