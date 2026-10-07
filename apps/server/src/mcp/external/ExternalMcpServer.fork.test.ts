@@ -203,6 +203,8 @@ it.live("admits only a device-grant session that carries an external MCP grant",
     expect(listed.body?.result.tools.map((tool: { name: string }) => tool.name).toSorted()).toEqual(
       [
         "t3_external_project_list",
+        "t3_external_request_list",
+        "t3_external_request_respond",
         "t3_external_thread_create",
         "t3_external_thread_interrupt",
         "t3_external_thread_list",
