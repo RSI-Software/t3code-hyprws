@@ -659,6 +659,7 @@ function TerminalSessionViewport({
   useEffect(() => {
     if (launchIdentityRef.current === launchIdentity || !attached) return;
     launchIdentityRef.current = launchIdentity;
+    if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
     void retargetTerminal();
   }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) =>
