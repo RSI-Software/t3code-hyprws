@@ -40,7 +40,7 @@ import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { providerTurnStartCheckoutGateFork } from "./ProviderTurnStartCheckoutGate.fork.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
+import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 import type { ReplayTurnStartWrapperFork } from "./testkit/ProviderReplayHarness.fork.ts";
 import { checkpointWorkspace } from "./testkit/ReplayFixtureWorkspace.ts";
 
@@ -392,7 +392,7 @@ it.live.each(recoveries)(
           `thread:worktree-recovery:${client}:${laterMove}:${returns}:${recreatedBeforeGate}:${sharedSession}`,
         );
         const log = yield* Ref.make<SessionLog>({ opened: [], turns: [], closed: 0, unloaded: 0 });
-        const registry = ProviderAdapterRegistry.makeSingleLayer(
+        const registry = ProviderAdapterRegistry.layerSingle(
           makeFixedCwdAdapter(
             log,
             root,
@@ -555,7 +555,7 @@ it.live.each(recoveries)(
           assert.deepEqual(items, timeline);
         }).pipe(
           Effect.provide(
-            makeOrchestratorV2ReplayLayerWithRegistry(
+            layerWithRegistry(
               {
                 name: `worktree-recovery-${client}-${laterMove}-${returns}-${recreatedBeforeGate}-${sharedSession}`,
               },
@@ -587,7 +587,7 @@ it.live("commits a recovery retried after the project root went idle", () =>
       const threadId = ThreadId.make("thread:worktree-recovery-retry");
       const rootThreadId = ThreadId.make("thread:worktree-recovery-retry:root");
       const log = yield* Ref.make<SessionLog>({ opened: [], turns: [], closed: 0, unloaded: 0 });
-      const registry = ProviderAdapterRegistry.makeSingleLayer(
+      const registry = ProviderAdapterRegistry.layerSingle(
         makeFixedCwdAdapter(log, root, ClaudeProviderCapabilitiesV2),
       );
 
@@ -654,7 +654,7 @@ it.live("commits a recovery retried after the project root went idle", () =>
         assert.equal(recovered?.checkoutMove?.status, "committed");
       }).pipe(
         Effect.provide(
-          makeOrchestratorV2ReplayLayerWithRegistry({ name: "worktree-recovery-retry" }, registry, {
+          layerWithRegistry({ name: "worktree-recovery-retry" }, registry, {
             runEffectWorker: false,
             wrapTurnStartFork: withCheckoutGate(root),
           }),
