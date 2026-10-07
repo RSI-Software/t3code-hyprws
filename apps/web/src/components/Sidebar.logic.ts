@@ -722,6 +722,17 @@ export type SidebarThreadGroupContextMenuId =
   | `move-to-group:${string}`
   | "move-out-of-group";
 
+export function isSidebarThreadGroupContextMenuId(
+  id: string,
+): id is SidebarThreadGroupContextMenuId {
+  return (
+    id === "create-thread-group" ||
+    id === "move-to-group" ||
+    id === "move-out-of-group" ||
+    id.startsWith("move-to-group:")
+  );
+} // fork-hook: upstream-fixes/split-session-permissions
+
 export function buildCreateThreadGroupContextMenuItem(input: {
   readonly count: number;
   readonly eligible: boolean;

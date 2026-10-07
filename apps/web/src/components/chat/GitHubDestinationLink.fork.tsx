@@ -282,6 +282,8 @@ export interface GitHubDestinationRenderInput {
   readonly props: ComponentPropsWithoutRef<"a">;
   readonly children: ReactNode;
   readonly canOpenInPreview: boolean;
+  /** Operate scope on the link's thread environment; gates the link-to-thread write. */
+  readonly canOperateHost: boolean;
   readonly faviconHost: string | null;
   readonly openChangeRequestLink: (
     event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
@@ -394,8 +396,9 @@ export function useGitHubDestinationLinkFork(accept: {
           event.stopPropagation();
           const api = readLocalApi();
           if (!api) return;
-          const threadLinkAction =
-            input.linkedThreadPullRequestFor(input.href) !== null
+          const threadLinkAction = !input.canOperateHost
+            ? undefined
+            : input.linkedThreadPullRequestFor(input.href) !== null
               ? "unlink-from-thread"
               : input.resolveThreadPullRequest(input.href) === null
                 ? undefined
