@@ -2,10 +2,10 @@ import { RegistryContext } from "@effect/atom-react";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
-import { Atom, AtomRegistry, AsyncResult } from "effect/unstable/reactivity";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { act, useLayoutEffect } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createMergedEnvironmentQueryFork } from "./pullRequests.fork";
 
@@ -25,16 +25,19 @@ const useMergedQuery = createMergedEnvironmentQueryFork<{ state: "open" | "close
 );
 
 const registries: Array<AtomRegistry.AtomRegistry> = [];
-const renderers: Array<ReactTestRenderer> = [];
+const roots: Array<Root> = [];
+
+beforeEach(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
 
 afterEach(() => {
   act(() => {
-    for (const renderer of renderers) renderer.unmount();
+    for (const root of roots) root.unmount();
   });
   for (const registry of registries) registry.dispose();
-  renderers.length = 0;
+  roots.length = 0;
   registries.length = 0;
   sources.clear();
+  vi.unstubAllGlobals();
 });
 
 /** One environment reading a fixed list, driven through a real atom registry. */
@@ -50,7 +53,10 @@ function fixture(environmentIds: ReadonlyArray<EnvironmentId>) {
 
   let view: ReturnType<typeof useMergedQuery> | undefined;
   function Probe({ targets }: { readonly targets: ReadonlyArray<Target> }) {
-    view = useMergedQuery(targets);
+    const value = useMergedQuery(targets);
+    useLayoutEffect(() => {
+      view = value;
+    });
     return null;
   }
 
@@ -60,12 +66,12 @@ function fixture(environmentIds: ReadonlyArray<EnvironmentId>) {
       act(() => registry.set(sources.get(environmentId)!, result)),
     render: (targets: ReadonlyArray<Target>) =>
       act(() => {
-        renderers.push(
-          create(
-            <RegistryContext.Provider value={registry}>
-              <Probe targets={targets} />
-            </RegistryContext.Provider>,
-          ),
+        const root = createRoot(document.createElement("div"));
+        roots.push(root);
+        root.render(
+          <RegistryContext.Provider value={registry}>
+            <Probe targets={targets} />
+          </RegistryContext.Provider>,
         );
       }),
   };
