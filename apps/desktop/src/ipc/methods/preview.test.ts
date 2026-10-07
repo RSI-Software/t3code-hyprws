@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as PreviewIpc from "./preview.ts";
+import { previewSenderWindowFork } from "./preview.fork-test-harness.ts"; // fork-hook: multi-window/preview-capture-sender-import
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 
@@ -55,6 +56,7 @@ describe("preview IPC methods", () => {
           structuredClone(await listener!({ sender: { id: 7 } }, { tabId: "capture-tab" })),
         );
       }).pipe(
+        Effect.provide(previewSenderWindowFork(manager)), // fork-hook: multi-window/preview-capture-sender
         Effect.provideService(
           PreviewManager.PreviewManager,
           manager as PreviewManager.PreviewManager["Service"],
