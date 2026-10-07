@@ -6,7 +6,7 @@ import * as Path from "effect/Path";
 import type * as Schema from "effect/Schema";
 import { parse as parseToml } from "smol-toml";
 
-import { expandHomePath } from "../../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 
 export interface CodexAgentDefinition {
   readonly name: string;

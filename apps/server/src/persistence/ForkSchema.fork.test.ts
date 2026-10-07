@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { ensureForkSchema, repairStaleForkMigrationRow } from "./ForkSchema.ts";
-import { runMigrations } from "./Migrations.ts";
+import { hasPendingMigrations, runMigrations } from "./Migrations.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
@@ -15,7 +15,7 @@ layer("ForkSchema", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      yield* ensureForkSchema();
+      assert.isFalse(yield* hasPendingMigrations());
       yield* sql`
         INSERT INTO projection_thread_issues (thread_id, host, repository, number, url, source, linked_at)
         VALUES ('thread-1', 'github.com', 'acme/web', 7, 'https://github.com/acme/web/issues/7', 'manual', '2026-09-01T00:00:00.000Z')
@@ -65,23 +65,15 @@ layer("ForkSchema columns", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      yield* sql`
-        CREATE TABLE auth_external_mcp_requests (
-          session_id TEXT NOT NULL,
-          operation TEXT NOT NULL,
-          client_request_id TEXT NOT NULL,
-          request_hash TEXT NOT NULL,
-          result_json TEXT,
-          created_at TEXT NOT NULL,
-          PRIMARY KEY (session_id, operation, client_request_id)
-        )
-      `;
+      yield* sql`ALTER TABLE auth_external_mcp_requests DROP COLUMN pinned_target`;
+      assert.isTrue(yield* hasPendingMigrations());
       yield* sql`
         INSERT INTO auth_external_mcp_requests
           (session_id, operation, client_request_id, request_hash, result_json, created_at)
         VALUES ('s', 'interrupt', 'k', 'h', NULL, '2026-10-05T00:00:00.000Z')
       `;
-      assert.include(yield* ensureForkSchema(), "auth_external_mcp_requests.pinned_target");
+      yield* runMigrations();
+      assert.isFalse(yield* hasPendingMigrations());
       const rows = yield* sql<{ readonly pinned: string | null }>`
         SELECT pinned_target AS "pinned" FROM auth_external_mcp_requests
       `;
