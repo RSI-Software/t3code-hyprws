@@ -3402,6 +3402,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     pickElement,
     prepareWebview,
     preserveGuestZooms,
+    reapplyZoom: () => preserveGuestZooms(() => {}), // fork-hook: multi-window/preview-reapply-zoom
     refresh,
     registerWebview,
     resetZoom: (tabId: string) => applyZoom(tabId, () => DEFAULT_ZOOM_FACTOR),
@@ -3577,23 +3578,22 @@ export const PreviewManagerError = Schema.Union([
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
 
-}
-
 export class PreviewManager extends Context.Service<
   PreviewManager,
   {
+    readonly reapplyZoom: () => Effect.Effect<void>; // fork-hook: multi-window/preview-manager-reapply-zoom-type
     readonly setMainWindow: (window: BrowserWindow) => Effect.Effect<void, PreviewManagerError>;
     readonly setForwardedShortcuts: (
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
     ) => Effect.Effect<void>;
     readonly setWindow: (
-      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
+      owner: PreviewWindowPolicy.PreviewOwner,
       window: BrowserWindow,
-    ) => Effect.Effect<void, PreviewManagerError>;
+    ) => Effect.Effect<void, PreviewManagerError>; // fork-hook: multi-window/preview-set-window
     readonly disposeWindow: (owner: PreviewWindowPolicy.PreviewOwner) => Effect.Effect<void>; // fork-hook: multi-window/preview-owner-dispose
     readonly forWindow: (
-      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-    ) => Effect.Effect<PreviewWindowManager>;
+      owner: PreviewWindowPolicy.PreviewOwner,
+    ) => Effect.Effect<PreviewWindowPolicy.PreviewWindowManager>; // fork-hook: multi-window/preview-for-window
     readonly getBrowserSession: (
       scope?: string,
       persistent?: boolean,
@@ -3690,8 +3690,14 @@ export class PreviewManager extends Context.Service<
       listener: PreviewWindowPolicy.OwnedStateListener,
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-state-changes-type
     readonly subscribeOwnedPointerEvents: (
-      listener: OwnedPointerEventListener,
-    ) => Effect.Effect<void, never, Scope.Scope>;
+      listener: PreviewWindowPolicy.OwnedPointerEventListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-pointer-events-type
+    readonly subscribeOwnedOpenLinks: (
+      listener: (
+        owner: PreviewWindowPolicy.PreviewOwner,
+        event: DesktopPreviewOpenLinkEvent,
+      ) => Effect.Effect<void>,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-open-links-type
     readonly subscribeOwnedRecordingFrames: (
       listener: PreviewWindowPolicy.OwnedRecordingFrameListener,
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-frames-type
@@ -3700,24 +3706,6 @@ export class PreviewManager extends Context.Service<
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-inputs-type
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
-
-type OwnedStateListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  tabId: string,
-  state: PreviewTabState,
-) => Effect.Effect<void>;
-type OwnedRecordingFrameListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  frame: DesktopPreviewRecordingFrame,
-) => Effect.Effect<void>;
-type OwnedPointerEventListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  event: DesktopPreviewPointerEvent,
-) => Effect.Effect<void>;
-type OwnedRecordingInputListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  input: DesktopPreviewRecordingInputEvent,
-) => Effect.Effect<void>;
 
 /** @public */
 export const make = Effect.gen(function* PreviewManagerMake() {
@@ -3767,109 +3755,101 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     });
   };
 
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
-  const context = yield* Effect.context<never>();
-  const browserSessions = new Set<Session>(); // fork-hook: multi-window/download-sessions
-  const installers = new Set<(session: Session) => void>(); // fork-hook: multi-window/downloads
-  const trackInstaller = (install: (session: Session) => void) =>
-    Effect.acquireRelease(
-      // Each window's operations tracks the pages its agent drove, so every window
-      // installs its download handler on every browser session, whichever came first.
-      Effect.sync(() => {
-        installers.add(install);
-        for (const session of browserSessions) install(session);
-      }),
-      () => Effect.sync(() => installers.delete(install)),
-    ); // fork-hook: multi-window/download-track
-  const trackSession = (session: Session) =>
-    Effect.sync(() => {
-      browserSessions.add(session);
-      for (const install of installers) install(session);
-    }); // fork-hook: multi-window/download-session-track
-  const ownership = yield* PreviewWindowPolicy.makeWindowOwnership(
-    (scope) =>
+  const operations = yield* makeNativeOperations(
+    environment.browserArtifactsDir,
+    environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
+  );
+
+  const ownership = yield* PreviewWindowPolicy.makeWindowOwnershipFromOperations(
+    operations,
+    () =>
       makeNativeOperations(
         environment.browserArtifactsDir,
         environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
-      ).pipe(
-        Effect.tap((operations) => trackInstaller(operations.installDownloadHandler)), // fork-hook: multi-window/download-install
-        Effect.provideService(Scope.Scope, scope),
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-        Effect.provideService(DesktopRendererHistory.DesktopRendererHistory, rendererHistory), // fork-hook: multi-window/preview-renderer-history
-        Effect.provide(context),
       ),
-    (tabId, requestingWindow) => new PreviewTabOwnershipError({ tabId, requestingWindow }),
-  );
-
-  const clearCookies = Effect.fn("PreviewManager.clearCookies")(function* (
-    partitions?: ReadonlyArray<string>,
-  ) {
-    yield* browserSession
-      .clearCookies(partitions)
-      .pipe(
-        Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCookies", cause })),
-      );
-  });
-  const clearCache = Effect.fn("PreviewManager.clearCache")(function* (
-    partitions?: ReadonlyArray<string>,
-  ) {
-    yield* browserSession
-      .clearCache(partitions)
-      .pipe(
-        Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCache", cause })),
-      );
-  });
-  const getBrowserSession = Effect.fn("PreviewManager.getBrowserSession")(function* (
-    scope?: string,
-    persistent?: boolean,
-    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
-  ) {
-    return yield* browserSession
-      .getSession(scope, persistent, namespace)
-      .pipe(
-        Effect.mapError(
-          (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
-        ),
-      );
-  }); // fork-hook: multi-window/browser-session-getter
-  const getBrowserPartition = Effect.fn("PreviewManager.getBrowserPartition")(function* (
-    scope?: string,
-    persistent?: boolean,
-    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
-  ) {
-    return yield* browserSession
-      .getPartition(scope, persistent, namespace)
-      .pipe(
-        Effect.mapError(
-          (cause) => new PreviewOperationError({ operation: "getBrowserPartition", cause }),
-        ),
-      );
-  }); // fork-hook: multi-window/browser-partition-getter
-
+    (tabId, requestingWindow) =>
+      new PreviewWindowPolicy.PreviewTabOwnershipError({ tabId, requestingWindow }),
+  ); // fork-hook: multi-window/preview-window-ownership
   return PreviewManager.of({
-    ...ownership.app, // fork-hook: multi-window/preview-app-owner
-    prepareWebview: ownership.prepareWebview, // fork-hook: multi-window/preview-prepare-host-window
-    setMainWindow: (window) => ownership.setWindow(PreviewWindowPolicy.APP_PREVIEW_OWNER, window), // fork-hook: multi-window/preview-app-owner-main
-    setWindow: ownership.setWindow,
-    disposeWindow: ownership.disposeWindow,
-    forWindow: ownership.forWindow,
-    getBrowserSession: (scope, persistent, namespace) =>
-      getBrowserSession(scope, persistent, namespace).pipe(Effect.tap(trackSession)), // fork-hook: multi-window/download-session
+    setMainWindow: operations.setMainWindow,
+    setForwardedShortcuts: operations.setForwardedShortcuts,
+    getBrowserSession: Effect.fn("PreviewManager.getBrowserSession")(
+      function* (scope, persistent, namespace) {
+        const session = yield* browserSession
+          .getSession(scope, persistent, namespace)
+          .pipe(
+            Effect.mapError(
+              (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
+            ),
+          );
+        placeServerDownloads(session);
+        passkeys.installSessionHandlers(session);
+        return session;
+      },
+    ),
     isBrowserPartition: browserSession.isPartition,
-    clearCookies,
-    clearCache,
-    getBrowserPartition,
-    subscribeOwnedStateChanges: ownership.subscribeOwnedStateChanges,
-    subscribeOwnedPointerEvents: ownership.subscribeOwnedPointerEvents,
-    subscribeOwnedRecordingFrames: ownership.subscribeOwnedRecordingFrames,
-    subscribeOwnedRecordingInputs: ownership.subscribeOwnedRecordingInputs,
-    subscribeStateChanges: ownership.subscribeStateChanges,
-    subscribePointerEvents: ownership.subscribePointerEvents,
-    subscribeRecordingFrames: ownership.subscribeRecordingFrames,
-    subscribeRecordingInputs: ownership.subscribeRecordingInputs,
+    createTab: operations.createTab,
+    closeTab: operations.closeTab,
+    registerWebview: operations.registerWebview,
+    prepareWebview: operations.prepareWebview,
+    navigate: operations.navigate,
+    goBack: operations.goBack,
+    goForward: operations.goForward,
+    refresh: operations.refresh,
+    zoomIn: operations.zoomIn,
+    zoomOut: operations.zoomOut,
+    resetZoom: operations.resetZoom,
+    reapplyZoom: operations.reapplyZoom,
+    hardReload: operations.hardReload,
+    setColorScheme: operations.setColorScheme,
+    setZoomFactor: operations.setZoomFactor,
+    setAudioMuted: operations.setAudioMuted,
+    openDevTools: operations.openDevTools,
+    clearCookies: Effect.fn("PreviewManager.clearCookies")(function* (partitions) {
+      yield* browserSession
+        .clearCookies(partitions)
+        .pipe(
+          Effect.mapError(
+            (cause) => new PreviewOperationError({ operation: "clearCookies", cause }),
+          ),
+        );
+    }),
+    clearCache: Effect.fn("PreviewManager.clearCache")(function* (partitions) {
+      yield* browserSession
+        .clearCache(partitions)
+        .pipe(
+          Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCache", cause })),
+        );
+    }),
+    getBrowserPartition: Effect.fn("PreviewManager.getBrowserPartition")(
+      function* (scope, persistent, namespace) {
+        return yield* browserSession
+          .getPartition(scope, persistent, namespace)
+          .pipe(
+            Effect.mapError(
+              (cause) => new PreviewOperationError({ operation: "getBrowserPartition", cause }),
+            ),
+          );
+      },
+    ),
+    setAnnotationTheme: operations.setAnnotationTheme,
+    setAnnotationSendEnabled: operations.setAnnotationSendEnabled,
+    pickElement: operations.pickElement,
+    cancelPickElement: operations.cancelPickElement,
+    captureScreenshot: operations.captureScreenshot,
+    revealArtifact: operations.revealArtifact,
+    copyArtifactToClipboard: operations.copyArtifactToClipboard,
+    openPictureInPicture: operations.openPictureInPicture,
+    closePictureInPicture: operations.closePictureInPicture,
+    startRecording: operations.startRecording,
+    stopRecording: operations.stopRecording,
+    saveRecording: operations.saveRecording,
+    subscribeStateChanges: operations.subscribeStateChanges,
+    subscribePointerEvents: operations.subscribePointerEvents,
+    subscribeOpenLinks: operations.subscribeOpenLinks,
+    subscribeRecordingFrames: operations.subscribeRecordingFrames,
+    subscribeRecordingInputs: operations.subscribeRecordingInputs,
+    ...PreviewWindowPolicy.windowManagerExtension(ownership), // fork-hook: multi-window/preview-window-extension
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 
