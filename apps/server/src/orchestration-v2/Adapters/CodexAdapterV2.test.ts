@@ -1344,6 +1344,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               tool_timeout_sec: 3_900,
               http_headers: { Authorization: "Bearer secret-codex-token" },
             },
+            shell_environment_policy: {
+              set: { T3CODE_THREAD_ID: "thread-launch-mcp-servers" },
+            }, // fork-hook: upstream-fixes/codex-thread-identity
           },
         },
       ]);
