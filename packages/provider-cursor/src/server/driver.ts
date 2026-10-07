@@ -6,6 +6,7 @@ import {
 import { CursorSettings } from "../settings.ts";
 import * as Effect from "effect/Effect";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as HostProcess from "@t3tools/shared/HostProcess"; // fork-hook: upstream-fixes/provider-instance-env-import
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -97,7 +98,12 @@ export const CursorDriver: ProviderDriver<
     const path = yield* Path.Path;
     const httpClient = yield* HttpClient.HttpClient;
     const sdkRunner = yield* CursorAgentSdk.CursorAgentSdkRunner;
-    const processEnv = yield* mergeProviderInstanceEnvironment(environment);
+    const hostEnvironment = yield* HostProcess.Environment; // fork-hook: upstream-fixes/provider-instance-environment
+    const processEnv = yield* mergeProviderInstanceEnvironment(
+      environment,
+      DRIVER_KIND,
+      hostEnvironment,
+    ); // fork-hook: upstream-fixes/provider-driver-instance-env
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
       instanceId,
