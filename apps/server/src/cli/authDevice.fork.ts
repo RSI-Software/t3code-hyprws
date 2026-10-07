@@ -41,7 +41,7 @@ const runWithDeviceAuthorization = <A, E>(
     }).pipe(
       Effect.provide(
         DeviceAuthorization.layer.pipe(
-          Layer.provide(EnvironmentAuth.runtimeLayer),
+          Layer.provide(EnvironmentAuth.layerRuntime),
           Layer.provide(ServerConfig.layer(config)),
           Layer.provide(
             Layer.succeed(

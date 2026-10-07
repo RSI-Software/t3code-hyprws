@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   CommandId,
+  EnvironmentId,
   EventId,
   NodeId,
   type OrchestrationProjectShell,
@@ -38,10 +39,11 @@ import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
   ExternalMcpRequestListResult,
@@ -118,9 +120,9 @@ const decodeRequired = Schema.decodeUnknownEffect(
 
 const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]> = {}) =>
   Effect.gen(function* () {
-    const database = SqlitePersistenceMemory;
-    const registry = ProviderAdapterRegistry.makeLayer([adapter]);
-    const orchestratorLayer = makeOrchestratorV2ReplayLayerWithRegistry(
+    const database = SqlitePersistence.layerMemory;
+    const registry = ProviderAdapterRegistry.layerFromAdapters([adapter]);
+    const orchestratorLayer = ProviderReplayHarness.layerWithRegistry(
       { name: "external-requests" },
       registry,
       { databaseLayer: database, runEffectWorker: false },
@@ -145,6 +147,9 @@ const setup = (policy: Partial<ExternalMcpService.ExternalMcpPrincipal["policy"]
               Layer.mock(ProviderRegistry.ProviderRegistry)({}),
               ServerSettings.layerTest(),
               database,
+              Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-requests")),
+              }),
             ),
           ),
         ),

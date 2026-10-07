@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   CommandId,
+  EnvironmentId,
   EventId,
   ExternalMcpSettlementResultFork,
   MessageId,
@@ -39,10 +40,11 @@ import * as EffectOutbox from "../../orchestration-v2/EffectOutbox.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpServer from "./ExternalMcpServer.fork.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
@@ -91,9 +93,9 @@ const adapter = {
 } satisfies ProviderAdapterV2Shape;
 
 const setup = Effect.gen(function* () {
-  const database = SqlitePersistenceMemory;
-  const registry = ProviderAdapterRegistry.makeLayer([adapter]);
-  const orchestratorLayer = makeOrchestratorV2ReplayLayerWithRegistry(
+  const database = SqlitePersistence.layerMemory;
+  const registry = ProviderAdapterRegistry.layerFromAdapters([adapter]);
+  const orchestratorLayer = ProviderReplayHarness.layerWithRegistry(
     { name: "external-settlement" },
     registry,
     { databaseLayer: database, runEffectWorker: false },
@@ -143,6 +145,9 @@ const setup = Effect.gen(function* () {
             Layer.mock(ProviderRegistry.ProviderRegistry)({}),
             ServerSettings.layerTest(),
             database,
+            Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+              getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-settlement")),
+            }),
           ),
         ),
       ),
@@ -225,6 +230,7 @@ describe("external MCP settlement on the real orchestrator", () => {
           yield* Layer.build(
             Layer.fresh(ExternalMcpService.layer).pipe(
               Layer.provide(Layer.succeedContext(h.services)),
+              Layer.provide(NodeServices.layer),
             ),
           ),
           ExternalMcpService.ExternalMcpServiceFork,
