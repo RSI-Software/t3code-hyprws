@@ -1,10 +1,13 @@
 import { ClaudeSettings, type ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
 
 import { compileClaudeModelSelection } from "../../claudeModelOptions.ts";
 import { withClaudeAgentQueryIdentity } from "../../provider/ClaudeAgentOptions.fork.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
+import { runClaudeResumeReplayFork } from "../testkit/ResumedSubagentReplay.fork.ts";
+import { projectionFor } from "../testkit/fixtures/shared.ts";
 
 const SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 const SELECTION = {
@@ -25,6 +28,49 @@ const queryOptions = (modelSelection: ModelSelection, launchArgs = "", resume = 
     cwd: "/workspace",
     settings: { ...SETTINGS, launchArgs },
   });
+
+it.effect("claims the resumed subagent before its parent node, child root and prompt", () =>
+  Effect.gen(function* () {
+    const { result, transcript } = yield* runClaudeResumeReplayFork("failed");
+    const parent = projectionFor(result, transcript.scenario);
+    const task = parent.subagents[0]!;
+    const runId = parent.runs[1]!.id;
+    const events = result.domainEvents;
+    const node = events.findIndex(
+      (event) =>
+        event.type === "node.updated" &&
+        event.payload.id === task.id &&
+        event.payload.runId === runId &&
+        event.payload.status === "running",
+    );
+    const row = events.findIndex(
+      (event) =>
+        event.type === "subagent.updated" &&
+        event.payload.id === task.id &&
+        event.payload.runId === runId &&
+        event.payload.status === "running",
+    );
+    const childRoot = events.findIndex(
+      (event, index) =>
+        index > node &&
+        event.type === "node.updated" &&
+        event.threadId === task.childThreadId &&
+        event.payload.kind === "root_turn" &&
+        event.payload.status === "running",
+    );
+    const prompt = events.findIndex(
+      (event, index) =>
+        index > node &&
+        event.type === "message.updated" &&
+        event.threadId === task.childThreadId &&
+        event.payload.role === "user",
+    );
+    assert.isAtLeast(row, 0);
+    assert.isAbove(node, row);
+    assert.isAbove(childRoot, node);
+    assert.isAbove(prompt, childRoot);
+  }),
+);
 
 describe("Claude main-thread agent selection", () => {
   it("passes the selected agent to the SDK over a configured --agent", () => {
