@@ -1,6 +1,6 @@
 import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, expect, it, vi } from "@effect/vitest";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -69,7 +69,7 @@ function makeLayer(input: {
     ),
     Layer.provide(NodePath.layer),
     Layer.provide(
-      Layer.succeed(HostProcessEnvironment, {
+      Layer.succeed(HostProcess.Environment, {
         ...hookEnv,
         TMUX: "/tmp/tmux/default",
         TMUX_PANE: "%7",
