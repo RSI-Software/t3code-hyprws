@@ -31,8 +31,9 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
@@ -44,7 +45,7 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
-const database = SqlitePersistenceMemory;
+const database = SqlitePersistence.layerMemory;
 const stores = Layer.mergeAll(EventStore.layer, ProjectionStore.layer).pipe(
   Layer.provideMerge(database),
 );
@@ -353,6 +354,7 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
           wrappedSink,
           ingestion,
           IdAllocator.layer,
+          McpAppModelContext.layerEmpty,
           ServerSettings.layerTest(),
           Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({
             allocate: () => Effect.succeed(1),
