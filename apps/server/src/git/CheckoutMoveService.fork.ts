@@ -4,7 +4,6 @@
 // and commits once the thread is idle, including after a server restart.
 import {
   CommandId,
-  type EnvironmentAuthorizationError,
   type OrchestrationV2ThreadShell,
   type ThreadCheckoutMove,
   ThreadCheckoutMoveError,
@@ -26,7 +25,7 @@ import * as Stream from "effect/Stream";
 
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
-import { OrchestrationV2EventSinkLayerLive } from "../orchestration-v2/runtimeLayer.ts";
+import { layerEventSink } from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -437,22 +436,11 @@ export const checkoutMoveServiceLayerFork = Layer.effect(CheckoutMoveServiceFork
  * layer memoization shares that one instance.
  */
 export const checkoutMoveServiceLiveFork = checkoutMoveServiceLayerFork.pipe(
-  Layer.provide(OrchestrationV2EventSinkLayerLive),
+  Layer.provide(layerEventSink),
 );
 
-type ObserveRpcEffect = <A, E, R>(
-  method: string,
-  effect: Effect.Effect<A, E, R>,
-  traceAttributes?: Readonly<Record<string, unknown>>,
-) => Effect.Effect<A, E | EnvironmentAuthorizationError, R>;
-
 /** Spread into the WebSocket handler table through `zmux-estate/ws-checkout-move-handlers`. */
-export const checkoutMoveRpcHandlersFork = (
-  checkoutMoves: CheckoutMoveServiceFork["Service"],
-  observeRpcEffect: ObserveRpcEffect,
-) => ({
+export const checkoutMoveRpcHandlersFork = (checkoutMoves: CheckoutMoveServiceFork["Service"]) => ({
   "thread.checkoutMove.request": (input: ThreadCheckoutMoveRequestInput) =>
-    observeRpcEffect("thread.checkoutMove.request", checkoutMoves.request(input), {
-      "rpc.aggregate": "orchestration",
-    }),
+    checkoutMoves.request(input),
 });
