@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { afterEach, assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import {
   type EnvironmentId,
   type ModelSelection,
@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { resolveCodexTurnAgent } from "../../provider/CodexAgentOptions.fork.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 
@@ -116,10 +116,15 @@ it.layer(NodeServices.layer)("Codex main-thread agent selection", (it) => {
 const threadId = "thread-1" as ThreadId;
 
 describe("codexThreadRuntimeParams thread identity", () => {
-  afterEach(() => McpProviderSession.clearMcpProviderSession(threadId));
-
+  forkSupersedes({
+    upstream:
+      "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts > adds the session MCP server without replacing launch-argument servers",
+    reason:
+      "the fork adds the app thread identity to Codex's shell environment policy beside the session MCP server",
+    commit: "a164240e12b",
+  });
   it("adds the shell identity beside the thread's other config overrides", () => {
-    McpProviderSession.setMcpProviderSession({
+    const mcpSession = {
       environmentId: "environment-1" as EnvironmentId,
       threadId,
       providerSessionId: "session-1",
@@ -127,8 +132,9 @@ describe("codexThreadRuntimeParams thread identity", () => {
       endpoint: "http://127.0.0.1:1/mcp",
       authorizationHeader: "Bearer token",
       browserToolsAvailable: false,
-    });
+    };
     const { config } = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession,
       threadId,
       sessionIdentity: { projectId: "project-1" },
     });
@@ -147,7 +153,11 @@ describe("codexThreadRuntimeParams thread identity", () => {
 
   it("sends no policy for a request without an app thread", () => {
     expect(
-      CodexAdapterV2.codexThreadRuntimeParams({ threadId: null, sessionIdentity: {} }).config,
+      CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: undefined,
+        threadId: null,
+        sessionIdentity: {},
+      }).config,
     ).toEqual(CodexAdapterV2.CODEX_THREAD_CONFIG);
   });
 });
