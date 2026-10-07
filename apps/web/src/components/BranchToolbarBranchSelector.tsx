@@ -17,6 +17,7 @@ import {
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
+  type CommandId, // fork-hook: zmux-estate/checkout-move-lock
   type ContextMenuItem,
   type EnvironmentId,
   type VcsRef,
@@ -257,6 +258,7 @@ export function BranchToolbarBranchSelector({
     if (
       !activeThreadId ||
       !activeProject ||
+      checkoutMoveControlsLocked || // fork-hook: zmux-estate/checkout-move-lock
       (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
     )
       return;
@@ -485,7 +487,14 @@ export function BranchToolbarBranchSelector({
   };
 
   const selectBranch = (refName: VcsRef) => {
-    if (!canUpdateThreadBranch || !branchCwd || !activeProjectCwd || isBranchActionPending) return;
+    if (
+      !canUpdateThreadBranch ||
+      !branchCwd ||
+      !activeProjectCwd ||
+      isBranchActionPending ||
+      checkoutMoveControlsLocked
+    )
+      return; // fork-hook: zmux-estate/checkout-move-lock
 
     if (isSelectingWorktreeBase) {
       setThreadBranch(refName.name, null);

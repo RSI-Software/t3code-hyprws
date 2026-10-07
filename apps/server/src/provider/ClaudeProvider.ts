@@ -18,6 +18,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   query as claudeQuery,
+  type AgentInfo as ClaudeAgentInfo, // fork-hook: custom-agents/claude-agent-info-type
   type Options as ClaudeQueryOptions,
   type SlashCommand as ClaudeSlashCommand,
   type SDKControlGetUsageResponse,
@@ -52,6 +53,10 @@ import {
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
 } from "./ClaudeModelCatalog.ts";
+import {
+  claudeInitializationAgentsField, // fork-hook: custom-agents/claude-probe-agents-parse
+  withClaudeAgentOptions,
+} from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-options-import
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -242,6 +247,7 @@ export type ClaudeCapabilitiesProbe = {
   readonly apiKeySource: string | undefined;
   /** OAuth applies only to firstParty; Bedrock uses external AWS credentials and omits subscription/token fields. */
   readonly apiProvider: string | undefined;
+  readonly agents?: ReadonlyArray<ClaudeAgentInfo>; // fork-hook: custom-agents/claude-probe-agents-field
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   /** Undefined means get_usage failed; absent windows on success mean no subscription windows, as with API keys. */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
@@ -387,6 +393,7 @@ const probeClaudeCapabilities = (
           tokenSource: account?.tokenSource,
           apiKeySource: account?.apiKeySource,
           apiProvider: account?.apiProvider,
+          ...claudeInitializationAgentsField(init.agents), // fork-hook: custom-agents/claude-probe-agents-parse
           slashCommands: parseClaudeInitializationCommands(init.commands),
           ...(usage ? { usage, usageCheckedAt } : {}),
         } satisfies ClaudeCapabilitiesProbe;
@@ -559,11 +566,11 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = providerModelsFromSettings(
+  const baseModels = providerModelsFromSettings(
     resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
     claudeSettings.customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
-  );
+  ); // fork-hook: custom-agents/claude-base-models
   const updateRequiredModels = resolveClaudeUpdateRequiredModels(modelCatalog, parsedVersion);
   const versionUpgradeMessage = formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
 
@@ -574,6 +581,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     probeResult && Result.isSuccess(probeResult) ? probeResult.success : undefined;
   const probeFailure =
     probeResult && Result.isFailure(probeResult) ? probeResult.failure : undefined;
+  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []); // fork-hook: custom-agents/claude-model-agent-options
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
