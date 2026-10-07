@@ -56,10 +56,18 @@ export const guardSubagentOwnershipFork = Effect.fn("EventSink.guardSubagentOwne
         accepted.push(event);
         continue;
       }
+      // A null-owned nested row belongs to whoever owns the child thread that
+      // contains it, so walk up to the first owned ancestor below the guard.
       const owners = yield* sql<{ readonly run_id: string }>`
-        SELECT run_id FROM orchestration_v2_projection_subagents
-        WHERE (subagent_id = ${subagentId} OR child_thread_id = ${childThreadId})
-          AND run_id IS NOT NULL
+        WITH RECURSIVE chain(thread_id, run_id) AS (
+          SELECT thread_id, run_id FROM orchestration_v2_projection_subagents
+          WHERE subagent_id = ${subagentId} OR child_thread_id = ${childThreadId}
+          UNION
+          SELECT s.thread_id, s.run_id FROM orchestration_v2_projection_subagents s
+          JOIN chain c ON s.child_thread_id = c.thread_id
+          WHERE c.run_id IS NULL AND c.thread_id <> ${guard.threadId}
+        )
+        SELECT run_id FROM chain WHERE run_id IS NOT NULL
       `;
       const expectedOwner = event.runId ?? guard.runId;
       if (owners.every((owner) => owner.run_id === expectedOwner)) {

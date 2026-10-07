@@ -590,6 +590,49 @@ it.effect("a gated null-run nested snapshot checks its containing child's owner"
         ],
       });
       assert.lengthOf(unlinked, 1);
+      // The grandchild thread under the null-owned nested row inherits the
+      // transferred owner of the child containing that row.
+      yield* test.sink.write({
+        events: [
+          {
+            id: EventId.make("seed:grandchild"),
+            type: "thread.created",
+            threadId: nestedChild,
+            occurredAt: now,
+            payload: thread(nestedChild),
+          },
+        ],
+      });
+      const grandchildWrite = (owner: OrchestrationV2Run) =>
+        test.sink.write({
+          guardSubagentOwnership: { threadId: parent, runId: owner.id },
+          events: [
+            {
+              id: EventId.make(`grandchild:node:${owner.id}`),
+              type: "node.updated",
+              threadId: nestedChild,
+              occurredAt: now,
+              payload: {
+                ...childNode("completed").node,
+                id: NodeId.make("node:owner-fence:grandchild-root"),
+                threadId: nestedChild,
+                rootNodeId: NodeId.make("node:owner-fence:grandchild-root"),
+              },
+            },
+            {
+              id: EventId.make(`grandchild:model:${owner.id}`),
+              type: "thread.model-selection-updated",
+              threadId: nestedChild,
+              occurredAt: now,
+              payload: {
+                ...thread(nestedChild),
+                modelSelection: { instanceId, model: `model:${owner.id}` },
+              },
+            },
+          ],
+        });
+      assert.lengthOf(yield* grandchildWrite(old), 0, "the old run cannot write the grandchild");
+      assert.lengthOf(yield* grandchildWrite(resumed), 2);
       yield* test.send(command("completed", true));
       yield* Deferred.await(test.closures.get(old.id)!);
       for (const event of [
