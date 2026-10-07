@@ -7404,6 +7404,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             dispatchMode = { type: "steer_active", targetRunId: activeRun.id };
           }
         }
+        if (command.expectedModes) dispatchMode = { type: "queue_after_active" }; // fork-hook: device-auth/respond-expected-modes
         // The resolution and normal message dispatch share one event transaction.
         return yield* dispatchMessage(
           {
@@ -7416,6 +7417,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             createdBy: "user",
             creationSource: "server",
             dispatchMode,
+            ...(command.expectedModes && { expectedModes: command.expectedModes }), // fork-hook: device-auth/respond-expected-modes
           },
           events,
           effects,
