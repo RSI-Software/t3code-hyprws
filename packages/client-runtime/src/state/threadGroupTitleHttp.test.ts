@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { PrimaryConnectionTarget, type PreparedConnection } from "../connection/model.ts";
-import { remoteHttpClientLayer } from "../rpc/http.ts";
+import { layerRemoteHttpClient } from "../rpc/http.ts";
 import { fetchEnvironmentThreadGroupTitle } from "./threadGroupTitleHttp.ts";
 
 const TARGET = new PrimaryConnectionTarget({
@@ -40,7 +40,7 @@ describe("fetchEnvironmentThreadGroupTitle", () => {
           memberTitles: ["Manual ordering", "Visual groups"],
           previousTitle: "Related work",
         },
-      }).pipe(Effect.provide(remoteHttpClientLayer(fetchFn)));
+      }).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
 
       expect(result).toEqual({ title: "Sidebar organization" });
       expect(calls).toHaveLength(1);
