@@ -15,10 +15,10 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, vi } from "vite-plus/test";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
-import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
 import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
@@ -141,14 +141,25 @@ describe("fork preview IPC ownership", () => {
         }
       };
       const managerLayer = previewManagerFixtureLayer(
-        BrowserSession.layer.pipe(Layer.provide(NodeServices.layer)),
+        BrowserSession.layer.pipe(
+          Layer.provide(
+            Layer.merge(
+              NodeServices.layer,
+              Layer.succeed(ElectronDialog.ElectronDialog, {
+                pickFolder: () => Effect.die("unused"),
+                pickFiles: () => Effect.die("unused"),
+                showMessageBox: () => Effect.die("unused"),
+                showErrorBox: () => Effect.void,
+              }),
+            ),
+          ),
+        ),
       );
       return Effect.gen(function* () {
         for (const method of [
           PreviewIpc.createTab,
           PreviewIpc.closeTab,
           PreviewIpc.navigate,
-          PreviewIpc.automationStatus,
           PreviewIpc.clearCookies,
           PreviewIpc.clearCache,
           PreviewIpc.getPreviewConfig,
@@ -211,17 +222,14 @@ describe("fork preview IPC ownership", () => {
           activeSender = projectSender;
           await projectPreview.createTab("shared");
           await projectPreview.navigate("shared", "https://project.example/");
-          expect(await projectPreview.automation.status("shared")).toMatchObject({
-            url: "https://project.example/",
-          });
           await expect(projectPreview.closeTab("hub-only")).rejects.toThrow(
             "owned by another window",
           );
           await projectPreview.closeTab("shared");
           activeSender = hubSender;
-          expect(await hubPreview.automation.status("shared")).toMatchObject({
-            url: "https://hub.example/",
-          });
+          // Each window namespaces its own "shared" tab: closing the project's
+          // left the hub's alive, so the hub can still close its own.
+          await hubPreview.closeTab("shared");
 
           activeSender = { id: 3 } as Electron.WebContents;
           await expect(
@@ -231,10 +239,10 @@ describe("fork preview IPC ownership", () => {
             projectPreview.getPreviewConfig(projectRef.environmentId, "unregistered"),
           ).rejects.toThrow("not an authorized desktop window");
           expect(stored.size).toBe(4);
-          // The app manager and both window managers each route agent downloads on
-          // every profile session, including sessions opened before a window's manager.
+          // The app-level manager routes server-tab downloads once per profile
+          // session, the way upstream installs the download handler.
           for (const { on } of stored.values()) {
-            expect(on.mock.calls.filter(([event]) => event === "will-download")).toHaveLength(3);
+            expect(on.mock.calls.filter(([event]) => event === "will-download")).toHaveLength(1);
           }
           expect(stored.get(personal.partition)?.cookies.size).toBe(1);
         });
@@ -278,6 +286,7 @@ describe("fork preview IPC ownership", () => {
         subscribeOwnedRecordingFrames: () => Effect.void,
         subscribeOwnedRecordingInputs: () => Effect.void,
         subscribeOwnedPointerEvents: () => Effect.void,
+        subscribeOwnedOpenLinks: () => Effect.void,
       } as never),
     );
   });
@@ -392,57 +401,4 @@ describe("fork preview IPC ownership", () => {
       },
     ),
   );
-
-  // Fork automation status reads the sender window's own preview manager (commit `70240ecf8e5`).
-  forkSupersedes({
-    upstream:
-      "apps/desktop/src/ipc/methods/preview.test.ts > returns automation status for long runtime tab ids",
-    reason:
-      "fork automation status resolves the sender window's preview manager, so it needs a sender and the ElectronWindow service the upstream case never provides",
-    commit: "70240ecf8e5",
-  });
-  effectIt.effect("returns automation status for long tab ids from the sender's window", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const sender = { id: 7 } as Electron.WebContents;
-    const senderWindow = {} as Electron.BrowserWindow;
-    fromId.mockReturnValue(sender);
-    fromWebContents.mockReturnValue(senderWindow);
-
-    return Effect.gen(function* () {
-      const tabId =
-        `["environment-1","thread:delegated-task:${"a".repeat(120)}",` +
-        `"server-epoch-1","preview-1"]`;
-      const status = {
-        available: false,
-        visible: true,
-        tabId,
-        url: null,
-        title: null,
-        loading: false,
-      };
-
-      const owners: unknown[] = [];
-      const recordOwner = (owner: unknown) => Effect.sync(() => owners.push(owner));
-      const automation = Effect.succeed({
-        automationStatus: () => Effect.succeed(status),
-      } as never);
-
-      expect(tabId.length).toBeGreaterThan(128);
-      expect(
-        yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
-          Effect.provideService(ElectronWindow.ElectronWindow, {
-            windowIdFor: () => Effect.succeed(Option.some(hubWindowId)),
-          } as never),
-          Effect.provideService(PreviewManager.PreviewManager, {
-            forWindow: (owner: unknown) => Effect.andThen(recordOwner(owner), automation),
-          } as never),
-        ),
-      ).toEqual(status);
-      expect(owners).toEqual([hubWindowId]);
-      expect(owners).not.toContainEqual(identity);
-    });
-  });
 });
