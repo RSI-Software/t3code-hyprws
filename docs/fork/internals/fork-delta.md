@@ -143,6 +143,7 @@ const trackInstaller = (install: (session: Session) => void) =>
 | [thread-fork](#thread-fork)             | Active | core              | Upstream ships a thread-menu fork entry   |
 | [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach externally      |
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
+| [delegated-rounds](#delegated-rounds)   | Active | core              | Upstream ships delegated follow-ups       |
 
 A domain is a reason the fork exists, not a feature area.
 
@@ -790,6 +791,46 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/web/src/hooks/useHandleNewThread.ts`, `apps/web/src/components/BranchToolbar.logic.ts`, `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`, `apps/web/src/components/BranchToolbarBranchSelector.tsx`, `apps/web/src/components/BranchToolbar.tsx`, `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatView.logic.ts`, `apps/web/src/composerDraftStore.ts`, `apps/web/src/lib/chatThreadActions.ts`, `apps/web/src/components/settings/SettingsPanels.tsx`, `apps/web/src/components/settings/settingsSearch.ts`, `apps/web/src/components/settings/settingsSearch.test.ts`, `apps/web/src/components/settings/ProjectSettingsPanel.tsx`, `apps/web/src/components/GitActionsControl.tsx`, `apps/web/src/components/settings/SettingInheritance.tsx`, `apps/web/src/components/settings/scopedSettings.ts`, `apps/web/src/components/settings/scopedSettings.test.ts` | Shared web surfaces                                |
 | `apps/mobile/src/features/threads/new-task-flow-provider.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Shared mobile surfaces                             |
 | `packages/shared/src/threadEnvMode.ts`, `packages/shared/src/serverSettings.ts`, `packages/shared/src/projectSettings.ts`, `packages/shared/src/projectSettings.test.ts`, `packages/shared/package.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Shared packages                                    |
+
+## delegated-rounds
+
+### Need
+
+- **Need:** one delegated child across rounds
+- **Rounds:** brief, findings, reply, ruling
+- **Context:** the child keeps its own
+- **Tracking:** RSI-Software/t3code-hyprws#1652
+
+### Shape
+
+| Piece    | Behavior                                                     |
+| -------- | ------------------------------------------------------------ |
+| Continue | `delegate_task` with `continueTaskId`                        |
+| Wire     | optional `continueTaskId` on `delegated_task.request`        |
+| Reopen   | same `taskId`, current parent run, delivery reset to pending |
+| Result   | one `subagent_result` per child run while the task runs      |
+| Wake     | each round opens on the current parent run's cohort          |
+| Status   | `task_status` reads the current round's transfer             |
+| Cancel   | upstream `task_cancel` interrupts the active round           |
+| Release  | archive the child thread; unarchive retains it again         |
+| Refusals | busy task or child, released child, foreign task             |
+| Policy   | one instruction bullet; tool descriptions stay upstream      |
+
+Later rounds leave the original timeline node and turn item as round 1 left them.
+A round whose child run ends before it starts still counts as that round's result.
+
+### Retirement condition
+
+Upstream delivers a follow-up to a finished delegated child as its own result: status, parent wake, and cancel (`pingdotgg/t3code#15004`, `pingdotgg/t3code#13490`).
+Retention and release stay fork scope until upstream keeps one task across rounds.
+
+### Rebase scan
+
+| Path                                                                                                                                                           | Why it matters                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apps/server/src/orchestration-v2/delegatedRounds.fork.ts`, `apps/server/src/provider/T3OrchestrationInstructions.fork.ts`                                     | Fork-only; a conflict means upstream took the path |
+| `apps/server/src/orchestration-v2/Orchestrator.ts`, `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/provider/T3OrchestrationInstructions.ts` | Shared server and orchestration seams              |
+| `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/orchestratorMcp.ts`                                                                       | Shared contracts and wire schemas                  |
 
 ## Adding a domain
 
