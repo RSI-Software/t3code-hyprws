@@ -5,7 +5,7 @@ import type {
   AuthCreatePairingCredentialInput,
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
-  AuthEnvironmentScope,
+  AuthGrantScope, // fork-hook: upstream-fixes/split-session-permissions
   AuthSessionId,
 } from "@t3tools/contracts";
 import { WS_METHODS } from "@t3tools/contracts";
@@ -162,7 +162,7 @@ export function createAuthEnvironmentAtoms<R, E>(
       label: "environment-command:server:create-pairing-credential",
       execute: (input: {
         readonly label?: string;
-        readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+        readonly scopes?: ReadonlyArray<AuthGrantScope>; // fork-hook: upstream-fixes/split-session-permissions
       }) => createEnvironmentPairingCredential(input),
     }),
     revokePairingLink: createEnvironmentCommand(runtime, {
