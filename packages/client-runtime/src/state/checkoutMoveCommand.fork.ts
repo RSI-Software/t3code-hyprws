@@ -3,7 +3,7 @@
 // keeps its shape.
 import type { EnvironmentId, ThreadCheckoutMoveRequestInput } from "@t3tools/contracts";
 import type * as Crypto from "effect/Crypto";
-import type { Atom } from "effect/unstable/reactivity";
+import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { requestThreadCheckoutMove } from "../operations/checkoutMove.fork.ts";

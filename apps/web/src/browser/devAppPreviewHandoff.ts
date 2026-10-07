@@ -8,7 +8,7 @@ import {
 import type { EnvironmentId, TerminalAttachInput } from "@t3tools/contracts";
 import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { terminalEnvironment } from "~/state/terminal";
