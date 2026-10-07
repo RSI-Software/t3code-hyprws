@@ -478,18 +478,18 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     () =>
       terminalDeviceId === null
         ? []
-        : knownSessions.filter(
+        : (knownSessions ?? []).filter(
             (session) =>
               session.target.attachmentId ===
               boundedTerminalAttachmentId(terminalDeviceId, session.target.terminalId),
-          ),
+          ), // fork-hook: zmux-estate/local-known-sessions
     [knownSessions, terminalDeviceId],
   );
   const runningSession = useMemo(
     () =>
-      pickRunningTerminalSessionForBootstrap(knownSessions ?? []) ??
+      pickRunningTerminalSessionForBootstrap(localKnownSessions) ?? // fork-hook: zmux-estate/local-known-sessions
       (canOperateTerminal ? null : (knownSessions?.[0] ?? null)),
-    [canOperateTerminal, knownSessions],
+    [canOperateTerminal, knownSessions, localKnownSessions], // fork-hook: zmux-estate/local-known-sessions
   );
   const activeKnownSession = useMemo(
     () => localKnownSessions.find((session) => session.target.terminalId === terminalId) ?? null,

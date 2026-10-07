@@ -1009,21 +1009,17 @@ export function TerminalViewport({
             fallbackToBrowser();
             return;
           }
-          void openTerminalLinkInPreview({
-            url: text,
-            threadRef,
-            openPreview,
-            fallbackToBrowser,
-            forceBrowser: event.metaKey || event.ctrlKey,
-          }).catch((error: unknown) => {
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Unable to open link",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-          });
+          void openTerminalPreview(text, fallbackToBrowser, event.metaKey || event.ctrlKey).catch(
+            (error: unknown) => {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Unable to open link",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            },
+          ); // fork-hook: zmux-estate/terminal-link-preview
           return;
         }
         const target = resolveTerminalPath(text);
@@ -1161,7 +1157,23 @@ export function TerminalViewport({
       return;
     }
 
-    outputCursorRef.current = synchronizeTerminalOutput(terminal, current, outputCursorRef.current);
+    if (current.version > 0) {
+      const outputUpdate = readTerminalOutputUpdate(
+        current.output,
+        terminalOutputCursorForLifecycle(
+          outputCursorRef.current,
+          previous.lifecycleVersion,
+          current.lifecycleVersion,
+        ),
+      );
+      if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
+        terminal.resetSession(outputUpdate.data);
+      } else {
+        writeTerminalOutputUpdate(terminal, outputUpdate);
+      }
+      outputCursorRef.current = outputUpdate.cursor;
+      terminal.clearSelection();
+    } // fork-hook: zmux-estate/terminal-lifecycle-output
 
     if (current.error !== null && current.error !== previous.error) {
       writeSystemMessage(terminal, current.error);

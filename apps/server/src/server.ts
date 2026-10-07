@@ -597,7 +597,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
-  Layer.provideMerge(Layer.merge(ServerSettingsLayerLive, ZmuxSessionBinderLayerLive)),
+  Layer.provideMerge(Layer.merge(layerServerSettings, ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/session-binder-layer
   // The asset route uses the registry's GitHub credential for private PR media.
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(GitHubCli.layer),

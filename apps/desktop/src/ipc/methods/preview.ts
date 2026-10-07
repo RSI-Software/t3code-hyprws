@@ -88,7 +88,7 @@ export const createTab = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewCreateTabInputSchema,
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.createTab")(function* (
-    { tabId, zoomFactor, colorScheme },
+    { tabId, zoomFactor, colorScheme, serverTab }, // fork-hook: multi-window/preview-server-tab
     event,
   ) {
     const { windowManager: manager } = yield* previewForSender(event);
