@@ -177,3 +177,7 @@ describe("pull request worktree permissions", () => {
     expect(state.setupScripts).toBe(0);
   });
 });
+vi.mock("./ui/toast", () => ({
+  // The fork's zmux session notice reaches the toast manager, which loads the draft store.
+  toastManager: { add: vi.fn() },
+})); // fork-hook: zmux-estate/pr-thread-zmux-notice-test

@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
 import { compileClaudeModelSelection } from "../../claudeModelOptions.ts";
-import { withClaudeAgentQueryIdentity } from "../../provider/ClaudeAgentOptions.fork.ts";
+import { applyClaudeAgentQueryIdentity } from "../../provider/ClaudeAgentOptions.fork.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import { runClaudeResumeReplayFork } from "../testkit/ResumedSubagentReplay.fork.ts";
 import { projectionFor } from "../testkit/fixtures/shared.ts";
@@ -96,12 +96,17 @@ describe("Claude main-thread agent selection", () => {
     assert.equal(queryOptions(SELECTION, "--agent configured").extraArgs?.agent, "configured");
     assert.notProperty(queryOptions(SELECTION).extraArgs ?? {}, "agent");
     const compiled = compileClaudeModelSelection(SELECTION);
-    assert.strictEqual(withClaudeAgentQueryIdentity(compiled, SELECTION), compiled);
+    const original = { ...compiled };
+    applyClaudeAgentQueryIdentity(compiled, SELECTION);
+    assert.deepStrictEqual(compiled, original);
   });
 
   it("reopens the query when the agent changes", () => {
-    const identity = (selection: ModelSelection) =>
-      withClaudeAgentQueryIdentity(compileClaudeModelSelection(selection), selection).queryIdentity;
+    const identity = (selection: ModelSelection) => {
+      const compiled = compileClaudeModelSelection(selection);
+      applyClaudeAgentQueryIdentity(compiled, selection);
+      return compiled.queryIdentity;
+    };
     const identities = new Set([
       identity(SELECTION),
       identity(withAgent("default")),
