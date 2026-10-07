@@ -633,7 +633,10 @@ export const make = Effect.gen(function* () {
         return { completionShell: null, commandLine: null };
       }
       const completionShell = resolveCompletionShell(shell);
-      let commandLine = script.command;
+      let commandLine =
+        trigger === "settle"
+          ? script.command
+          : `${script.command} && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'`; // fork-hook: upstream-fixes/setup-script-marker
       if (observe && completionToken) {
         if (completionShell === null) {
           yield* terminalManager.closeIdle({ threadId: input.threadId, terminalId });
