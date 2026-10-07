@@ -4,11 +4,11 @@
 // it commits to before acting, and once the mutation succeeds to its result, so
 // a retry replays that result without touching the thread again, and a reused
 // key with a different request fails.
-import * as NodeCrypto from "node:crypto";
-
 import { type AuthSessionId, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
+import * as Hex from "effect/encoding/Hex";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -22,10 +22,20 @@ export interface ExternalMcpPin {
 }
 
 /** A stable digest of the fields that define a request, in a fixed order. */
-export const requestFingerprint = (fields: ReadonlyArray<readonly [string, unknown]>) =>
-  NodeCrypto.createHash("sha256")
-    .update(JSON.stringify(fields.filter(([, value]) => value !== undefined)))
-    .digest("hex");
+export const requestFingerprint = (
+  crypto: Crypto.Crypto,
+  fields: ReadonlyArray<readonly [string, unknown]>,
+) =>
+  crypto
+    .digest(
+      "SHA-256",
+      new TextEncoder().encode(JSON.stringify(fields.filter(([, value]) => value !== undefined))),
+    )
+    .pipe(
+      Effect.map(Hex.encode),
+      // Losing the platform digest implementation cannot be a handled failure.
+      Effect.orDie,
+    );
 
 const storeFailure = (error: unknown) =>
   new OrchestratorMcpFailure({

@@ -72,6 +72,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: worktrunk-hooks/git-manager-test-layer
 import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
 import * as GitManager from "./GitManager.ts";
 
@@ -829,6 +830,12 @@ const layerGitManagerTest = GitVcsDriver.layer.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: worktrunk-hooks/git-manager-test-layer
+  Layer.provideMerge(
+    Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+      isWorktrunkWorktree: () => Effect.succeed(false),
+    }),
+  ), // fork-hook: worktrunk-hooks/git-manager-test-layer
 );
 
 it.layer(layerGitManagerTest)("GitManager", (it) => {

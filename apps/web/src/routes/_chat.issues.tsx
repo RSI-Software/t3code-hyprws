@@ -63,6 +63,8 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { Spinner } from "../components/ui/spinner";
 import { isElectron } from "../env";
 import { useIsMobile } from "../hooks/useMediaQuery";
+import { isTerminalFocused } from "../lib/terminalFocus";
+import { primaryServerKeybindingsAtom } from "../state/server";
 import { useProjects } from "../state/entities";
 import { useEnvironments } from "../state/environments";
 import { githubIssueEnvironment, useGitHubIssueList } from "../state/githubIssues";
@@ -82,6 +84,17 @@ const EMPTY_PREVIEW_SESSIONS = {};
 const EMPTY_PREVIEW_DESKTOP_STATE = {};
 const EMPTY_TERMINAL_LABELS = new Map<string, string>();
 const EMPTY_PENDING_SURFACES = new Set<string>();
+
+function getShortcutContext() {
+  return {
+    terminalFocus: isTerminalFocused(),
+    terminalOpen: false,
+    previewFocus: false,
+    previewOpen: false,
+    isWeb: !isElectron,
+    isDesktop: isElectron,
+  };
+}
 
 export const Route = createFileRoute("/_chat/issues")({
   validateSearch: validateGitHubIssueSearch,
@@ -141,6 +154,7 @@ export function GitHubIssuesPage({
   /** The panel's thread-side links, shown above its list. */
   readonly threadLinks?: ReactNode;
 }) {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { environments } = useEnvironments();
   const capableEnvironments = useMemo(
     () =>
@@ -574,6 +588,8 @@ export function GitHubIssuesPage({
           <RightPanelTabs
             mode="inline"
             open
+            keybindings={keybindings}
+            getShortcutContext={getShortcutContext}
             widthStorageKey="t3code:github-issue-panel-width"
             defaultWidth={typeof window === "undefined" ? 640 : Math.floor(window.innerWidth / 2)}
             surfaces={[selectedSurface]}

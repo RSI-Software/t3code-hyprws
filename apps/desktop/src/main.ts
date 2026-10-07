@@ -228,7 +228,7 @@ const layerDesktopLocalEnvironmentAuth = DesktopLocalEnvironmentAuth.layer.pipe(
 );
 
 const desktopAttachedPrimaryLayer = DesktopAttachedPrimary.layer.pipe(
-  Layer.provideMerge(desktopFoundationLayer),
+  Layer.provideMerge(layerDesktopFoundation),
   Layer.provideMerge(NodeHttpClient.layerUndici),
 ); // fork-hook: backend-attach/layer
 

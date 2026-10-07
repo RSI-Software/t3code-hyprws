@@ -656,6 +656,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
     terminalId,
+    attachmentId, // fork-hook: zmux-estate/terminal-grid-attachment
     canOperate: canOperateTerminal,
     terminal,
     size: lastGridSize,

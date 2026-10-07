@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import type * as Electron from "electron";
 
 import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
+import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
@@ -64,6 +65,12 @@ describe("getLocalEnvironmentBootstraps in client-only mode", () => {
         Layer.mergeAll(
           DesktopBackendPool.layerTest([readyInstance]),
           DesktopBackendMode.layerTest(),
+          Layer.succeed(DesktopBackendConfiguration.DesktopBackendConfiguration, {
+            resolvePrimary: Effect.die("unexpected resolvePrimary"),
+            resolvePrimaryLabel: Effect.succeed("Local"),
+            resolveWsl: () => Effect.die("unexpected resolveWsl"),
+            currentBootstrapToken: Effect.succeed("current-window-token"),
+          } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"]),
         ),
       ),
     ),
