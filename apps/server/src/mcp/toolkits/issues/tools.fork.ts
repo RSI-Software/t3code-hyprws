@@ -5,6 +5,7 @@
 import {
   GitHubIssueState,
   McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
   PositiveInt,
   ThreadIssueLinkSource,
   TrimmedNonEmptyString,
@@ -15,10 +16,12 @@ import * as Toolkit from "effect/ai/Toolkit";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
   Orchestrator.OrchestratorV2,
   ProjectService.ProjectService,
 ];
@@ -121,6 +124,7 @@ export class IssueListFailedError extends Schema.TaggedError<IssueListFailedErro
 }
 
 export const IssueToolError = Schema.Union([
+  OrchestratorMcpFailure,
   McpCapabilityUnavailableError,
   IssueUrlInvalidError,
   IssueTargetIncompleteError,
