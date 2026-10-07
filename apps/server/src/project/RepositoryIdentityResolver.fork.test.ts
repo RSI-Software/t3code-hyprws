@@ -34,6 +34,34 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
   forkSupersedes({
     upstream:
+      "apps/server/src/project/RepositoryIdentityResolver.test.ts > reports a fork's own remote as origin next to the upstream identity",
+    reason:
+      "the fork keeps origin as the primary remote, so a fork's origin is the identity and no separate origin is reported",
+    commit: "d089901e993",
+  });
+  it.effect("reports a fork's own remote as the identity next to an upstream remote", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-fork-test-",
+      });
+
+      yield* git(cwd, ["init"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/t3code-fork.git"]);
+      yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/t3code.git"]);
+
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve(cwd);
+
+      expect(identity?.locator.remoteName).toBe("origin");
+      expect(identity?.canonicalKey).toBe("github.com/julius/t3code-fork");
+      expect(identity?.displayName).toBe("julius/t3code-fork");
+      expect(identity?.origin).toBeUndefined();
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
+  forkSupersedes({
+    upstream:
       "apps/server/src/project/RepositoryIdentityResolver.test.ts > refreshes the primary upstream after %s before cache expiry",
     reason:
       "the fork keeps origin as the primary remote, so adding or retargeting upstream never moves the identity off origin",
