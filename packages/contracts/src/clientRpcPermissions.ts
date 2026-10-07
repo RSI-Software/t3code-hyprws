@@ -49,6 +49,10 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+
+  [WS_METHODS.githubIssuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-client-guard
+  [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
+  [WS_METHODS.pullRequestsUploadAttachment]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
