@@ -1928,7 +1928,11 @@ export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
     return yield* new TerminalProviderInstanceNotFoundError({ providerInstanceId });
   }
 
-  let resolved = yield* mergeProviderInstanceEnvironment(instance.environment, input.env ?? {});
+  let resolved = yield* mergeProviderInstanceEnvironment(
+    instance.environment,
+    instance.driver,
+    input.env ?? {},
+  ); // fork-hook: upstream-fixes/provider-instance-environment
   if (instance.driver === "codex") {
     const config = decodeCodexSettings(instance.config ?? {});
     if (Option.isSome(config)) {
@@ -3396,7 +3400,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const targetDir = worktreePath ?? input.cwd;
     const expectedMatch = worktreePath === null ? "workspace-main" : "worktree";
     const spawnEnv = stripInheritedTmuxEnv(
-      createTerminalSpawnEnv(baseEnv, normalizedRuntimeEnv(input.env), platform), // fork-hook: zmux-estate/retarget-spawn-env-platform
+      createTerminalSpawnEnv(
+        baseEnv,
+        normalizedRuntimeEnv(input.env),
+        platform,
+        yield* HostProcess.HomeDirectory,
+        session.threadId,
+      ), // fork-hook: zmux-estate/retarget-spawn-env-platform
     );
     const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
     if (!resolved.candidate || !resolved.target) {
