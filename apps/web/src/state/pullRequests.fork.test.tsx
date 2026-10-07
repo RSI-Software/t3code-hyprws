@@ -4,7 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
-import { Atom, AtomRegistry, AsyncResult } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { createMergedEnvironmentQueryFork } from "./pullRequests.fork";
