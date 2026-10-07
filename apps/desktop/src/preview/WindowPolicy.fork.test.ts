@@ -3,6 +3,7 @@ import {
   EnvironmentId,
   ProjectId,
   type DesktopBridge,
+  type DesktopPreviewOpenLinkEvent,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -88,7 +89,7 @@ const makeOperationsFactory = (
   const stateListeners: Array<(tabId: string, state: PreviewTabState) => Effect.Effect<void>> = [];
   let stateListenerRemovals = 0;
 
-  const create = (scope: Scope.Closeable) =>
+  const create = (scope: Scope.Scope) =>
     Effect.gen(function* () {
       const tabs = new Set<string>();
       const instance = tabSets.push(tabs) - 1;
@@ -123,6 +124,7 @@ const makeOperationsFactory = (
               }),
           ).pipe(Effect.asVoid),
         subscribePointerEvents: () => Effect.void,
+        subscribeOpenLinks: () => Effect.void,
         subscribeRecordingFrames: () => Effect.void,
         subscribeRecordingInputs: () => Effect.void,
       } as unknown as WindowPolicy.OwnedPreviewOperations;
@@ -150,6 +152,39 @@ const makeWindow = () => {
 };
 
 describe("desktop preview window policy", () => {
+  effectIt.effect("reuses the app instance while closing project instances independently", () =>
+    Effect.gen(function* () {
+      const factory = makeOperationsFactory();
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const app = yield* factory.create(yield* Scope.Scope);
+          const ownership = yield* WindowPolicy.makeWindowOwnershipFromOperations(
+            app,
+            () =>
+              Effect.gen(function* () {
+                return yield* factory.create(yield* Scope.Scope);
+              }),
+            ownershipError,
+          );
+          yield* ownership.app.createTab("app-tab");
+          const appWindow = makeWindow();
+          yield* ownership.setWindow(WindowPolicy.APP_PREVIEW_OWNER, appWindow.window);
+          expect(appWindow.window.once).not.toHaveBeenCalled();
+          expect(factory.tabSets).toHaveLength(1);
+
+          const project = yield* ownership.forWindow(firstWindowId);
+          yield* project.createTab("project-tab");
+          expect(factory.tabSets).toHaveLength(2);
+          yield* ownership.disposeWindow(firstWindowId);
+          expect(factory.tabSets[1]?.size).toBe(0);
+          expect(factory.tabSets[0]?.has("app-tab")).toBe(true);
+        }),
+      );
+      expect(factory.tabSets.every((tabs) => tabs.size === 0)).toBe(true);
+      expect(factory.stateListenerRemovals).toBe(2);
+    }),
+  );
+
   it("preserves the assembled upstream bridge in every desktop preload", () => {
     const preview = {} as NonNullable<DesktopBridge["preview"]>;
     const openExternal = vi.fn();
@@ -299,6 +334,10 @@ describe("desktop preview window policy", () => {
       state: PreviewTabState,
     ) => Effect.Effect<void> = () => Effect.void;
 
+    let openLinkListener: (
+      owner: WindowPolicy.PreviewOwner,
+      event: DesktopPreviewOpenLinkEvent,
+    ) => Effect.Effect<void> = () => Effect.void;
     return Effect.gen(function* () {
       yield* WindowPolicy.installEventForwarding(
         { getById } as never,
@@ -310,12 +349,17 @@ describe("desktop preview window policy", () => {
           subscribeOwnedRecordingFrames: () => Effect.void,
           subscribeOwnedRecordingInputs: () => Effect.void,
           subscribeOwnedPointerEvents: () => Effect.void,
+          subscribeOwnedOpenLinks: (listener: typeof openLinkListener) =>
+            Effect.sync(() => {
+              openLinkListener = listener;
+            }),
         } as never,
         {
           stateChange: "preview-state",
           recordingFrame: "preview-recording",
           recordingInput: "preview-recording-input",
           pointerEvent: "preview-pointer",
+          openLink: "preview-open-link",
         },
       );
 
@@ -328,6 +372,11 @@ describe("desktop preview window policy", () => {
       expect(firstSend).toHaveBeenCalledOnce();
       expect(firstSend).toHaveBeenCalledWith("preview-state", "tab-1", idleState("tab-1"));
       expect(secondSend).not.toHaveBeenCalled();
+      const event = { tabId: "tab-2", url: "https://example.com", background: true };
+      yield* openLinkListener(secondWindowId, event);
+      yield* openLinkListener(WindowPolicy.APP_PREVIEW_OWNER, event);
+      expect(firstSend).toHaveBeenCalledOnce();
+      expect(secondSend).toHaveBeenCalledExactlyOnceWith("preview-open-link", event);
     }).pipe(Effect.scoped);
   });
 

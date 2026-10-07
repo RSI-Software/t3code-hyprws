@@ -136,7 +136,7 @@ const makeTestPreviewWebContents = (
     getType: () => "webview",
     getURL: () => "https://example.com",
     getTitle: () => "Example",
-    isLoading: () => false,
+    isLoadingMainFrame: () => false,
     getZoomFactor: () => 1,
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
@@ -264,7 +264,7 @@ describe("fork preview manager zoom and window close", () => {
           getType: () => "webview",
           getURL: () => "https://example.com",
           getTitle: () => "Example",
-          isLoading: () => false,
+          isLoadingMainFrame: () => false,
           getZoomFactor: () => 1,
           setZoomFactor,
           setAudioMuted: vi.fn(),
@@ -307,15 +307,7 @@ describe("fork preview manager zoom and window close", () => {
     ),
   );
 
-  // Fork tabs belong to a window, so its close disposes them (commit `70240ecf8e5`).
-  forkSupersedes({
-    upstream:
-      "apps/desktop/src/preview/Manager.test.ts > releases frame capture when the main window closes",
-    reason:
-      "fork disposes the closing window's preview tabs, so a raced start finds no tab instead of PreviewMainWindowClosedError, and other windows' tabs stay live",
-    commit: "70240ecf8e5",
-  });
-  effectIt.effect("disposes preview tabs when their owning window closes", () =>
+  effectIt.effect("releases app recording without disposing other windows' tabs", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         let closeMainWindow: (() => void) | undefined;
@@ -334,9 +326,10 @@ describe("fork preview manager zoom and window close", () => {
           id === undefined ? null : (webContentsById.get(id) ?? null),
         );
 
-        const otherWindow = yield* manager.forWindow(
-          "00000000-0000-4000-8000-00000000000c" as WindowId,
-        );
+        const otherWindowId = "00000000-0000-4000-8000-00000000000c" as WindowId;
+        const otherWindow = yield* manager.forWindow(otherWindowId);
+        // The other window keeps its creation zoom across the app window's close.
+        yield* otherWindow.createTab("tab_other_window", { zoomFactor: 1.25 });
         yield* otherWindow.navigate("tab_other_window", "https://other.example");
         yield* manager.createTab("tab_window_close_recording");
         yield* manager.createTab("tab_window_close_race");
@@ -353,20 +346,28 @@ describe("fork preview manager zoom and window close", () => {
         expect(firstWindowThrottling.mock.calls).toEqual([[false]]);
 
         closeMainWindow?.();
+        const otherWindowState: PreviewManager.PreviewTabState[] = [];
+        yield* manager.subscribeOwnedStateChanges((owner, _tabId, state) =>
+          Effect.sync(() => {
+            if (owner === otherWindowId) otherWindowState.push(state);
+          }),
+        );
         const racedStart = yield* Effect.exit(manager.startRecording("tab_window_close_race"));
         expect(Exit.isFailure(racedStart)).toBe(true);
         if (Exit.isFailure(racedStart)) {
           expect(Option.getOrThrow(Cause.findErrorOption(racedStart.cause))).toMatchObject({
-            _tag: "PreviewTabNotFoundError",
-            tabId: "tab_window_close_race",
+            _tag: "PreviewMainWindowClosedError",
           });
         }
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
-        expect(yield* otherWindow.automationStatus("tab_other_window")).toMatchObject({
+        yield* otherWindow.navigate("tab_other_window", "https://other.example/after");
+        // The other window's tab outlived the main window's close: the post-close
+        // navigation still drives the tab created before it, creation zoom intact.
+        expect(otherWindowState.at(-1)).toMatchObject({
           tabId: "tab_other_window",
-          url: "https://other.example/",
-          loading: true,
+          navStatus: { kind: "Loading", url: "https://other.example/after" },
+          zoomFactor: 1.25,
         });
 
         const grants: Array<{ video?: unknown }> = [];
@@ -383,14 +384,6 @@ describe("fork preview manager zoom and window close", () => {
     ),
   );
 
-  // Fork registers a closed listener per owner (commit `70240ecf8e5`).
-  forkSupersedes({
-    upstream:
-      "apps/desktop/src/preview/Manager.test.ts > does not arm recording after the main window closes during warmup",
-    reason:
-      "fork registers more than one closed listener on the main window, and the upstream case keeps only the last one it was handed",
-    commit: "70240ecf8e5",
-  });
   effectIt.effect("does not arm recording when every close listener runs during warmup", () =>
     withManager((manager) =>
       Effect.gen(function* () {

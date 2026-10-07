@@ -1,5 +1,6 @@
 import type {
   DesktopPreviewPointerEvent,
+  DesktopPreviewOpenLinkEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
 } from "@t3tools/contracts";
@@ -13,6 +14,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 
 import type * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { IpcRequester } from "../electron/WindowTargets.fork.ts";
 import type * as DesktopIpc from "../ipc/DesktopIpc.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
 import type {
@@ -35,6 +37,11 @@ export type PreviewOwner = WindowId | typeof APP_PREVIEW_OWNER;
 
 type StateListener = (tabId: string, state: PreviewTabState) => Effect.Effect<void>;
 type PointerEventListener = (event: DesktopPreviewPointerEvent) => Effect.Effect<void>;
+type OpenLinkListener = (event: DesktopPreviewOpenLinkEvent) => Effect.Effect<void>;
+type OwnedOpenLinkListener = (
+  owner: PreviewOwner,
+  event: DesktopPreviewOpenLinkEvent,
+) => Effect.Effect<void>;
 type RecordingFrameListener = (frame: DesktopPreviewRecordingFrame) => Effect.Effect<void>;
 type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
 type OwnedStateListener = (
@@ -56,6 +63,9 @@ type OwnedRecordingInputListener = (
 ) => Effect.Effect<void>;
 
 export interface OwnedPreviewOperations extends PreviewWindowManager {
+  readonly subscribeOpenLinks: (
+    listener: OpenLinkListener,
+  ) => Effect.Effect<void, never, Scope.Scope>;
   readonly hasTab: (tabId: string) => Effect.Effect<boolean>;
   readonly setMainWindow: (window: BrowserWindow) => Effect.Effect<void, PreviewManagerError>;
   readonly subscribeStateChanges: (
@@ -91,7 +101,7 @@ const subscribe = <A>(ref: Ref.Ref<ReadonlySet<A>>, listener: A) =>
   ).pipe(Effect.asVoid);
 
 const deliverOwned = <A>(
-  kind: "state-change" | "recording-frame" | "recording-input" | "pointer-event",
+  kind: "state-change" | "recording-frame" | "recording-input" | "pointer-event" | "open-link",
   listeners: ReadonlySet<A>,
   deliver: (listener: A) => Effect.Effect<void>,
 ) =>
@@ -114,6 +124,7 @@ const deliverOwned = <A>(
 export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwnership")(function* (
   createOperations: (scope: Scope.Closeable) => Effect.Effect<OwnedPreviewOperations>,
   ownershipError: (tabId: string, requestingWindow: string) => PreviewManagerError,
+  appOperations?: OwnedPreviewOperations,
 ) {
   const parentScope = yield* Scope.Scope;
   const context = yield* Effect.context<never>();
@@ -121,6 +132,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   const entries = new Map<PreviewOwner, WindowOperationsEntry>();
   const entriesSemaphore = yield* Semaphore.make(1);
   const ownedStateListenersRef = yield* Ref.make<ReadonlySet<OwnedStateListener>>(new Set());
+  const ownedOpenLinkListenersRef = yield* Ref.make<ReadonlySet<OwnedOpenLinkListener>>(new Set());
   const ownedPointerListenersRef = yield* Ref.make<ReadonlySet<OwnedPointerEventListener>>(
     new Set(),
   );
@@ -135,9 +147,21 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     owner: PreviewOwner,
   ): Effect.fn.Return<WindowOperationsEntry> {
     const scope = yield* Scope.fork(parentScope, "sequential");
-    const operations = yield* createOperations(scope);
+    const operations =
+      owner === APP_PREVIEW_OWNER && appOperations !== undefined
+        ? appOperations
+        : yield* createOperations(scope);
     yield* Effect.all(
       [
+        operations
+          .subscribeOpenLinks((event) =>
+            Ref.get(ownedOpenLinkListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("open-link", listeners, (listener) => listener(owner, event)),
+              ),
+            ),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
         operations
           .subscribeStateChanges((tabId, state) =>
             Ref.get(ownedStateListenersRef).pipe(
@@ -213,6 +237,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     const authorized = <A>(tabId: string, operation: Effect.Effect<A, PreviewManagerError>) =>
       authorizeTab(entry, tabId).pipe(Effect.andThen(operation));
     return {
+      setForwardedShortcuts: operations.setForwardedShortcuts,
       createTab: operations.createTab,
       closeTab: (tabId) => authorized(tabId, operations.closeTab(tabId)),
       registerWebview: (tabId, webContentsId) =>
@@ -226,13 +251,18 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       zoomOut: (tabId) => authorized(tabId, operations.zoomOut(tabId)),
       resetZoom: (tabId) => authorized(tabId, operations.resetZoom(tabId)),
       preserveGuestZooms: operations.preserveGuestZooms,
+      reapplyZoom: operations.reapplyZoom,
       hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
       setColorScheme: (tabId, colorScheme) =>
         authorized(tabId, operations.setColorScheme(tabId, colorScheme)),
+      setZoomFactor: (tabId, zoomFactor) =>
+        authorized(tabId, operations.setZoomFactor(tabId, zoomFactor)),
       setAudioMuted: (tabId, audioMuted) =>
         authorized(tabId, operations.setAudioMuted(tabId, audioMuted)),
       openDevTools: (tabId) => authorized(tabId, operations.openDevTools(tabId)),
       setAnnotationTheme: operations.setAnnotationTheme,
+      setAnnotationSendEnabled: (tabId, enabled) =>
+        authorized(tabId, operations.setAnnotationSendEnabled(tabId, enabled)),
       pickElement: (tabId) => authorized(tabId, operations.pickElement(tabId)),
       cancelPickElement: (tabId) => authorized(tabId, operations.cancelPickElement(tabId)),
       captureScreenshot: (tabId) => authorized(tabId, operations.captureScreenshot(tabId)),
@@ -245,19 +275,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       stopRecording: (tabId) => authorized(tabId, operations.stopRecording(tabId)),
       saveRecording: (tabId, mimeType, data) =>
         authorized(tabId, operations.saveRecording(tabId, mimeType, data)),
-      automationStatus: (tabId) => authorized(tabId, operations.automationStatus(tabId)),
-      automationSnapshot: (tabId) => authorized(tabId, operations.automationSnapshot(tabId)),
-      automationClick: (tabId, input) =>
-        authorized(tabId, operations.automationClick(tabId, input)),
-      automationType: (tabId, input) => authorized(tabId, operations.automationType(tabId, input)),
-      automationPress: (tabId, input) =>
-        authorized(tabId, operations.automationPress(tabId, input)),
-      automationScroll: (tabId, input) =>
-        authorized(tabId, operations.automationScroll(tabId, input)),
-      automationEvaluate: (tabId, input) =>
-        authorized(tabId, operations.automationEvaluate(tabId, input)),
-      automationWaitFor: (tabId, input) =>
-        authorized(tabId, operations.automationWaitFor(tabId, input)),
     };
   };
 
@@ -297,6 +314,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       ),
     );
     yield* entry.operations.setMainWindow(window);
+    if (owner === APP_PREVIEW_OWNER && appOperations !== undefined) return;
     window.once("closed", () => {
       runFork(disposeEntry(owner, { entry, window }));
     });
@@ -340,6 +358,12 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     prepareWebview,
     subscribeOwnedStateChanges: (listener: OwnedStateListener) =>
       subscribe(ownedStateListenersRef, listener),
+    subscribeOwnedOpenLinks: (listener: OwnedOpenLinkListener) =>
+      subscribe(ownedOpenLinkListenersRef, listener),
+    subscribeOpenLinks: (listener: OpenLinkListener) =>
+      subscribe(ownedOpenLinkListenersRef, (owner, event) =>
+        owner === APP_PREVIEW_OWNER ? listener(event) : Effect.void,
+      ),
     subscribeOwnedPointerEvents: (listener: OwnedPointerEventListener) =>
       subscribe(ownedPointerListenersRef, listener),
     subscribeOwnedRecordingFrames: (listener: OwnedRecordingFrameListener) =>
@@ -365,19 +389,65 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   };
 });
 
+/** Reuses upstream's app instance and captures the services for later window instances. */
+export const makeWindowOwnershipFromOperations = Effect.fn(function* <R>(
+  operations: OwnedPreviewOperations,
+  createOperations: () => Effect.Effect<OwnedPreviewOperations, never, R>,
+  ownershipError: (tabId: string, requestingWindow: string) => PreviewManagerError,
+) {
+  const context = yield* Effect.context<R>();
+  return yield* makeWindowOwnership(
+    (scope) =>
+      createOperations().pipe(Effect.provideService(Scope.Scope, scope), Effect.provide(context)),
+    ownershipError,
+    operations,
+  );
+});
+
+/** Adds window methods and optional overrides to upstream's shared browser methods. */
+export const windowManagerExtension = (
+  ownership: Effect.Success<ReturnType<typeof makeWindowOwnership>>,
+): Pick<
+  PreviewManager["Service"],
+  | "setWindow"
+  | "disposeWindow"
+  | "forWindow"
+  | "preserveGuestZooms"
+  | "subscribeOwnedStateChanges"
+  | "subscribeOwnedPointerEvents"
+  | "subscribeOwnedOpenLinks"
+  | "subscribeOwnedRecordingFrames"
+  | "subscribeOwnedRecordingInputs"
+> &
+  Partial<Pick<PreviewManager["Service"], "prepareWebview">> => ({
+  setWindow: ownership.setWindow,
+  disposeWindow: ownership.disposeWindow,
+  forWindow: ownership.forWindow,
+  prepareWebview: ownership.prepareWebview,
+  preserveGuestZooms: ownership.app.preserveGuestZooms,
+  subscribeOwnedStateChanges: ownership.subscribeOwnedStateChanges,
+  subscribeOwnedPointerEvents: ownership.subscribeOwnedPointerEvents,
+  subscribeOwnedOpenLinks: ownership.subscribeOwnedOpenLinks,
+  subscribeOwnedRecordingFrames: ownership.subscribeOwnedRecordingFrames,
+  subscribeOwnedRecordingInputs: ownership.subscribeOwnedRecordingInputs,
+});
+
 export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSender")(function* <E>(
   event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
   electronWindow: ElectronWindow.ElectronWindow["Service"],
   previewManager: PreviewManager["Service"],
   authorizationError: (reason: "missing-sender" | "unregistered-window") => Effect.Effect<never, E>,
 ) {
-  if (!event?.sender) {
+  // Upstream calls some handlers without their invoke event; those still run
+  // inside the request `DesktopIpc` scopes to its sender.
+  const senderId = event?.sender?.id ?? Option.getOrUndefined(yield* IpcRequester);
+  if (senderId === undefined) {
     return yield* authorizationError("missing-sender");
   }
   // Upstream narrowed the invoke event to the sender's id, so the window this
   // request belongs to is resolved the way upstream resolves any id: through
   // the webContents registry, then back to its owning window.
-  const senderWebContents = webContents.fromId(event.sender.id);
+  const senderWebContents = webContents.fromId(senderId);
   const senderWindow = senderWebContents ? BrowserWindow.fromWebContents(senderWebContents) : null;
   const windowId =
     senderWindow === null ? Option.none() : yield* electronWindow.windowIdFor(senderWindow);
@@ -397,6 +467,7 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
       readonly recordingFrame: string;
       readonly recordingInput: string;
       readonly pointerEvent: string;
+      readonly openLink: string;
     },
   ) {
     // The app instance has no window of its own, so its events reach no renderer.
@@ -421,5 +492,6 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
     yield* manager.subscribeOwnedPointerEvents((owner, event) =>
       send(owner, channels.pointerEvent, event),
     );
+    yield* manager.subscribeOwnedOpenLinks((owner, event) => send(owner, channels.openLink, event));
   },
 );

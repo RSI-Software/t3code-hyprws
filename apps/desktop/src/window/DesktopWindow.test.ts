@@ -455,7 +455,7 @@ function layerTest(input: {
           prepareWebview: () => Effect.void,
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
-          // @ts-expect-error fork-hook: upstream-fixes/reapply-zoom-retired
+          // fork-hook: multi-window/reapply-zoom-compatibility
           reapplyZoom: () =>
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
