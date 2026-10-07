@@ -40,7 +40,7 @@ export function withOrchestrationProtocolHeader(
  * Cookie-authenticated environments need credentialed mode for cross-origin fetches; bearer/DPoP uses headers.
  * `FetchHttpClient` reads `RequestInit` from the fiber context per request.
  */
-export const withEnvironmentCredentials = <A, E, R>(
+const withEnvironmentCredentials = <A, E, R>(
   authorization: PreparedHttpAuthorization | null,
   request: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
@@ -81,7 +81,6 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
     return { authorization: `DPoP ${authorization.accessToken}`, dpop: proof };
   },
 );
-export { buildEnvironmentAuthHeaders }; // fork-hook: backend-attach/export-auth-headers
 
 /**
  * A DPoP request is T3 Connect work, so its span starts an exported trace that
