@@ -6,8 +6,10 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   CommandId,
+  EventId,
   MessageId,
   type ModelSelection,
+  NodeId,
   type OrchestrationProjectShell,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ProviderSession,
@@ -20,9 +22,11 @@ import {
   ProviderTurnId,
   RunAttemptId,
   type RunId,
+  RuntimeRequestId,
   type ServerProvider,
   type ServerSettings as ServerSettingsValue,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -35,6 +39,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import {
   type ProviderAdapterV2Event,
   ProviderAdapterProtocolError,
@@ -269,6 +274,7 @@ const harness = <A, E>(
   body: (input: {
     readonly service: ExternalMcpService.ExternalMcpServiceShape;
     readonly orchestrator: Orchestrator.OrchestratorV2Shape;
+    readonly projections: ProjectionStore.ProjectionStoreV2Shape;
     readonly threadManagement: ThreadManagementService.ThreadManagementServiceShape;
     readonly provider: ReturnType<typeof makeAdapter>;
     /** Forgets every recorded result, as a crash after each commit would. */
@@ -335,8 +341,9 @@ const harness = <A, E>(
           };
         }),
       ).pipe(Layer.provide(ThreadManagementService.layer), Layer.provide(orchestratorLayer));
-      const layer = Layer.merge(
+      const layer = Layer.mergeAll(
         orchestratorLayer,
+        ProjectionStore.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
         ExternalMcpService.layer.pipe(
           Layer.provideMerge(threadManagementLayer),
           Layer.provide(
@@ -355,6 +362,7 @@ const harness = <A, E>(
       return yield* Effect.gen(function* () {
         const service = yield* ExternalMcpService.ExternalMcpServiceFork;
         const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
         const threadManagement = yield* ThreadManagementService.ThreadManagementService;
         const sql = yield* SqlClient.SqlClient;
         const loseResults = sql`UPDATE auth_external_mcp_requests SET result_json = NULL`.pipe(
@@ -364,6 +372,7 @@ const harness = <A, E>(
         return yield* body({
           service,
           orchestrator,
+          projections,
           threadManagement,
           provider: fake,
           loseResults,
@@ -724,6 +733,105 @@ describe("ExternalMcpServiceFork on the orchestrator", () => {
         });
         assert.equal(queued.delivery, "queued");
         assert.deepEqual(provider.steered, []);
+      }),
+    ),
+  );
+
+  /** The running turn asks a question, answered live or as a later message. */
+  const seedQuestion = (
+    orchestrator: Orchestrator.OrchestratorV2Shape,
+    projections: ProjectionStore.ProjectionStoreV2Shape,
+    threadId: ThreadId,
+    delivery: "live" | "message",
+  ) =>
+    Effect.gen(function* () {
+      const requestId = RuntimeRequestId.make(`request:${delivery}`);
+      const nodeId = NodeId.make(`fixture:node:${delivery}`);
+      const now = yield* DateTime.now;
+      const projection = yield* orchestrator.getThreadProjection(threadId);
+      yield* projections.apply({
+        id: EventId.make(`fixture:request:${delivery}`),
+        type: "runtime-request.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: requestId,
+          nodeId,
+          providerTurnId: null,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "pending",
+          responseCapability:
+            delivery === "live"
+              ? { type: "live", providerSessionId: projection.providerSessions[0]!.id }
+              : { type: "message" },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      });
+      yield* projections.apply({
+        id: EventId.make(`fixture:question:${delivery}`),
+        type: "turn-item.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make(`fixture:item:${delivery}`),
+          threadId,
+          runId: projection.runs[0]!.id,
+          nodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "pending",
+          title: null,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "user_input_request",
+          requestId,
+          questions: [{ id: "next", header: "Next", question: "What next?", options: [] }],
+          ...(delivery === "message" ? { responseMode: "message" as const } : {}),
+        },
+      });
+      return requestId;
+    });
+
+  it.live("queues a capped answer behind a turn that started before the modes changed", () =>
+    harness("external-mcp-answer-downgrade", ({ service, orchestrator, projections }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-asks");
+        yield* startElevated(orchestrator, threadId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        yield* lowerModes(orchestrator, threadId);
+        const requestId = yield* seedQuestion(orchestrator, projections, threadId, "message");
+
+        yield* service.respondToRequest(principal, { threadId, requestId, answers: { next: "x" } });
+        const runs = (yield* orchestrator.getThreadProjection(threadId)).runs;
+        assert.deepEqual(
+          runs.map((run) => run.status),
+          ["running", "queued"],
+        );
+      }),
+    ),
+  );
+
+  it.live("never answers live a turn that started before the modes changed", () =>
+    harness("external-mcp-live-answer-downgrade", ({ service, orchestrator, projections }) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("thread:owner-asks-live");
+        yield* startElevated(orchestrator, threadId);
+        yield* waitForProjection(orchestrator, threadId, hasRun("running"));
+        yield* lowerModes(orchestrator, threadId);
+        const requestId = yield* seedQuestion(orchestrator, projections, threadId, "live");
+
+        const refused = yield* service
+          .respondToRequest(principal, { threadId, requestId, answers: { next: "x" } })
+          .pipe(Effect.flip);
+        assert.equal(refused.code, "runtime_mode_escalation_denied");
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(projection.runtimeRequests[0]?.status, "pending");
       }),
     ),
   );
