@@ -2903,6 +2903,7 @@ export const OrchestrationV2Command = Schema.Union([
     decision: Schema.optional(ProviderApprovalDecision),
     answers: Schema.optional(ProviderUserInputAnswers),
     attachmentsByQuestionId: Schema.optional(UserInputAttachments),
+    expectedModes: Schema.optional(ExternalSendModesFork), // fork-hook: device-auth/respond-expected-modes
   }),
   Schema.Struct({
     type: Schema.Literal("thread.user-input.dismiss"),
