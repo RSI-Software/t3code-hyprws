@@ -505,6 +505,15 @@ export const make = Effect.gen(function* () {
       const envRepository = environment.GH_REPO?.trim();
       const hostHint = input.host ?? contextHost(input.context);
       const defaultHost = (hostHint ?? environment.GH_HOST ?? "github.com").toLowerCase();
+      if (input.context?.preferRemoteRepositoryFork) {
+        // Fork registry contexts bind this operation to the selected checkout remote.
+        const remote = normalizeGitRemoteUrl(input.context.remoteUrl);
+        const locator = parseGitHubRepositorySelector(
+          `${defaultHost}/${remote.slice(remote.indexOf("/") + 1)}`,
+          defaultHost,
+        );
+        if (locator !== null) return locator;
+      } // fork-hook: upstream-fixes/origin-provider-repository
       if (envRepository) {
         const locator = parseGitHubRepositorySelector(envRepository, defaultHost);
         if (locator !== null) return locator;

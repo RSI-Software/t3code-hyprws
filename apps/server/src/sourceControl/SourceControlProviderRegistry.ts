@@ -137,6 +137,7 @@ function selectProviderContext(
         provider,
         remoteName: remote.name,
         remoteUrl: remote.url,
+        ...(provider.kind === "github" ? { preferRemoteRepositoryFork: true } : {}), // fork-hook: upstream-fixes/origin-provider-context
       });
     }
   }
