@@ -14,7 +14,7 @@ import {
 } from "react-native-screens";
 
 import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
-import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { FilesHeader } from "./FilesHeader";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";

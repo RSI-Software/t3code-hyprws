@@ -9,7 +9,7 @@ import * as PlatformError from "effect/PlatformError";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
