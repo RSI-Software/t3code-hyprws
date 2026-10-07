@@ -1,7 +1,9 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
   type ModelSelection,
   type OrchestrationProjectShell,
   type OrchestrationV2ServerCommand,
@@ -20,9 +22,10 @@ import * as Option from "effect/Option";
 
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import type { ExternalMcpPolicy } from "../../auth/ExternalMcpGrant.fork.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
@@ -164,9 +167,13 @@ const makeHarness = (
         Layer.mock(ServerSettings.ServerSettingsService)({
           getSettings: Effect.sync(() => state.settings),
         }),
-        Layer.fresh(SqlitePersistenceMemory),
+        Layer.fresh(SqlitePersistence.layerMemory),
+        Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-service")),
+        }),
       ),
     ),
+    Layer.provide(NodeServices.layer),
   );
   return { dispatched, sent, state, layer };
 };
