@@ -2,9 +2,11 @@
 // completed with subagents still running, and provider-native subagent threads,
 // which have no runs. Shells come from the real shell projection, so the view
 // and the sidebar's "Waiting on N subagents" read the same derivation.
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  EnvironmentId,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadProjection,
   ProjectId,
@@ -22,9 +24,10 @@ import * as TestClock from "effect/testing/TestClock";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import { threadShellFromProjection } from "../../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 import { nativeTurnOf, threadWork } from "./ExternalMcpWork.fork.ts";
@@ -416,9 +419,13 @@ const makeHarness = () => {
         Layer.mock(ServerSettings.ServerSettingsService)({
           getSettings: Effect.succeed({} as never),
         }),
-        Layer.fresh(SqlitePersistenceMemory),
+        Layer.fresh(SqlitePersistence.layerMemory),
+        Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-work")),
+        }),
       ),
     ),
+    Layer.provide(NodeServices.layer),
   );
   const withService = <A, E>(
     body: (service: ExternalMcpService.ExternalMcpServiceShape) => Effect.Effect<A, E>,
