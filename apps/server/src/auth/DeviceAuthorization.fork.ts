@@ -13,7 +13,7 @@ import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Encoding from "effect/encoding/Base64Url";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -229,7 +229,7 @@ const make = Effect.gen(function* () {
   const hashDeviceCode = (deviceCode: string) =>
     crypto
       .digest("SHA-256", new TextEncoder().encode(deviceCode))
-      .pipe(Effect.map(Encoding.encodeBase64Url), Effect.mapError(fail("hash-device-code")));
+      .pipe(Effect.map(Encoding.encode), Effect.mapError(fail("hash-device-code")));
 
   const generateUserCode = Effect.gen(function* () {
     let code = "";
@@ -243,11 +243,13 @@ const make = Effect.gen(function* () {
     return code;
   }).pipe(Effect.mapError(fail("generate-user-code")));
 
-  const start: DeviceAuthorizationStore["Service"]["start"] = (input) =>
-    Effect.gen(function* () {
+  const start: DeviceAuthorizationStore["Service"]["start"] = Effect.fn(
+    "DeviceAuthorization.start",
+  )(
+    function* (input) {
       const now = yield* DateTime.now;
       const nowIso = DateTime.formatIso(DateTime.toUtc(now));
-      const deviceCode = Encoding.encodeBase64Url(yield* crypto.randomBytes(DEVICE_CODE_BYTES));
+      const deviceCode = Encoding.encode(yield* crypto.randomBytes(DEVICE_CODE_BYTES));
       const deviceCodeHash = yield* hashDeviceCode(deviceCode);
       const userCode = yield* generateUserCode;
       const expiresAt = DateTime.toUtc(
@@ -283,15 +285,17 @@ const make = Effect.gen(function* () {
         expiresInSeconds: Duration.toSeconds(DEVICE_CODE_TTL),
         intervalSeconds: POLL_INTERVAL_SECONDS,
       });
-    }).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof DeviceAuthorizationStoreError ? cause : fail("start")(cause),
-      ),
-      Effect.withSpan("DeviceAuthorizationStore.start"),
-    );
+    },
+    Effect.mapError((cause) =>
+      cause instanceof DeviceAuthorizationStoreError ? cause : fail("start")(cause),
+    ),
+    Effect.withSpan("DeviceAuthorizationStore.start"),
+  );
 
-  const listOpen: DeviceAuthorizationStore["Service"]["listOpen"] = () =>
-    Effect.gen(function* () {
+  const listOpen: DeviceAuthorizationStore["Service"]["listOpen"] = Effect.fn(
+    "DeviceAuthorization.listOpen",
+  )(
+    function* () {
       const nowIso = yield* isoNow;
       const rows = yield* sql<DeviceAuthorizationRow>`
         SELECT ${columns} FROM auth_device_authorizations
@@ -299,10 +303,15 @@ const make = Effect.gen(function* () {
         ORDER BY created_at DESC
       `;
       return rows.map(toRequest);
-    }).pipe(Effect.mapError(fail("list")), Effect.withSpan("DeviceAuthorizationStore.listOpen"));
+    },
+    Effect.mapError(fail("list")),
+    Effect.withSpan("DeviceAuthorizationStore.listOpen"),
+  );
 
-  const approve: DeviceAuthorizationStore["Service"]["approve"] = (input) =>
-    Effect.gen(function* () {
+  const approve: DeviceAuthorizationStore["Service"]["approve"] = Effect.fn(
+    "DeviceAuthorization.approve",
+  )(
+    function* (input) {
       const nowIso = yield* isoNow;
       const ttl = input.ttl ?? DEFAULT_GRANT_TTL;
       const [row] = yield* sql<DeviceAuthorizationRow>`
@@ -349,13 +358,13 @@ const make = Effect.gen(function* () {
         proofKeyThumbprint: request.proofKeyThumbprint,
         mcpPolicy,
       });
-    }).pipe(
-      Effect.catchTag("SqlError", (cause) => Effect.fail(fail("approve")(cause))),
-      Effect.withSpan("DeviceAuthorizationStore.approve"),
-    );
+    },
+    Effect.catchTags({ SqlError: (cause) => Effect.fail(fail("approve")(cause)) }),
+    Effect.withSpan("DeviceAuthorizationStore.approve"),
+  );
 
-  const deny: DeviceAuthorizationStore["Service"]["deny"] = (userCode) =>
-    Effect.gen(function* () {
+  const deny: DeviceAuthorizationStore["Service"]["deny"] = Effect.fn("DeviceAuthorization.deny")(
+    function* (userCode) {
       const nowIso = yield* isoNow;
       const updated = yield* sql<{ readonly userCode: string }>`
         UPDATE auth_device_authorizations
@@ -364,10 +373,13 @@ const make = Effect.gen(function* () {
         RETURNING user_code AS "userCode"
       `;
       return updated.length > 0;
-    }).pipe(Effect.mapError(fail("deny")), Effect.withSpan("DeviceAuthorizationStore.deny"));
+    },
+    Effect.mapError(fail("deny")),
+    Effect.withSpan("DeviceAuthorizationStore.deny"),
+  );
 
-  const poll: DeviceAuthorizationStore["Service"]["poll"] = (input) =>
-    Effect.gen(function* () {
+  const poll: DeviceAuthorizationStore["Service"]["poll"] = Effect.fn("DeviceAuthorization.poll")(
+    function* (input) {
       const deviceCodeHash = yield* hashDeviceCode(input.deviceCode);
       const now = yield* DateTime.now;
       const nowIso = DateTime.formatIso(DateTime.toUtc(now));
@@ -439,12 +451,12 @@ const make = Effect.gen(function* () {
         }
         return { _tag: "Issued", session } as const;
       }).pipe(sql.withTransaction);
-    }).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof DeviceAuthorizationStoreError ? cause : fail("poll")(cause),
-      ),
-      Effect.withSpan("DeviceAuthorizationStore.poll"),
-    );
+    },
+    Effect.mapError((cause) =>
+      cause instanceof DeviceAuthorizationStoreError ? cause : fail("poll")(cause),
+    ),
+    Effect.withSpan("DeviceAuthorizationStore.poll"),
+  );
 
   return DeviceAuthorizationStore.of({ start, listOpen, approve, deny, poll });
 });
