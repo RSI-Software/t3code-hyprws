@@ -13,6 +13,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
+import { originDefaultRemoteFork } from "./RepositoryIdentityResolver.fork.ts"; // fork-hook: upstream-fixes/origin-default-import
 import * as ProcessRunner from "../processRunner.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { explicitBareRepositoryEnv, unsetInheritedRepositoryEnv } from "../vcs/VcsProcess.ts";
@@ -130,6 +131,8 @@ function pickPrimaryRemote(
   const marked = pickMarkedRemote(remotes, resolved);
   if (marked) return marked;
 
+  const originFork = originDefaultRemoteFork(remotes); // fork-hook: upstream-fixes/origin-default
+  if (originFork) return originFork; // fork-hook: upstream-fixes/origin-default
   for (const preferredRemoteName of ["upstream", "origin"] as const) {
     const remoteUrl = remotes.get(preferredRemoteName);
     if (remoteUrl) {
