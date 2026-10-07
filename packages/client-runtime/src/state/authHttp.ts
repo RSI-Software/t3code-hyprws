@@ -1,15 +1,19 @@
-import type { AuthEnvironmentScope, AuthSessionId } from "@t3tools/contracts";
+import type { AuthGrantScope, AuthSessionId } from "@t3tools/contracts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { HttpMethod } from "effect/http";
 
+import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
-import { executeEnvironmentHttpRequest, makeEnvironmentHttpApiClient } from "../rpc/http.ts";
-import { buildEnvironmentAuthHeaders, withEnvironmentCredentials } from "./environmentHttpAuth.ts";
+import type { makeEnvironmentHttpApiGroupClient } from "../rpc/http.ts";
+import {
+  type EnvironmentHttpAuthHeaders,
+  executeAuthenticatedEnvironmentHttpRequest,
+} from "./environmentHttpAuth.ts";
 
 const AUTH_MUTATION_TIMEOUT_MS = 10_000;
 
@@ -17,9 +21,20 @@ export class EnvironmentNotConnectedError extends Data.TaggedError(
   "@t3tools/client-runtime/state/authHttp/EnvironmentNotConnectedError",
 )<{ readonly message: string }> {}
 
-const prepareAuthRequest = Effect.fn("clientRuntime.state.authHttp.prepareAuthRequest")(function* (
+type AuthHttpClient = Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<"auth">>>;
+
+/** Runs one auth endpoint through the shared authenticated request boundary. */
+const executeAuthRequest = Effect.fn("clientRuntime.state.authHttp.executeAuthRequest")(function* <
+  A,
+  E,
+  R,
+>(
   method: HttpMethod.HttpMethod,
   pathname: string,
+  request: (input: {
+    readonly client: AuthHttpClient;
+    readonly headers: EnvironmentHttpAuthHeaders;
+  }) => Effect.Effect<A, E, R>,
 ) {
   const supervisor = yield* EnvironmentSupervisor;
   const prepared = yield* SubscriptionRef.get(supervisor.prepared);
@@ -28,25 +43,25 @@ const prepareAuthRequest = Effect.fn("clientRuntime.state.authHttp.prepareAuthRe
       message: "This environment is not connected, so its access settings cannot be changed.",
     });
   }
-  const { httpAuthorization, httpBaseUrl } = prepared.value;
-  const requestUrl = environmentEndpointUrl(httpBaseUrl, pathname);
-  const client = yield* makeEnvironmentHttpApiClient(httpBaseUrl);
-  const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
-  const headers = yield* buildEnvironmentAuthHeaders(httpAuthorization, method, requestUrl, signer);
-  return { client, headers, httpAuthorization, requestUrl };
+  return yield* executeAuthenticatedEnvironmentHttpRequest({
+    prepared: prepared.value,
+    signer: yield* Effect.serviceOption(ManagedRelayDpopSigner),
+    remoteAuthorization: yield* Effect.serviceOption(
+      RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+    ),
+    group: "auth",
+    method,
+    url: (httpBaseUrl) => environmentEndpointUrl(httpBaseUrl, pathname),
+    timeoutMs: AUTH_MUTATION_TIMEOUT_MS,
+    request,
+  });
 });
 
 export const fetchEnvironmentSessionState = Effect.fn(
   "clientRuntime.state.authHttp.fetchEnvironmentSessionState",
 )(function* () {
-  const { client, headers, httpAuthorization, requestUrl } = yield* prepareAuthRequest(
-    "GET",
-    "/api/auth/session",
-  );
-  return yield* executeEnvironmentHttpRequest(
-    requestUrl,
-    AUTH_MUTATION_TIMEOUT_MS,
-    withEnvironmentCredentials(httpAuthorization, client.auth.session({ headers })),
+  return yield* executeAuthRequest("GET", "/api/auth/session", ({ client, headers }) =>
+    client.session({ headers }),
   );
 });
 
@@ -54,73 +69,45 @@ export const createEnvironmentPairingCredential = Effect.fn(
   "clientRuntime.state.authHttp.createEnvironmentPairingCredential",
 )(function* (input: {
   readonly label?: string;
-  readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+  // Grant scopes: `review:write` decodes from old credentials but is not grantable.
+  readonly scopes?: ReadonlyArray<AuthGrantScope>;
 }) {
-  const { client, headers, httpAuthorization, requestUrl } = yield* prepareAuthRequest(
-    "POST",
-    "/api/auth/pairing-token",
-  );
   const trimmedLabel = input.label?.trim();
-  return yield* executeEnvironmentHttpRequest(
-    requestUrl,
-    AUTH_MUTATION_TIMEOUT_MS,
-    withEnvironmentCredentials(
-      httpAuthorization,
-      client.auth.pairingCredential({
-        headers,
-        payload: {
-          ...(trimmedLabel ? { label: trimmedLabel } : {}),
-          ...(input.scopes ? { scopes: input.scopes } : {}),
-        },
-      }),
-    ),
+  return yield* executeAuthRequest("POST", "/api/auth/pairing-token", ({ client, headers }) =>
+    client.pairingCredential({
+      headers,
+      payload: {
+        ...(trimmedLabel ? { label: trimmedLabel } : {}),
+        ...(input.scopes ? { scopes: input.scopes } : {}),
+      },
+    }),
   );
 });
 
 export const revokeEnvironmentPairingLink = Effect.fn(
   "clientRuntime.state.authHttp.revokeEnvironmentPairingLink",
 )(function* (input: { readonly id: string }) {
-  const { client, headers, httpAuthorization, requestUrl } = yield* prepareAuthRequest(
+  return yield* executeAuthRequest(
     "POST",
     "/api/auth/pairing-links/revoke",
-  );
-  return yield* executeEnvironmentHttpRequest(
-    requestUrl,
-    AUTH_MUTATION_TIMEOUT_MS,
-    withEnvironmentCredentials(
-      httpAuthorization,
-      client.auth.revokePairingLink({ headers, payload: { id: input.id } }),
-    ),
+    ({ client, headers }) => client.revokePairingLink({ headers, payload: { id: input.id } }),
   );
 });
 
 export const revokeEnvironmentClientSession = Effect.fn(
   "clientRuntime.state.authHttp.revokeEnvironmentClientSession",
 )(function* (input: { readonly sessionId: AuthSessionId }) {
-  const { client, headers, httpAuthorization, requestUrl } = yield* prepareAuthRequest(
-    "POST",
-    "/api/auth/clients/revoke",
-  );
-  return yield* executeEnvironmentHttpRequest(
-    requestUrl,
-    AUTH_MUTATION_TIMEOUT_MS,
-    withEnvironmentCredentials(
-      httpAuthorization,
-      client.auth.revokeClient({ headers, payload: { sessionId: input.sessionId } }),
-    ),
+  return yield* executeAuthRequest("POST", "/api/auth/clients/revoke", ({ client, headers }) =>
+    client.revokeClient({ headers, payload: { sessionId: input.sessionId } }),
   );
 });
 
 export const revokeOtherEnvironmentClientSessions = Effect.fn(
   "clientRuntime.state.authHttp.revokeOtherEnvironmentClientSessions",
 )(function* () {
-  const { client, headers, httpAuthorization, requestUrl } = yield* prepareAuthRequest(
+  return yield* executeAuthRequest(
     "POST",
     "/api/auth/clients/revoke-others",
-  );
-  return yield* executeEnvironmentHttpRequest(
-    requestUrl,
-    AUTH_MUTATION_TIMEOUT_MS,
-    withEnvironmentCredentials(httpAuthorization, client.auth.revokeOtherClients({ headers })),
+    ({ client, headers }) => client.revokeOtherClients({ headers }),
   );
 });
