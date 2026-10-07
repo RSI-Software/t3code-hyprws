@@ -6,6 +6,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   AuthSessionId,
   CommandId,
+  EnvironmentId,
   EventId,
   MessageId,
   type ModelSelection,
@@ -49,10 +50,11 @@ import {
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import { checkpointWorkspace } from "../../orchestration-v2/testkit/ReplayFixtureWorkspace.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
+import * as providerRegistryMock from "../../provider/testUtils/providerRegistryMock.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 
@@ -291,8 +293,8 @@ const harness = <A, E>(
     Effect.gen(function* () {
       const cwd = yield* checkpointWorkspace(name);
       const fake = makeAdapter();
-      const registryLayer = ProviderAdapterRegistry.makeLayer([fake.adapter]);
-      const orchestratorLayer = makeOrchestratorV2ReplayLayerWithRegistry(
+      const registryLayer = ProviderAdapterRegistry.layerFromAdapters([fake.adapter]);
+      const orchestratorLayer = ProviderReplayHarness.layerWithRegistry(
         {
           name,
           runtimePolicyOverride: {
@@ -306,7 +308,7 @@ const harness = <A, E>(
           },
         },
         registryLayer,
-        { databaseLayer: SqlitePersistenceMemory },
+        { databaseLayer: SqlitePersistence.layerMemory },
       );
       const shell = {
         id: projectId,
@@ -343,7 +345,7 @@ const harness = <A, E>(
       ).pipe(Layer.provide(ThreadManagementService.layer), Layer.provide(orchestratorLayer));
       const layer = Layer.mergeAll(
         orchestratorLayer,
-        ProjectionStore.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
+        ProjectionStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
         ExternalMcpService.layer.pipe(
           Layer.provideMerge(threadManagementLayer),
           Layer.provide(
@@ -352,11 +354,16 @@ const harness = <A, E>(
             }),
           ),
           Layer.provide(registryLayer),
-          Layer.provide(makeProviderRegistryLayer([provider])),
+          Layer.provide(providerRegistryMock.layer([provider])),
           Layer.provide(
             ServerSettings.layerTest({ defaultModelSelection: modelSelection, ...settings }),
           ),
-          Layer.provideMerge(SqlitePersistenceMemory),
+          Layer.provideMerge(SqlitePersistence.layerMemory),
+          Layer.provideMerge(
+            Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+              getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-orchestrator")),
+            }),
+          ),
         ),
       ).pipe(Layer.provide(NodeServices.layer));
       return yield* Effect.gen(function* () {
