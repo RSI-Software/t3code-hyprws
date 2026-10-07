@@ -164,6 +164,7 @@ import {
   resolveActiveThreadRouteRef,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
+import { useAtomCommand } from "../state/use-atom-command"; // fork-hook: upstream-fixes/thread-group-title-command
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { cn } from "~/lib/utils";
@@ -190,10 +191,10 @@ import {
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
-  deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
   isSidebarNestedLinkClick,
+  isSidebarThreadGroupContextMenuId, // fork-hook: upstream-fixes/split-session-permissions
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
@@ -2631,6 +2632,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           });
           return;
         }
+        if (clicked.value === "move-out-of-group") {
+          // Group membership is local UI state, so it stays available without the operate scope.
+          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
+          return;
+        } // fork-hook: upstream-fixes/split-session-permissions
+        if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -2743,9 +2750,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           }
           case "mark-unread":
             markThreadUnread(threadRef);
-            return;
-          case "move-out-of-group":
-            setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
