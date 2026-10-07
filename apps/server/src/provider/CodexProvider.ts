@@ -25,6 +25,7 @@ import type {
 } from "@t3tools/contracts";
 import { PREFERRED_DEFAULT_CODEX_MODELS, ServerSettingsError } from "@t3tools/contracts";
 
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env"; // fork-hook: upstream-fixes/codex-provider-env
 import {
   codexModelFamily,
   createModelCapabilities,
@@ -49,6 +50,8 @@ import {
 } from "./codexUsageLimits.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import packageJson from "../../package.json" with { type: "json" };
+
+const CODEX_DRIVER_KIND = "codex"; // fork-hook: upstream-fixes/codex-provider-env
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
@@ -382,20 +385,20 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
     : undefined;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const environment = {
+    ...stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(process.env), CODEX_DRIVER_KIND), // fork-hook: upstream-fixes/codex-provider-env
     ...input.environment,
     ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
   };
   const spawnCommand = yield* resolveSpawnCommand(
     input.binaryPath,
     codexAppServerArgs(input.launchArgs),
-    { env: environment, extendEnv: true },
+    { env: environment }, // fork-hook: upstream-fixes/codex-provider-env
   );
   const child = yield* spawner
     .spawn(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         cwd: input.cwd,
         env: environment,
-        extendEnv: true,
         forceKillAfter: CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER,
         shell: spawnCommand.shell,
       }),
