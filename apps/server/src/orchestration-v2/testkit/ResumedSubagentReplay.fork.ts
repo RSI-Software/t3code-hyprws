@@ -12,7 +12,7 @@ import {
   makeClaudeRestartReplayHarness,
 } from "../Adapters/ClaudeAdapterV2.testkit.ts";
 import { CodexOrchestratorReplayHarness } from "../Adapters/CodexAdapterV2.testkit.ts";
-import { makeSqlitePersistenceLive } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import { ORCHESTRATOR_REPLAY_FIXTURES } from "./fixtures/index.ts";
@@ -80,7 +80,7 @@ export const runClaudeResumeReplayFork = (priorStatus: "completed" | "failed") =
       assert.isAtLeast(splitIndex, 0);
       const { harness, assertComplete } = makeClaudeRestartReplayHarness(transcript);
       const options = {
-        databaseLayer: makeSqlitePersistenceLive(path.join(tempDir, "state.sqlite")).pipe(
+        databaseLayer: SqlitePersistence.layerFromPath(path.join(tempDir, "state.sqlite")).pipe(
           Layer.provide(NodeServices.layer),
         ),
       };
