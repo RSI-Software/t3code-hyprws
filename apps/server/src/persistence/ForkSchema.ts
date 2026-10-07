@@ -125,6 +125,20 @@ export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRo
   yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 48 AND name = ${"ProjectionThreadCheckoutMove"}`;
 });
 
+export const hasPendingForkSchema = Effect.fn("hasPendingForkSchema")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  for (const { table, column } of FORK_COLUMNS) {
+    const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(${sql.literal(table)})`;
+    if (!columns.some((existing) => existing.name === column)) return true;
+  }
+  for (const statement of FORK_TABLES) {
+    const name = /CREATE (?:TABLE|INDEX) IF NOT EXISTS (\w+)/.exec(statement)![1]!;
+    const rows = yield* sql`SELECT 1 FROM sqlite_schema WHERE name = ${name}`;
+    if (rows.length === 0) return true;
+  }
+  return false;
+});
+
 export const ensureForkSchema = Effect.fn("ensureForkSchema")(function* () {
   const sql = yield* SqlClient.SqlClient;
   const added: string[] = [];
