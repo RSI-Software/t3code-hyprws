@@ -1,7 +1,7 @@
 import type { AgentInfo as ClaudeAgentInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { ModelSelection, ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { buildSelectOptionDescriptor } from "./providerSnapshot.ts";
+import { buildSelectOptionDescriptor } from "@t3tools/provider-core/server/snapshotProbe";
 
 // The SDK supplies Claude agents. Keep their normalization and presentation
 // separate from upstream's provider initialization, auth and usage probes.
@@ -76,16 +76,22 @@ export function applyClaudeAgentLaunchArg(
   if (selectedAgent !== "default") extraArgs.agent = selectedAgent;
 }
 
-/**
- * Folds the agent selection into a compiled selection's query identity, so a
- * changed agent reopens the thread's query with resume. Without a selection
- * the identity is upstream's.
- */
-export function withClaudeAgentQueryIdentity<Compiled extends { readonly queryIdentity: string }>(
-  compiled: Compiled,
+export function canApplyClaudeAgentSelectionLiveFork(
+  live: { readonly queryIdentity: string; readonly agentFork?: string },
+  next: { readonly queryIdentity: string; readonly agentFork?: string },
+): boolean {
+  return live.agentFork === next.agentFork;
+}
+
+// Agent changes require a new process; live model/effort changes keep the agent unchanged.
+export function applyClaudeAgentQueryIdentity(
+  compiled: { queryIdentity: string; agentFork?: string },
   modelSelection: ModelSelection,
-): Compiled {
+): void {
   const agent = getModelSelectionStringOptionValue(modelSelection, "agent");
-  if (agent === undefined) return compiled;
-  return { ...compiled, queryIdentity: JSON.stringify([compiled.queryIdentity, { agent }]) };
+  if (agent !== undefined) {
+    // Upstream clears queryIdentity after a failed live update; the running agent is unchanged.
+    compiled.agentFork = agent;
+    compiled.queryIdentity = JSON.stringify([compiled.queryIdentity, { agent }]);
+  }
 }
