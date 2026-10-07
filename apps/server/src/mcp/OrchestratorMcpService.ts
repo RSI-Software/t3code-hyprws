@@ -1,3 +1,4 @@
+import { delegatedRoundProgressFork } from "../orchestration-v2/delegatedRounds.fork.ts"; // fork-hook: delegated-rounds/mcp-progress-import
 import {
   CommandId,
   type RunId,
@@ -95,7 +96,6 @@ import {
   SUBAGENT_RESULT_TURN_ITEM_TYPES,
   subagentResultForRun,
   subagentStopNotice,
-  delegatedTaskProgress,
   delegatedTaskReportRuns,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
@@ -1905,7 +1905,7 @@ const make = Effect.gen(function* () {
       )
       .pipe(Effect.mapError(threadManagementFailure));
     const childRun = delegatedTaskRun(childControls, task);
-    const progress = delegatedTaskProgress(childControls);
+    const progress = delegatedRoundProgressFork(childControls, task.threadId); // fork-hook: delegated-rounds/mcp-progress
     const followupRuns =
       childRun?.delegatedTaskId === task.id ? delegatedTaskRuns(childControls, task.id) : undefined;
     const taskResultRun =
@@ -2000,7 +2000,11 @@ const make = Effect.gen(function* () {
             ? resultTransfers.find((transfer) => transfer.sourcePoint.runId === undefined)
             : undefined) ??
           null);
-    const resultTransfer = taskResultTransfer(scope.thread.threadId, childProjection, task) ?? null;
+    const resultTransfer =
+      resultTransferForRun(taskResultRun) ??
+      (task.result === null
+        ? null
+        : taskResultTransfer(scope.thread.threadId, childProjection, task)); // fork-hook: delegated-rounds/current-round-transfer
     const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
     const latestTerminalSummary = canExposeTaskRunResult(terminalRun)
       ? terminalRun.id === childRun?.id
@@ -3053,6 +3057,9 @@ const make = Effect.gen(function* () {
               // delegations deliver through the blocking tool call until `awaitTask`
               // gives up the wait (timeout, cancelled call) and upgrades the wake.
               completionWake: input.mode === "wait" ? "settled_only" : "always",
+              ...(input.continueTaskId === undefined
+                ? {}
+                : { continueTaskId: input.continueTaskId }), // fork-hook: delegated-rounds/mcp-continue
             })
             .pipe(
               Effect.mapError((error) =>
