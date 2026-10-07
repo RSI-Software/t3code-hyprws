@@ -25,7 +25,7 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as CheckoutMutationCoordinator from "../git/CheckoutMutationCoordinator.ts";
 import { makeCheckoutRecoveryFork } from "../git/checkoutRecovery.fork.ts";
