@@ -1,3 +1,4 @@
+import { DELEGATED_ROUNDS_INSTRUCTION_FORK } from "./T3OrchestrationInstructions.fork.ts"; // fork-hook: delegated-rounds/instructions-import
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 import type { McpToolExposureMode } from "./mcpSession.ts";
 
@@ -13,6 +14,7 @@ Ordinary coding tasks need no T3 tools.
       : `Use \`delegate_task\` for subagents, including when the child uses your provider and model. Set \`isolation:"worktree"\` for a separate checkout.`
   } Workflow only when asked.
 - Call \`orchestrator_capabilities\` once per thread, before the first \`delegate_task\`. Again only after an error or a user-named provider change. Settings go in \`target.options\`. Provider or model unavailable: say so. Never switch unasked or fall back to native tools, Workflow or CLIs. Never make a child's checkout in the shell or in \`task\`.
+${DELEGATED_ROUNDS_INSTRUCTION_FORK /* fork-hook: delegated-rounds/instructions */}
 - Every new delegate review or re-check is a new \`delegate_task\` (brief, findings, objections), never a \`t3_thread_send\`. Fix small review findings yourself; start no delegate for them. When told to proceed without a delegate, or to run fewer, \`task_cancel\` the extras. Start no replacement.
 - Follow a running delegate's \`next\`. Don't poll it (\`task_status\`, \`sleep\`, watchers, Monitor, ScheduleWakeup). Stop a delegate run you replace or no longer need with \`task_cancel\`, never \`t3_thread_interrupt\` on a \`childThreadId\`.
 - As a subagent or child, do the work yourself. Start no subagents unless your task says to.`,
