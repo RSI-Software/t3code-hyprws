@@ -1,4 +1,6 @@
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+// @effect-diagnostics effectFnOpportunity:off - Test doubles, like upstream testkits.
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -6,7 +8,9 @@ import * as Path from "effect/Path";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
+import * as PreviewPasskeys from "./Passkeys.ts";
 
 const noBrowserSessions = Layer.succeed(
   BrowserSession.BrowserSession,
@@ -40,11 +44,21 @@ export const previewManagerFixtureLayer = (
         DesktopEnvironment.DesktopEnvironment.of({
           browserArtifactsDir: "/tmp/t3/dev/browser-artifacts",
           dirname: "/tmp/t3/desktop",
+          previewPickPreloadPath: "/tmp/t3/desktop/previewPickPreload.js",
           path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
         } as DesktopEnvironment.DesktopEnvironment["Service"]),
       ),
     ),
     Layer.provideMerge(FileSystem.layerNoop({})),
     Layer.provideMerge(Path.layer),
-    Layer.provideMerge(Layer.succeed(HostProcessPlatform, "darwin")),
+    Layer.provideMerge(Layer.succeed(HostProcess.Platform, "darwin")),
+    Layer.provideMerge(DesktopBrowserHost.layer),
+    Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(
+      Layer.mock(PreviewPasskeys.PreviewPasskeys)({
+        bridgeEnabled: false,
+        attachGuest: () => () => {},
+        installSessionHandlers: () => {},
+      }),
+    ),
   );
