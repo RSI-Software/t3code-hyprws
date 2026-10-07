@@ -15,7 +15,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import { expect } from "vite-plus/test";
 import { vi } from "vite-plus/test";
 import * as ProcessRunner from "../processRunner.ts";
