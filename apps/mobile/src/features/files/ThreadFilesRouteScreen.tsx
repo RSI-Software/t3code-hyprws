@@ -4,7 +4,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useEffect, useId, useRef, useState } from "react";
-import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
