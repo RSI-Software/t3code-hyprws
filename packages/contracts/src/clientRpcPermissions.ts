@@ -52,6 +52,10 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
   // A guest link hands thread access to someone outside, like a pairing link.
   [WS_METHODS.guestShareCreate]: AuthAccessWriteScope,
+
+  [WS_METHODS.githubIssuesSetState]: AuthOrchestrationOperateScope, // fork-hook: github-issues/rpc-client-guard
+  [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
+  [WS_METHODS.pullRequestsUploadAttachment]: AuthOrchestrationOperateScope, // fork-hook: upstream-fixes/pr-attachment-rpc-client-guard
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
