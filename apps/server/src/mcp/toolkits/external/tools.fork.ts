@@ -22,6 +22,8 @@ import {
   OrchestratorMcpThreadWaitInput,
   OrchestratorMcpThreadWaitResult,
   ProjectId,
+  ProviderUserInputAnswers,
+  RuntimeRequestId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -29,6 +31,10 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
 import { ExternalMcpPolicy } from "../../../auth/ExternalMcpGrant.fork.ts";
+import {
+  ExternalMcpRequestListResult,
+  ExternalMcpRequestRespondResult,
+} from "../../external/ExternalMcpRequests.fork.ts";
 import { ExternalMcpThreadWork } from "../../external/ExternalMcpWork.fork.ts";
 import {
   ExternalMcpPrincipalFork,
@@ -228,6 +234,36 @@ const ThreadInterruptTool = Tool.make("t3_external_thread_interrupt", {
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, true);
 
+const RequestListTool = Tool.make("t3_external_request_list", {
+  description:
+    "List the requests waiting on a person in a thread: questions with every step and option, and approvals. Answer a question with t3_external_request_respond; only the environment owner decides approvals, in T3.",
+  parameters: Schema.Struct({ threadId: ThreadId }),
+  success: ExternalMcpRequestListResult,
+  failure: OrchestratorMcpFailure,
+  dependencies,
+})
+  .annotate(Tool.Title, "List a T3 thread's pending requests")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true);
+
+const RequestRespondTool = Tool.make("t3_external_request_respond", {
+  description:
+    "Answer a pending question from t3_external_request_list, keyed by question id, as the user would in T3. Approvals are refused. Needs a coordinating credential.",
+  parameters: Schema.Struct({
+    threadId: ThreadId,
+    requestId: RuntimeRequestId,
+    answers: ProviderUserInputAnswers,
+  }),
+  success: ExternalMcpRequestRespondResult,
+  failure: OrchestratorMcpFailure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Answer a T3 thread's question")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false);
+
 export const ExternalMcpToolkitFork = Toolkit.make(
   WhoamiTool,
   ProjectListTool,
@@ -238,4 +274,6 @@ export const ExternalMcpToolkitFork = Toolkit.make(
   ThreadSendTool,
   ThreadInterruptTool,
   ThreadSettleTool,
+  RequestListTool,
+  RequestRespondTool,
 );

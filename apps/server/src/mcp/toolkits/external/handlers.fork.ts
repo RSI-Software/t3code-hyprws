@@ -61,6 +61,10 @@ export const ExternalMcpToolkitHandlersLiveFork = ExternalMcpToolkitFork.toLayer
         withPrincipal((principal) => service.sendToThread(principal, input)),
       t3_external_thread_interrupt: (input) =>
         withPrincipal((principal) => service.interruptThread(principal, input)),
+      t3_external_request_list: (input) =>
+        withPrincipal((principal) => service.listRequests(principal, input)),
+      t3_external_request_respond: (input) =>
+        withPrincipal((principal) => service.respondToRequest(principal, input)),
     });
   }),
 );
