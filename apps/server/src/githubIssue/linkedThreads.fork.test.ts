@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 
 const encodePayload = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -112,5 +112,5 @@ it.effect("finds every readable thread linked to exactly one issue, across proje
     expect(
       yield* listLinkedIssueThreadsFork({ host: "github.com", repository: "acme/web", number: 9 }),
     ).toEqual({ threads: [] });
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

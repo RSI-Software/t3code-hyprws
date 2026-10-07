@@ -2,12 +2,16 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as GitHubApi from "./GitHubApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
 import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 
 function makeProvider(github: Partial<GitHubCli.GitHubCli["Service"]>) {
+  // The provider probes the API service beside the CLI, even where a read never reaches it.
   return GitHubSourceControlProvider.make.pipe(
-    Effect.provide(Layer.mock(GitHubCli.GitHubCli)(github)),
+    Effect.provide(
+      Layer.mergeAll(Layer.mock(GitHubCli.GitHubCli)(github), Layer.mock(GitHubApi.GitHubApi)({})),
+    ),
   );
 }
 
@@ -41,6 +45,11 @@ it.effect("reads a pull request on the context's own repository", () =>
     assert.deepStrictEqual(getInput, {
       cwd: "/repo",
       reference: "42",
+      context: {
+        provider: { kind: "github", name: "GitHub", baseUrl: "https://github.com" },
+        remoteName: "origin",
+        remoteUrl: "git@github.com:RSI-Software/t3code-hyprws.git",
+      },
       rateLimitHost: "github.com",
       repository: "github.com/rsi-software/t3code-hyprws",
     });

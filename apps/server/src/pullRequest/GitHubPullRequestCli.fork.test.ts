@@ -1,52 +1,86 @@
+// Fork-owned: the attachment media upload, moved onto the API service's verified
+// credential and a direct `gh image` run now that GitHubCli carries no raw command
+// execution (upstream-fixes/attachment-media-verified-host).
 import { afterEach, assert, expect, it, vi } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/process";
-import * as GitHubCli from "../sourceControl/GitHubCli.ts";
-import * as GitHubGraphQlBudget from "../sourceControl/githubGraphQlBudget.ts";
+import * as Redacted from "effect/Redacted";
+import { VcsProcessExitError } from "@t3tools/contracts";
+import * as GitHubApi from "../sourceControl/GitHubApi.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubPullRequestCli from "./GitHubPullRequestCli.ts";
-const mockedExecute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>();
-const mockedGetPullRequest = vi.fn<GitHubCli.GitHubCli["Service"]["getPullRequest"]>();
+import { parseGitHubAttachmentUploadOutput } from "./gitHubAttachmentUpload.fork.ts";
+
+const mockedRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
+const mockedCredential = vi.fn<GitHubApi.GitHubApi["Service"]["credential"]>(() =>
+  Effect.succeed({ token: Redacted.make("token"), fingerprint: "github.com:token" }),
+);
+const mockApi = Layer.succeed(
+  GitHubApi.GitHubApi,
+  GitHubApi.GitHubApi.of({
+    graphql: () => Effect.die("unused"),
+    rest: () => Effect.die("unused"),
+    credential: (host) => mockedCredential(host),
+  }),
+);
 const layer = it.layer(
   GitHubPullRequestCli.layer.pipe(
-    Layer.provide(
-      Layer.mock(GitHubCli.GitHubCli)({
-        execute: mockedExecute,
-        getPullRequest: mockedGetPullRequest,
-      }),
-    ),
-    Layer.provide(GitHubGraphQlBudget.layer),
+    Layer.provide(mockApi),
+    Layer.provide(Layer.mock(VcsProcess.VcsProcess)({ run: mockedRun })),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(NodeServices.layer),
   ),
 );
-function output(stdout: string, stdoutTruncated = false, stdoutInvalidUtf8 = false) {
+
+function output(stdout: string) {
   return {
     exitCode: ChildProcessSpawner.ExitCode(0),
     stdout,
     stderr: "",
-    stdoutTruncated,
+    stdoutTruncated: false,
     stderrTruncated: false,
-    stdoutInvalidUtf8,
   };
 }
-/** One thread's comments as the GraphQL read returns them, cursor and all. */
-/** What `gh pr diff` answers on a pull request GitHub will not serve a diff for. */
-/** The whole invocation the nth call made, so both argv and stdin can be asserted. */
+
+/** The whole invocation the nth call made, so argv and env can be asserted. */
 function callAt(index: number) {
-  const call = mockedExecute.mock.calls[index];
+  const call = mockedRun.mock.calls[index];
   assert.isDefined(call);
   return call[0];
 }
-/** The one argument `--search` carries, which is where every listing filter ends up. */
-/** One row as a search answers it, which is the listing's row one connection deeper. */
-/** The search a batched read sent, which travels in the request body rather than in argv. */
+
+const upload = (
+  input: Partial<
+    Parameters<GitHubPullRequestCli.GitHubPullRequestCli["Service"]["uploadAttachment"]>[0]
+  > = {},
+) =>
+  Effect.flatMap(GitHubPullRequestCli.GitHubPullRequestCli, (cli) =>
+    cli.uploadAttachment({
+      cwd: "/w",
+      repository: "acme/web",
+      host: "github.com",
+      path: "/tmp/demo.webm",
+      name: "demo.webm",
+      mimeType: "video/webm",
+      ...input,
+    }),
+  );
+
 afterEach(() => {
-  mockedExecute.mockReset();
-  mockedGetPullRequest.mockReset();
+  mockedRun.mockReset();
+  mockedCredential.mockReset();
+  mockedCredential.mockReturnValue(
+    Effect.succeed({ token: Redacted.make("token"), fingerprint: "github.com:token" }),
+  );
 });
+
 layer("GitHubPullRequestCli.layer", (it) => {
   it("normalizes image output to the original file name", () => {
     expect(
-      GitHubPullRequestCli.parseGitHubAttachmentUploadOutput({
+      parseGitHubAttachmentUploadOutput({
         stdout:
           "![pending.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)\n",
         name: "before [ mid ] after.png",
@@ -56,9 +90,9 @@ layer("GitHubPullRequestCli.layer", (it) => {
       "![before \\[ mid \\] after.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)",
     );
   });
-  it.effect("uses the pinned extension without forwarding an ambient session token", () =>
+  it.effect("uploads under the credential verified for the host, never a session token", () =>
     Effect.gen(function* () {
-      mockedExecute
+      mockedRun
         .mockReturnValueOnce(Effect.succeed(output("gh-image 1.2.0\n")))
         .mockReturnValueOnce(
           Effect.succeed(
@@ -67,75 +101,72 @@ layer("GitHubPullRequestCli.layer", (it) => {
             ),
           ),
         );
-      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
-      const insertion = yield* cli.uploadAttachment({
-        cwd: "/w",
-        repository: "acme/web",
-        host: "github.com",
-        path: "/tmp/demo.webm",
-        name: "demo.webm",
-        mimeType: "video/webm",
-      });
+      const insertion = yield* upload();
+
       expect(insertion).toBe(
         "https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456",
       );
+      // The token is fetched for the caller's host, which is where a pinned page's
+      // host check happens.
+      expect(mockedCredential).toHaveBeenCalledWith("github.com");
+      assert.isDefined(callAt(0));
       expect(callAt(0)).toMatchObject({
+        command: "gh",
         args: ["image", "--version"],
-        env: { GH_SESSION_TOKEN: undefined },
+        env: { GH_SESSION_TOKEN: undefined, GH_HOST: "github.com", GH_TOKEN: "token" },
       });
       expect(callAt(1)).toMatchObject({
         args: ["image", "--repo", "acme/web", "/tmp/demo.webm"],
-        env: { GH_SESSION_TOKEN: undefined },
+        env: { GH_SESSION_TOKEN: undefined, GH_HOST: "github.com", GH_TOKEN: "token" },
       });
     }),
   );
   it.effect("refuses extension version drift before uploading bytes to GitHub", () =>
     Effect.gen(function* () {
-      mockedExecute.mockReturnValueOnce(Effect.succeed(output("gh-image 1.3.0\n")));
-      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
-      const error = yield* Effect.flip(
-        cli.uploadAttachment({
-          cwd: "/w",
-          repository: "acme/web",
-          host: "github.com",
-          path: "/tmp/demo.png",
-          name: "demo.png",
-          mimeType: "image/png",
-        }),
-      );
+      mockedRun.mockReturnValueOnce(Effect.succeed(output("gh-image 1.3.0\n")));
+      const error = yield* Effect.flip(upload({ mimeType: "image/png", name: "demo.png" }));
       expect(error._tag).toBe("GitHubAttachmentUploadError");
       assert(error._tag === "GitHubAttachmentUploadError");
       expect(error.detail).toContain("received gh-image 1.3.0");
       expect(error.detail).toContain("gh extension install drogers0/gh-image --pin v1.2.0");
-      expect(mockedExecute).toHaveBeenCalledTimes(1);
+      expect(mockedRun).toHaveBeenCalledTimes(1);
     }),
   );
   it.effect("names the missing extension and how to install it", () =>
     Effect.gen(function* () {
-      mockedExecute.mockReturnValueOnce(
+      mockedRun.mockReturnValueOnce(
         Effect.fail(
-          new GitHubCli.GitHubCliCommandError({
+          new VcsProcessExitError({
+            operation: "GitHubPullRequestCli.uploadAttachment",
             command: "gh",
             cwd: "/w",
-            cause: new Error('unknown command "image" for "gh"'),
+            exitCode: 1,
+            detail: 'unknown command "image" for "gh"',
           }),
         ),
       );
-      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
-      const error = yield* Effect.flip(
-        cli.uploadAttachment({
-          cwd: "/w",
-          repository: "acme/web",
-          host: "github.com",
-          path: "/tmp/demo.png",
-          name: "demo.png",
-          mimeType: "image/png",
-        }),
-      );
+      const error = yield* Effect.flip(upload({ mimeType: "image/png", name: "demo.png" }));
       assert(error._tag === "GitHubAttachmentUploadError");
       expect(error.detail).toContain("gh-image extension is not installed");
       expect(error.detail).toContain("gh extension install drogers0/gh-image --pin v1.2.0");
-      expect(mockedExecute).toHaveBeenCalledTimes(1);
+      expect(mockedRun).toHaveBeenCalledTimes(1);
+    }),
+  );
+  it.effect("refuses the upload when no credential is verified for the host", () =>
+    Effect.gen(function* () {
+      // The refusal is GitHubApi.credential's own: a pinned page for another host, a disabled
+      // host, or a missing token all land here, and no extension bytes ever upload.
+      mockedCredential.mockReturnValue(
+        Effect.fail(
+          new GitHubApi.GitHubApiAuthenticationError({
+            host: "github.com",
+            operation: "credential",
+          }),
+        ),
+      );
+      const error = yield* Effect.flip(upload({ mimeType: "image/png", name: "demo.png" }));
+      expect(error._tag).toBe("GitHubApiAuthenticationError");
+      expect(mockedRun).not.toHaveBeenCalled();
     }),
   );
 });

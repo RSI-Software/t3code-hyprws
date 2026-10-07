@@ -111,6 +111,8 @@ const NormalizedIssueDetail = Schema.Struct({
 
 const decodeIssueList = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(RawIssue)));
 const decodeIssueDetail = Schema.decodeEffect(Schema.fromJsonString(RawIssue));
+const decodeUnknownIssueList = Schema.decodeUnknownEffect(Schema.Array(RawIssue));
+const decodeUnknownIssueDetail = Schema.decodeUnknownEffect(RawIssue);
 const decodeNormalizedIssueList = Schema.decodeUnknownEffect(Schema.Array(NormalizedIssue));
 const decodeNormalizedIssueDetail = Schema.decodeUnknownEffect(NormalizedIssueDetail);
 
@@ -225,17 +227,8 @@ function comment(raw: RawComment): GitHubIssueCommentType {
   };
 }
 
-export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
-  const decoded = yield* decodeIssueList(raw);
-  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
-  return yield* decodeNormalizedIssueList(normalized);
-});
-
-export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueDetail(raw);
-  const normalized = yield* Effect.try(() => ({
+function normalizeIssueDetail(decoded: RawGitHubIssue) {
+  return {
     ...normalizeGitHubIssue(decoded),
     body: decoded.body ?? "",
     comments: (decoded.comments ?? []).map(comment),
@@ -244,8 +237,37 @@ export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(func
       decoded.closedAt === null || decoded.closedAt === undefined
         ? null
         : timestamp(decoded.closedAt),
-  }));
-  return yield* decodeNormalizedIssueDetail(normalized);
+  };
+}
+
+export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
+  const decoded = yield* decodeIssueList(raw);
+  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  return yield* decodeNormalizedIssueList(normalized);
+});
+
+/** The same read for rows that were never a JSON string, such as GraphQL answers reshaped in memory. */
+export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueList")(function* (
+  rows: ReadonlyArray<unknown>,
+) {
+  const decoded = yield* decodeUnknownIssueList(rows);
+  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  return yield* decodeNormalizedIssueList(normalized);
+});
+
+export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
+  raw: string,
+) {
+  const decoded = yield* decodeIssueDetail(raw);
+  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
+});
+
+/** The same read for one row that was never a JSON string. */
+export const decodeParsedGitHubIssueDetail = Effect.fn("decodeParsedGitHubIssueDetail")(function* (
+  row: unknown,
+) {
+  const decoded = yield* decodeUnknownIssueDetail(row);
+  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
 });
 
 /** What a linked-issue snapshot stores, read on its own so a refresh skips the rest of a detail
@@ -278,6 +300,21 @@ export const decodeGitHubIssueSummary = Effect.fn("decodeGitHubIssueSummary")(fu
     closeReason: closeReason(decoded.stateReason),
   });
 });
+
+/** The same read for a summary that was never a JSON string. */
+export const decodeParsedGitHubIssueSummary = Effect.fn("decodeParsedGitHubIssueSummary")(
+  function* (row: {
+    readonly title: string;
+    readonly state: string;
+    readonly stateReason: string | null;
+  }) {
+    return yield* decodeNormalizedIssueSummary({
+      title: row.title,
+      state: state(row.state),
+      closeReason: closeReason(row.stateReason),
+    });
+  },
+);
 
 /** A child's close reason keyed by its number, read with one extra GraphQL call because `gh`
  * carries no reason on sub-issue nodes (RSI-Software/t3code-hyprws#1461). */

@@ -21,33 +21,121 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import * as GitHubApi from "../sourceControl/GitHubApi.ts";
 import {
-  decodeGitHubIssueDetail,
-  decodeGitHubIssueList,
-  decodeGitHubIssueSummary,
+  decodeParsedGitHubIssueDetail,
+  decodeParsedGitHubIssueList,
+  decodeParsedGitHubIssueSummary,
   type GitHubIssueSummary,
 } from "./gitHubIssueJson.ts";
 import { attachSubIssueCloseReasons } from "./subIssueCloseReasons.fork.ts";
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_CONCURRENCY = 8;
+/** The detail read keeps the newest comments only; the GraphQL window matches that slice. */
 const DETAIL_COMMENT_LIMIT = 100;
-// `issueType`, `subIssues`, and `stateReason` need a recent `gh`; an older CLI rejects the unknown
-// field name and degrades the whole project, which the list already reports per project rather
-// than swallowing.
-// `comments` is asked for by count alone: `gh` has no count field, and the entry keeps only the
-// length, so the cost is one subprocess read rather than anything crossing the socket.
-const ISSUE_LIST_FIELDS =
-  "number,title,url,author,assignees,labels,issueType,state,stateReason,createdAt,updatedAt,comments,reactionGroups";
-const ISSUE_DETAIL_FIELDS = `${ISSUE_LIST_FIELDS},body,subIssues,closedAt`;
-// The linked-issue sync reads this alone: a snapshot stores a title, a state, and a close
-// reason, so refreshing one never hauls the body, comments, and reactions a detail read asks
-// for (RSI-Software/t3code-hyprws#1451). `stateReason` rides the same single read.
-const ISSUE_SUMMARY_FIELDS = "title,state,stateReason";
+// GitHub caps a GraphQL search page at 100 nodes; the +1 that detects truncation stays under it.
+const SEARCH_PAGE_MAX = 100;
+
+/**
+ * The issue fields the panels read, selected from GitHub's GraphQL schema. Actor unions expose
+ * `login` everywhere and a real name only on some members, so `name` and `avatarUrl` sit inside
+ * member fragments: an absent key decodes as the null the wire contract allows, and a future
+ * union member cannot fail the whole read.
+ */
+const ISSUE_ACTOR_SELECTION =
+  "login ... on User { name avatarUrl } ... on Organization { name avatarUrl }";
+const ISSUE_BASE_SELECTION = `number title url author { ${ISSUE_ACTOR_SELECTION} } assignees(first: 100) { nodes { login name avatarUrl } } labels(first: 100) { nodes { name color } } issueType { name color } state stateReason createdAt updatedAt reactionGroups { content users { totalCount } }`;
+const ISSUE_SUMMARY_SELECTION = "title state stateReason";
+const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body subIssues(first: 100) { nodes { number title url state stateReason } } closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
+
+const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!){search(query:$query,type:ISSUE,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
+const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
+const ISSUE_SUMMARY_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_SUMMARY_SELECTION}}}}`;
+const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
+const CLOSE_ISSUE_MUTATION = `mutation($issueId:ID!,$stateReason:IssueCloseReason){closeIssue(input:{issueId:$issueId,stateReason:$stateReason}){issue{id}}}`;
+const REOPEN_ISSUE_MUTATION = `mutation($issueId:ID!){reopenIssue(input:{issueId:$issueId}){issue{id}}}`;
+
+/**
+ * One issue row as GitHub's GraphQL schema answers it. Connections stay structured while the
+ * row's inner objects pass through untouched: the issue decoders own their contents, and
+ * `Schema.Struct` would silently drop the optional keys (`name`, `color`, …) the fragments ask for.
+ */
+const GraphQlIssueRow = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  url: Schema.String,
+  author: Schema.NullOr(Schema.Unknown),
+  assignees: Schema.Struct({ nodes: Schema.Array(Schema.Unknown) }),
+  labels: Schema.Struct({ nodes: Schema.Array(Schema.Unknown) }),
+  issueType: Schema.NullOr(Schema.Unknown),
+  state: Schema.String,
+  stateReason: Schema.NullOr(Schema.String),
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+  reactionGroups: Schema.NullOr(Schema.Array(Schema.Unknown)),
+  body: Schema.optional(Schema.String),
+  subIssues: Schema.optional(Schema.Struct({ nodes: Schema.Array(Schema.Unknown) })),
+  closedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  comments: Schema.optional(
+    Schema.Struct({
+      totalCount: Schema.Number,
+      nodes: Schema.optional(Schema.Array(Schema.Unknown)),
+    }),
+  ),
+});
+type GraphQlIssueRowType = Schema.Schema.Type<typeof GraphQlIssueRow>;
+
+const SearchEnvelope = Schema.Struct({
+  data: Schema.Struct({ search: Schema.Struct({ nodes: Schema.Array(GraphQlIssueRow) }) }),
+});
+const DetailEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(Schema.Struct({ issue: Schema.NullOr(GraphQlIssueRow) })),
+  }),
+});
+const SummaryEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        issue: Schema.NullOr(
+          Schema.Struct({
+            title: Schema.String,
+            state: Schema.String,
+            stateReason: Schema.NullOr(Schema.String),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+const IssueIdEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({ issue: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
+    ),
+  }),
+});
+const MutationEnvelope = Schema.Struct({
+  data: Schema.Struct({
+    closeIssue: Schema.optional(
+      Schema.NullOr(Schema.Struct({ issue: Schema.Struct({ id: Schema.String }) })),
+    ),
+    reopenIssue: Schema.optional(
+      Schema.NullOr(Schema.Struct({ issue: Schema.Struct({ id: Schema.String }) })),
+    ),
+  }),
+});
+
+const decodeSearchEnvelope = Schema.decodeSync(Schema.fromJsonString(SearchEnvelope));
+const decodeDetailEnvelope = Schema.decodeSync(Schema.fromJsonString(DetailEnvelope));
+const decodeSummaryEnvelope = Schema.decodeSync(Schema.fromJsonString(SummaryEnvelope));
+const decodeIssueIdEnvelope = Schema.decodeSync(Schema.fromJsonString(IssueIdEnvelope));
+const decodeMutationEnvelope = Schema.decodeSync(Schema.fromJsonString(MutationEnvelope));
 
 type GitHubIssueCliError = GitHubIssueCliMissingError | GitHubIssueCliUnauthenticatedError;
 type GitHubIssueError = GitHubIssueCliError | GitHubIssueOperationError;
@@ -85,28 +173,57 @@ function authCommandForHost(host: string): string {
   return host === "github.com" ? "gh auth login" : `gh auth login --hostname ${host}`;
 }
 
-function fromCliError(operation: string, host: string) {
-  return (error: GitHubCli.GitHubCliError): GitHubIssueError => {
-    if (error._tag === "GitHubCliUnavailableError") {
+function fromApiError(operation: string, host: string) {
+  return (error: GitHubApi.GitHubApiError): GitHubIssueError => {
+    // No credential at all is the missing-binary world's "nothing to authenticate with": the
+    // whole read fails rather than degrading, the way a missing `gh` once did.
+    if (error._tag === "GitHubCliMissingError") {
       return new GitHubIssueCliMissingErrorClass({ cause: error });
     }
-    if (error._tag === "GitHubCliAuthenticationError") {
+    if (
+      error._tag === "GitHubApiAuthenticationError" ||
+      error._tag === "GitHubNotSignedInError" ||
+      error._tag === "GitHubHostDisabledError"
+    ) {
       return new GitHubIssueCliUnauthenticatedErrorClass({ host, cause: error });
     }
-    return new GitHubIssueOperationErrorClass({ operation, detail: error.detail, cause: error });
+    return new GitHubIssueOperationErrorClass({ operation, detail: error.message, cause: error });
   };
 }
 
 function decodeError(operation: string, cause: unknown): GitHubIssueOperationError {
   return new GitHubIssueOperationErrorClass({
     operation,
-    detail: "GitHub CLI returned unreadable issue data.",
+    detail: "GitHub returned unreadable issue data.",
     cause,
   });
 }
 
+/** Reshapes one GraphQL issue row into the flat shape the issue decoders already speak. */
+function toRawIssue(row: GraphQlIssueRowType): Record<string, unknown> {
+  return {
+    number: row.number,
+    title: row.title,
+    url: row.url,
+    author: row.author,
+    assignees: row.assignees.nodes,
+    labels: row.labels.nodes,
+    issueType: row.issueType,
+    state: row.state,
+    stateReason: row.stateReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    reactionGroups: row.reactionGroups,
+    ...(row.body === undefined ? {} : { body: row.body }),
+    ...(row.subIssues === undefined ? {} : { subIssues: row.subIssues }),
+    ...(row.closedAt === undefined ? {} : { closedAt: row.closedAt }),
+    // A list row asks for the count alone; a detail row carries the newest window's nodes.
+    ...(row.comments === undefined ? {} : { comments: row.comments.nodes ?? [] }),
+  };
+}
+
 export const make = Effect.gen(function* () {
-  const cli = yield* GitHubCli.GitHubCli;
+  const api = yield* GitHubApi.GitHubApi;
   const projectService = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
 
@@ -156,48 +273,60 @@ export const make = Effect.gen(function* () {
     return projects;
   });
 
+  /** The search a repository's list asks for; `gh` combined `--repo`, `--state`, and `--search`. */
+  const searchQueryFor = (project: GitHubProject, input: GitHubIssueListInput): string =>
+    [
+      `repo:${cliRepository(project)}`,
+      "is:issue",
+      ...(input.state === "all" ? [] : [`state:${input.state}`]),
+      ...(input.query === undefined ? [] : [input.query]),
+      "sort:updated-desc",
+    ].join(" ");
+
+  /** One repository's search page, decoded, with each row's true comment count beside it. */
+  const readSearchRows = Effect.fn("GitHubIssueService.readSearchRows")(function* (input: {
+    readonly project: GitHubProject;
+    readonly listInput: GitHubIssueListInput;
+    readonly limit: number;
+  }) {
+    const body = yield* api
+      .graphql({
+        host: input.project.host,
+        operation: "listIssues",
+        query: ISSUE_SEARCH_QUERY,
+        variables: {
+          query: searchQueryFor(input.project, input.listInput),
+          first: Math.min(input.limit + 1, SEARCH_PAGE_MAX),
+        },
+      })
+      .pipe(Effect.mapError(fromApiError("list", input.project.host)));
+    const parsed = yield* Effect.try(() => decodeSearchEnvelope(body)).pipe(
+      Effect.mapError((cause) => decodeError("list", cause)),
+    );
+    const rows = parsed.data.search.nodes;
+    const issues = yield* decodeParsedGitHubIssueList(rows.map(toRawIssue)).pipe(
+      Effect.mapError((cause) => decodeError("list", cause)),
+    );
+    return { issues, commentCounts: rows.map((row) => row.comments?.totalCount ?? 0) };
+  });
+
   const list: GitHubIssueService["Service"]["list"] = Effect.fn("GitHubIssueService.list")(
     function* (input) {
       const projects = yield* workspaceProjects(input.projectId);
       const limit = input.limit ?? DEFAULT_LIMIT;
-      const search = [input.query, "sort:updated-desc"].filter(Boolean).join(" ");
-      // A missing CLI escapes the concurrent traversal, intentionally discarding partial batches.
+      // A missing credential escapes the concurrent traversal, intentionally discarding partial batches.
       const batches = yield* Effect.forEach(
         projects,
         (project) =>
-          cli
-            .execute({
-              cwd: project.project.workspaceRoot,
-              args: [
-                "issue",
-                "list",
-                "--repo",
-                cliRepository(project),
-                "--state",
-                input.state,
-                "--limit",
-                String(limit + 1),
-                "--json",
-                ISSUE_LIST_FIELDS,
-                "--search",
-                search,
-              ],
-            })
-            .pipe(
-              Effect.mapError(fromCliError("list", project.host)),
-              Effect.flatMap((output) =>
-                decodeGitHubIssueList(output.stdout).pipe(
-                  Effect.mapError((cause) => decodeError("list", cause)),
-                ),
-              ),
-              Effect.map((issues) => ({ project, issues })),
-              Effect.catchTags({
-                GitHubIssueCliUnauthenticatedError: (error) =>
-                  Effect.succeed({ project, error } satisfies GitHubIssueProjectFailure),
-                GitHubIssueOperationError: (error) =>
-                  Effect.succeed({ project, error } satisfies GitHubIssueProjectFailure),
-              }),
-            ),
+          readSearchRows({ project, listInput: input, limit }).pipe(
+            Effect.map((read) => ({ project, ...read })),
+            Effect.catchTags({
+              GitHubIssueCliUnauthenticatedError: (error) =>
+                Effect.succeed({ project, error } satisfies GitHubIssueProjectFailure),
+              GitHubIssueOperationError: (error) =>
+                Effect.succeed({ project, error } satisfies GitHubIssueProjectFailure),
+            }),
+          ),
         { concurrency: PROJECT_CONCURRENCY },
       );
 
@@ -217,9 +346,10 @@ export const make = Effect.gen(function* () {
           continue;
         }
         truncated ||= batch.issues.length > limit;
-        for (const issue of batch.issues.slice(0, limit)) {
+        for (const [index, issue] of batch.issues.slice(0, limit).entries()) {
           entries.push({
             ...issue,
+            commentCount: batch.commentCounts[index] ?? issue.commentCount,
             projectId: batch.project.project.id,
             projectTitle: batch.project.project.title,
             repository: batch.project.repository,
@@ -234,7 +364,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  /** The project an issue reference names, which is where `gh` runs and whose host it asks. */
+  /** The project an issue reference names, which is the repository the API reads. */
   const issueProject = Effect.fn("GitHubIssueService.issueProject")(function* (
     input: GitHubIssueRef,
     operation: string,
@@ -250,31 +380,61 @@ export const make = Effect.gen(function* () {
     return project;
   });
 
+  const readIssueRow = <A>(
+    input: {
+      readonly project: GitHubProject;
+      readonly ref: GitHubIssueRef;
+      readonly operation: string;
+      readonly query: string;
+    },
+    decodeEnvelope: (body: string) => { data: { repository: { issue: A | null } | null } },
+  ): Effect.Effect<A, GitHubIssueError> =>
+    api
+      .graphql({
+        host: input.project.host,
+        operation: input.operation,
+        query: input.query,
+        variables: {
+          owner: input.ref.repository.split("/")[0] ?? "",
+          name: input.ref.repository.split("/")[1] ?? "",
+          number: input.ref.number,
+        },
+      })
+      .pipe(
+        Effect.mapError(fromApiError(input.operation, input.project.host)),
+        Effect.flatMap((body) =>
+          Effect.try(() => decodeEnvelope(body)).pipe(
+            Effect.mapError((cause) => decodeError(input.operation, cause)),
+          ),
+        ),
+        Effect.flatMap((parsed) => {
+          const issue = parsed.data.repository?.issue;
+          return issue === null || issue === undefined
+            ? Effect.fail(
+                new GitHubIssueOperationErrorClass({
+                  operation: input.operation,
+                  detail: `Issue #${input.ref.number} was not found in ${input.ref.repository}.`,
+                }),
+              )
+            : Effect.succeed(issue);
+        }),
+      );
+
   const detail: GitHubIssueService["Service"]["detail"] = Effect.fn("GitHubIssueService.detail")(
     function* (input) {
       const project = yield* issueProject(input, "detail");
-      const output = yield* cli
-        .execute({
-          cwd: project.project.workspaceRoot,
-          args: [
-            "issue",
-            "view",
-            String(input.number),
-            "--repo",
-            cliRepository(project, input.repository),
-            "--json",
-            ISSUE_DETAIL_FIELDS,
-          ],
-        })
-        .pipe(Effect.mapError(fromCliError("detail", project.host)));
-      const issue = yield* decodeGitHubIssueDetail(output.stdout).pipe(
+      const row = yield* readIssueRow(
+        { project, ref: input, operation: "detail", query: ISSUE_DETAIL_QUERY },
+        decodeDetailEnvelope,
+      );
+      const issue = yield* decodeParsedGitHubIssueDetail(toRawIssue(row)).pipe(
         Effect.mapError((cause) => decodeError("detail", cause)),
       );
-      // Fork-hook: github-issues/sub-issue-close-reasons — `gh` omits a child's close reason, so
-      // one extra read attaches it when a closed child exists (RSI-Software/t3code-hyprws#1461).
-      const subIssues = yield* attachSubIssueCloseReasons(cli, {
+      // Fork-hook: github-issues/sub-issue-close-reasons — the detail read omits a child's close
+      // reason, so one extra read attaches it when a closed child exists
+      // (RSI-Software/t3code-hyprws#1461).
+      const subIssues = yield* attachSubIssueCloseReasons(api, {
         host: project.host,
-        workspaceRoot: project.project.workspaceRoot,
         repository: input.repository,
         parentNumber: input.number,
         children: issue.subIssues,
@@ -282,12 +442,13 @@ export const make = Effect.gen(function* () {
       return {
         ...issue,
         subIssues,
-        comments: issue.comments.slice(-DETAIL_COMMENT_LIMIT),
+        // The window is the read itself (`last: 100`); totalCount keeps the true count.
+        comments: issue.comments,
+        commentCount: row.comments?.totalCount ?? issue.comments.length,
         projectId: project.project.id,
         projectTitle: project.project.title,
         workspaceRoot: project.project.workspaceRoot,
         repository: input.repository,
-        commentCount: issue.comments.length,
       };
     },
   );
@@ -295,23 +456,15 @@ export const make = Effect.gen(function* () {
   const summary: GitHubIssueService["Service"]["summary"] = Effect.fn("GitHubIssueService.summary")(
     function* (input) {
       const project = yield* issueProject(input, "summary");
-      const output = yield* cli
-        .execute({
-          cwd: project.project.workspaceRoot,
-          args: [
-            "issue",
-            "view",
-            String(input.number),
-            "--repo",
-            cliRepository(project, input.repository),
-            "--json",
-            ISSUE_SUMMARY_FIELDS,
-          ],
-        })
-        .pipe(Effect.mapError(fromCliError("summary", project.host)));
-      return yield* decodeGitHubIssueSummary(output.stdout).pipe(
-        Effect.mapError((cause) => decodeError("summary", cause)),
+      const row = yield* readIssueRow(
+        { project, ref: input, operation: "summary", query: ISSUE_SUMMARY_QUERY },
+        decodeSummaryEnvelope,
       );
+      return yield* decodeParsedGitHubIssueSummary({
+        title: row.title,
+        state: row.state,
+        stateReason: row.stateReason,
+      }).pipe(Effect.mapError((cause) => decodeError("summary", cause)));
     },
   );
 
@@ -320,21 +473,57 @@ export const make = Effect.gen(function* () {
   )(function* (input) {
     const operation = input.state === "closed" ? "close" : "reopen";
     const project = yield* issueProject(input, operation);
-    // `gh` answers a close of a closed issue, or a reopen of an open one, with a warning and
-    // exit 0, so a press that raced another reader's settles on the state asked for either way.
-    yield* cli
-      .execute({
-        cwd: project.project.workspaceRoot,
-        args: [
-          "issue",
-          operation,
-          String(input.number),
-          "--repo",
-          cliRepository(project, input.repository),
-          ...(input.state === "closed" && input.reason ? ["--reason", input.reason] : []),
-        ],
+    // The node id is read first, then the mutation runs on it. GitHub's mutations answer a
+    // repeat of the state the issue already has with the issue itself and no error, so a press
+    // that raced another reader's settles on the state asked for either way.
+    const idBody = yield* api
+      .graphql({
+        host: project.host,
+        operation: `${operation}IssueId`,
+        query: ISSUE_ID_QUERY,
+        variables: {
+          owner: input.repository.split("/")[0] ?? "",
+          name: input.repository.split("/")[1] ?? "",
+          number: input.number,
+        },
       })
-      .pipe(Effect.mapError(fromCliError(operation, project.host)));
+      .pipe(Effect.mapError(fromApiError(operation, project.host)));
+    const parsed = yield* Effect.try(() => decodeIssueIdEnvelope(idBody)).pipe(
+      Effect.mapError((cause) => decodeError(operation, cause)),
+    );
+    const issueId = parsed.data.repository?.issue?.id;
+    if (issueId === null || issueId === undefined) {
+      return yield* new GitHubIssueOperationErrorClass({
+        operation,
+        detail: `Issue #${input.number} was not found in ${input.repository}.`,
+      });
+    }
+    const mutationBody = yield* api
+      .graphql({
+        host: project.host,
+        operation,
+        query: input.state === "closed" ? CLOSE_ISSUE_MUTATION : REOPEN_ISSUE_MUTATION,
+        variables:
+          input.state === "closed"
+            ? {
+                issueId,
+                // GitHub's GraphQL spelling of the close reason the wire contract names.
+                stateReason: input.reason === "not planned" ? "NOT_PLANNED" : "COMPLETED",
+              }
+            : { issueId },
+      })
+      .pipe(Effect.mapError(fromApiError(operation, project.host)));
+    const mutation = yield* Effect.try(() => decodeMutationEnvelope(mutationBody)).pipe(
+      Effect.mapError((cause) => decodeError(operation, cause)),
+    );
+    const confirmed =
+      input.state === "closed" ? mutation.data.closeIssue : mutation.data.reopenIssue;
+    if (confirmed == null) {
+      return yield* new GitHubIssueOperationErrorClass({
+        operation,
+        detail: `GitHub did not confirm the ${operation} of issue #${input.number}.`,
+      });
+    }
   });
 
   return GitHubIssueService.of({ list, detail, summary, setState });

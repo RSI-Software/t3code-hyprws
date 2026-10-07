@@ -1,13 +1,20 @@
-import { assert, it, afterEach, describe, expect, vi } from "@effect/vitest";
+// Fork-owned: explicit-repository scoping for GitHubCli reads, adapted to the
+// API-based service — `createPullRequest` and `getDefaultBranch` answer over
+// REST, and `listPullRequestsByHead` carries the explicit repository in its
+// GraphQL variables instead of a `--repo` argv flag.
+import { assert, it, describe } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as GitHubApi from "./GitHubApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
+
 const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({
   exitCode: ChildProcessSpawner.ExitCode(0),
   stdout,
@@ -15,32 +22,81 @@ const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({
   stdoutTruncated: false,
   stderrTruncated: false,
 });
-const quotaOutput = (remaining = 5000, resetAt = "2099-01-01T00:00:00Z") =>
-  processOutput(
-    JSON.stringify({ data: { rateLimit: { cost: 1, limit: 5000, remaining, resetAt } } }),
-  );
-const mockRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
-const layer = GitHubCli.layer.pipe(
-  Layer.provide(
-    Layer.mock(VcsProcess.VcsProcess)({
-      // The budget reading upstream takes before reads must not consume the queued outputs.
-      run: (input) =>
-        input.args[0] === "api" &&
-        input.args[1] === "graphql" &&
-        input.args.at(-1)?.includes("rateLimit")
-          ? Effect.succeed(quotaOutput())
-          : mockRun(input),
-    }),
-  ),
-);
-afterEach(() => {
-  mockRun.mockReset();
+
+const restResponse = (body: unknown, status = 200): GitHubApi.GitHubRestResponse => ({
+  status,
+  headers: {},
+  body: JSON.stringify(body),
+  truncated: false,
+  invalidUtf8: false,
 });
-describe("GitHubCli.layer", () => {
-  it.effect("scopes PR creation and default branch lookup to an explicit repository", () =>
-    Effect.gen(function* () {
-      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
-      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("hyprws\n")));
+
+/** One read a test can assert on, without any cwd remote consultation. */
+function harness(input: {
+  readonly graphql?: GitHubApi.GitHubApi["Service"]["graphql"];
+  readonly rest?: GitHubApi.GitHubApi["Service"]["rest"];
+  readonly bodyFile?: string;
+}) {
+  const gitRuns: Array<ReadonlyArray<string>> = [];
+  const bodyFile = input.bodyFile;
+  const driver = Layer.mock(GitVcsDriver.GitVcsDriver)({
+    execute: (args) =>
+      Effect.sync(() => {
+        gitRuns.push(["execute", ...args.args]);
+        return processOutput("");
+      }),
+    resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+    readConfigValue: () => Effect.succeed("git@github.com:acme/web.git"),
+  });
+  const process = Layer.mock(VcsProcess.VcsProcess)({
+    run: (args) =>
+      Effect.sync(() => {
+        gitRuns.push([args.command, ...args.args]);
+        return processOutput("");
+      }),
+  });
+  const layer = Layer.effect(GitHubCli.GitHubCli, GitHubCli.make).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        driver,
+        process,
+        Layer.mock(GitHubApi.GitHubApi)({
+          ...(input.graphql === undefined ? {} : { graphql: input.graphql }),
+          ...(input.rest === undefined ? {} : { rest: input.rest }),
+        }),
+        NodeServices.layer,
+        // Last wins over NodeServices' real file system: the body file is fixture content.
+        ...(bodyFile === undefined
+          ? []
+          : [FileSystem.layerNoop({ readFileString: () => Effect.succeed(bodyFile) })]),
+      ),
+    ),
+  );
+  return { layer, gitRuns };
+}
+
+describe("GitHubCli.make", () => {
+  it.effect("scopes PR creation and default branch lookup to an explicit repository", () => {
+    const restCalls: Array<GitHubApi.GitHubRestInput> = [];
+    const { layer, gitRuns } = harness({
+      bodyFile: "PR body",
+      rest: (input) => {
+        restCalls.push(input);
+        return Effect.succeed(
+          restResponse(
+            input.method === "POST"
+              ? {}
+              : {
+                  full_name: "rsi-software/t3code-hyprws",
+                  html_url: "https://github.com/rsi-software/t3code-hyprws",
+                  ssh_url: "git@github.com:rsi-software/t3code-hyprws.git",
+                  default_branch: "hyprws",
+                },
+          ),
+        );
+      },
+    });
+    return Effect.gen(function* () {
       const gh = yield* GitHubCli.GitHubCli;
       yield* gh.createPullRequest({
         cwd: "/repo",
@@ -55,161 +111,111 @@ describe("GitHubCli.layer", () => {
         repository: "github.com/rsi-software/t3code-hyprws",
       });
       assert.strictEqual(defaultBranch, "hyprws");
-      expect(mockRun).toHaveBeenNthCalledWith(1, {
-        operation: "GitHubCli.execute",
-        command: "gh",
-        args: [
-          "pr",
-          "create",
-          "--base",
-          "hyprws",
-          "--head",
-          "feature/origin-pr",
-          "--title",
-          "Origin PR",
-          "--body-file",
-          "/tmp/body.md",
-          "--repo",
-          "github.com/rsi-software/t3code-hyprws",
-        ],
-        cwd: "/repo",
-        timeoutMs: 30000,
+      const create = restCalls[0];
+      assert.strictEqual(create?.method, "POST");
+      assert.strictEqual(create?.host, "github.com");
+      assert.strictEqual(create?.path, "repos/rsi-software/t3code-hyprws/pulls");
+      assert.deepStrictEqual(create?.body, {
+        base: "hyprws",
+        head: "feature/origin-pr",
+        title: "Origin PR",
+        body: "PR body",
+        maintainer_can_modify: true,
       });
-      expect(mockRun).toHaveBeenNthCalledWith(2, {
-        operation: "GitHubCli.execute",
-        command: "gh",
-        args: [
-          "repo",
-          "view",
-          "github.com/rsi-software/t3code-hyprws",
-          "--json",
-          "defaultBranchRef",
-          "--jq",
-          ".defaultBranchRef.name",
-        ],
-        cwd: "/repo",
-        timeoutMs: 30000,
-      });
-    }).pipe(Effect.provide(layer)),
-  );
-
-  // fork-hook: upstream-fixes/attachment-media-verified-host — the attachment media path
-  // runs host-agnostic probes and owner/name repositories through gh, which argv alone
-  // cannot pin to the pinned credential's host. The caller-derived verifiedHost must
-  // carry it: refused without the field, allowed only when it names the pinned host.
-  it.effect(
-    "routes the attachment media path through the pinned credential only when the verified host names it",
-    () =>
-      Effect.gen(function* () {
-        mockRun.mockImplementation((input) =>
-          Effect.succeed(processOutput(input.env?.GH_HOST === "github.com" ? "pinned" : "ambient")),
-        );
-        const gh = yield* GitHubCli.GitHubCli;
-        const pin = GitHubCli.PinnedGitHubCredential;
-        const pinned = {
-          host: "github.com",
-          token: Redacted.make("secret-credential"),
-          credentialFingerprint: "fingerprint",
-        } as const;
-        // Without a verified host the media args cannot prove their target, so the
-        // pinned credential is never exposed to them.
-        const unproven = yield* Effect.flip(
-          gh
-            .execute({ cwd: "/w", args: ["image", "--version"] })
-            .pipe(Effect.provideService(pin, pinned)),
-        );
-        expect(unproven._tag).toBe("GitHubCliCommandError");
-        expect(mockRun).not.toHaveBeenCalled();
-        // A wrong verified host is still refused.
-        const wrong = yield* Effect.flip(
-          gh
-            .execute({
-              cwd: "/w",
-              args: ["image", "--version"],
-              verifiedHost: "other.example.test",
-            })
-            .pipe(Effect.provideService(pin, pinned)),
-        );
-        expect(wrong._tag).toBe("GitHubCliCommandError");
-        // The right one routes through the pinned credential.
-        const version = yield* gh
-          .execute({ cwd: "/w", args: ["image", "--version"], verifiedHost: "github.com" })
-          .pipe(Effect.provideService(pin, pinned));
-        expect(version.stdout).toBe("pinned");
-        const upload = yield* gh
-          .execute({
-            cwd: "/w",
-            args: ["image", "--repo", "acme/web", "/tmp/demo.webm"],
-            verifiedHost: "github.com",
-          })
-          .pipe(Effect.provideService(pin, pinned));
-        expect(upload.stdout).toBe("pinned");
-      }).pipe(Effect.provide(layer)),
-  );
+      const read = restCalls[1];
+      assert.strictEqual(read?.path, "repos/rsi-software/t3code-hyprws");
+      // An explicit repository is parsed, never resolved through the checkout's remotes.
+      assert.deepStrictEqual(gitRuns, []);
+    }).pipe(Effect.provide(layer));
+  });
 });
+
 describe("GitHubCli.listPullRequestsByHead", () => {
-  const decodeRequest = Schema.decodeSync(
-    Schema.fromJsonString(
-      Schema.Struct({
-        query: Schema.String,
-        variables: Schema.Record(Schema.String, Schema.Unknown),
-      }),
-    ),
-  );
-  const jsonOutput = (value: unknown) => processOutput(JSON.stringify(value));
-  it.effect("reads an explicit repository instead of the one gh would pick", () =>
-    Effect.gen(function* () {
-      const documents: Array<{ query: string; variables: Record<string, unknown> }> = [];
-      const commands: Array<ReadonlyArray<string>> = [];
-      mockRun.mockImplementation((input) =>
-        Effect.sync(() => {
-          commands.push([input.command, ...input.args]);
-          if (input.command === "git") {
-            return processOutput(
-              "origin\tgit@github.com:me/web.git (fetch)\nupstream\tgit@github.com:acme/web.git (fetch)\n",
-            );
-          }
-          if (input.args[0] === "pr") return jsonOutput([]);
-          documents.push(decodeRequest(input.stdin ?? ""));
-          return jsonOutput({
-            data: {
-              repository: { h0: { nodes: [] } },
-              rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2099-01-01T00:00:00Z" },
+  const byHeadAnswer = () =>
+    Effect.succeed(
+      JSON.stringify({
+        data: {
+          repository: {
+            h0: {
+              nodes: [
+                {
+                  number: 7,
+                  title: "A",
+                  state: "OPEN",
+                  headRefName: "feature/a",
+                  headRepositoryOwner: { login: "me" },
+                  baseRefName: "hyprws",
+                  url: "https://github.com/me/web/pull/7",
+                  author: { login: "me" },
+                  updatedAt: "2026-01-01T00:00:00Z",
+                  headRefOid: "a".repeat(40),
+                },
+              ],
             },
-          });
-        }),
-      );
+            h1: { nodes: [] },
+          },
+        },
+      }),
+    );
+
+  it.effect("reads an explicit repository instead of the one gh would pick", () => {
+    const documents: Array<GitHubApi.GitHubGraphQlInput> = [];
+    const { layer, gitRuns } = harness({
+      graphql: (input) => {
+        documents.push(input);
+        return byHeadAnswer();
+      },
+    });
+    return Effect.gen(function* () {
       const gh = yield* GitHubCli.GitHubCli;
-      const lookup = yield* gh
-        .listPullRequestsByHead({
-          cwd: "/repo",
-          headSelector: "feature/a",
-          state: "all",
-          limit: 100,
-          rateLimitHost: "github.com",
-          repository: "github.com/me/web",
-        })
-        .pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
-      yield* Fiber.join(lookup);
-      assert.strictEqual(
-        commands.some(([command]) => command === "git"),
-        false,
+      const lookup = yield* GitHubApi.AllowGitHubReserve.pipe(
+        Effect.flatMap(() =>
+          gh.listPullRequestsByHead({
+            cwd: "/repo",
+            headSelector: "feature/a",
+            state: "all",
+            limit: 100,
+            rateLimitHost: "github.com",
+            repository: "github.com/me/web",
+          }),
+        ),
+        Effect.provideService(GitHubApi.AllowGitHubReserve, true),
+        Effect.forkChild,
       );
+      yield* TestClock.adjust("50 millis");
+      const joined = yield* Fiber.join(lookup);
+      assert.deepStrictEqual(gitRuns, []);
       assert.deepStrictEqual(
-        [documents[0]?.variables.owner, documents[0]?.variables.name],
+        joined?.map((pr) => pr.number),
+        [7],
+      );
+      assert.strictEqual(documents[0]?.host, "github.com");
+      assert.deepStrictEqual(
+        [documents[0]?.variables?.owner, documents[0]?.variables?.name],
         ["me", "web"],
       );
 
-      yield* gh.listPullRequestsByHead({
-        cwd: "/repo",
-        headSelector: "feature/a",
-        state: "all",
-        limit: 100,
-        rateLimitHost: "github.com",
-        repository: "enterprise.test/me/web",
-      });
-      assert.deepStrictEqual(commands.at(-1)?.slice(9, 11), ["--repo", "enterprise.test/me/web"]);
-    }).pipe(Effect.provide(layer)),
-  );
+      const enterpriseLookup = yield* GitHubApi.AllowGitHubReserve.pipe(
+        Effect.flatMap(() =>
+          gh.listPullRequestsByHead({
+            cwd: "/repo",
+            headSelector: "feature/a",
+            state: "all",
+            limit: 100,
+            rateLimitHost: "github.com",
+            repository: "enterprise.test/me/web",
+          }),
+        ),
+        Effect.provideService(GitHubApi.AllowGitHubReserve, true),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("50 millis");
+      yield* Fiber.join(enterpriseLookup);
+      assert.strictEqual(documents[1]?.host, "enterprise.test");
+      assert.deepStrictEqual(
+        [documents[1]?.variables?.owner, documents[1]?.variables?.name],
+        ["me", "web"],
+      );
+    }).pipe(Effect.provide(layer));
+  });
 });
