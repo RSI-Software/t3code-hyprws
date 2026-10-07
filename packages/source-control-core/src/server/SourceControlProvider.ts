@@ -24,6 +24,7 @@ export type ResolveSourceControlLink = (input: {
 }) => Effect.Effect<SourceControlLinkSubject, SourceControlProviderError> | undefined;
 
 export interface SourceControlProviderContext {
+  readonly preferRemoteRepositoryFork?: boolean; // fork-hook: upstream-fixes/origin-provider-context-type
   readonly provider: SourceControlProviderInfo;
   readonly remoteName: string;
   readonly remoteUrl: string;
