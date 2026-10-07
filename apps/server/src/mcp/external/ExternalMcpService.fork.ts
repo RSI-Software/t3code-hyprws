@@ -4,7 +4,16 @@
 // thread; this answers to a device-authorized session and its grant policy,
 // reusing upstream's projection helpers through the marked
 // `device-auth/mcp-external-helpers` export.
-import * as NodeCrypto from "node:crypto";
+import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
+import * as Stream from "effect/Stream";
 
 import {
   type AuthSessionId,
@@ -37,14 +46,6 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as Result from "effect/Result";
-import * as Stream from "effect/Stream";
 
 import {
   externalMcpPolicyAllowsProject,
@@ -54,7 +55,8 @@ import * as EventStore from "../../orchestration-v2/EventStore.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
   listItemFromShellFork,
@@ -312,7 +314,16 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const crypto = yield* Crypto.Crypto;
+  const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const ledger = yield* makeExternalMcpRequestLedger;
+
+  // Thread links carry the environment id, like the orchestrator toolkit's.
+  const threadViewContext = () =>
+    Effect.gen(function* () {
+      const environmentId = yield* environment.getEnvironmentId;
+      return { environmentId, nowMs: yield* Clock.currentTimeMillis };
+    });
 
   const loadProject = (principal: ExternalMcpPrincipal, projectId: ProjectId) =>
     Effect.gen(function* () {
@@ -530,7 +541,10 @@ const make = Effect.gen(function* () {
 
   const requests = makeExternalMcpRequests({
     threadManagement,
-    newCommandId: Effect.sync(() => CommandId.make(`mcp:${NodeCrypto.randomUUID()}`)),
+    newCommandId: crypto.randomUUIDv4.pipe(
+      Effect.map((uuid) => CommandId.make(`mcp:${uuid}`)),
+      Effect.orDie,
+    ),
     loadShell,
     requireCoordinate,
     vetThreadModes,
@@ -563,7 +577,7 @@ const make = Effect.gen(function* () {
             sessionId: principal.sessionId,
             operation: "settle",
             clientRequestId: input.clientRequestId,
-            fingerprint: requestFingerprint([
+            fingerprint: yield* requestFingerprint(crypto, [
               ["threadId", input.threadId],
               ["settled", input.settled],
             ]),
@@ -644,8 +658,9 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(threadManagementFailureFork));
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
+        const context = yield* threadViewContext();
         const filtered = projectThreads
-          .map((shell) => ({ shell, thread: listItemFromShellFork(shell) }))
+          .map((shell) => ({ shell, thread: listItemFromShellFork(shell, context.nowMs) }))
           .filter(({ thread }) => statuses === null || statuses.has(thread.status))
           .filter(({ thread }) => input.settled === undefined || thread.settled === input.settled)
           .filter(
@@ -671,7 +686,8 @@ const make = Effect.gen(function* () {
     readThread: (principal, input) =>
       Effect.gen(function* () {
         const target = yield* loadThread(principal, input.threadId);
-        const { work } = yield* currentWork(principal, input.threadId);
+        const { shell, work } = yield* currentWork(principal, input.threadId);
+        const context = yield* threadViewContext();
         const maxChars = input.maxCharsPerItem ?? DEFAULT_THREAD_ITEM_MAX_CHARS;
         const timeline = yield* threadManagement
           .getTimelinePage(input.threadId, {
@@ -700,7 +716,10 @@ const make = Effect.gen(function* () {
           ),
         );
         return {
-          thread: { ...threadDetailFork(target, timeline.totalItems), work },
+          thread: {
+            ...threadDetailFork(target, timeline.totalItems, shell, context.nowMs),
+            work,
+          },
           recentRuns: target.runs
             .toSorted((left, right) => right.ordinal - left.ordinal)
             .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT)
@@ -756,7 +775,7 @@ const make = Effect.gen(function* () {
     createThread: (principal, input) =>
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["projectId", input.projectId],
           ["title", input.title],
           ["prompt", input.prompt],
@@ -872,7 +891,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
         const mode = input.mode ?? "auto";
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["threadId", input.threadId],
           ["message", input.message],
           ["mode", mode],
@@ -976,7 +995,7 @@ const make = Effect.gen(function* () {
     interruptThread: (principal, input) =>
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["threadId", input.threadId],
           ["runId", input.runId],
           ["reason", input.reason],
