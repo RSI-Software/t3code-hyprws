@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "@effect/vitest";
 import { type Project, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { TestClock } from "effect/testing";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -14,6 +16,7 @@ import {
   refreshPersistedSetupScripts,
 } from "./ProjectSetupScriptRunner.ts";
 import * as ProjectService from "./ProjectService.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 const generatedSetupScripts = [
   {
@@ -152,7 +155,17 @@ const testLayer = (
           Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
       }),
     ),
-    Layer.provideMerge(Layer.mock(TerminalManager.TerminalManager)(terminal)),
+    // No shell output arrives, so the runner types after its quiet-shell fallback.
+    Layer.provideMerge(
+      Layer.mock(TerminalManager.TerminalManager)({
+        ...terminal,
+        subscribe: () => Effect.succeed(() => {}),
+      }),
+    ),
+    Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(
+      Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
+    ),
     Layer.provide(settings),
   );
 
@@ -181,6 +194,7 @@ describe("fork setup outcome marker", () => {
           COLORTERM: "",
         },
       });
+      yield* TestClock.adjust("3 seconds");
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-default-setup",
@@ -250,6 +264,7 @@ describe("fork setup outcome marker", () => {
           T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
         },
       });
+      yield* TestClock.adjust("3 seconds");
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-setup",

@@ -11,7 +11,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import type { V2TurnStartParams__AdditionalContextEntry } from "effect-codex-app-server/schema";
 import { type CodexAgentDefinition, discoverCodexAgents } from "./Drivers/CodexAgents.ts";
-import { buildSelectOptionDescriptor } from "./providerSnapshot.ts";
+import { buildSelectOptionDescriptor } from "@t3tools/provider-core/server/snapshotProbe";
 
 // Codex discovery and config precedence belong to CodexAgents. This helper
 // adds the discovered selection at the driver's existing snapshot boundary.
