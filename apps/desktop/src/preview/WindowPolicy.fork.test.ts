@@ -126,7 +126,6 @@ const makeOperationsFactory = (
           ).pipe(Effect.asVoid),
         subscribePointerEvents: () => Effect.void,
         subscribeOpenLinks: () => Effect.void,
-        subscribeRecordingFrames: () => Effect.void,
         subscribeRecordingInputs: () => Effect.void,
       } as unknown as WindowPolicy.OwnedPreviewOperations;
     });
@@ -345,7 +344,6 @@ describe("desktop preview window policy", () => {
             Effect.sync(() => {
               stateListener = listener;
             }),
-          subscribeOwnedRecordingFrames: () => Effect.void,
           subscribeOwnedRecordingInputs: () => Effect.void,
           subscribeOwnedPointerEvents: () => Effect.void,
           subscribeOwnedOpenLinks: (listener: typeof openLinkListener) =>
@@ -355,7 +353,6 @@ describe("desktop preview window policy", () => {
         } as never,
         {
           stateChange: "preview-state",
-          recordingFrame: "preview-recording",
           recordingInput: "preview-recording-input",
           pointerEvent: "preview-pointer",
           openLink: "preview-open-link",
