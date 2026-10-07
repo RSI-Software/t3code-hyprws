@@ -147,7 +147,7 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
-  onAddIssues: () => void;
+  onAddIssues?: () => void; // fork-hook: github-issues/right-panel-issues
   onAddDevice: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -155,7 +155,7 @@ interface RightPanelTabsProps {
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
-  issuesAvailable: boolean;
+  issuesAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
@@ -279,10 +279,10 @@ const rightPanelSurfaceActions = (props: RightPanelTabsProps) =>
       description: "Browse this project's GitHub issues.",
       icon: CircleDot,
       shortcut: "I",
-      available: props.issuesAvailable,
+      available: props.issuesAvailable === true, // fork-hook: github-issues/right-panel-issues
       disabledReason: SURFACE_DISABLED_REASONS.issues,
       unavailableHint: SURFACE_UNAVAILABLE_HINTS.issues,
-      onClick: props.onAddIssues,
+      onClick: props.onAddIssues ?? (() => undefined), // fork-hook: github-issues/right-panel-issues
     },
     {
       label: "Device",
