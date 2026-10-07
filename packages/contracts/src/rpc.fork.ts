@@ -4,7 +4,7 @@
 // spread precedent (`environment.fork.ts`). The method-name strings live here
 // rather than referencing `WS_METHODS`, because importing `rpc.ts` from a
 // top-level sibling would read `WS_METHODS` before its initialisation.
-import * as Rpc from "effect/unstable/rpc/Rpc";
+import * as Rpc from "effect/rpc/Rpc";
 import * as Schema from "effect/Schema";
 
 import { AttachmentCreateUploadUrlResult } from "./assets.ts";

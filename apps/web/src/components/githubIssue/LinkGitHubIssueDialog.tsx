@@ -4,7 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { pullRequestHostOf, type ScopedThreadRef } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useMemo, useState } from "react";
 
 import { appAtomRegistry } from "../../rpc/atomRegistry";

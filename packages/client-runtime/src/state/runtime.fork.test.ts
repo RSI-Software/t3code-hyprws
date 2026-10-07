@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Latch from "effect/Latch";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { PrimaryConnectionTarget } from "../connection/model.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
 import { createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";

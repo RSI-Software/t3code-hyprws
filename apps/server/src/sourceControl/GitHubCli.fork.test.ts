@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubCli from "./GitHubCli.ts";
 const processOutput = (stdout: string): VcsProcess.VcsProcessOutput => ({

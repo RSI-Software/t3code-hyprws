@@ -17,7 +17,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { McpServer } from "effect/unstable/ai";
+import { McpServer } from "effect/ai";
 
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import {

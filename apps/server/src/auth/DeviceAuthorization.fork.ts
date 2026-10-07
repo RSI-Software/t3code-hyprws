@@ -18,10 +18,10 @@ import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as UrlParams from "effect/unstable/http/UrlParams";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as UrlParams from "effect/http/UrlParams";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ExternalMcpGrant from "./ExternalMcpGrant.fork.ts";
 import * as SessionStore from "./SessionStore.ts";

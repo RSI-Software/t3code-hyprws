@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ProjectListEntriesInput } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import { mobilePreferencesAtom } from "../../state/preferences";
 
