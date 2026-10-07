@@ -36,10 +36,13 @@ export const guardSubagentOwnershipFork = Effect.fn("EventSink.guardSubagentOwne
             : event.type === "turn-item.updated" && event.payload.type === "subagent"
               ? event.payload.subagentId
               : null;
+      // Nested artifacts may name a null-owned row; also check the child
+      // thread containing them rather than treating that row as unlinked.
       const childThreadId =
-        subagentId === null &&
         event.threadId !== guard.threadId &&
-        (event.type === "node.updated" ||
+        (event.type === "subagent.updated" ||
+          event.type === "thread.model-selection-updated" ||
+          event.type === "node.updated" ||
           event.type === "turn-item.updated" ||
           event.type === "message.updated" ||
           event.type === "plan.updated" ||

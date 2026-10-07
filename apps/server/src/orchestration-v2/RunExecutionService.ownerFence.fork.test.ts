@@ -64,6 +64,7 @@ const child = ThreadId.make("thread:owner-fence:child");
 const parentProvider = ProviderThreadId.make("provider-thread:owner-fence:parent");
 const childProvider = ProviderThreadId.make("provider-thread:owner-fence:child");
 const taskId = NodeId.make("node:owner-fence:subagent");
+const nestedTaskId = NodeId.make("node:owner-fence:nested-subagent");
 const childRootId = NodeId.make("node:owner-fence:child-root");
 const childCommandId = TurnItemId.make("item:owner-fence:child-command");
 const siblingId = TurnItemId.make("item:owner-fence:sibling-command");
@@ -280,7 +281,7 @@ type Delivery = {
   readonly processed: Deferred.Deferred<void>;
 };
 
-function fixture(gate: "snapshot" | "cascade") {
+function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
   return Effect.gen(function* () {
     const sink = yield* EventSink.EventSinkV2;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -296,12 +297,17 @@ function fixture(gate: "snapshot" | "cascade") {
     const wrappedSink = Layer.succeed(EventSink.EventSinkV2, {
       ...sink,
       write: (input) =>
-        (gate === "snapshot" &&
-        input.events.some(
+        (input.events.some(
           (event) =>
-            event.type === "subagent.updated" &&
-            event.payload.runId === old.id &&
-            DateTime.toEpochMillis(event.payload.updatedAt) === DateTime.toEpochMillis(lagAt),
+            (gate === "snapshot" &&
+              event.type === "subagent.updated" &&
+              event.payload.runId === old.id &&
+              DateTime.toEpochMillis(event.payload.updatedAt) === DateTime.toEpochMillis(lagAt)) ||
+            (gate === "nested" &&
+              event.type === "node.updated" &&
+              event.payload.id === nestedTaskId &&
+              event.runId === old.id &&
+              event.payload.status === "completed"),
         )
           ? pause
           : Effect.void
@@ -318,11 +324,23 @@ function fixture(gate: "snapshot" | "cascade") {
           : Effect.void
         ).pipe(Effect.andThen(sink.writeWithEffects(input))),
     });
+    const modelReads = yield* Ref.make(0);
+    const ingestionProjections = Layer.succeed(ProjectionStore.ProjectionStoreV2, {
+      ...projections,
+      getThread: (id) =>
+        gate === "model" && id === child
+          ? Ref.getAndUpdate(modelReads, (count) => count + 1).pipe(
+              Effect.flatMap((count) =>
+                (count === 0 ? pause : Effect.void).pipe(Effect.andThen(projections.getThread(id))),
+              ),
+            )
+          : projections.getThread(id),
+    });
     const ingestion = ProviderEventIngestor.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
           wrappedSink,
-          Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
+          ingestionProjections,
           IdAllocator.layer,
           ThreadCommandExecutor.layer,
         ),
@@ -453,6 +471,186 @@ function fixture(gate: "snapshot" | "cascade") {
     return { start, publish, send, projections, history, sink, entered, release, closures, closed };
   });
 }
+
+it.effect("a gated null-run nested snapshot checks its containing child's owner", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture("nested");
+      const nestedChild = ThreadId.make("thread:owner-fence:nested-child");
+      const nestedRow = (status: "running" | "completed") => ({
+        ...task(old, status),
+        subagent: {
+          ...task(old, status).subagent,
+          id: nestedTaskId,
+          threadId: child,
+          runId: null,
+          parentNodeId: childRootId,
+          providerThreadId: null,
+          childThreadId: nestedChild,
+        },
+      });
+      const nestedNode = (status: "running" | "completed") =>
+        ({
+          ...childNode(status),
+          node: {
+            ...childNode(status).node,
+            id: nestedTaskId,
+            kind: "subagent",
+            parentNodeId: childRootId,
+          },
+        }) satisfies Extract<ProviderAdapterV2Event, { type: "node.updated" }>;
+      const nestedCard = (status: "running" | "completed") =>
+        ({
+          type: "turn_item.updated",
+          driver,
+          turnItem: {
+            id: TurnItemId.make("item:owner-fence:nested-card"),
+            threadId: child,
+            runId: null,
+            nodeId: nestedTaskId,
+            providerThreadId: childProvider,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 2,
+            type: "subagent",
+            status,
+            title: "Nested audit",
+            subagentId: nestedTaskId,
+            origin: "provider_native",
+            driver,
+            providerInstanceId: instanceId,
+            childThreadId: nestedChild,
+            prompt: "Nested audit",
+            result: null,
+            startedAt: now,
+            completedAt: status === "completed" ? now : null,
+            updatedAt: now,
+          },
+        }) satisfies Extract<ProviderAdapterV2Event, { type: "turn_item.updated" }>;
+      yield* test.start(old);
+      for (const event of [
+        task(),
+        childNode(),
+        nestedRow("running"),
+        nestedNode("running"),
+        nestedCard("running"),
+        command("running", true),
+        terminal(old),
+      ])
+        yield* test.send(event);
+      yield* test.publish(nestedNode("completed"));
+      yield* Deferred.await(test.entered);
+      yield* test.publish(nestedRow("completed"));
+      yield* test.publish(nestedCard("completed"));
+      yield* test.start(resumed);
+      let last = new Map<RunId, Deferred.Deferred<void>>();
+      for (const event of [
+        task(resumed, "running", resumeAt),
+        nestedRow("running"),
+        nestedNode("running"),
+        nestedCard("running"),
+      ]) {
+        last = yield* test.publish(event);
+        yield* Deferred.await(last.get(resumed.id)!);
+      }
+      const afterResume = yield* test.sink.latestSequence();
+      yield* Deferred.succeed(test.release, undefined);
+      yield* Deferred.await(last.get(old.id)!);
+      const projection = yield* test.projections.getThreadProjection(child);
+      assert.equal(projection.nodes.find((node) => node.id === nestedTaskId)?.status, "running");
+      assert.equal(projection.subagents.find((row) => row.id === nestedTaskId)?.status, "running");
+      assert.equal(projection.subagents.find((row) => row.id === nestedTaskId)?.runId, null);
+      assert.equal(
+        projection.turnItems.find((item) => item.id === nestedCard("running").turnItem.id)?.status,
+        "running",
+      );
+      const late = yield* test.history.read({ afterSequence: afterResume }).pipe(Stream.runCollect);
+      assert.isFalse(
+        late.some(({ event }) => event.threadId === child),
+        "no lagging nested artifact reaches persistence",
+      );
+      // A named artifact with neither a row owner nor a containing-thread owner
+      // remains permissive; the fence must not invent ownership.
+      const unlinked = yield* test.sink.write({
+        guardSubagentOwnership: { threadId: parent, runId: old.id },
+        events: [
+          {
+            id: EventId.make("unlinked:node"),
+            type: "node.updated",
+            threadId: ThreadId.make("thread:owner-fence:unlinked"),
+            runId: old.id,
+            occurredAt: now,
+            payload: {
+              ...nestedNode("completed").node,
+              id: NodeId.make("node:unlinked"),
+              threadId: ThreadId.make("thread:owner-fence:unlinked"),
+            },
+          },
+        ],
+      });
+      assert.lengthOf(unlinked, 1);
+      yield* test.send(command("completed", true));
+      yield* Deferred.await(test.closures.get(old.id)!);
+      for (const event of [
+        nestedRow("completed"),
+        nestedCard("completed"),
+        task(resumed, "completed", resumeAt),
+        terminal(resumed),
+      ])
+        yield* test.send(event);
+      yield* Deferred.await(test.closures.get(resumed.id)!);
+    }),
+  ).pipe(Effect.provide(persistence)),
+);
+
+it.effect("a gated old model sync cannot overwrite the resumed child's model", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const test = yield* fixture("model");
+      yield* test.start(old);
+      const oldModel = { ...task(), subagent: { ...task().subagent, model: "old-child-model" } };
+      const oldAck = yield* test.publish(oldModel);
+      // The old subagent row is committed. Pause the initial model read before
+      // taking the thread lock, so the newer subscriber can finish its own sync.
+      yield* Deferred.await(test.entered);
+      const before = yield* test.projections.getThreadProjection(parent);
+      assert.equal(before.subagents.find((row) => row.id === taskId)?.model, "old-child-model");
+      yield* test.start(resumed);
+      const newModel = {
+        ...task(resumed, "running", resumeAt),
+        subagent: { ...task(resumed, "running", resumeAt).subagent, model: "resumed-child-model" },
+      };
+      const newAck = yield* test.publish(newModel);
+      yield* Deferred.await(newAck.get(resumed.id)!);
+      assert.equal(
+        (yield* test.projections.getThread(child)).modelSelection.model,
+        "resumed-child-model",
+      );
+      const afterResume = yield* test.sink.latestSequence();
+      yield* Deferred.succeed(test.release, undefined);
+      yield* Deferred.await(oldAck.get(old.id)!);
+      yield* Deferred.await(newAck.get(old.id)!);
+      assert.equal(
+        (yield* test.projections.getThread(child)).modelSelection.model,
+        "resumed-child-model",
+      );
+      const late = yield* test.history.read({ afterSequence: afterResume }).pipe(Stream.runCollect);
+      assert.isFalse(
+        late.some(
+          ({ event }) =>
+            event.type === "thread.model-selection-updated" && event.threadId === child,
+        ),
+        "the delayed derived model write is not appended",
+      );
+      yield* test.publish(terminal(old));
+      yield* Deferred.await(test.closures.get(old.id)!);
+      yield* test.send(task(resumed, "completed", resumeAt));
+      yield* test.publish(terminal(resumed));
+      yield* Deferred.await(test.closures.get(resumed.id)!);
+    }),
+  ).pipe(Effect.provide(persistence)),
+);
 
 it.effect("fences gated parent representations without changing root gates or carried items", () =>
   Effect.scoped(

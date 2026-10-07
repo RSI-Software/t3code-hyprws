@@ -381,7 +381,14 @@ export const layer: Layer.Layer<
               },
               occurredAt: now,
             });
-            return yield* eventSink.write({ events: [event] });
+            return yield* eventSink.write({
+              events: [event],
+              ...(input.runId === undefined
+                ? {}
+                : {
+                    guardSubagentOwnership: { threadId: input.threadId, runId: input.runId },
+                  }),
+            });
           }),
         );
       },
