@@ -15,9 +15,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { McpServer } from "effect/ai";
 
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import {
@@ -26,6 +24,7 @@ import {
 } from "../../../orchestration-v2/ThreadIssues.fork.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
   IssueHostRequiredError,
   IssueLinkFailedError,
@@ -232,8 +231,9 @@ const make = Effect.gen(function* () {
         ? Effect.failCause(cause as Cause.Cause<never>)
         : Effect.fail(new Failure({ cause }));
 
-  return IssuesToolkitFork.of({
-    link_issue: (input) =>
+  // Each tool acts on or reads the calling thread, so access is the caller's own.
+  return {
+    link_issue: McpToolAccess.actsAsCaller((input) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(IssueLinkFailedError);
         const project = yield* projectOf(thread, IssueLinkFailedError);
@@ -261,7 +261,8 @@ const make = Effect.gen(function* () {
         }
         return { ...target, alreadyLinked: rejection !== null };
       }),
-    unlink_issue: (input) =>
+    ),
+    unlink_issue: McpToolAccess.actsAsCaller((input) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(IssueUnlinkFailedError);
         const project = yield* projectOf(thread, IssueUnlinkFailedError);
@@ -292,14 +293,12 @@ const make = Effect.gen(function* () {
           wasLinked: rejection === null,
         };
       }),
-    list_thread_issues: () =>
+    ),
+    list_thread_issues: McpToolAccess.readsAsCaller(() =>
       requireThread(IssueListFailedError).pipe(Effect.map(listThreadIssuesFork)),
-  });
+    ),
+  } satisfies McpToolAccess.Handlers<typeof IssuesToolkitFork.tools>;
 });
 
-export const IssuesToolkitHandlersLiveFork = IssuesToolkitFork.toLayer(make);
-
-/** Spread into `McpHttpServer.layer` through the marked `github-issues/mcp-issues-toolkit` hook. */
-export const IssuesToolkitRegistrationLiveFork = McpServer.toolkit(IssuesToolkitFork).pipe(
-  Layer.provide(IssuesToolkitHandlersLiveFork),
-);
+/** Registered on `/mcp` through the marked `github-issues/mcp-issues-toolkit` hook. */
+export const IssuesToolkitHandlersLiveFork = McpToolAccess.toLayer(IssuesToolkitFork, make);
