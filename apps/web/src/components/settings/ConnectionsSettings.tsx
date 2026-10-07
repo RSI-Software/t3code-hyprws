@@ -11,6 +11,8 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthSettingsWriteScope, // fork-hook: upstream-fixes/split-settings-scope
+  AuthProvidersManageScope, // fork-hook: upstream-fixes/split-provider-scope
   AuthEnvironmentMaintainScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,

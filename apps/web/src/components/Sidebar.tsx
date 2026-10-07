@@ -148,6 +148,7 @@ import { threadEnvironment } from "../state/threads";
 import { useThreadSearch } from "../state/queries";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { readEnvironmentScope } from "../state/session";
+import { useAtomCommand } from "../state/use-atom-command"; // fork-hook: upstream-fixes/thread-group-title-command
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
@@ -175,10 +176,10 @@ import {
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
-  deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
   isSidebarNestedLinkClick,
+  isSidebarThreadGroupContextMenuId, // fork-hook: upstream-fixes/split-session-permissions
   isSidebarThreadWorking,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -2523,6 +2524,12 @@ export default function Sidebar() {
           });
           return;
         }
+        if (clicked.value === "move-out-of-group") {
+          // Group membership is local UI state, so it stays available without the operate scope.
+          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
+          return;
+        } // fork-hook: upstream-fixes/split-session-permissions
+        if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -2632,9 +2639,6 @@ export default function Sidebar() {
           }
           case "mark-unread":
             markThreadUnread(threadRef);
-            return;
-          case "move-out-of-group":
-            setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
