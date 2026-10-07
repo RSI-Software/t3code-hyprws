@@ -113,6 +113,7 @@ export const ProviderAdapterV2Event = Schema.Union([
     type: Schema.Literal("subagent.updated"),
     driver: ProviderDriverKind,
     subagent: OrchestrationV2Subagent,
+    parentProviderThreadId: Schema.optional(ProviderThreadId),
   }),
   Schema.Struct({
     type: Schema.Literal("message.updated"),

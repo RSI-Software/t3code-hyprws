@@ -4488,6 +4488,18 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             });
           }
 
+          // Commit the ownership claim before any node that its persistence
+          // fence protects, including the subagent node on the parent thread.
+          yield* emitProviderEvent({
+            type: "subagent.updated",
+            driver: CLAUDE_PROVIDER,
+            subagent: task,
+            ...(input.reopen === true &&
+            input.status === "running" &&
+            existingSubagent !== undefined
+              ? { parentProviderThreadId: input.context.input.providerThread.id }
+              : {}),
+          });
           if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
@@ -4518,6 +4530,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 completedAt: task.completedAt,
               },
             });
+          }
+          if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
               driver: CLAUDE_PROVIDER,
@@ -4584,11 +4598,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               turnItem: promptArtifacts.turnItem,
             });
           }
-          yield* emitProviderEvent({
-            type: "subagent.updated",
-            driver: CLAUDE_PROVIDER,
-            subagent: task,
-          });
           yield* emitProviderEvent({
             type: "turn_item.updated",
             driver: CLAUDE_PROVIDER,
