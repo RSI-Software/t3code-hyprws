@@ -275,7 +275,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
       IdAllocator.layer,
-      eventSinkProvided, // fork-hook: zmux-estate/launch-worktree-integration-notice-sink
+      layerEventSink, // fork-hook: zmux-estate/launch-worktree-integration-notice-sink
     ),
   ),
 );
@@ -327,11 +327,11 @@ const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
       providerTurnStartCheckoutGateFork.pipe(
         Layer.provide(
           Layer.mergeAll(
-            providerTurnStartServiceProvided,
-            projectionStoreLayer,
+            layerProviderTurnStartServiceProvided,
+            ProjectionStore.layer,
             ProjectStore.layer,
-            providerSessionManagerProvided,
-            threadManagementProvided,
+            layerProviderSessionManagerProvided,
+            layerThreadManagementProvided,
           ),
         ),
       ), // fork-hook: zmux-estate/turn-start-checkout-gate
