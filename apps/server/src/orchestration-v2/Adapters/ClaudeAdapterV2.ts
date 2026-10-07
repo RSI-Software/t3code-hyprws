@@ -132,7 +132,7 @@ import {
 import {
   applyClaudeAgentLaunchArg,
   withClaudeAgentQueryIdentity,
-} from "../../provider/Layers/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
+} from "../../provider/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
