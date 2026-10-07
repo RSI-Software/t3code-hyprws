@@ -3,6 +3,7 @@ import {
   type TerminalEvent,
   type TerminalOpenInput,
 } from "@t3tools/contracts";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as PlatformError from "effect/PlatformError";
@@ -240,7 +241,7 @@ export const createManager = (
 ): Effect.Effect<
   ManagerFixture,
   PlatformError.PlatformError,
-  FileSystem.FileSystem | Path.Path | Scope.Scope | ProcessRunner.ProcessRunner
+  FileSystem.FileSystem | Path.Path | Scope.Scope | ProcessRunner.ProcessRunner | Crypto.Crypto
 > =>
   Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
     Effect.gen(function* () {
