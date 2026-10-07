@@ -1353,7 +1353,7 @@ const make = Effect.gen(function* () {
               ? resultTransfers.find((transfer) => transfer.sourcePoint.runId === undefined)
               : undefined) ??
             null);
-      const resultTransfer = taskResultTransfer(parentProjection, childProjection, task) ?? null;
+      const resultTransfer = resultTransferForRun(progress.resultRun) ?? resultTransfers[0] ?? null; // fork-hook: delegated-rounds/current-round-transfer
       const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
       const response = {
         taskId: task.id,
@@ -1912,6 +1912,7 @@ const make = Effect.gen(function* () {
             // delegations deliver through the blocking tool call, so a wake is
             // only needed if the parent settled first (timeout, disconnect).
             completionWake: input.mode === "wait" ? "settled_only" : "always",
+            ...(input.continueTaskId === undefined ? {} : { continueTaskId: input.continueTaskId }), // fork-hook: delegated-rounds/mcp-continue
           })
           .pipe(
             Effect.mapError((error) =>

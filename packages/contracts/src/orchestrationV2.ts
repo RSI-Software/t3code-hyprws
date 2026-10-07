@@ -3034,6 +3034,7 @@ export const OrchestrationV2Command = Schema.Union([
     // Omitted behaves as "settled_only" (no wake while the parent has a live
     // run); producers that want fire-and-forget wakes must set "always".
     completionWake: Schema.optional(Schema.Literals(["always", "settled_only"])),
+    continueTaskId: Schema.optional(NodeId), // fork-hook: delegated-rounds/request-continue
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({

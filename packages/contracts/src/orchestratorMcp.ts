@@ -187,6 +187,10 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
   runtimeMode: Schema.optional(OrchestratorMcpRuntimeMode),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
+  continueTaskId: Schema.optional(NodeId).annotate({
+    description:
+      "Continue a finished delegated task you own instead of starting a new child. The same child keeps its context, the task reopens under the same taskId, and its result wakes you like a new task. target is ignored; the child keeps its model. Refused while a round runs or after its child thread is archived.",
+  }), // fork-hook: delegated-rounds/mcp-continue-input
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
