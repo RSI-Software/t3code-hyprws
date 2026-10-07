@@ -760,6 +760,7 @@ export const layer: Layer.Layer<
         );
         // Stopped runs capture rollback points for the next message; enqueue before later starts on this effect lane.
         const finalization = {
+          guardSubagentOwnership: { threadId: input.run.threadId, runId: input.run.id },
           effects:
             input.terminal.status === "completed" ||
             input.terminal.status === "interrupted" ||
@@ -898,6 +899,7 @@ export const layer: Layer.Layer<
                   },
                 }
               : {}),
+            guardSubagentOwnership: finalization.guardSubagentOwnership,
             events: finalization.events,
             effects: finalization.effects,
           });
