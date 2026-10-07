@@ -1143,6 +1143,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
           props,
           children: linkChildren,
           canOpenInPreview,
+          canOperateHost,
           faviconHost,
           openChangeRequestLink,
           linkedThreadPullRequestFor,
