@@ -4,7 +4,10 @@ import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
 import { compileClaudeModelSelection } from "../../claudeModelOptions.ts";
-import { withClaudeAgentQueryIdentity } from "../../provider/ClaudeAgentOptions.fork.ts";
+import {
+  applyClaudeAgentQueryIdentity,
+  canApplyClaudeAgentSelectionLiveFork,
+} from "../../provider/ClaudeAgentOptions.fork.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import { runClaudeResumeReplayFork } from "../testkit/ResumedSubagentReplay.fork.ts";
 import { projectionFor } from "../testkit/fixtures/shared.ts";
@@ -96,18 +99,38 @@ describe("Claude main-thread agent selection", () => {
     assert.equal(queryOptions(SELECTION, "--agent configured").extraArgs?.agent, "configured");
     assert.notProperty(queryOptions(SELECTION).extraArgs ?? {}, "agent");
     const compiled = compileClaudeModelSelection(SELECTION);
-    assert.strictEqual(withClaudeAgentQueryIdentity(compiled, SELECTION), compiled);
+    const original = { ...compiled };
+    applyClaudeAgentQueryIdentity(compiled, SELECTION);
+    assert.deepStrictEqual(compiled, original);
   });
 
   it("reopens the query when the agent changes", () => {
-    const identity = (selection: ModelSelection) =>
-      withClaudeAgentQueryIdentity(compileClaudeModelSelection(selection), selection).queryIdentity;
-    const identities = new Set([
-      identity(SELECTION),
-      identity(withAgent("default")),
-      identity(withAgent("reviewer")),
-      identity(withAgent("planner")),
-    ]);
-    assert.equal(identities.size, 4);
+    const compiled = (selection: ModelSelection) => {
+      const result = compileClaudeModelSelection(selection);
+      applyClaudeAgentQueryIdentity(result, selection);
+      return result;
+    };
+    const selections = [
+      SELECTION,
+      withAgent("default"),
+      withAgent("reviewer"),
+      withAgent("planner"),
+    ].map(compiled);
+    assert.equal(new Set(selections.map((selection) => selection.queryIdentity)).size, 4);
+    const reviewer = compiled(withAgent("reviewer"));
+    for (const live of [reviewer, { ...reviewer, queryIdentity: "" }]) {
+      for (const selection of selections) {
+        assert.equal(
+          canApplyClaudeAgentSelectionLiveFork(live, selection),
+          selection.queryIdentity === reviewer.queryIdentity,
+        );
+      }
+    }
+    assert.isTrue(
+      canApplyClaudeAgentSelectionLiveFork(
+        reviewer,
+        compiled({ ...withAgent("reviewer"), model: "claude-haiku-4-5" }),
+      ),
+    );
   });
 });
