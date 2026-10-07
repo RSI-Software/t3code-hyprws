@@ -4348,7 +4348,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   // Snapshot listeners run under that lock and must not block.
   const streamSession = (
     input: TerminalObserveInput,
-    initial: Effect.Effect<TerminalSessionSnapshot | null, TerminalError>,
+    initial:
+      | Effect.Effect<TerminalSessionSnapshot | null, TerminalError>
+      | ((
+          onAttachmentAcquired: () => void,
+        ) => Effect.Effect<TerminalSessionSnapshot | null, TerminalError>), // fork-hook: zmux-estate/stream-attachment-initial
     listener: (event: TerminalAttachStreamEvent) => Effect.Effect<void>,
     registerCleanup?: (stop: () => void) => void,
   ) => {
@@ -4409,7 +4413,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         },
       );
 
-      const initialSnapshot = yield* initial;
+      const initialSnapshot = yield* Effect.isEffect(initial)
+        ? initial
+        : initial(() => {
+            attachmentAcquired = true;
+          }); // fork-hook: zmux-estate/stream-attachment-acquired
 
       yield* listener(
         initialSnapshot === null
@@ -4458,7 +4466,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     input,
     listener,
     registerCleanup,
-  ) => streamSession(input, openOrAttachForStream(input), listener, registerCleanup);
+  ) =>
+    streamSession(
+      input,
+      (onAttachmentAcquired) => openOrAttachForStream(input, onAttachmentAcquired),
+      listener,
+      registerCleanup,
+    ); // fork-hook: zmux-estate/stream-attachment-open
 
   const observeStream: TerminalManager["Service"]["observeStream"] = (
     input,
