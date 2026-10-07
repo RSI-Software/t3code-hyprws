@@ -3,7 +3,7 @@ import { environmentSession } from "../../state/session";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
