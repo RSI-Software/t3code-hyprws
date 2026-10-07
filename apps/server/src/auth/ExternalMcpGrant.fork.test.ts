@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 import { externalMcpPolicyFromFlags } from "../cli/authDevice.fork.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as DeviceAuthorization from "./DeviceAuthorization.fork.ts";
 import * as ExternalMcpGrant from "./ExternalMcpGrant.fork.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -16,7 +16,7 @@ import * as SessionStore from "./SessionStore.ts";
 
 const storeLayer = Layer.mergeAll(DeviceAuthorization.layer, ExternalMcpGrant.layer).pipe(
   Layer.provideMerge(SessionStore.layer),
-  Layer.provideMerge(Layer.mergeAll(SqlitePersistenceMemory, ServerSecretStore.layer)),
+  Layer.provideMerge(Layer.mergeAll(SqlitePersistence.layerMemory, ServerSecretStore.layer)),
   Layer.provideMerge(
     Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
       getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-grant-test")),

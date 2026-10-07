@@ -1,4 +1,5 @@
 import type { DesktopPreviewFavicon, PreviewSessionSnapshot } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import { RightPanelTabs } from "./RightPanelTabs";
@@ -69,6 +70,15 @@ function renderTabs(
     <RightPanelTabs
       mode="inline"
       environmentId={null}
+      keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
+      getShortcutContext={() => ({
+        terminalFocus: false,
+        terminalOpen: false,
+        previewFocus: false,
+        previewOpen: false,
+        isWeb: true,
+        isDesktop: false,
+      })}
       surfaces={surfaces}
       activeSurfaceId={options.empty ? null : previewSurface.id}
       pendingSurfaceIds={new Set()}
