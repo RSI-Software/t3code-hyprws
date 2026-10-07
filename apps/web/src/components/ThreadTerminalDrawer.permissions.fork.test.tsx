@@ -13,6 +13,7 @@ import type {
   GhosttyTerminalSurface,
   GhosttyTerminalSurfaceOptions,
 } from "~/terminal/ghostty/surface";
+import { terminalAttachmentId } from "../terminalAttachmentIdentity";
 
 const state = vi.hoisted(() => ({
   allowed: true,
@@ -44,7 +45,6 @@ vi.mock("../state/terminal", () => ({ terminalEnvironment: { resize: "resize", w
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: (command: string) => (command === "resize" ? state.resize : state.otherCommand),
 }));
-vi.mock("../terminalAttachmentIdentity", () => ({ terminalAttachmentId: () => undefined })); // fork-hook: zmux-estate/terminal-attachment-id
 vi.mock("../state/terminalSessions", () => ({
   useAttachedTerminalSession: () => session,
 }));
@@ -107,7 +107,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("rechecks the target terminal grant when a retained surface callback reports a resize", async () => {
+it("sends the attachment id with a resize that passes the target terminal grant recheck", async () => {
   await act(async () => {
     renderer = create(
       <TerminalViewport
@@ -124,8 +124,8 @@ it("rechecks the target terminal grant when a retained surface callback reports 
         resizeEpoch={0}
         drawerHeight={200}
         keybindings={[]}
-        attached // fork-hook: zmux-estate/terminal-attachment-props
-        restoreFocusOnReattach // fork-hook: zmux-estate/terminal-attachment-props
+        attached
+        restoreFocusOnReattach
       />,
       { createNodeMock: () => ({ closest: () => null, contains: () => false }) },
     );
@@ -137,7 +137,13 @@ it("rechecks the target terminal grant when a retained surface callback reports 
   onResize(80, 24);
   expect(state.resize).toHaveBeenCalledExactlyOnceWith({
     environmentId: threadRef.environmentId,
-    input: { threadId: threadRef.threadId, terminalId: "terminal-1", cols: 80, rows: 24 },
+    input: {
+      threadId: threadRef.threadId,
+      terminalId: "terminal-1",
+      attachmentId: terminalAttachmentId("terminal-1"),
+      cols: 80,
+      rows: 24,
+    },
   });
 
   // The connection updates before React commits its external-store update.
@@ -151,6 +157,12 @@ it("rechecks the target terminal grant when a retained surface callback reports 
   expect(state.resize).toHaveBeenCalledTimes(2);
   expect(state.resize).toHaveBeenLastCalledWith({
     environmentId: threadRef.environmentId,
-    input: { threadId: threadRef.threadId, terminalId: "terminal-1", cols: 100, rows: 30 },
+    input: {
+      threadId: threadRef.threadId,
+      terminalId: "terminal-1",
+      attachmentId: terminalAttachmentId("terminal-1"),
+      cols: 100,
+      rows: 30,
+    },
   });
 });
