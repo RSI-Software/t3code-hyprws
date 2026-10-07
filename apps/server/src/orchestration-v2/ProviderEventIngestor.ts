@@ -1,4 +1,5 @@
 import {
+  isOrchestrationV2WorkActive,
   NodeId,
   CommandId,
   OrchestrationV2DomainEvent,
@@ -434,7 +435,14 @@ export const layer: Layer.Layer<
               },
               occurredAt: now,
             });
-            return yield* eventSink.write({ events: [event] });
+            return yield* eventSink.write({
+              events: [event],
+              ...(input.runId === undefined
+                ? {}
+                : {
+                    guardSubagentOwnership: { threadId: input.threadId, runId: input.runId },
+                  }),
+            });
           }),
         );
       },
@@ -737,6 +745,28 @@ export const layer: Layer.Layer<
             if (events.length === 0) {
               return [];
             }
+            const ownershipGuard =
+              input.runId === undefined
+                ? {}
+                : {
+                    guardSubagentOwnership: {
+                      threadId: input.threadId,
+                      runId: input.runId,
+                      ...(input.event.type === "subagent.updated" &&
+                      input.event.subagent.runId === input.runId &&
+                      input.event.subagent.threadId === input.threadId &&
+                      input.event.subagent.childThreadId !== null &&
+                      input.event.parentProviderThreadId !== undefined &&
+                      isOrchestrationV2WorkActive(input.event.subagent.status)
+                        ? {
+                            transfer: {
+                              subagentId: input.event.subagent.id,
+                              parentProviderThreadId: input.event.parentProviderThreadId,
+                            },
+                          }
+                        : {}),
+                    },
+                  };
             const mapWriteError = (cause: unknown) =>
               new ProviderEventPublishError({
                 providerSessionId: input.providerSessionId,
@@ -757,6 +787,7 @@ export const layer: Layer.Layer<
             if (input.writeIfRunCurrent === undefined) {
               return yield* eventSink
                 .write({
+                  ...ownershipGuard,
                   guardPendingUserInputCancellations: true,
                   ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
                   events,
@@ -765,6 +796,7 @@ export const layer: Layer.Layer<
             }
             const result = yield* eventSink
               .writeIfRunCurrent({
+                ...ownershipGuard,
                 guardPendingUserInputCancellations: true,
                 ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
                 threadId: input.threadId,
