@@ -5,7 +5,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { type ReactNode, useId, useState } from "react";
-import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
+import { AsyncResult } from "effect/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { Platform, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
