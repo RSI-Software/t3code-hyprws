@@ -761,7 +761,8 @@ Each round **opens on the current parent run's cohort**.
 **Archiving the child releases** it; unarchiving retains it again.
 It **refuses** a busy task or child, a released child, and a foreign task.
 Policy is **one instruction bullet**; tool descriptions stay upstream.
-Later rounds **leave the original timeline node** and turn item as round 1 left them.
+Later rounds **leave the original timeline node** and the turn item's result as round 1 left them.
+Each round **reopens the turn item**, so the parent shows **Waiting** like a fresh delegation.
 A round whose child run ends before it starts **still counts as that round's result**.
 
 ### Retirement condition
