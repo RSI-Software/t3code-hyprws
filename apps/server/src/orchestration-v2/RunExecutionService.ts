@@ -60,6 +60,10 @@ export interface ProviderEventRoutingState {
   readonly rootTurnEnded: boolean;
   readonly ownedProviderThreadIds: ReadonlySet<ProviderThreadId>;
   readonly ownedProviderTurnIds: ReadonlySet<ProviderTurnId>;
+  readonly childThreadByProviderThreadId: ReadonlyMap<ProviderThreadId, ThreadId>;
+  readonly childThreadByProviderTurnId: ReadonlyMap<ProviderTurnId, ThreadId>;
+  readonly providerThreadByProviderTurnId: ReadonlyMap<ProviderTurnId, ProviderThreadId>;
+  readonly backgroundTurnItems: ReadonlyMap<TurnItemId, BackgroundTurnItemOwner>;
   readonly inheritedBackgroundTurnItems: ReadonlyMap<TurnItemId, OrchestrationV2Run["id"]>;
   readonly rootProviderTurnId: ProviderTurnId | null;
 }
@@ -71,9 +75,15 @@ export interface ProviderEventRouteIdentity {
   readonly providerThreadId: ProviderThreadId;
 }
 
+interface BackgroundTurnItemOwner {
+  readonly threadId: ThreadId;
+  readonly subagentId?: NodeId;
+}
+
 export interface InheritedBackgroundTurnItemRoute {
   readonly id: TurnItemId;
   readonly runId: OrchestrationV2Run["id"];
+  readonly subagentId?: NodeId;
 }
 
 type ProviderTerminalEvent = Extract<ProviderAdapterV2Event, { readonly type: "turn.terminal" }>;
@@ -140,7 +150,15 @@ export function selectInheritedBackgroundTurnItems(input: {
     settledPriorRunIds.has(turnItem.runId) &&
     backgroundCapableTurnItemTypes.has(turnItem.type) &&
     !isSettledTurnItemStatus(turnItem.status)
-      ? [{ id: turnItem.id, runId: turnItem.runId }]
+      ? [
+          {
+            id: turnItem.id,
+            runId: turnItem.runId,
+            ...(turnItem.type === "subagent" && turnItem.subagentId !== undefined
+              ? { subagentId: turnItem.subagentId }
+              : {}),
+          },
+        ]
       : [],
   );
 }
@@ -340,11 +358,55 @@ export function makeProviderEventRoutingState(input: {
     ]),
     ownedProviderTurnIds:
       input.providerTurnId === null ? new Set() : new Set([input.providerTurnId]),
+    childThreadByProviderThreadId: new Map(),
+    childThreadByProviderTurnId: new Map(),
+    providerThreadByProviderTurnId: new Map(),
+    backgroundTurnItems: new Map(
+      (input.inheritedBackgroundTurnItems ?? []).map((item) => [
+        item.id,
+        {
+          threadId: input.identity.threadId,
+          ...(item.subagentId === undefined ? {} : { subagentId: item.subagentId }),
+        },
+      ]),
+    ),
     inheritedBackgroundTurnItems: new Map(
       (input.inheritedBackgroundTurnItems ?? []).map((item) => [item.id, item.runId]),
     ),
     rootProviderTurnId: input.providerTurnId,
   };
+}
+
+function isChildTransfer(
+  event: ProviderAdapterV2Event,
+  identity: ProviderEventRouteIdentity,
+): event is Extract<ProviderAdapterV2Event, { type: "subagent.updated" }> {
+  return (
+    event.type === "subagent.updated" &&
+    event.subagent.runId !== null &&
+    event.subagent.threadId === identity.threadId &&
+    event.parentProviderThreadId !== undefined &&
+    event.parentProviderThreadId === identity.providerThreadId &&
+    event.subagent.childThreadId !== null &&
+    event.subagent.childThreadId !== identity.threadId &&
+    !isSettledSubagentStatus(event.subagent.status)
+  );
+}
+
+function releasesTransferredChildWork(
+  event: ProviderAdapterV2Event,
+  identity: ProviderEventRouteIdentity,
+  state: ProviderEventRoutingState,
+): boolean {
+  return (
+    isChildTransfer(event, identity) &&
+    event.subagent.runId !== identity.runId &&
+    (state.ownedThreadIds.has(event.subagent.childThreadId!) ||
+      [...state.backgroundTurnItems.values()].some(
+        (owner) =>
+          owner.threadId === event.subagent.childThreadId || owner.subagentId === event.subagent.id,
+      ))
+  );
 }
 
 export function routeProviderEvent(
@@ -356,16 +418,36 @@ export function routeProviderEvent(
   const ownsChildThread = (threadId: ThreadId): boolean =>
     threadId !== input.threadId && ownsThread(threadId);
   const ownsRun = (runId: string | null): boolean => runId === input.runId;
-  const addProviderThread = (providerThreadId: ProviderThreadId): ProviderEventRoutingState => ({
+  const addProviderThread = (
+    providerThreadId: ProviderThreadId,
+    threadId: ThreadId | null | undefined,
+  ): ProviderEventRoutingState => ({
     ...state,
     ownedProviderThreadIds: new Set([...state.ownedProviderThreadIds, providerThreadId]),
+    childThreadByProviderThreadId:
+      threadId != null && ownsChildThread(threadId) && providerThreadId !== input.providerThreadId
+        ? new Map([...state.childThreadByProviderThreadId, [providerThreadId, threadId]])
+        : state.childThreadByProviderThreadId,
   });
   const addProviderTurn = (
     providerTurnId: ProviderTurnId,
+    providerThreadId: ProviderThreadId,
     root: boolean,
+    threadId: ThreadId | undefined,
   ): ProviderEventRoutingState => ({
     ...state,
     ownedProviderTurnIds: new Set([...state.ownedProviderTurnIds, providerTurnId]),
+    providerThreadByProviderTurnId: new Map([
+      ...state.providerThreadByProviderTurnId,
+      [providerTurnId, providerThreadId],
+    ]),
+    childThreadByProviderTurnId:
+      !root &&
+      providerTurnId !== state.rootProviderTurnId &&
+      threadId !== undefined &&
+      ownsChildThread(threadId)
+        ? new Map([...state.childThreadByProviderTurnId, [providerTurnId, threadId]])
+        : state.childThreadByProviderTurnId,
     rootProviderTurnId: root ? providerTurnId : state.rootProviderTurnId,
   });
 
@@ -398,7 +480,9 @@ export function routeProviderEvent(
       const belongs =
         state.ownedProviderThreadIds.has(event.providerThread.id) ||
         (event.providerThread.appThreadId !== null && ownsThread(event.providerThread.appThreadId));
-      return belongs ? [true, addProviderThread(event.providerThread.id)] : [false, state];
+      return belongs
+        ? [true, addProviderThread(event.providerThread.id, event.providerThread.appThreadId)]
+        : [false, state];
     }
     case "provider_turn.updated": {
       const isRoot = event.providerTurn.runAttemptId === input.attemptId;
@@ -408,23 +492,112 @@ export function routeProviderEvent(
           state.ownedProviderThreadIds.has(event.providerTurn.providerThreadId)) ||
         state.ownedProviderTurnIds.has(event.providerTurn.id) ||
         (event.threadId !== undefined && ownsChildThread(event.threadId));
-      return belongs ? [true, addProviderTurn(event.providerTurn.id, isRoot)] : [false, state];
+      return belongs
+        ? [
+            true,
+            addProviderTurn(
+              event.providerTurn.id,
+              event.providerTurn.providerThreadId,
+              isRoot,
+              event.threadId ??
+                state.childThreadByProviderThreadId.get(event.providerTurn.providerThreadId),
+            ),
+          ]
+        : [false, state];
     }
     case "node.updated": {
       const belongs = ownsRun(event.node.runId) || ownsChildThread(event.node.threadId);
       if (!belongs || event.node.providerThreadId === null) {
         return [belongs, state];
       }
-      return [true, addProviderThread(event.node.providerThreadId)];
+      return [true, addProviderThread(event.node.providerThreadId, event.node.threadId)];
     }
-    case "subagent.updated":
-      return [ownsRun(event.subagent.runId) || ownsChildThread(event.subagent.threadId), state];
+    case "subagent.updated": {
+      if (releasesTransferredChildWork(event, input, state)) {
+        const childThreadId = event.subagent.childThreadId!;
+        const ownedThreadIds = new Set(state.ownedThreadIds);
+        ownedThreadIds.delete(childThreadId);
+        const transferredProviderThreads = new Set(
+          [...state.childThreadByProviderThreadId]
+            .filter(([, owner]) => owner === childThreadId)
+            .map(([id]) => id),
+        );
+        // A resume row also proves the child/provider association when its
+        // provider thread was carried over before any node snapshot arrived.
+        if (
+          event.subagent.providerThreadId !== null &&
+          event.subagent.providerThreadId !== input.providerThreadId &&
+          (!state.childThreadByProviderThreadId.has(event.subagent.providerThreadId) ||
+            state.childThreadByProviderThreadId.get(event.subagent.providerThreadId) ===
+              childThreadId)
+        ) {
+          transferredProviderThreads.add(event.subagent.providerThreadId);
+        }
+        const transferredProviderTurns = new Set(
+          [...state.ownedProviderTurnIds].filter(
+            (id) =>
+              id !== state.rootProviderTurnId &&
+              (state.childThreadByProviderTurnId.get(id) === childThreadId ||
+                transferredProviderThreads.has(state.providerThreadByProviderTurnId.get(id)!)),
+          ),
+        );
+        const backgroundTurnItems = new Map(
+          [...state.backgroundTurnItems].filter(
+            ([, owner]) =>
+              owner.threadId !== childThreadId && owner.subagentId !== event.subagent.id,
+          ),
+        );
+        return [
+          false,
+          {
+            ...state,
+            ownedThreadIds,
+            ownedProviderThreadIds: new Set(
+              [...state.ownedProviderThreadIds].filter(
+                (id) => id === input.providerThreadId || !transferredProviderThreads.has(id),
+              ),
+            ),
+            ownedProviderTurnIds: new Set(
+              [...state.ownedProviderTurnIds].filter((id) => !transferredProviderTurns.has(id)),
+            ),
+            childThreadByProviderThreadId: new Map(
+              [...state.childThreadByProviderThreadId].filter(
+                ([, owner]) => owner !== childThreadId,
+              ),
+            ),
+            childThreadByProviderTurnId: new Map(
+              [...state.childThreadByProviderTurnId].filter(
+                ([id]) => !transferredProviderTurns.has(id),
+              ),
+            ),
+            providerThreadByProviderTurnId: new Map(
+              [...state.providerThreadByProviderTurnId].filter(
+                ([id]) => !transferredProviderTurns.has(id),
+              ),
+            ),
+            backgroundTurnItems,
+            inheritedBackgroundTurnItems: new Map(
+              [...state.inheritedBackgroundTurnItems].filter(
+                ([id]) => !state.backgroundTurnItems.has(id) || backgroundTurnItems.has(id),
+              ),
+            ),
+          },
+        ];
+      }
+      const adoptsChildThread = isChildTransfer(event, input) && ownsRun(event.subagent.runId);
+      return [
+        ownsRun(event.subagent.runId) || ownsChildThread(event.subagent.threadId),
+        adoptsChildThread
+          ? {
+              ...state,
+              ownedThreadIds: new Set([...state.ownedThreadIds, event.subagent.childThreadId!]),
+            }
+          : state,
+      ];
+    }
     case "message.updated":
       return [ownsRun(event.message.runId) || ownsChildThread(event.message.threadId), state];
     case "turn_item.updated": {
-      if (ownsRun(event.turnItem.runId) || ownsChildThread(event.turnItem.threadId)) {
-        return [true, state];
-      }
       const inheritedRunId = state.inheritedBackgroundTurnItems.get(event.turnItem.id);
       // Preserve the item's original ownership while allowing the one live run
       // to deliver an exact carryover identity selected from the projection.
@@ -433,15 +606,32 @@ export function routeProviderEvent(
         event.turnItem.runId !== null &&
         event.turnItem.runId === inheritedRunId &&
         backgroundCapableTurnItemTypes.has(event.turnItem.type);
-      if (!isInheritedBackgroundItem) {
+      if (
+        !ownsRun(event.turnItem.runId) &&
+        !ownsChildThread(event.turnItem.threadId) &&
+        !isInheritedBackgroundItem
+      ) {
         return [false, state];
       }
-      if (!isSettledTurnItemStatus(event.turnItem.status)) {
-        return [true, state];
+      if (!backgroundCapableTurnItemTypes.has(event.turnItem.type)) return [true, state];
+      const backgroundTurnItems = new Map(state.backgroundTurnItems);
+      const settled = isSettledTurnItemStatus(event.turnItem.status);
+      if (settled) {
+        backgroundTurnItems.delete(event.turnItem.id);
+      } else {
+        backgroundTurnItems.set(event.turnItem.id, {
+          threadId: event.turnItem.threadId,
+          ...(event.turnItem.type === "subagent"
+            ? {
+                subagentId: event.turnItem.subagentId,
+              }
+            : {}),
+        });
       }
       const inheritedBackgroundTurnItems = new Map(state.inheritedBackgroundTurnItems);
-      inheritedBackgroundTurnItems.delete(event.turnItem.id);
-      return [true, { ...state, inheritedBackgroundTurnItems }];
+      if (isInheritedBackgroundItem && settled)
+        inheritedBackgroundTurnItems.delete(event.turnItem.id);
+      return [true, { ...state, backgroundTurnItems, inheritedBackgroundTurnItems }];
     }
     case "plan.updated":
       return [ownsRun(event.plan.runId) || ownsChildThread(event.plan.threadId), state];
@@ -669,6 +859,7 @@ export const layer: Layer.Layer<
         // the next message. The capture is enqueued with these terminal events,
         // ahead of any later run's start on this thread's effect lane.
         const finalization = {
+          guardSubagentOwnership: { threadId: input.run.threadId, runId: input.run.id },
           effects:
             input.terminal.status === "completed" ||
             input.terminal.status === "interrupted" ||
@@ -785,6 +976,7 @@ export const layer: Layer.Layer<
             runId: input.run.id,
             activeAttemptId: input.writeIfRunCurrent.activeAttemptId,
             expectedStatus: input.writeIfRunCurrent.expectedStatus,
+            guardSubagentOwnership: finalization.guardSubagentOwnership,
             events: finalization.events,
             effects: finalization.effects,
           });
@@ -935,9 +1127,6 @@ export const layer: Layer.Layer<
                 }),
             ),
           );
-          const inheritedBackgroundTurnItemsById = new Map(
-            inheritedBackgroundTurnItems.map((item) => [item.id, item.runId]),
-          );
           const eventRouting = yield* Ref.make<ProviderEventRoutingState>(
             makeProviderEventRoutingState({
               identity: routeIdentity,
@@ -956,9 +1145,6 @@ export const layer: Layer.Layer<
           const providerThreadOwnerLost = yield* Ref.make(false);
           const activeChildProviderTurns = yield* Ref.make<ReadonlySet<ProviderTurnId>>(new Set());
           const activeChildSubagents = yield* Ref.make<ReadonlySet<NodeId>>(new Set());
-          const activeBackgroundTurnItems = yield* Ref.make<
-            ReadonlySet<OrchestrationV2TurnItem["id"]>
-          >(new Set(inheritedBackgroundTurnItemsById.keys()));
           const openRunOwnedSubagents = yield* Ref.make(emptyOpenRunOwnedSubagentProjection());
           const finalizeRootRun = (terminal: ProviderTerminalEvent) =>
             Effect.gen(function* () {
@@ -1079,26 +1265,6 @@ export const layer: Layer.Layer<
                 const belongsToOwnedChildThread =
                   event.turnItem.threadId !== input.run.threadId &&
                   routing.ownedThreadIds.has(event.turnItem.threadId);
-                const belongsToInheritedBackgroundItem =
-                  event.turnItem.threadId === input.run.threadId &&
-                  event.turnItem.runId !== null &&
-                  inheritedBackgroundTurnItemsById.get(event.turnItem.id) === event.turnItem.runId;
-                if (
-                  backgroundCapableTurnItemTypes.has(event.turnItem.type) &&
-                  (belongsToRootRun ||
-                    belongsToOwnedChildThread ||
-                    belongsToInheritedBackgroundItem)
-                ) {
-                  yield* Ref.update(activeBackgroundTurnItems, (current) => {
-                    const next = new Set(current);
-                    if (isSettledTurnItemStatus(event.turnItem.status)) {
-                      next.delete(event.turnItem.id);
-                    } else {
-                      next.add(event.turnItem.id);
-                    }
-                    return next;
-                  });
-                }
                 if (belongsToOwnedChildThread && deliverable) {
                   yield* Ref.update(openRunOwnedSubagents, (current) => {
                     const childTurnItems = new Map(current.childTurnItems);
@@ -1154,8 +1320,8 @@ export const layer: Layer.Layer<
             // Owner loss (a newer run claimed lastRunOrdinal) must not close
             // this stream while these sets are non-empty: turn_item.updated
             // writes are not ownership-gated, so late completions still land.
-            const backgroundItems = yield* Ref.get(activeBackgroundTurnItems);
-            if (backgroundItems.size > 0) {
+            const routing = yield* Ref.get(eventRouting);
+            if (routing.backgroundTurnItems.size > 0) {
               return false;
             }
             // Owner loss means do not hold the stream open solely for the
@@ -1183,11 +1349,63 @@ export const layer: Layer.Layer<
           });
           const filterAssistantEvent = makeAssistantStreamingFilter(responseStreamingMode);
           const providerEventFiber = yield* eventSubscription.events.pipe(
-            Stream.filterEffect((event) =>
-              Ref.modify(eventRouting, (state) => routeProviderEvent(event, routeIdentity, state)),
-            ),
-            Stream.tap((event) =>
+            Stream.mapEffect((event) =>
               Effect.gen(function* () {
+                const routing = yield* Ref.get(eventRouting);
+                const revoked = releasesTransferredChildWork(event, routeIdentity, routing);
+                const [accepted, nextRouting] = routeProviderEvent(event, routeIdentity, routing);
+                // Reassignment is rejected by this subscriber. Release its
+                // held child work, including inherited-only pins, before filtering.
+                if (revoked && event.type === "subagent.updated") {
+                  yield* Ref.update(activeChildSubagents, (current) => {
+                    if (!current.has(event.subagent.id)) return current;
+                    const next = new Set(current);
+                    next.delete(event.subagent.id);
+                    return next;
+                  });
+                  yield* Ref.update(
+                    activeChildProviderTurns,
+                    (current) =>
+                      new Set(
+                        [...current].filter((id) => nextRouting.ownedProviderTurnIds.has(id)),
+                      ),
+                  );
+                  yield* Ref.update(openRunOwnedSubagents, (current) => {
+                    const subagents = new Map(current.subagents);
+                    const turnItems = new Map(current.turnItems);
+                    const linkedChildThreadIds = new Set(current.linkedChildThreadIds);
+                    subagents.delete(event.subagent.id);
+                    turnItems.delete(event.subagent.id);
+                    linkedChildThreadIds.delete(event.subagent.childThreadId!);
+                    const nodes = new Map(
+                      [...current.nodes].filter(
+                        ([id, node]) =>
+                          id !== event.subagent.id &&
+                          node.threadId !== event.subagent.childThreadId,
+                      ),
+                    );
+                    const childTurnItems = new Map(
+                      [...current.childTurnItems].filter(
+                        ([, item]) => item.threadId !== event.subagent.childThreadId,
+                      ),
+                    );
+                    return {
+                      ...current,
+                      subagents,
+                      turnItems,
+                      linkedChildThreadIds,
+                      nodes,
+                      childTurnItems,
+                    };
+                  });
+                }
+                yield* Ref.set(eventRouting, nextRouting);
+                return { event, accepted, revoked };
+              }),
+            ),
+            Stream.tap(({ event, accepted }) =>
+              Effect.gen(function* () {
+                if (!accepted) return;
                 let storedEventCount = 0;
                 const deliveredEvent = filterAssistantEvent(
                   event,
@@ -1267,7 +1485,11 @@ export const layer: Layer.Layer<
                 yield* trackChildLifecycle(event, deliveredEvent !== null);
               }),
             ),
-            Stream.takeUntilEffect(() => shouldStopProviderEventIngestion),
+            // A rejected reassignment may release the last active child.
+            // Other rejected events must not affect the ingestion lifecycle.
+            Stream.takeUntilEffect(({ accepted, revoked }) =>
+              accepted || revoked ? shouldStopProviderEventIngestion : Effect.succeed(false),
+            ),
             Stream.runDrain,
             Effect.mapError((cause) => new RunExecutionIngestError({ runId: input.run.id, cause })),
             Effect.flatMap(() =>
