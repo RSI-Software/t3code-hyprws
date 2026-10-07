@@ -33,9 +33,9 @@ export const makeExternalSymlinksFork = (): ExternalSymlinksFork => ({
             if (maybeSettings._tag !== "Some") return blocked;
             return maybeSettings.value.getSettings.pipe(
               Effect.map((settings) => settings.followExternalWorkspaceSymlinks),
-              Effect.catchTag("ServerSettingsError", (error) =>
-                Effect.logWarning(error).pipe(Effect.as(false)),
-              ),
+              Effect.catchTags({
+                ServerSettingsError: (error) => Effect.logWarning(error).pipe(Effect.as(false)),
+              }),
             );
           }),
         )
