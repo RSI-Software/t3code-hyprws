@@ -5703,6 +5703,18 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             subagent.childThread = childThread;
           }
 
+          // Commit the ownership claim before any node that its persistence
+          // fence protects, including the subagent node on the parent thread.
+          yield* emitProviderEvent({
+            type: "subagent.updated",
+            driver: CLAUDE_PROVIDER,
+            subagent: task,
+            ...(input.reopen === true &&
+            input.status === "running" &&
+            existingSubagent !== undefined
+              ? { parentProviderThreadId: input.context.input.providerThread.id }
+              : {}),
+          });
           if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
@@ -5730,13 +5742,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               },
             });
           }
-          // Ahead of the child thread's records: the run a resume attributes
-          // the subagent to adopts its child thread from this event.
-          yield* emitProviderEvent({
-            type: "subagent.updated",
-            driver: CLAUDE_PROVIDER,
-            subagent: task,
-          });
           if (lifecycleChanged) {
             yield* emitProviderEvent({
               type: "node.updated",
