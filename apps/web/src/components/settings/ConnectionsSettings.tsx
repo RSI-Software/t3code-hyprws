@@ -6,6 +6,8 @@ import {
   AuthStandardClientScopes, // fork-hook: backend-attach/connections-standard-scopes
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthSettingsWriteScope, // fork-hook: upstream-fixes/split-settings-scope
+  AuthProvidersManageScope, // fork-hook: upstream-fixes/split-provider-scope
   AuthEnvironmentMaintainScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,
