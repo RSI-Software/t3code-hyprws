@@ -32,6 +32,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
+import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "./IdAllocator.ts";
@@ -289,6 +290,7 @@ function twoSubscriptions(
           sink,
           normalization,
           IdAllocator.layer,
+          McpAppModelContext.layerEmpty,
           ServerSettings.layerTest(),
           Layer.mock(CheckpointService.CheckpointServiceV2)({ captureBaseline: () => Effect.void }),
         ),
