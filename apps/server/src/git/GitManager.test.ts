@@ -63,7 +63,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
-import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: worktrunk-hooks/git-manager-test-layer
 import * as GitManager from "./GitManager.ts";
 
 /** A change request the fake host reports. Omitted fields read as an open, undated request. */
@@ -743,6 +743,16 @@ const layerGitManagerTest = GitVcsDriver.layer.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(
+    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+      reconcileExisting: () => Effect.succeed({ status: "disabled" as const }),
+    }),
+  ), // fork-hook: worktrunk-hooks/git-manager-test-layer
+  Layer.provideMerge(
+    Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+      isWorktrunkWorktree: () => Effect.succeed(false),
+    }),
+  ), // fork-hook: worktrunk-hooks/git-manager-test-layer
 );
 
 it.layer(layerGitManagerTest)("GitManager", (it) => {

@@ -1,10 +1,17 @@
-// Fork-owned service behind `/api/mcp/external`: thread coordination for an
-// owner-approved client outside T3 (RSI-Software/t3code-hyprws device-auth
-// domain). Upstream's `OrchestratorMcpService` answers to a calling provider
-// thread; this answers to a device-authorized session and its grant policy,
-// reusing upstream's projection helpers through the marked
-// `device-auth/mcp-external-helpers` export.
-import * as NodeCrypto from "node:crypto";
+// Fork-owned service behind `/api/mcp/external`: thread coordination for an owner-approved
+// client outside T3. Upstream's `OrchestratorMcpService` answers to a calling provider thread;
+// this answers to a device-authorized session and its grant policy, reusing upstream's
+// projection helpers through the marked `device-auth/mcp-external-helpers` export.
+import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Crypto from "effect/Crypto";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
+import * as Stream from "effect/Stream";
 
 import {
   type AuthSessionId,
@@ -37,14 +44,6 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import * as Context from "effect/Context";
-import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as Result from "effect/Result";
-import * as Stream from "effect/Stream";
 
 import {
   externalMcpPolicyAllowsProject,
@@ -54,7 +53,8 @@ import * as EventStore from "../../orchestration-v2/EventStore.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
   listItemFromShellFork,
@@ -312,7 +312,15 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const crypto = yield* Crypto.Crypto;
+  const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const ledger = yield* makeExternalMcpRequestLedger;
+
+  // Thread links carry the environment id, like the orchestrator toolkit's.
+  const threadViewContext = Effect.fn("ExternalMcpService.threadViewContext")(function* () {
+    const environmentId = yield* environment.getEnvironmentId;
+    return { environmentId, nowMs: yield* Clock.currentTimeMillis };
+  });
 
   const loadProject = (principal: ExternalMcpPrincipal, projectId: ProjectId) =>
     Effect.gen(function* () {
@@ -530,7 +538,10 @@ const make = Effect.gen(function* () {
 
   const requests = makeExternalMcpRequests({
     threadManagement,
-    newCommandId: Effect.sync(() => CommandId.make(`mcp:${NodeCrypto.randomUUID()}`)),
+    newCommandId: crypto.randomUUIDv4.pipe(
+      Effect.map((uuid) => CommandId.make(`mcp:${uuid}`)),
+      Effect.orDie,
+    ),
     loadShell,
     requireCoordinate,
     vetThreadModes,
@@ -540,79 +551,78 @@ const make = Effect.gen(function* () {
 
   return ExternalMcpServiceFork.of({
     ...requests,
-    settleThread: (principal, input) =>
-      Effect.gen(function* () {
-        yield* requireCoordinate(principal);
-        // Revalidate project access even on a cached replay; a key grants no authority.
-        yield* loadThread(principal, input.threadId);
-        const commandId = CommandId.make(
-          `command:${stableId(principal, "settle", input.clientRequestId)}`,
+    settleThread: Effect.fn("ExternalMcpService.settleThread")(function* (principal, input) {
+      yield* requireCoordinate(principal);
+      // Revalidate project access even on a cached replay; a key grants no authority.
+      yield* loadThread(principal, input.threadId);
+      const commandId = CommandId.make(
+        `command:${stableId(principal, "settle", input.clientRequestId)}`,
+      );
+      const committed = () =>
+        events.readByCommandId({ commandId }).pipe(
+          Stream.filterMap((stored) =>
+            stored.event.type === "thread.settled" || stored.event.type === "thread.unsettled"
+              ? Result.succeed({ payload: stored.event.payload, sequence: stored.sequence })
+              : Result.fail(stored),
+          ),
+          Stream.runHead,
+          Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
         );
-        const committed = () =>
-          events.readByCommandId({ commandId }).pipe(
-            Stream.filterMap((stored) =>
-              stored.event.type === "thread.settled" || stored.event.type === "thread.unsettled"
-                ? Result.succeed({ payload: stored.event.payload, sequence: stored.sequence })
-                : Result.fail(stored),
-            ),
-            Stream.runHead,
-            Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
-          );
-        return yield* ledger.run(
-          {
-            sessionId: principal.sessionId,
-            operation: "settle",
-            clientRequestId: input.clientRequestId,
-            fingerprint: requestFingerprint([
-              ["threadId", input.threadId],
-              ["settled", input.settled],
-            ]),
-            result: ExternalMcpSettlementResultFork,
-          },
-          () =>
-            Effect.gen(function* () {
-              let event = yield* committed();
-              // A crash after commit but before recording the result must recover the
-              // original event, even if the owner has since reversed the settlement.
-              if (Option.isNone(event)) {
-                const target = yield* loadThread(principal, input.threadId);
-                const expectedModes = yield* vetThreadModes(principal, target.thread);
-                yield* audit(principal, "thread.settle", {
-                  threadId: input.threadId,
-                  settled: input.settled,
-                  commandId,
-                });
-                const common = {
-                  commandId,
-                  threadId: input.threadId,
-                  ...(expectedModes === undefined ? {} : { expectedModes }),
-                };
-                yield* threadManagement
-                  .dispatch(
-                    input.settled
-                      ? { ...common, type: "thread.settle" }
-                      : { ...common, type: "thread.unsettle", reason: "user" },
-                  )
-                  .pipe(Effect.mapError(threadManagementFailureFork));
-                event = yield* committed();
-              }
-              if (Option.isNone(event)) {
-                return yield* failure(
-                  "orchestration_error",
-                  "Settlement command has no committed event.",
-                );
-              }
-              const thread = event.value.payload;
-              return {
+      return yield* ledger.run(
+        {
+          sessionId: principal.sessionId,
+          operation: "settle",
+          clientRequestId: input.clientRequestId,
+          fingerprint: yield* requestFingerprint(crypto, [
+            ["threadId", input.threadId],
+            ["settled", input.settled],
+          ]),
+          result: ExternalMcpSettlementResultFork,
+        },
+        () =>
+          Effect.gen(function* () {
+            let event = yield* committed();
+            // A crash after commit but before recording the result must recover the
+            // original event, even if the owner has since reversed the settlement.
+            if (Option.isNone(event)) {
+              const target = yield* loadThread(principal, input.threadId);
+              const expectedModes = yield* vetThreadModes(principal, target.thread);
+              yield* audit(principal, "thread.settle", {
                 threadId: input.threadId,
+                settled: input.settled,
                 commandId,
-                sequence: event.value.sequence,
-                settled: thread.settledOverride === "settled",
-                settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+              });
+              const common = {
+                commandId,
+                threadId: input.threadId,
+                ...(expectedModes === undefined ? {} : { expectedModes }),
               };
-            }),
-        );
-      }),
+              yield* threadManagement
+                .dispatch(
+                  input.settled
+                    ? { ...common, type: "thread.settle" }
+                    : { ...common, type: "thread.unsettle", reason: "user" },
+                )
+                .pipe(Effect.mapError(threadManagementFailureFork));
+              event = yield* committed();
+            }
+            if (Option.isNone(event)) {
+              return yield* failure(
+                "orchestration_error",
+                "Settlement command has no committed event.",
+              );
+            }
+            const thread = event.value.payload;
+            return {
+              threadId: input.threadId,
+              commandId,
+              sequence: event.value.sequence,
+              settled: thread.settledOverride === "settled",
+              settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+            };
+          }),
+      );
+    }),
     listProjects: (principal) =>
       projects
         .listShells(
@@ -644,8 +654,9 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(threadManagementFailureFork));
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
+        const context = yield* threadViewContext();
         const filtered = projectThreads
-          .map((shell) => ({ shell, thread: listItemFromShellFork(shell) }))
+          .map((shell) => ({ shell, thread: listItemFromShellFork(shell, context.nowMs) }))
           .filter(({ thread }) => statuses === null || statuses.has(thread.status))
           .filter(({ thread }) => input.settled === undefined || thread.settled === input.settled)
           .filter(
@@ -671,7 +682,8 @@ const make = Effect.gen(function* () {
     readThread: (principal, input) =>
       Effect.gen(function* () {
         const target = yield* loadThread(principal, input.threadId);
-        const { work } = yield* currentWork(principal, input.threadId);
+        const { shell, work } = yield* currentWork(principal, input.threadId);
+        const context = yield* threadViewContext();
         const maxChars = input.maxCharsPerItem ?? DEFAULT_THREAD_ITEM_MAX_CHARS;
         const timeline = yield* threadManagement
           .getTimelinePage(input.threadId, {
@@ -700,7 +712,10 @@ const make = Effect.gen(function* () {
           ),
         );
         return {
-          thread: { ...threadDetailFork(target, timeline.totalItems), work },
+          thread: {
+            ...threadDetailFork(target, timeline.totalItems, shell, context.nowMs),
+            work,
+          },
           recentRuns: target.runs
             .toSorted((left, right) => right.ordinal - left.ordinal)
             .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT)
@@ -756,7 +771,7 @@ const make = Effect.gen(function* () {
     createThread: (principal, input) =>
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["projectId", input.projectId],
           ["title", input.title],
           ["prompt", input.prompt],
@@ -872,7 +887,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
         const mode = input.mode ?? "auto";
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["threadId", input.threadId],
           ["message", input.message],
           ["mode", mode],
@@ -976,7 +991,7 @@ const make = Effect.gen(function* () {
     interruptThread: (principal, input) =>
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
-        const fingerprint = requestFingerprint([
+        const fingerprint = yield* requestFingerprint(crypto, [
           ["threadId", input.threadId],
           ["runId", input.runId],
           ["reason", input.reason],
