@@ -9058,6 +9058,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             dispatchMode = { type: "steer_active", targetRunId: activeRun.id };
           }
         }
+        if (command.expectedModes) dispatchMode = { type: "queue_after_active" }; // fork-hook: device-auth/respond-expected-modes
         const answer = {
           type: "message.dispatch" as const,
           commandId: command.commandId,
@@ -9068,6 +9069,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           createdBy: "user" as const,
           creationSource: "server" as const,
           dispatchMode,
+          ...(command.expectedModes && { expectedModes: command.expectedModes }), // fork-hook: device-auth/respond-expected-modes
         };
         yield* dispatchMessage(answer, events, effects);
         return yield* recordSubagentFollowup(answer, events).pipe(mapDispatchError(answer));
