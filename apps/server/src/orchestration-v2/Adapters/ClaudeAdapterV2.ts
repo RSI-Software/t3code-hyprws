@@ -195,8 +195,9 @@ import {
 } from "../../claudeModelOptions.ts";
 import {
   applyClaudeAgentLaunchArg,
-  withClaudeAgentQueryIdentity,
-} from "../../provider/Layers/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
+  applyClaudeAgentQueryIdentity,
+  canApplyClaudeAgentSelectionLiveFork,
+} from "../../provider/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
 import * as ServerConfig from "../../config.ts";
 import { NativeTelemetryClient } from "../../resourceTelemetry/NativeTelemetryClient.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
@@ -2423,6 +2424,7 @@ function canApplyClaudeSelectionLive(
   live: CompiledClaudeModelSelection,
   next: CompiledClaudeModelSelection,
 ): boolean {
+  if (!canApplyClaudeAgentSelectionLiveFork(live, next)) return false; // fork-hook: custom-agents/claude-agent-live-selection
   return (
     live.settings.alwaysThinkingEnabled === next.settings.alwaysThinkingEnabled &&
     (next.effort !== undefined || live.effort === undefined) &&
@@ -14155,10 +14157,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             mcpOverrides,
             turnInput.runtimePolicy.workspace,
           );
-          const compiledSelection = withClaudeAgentQueryIdentity(
-            compileClaudeModelSelection(turnInput.modelSelection),
-            turnInput.modelSelection,
-          ); // fork-hook: custom-agents/claude-agent-query-identity
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
           // Continuations drain existing output without prompting; retain the live process regardless of selection.
@@ -14219,6 +14217,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             launchArgSettings,
           );
           let compiledSelection = compileClaudeModelSelection(turnInput.modelSelection, catalog);
+          applyClaudeAgentQueryIdentity(compiledSelection, turnInput.modelSelection); // fork-hook: custom-agents/claude-agent-query-identity
           // Once an update replaces the running CLI, a model other than the one
           // it started with moves to the new CLI unless background work is active.
           const startsUpdatedProgram =
@@ -14294,6 +14293,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               launchArgSettings,
             );
             compiledSelection = compileClaudeModelSelection(turnInput.modelSelection, catalog);
+            applyClaudeAgentQueryIdentity(compiledSelection, turnInput.modelSelection); // fork-hook: custom-agents/claude-agent-query-identity
           }
 
           // Read before closing the live process so a bad path leaves it running.
@@ -15305,6 +15305,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     turnInput.modelSelection,
                     yield* routedCatalogFor(existing),
                   );
+            if (steerSelection !== undefined && turnInput.modelSelection !== undefined)
+              applyClaudeAgentQueryIdentity(steerSelection, turnInput.modelSelection); // fork-hook: custom-agents/claude-agent-query-identity
             const liveSteerSelection =
               steerSelection !== undefined &&
               existing.selection.queryIdentity !== steerSelection.queryIdentity &&
@@ -15793,6 +15795,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               modelSelection,
               yield* routedCatalogFor(live),
             );
+            applyClaudeAgentQueryIdentity(selection, modelSelection); // fork-hook: custom-agents/claude-agent-query-identity
             // A model change still waits for the next turn, which checks it against the turn's permission mode.
             if (
               live.selection.queryIdentity === selection.queryIdentity ||

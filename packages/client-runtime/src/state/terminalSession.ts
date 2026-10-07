@@ -175,7 +175,7 @@ export function combineTerminalSessionState(
     supportsConditionalWrites: buffer.supportsConditionalWrites,
     output: buffer.output,
     grid: buffer.grid,
-    status: buffer.version > 0 ? buffer.status : (summary?.status ?? buffer.status),
+    status, // fork-hook: zmux-estate/session-managed-status
     error: buffer.error,
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),

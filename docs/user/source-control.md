@@ -53,9 +53,10 @@ description. Uploads run on the server environment that owns the project and app
 environment has the pinned `gh-image` extension and an active GitHub browser session. Install it
 there with `gh extension install drogers0/gh-image --pin v1.2.0`.
 
-When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
-pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
-pull-request target, and creating a pull request still takes an explicit action.
+When a checkout has both `origin` and `upstream`, T3 Code defaults to `origin` for review listings
+and pull-request actions, unless you explicitly choose a remote with `gh repo set-default`.
+`upstream` stays available for fetch and rebase; adding it never makes it a pull-request target,
+and creating a pull request still takes an explicit action.
 
 ### Review guides (beta)
 

@@ -1422,7 +1422,7 @@ function FilePreviewPanelContent({
     fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
     renderPreferred: renderMarkdownPreferred,
     revealHandled,
-    readOnly: isHostFile,
+    readOnly: isHostFile || !canWriteFiles || file.data?.readOnly === true, // fork-hook: upstream-fixes/split-session-permissions
   }); // fork-hook: markdown-editing/rich-preview-mode
   const renderMarkdown = richMarkdownPreview.rendered; // fork-hook: markdown-editing/rich-preview-rendered
   const renderMermaid = isMermaid && renderMermaidPreferred && revealHandled;

@@ -58,6 +58,8 @@ import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-regis
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
+import * as NodeCryptoLayerFork from "@effect/platform-node/NodeCrypto"; // fork-hook: zmux-estate/retarget-ready-token
+import * as Crypto from "effect/Crypto"; // fork-hook: zmux-estate/retarget-ready-token
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Context from "effect/Context";
@@ -3531,7 +3533,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       });
     }
 
-    const nonce = NodeCrypto.randomBytes(24).toString("base64url");
+    const nonce = yield* Crypto.Crypto.pipe(
+      Effect.flatMap((crypto) => crypto.randomBytes(24)),
+      Effect.map(Base64Url.encode),
+      Effect.provide(NodeCryptoLayerFork.layer),
+      Effect.orDie,
+    ); // fork-hook: zmux-estate/retarget-ready-token
     const readyCandidate: ShellCandidate = {
       ...resolved.candidate,
       args: [...(resolved.candidate.args ?? []), "--ready-token", nonce],
@@ -5108,7 +5115,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   // Snapshot listeners run under that lock and must not block.
   const streamSession = (
     input: TerminalObserveInput,
-    initial: Effect.Effect<TerminalSessionSnapshot | null, TerminalError>,
+    initial:
+      | Effect.Effect<TerminalSessionSnapshot | null, TerminalError>
+      | ((
+          onAttachmentAcquired: () => void,
+        ) => Effect.Effect<TerminalSessionSnapshot | null, TerminalError>), // fork-hook: zmux-estate/stream-attachment-initial
     listener: (event: TerminalAttachStreamEvent) => Effect.Effect<void>,
     registerCleanup?: (stop: () => void) => void,
   ) => {
@@ -5168,7 +5179,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         },
       );
 
-      const initialSnapshot = yield* initial;
+      const initialSnapshot = yield* Effect.isEffect(initial)
+        ? initial
+        : initial(() => {
+            attachmentAcquired = true;
+          }); // fork-hook: zmux-estate/stream-attachment-acquired
 
       yield* listener(
         initialSnapshot === null
