@@ -224,7 +224,7 @@ describe("DesktopClerk", () => {
       assert.equal(quit.mock.calls.length, 0);
       assert.deepEqual(registeredEvents, ["open-url", "second-instance"]);
     }).pipe(
-      Effect.provide(makeDesktopClerkLayer()),
+      Effect.provide(layerDesktopClerk()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
     );

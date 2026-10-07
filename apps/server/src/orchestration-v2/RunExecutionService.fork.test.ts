@@ -30,6 +30,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
+import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "./IdAllocator.ts";
@@ -306,6 +307,7 @@ function runOldRunLifecycleScenario(
               ingestNormalized: ({ event }) =>
                 Ref.update(stored, (events) => [...events, event]).pipe(Effect.as([])),
             }),
+            McpAppModelContext.layerEmpty,
             ServerSettings.layerTest(),
           ),
         ),

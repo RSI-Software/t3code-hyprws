@@ -18,7 +18,7 @@ import * as CodexReplay from "effect-codex-app-server/replay";
 import { ClaudeOrchestratorReplayHarness } from "../Adapters/ClaudeAdapterV2.testkit.ts";
 import {
   CodexOrchestratorReplayHarness,
-  makeCodexProviderAdapterRegistryReplayLayer,
+  layer as codexReplayRegistryLayer,
 } from "../Adapters/CodexAdapterV2.testkit.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 import type { OrchestratorV2ScenarioStep } from "./OrchestratorScenario.ts";
@@ -183,7 +183,7 @@ describe("checkout move session continuity", () => {
           {
             ...CodexOrchestratorReplayHarness,
             makeProviderAdapterRegistryLayer: () =>
-              makeCodexProviderAdapterRegistryReplayLayer({ transcript, driver }),
+              codexReplayRegistryLayer({ transcript, driver }),
           },
         );
         const projection = projectionFor(result, transcript.scenario);

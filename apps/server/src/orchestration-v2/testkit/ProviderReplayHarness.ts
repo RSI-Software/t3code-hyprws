@@ -471,10 +471,10 @@ export function layerWithRegistry<Error>(
         layerProviderTurnStartServiceProvided,
         options.wrapTurnStartFork?.(
           Layer.mergeAll(
-            providerTurnStartServiceProvided,
-            storesLayer,
-            providerSessionManagerProvided,
-            orchestratorProvided,
+            layerProviderTurnStartServiceProvided,
+            layerStores,
+            layerProviderSessionManagerProvided,
+            layerOrchestratorProvided,
           ),
         ) ?? Layer.empty, // fork-hook: zmux-estate/replay-turn-start-wrapper
         layerRuntimeRequestServiceProvided,

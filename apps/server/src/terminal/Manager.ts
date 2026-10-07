@@ -50,7 +50,8 @@ import { mergePathEntries } from "@t3tools/shared/shell";
 
 import { acpRegistryManagedBinaryDirectories } from "../provider/acp/AcpRegistrySupport.ts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import * as NodeCrypto from "node:crypto";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"; // fork-hook: zmux-estate/retarget-ready-token
+import * as Crypto from "effect/Crypto"; // fork-hook: zmux-estate/retarget-ready-token
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -2712,7 +2713,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       });
     }
 
-    const nonce = NodeCrypto.randomBytes(24).toString("base64url");
+    const nonce = yield* Crypto.Crypto.pipe(
+      Effect.flatMap((crypto) => crypto.randomBytes(24)),
+      Effect.map(Base64Url.encode),
+      Effect.provide(NodeCrypto.layer),
+      Effect.orDie,
+    ); // fork-hook: zmux-estate/retarget-ready-token
     const readyCandidate: ShellCandidate = {
       ...resolved.candidate,
       args: [...(resolved.candidate.args ?? []), "--ready-token", nonce],

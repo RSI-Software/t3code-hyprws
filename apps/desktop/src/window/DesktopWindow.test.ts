@@ -1811,10 +1811,10 @@ describe("DesktopWindow", () => {
       }).pipe(Effect.provide(layer));
     }),
   );
-  registerDesktopWindowForkTests({ makeFakeBrowserWindow, makeTestLayer }); // fork-hook: multi-window/fork-suite-register
+  registerDesktopWindowForkTests({ makeFakeBrowserWindow, layerTest }); // fork-hook: multi-window/fork-suite-register
 });
 
 export type DesktopWindowHarnessFork = {
   makeFakeBrowserWindow: typeof makeFakeBrowserWindow;
-  makeTestLayer: typeof makeTestLayer;
+  layerTest: typeof layerTest; // fork-hook: multi-window/fork-suite-harness
 }; // fork-hook: multi-window/fork-suite-harness

@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { AuthSessionId, ProjectId } from "@t3tools/contracts";
+import { AuthSessionId, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,9 +16,10 @@ import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
 import * as ExternalMcpGrant from "../../auth/ExternalMcpGrant.fork.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpServer from "./ExternalMcpServer.fork.ts";
 
@@ -63,6 +64,7 @@ const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown
 const PingToolkit = Toolkit.make(Tool.make("ping", { success: Schema.String }));
 
 /** The upstream `/mcp` server beside it, so a leaked registration would show there. */
+// oxlint-disable-next-line t3code/no-raw-mcp-registration -- deliberate raw registration: this lookalike exists to catch catalog leaks into /mcp.
 const providerMcp = McpServer.toolkit(PingToolkit).pipe(
   Layer.provide(PingToolkit.toLayer({ ping: () => Effect.succeed("pong") })),
   Layer.provideMerge(
@@ -91,7 +93,10 @@ const dependencies = Layer.mergeAll(
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   ServerSettings.layerTest(),
   HttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer), Layer.provide(Etag.layerWeak)),
-  SqlitePersistenceMemory,
+  SqlitePersistence.layerMemory,
+  Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+    getEnvironmentId: Effect.succeed(EnvironmentId.make("external-mcp-server")),
+  }),
 );
 
 const makeHarness = Effect.gen(function* () {
