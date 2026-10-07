@@ -111,6 +111,8 @@ const NormalizedIssueDetail = Schema.Struct({
 
 const decodeIssueList = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(RawIssue)));
 const decodeIssueDetail = Schema.decodeEffect(Schema.fromJsonString(RawIssue));
+const decodeUnknownIssueList = Schema.decodeUnknownEffect(Schema.Array(RawIssue));
+const decodeUnknownIssueDetail = Schema.decodeUnknownEffect(RawIssue);
 const decodeNormalizedIssueList = Schema.decodeUnknownEffect(Schema.Array(NormalizedIssue));
 const decodeNormalizedIssueDetail = Schema.decodeUnknownEffect(NormalizedIssueDetail);
 
@@ -180,7 +182,7 @@ function state(raw: string): string {
  * A close reason in the wire's own words. An open issue, one reopened since its last close
  * (`REOPENED`), and anything a future GitHub adds all read as none rather than as a guess.
  */
-export function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
+function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
   if (raw === "COMPLETED") return "completed";
   if (raw === "NOT_PLANNED") return "not planned";
   return null;
@@ -225,17 +227,8 @@ function comment(raw: RawComment): GitHubIssueCommentType {
   };
 }
 
-export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
-  const decoded = yield* decodeIssueList(raw);
-  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
-  return yield* decodeNormalizedIssueList(normalized);
-});
-
-export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueDetail(raw);
-  const normalized = yield* Effect.try(() => ({
+function normalizeIssueDetail(decoded: RawGitHubIssue) {
+  return {
     ...normalizeGitHubIssue(decoded),
     body: decoded.body ?? "",
     comments: (decoded.comments ?? []).map(comment),
@@ -244,8 +237,37 @@ export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(func
       decoded.closedAt === null || decoded.closedAt === undefined
         ? null
         : timestamp(decoded.closedAt),
-  }));
-  return yield* decodeNormalizedIssueDetail(normalized);
+  };
+}
+
+export const decodeGitHubIssueList = Effect.fn("decodeGitHubIssueList")(function* (raw: string) {
+  const decoded = yield* decodeIssueList(raw);
+  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  return yield* decodeNormalizedIssueList(normalized);
+});
+
+/** The same read for rows that were never a JSON string, such as GraphQL answers reshaped in memory. */
+export const decodeParsedGitHubIssueList = Effect.fn("decodeParsedGitHubIssueList")(function* (
+  rows: ReadonlyArray<unknown>,
+) {
+  const decoded = yield* decodeUnknownIssueList(rows);
+  const normalized = yield* Effect.try(() => decoded.map(normalizeGitHubIssue));
+  return yield* decodeNormalizedIssueList(normalized);
+});
+
+export const decodeGitHubIssueDetail = Effect.fn("decodeGitHubIssueDetail")(function* (
+  raw: string,
+) {
+  const decoded = yield* decodeIssueDetail(raw);
+  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
+});
+
+/** The same read for one row that was never a JSON string. */
+export const decodeParsedGitHubIssueDetail = Effect.fn("decodeParsedGitHubIssueDetail")(function* (
+  row: unknown,
+) {
+  const decoded = yield* decodeUnknownIssueDetail(row);
+  return yield* decodeNormalizedIssueDetail(normalizeIssueDetail(decoded));
 });
 
 /** What a linked-issue snapshot stores, read on its own so a refresh skips the rest of a detail
@@ -257,27 +279,22 @@ const IssueSummary = Schema.Struct({
 });
 export type GitHubIssueSummary = typeof IssueSummary.Type;
 
-const decodeIssueSummary = Schema.decodeEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      title: Schema.String,
-      state: Schema.String,
-      stateReason: Schema.optional(Schema.NullOr(Schema.String)),
-    }),
-  ),
-);
 const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
 
-export const decodeGitHubIssueSummary = Effect.fn("decodeGitHubIssueSummary")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueSummary(raw);
-  return yield* decodeNormalizedIssueSummary({
-    title: decoded.title,
-    state: state(decoded.state),
-    closeReason: closeReason(decoded.stateReason),
-  });
-});
+/** A linked issue's summary, read from a row the caller already parsed. */
+export const decodeParsedGitHubIssueSummary = Effect.fn("decodeParsedGitHubIssueSummary")(
+  function* (row: {
+    readonly title: string;
+    readonly state: string;
+    readonly stateReason: string | null;
+  }) {
+    return yield* decodeNormalizedIssueSummary({
+      title: row.title,
+      state: state(row.state),
+      closeReason: closeReason(row.stateReason),
+    });
+  },
+);
 
 /** A child's close reason keyed by its number, read with one extra GraphQL call because `gh`
  * carries no reason on sub-issue nodes (RSI-Software/t3code-hyprws#1461). */
