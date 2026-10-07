@@ -2,6 +2,7 @@ export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
   "custom-agents",
+  "delegated-rounds",
   "device-auth",
   "distribution",
   "fork-meta",
