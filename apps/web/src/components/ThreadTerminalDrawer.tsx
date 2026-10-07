@@ -807,6 +807,7 @@ function TerminalSessionViewport({
   useEffect(() => {
     if (launchIdentityRef.current === launchIdentity || !attached) return;
     launchIdentityRef.current = launchIdentity;
+    if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
     void retargetTerminal();
   }, [attached, launchIdentity]);
   // The surface reports a resent grid like any other, so the next report is the retry.
