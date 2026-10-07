@@ -1,5 +1,5 @@
-import * as NodeCrypto from "node:crypto";
-
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -32,8 +32,6 @@ export interface RegisteredWindow {
   readonly window: Electron.BrowserWindow;
 }
 
-const makeWindowId = (): WindowId => NodeCrypto.randomUUID() as WindowId;
-
 /**
  * What an update restore needs to reopen `entry`: the hash route it shows and
  * its restorable (never maximized or minimized) bounds. A window that cannot
@@ -64,6 +62,17 @@ function captureWindow(entry: RegisteredWindow): CapturedWindow {
   }
   return { windowId, identity, route, bounds };
 }
+
+/**
+ * Mints one `WindowId`. A main process that cannot random is broken beyond
+ * window creation, so a crypto failure dies.
+ */
+const makeWindowId: Effect.Effect<WindowId> = Crypto.Crypto.pipe(
+  Effect.flatMap((crypto) => crypto.randomUUIDv4),
+  Effect.map((uuid) => uuid as WindowId),
+  Effect.provide(NodeCrypto.layer),
+  Effect.orDie,
+);
 
 export function makeWindowRegistry() {
   const entries = new Map<WindowId, RegisteredWindow>();
@@ -117,10 +126,10 @@ export function makeWindowRegistry() {
    * restore carrying the previous launch's id) is honoured unless a live
    * window already holds it; otherwise main mints a fresh one.
    */
-  const reserveId = (requested?: WindowId): WindowId =>
+  const reserveId = (requested?: WindowId): Effect.Effect<WindowId> =>
     requested !== undefined && live(entries.get(requested)) === undefined
-      ? requested
-      : makeWindowId();
+      ? Effect.succeed(requested)
+      : makeWindowId;
 
   const register = (
     windowId: WindowId,
@@ -235,7 +244,7 @@ export const makeWindowRegistryService = (
         if (existing !== undefined) {
           return { window: existing.window, windowId: existing.windowId, created: false } as const;
         }
-        const windowId = registry.reserveId(requestedId);
+        const windowId = yield* registry.reserveId(requestedId);
         const window = yield* create(windowId);
         registry.register(windowId, identity, window);
         if (identity.kind === "hub") {
@@ -247,7 +256,7 @@ export const makeWindowRegistryService = (
   createNew: (identity, create, requestedId) =>
     semaphore.withPermits(1)(
       Effect.gen(function* () {
-        const windowId = registry.reserveId(requestedId);
+        const windowId = yield* registry.reserveId(requestedId);
         const window = yield* create(windowId);
         registry.register(windowId, identity, window);
         return { window, windowId } as const;

@@ -15,7 +15,7 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
+import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
 // Fork: Reset order dispatches `thread.active.reorder` with a null key, which
 // returns the thread to automatic ordering.
@@ -29,9 +29,9 @@ const adapter: ProviderAdapterV2Shape = {
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
   openSession: () => Effect.die("active-order tests start no session"),
 };
-const layer = makeOrchestratorV2ReplayLayerWithRegistry(
+const layer = layerWithRegistry(
   { name: "active-order-reset-fork" },
-  ProviderAdapterRegistry.makeLayer([adapter]),
+  ProviderAdapterRegistry.layerFromAdapters([adapter]),
   { runEffectWorker: false },
 );
 

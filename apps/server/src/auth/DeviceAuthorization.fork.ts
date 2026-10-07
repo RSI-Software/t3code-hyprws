@@ -14,7 +14,7 @@ import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Encoding from "effect/encoding/Base64Url";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -244,7 +244,7 @@ const make = Effect.gen(function* () {
   const hashDeviceCode = (deviceCode: string) =>
     crypto
       .digest("SHA-256", new TextEncoder().encode(deviceCode))
-      .pipe(Effect.map(Encoding.encodeBase64Url), Effect.mapError(fail("hash-device-code")));
+      .pipe(Effect.map(Encoding.encode), Effect.mapError(fail("hash-device-code")));
 
   const generateUserCode = Effect.gen(function* () {
     let code = "";
@@ -262,7 +262,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const now = yield* DateTime.now;
       const nowIso = DateTime.formatIso(DateTime.toUtc(now));
-      const deviceCode = Encoding.encodeBase64Url(yield* crypto.randomBytes(DEVICE_CODE_BYTES));
+      const deviceCode = Encoding.encode(yield* crypto.randomBytes(DEVICE_CODE_BYTES));
       const deviceCodeHash = yield* hashDeviceCode(deviceCode);
       const userCode = yield* generateUserCode;
       const expiresAt = DateTime.toUtc(
@@ -365,7 +365,7 @@ const make = Effect.gen(function* () {
         mcpPolicy,
       });
     }).pipe(
-      Effect.catchTag("SqlError", (cause) => Effect.fail(fail("approve")(cause))),
+      Effect.catchTags({ SqlError: (cause) => Effect.fail(fail("approve")(cause)) }),
       Effect.withSpan("DeviceAuthorizationStore.approve"),
     );
 
