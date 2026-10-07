@@ -28,31 +28,30 @@ import {
 // The owner's half of the device authorization grant. Nothing here prints a
 // device code or token: the client receives its token by polling directly.
 
-const runWithDeviceAuthorization = <A, E>(
+const runWithDeviceAuthorization = Effect.fn("authDevice.runWithDeviceAuthorization")(function* <
+  A,
+  E,
+>(
   flags: CliAuthLocationFlags,
   run: (store: DeviceAuthorization.DeviceAuthorizationStore["Service"]) => Effect.Effect<A, E>,
   options?: { readonly quietLogs?: boolean },
-) =>
-  Effect.gen(function* () {
-    const logLevel = yield* GlobalFlag.LogLevel;
-    const config = yield* resolveCliAuthConfig(flags, logLevel);
-    return yield* Effect.gen(function* () {
-      return yield* run(yield* DeviceAuthorization.DeviceAuthorizationStore);
-    }).pipe(
-      Effect.provide(
-        DeviceAuthorization.layer.pipe(
-          Layer.provide(EnvironmentAuth.runtimeLayer),
-          Layer.provide(ServerConfig.layer(config)),
-          Layer.provide(
-            Layer.succeed(
-              References.MinimumLogLevel,
-              options?.quietLogs ? "Error" : config.logLevel,
-            ),
-          ),
+) {
+  const logLevel = yield* GlobalFlag.LogLevel;
+  const config = yield* resolveCliAuthConfig(flags, logLevel);
+  return yield* Effect.gen(function* () {
+    return yield* run(yield* DeviceAuthorization.DeviceAuthorizationStore);
+  }).pipe(
+    Effect.provide(
+      DeviceAuthorization.layer.pipe(
+        Layer.provide(EnvironmentAuth.layerRuntime),
+        Layer.provide(ServerConfig.layer(config)),
+        Layer.provide(
+          Layer.succeed(References.MinimumLogLevel, options?.quietLogs ? "Error" : config.logLevel),
         ),
       ),
-    );
-  });
+    ),
+  );
+});
 
 const ENVIRONMENT_SCOPES = new Set<AuthEnvironmentScope>(AuthStandardClientScopes);
 
