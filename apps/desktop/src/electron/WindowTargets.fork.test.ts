@@ -115,6 +115,7 @@ type FakeWindow = ReturnType<typeof makeWindow>;
 
 const ElectronWindowLayer = ElectronWindow.layer.pipe(
   Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
+  Layer.provide(NodeServices.layer),
 );
 
 const projectIdentity = (projectId: string) =>
