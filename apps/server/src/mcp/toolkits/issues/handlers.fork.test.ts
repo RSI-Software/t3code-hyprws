@@ -21,12 +21,11 @@ import { McpServer, type Tool } from "effect/ai";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
+import { toolkitRegistration } from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
-import {
-  IssuesToolkitHandlersLiveFork,
-  IssuesToolkitRegistrationLiveFork,
-  parseGitHubIssueUrlFork,
-} from "./handlers.fork.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
+import { IssuesToolkitHandlersLiveFork, parseGitHubIssueUrlFork } from "./handlers.fork.ts";
 import { IssuesToolkitFork } from "./tools.fork.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
@@ -151,6 +150,7 @@ function harnessDependencies(
       dispatch,
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
+    McpToolAccessTestkit.liveThreadsLayer,
   );
 }
 
@@ -169,7 +169,11 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (options: Ha
     });
   const dependencies = harnessDependencies(options, dispatch, state);
   const toolkit = yield* IssuesToolkitFork.pipe(
-    Effect.provide(IssuesToolkitHandlersLiveFork.pipe(Layer.provide(dependencies))),
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(IssuesToolkitHandlersLiveFork).pipe(
+        Layer.provide(dependencies),
+      ),
+    ),
   );
   const call = <Name extends keyof typeof IssuesToolkitFork.tools>(
     name: Name,
@@ -199,7 +203,7 @@ describe("issue toolkit handlers", () => {
       expect(link?.tool.annotations?.openWorldHint).toBe(false);
     }).pipe(
       Effect.provide(
-        IssuesToolkitRegistrationLiveFork.pipe(
+        toolkitRegistration(IssuesToolkitFork, IssuesToolkitHandlersLiveFork).pipe(
           Layer.provideMerge(McpServer.McpServer.layer),
           Layer.provide(
             Layer.mergeAll(
