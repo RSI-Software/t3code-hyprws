@@ -11,9 +11,11 @@ import type {
   PullRequestReviewerCapabilities,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import * as Option from "effect/Option";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
 import { PullRequestProviderError, type PullRequestProviderApi } from "./PullRequestProvider.ts";
@@ -125,6 +127,9 @@ function makeService(input: {
   return PullRequestService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
+        Layer.mock(ServerSettingsService.ServerSettingsService)({
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        }),
         Layer.succeed(PullRequestProviderRegistry, fromProviders(input.providers)),
         Layer.mock(PullRequestAttachmentStore)({
           createUploadUrl: () => Effect.die("unused"),
