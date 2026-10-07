@@ -25,6 +25,9 @@ import {
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthAdministrativeScopes, // fork-hook: upstream-fixes/split-session-permissions
+  AuthSettingsWriteScope, // fork-hook: upstream-fixes/split-settings-scope
+  AuthProvidersManageScope, // fork-hook: upstream-fixes/split-provider-scope
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthOrchestrationReadScope,
