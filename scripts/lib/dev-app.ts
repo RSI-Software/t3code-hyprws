@@ -6,7 +6,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 import * as NodeUtil from "node:util";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 
 import {
@@ -91,7 +91,7 @@ async function runWeb(
     runnerArgs: devAppRunnerOptions(options),
   });
   const preview = options.surface === "preview" && !options.dryRun;
-  const platform = Effect.runSync(HostProcessPlatform);
+  const platform = Effect.runSync(HostProcess.Platform);
   const child = NodeChildProcess.spawn(process.execPath, args, {
     cwd: checkoutRoot,
     env,
