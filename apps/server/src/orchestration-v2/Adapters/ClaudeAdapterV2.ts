@@ -4214,6 +4214,8 @@ export function makeClaudeAdapterV2(
             });
           }
 
+          // Commit the ownership claim before any node that its persistence
+          // fence protects, including the subagent node on the parent thread.
           yield* emitProviderEvent({
             type: "subagent.updated",
             driver: CLAUDE_PROVIDER,

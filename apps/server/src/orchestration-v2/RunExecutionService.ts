@@ -856,6 +856,7 @@ export const layer: Layer.Layer<
         // the next message. The capture is enqueued with these terminal events,
         // ahead of any later run's start on this thread's effect lane.
         const finalization = {
+          guardSubagentOwnership: { threadId: input.run.threadId, runId: input.run.id },
           effects:
             input.terminal.status === "completed" ||
             input.terminal.status === "interrupted" ||
@@ -972,6 +973,7 @@ export const layer: Layer.Layer<
             runId: input.run.id,
             activeAttemptId: input.writeIfRunCurrent.activeAttemptId,
             expectedStatus: input.writeIfRunCurrent.expectedStatus,
+            guardSubagentOwnership: finalization.guardSubagentOwnership,
             events: finalization.events,
           });
           if (!result.committed) {

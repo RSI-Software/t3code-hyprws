@@ -29,7 +29,7 @@ const queryOptions = (modelSelection: ModelSelection, launchArgs = "", resume = 
     settings: { ...SETTINGS, launchArgs },
   });
 
-it.effect("emits the resumed subagent node and row before its child root and prompt", () =>
+it.effect("claims the resumed subagent before its parent node, child root and prompt", () =>
   Effect.gen(function* () {
     const { result, transcript } = yield* runClaudeResumeReplayFork("failed");
     const parent = projectionFor(result, transcript.scenario);
@@ -65,9 +65,9 @@ it.effect("emits the resumed subagent node and row before its child root and pro
         event.threadId === task.childThreadId &&
         event.payload.role === "user",
     );
-    assert.isAtLeast(node, 0);
-    assert.isAbove(row, node);
-    assert.isAbove(childRoot, row);
+    assert.isAtLeast(row, 0);
+    assert.isAbove(node, row);
+    assert.isAbove(childRoot, node);
     assert.isAbove(prompt, childRoot);
   }),
 );

@@ -32,6 +32,10 @@ import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import {
+  guardSubagentOwnershipFork,
+  type SubagentOwnerGuardFork,
+} from "./SubagentOwnerFence.fork.ts";
 
 /**
  * ERRORS
@@ -72,17 +76,20 @@ export type EventSinkV2Error = typeof EventSinkV2Error.Type;
  */
 export interface EventSinkV2Shape {
   readonly write: (input: {
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeWithEffects: (input: {
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
     readonly effects: ReadonlyArray<EffectOutbox.PendingOrchestrationEffectV2>;
   }) => Effect.Effect<ReadonlyArray<OrchestrationV2StoredEvent>, EventSinkV2Error>;
   readonly writeIfRunCurrent: (input: {
+    readonly guardSubagentOwnership?: SubagentOwnerGuardFork;
     readonly guardPendingUserInputCancellations?: boolean;
     readonly commandId?: CommandId;
     readonly threadId: ThreadId;
@@ -369,10 +376,14 @@ const baseLayer: Layer.Layer<
 
       return yield* commitThenPublish(
         Effect.gen(function* () {
+          const ownedEvents =
+            input.guardSubagentOwnership === undefined
+              ? input.events
+              : yield* guardSubagentOwnershipFork(sql, input.events, input.guardSubagentOwnership);
           const normalized = yield* normalizeEvents(
             input.guardPendingUserInputCancellations === true
-              ? yield* guardUserInputCancellations(input.events)
-              : input.events,
+              ? yield* guardUserInputCancellations(ownedEvents)
+              : ownedEvents,
           );
           const committed = yield* eventStore.append({
             ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
@@ -427,10 +438,18 @@ const baseLayer: Layer.Layer<
               };
             }
 
+            const ownedEvents =
+              input.guardSubagentOwnership === undefined
+                ? input.events
+                : yield* guardSubagentOwnershipFork(
+                    sql,
+                    input.events,
+                    input.guardSubagentOwnership,
+                  );
             const normalized = yield* normalizeEvents(
               input.guardPendingUserInputCancellations === true
-                ? yield* guardUserInputCancellations(input.events)
-                : input.events,
+                ? yield* guardUserInputCancellations(ownedEvents)
+                : ownedEvents,
             );
             const storedEvents = yield* eventStore.append({
               ...(input.commandId === undefined ? {} : { commandId: input.commandId }),
