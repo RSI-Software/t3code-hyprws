@@ -12,7 +12,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import type * as EventSink from "../EventSink.ts";
 import { threadIssueKeysEqual, threadIssuesOf, withThreadIssues } from "../ThreadIssues.fork.ts";
