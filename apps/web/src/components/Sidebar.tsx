@@ -2577,6 +2577,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           currentGroupId: currentGroup?.id ?? null,
         });
         const threadActionItems = buildThreadActionMenuItems({
+          canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope), // fork-hook: thread-ordering/thread-action-operate
           branch: thread.branch ?? null,
           projectFilter: threadProjectGroup
             ? {
