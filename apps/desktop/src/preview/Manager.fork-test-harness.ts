@@ -1,4 +1,5 @@
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -6,6 +7,7 @@ import * as Path from "effect/Path";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
 
 const noBrowserSessions = Layer.succeed(
@@ -46,4 +48,6 @@ export const previewManagerFixtureLayer = (
     Layer.provideMerge(FileSystem.layerNoop({})),
     Layer.provideMerge(Path.layer),
     Layer.provideMerge(Layer.succeed(HostProcessPlatform, "darwin")),
+    Layer.provideMerge(DesktopBrowserHost.layer),
+    Layer.provideMerge(NodeCrypto.layer),
   );

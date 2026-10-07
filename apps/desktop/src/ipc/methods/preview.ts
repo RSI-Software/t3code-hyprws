@@ -48,7 +48,7 @@ export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedError<Previ
 }
 
 const previewForSender = Effect.fn("desktop.ipc.preview.resolveSender")(function* (
-  event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
+  event?: DesktopIpc.DesktopIpcInvokeEvent, // fork-hook: multi-window/preview-window-requester
 ) {
   return yield* PreviewWindowPolicy.resolvePreviewForSender(
     event,
@@ -78,7 +78,7 @@ export const setForwardedShortcuts = DesktopIpc.makeIpcMethod({
   payload: Schema.Array(PreviewForwardedShortcut).check(Schema.isMaxLength(MAX_KEYBINDINGS_COUNT)),
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setForwardedShortcuts")(function* (shortcuts) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setForwardedShortcuts(shortcuts);
   }),
 });
@@ -187,7 +187,7 @@ export const setZoomFactor = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewSetZoomFactorInputSchema,
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setZoomFactor")(function* ({ tabId, zoomFactor }) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setZoomFactor(tabId, zoomFactor);
   }),
 });
@@ -416,7 +416,7 @@ export const setAnnotationSendEnabled = DesktopIpc.makeIpcMethod({
     tabId,
     enabled,
   }) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setAnnotationSendEnabled(tabId, enabled);
   }),
 });

@@ -13,6 +13,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 
 import type * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { IpcRequester } from "../electron/WindowTargets.fork.ts";
 import type * as DesktopIpc from "../ipc/DesktopIpc.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
 import type {
@@ -213,6 +214,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     const authorized = <A>(tabId: string, operation: Effect.Effect<A, PreviewManagerError>) =>
       authorizeTab(entry, tabId).pipe(Effect.andThen(operation));
     return {
+      setForwardedShortcuts: operations.setForwardedShortcuts,
       createTab: operations.createTab,
       closeTab: (tabId) => authorized(tabId, operations.closeTab(tabId)),
       registerWebview: (tabId, webContentsId) =>
@@ -229,10 +231,14 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
       setColorScheme: (tabId, colorScheme) =>
         authorized(tabId, operations.setColorScheme(tabId, colorScheme)),
+      setZoomFactor: (tabId, zoomFactor) =>
+        authorized(tabId, operations.setZoomFactor(tabId, zoomFactor)),
       setAudioMuted: (tabId, audioMuted) =>
         authorized(tabId, operations.setAudioMuted(tabId, audioMuted)),
       openDevTools: (tabId) => authorized(tabId, operations.openDevTools(tabId)),
       setAnnotationTheme: operations.setAnnotationTheme,
+      setAnnotationSendEnabled: (tabId, enabled) =>
+        authorized(tabId, operations.setAnnotationSendEnabled(tabId, enabled)),
       pickElement: (tabId) => authorized(tabId, operations.pickElement(tabId)),
       cancelPickElement: (tabId) => authorized(tabId, operations.cancelPickElement(tabId)),
       captureScreenshot: (tabId) => authorized(tabId, operations.captureScreenshot(tabId)),
@@ -245,19 +251,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       stopRecording: (tabId) => authorized(tabId, operations.stopRecording(tabId)),
       saveRecording: (tabId, mimeType, data) =>
         authorized(tabId, operations.saveRecording(tabId, mimeType, data)),
-      automationStatus: (tabId) => authorized(tabId, operations.automationStatus(tabId)),
-      automationSnapshot: (tabId) => authorized(tabId, operations.automationSnapshot(tabId)),
-      automationClick: (tabId, input) =>
-        authorized(tabId, operations.automationClick(tabId, input)),
-      automationType: (tabId, input) => authorized(tabId, operations.automationType(tabId, input)),
-      automationPress: (tabId, input) =>
-        authorized(tabId, operations.automationPress(tabId, input)),
-      automationScroll: (tabId, input) =>
-        authorized(tabId, operations.automationScroll(tabId, input)),
-      automationEvaluate: (tabId, input) =>
-        authorized(tabId, operations.automationEvaluate(tabId, input)),
-      automationWaitFor: (tabId, input) =>
-        authorized(tabId, operations.automationWaitFor(tabId, input)),
     };
   };
 
@@ -371,13 +364,16 @@ export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSen
   previewManager: PreviewManager["Service"],
   authorizationError: (reason: "missing-sender" | "unregistered-window") => Effect.Effect<never, E>,
 ) {
-  if (!event?.sender) {
+  // Upstream calls some handlers without their invoke event; those still run
+  // inside the request `DesktopIpc` scopes to its sender.
+  const senderId = event?.sender?.id ?? Option.getOrUndefined(yield* IpcRequester);
+  if (senderId === undefined) {
     return yield* authorizationError("missing-sender");
   }
   // Upstream narrowed the invoke event to the sender's id, so the window this
   // request belongs to is resolved the way upstream resolves any id: through
   // the webContents registry, then back to its owning window.
-  const senderWebContents = webContents.fromId(event.sender.id);
+  const senderWebContents = webContents.fromId(senderId);
   const senderWindow = senderWebContents ? BrowserWindow.fromWebContents(senderWebContents) : null;
   const windowId =
     senderWindow === null ? Option.none() : yield* electronWindow.windowIdFor(senderWindow);

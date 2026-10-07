@@ -334,9 +334,11 @@ describe("fork preview manager zoom and window close", () => {
           id === undefined ? null : (webContentsById.get(id) ?? null),
         );
 
-        const otherWindow = yield* manager.forWindow(
-          "00000000-0000-4000-8000-00000000000c" as WindowId,
-        );
+        const otherWindowId = "00000000-0000-4000-8000-00000000000c" as WindowId;
+        const otherWindow = yield* manager.forWindow(otherWindowId);
+        // A creation default a dispose race would lose: a tab re-created after
+        // the main window's close resets it, a surviving tab keeps it.
+        yield* otherWindow.createTab("tab_other_window", { zoomFactor: 1.25 });
         yield* otherWindow.navigate("tab_other_window", "https://other.example");
         yield* manager.createTab("tab_window_close_recording");
         yield* manager.createTab("tab_window_close_race");
@@ -353,6 +355,12 @@ describe("fork preview manager zoom and window close", () => {
         expect(firstWindowThrottling.mock.calls).toEqual([[false]]);
 
         closeMainWindow?.();
+        const otherWindowState: PreviewManager.PreviewTabState[] = [];
+        yield* manager.subscribeOwnedStateChanges((owner, _tabId, state) =>
+          Effect.sync(() => {
+            if (owner === otherWindowId) otherWindowState.push(state);
+          }),
+        );
         const racedStart = yield* Effect.exit(manager.startRecording("tab_window_close_race"));
         expect(Exit.isFailure(racedStart)).toBe(true);
         if (Exit.isFailure(racedStart)) {
@@ -363,10 +371,13 @@ describe("fork preview manager zoom and window close", () => {
         }
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
-        expect(yield* otherWindow.automationStatus("tab_other_window")).toMatchObject({
+        yield* otherWindow.navigate("tab_other_window", "https://other.example/after");
+        // The other window's tab outlived the main window's close: the post-close
+        // navigation still drives the tab created before it, creation zoom intact.
+        expect(otherWindowState.at(-1)).toMatchObject({
           tabId: "tab_other_window",
-          url: "https://other.example/",
-          loading: true,
+          navStatus: { kind: "Loading", url: "https://other.example/after" },
+          zoomFactor: 1.25,
         });
 
         const grants: Array<{ video?: unknown }> = [];
