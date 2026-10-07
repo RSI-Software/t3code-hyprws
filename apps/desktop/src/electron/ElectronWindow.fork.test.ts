@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -27,7 +27,7 @@ import { HUB_WINDOW_IDENTITY, projectWindowIdentity } from "../window/WindowIden
 import { isWindowId, type WindowId } from "../window/WindowId.fork.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 const TestLayer = ElectronWindow.layer.pipe(
-  Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
+  Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
 );
 function makeBrowserWindow(input: { readonly id: number; readonly destroyed: boolean }) {
   const listeners = new Map<string, () => void>();
