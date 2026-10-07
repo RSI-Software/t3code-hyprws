@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
-import * as Persistence from "effect/unstable/persistence/Persistence";
+import * as KeyValueStore from "effect/persistence/KeyValueStore";
+import * as Persistence from "effect/persistence/Persistence";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
