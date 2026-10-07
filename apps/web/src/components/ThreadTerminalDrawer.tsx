@@ -1257,7 +1257,23 @@ function TerminalSessionViewport({
       return;
     }
 
-    outputCursorRef.current = synchronizeTerminalOutput(terminal, current, outputCursorRef.current);
+    if (current.version > 0) {
+      const outputUpdate = readTerminalOutputUpdate(
+        current.output,
+        terminalOutputCursorForLifecycle(
+          outputCursorRef.current,
+          previous.lifecycleVersion,
+          current.lifecycleVersion,
+        ),
+      );
+      if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
+        terminal.resetSession(outputUpdate.data);
+      } else {
+        writeTerminalOutputUpdate(terminal, outputUpdate);
+      }
+      outputCursorRef.current = outputUpdate.cursor;
+      terminal.clearSelection();
+    } // fork-hook: zmux-estate/terminal-lifecycle-output
 
     if (current.error !== null && current.error !== previous.error) {
       writeSystemMessage(terminal, current.error);
