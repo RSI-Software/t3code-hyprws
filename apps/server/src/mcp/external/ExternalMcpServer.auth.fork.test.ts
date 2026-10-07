@@ -1,5 +1,6 @@
 // `/api/mcp/external` against the real session store and DPoP verifier: only a
 // live, granted session presenting a fresh proof from its own key gets in.
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no KeyObject, generateKeyPairSync, or sign.
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -29,9 +30,9 @@ import * as ServerConfig from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ExternalMcpServer from "./ExternalMcpServer.fork.ts";
 
@@ -64,9 +65,9 @@ const makeKey = (issuedAtSeconds: number) => {
 
 const dependencies = Layer.mergeAll(
   EnvironmentAuth.layer.pipe(
-    Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(ServerSecretStore.layer),
-    Layer.provide(ServerEnvironment.identityLayer),
+    Layer.provideMerge(ServerEnvironment.layerIdentity),
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-external-mcp-auth-test-" }),
     ),
@@ -175,8 +176,8 @@ it.live("admits a live granted session only with a fresh proof from its own key"
     const forged = `${client.token.slice(0, -4)}AAAA`;
     expect(yield* initialize(auth(forged, client.key.proof(forged)))).toEqual(refused);
 
-    const expiring = yield* enroll(Duration.millis(20));
-    yield* Effect.sleep("50 millis");
+    // A zero TTL expires at issue: the store refuses once `expiresAt <= now`.
+    const expiring = yield* enroll(Duration.zero);
     expect(yield* initialize(auth(expiring.token, expiring.key.proof(expiring.token)))).toEqual(
       refused,
     );
