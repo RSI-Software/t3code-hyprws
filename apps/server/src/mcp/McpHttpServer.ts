@@ -50,7 +50,8 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
-import { IssuesToolkitRegistrationLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
+import { IssuesToolkitHandlersLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
+import { IssuesToolkitFork } from "./toolkits/issues/tools.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -877,7 +878,7 @@ export const layer = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
-  IssuesToolkitRegistrationLiveFork, // fork-hook: github-issues/mcp-issues-toolkit
+  toolkitRegistration(IssuesToolkitFork, IssuesToolkitHandlersLiveFork), // fork-hook: github-issues/mcp-issues-toolkit
   layerDeviceToolkit,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));
