@@ -160,6 +160,8 @@ export interface RightPanelTabsProps {
   sideChatAvailable?: boolean;
   /** Overrides the default reason while side chats are available but cannot start. */
   sideChatDisabledReason?: string | null;
+  onAddIssues?: () => void; // fork-hook: github-issues/right-panel-issues
+  issuesAvailable?: boolean; // fork-hook: github-issues/right-panel-issues
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }

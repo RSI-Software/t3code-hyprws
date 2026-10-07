@@ -1850,6 +1850,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               enabled_tools: ["t3_thread_wait"],
               omit_tools_from: ["code_mode", "deferred"],
             },
+            shell_environment_policy: {
+              set: { T3CODE_THREAD_ID: "thread-launch-mcp-servers" },
+            }, // fork-hook: upstream-fixes/codex-thread-identity
           },
         },
       ]);
