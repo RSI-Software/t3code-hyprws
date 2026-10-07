@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /**
  * What an owner-approved external MCP client may do at `/api/mcp/external`.
@@ -75,8 +75,8 @@ export const recordExternalMcpGrant = (input: {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   return ExternalMcpGrantStore.of({
-    getBySession: (sessionId) =>
-      sql<{ readonly policyJson: string; readonly clientLabel: string | null }>`
+    getBySession: Effect.fn("ExternalMcpGrantStore.getBySession")(function (sessionId) {
+      return sql<{ readonly policyJson: string; readonly clientLabel: string | null }>`
         SELECT policy_json AS "policyJson", client_label AS "clientLabel"
         FROM auth_external_mcp_grants
         WHERE session_id = ${sessionId}
@@ -92,8 +92,8 @@ const make = Effect.gen(function* () {
               ),
         ),
         Effect.mapError((cause) => new ExternalMcpGrantStoreError({ cause })),
-        Effect.withSpan("ExternalMcpGrantStore.getBySession"),
-      ),
+      );
+    }),
   });
 });
 

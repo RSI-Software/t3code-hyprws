@@ -2,7 +2,7 @@ import { EnvironmentInternalError } from "@t3tools/contracts";
 import { RemoteEnvironmentAuthTimeoutError } from "@t3tools/client-runtime/rpc";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { SidebarThreadGroup } from "../uiStateStore";
