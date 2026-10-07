@@ -5,11 +5,11 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { McpProtocol, McpServer, Tool, Toolkit } from "effect/unstable/ai";
-import * as Etag from "effect/unstable/http/Etag";
-import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { McpProtocol, McpServer, Tool, Toolkit } from "effect/ai";
+import * as Etag from "effect/http/Etag";
+import * as HttpPlatform from "effect/http/HttpPlatform";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { DEVICE_AUTHORIZATION_SUBJECT } from "../../auth/DeviceAuthorization.fork.ts";
 import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
