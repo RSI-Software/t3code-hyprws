@@ -2497,6 +2497,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               type: "subagent.updated",
               driver: CODEX_PROVIDER,
               subagent: task,
+              ...(input.reopen
+                ? { parentProviderThreadId: input.subagent.parentContext.providerThread.id }
+                : {}),
             });
             yield* emitProviderEvent({
               type: "turn_item.updated",
