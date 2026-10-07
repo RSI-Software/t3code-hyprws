@@ -284,7 +284,6 @@ describe("fork preview IPC ownership", () => {
           Effect.sync(() => {
             stateListener = listener;
           }),
-        subscribeOwnedRecordingFrames: () => Effect.void,
         subscribeOwnedRecordingInputs: () => Effect.void,
         subscribeOwnedPointerEvents: () => Effect.void,
         subscribeOwnedOpenLinks: () => Effect.void,
