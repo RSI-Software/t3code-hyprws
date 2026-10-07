@@ -157,11 +157,14 @@ export function PullRequestMarkdownEditor({
         <Button
           size="xs"
           variant="outline"
-          disabled={!canWriteSourceControl || saving || (empty && !allowEmpty)}
+          disabled={
+            !canWriteSourceControl || saving || attachmentFork.busy || (empty && !allowEmpty)
+          } // fork-hook: upstream-fixes/split-session-permissions
           onClick={() => {
             if (
               !readEnvironmentScope(environmentId, AuthSourceControlWriteScope) ||
               saving ||
+              attachmentFork.busy || // fork-hook: upstream-fixes/split-session-permissions
               (empty && !allowEmpty)
             )
               return;

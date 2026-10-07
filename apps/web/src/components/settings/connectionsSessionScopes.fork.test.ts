@@ -46,4 +46,10 @@ describe("connectionsSessionScopesFork", () => {
       connectionsSessionScopesFork(undefined, AuthAdministrativeScopes, standardSession, false),
     ).toEqual(AuthStandardClientScopes);
   });
+
+  it("prefers the session's permissions over its legacy scopes", () => {
+    const session: AuthSessionState = { ...standardSession, permissions: [AuthAccessWriteScope] };
+    const scopes = connectionsSessionScopesFork({}, AuthAdministrativeScopes, session, true);
+    expect(scopes).toEqual([AuthAccessWriteScope]);
+  });
 });
