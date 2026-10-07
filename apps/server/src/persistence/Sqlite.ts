@@ -5,6 +5,7 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
+import { repairStaleForkMigrationRow, ensureForkSchema } from "./ForkSchema.ts"; // fork-hook: zmux-estate/fork-schema
 import { runMigrations } from "./Migrations.ts";
 import { initializeV2Database } from "./initializeV2Database.ts";
 import * as ServerConfig from "../config.ts";
@@ -38,7 +39,9 @@ const layerSetup = Layer.effectDiscard(
     // PASSIVE checkpoints never shrink the -wal file, so it otherwise keeps its
     // largest size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
+    yield* repairStaleForkMigrationRow(); // fork-hook: zmux-estate/fork-schema
     yield* runMigrations();
+    yield* ensureForkSchema(); // fork-hook: zmux-estate/fork-schema
     // Without sqlite_stat1 the planner guesses at index selectivity. 0x10012
     // analyzes tables whose indexes lack stats or whose row count changed 10x,
     // under a temporary analysis_limit. Otherwise it only checks table sizes.

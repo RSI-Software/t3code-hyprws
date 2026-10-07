@@ -244,9 +244,29 @@ export function useSelectedThreadGitActions() {
       // The Git mutation already landed; refresh what the worktree shows even
       // when the thread metadata update is denied, so the sheet does not keep
       // displaying the previous branch.
-      const updateResult = input.nextThreadState
-        ? await updateThreadGitContext(input.thread, input.nextThreadState)
-        : AsyncResult.success(undefined);
+      const nextWorktreePath = input.nextThreadState?.worktreePath; // fork-hook: zmux-estate/checkout-move-request
+      const checkoutMoveRequested =
+        input.nextThreadState !== undefined &&
+        nextWorktreePath !== undefined &&
+        nextWorktreePath !== input.thread.worktreePath &&
+        selectedThreadProject !== null; // fork-hook: zmux-estate/checkout-move-request
+      const updateResult: AtomCommandResult<unknown, unknown> = !input.nextThreadState
+        ? AsyncResult.success(undefined)
+        : checkoutMoveRequested && selectedThreadProject
+          ? await moveThreadCheckout({
+              environmentId: input.thread.environmentId,
+              input: {
+                threadId: input.thread.id,
+                requestedPath: nextWorktreePath ?? selectedThreadProject.workspaceRoot,
+                expectedCheckoutRoot:
+                  (input.thread.checkoutMove
+                    ? checkoutMoveExpectedRoot(input.thread.checkoutMove)
+                    : null) ??
+                  input.thread.worktreePath ??
+                  selectedThreadProject.workspaceRoot,
+              },
+            }) // fork-hook: zmux-estate/checkout-move-update-result
+          : await updateThreadGitContext(input.thread, input.nextThreadState); // fork-hook: zmux-estate/checkout-move-update-result
       branchState.refresh();
       if (!checkoutMoveRequested) {
         await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
