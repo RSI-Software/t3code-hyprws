@@ -144,6 +144,14 @@ const RPC_AGGREGATES = {
   [WS_METHODS.pullRequestsRequestReviewers]: "pull-requests",
   [WS_METHODS.pullRequestsLabelCandidates]: "pull-requests",
   [WS_METHODS.pullRequestsSetLabels]: "pull-requests",
+  [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
+  [WS_METHODS.pullRequestsUploadAttachment]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
+  [WS_METHODS.githubIssuesList]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.githubIssuesDetail]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.githubIssuesLinkedThreads]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.githubIssuesSetState]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.githubIssuesSyncThreadLinks]: "github-issues", // fork-hook: github-issues/rpc-aggregates
+  [WS_METHODS.threadCheckoutMoveRequest]: "orchestration", // fork-hook: zmux-estate/checkout-move-rpc-aggregate
   [WS_METHODS.issuesList]: "issues",
   [WS_METHODS.issuesDetail]: "issues",
   [WS_METHODS.issuesComments]: "issues",
