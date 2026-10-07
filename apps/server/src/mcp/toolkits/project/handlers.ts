@@ -72,7 +72,7 @@ const remoteTarget = (input: { readonly environmentId?: EnvironmentId | undefine
 export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
-    (input, { runtimeMode, interactionMode }) =>
+    (input, { runtimeMode, interactionMode, linkOrigin }) =>
       Effect.gen(function* () {
         const { scope, target } = yield* remoteTarget(input);
         if (target !== undefined) {
@@ -173,6 +173,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
               }),
           createdBy: "agent",
           creationSource: "mcp",
+          ...(linkOrigin === undefined ? {} : { linkOrigin }),
         }).pipe(
           Effect.mapError((error) =>
             error._tag === "AttachmentClaimError"
@@ -190,6 +191,8 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           status: run?.status ?? null,
         };
       }),
+    // The launched thread carries the caller's link, if it has one.
+    "stamped",
   ),
   t3_project_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
