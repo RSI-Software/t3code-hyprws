@@ -14,7 +14,8 @@ export function connectionsSessionScopesFork<Owned extends ReadonlyArray<string>
   ownedScopes: Owned,
   session: AuthSessionState | null,
   clientOnly: boolean = isDesktopClientOnlyMode(),
-): Owned | NonNullable<AuthSessionState["scopes"]> | null {
+): Owned | NonNullable<AuthSessionState["permissions"]> | null {
   if (desktopBridge && !clientOnly) return ownedScopes;
-  return session?.authenticated ? (session.scopes ?? null) : null;
+  // Permissions are the current wire field; scopes remain for servers older than them.
+  return session?.authenticated ? (session.permissions ?? session.scopes ?? null) : null;
 }

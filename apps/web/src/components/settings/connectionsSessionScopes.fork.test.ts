@@ -43,7 +43,13 @@ describe("connectionsSessionScopesFork", () => {
 
   it("reads a browser's scopes from its session", () => {
     expect(
-      connectionsSessionScopesFork(undefined, AuthAdministrativeScopes, standardSession, false),
-    ).toEqual(AuthStandardClientScopes);
+      connectionsSessionScopesFork(undefined, AuthStandardClientScopes, standardSession, false),
+    ).toEqual([AuthOrchestrationReadScope]);
+  });
+
+  it("prefers the session's permissions over its legacy scopes", () => {
+    const session: AuthSessionState = { ...standardSession, permissions: [AuthAccessWriteScope] };
+    const scopes = connectionsSessionScopesFork({}, AuthStandardClientScopes, session, true);
+    expect(scopes).toEqual([AuthAccessWriteScope]);
   });
 });

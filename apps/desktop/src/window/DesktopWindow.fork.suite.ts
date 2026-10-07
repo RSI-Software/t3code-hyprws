@@ -83,7 +83,7 @@ export const previewSessionCountersFork = (input: {
  * share its harness. Each fork domain adds its cases here.
  */
 export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork) => {
-  const { makeFakeBrowserWindow, makeTestLayer } = harness;
+  const { makeFakeBrowserWindow, layerTest } = harness;
 
   it.effect("leaves app context menus to the renderer while preserving native text actions", () =>
     Effect.gen(function* () {
@@ -91,7 +91,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const popupTemplates: Electron.MenuItemConstructorOptions[][] = [];
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -155,7 +155,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -177,7 +177,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -222,7 +222,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -254,7 +254,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         placementLifecycle.push(`title:${title}`);
       });
       const revealRequests: number[] = [];
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -314,7 +314,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const workspaceMoves: { key: string; workspace: string }[] = [];
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -345,7 +345,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const previewOwners: string[] = [];
       const placementClaims: { key: string; title: string }[] = [];
       const previewBrowserSessionRequests: number[] = [];
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -421,7 +421,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         environmentId: EnvironmentId.make("environment-1"),
         projectId: ProjectId.make("project-1"),
       };
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,
@@ -482,7 +482,7 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const layer = makeTestLayer({
+      const layer = layerTest({
         window: fakeWindow.window,
         createCount,
         mainWindow,

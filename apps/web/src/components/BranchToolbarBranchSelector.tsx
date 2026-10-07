@@ -15,6 +15,7 @@ import {
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
+  type CommandId, // fork-hook: zmux-estate/checkout-move-lock
   type ContextMenuItem,
   type EnvironmentId,
   type VcsRef,
@@ -262,6 +263,7 @@ export function BranchToolbarBranchSelector({
     if (
       !activeThreadId ||
       !activeProject ||
+      checkoutMoveControlsLocked || // fork-hook: zmux-estate/checkout-move-lock
       (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
     )
       return false;
@@ -523,7 +525,14 @@ export function BranchToolbarBranchSelector({
   };
 
   const selectBranch = (refName: VcsRef) => {
-    if (!canUpdateThreadBranch || !branchCwd || !activeProjectCwd || isBranchActionPending) return;
+    if (
+      !canUpdateThreadBranch ||
+      !branchCwd ||
+      !activeProjectCwd ||
+      isBranchActionPending ||
+      checkoutMoveControlsLocked
+    )
+      return; // fork-hook: zmux-estate/checkout-move-lock
 
     const latest = readLatestThreadState();
     if (isSelectingWorktreeBase) {
@@ -607,9 +616,9 @@ export function BranchToolbarBranchSelector({
     });
   };
 
-  const retryOrUndoCheckoutMove = useCallback(() => {
+  const retryOrUndoCheckoutMove = () => {
     const move = serverThread?.checkoutMove;
-    if (!move || checkoutMoveControlsLocked) return;
+    if (!move || checkoutMoveControlsLocked || !canOperateThread) return; // fork-hook: upstream-fixes/split-session-permissions
     const undo = move.status === "committed";
     void runCheckoutMove({
       requestedPath: undo ? move.source.checkoutRoot : move.requestedPath,
@@ -617,7 +626,7 @@ export function BranchToolbarBranchSelector({
       ...(undo ? { reverseOfRequestId: move.requestId } : {}),
       failureTitle: undo ? "Failed to undo checkout move" : "Failed to retry checkout move",
     });
-  }, [checkoutMoveControlsLocked, runCheckoutMove, serverThread?.checkoutMove]);
+  }; // fork-hook: upstream-fixes/split-session-permissions
   const undoUnavailable =
     serverThread?.checkoutMove?.status === "committed" &&
     staleUndoRequestId === serverThread.checkoutMove.requestId;
@@ -892,7 +901,7 @@ export function BranchToolbarBranchSelector({
                   <Button
                     variant="ghost"
                     size="micro" // fork-hook: zmux-estate/checkout-move-size
-                    disabled={checkoutMoveControlsLocked || undoUnavailable}
+                    disabled={checkoutMoveControlsLocked || undoUnavailable || !canOperateThread} // fork-hook: upstream-fixes/split-session-permissions
                     onClick={retryOrUndoCheckoutMove}
                     aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
                   />

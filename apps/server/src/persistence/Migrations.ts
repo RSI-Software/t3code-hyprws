@@ -2,6 +2,11 @@ import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
+import {
+  repairStaleForkMigrationRow,
+  ensureForkSchema,
+  hasPendingForkSchema,
+} from "./ForkSchema.ts"; // fork-hook: zmux-estate/fork-schema
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
@@ -238,6 +243,7 @@ const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
 
 // Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
 export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
+  if (yield* hasPendingForkSchema()) return true; // fork-hook: zmux-estate/fork-schema-pending
   const sql = yield* SqlClient.SqlClient;
   const tables = yield* sql`
     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
@@ -262,6 +268,7 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  yield* repairStaleForkMigrationRow(); // fork-hook: zmux-estate/fork-schema
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
@@ -321,5 +328,6 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
+  yield* ensureForkSchema(); // fork-hook: zmux-estate/fork-schema
   return executedMigrations;
 });

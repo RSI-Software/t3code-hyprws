@@ -14,7 +14,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
+import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
 // Fork: a pull request watch wake queued behind a busy turn is cancelled when its watch ends,
 // so the agent is not woken about a pull request it stopped watching or that merged meanwhile.
@@ -29,9 +29,9 @@ const adapter: ProviderAdapterV2Shape = {
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
   openSession: () => Effect.die("watch wake tests start no session"),
 };
-const layer = makeOrchestratorV2ReplayLayerWithRegistry(
+const layer = layerWithRegistry(
   { name: "pull-request-watch-wakes-fork" },
-  ProviderAdapterRegistry.makeLayer([adapter]),
+  ProviderAdapterRegistry.layerFromAdapters([adapter]),
   { runEffectWorker: false },
 );
 

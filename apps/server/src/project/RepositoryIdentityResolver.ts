@@ -10,6 +10,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
+import { originDefaultRemoteFork } from "./RepositoryIdentityResolver.fork.ts"; // fork-hook: upstream-fixes/origin-default-import
 import * as ProcessRunner from "../processRunner.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { explicitBareRepositoryEnv, unsetInheritedRepositoryEnv } from "../vcs/VcsProcess.ts";
@@ -82,6 +83,7 @@ function pickPrimaryRemote(
   remotes: ReadonlyMap<string, string>,
   ghDefaultRemoteName: string | null,
 ): { readonly remoteName: string; readonly remoteUrl: string } | null {
+  ghDefaultRemoteName ??= originDefaultRemoteFork(remotes); // fork-hook: upstream-fixes/origin-default
   for (const preferredRemoteName of [ghDefaultRemoteName, "upstream", "origin"]) {
     if (preferredRemoteName === null) continue;
     const remoteUrl = remotes.get(preferredRemoteName);
