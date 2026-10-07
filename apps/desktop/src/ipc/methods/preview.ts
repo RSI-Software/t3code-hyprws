@@ -64,7 +64,7 @@ const setForwardedShortcuts = DesktopIpc.makeIpcMethod({
   payload: Schema.Array(PreviewForwardedShortcut).check(Schema.isMaxLength(MAX_KEYBINDINGS_COUNT)),
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setForwardedShortcuts")(function* (shortcuts) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setForwardedShortcuts(shortcuts);
   }),
 });
@@ -172,7 +172,7 @@ const setZoomFactor = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewSetZoomFactorInputSchema,
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setZoomFactor")(function* ({ tabId, zoomFactor }) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setZoomFactor(tabId, zoomFactor);
   }),
 });
@@ -379,7 +379,7 @@ const setAnnotationSendEnabled = DesktopIpc.makeIpcMethod({
     tabId,
     enabled,
   }) {
-    const manager = yield* PreviewManager.PreviewManager;
+    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
     yield* manager.setAnnotationSendEnabled(tabId, enabled);
   }),
 });
