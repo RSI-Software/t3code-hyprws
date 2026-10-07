@@ -4,6 +4,8 @@
 // thread; this answers to a device-authorized session and its grant policy,
 // reusing upstream's projection helpers through the marked
 // `device-auth/mcp-external-helpers` export.
+import * as NodeCrypto from "node:crypto";
+
 import {
   type AuthSessionId,
   CommandId,
@@ -74,6 +76,12 @@ import {
   makeExternalMcpRequestLedger,
   requestFingerprint,
 } from "./ExternalMcpRequestLedger.fork.ts";
+import {
+  type ExternalMcpRequestListResult,
+  type ExternalMcpRequestRespondResult,
+  type ExternalMcpRespondInput,
+  makeExternalMcpRequests,
+} from "./ExternalMcpRequests.fork.ts";
 
 const DEFAULT_THREAD_LIST_LIMIT = 50;
 const DEFAULT_THREAD_READ_LIMIT = 50;
@@ -130,6 +138,14 @@ export interface ExternalMcpThreadWaitResult extends OrchestratorMcpThreadWaitRe
 }
 
 export interface ExternalMcpServiceShape {
+  readonly listRequests: (
+    principal: ExternalMcpPrincipal,
+    input: { readonly threadId: ThreadId },
+  ) => Effect.Effect<ExternalMcpRequestListResult, OrchestratorMcpFailure>;
+  readonly respondToRequest: (
+    principal: ExternalMcpPrincipal,
+    input: ExternalMcpRespondInput,
+  ) => Effect.Effect<ExternalMcpRequestRespondResult, OrchestratorMcpFailure>;
   readonly settleThread: (
     principal: ExternalMcpPrincipal,
     input: {
@@ -512,7 +528,18 @@ const make = Effect.gen(function* () {
       return { instanceId, model };
     });
 
+  const requests = makeExternalMcpRequests({
+    threadManagement,
+    newCommandId: Effect.sync(() => CommandId.make(`mcp:${NodeCrypto.randomUUID()}`)),
+    loadShell,
+    requireCoordinate,
+    vetThreadModes,
+    modesChangedSince,
+    audit,
+  });
+
   return ExternalMcpServiceFork.of({
+    ...requests,
     settleThread: (principal, input) =>
       Effect.gen(function* () {
         yield* requireCoordinate(principal);
