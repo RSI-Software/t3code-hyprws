@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "@effect/vitest";
 import { type Project, ProjectId, type ProjectScript } from "@t3tools/contracts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -154,6 +155,7 @@ const testLayer = (
       }),
     ),
     Layer.provideMerge(Layer.mock(TerminalManager.TerminalManager)(terminal)),
+    Layer.provideMerge(NodeCrypto.layer),
     Layer.provide(settings),
   );
 
