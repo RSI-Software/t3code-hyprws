@@ -2546,8 +2546,8 @@ const layerWsRpc = (
           withPullRequestViewer(input, pullRequests.labelCandidates(input)),
         [WS_METHODS.pullRequestsSetLabels]: (input) =>
           withPullRequestViewer(input, pullRequests.setLabels(input)),
-        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect, sql), // fork-hook: github-issues/ws-rpc-handlers
-        ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves, observeRpcEffect), // fork-hook: zmux-estate/ws-checkout-move-handlers
+        ...gitHubIssueRpcHandlersFork(githubIssues, sql), // fork-hook: github-issues/ws-rpc-handlers
+        ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves), // fork-hook: zmux-estate/ws-checkout-move-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           sourceControlRepositories.lookupRepository(input),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>

@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { listLinkedIssueThreadsFork } from "../../githubIssue/linkedThreads.fork.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";
 import * as ProjectionMaintenance from "../ProjectionMaintenance.ts";
@@ -18,9 +18,9 @@ import {
 } from "./LegacyV1ThreadIssues.fork.ts";
 
 const storesProvided = Layer.mergeAll(
-  SqlitePersistenceMemory,
-  EventStore.layer.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-  ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+  SqlitePersistence.layerMemory,
+  EventStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
+  ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
 );
 const eventSinkProvided = EventSink.layer.pipe(Layer.provide(storesProvided));
 const TestLayer = Layer.mergeAll(
