@@ -6,7 +6,7 @@ import { HttpClient } from "effect/http";
 
 import { invalidateAttachedPrimaryBearerToken } from "./attachedPrimary.fork";
 import { __resetDesktopPrimaryAuthForTests } from "./desktopAuth";
-import { makePrimaryEnvironmentHttpLayer } from "./httpLayer";
+import { layerForCurrentOrigin } from "./httpLayer";
 
 // The attached-primary 401 contract (RSI-Software/t3code-hyprws#1350): one
 // re-mint and retry; a second 401 or a transport error drops the attachment;
@@ -75,7 +75,7 @@ describe("attached primary stale bearer retry", { concurrent: false }, () => {
       expect(seen).toEqual(["Bearer stale-bearer-token", "Bearer fresh-bearer-token"]);
       expect(getBearerToken).toHaveBeenCalledTimes(2);
       expect(reject).not.toHaveBeenCalled();
-    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+    }).pipe(Effect.provide(layerForCurrentOrigin()));
   });
 
   it.effect("a second 401 drops the attachment instead of looping", () => {
@@ -88,7 +88,7 @@ describe("attached primary stale bearer retry", { concurrent: false }, () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(reject).toHaveBeenCalledTimes(1);
       expect(reject).toHaveBeenCalledWith("always-stale-bearer-token", "unauthorized");
-    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+    }).pipe(Effect.provide(layerForCurrentOrigin()));
   });
 
   it.effect("a transport error drops the attachment", () => {
@@ -99,7 +99,7 @@ describe("attached primary stale bearer retry", { concurrent: false }, () => {
       yield* Effect.flip(get);
       expect(reject).toHaveBeenCalledTimes(1);
       expect(reject).toHaveBeenCalledWith("bearer-token", "transport");
-    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+    }).pipe(Effect.provide(layerForCurrentOrigin()));
   });
 
   it.effect("a late transport error reports the bearer it sent, not a refilled one", () => {
@@ -137,7 +137,7 @@ describe("attached primary stale bearer retry", { concurrent: false }, () => {
       expect(reject).toHaveBeenCalledTimes(1);
       expect(reject).toHaveBeenCalledWith("first-bearer-token", "transport");
       expect(getBearerToken).toHaveBeenCalledTimes(2);
-    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+    }).pipe(Effect.provide(layerForCurrentOrigin()));
   });
 
   it.effect("managed desktop surfaces a 401 without retry or reject", () => {
@@ -149,7 +149,7 @@ describe("attached primary stale bearer retry", { concurrent: false }, () => {
       expect((yield* get).status).toBe(401);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(reject).not.toHaveBeenCalled();
-    }).pipe(Effect.provide(makePrimaryEnvironmentHttpLayer()));
+    }).pipe(Effect.provide(layerForCurrentOrigin()));
   });
 
   it("invalidate re-reads once and resolves null when main has no attachment", async () => {

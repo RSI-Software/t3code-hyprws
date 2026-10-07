@@ -48,7 +48,7 @@ import {
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
 } from "../CodexProvider.ts";
-import { makeCodexAgentOptionsDecorator } from "../Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
+import { makeCodexAgentOptionsDecorator } from "../CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
 import { resolveCodexLaunchArgs } from "../codexLaunchArgs.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";

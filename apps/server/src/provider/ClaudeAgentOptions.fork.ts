@@ -1,7 +1,7 @@
 import type { AgentInfo as ClaudeAgentInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { ModelSelection, ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { buildSelectOptionDescriptor } from "./providerSnapshot.ts";
+import { buildSelectOptionDescriptor } from "@t3tools/provider-core/server/snapshotProbe";
 
 // The SDK supplies Claude agents. Keep their normalization and presentation
 // separate from upstream's provider initialization, auth and usage probes.

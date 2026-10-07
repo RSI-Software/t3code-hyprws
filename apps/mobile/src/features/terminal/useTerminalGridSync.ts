@@ -15,6 +15,7 @@ export function useTerminalGridSync({
   environmentId,
   threadId,
   terminalId,
+  attachmentId, // fork-hook: zmux-estate/terminal-grid-attachment
   canOperate,
   terminal,
   size,
@@ -23,6 +24,7 @@ export function useTerminalGridSync({
   readonly environmentId: EnvironmentId | null;
   readonly threadId: ThreadId | null;
   readonly terminalId: string;
+  readonly attachmentId?: string | null; // fork-hook: zmux-estate/terminal-grid-attachment
   readonly canOperate: boolean;
   readonly terminal: Pick<TerminalSessionState, "output" | "status" | "version">;
   readonly size: TerminalGridSize;
@@ -46,7 +48,13 @@ export function useTerminalGridSync({
       return;
     resize({
       environmentId,
-      input: { threadId, terminalId, cols: size.cols, rows: size.rows },
+      input: {
+        threadId,
+        terminalId,
+        ...(attachmentId ? { attachmentId } : {}),
+        cols: size.cols,
+        rows: size.rows,
+      }, // fork-hook: zmux-estate/terminal-grid-attachment
     });
-  }, [environmentId, generation, resize, size.cols, size.rows, terminalId, threadId]);
+  }, [attachmentId, environmentId, generation, resize, size.cols, size.rows, terminalId, threadId]); // fork-hook: zmux-estate/terminal-grid-attachment
 }

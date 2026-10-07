@@ -9,7 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
@@ -19,7 +19,7 @@ import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { makeThreadWorktreeIntegrationsFork } from "./ThreadLaunchService.fork.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
+import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 
 const threadId = ThreadId.make("thread-worktree-integrations");
 const projectCwd = "/repo/project";
@@ -166,10 +166,10 @@ const adapter = {
 
 /** The integration layers over a real orchestrator, so notices reach the stored projection. */
 const persistedLayers = (options: Parameters<typeof integrationLayers>[0]) => {
-  const orchestrator = makeOrchestratorV2ReplayLayerWithRegistry(
+  const orchestrator = layerWithRegistry(
     { name: "thread-worktree-integrations" },
-    ProviderAdapterRegistry.makeLayer([adapter]),
-    { databaseLayer: SqlitePersistenceMemory, runEffectWorker: false },
+    ProviderAdapterRegistry.layerFromAdapters([adapter]),
+    { databaseLayer: SqlitePersistence.layerMemory, runEffectWorker: false },
   );
   return Layer.mergeAll(
     integrationLayers(options),

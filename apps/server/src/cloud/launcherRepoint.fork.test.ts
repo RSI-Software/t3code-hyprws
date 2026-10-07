@@ -82,7 +82,6 @@ const makeSelfUpdate = Effect.fn("test.make_launcher_self_update")(function* (
     preflight === "ready"
       ? { status: "ready", version: "1.1.0", launcherProtocol: SERVICE_LAUNCHER_PROTOCOL }
       : { status: "blocked", version: "1.1.0", reason: "local update required" };
-  // @effect-diagnostics-next-line preferSchemaOverJson:off - fake child-process stdout.
   const preflightStdout = JSON.stringify(preflightResult);
   const runner = ProcessRunner.ProcessRunner.of({
     run: (input) => {

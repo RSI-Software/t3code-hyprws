@@ -1492,10 +1492,10 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
   });
   const knownTerminalSessions = useMemo(
     () =>
-      allKnownTerminalSessions.filter(
+      allKnownTerminalSessions?.filter(
         (session) =>
           session.target.attachmentId === terminalAttachmentId(session.target.terminalId),
-      ),
+      ), // fork-hook: zmux-estate/known-terminal-sessions
     [allKnownTerminalSessions],
   );
   const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
