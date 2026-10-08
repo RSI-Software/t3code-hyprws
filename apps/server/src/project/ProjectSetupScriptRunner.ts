@@ -548,6 +548,7 @@ export const make = Effect.gen(function* () {
           env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
         })
         .pipe(
+          (effect) => inSettlementHookShellFork(effect, trigger === "settle"), // fork-hook: zmux-estate/settle-hook-shell-open
           Effect.andThen(() =>
             terminalManager
               .getShell({ threadId: input.threadId, terminalId })
