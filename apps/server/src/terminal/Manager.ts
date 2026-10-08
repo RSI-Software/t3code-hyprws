@@ -87,6 +87,9 @@ import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClie
 import { terminalOutputStream } from "./OutputProtocol.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { makeSettlementAttachmentReleaseFork } from "./SettlementAttachmentRelease.fork.ts"; // fork-hook: zmux-estate/settled-lane-release-import
+import { settlementHookTerminalModeFork } from "./SettlementHookShell.fork.ts"; // fork-hook: zmux-estate/settle-hook-shell-mode-import
+import { SettledLaneAttachGuard } from "../zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/settled-lane-attach-guard-import
 import {
   INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
   transitionManagedAttachment,
@@ -313,6 +316,9 @@ export class TerminalManager extends Context.Service<
     }) => Effect.Effect<void>;
 
     readonly hasActiveSubprocess: (input: { readonly threadId: string }) => Effect.Effect<boolean>;
+    readonly releaseSettledManagedAttachments: (input: {
+      readonly threadId: string;
+    }) => Effect.Effect<boolean>; // fork-hook: zmux-estate/settled-lane-release-contract
 
     readonly subscribe: (
       listener: (event: TerminalEvent) => Effect.Effect<void>,
@@ -1917,6 +1923,7 @@ interface TerminalManagerOptions {
   >;
   terminalSessionMode?: Effect.Effect<TerminalSessionMode>;
   ensureZmuxSession?: ZmuxSessionBinder.ZmuxSessionBinder["Service"]["ensure"];
+  resolveOnlyForSettledThread?: (threadId: string) => Effect.Effect<boolean>; // fork-hook: zmux-estate/settled-lane-guard-option-type
 }
 
 export const resolveProviderInstanceTerminalEnvironment = Effect.fn(
@@ -1983,6 +1990,7 @@ export const make = Effect.fn("TerminalManager.make")(function* (
     }),
   );
   const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+  const settledLaneAttachGuard = yield* SettledLaneAttachGuard; // fork-hook: zmux-estate/settled-lane-attach-guard-make
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
     ptyAdapter,
@@ -2001,6 +2009,7 @@ export const make = Effect.fn("TerminalManager.make")(function* (
       Effect.orElseSucceed(() => "shell" as const),
     ),
     ensureZmuxSession: zmuxSessionBinder.ensure,
+    resolveOnlyForSettledThread: settledLaneAttachGuard.isSettledThread, // fork-hook: zmux-estate/settled-lane-attach-guard-option
   });
 });
 
@@ -2171,6 +2180,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const registerTerminalProcesses = options.registerTerminalProcesses ?? (() => Effect.void);
   const unregisterTerminal = options.unregisterTerminal ?? (() => Effect.void);
   const terminalSessionMode = options.terminalSessionMode ?? Effect.succeed("shell" as const);
+  const effectiveTerminalSessionMode = settlementHookTerminalModeFork(terminalSessionMode); // fork-hook: zmux-estate/settle-hook-shell-mode
 
   const resolveZmuxSession = Effect.fn("terminal.resolveZmuxSession")(function* (
     targetDir: string,
@@ -2326,6 +2336,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       failureReason: null,
     } satisfies ZmuxLaunchResolution;
   });
+
+  const resolveOnlyForSettledThread = (threadId: string) =>
+    options.resolveOnlyForSettledThread
+      ? options.resolveOnlyForSettledThread(threadId)
+      : Effect.succeed(false); // fork-hook: zmux-estate/settled-lane-guard-default
 
   yield* fileSystem.makeDirectory(logsDir, { recursive: true }).pipe(Effect.orDie);
 
@@ -3369,7 +3384,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     session: TerminalSessionState,
     input: TerminalStartInput,
   ): Effect.fn.Return<PreparedManagedRetarget | null, TerminalError> {
-    if ((yield* terminalSessionMode) !== "zmux") return null;
+    if ((yield* effectiveTerminalSessionMode) !== "zmux") return null; // fork-hook: zmux-estate/settle-hook-shell-retarget-mode
 
     const worktreePath = input.worktreePath ?? null;
     if (worktreePath !== null) {
@@ -3759,7 +3774,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                 }
               }
             }
-            const mode = yield* terminalSessionMode;
+            const mode = yield* effectiveTerminalSessionMode; // fork-hook: zmux-estate/settle-hook-shell-open-mode
             let shellCandidates = plainShellCandidates;
             let spawnEnv = terminalEnv;
             let managedTarget: string | null = null;
@@ -3774,9 +3789,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               const targetDir = session.worktreePath ?? session.cwd;
               const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const ensured = options.ensureZmuxSession
-                ? yield* ensureZmuxSession(targetDir, expectedMatch)
-                : yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+              const ensured =
+                options.ensureZmuxSession && !(yield* resolveOnlyForSettledThread(session.threadId))
+                  ? yield* ensureZmuxSession(targetDir, expectedMatch)
+                  : yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv); // fork-hook: zmux-estate/settled-lane-resume-guard
               const resolved =
                 options.ensureZmuxSession &&
                 ensured.target &&
@@ -3803,7 +3819,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               const targetDir = session.worktreePath ?? session.cwd;
               const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const resolved = yield* ensureZmuxSession(targetDir, expectedMatch);
+              const resolved = (yield* resolveOnlyForSettledThread(session.threadId))
+                ? yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
+                : yield* ensureZmuxSession(targetDir, expectedMatch); // fork-hook: zmux-estate/settled-lane-open-guard
               managedTarget = resolved.target;
               attemptedManagedTarget = resolved.target;
               zmuxCandidate = resolved.candidate;
@@ -5520,6 +5538,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           );
     return Option.isSome(yield* Effect.findFirst(running, isActive));
   });
+  const releaseSettledManagedAttachments = makeSettlementAttachmentReleaseFork({
+    sessionsForThread,
+    suspend: (session) => updateManagedAttachment(session, { type: "settle-released" }),
+    withThreadLock,
+    processKillGraceMs,
+  }); // fork-hook: zmux-estate/settled-lane-release-implementation
 
   return TerminalManager.of({
     open,
@@ -5535,6 +5559,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     closeIdle,
     closeOnSettle,
     hasActiveSubprocess,
+    releaseSettledManagedAttachments, // fork-hook: zmux-estate/settled-lane-release-service
     subscribe,
     subscribeMetadata,
   });
