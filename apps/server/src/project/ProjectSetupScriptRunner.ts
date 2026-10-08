@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import { inSettlementHookShellFork } from "../terminal/SettlementHookShell.fork.ts"; // fork-hook: zmux-estate/settle-hook-shell-import
 import * as ProjectService from "./ProjectService.ts";
 
 export interface ProjectSetupScriptRunnerResultNoScript {
@@ -563,6 +564,7 @@ export const make = Effect.gen(function* () {
         env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
       })
       .pipe(
+        (effect) => inSettlementHookShellFork(effect, trigger === "settle"), // fork-hook: zmux-estate/settle-hook-shell-open
         Effect.mapError(
           (cause) =>
             new ProjectSetupScriptOperationError({
