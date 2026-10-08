@@ -11,6 +11,7 @@ import * as Stream from "effect/Stream";
 
 import * as CodexClient from "./client.ts";
 import * as CodexError from "./errors.ts";
+import { withoutConversationForkNoticeFork } from "./replay.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-replay-notice-import
 
 export const CodexAppServerReplayEntry = Schema.Union([
   Schema.Struct({
@@ -178,6 +179,9 @@ function normalizeContextHandoffText(value: string): string {
 }
 
 function normalizeReplayFrame(value: unknown): unknown {
+  const noticeFreeFork =
+    typeof value === "string" ? withoutConversationForkNoticeFork(value) : undefined; // fork-hook: upstream-fixes/conversation-fork-replay-notice
+  if (noticeFreeFork !== undefined) return normalizeReplayFrame(noticeFreeFork); // fork-hook: upstream-fixes/conversation-fork-replay-notice-strip
   if (typeof value === "string") {
     return normalizeContextHandoffText(value);
   }
