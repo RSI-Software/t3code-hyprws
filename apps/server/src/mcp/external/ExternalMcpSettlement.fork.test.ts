@@ -824,7 +824,7 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
     assert.equal(deniedReplay.isError, true);
     assert.ok(
       deniedReplay.content.some(
-        (part) => part.type === "text" && part.text.startsWith("capability_denied:"),
+        (part) => part.type === "text" && part.text.includes("approved for read-only access"),
       ),
     );
     assert.equal((yield* readThread).settled, false);

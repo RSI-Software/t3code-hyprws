@@ -6,18 +6,24 @@
 // Retire it when upstream ships an external MCP client audience with headless
 // sign-in: the fork then provides that audience's authenticator from device
 // grants and keeps only the project and interaction-mode policy.
+import type { EnvironmentId } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type * as Types from "effect/Types";
-import { McpProtocol, McpServer } from "effect/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
-import packageJson from "../../../package.json" with { type: "json" };
 import { DEVICE_AUTHORIZATION_SUBJECT } from "../../auth/DeviceAuthorization.fork.ts";
 import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
 import * as ExternalMcpGrant from "../../auth/ExternalMcpGrant.fork.ts";
-import { normalizeMcpHttpResponse } from "../McpHttpServer.ts";
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
+import {
+  layerMcpTransportAtFork,
+  normalizeMcpHttpResponse,
+  toolkitRegistration,
+} from "../McpHttpServer.ts";
+import * as McpInvocationContext from "../McpInvocationContext.ts";
 import { ExternalMcpToolkitHandlersLiveFork } from "../toolkits/external/handlers.fork.ts";
 import { ExternalMcpToolkitFork } from "../toolkits/external/tools.fork.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
@@ -50,8 +56,31 @@ type RejectReason =
 type PrincipalHttpEffect = Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   Types.unhandled,
-  ExternalMcpService.ExternalMcpPrincipalFork
+  ExternalMcpService.ExternalMcpPrincipalFork | McpInvocationContext.McpInvocationContext
 >;
+
+/**
+ * The grant as upstream's outside-client caller, so `McpToolAccess` checks it
+ * as it checks an OAuth client at `/mcp`: a grant without `coordinate` is
+ * read-only, and one with it is capped at its runtime mode. The grant's
+ * project and interaction-mode policy stays with `ExternalMcpServiceFork`.
+ */
+const clientScope = (
+  principal: ExternalMcpService.ExternalMcpPrincipal,
+  environmentId: EnvironmentId,
+  issuedAt: number,
+): McpInvocationContext.McpInvocationScope => ({
+  environmentId,
+  requestNamespace: `client:${principal.sessionId}`,
+  thread: undefined,
+  client: {
+    sessionId: principal.sessionId,
+    label: principal.clientLabel ?? "External MCP client",
+    access: principal.policy.coordinate ? principal.policy.maxRuntimeMode : "read-only",
+  },
+  capabilities: new Set<McpInvocationContext.McpCapability>(["orchestration"]),
+  issuedAt,
+});
 
 /**
  * Admits only a proof-bound device-grant session that carries an MCP grant.
@@ -61,6 +90,7 @@ type PrincipalHttpEffect = Effect.Effect<
 const makeAuthMiddleware = Effect.gen(function* () {
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const grants = yield* ExternalMcpGrant.ExternalMcpGrantStore;
+  const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
 
   const resolvePrincipal = Effect.fn("ExternalMcpServer.resolvePrincipal")(function* (
     request: HttpServerRequest.HttpServerRequest,
@@ -110,37 +140,48 @@ const makeAuthMiddleware = Effect.gen(function* () {
       Effect.option,
     );
     if (Option.isNone(principal)) return unauthorized;
+    const scope = clientScope(
+      principal.value,
+      yield* environment.getEnvironmentId,
+      yield* Clock.currentTimeMillis,
+    );
     return yield* httpEffect.pipe(
       Effect.provideService(ExternalMcpService.ExternalMcpPrincipalFork, principal.value),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
       Effect.map(normalizeMcpHttpResponse),
     );
   });
 }).pipe(Effect.withSpan("ExternalMcpServer.makeAuthMiddleware"));
 
 const AuthMiddlewareLive = HttpRouter.middleware<{
-  provides: ExternalMcpService.ExternalMcpPrincipalFork;
+  provides: ExternalMcpService.ExternalMcpPrincipalFork | McpInvocationContext.McpInvocationContext;
 }>()(makeAuthMiddleware).layer.pipe(Layer.provide(ExternalMcpGrant.layer));
 
 /**
  * Mounted beside the device grant routes through the marked
- * `device-auth/server-external-mcp` hook. `McpServer.toolkit` and
- * `McpServer.layerHttp` both build the memoized `McpServer.layer`, so the
- * whole server is built in one `Layer.fresh` scope: inside it they share a new
- * server, and these tools never join the `/mcp` catalog. Services the tools
- * read still come from the surrounding server.
+ * `device-auth/server-external-mcp` hook. The toolkit registration and the
+ * transport both build the memoized MCP server layer, so the whole server is
+ * built in one `Layer.fresh` scope: inside it they share a new server, and
+ * these tools never join the `/mcp` catalog. Services the tools read still
+ * come from the surrounding server.
  */
+const registration = toolkitRegistration(
+  ExternalMcpToolkitFork,
+  ExternalMcpToolkitHandlersLiveFork,
+);
+// Like upstream's McpInvocationContext, the principal comes from auth for each
+// request. Capturing one during toolkit registration would replace that caller.
+// @effect-diagnostics-next-line unsafeEffectTypeAssertion:off - the auth middleware provides the principal per request.
+const registered = registration as Layer.Layer<
+  Layer.Success<typeof registration>,
+  Layer.Error<typeof registration>,
+  Exclude<Layer.Services<typeof registration>, ExternalMcpService.ExternalMcpPrincipalFork>
+>;
+
 export const routeLayer = Layer.fresh(
-  McpServer.toolkit(ExternalMcpToolkitFork).pipe(
-    Layer.provide(ExternalMcpToolkitHandlersLiveFork),
+  registered.pipe(
     Layer.provide(ExternalMcpService.layer),
-    Layer.provideMerge(
-      McpServer.layerHttp({
-        name: "T3 Code external",
-        version: packageJson.version,
-        path: EXTERNAL_MCP_PATH,
-        protocols: [McpProtocol.v2025_06_18],
-      }),
-    ),
+    Layer.provideMerge(layerMcpTransportAtFork("T3 Code external", EXTERNAL_MCP_PATH)),
     Layer.provide(AuthMiddlewareLive),
   ),
 );
