@@ -15,6 +15,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import { freshConversationForkMetadataFork } from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-copy-import
 
 export interface ThreadForkPlanV2 {
   readonly targetThread: OrchestrationV2AppThread;
@@ -87,6 +88,7 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         }
         const targetThread: OrchestrationV2AppThread = {
           ...input.sourceProjection.thread,
+          ...freshConversationForkMetadataFork(), // fork-hook: upstream-fixes/conversation-fork-copy-reset
           createdBy: input.createdBy,
           creationSource: input.creationSource,
           id: input.targetThreadId,
