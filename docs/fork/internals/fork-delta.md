@@ -459,7 +459,7 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 | Steering    | A capped grant joins or live-answers only an attempt it vetted; message answers queue                   |
 | Dispatch    | Refuses a capped send, create prompt, or message answer once its vetted attempt or thread modes changed |
 | Boundary    | Ceilings hold at dispatch commit; later owner mode changes govern later turns                           |
-| Failures    | MCP `isError: true`, text led by the failure code                                                       |
+| Failures    | MCP `isError: true`, text led by the failure code; upstream's read-only refusal keeps its own text      |
 | Provenance  | `createdBy: agent`, `creationSource: mcp`, plus an audit log line                                       |
 | Isolation   | Built in one `Layer.fresh`, so `/mcp` never lists these tools                                           |
 

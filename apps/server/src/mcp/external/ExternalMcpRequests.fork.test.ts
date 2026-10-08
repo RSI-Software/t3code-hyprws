@@ -623,7 +623,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
     // The HTTP middleware reloads the grant on every call.
     yield* grant({ ...principal.policy, coordinate: false });
     const denied = yield* call("t3_external_request_respond", respond);
-    assert.match(errorText(denied), /^capability_denied:/);
+    assert.match(errorText(denied), /approved for read-only access/);
     assert.equal((yield* call("t3_external_request_list", { threadId })).isError, false);
     yield* grant({ ...principal.policy, projectIds: [] });
     assert.match(
