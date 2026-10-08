@@ -1,3 +1,4 @@
+import type { AuthEnvironmentScope, EnvironmentId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -5,10 +6,19 @@ vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => vi.fn() }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
-vi.mock("../state/session", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../state/session")>()),
-  usePreparedConnection: () => ({ _tag: "Loading" }),
-}));
+vi.mock("../state/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../state/session")>();
+  const { AuthStandardClientScopes } = await import("@t3tools/contracts");
+  const grantedScopes = new Set<AuthEnvironmentScope>(AuthStandardClientScopes);
+  const hasScope = (environmentId: EnvironmentId | null, scope: AuthEnvironmentScope) =>
+    environmentId !== null && grantedScopes.has(scope);
+  return {
+    ...actual,
+    useEnvironmentScope: hasScope,
+    readEnvironmentScope: hasScope,
+    usePreparedConnection: () => ({ _tag: "Loading" }),
+  };
+});
 vi.mock("../state/entities", () => ({
   readThreadShell: () => null,
   useProjects: () => [],
