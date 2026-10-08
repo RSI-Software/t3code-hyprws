@@ -56,6 +56,10 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
+  conversationForkContextFork,
+  appendConversationForkContextFork,
+} from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
+import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
@@ -1373,6 +1377,10 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
+      const forkContextFork = conversationForkContextFork(
+        projection.thread,
+        nativeInputRunIds.size + legacyInputRunIds.size === 0,
+      ); // fork-hook: upstream-fixes/conversation-fork-context
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const delivery = yield* deliverContextHandoffs({
@@ -1414,15 +1422,20 @@ export const layer: Layer.Layer<
           const context = [delivery.context, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
+          const forkAwareContextFork = appendConversationForkContextFork(
+            context,
+            forkContextFork,
+            compact,
+          ); // fork-hook: upstream-fixes/conversation-fork-context-append
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
               text:
-                context === "" || goalCommand
+                forkAwareContextFork === "" || goalCommand
                   ? userText
-                  : `${context}\n\nUser message:\n${userText}`,
+                  : `${forkAwareContextFork}\n\nUser message:\n${userText}`, // fork-hook: upstream-fixes/conversation-fork-context-text
             },
           }).pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
@@ -1461,6 +1474,7 @@ export const layer: Layer.Layer<
         ),
       );
       const deliverySession =
+        forkContextFork === "" && // fork-hook: upstream-fixes/conversation-fork-context-delivery
         effectiveHandoffs.length === 0 &&
         retryHandoff.length === 0 &&
         restartNote === "" &&
