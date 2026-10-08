@@ -151,6 +151,7 @@ import {
   runtimeModeCeilingRefusal,
   threadsStartingWork,
 } from "./DispatchModeLimit.ts";
+import { allowsInitialConversationTitleFork } from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-title-import
 import {
   applyToProjection,
   emptyProjection,
@@ -5792,6 +5793,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const onlyMaintenanceHistory =
       userMessages.length > 0 && userMessages.every(isNativeMaintenanceCommand);
     if (
+      allowsInitialConversationTitleFork(projection.thread) && // fork-hook: upstream-fixes/conversation-fork-title-guard
       !isNativeMaintenanceCommand(command) &&
       ((command.titleSeed !== undefined &&
         (yield* projectionStore
