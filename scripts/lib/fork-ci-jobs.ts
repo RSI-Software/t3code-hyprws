@@ -112,6 +112,20 @@ const stepCommand = (jobId: string, run: string): ReadonlyArray<string> | null =
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.every((line) => PROVISIONING_LINE.test(line))) return null;
+  // The sync host already carries system libraries, but needs the matching browser download.
+  if (
+    lines.length === 1 &&
+    lines[0] ===
+      "node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium"
+  )
+    return [
+      "exec",
+      "node",
+      "apps/server/node_modules/playwright-core/cli.js",
+      "install",
+      "--only-shell",
+      "chromium",
+    ];
   const words = lines.length === 1 ? shellWords(lines[0]!) : [];
   if (words[0] === "vp") return words.slice(1);
   if (words[0] === "vpr") return ["run", ...words.slice(1)];
