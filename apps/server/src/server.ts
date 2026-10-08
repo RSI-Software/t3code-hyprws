@@ -110,6 +110,8 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import { checkoutMoveServiceLiveFork } from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/server-checkout-move-import
 import { checkoutHeadFollowLiveFork } from "./git/CheckoutHeadFollow.fork.ts"; // fork-hook: zmux-estate/server-checkout-head-follow-import
+import { settledLaneSessionReactorLiveFork } from "./zmux/SettledLaneSessions.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-sessions-import
+import * as SettledLaneAttachGuard from "./zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/server-settled-lane-guard-import
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
@@ -415,6 +417,7 @@ const layerTerminal = TerminalManager.layer.pipe(
   Layer.provide(layerNativeTelemetry),
   Layer.provide(layerServerSettings),
   Layer.provide(ZmuxSessionBinderLayerLive),
+  Layer.provide(SettledLaneAttachGuard.layer), // fork-hook: zmux-estate/server-settled-lane-attach-guard
 );
 
 const layerPreview = Layer.empty.pipe(
@@ -592,6 +595,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   threadIssueSyncReactorLiveFork, // fork-hook: github-issues/server-issue-sync-reactor
   checkoutMoveServiceLiveFork, // fork-hook: zmux-estate/server-checkout-move-service
   checkoutHeadFollowLiveFork, // fork-hook: zmux-estate/server-checkout-head-follow
+  settledLaneSessionReactorLiveFork.pipe(Layer.provide(ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/server-settled-lane-sessions-reactor
 ).pipe(
   // Core Services
   Layer.provideMerge(layerOrchestrationApplication),
