@@ -51,6 +51,10 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
+  conversationForkContextFork,
+  appendConversationForkContextFork,
+} from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
+import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
@@ -1071,6 +1075,10 @@ export const layer: Layer.Layer<
                 !coveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
+      const forkContextFork = conversationForkContextFork(
+        projection.thread,
+        nativeInputRunIds.size + legacyInputRunIds.size === 0,
+      ); // fork-hook: upstream-fixes/conversation-fork-context
       const startWithHandoffs = (
         turnInput: Parameters<typeof session.startTurn>[0],
         compact = false,
@@ -1106,7 +1114,11 @@ export const layer: Layer.Layer<
               return handoffBudget({
                 tokenCap,
                 modelContextWindow,
-                userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                userText: appendConversationForkContextFork(
+                  restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                  forkContextFork,
+                  compact,
+                ), // fork-hook: upstream-fixes/conversation-fork-context-budget
                 attachments: message.attachments,
                 providerThread: budgetProviderThread,
                 nativeContextEstimate:
@@ -1150,12 +1162,20 @@ export const layer: Layer.Layer<
           const context = [delivery.context, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
+          const forkAwareContextFork = appendConversationForkContextFork(
+            context,
+            forkContextFork,
+            compact,
+          ); // fork-hook: upstream-fixes/conversation-fork-context-append
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
-              text: context === "" ? userText : `${context}\n\nUser message:\n${userText}`,
+              text:
+                forkAwareContextFork === ""
+                  ? userText
+                  : `${forkAwareContextFork}\n\nUser message:\n${userText}`, // fork-hook: upstream-fixes/conversation-fork-context-text
             },
           }).pipe(
             // A pending marker would make the next turn abandon this native
@@ -1196,6 +1216,7 @@ export const layer: Layer.Layer<
           ),
         );
       const deliverySession =
+        forkContextFork === "" && // fork-hook: upstream-fixes/conversation-fork-context-delivery
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
