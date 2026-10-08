@@ -269,7 +269,7 @@ it.live("answers each request as the principal that sent it, on a shared MCP ses
     const denied = yield* call("DPoP reader", "t3_external_thread_create", create);
     expect(denied.status).toBe(200);
     expect(denied.body?.result.isError).toBe(true);
-    expect(denied.body?.result.content[0].text).toMatch(/^capability_denied: /);
+    expect(denied.body?.result.content[0].text).toMatch(/approved for read-only access/);
     const outside = yield* call("DPoP granted", "t3_external_thread_create", {
       ...create,
       projectId: "project:other",
