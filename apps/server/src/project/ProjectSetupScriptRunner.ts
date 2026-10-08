@@ -528,7 +528,9 @@ export const make = Effect.gen(function* () {
             completionShell,
             completionSentinel(completionToken),
           )
-        : `${script.command} && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'`;
+        : trigger === "settle"
+          ? script.command
+          : `${script.command} && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'`; // fork-hook: upstream-fixes/setup-script-marker
 
     // Subscribe before opening so neither startup activity nor the sentinel can race the listeners.
     const observed =
