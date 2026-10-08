@@ -99,6 +99,9 @@ export const fixupFoldFailures = (
       cwd: worktree,
       env: {
         ...process.env,
+        // Only the discarded replay commits need an identity; preserve the original authors.
+        GIT_COMMITTER_NAME: "Fork Fixup Fold",
+        GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
         GIT_EDITOR: "true",
         GIT_SEQUENCE_EDITOR: sequenceEditor(),
         [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
@@ -108,11 +111,14 @@ export const fixupFoldFailures = (
       const stopped = replay.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
       const stoppedSha = stopped.status === 0 ? stopped.stdout.trim() : "";
       const pair = fixups.owners.find(([fixup]) => stoppedSha.startsWith(fixup));
-      return pair === undefined
-        ? [`the replay stopped at ${name(stoppedSha)}`]
-        : [
-            `fixup "${subjectOf(pair[0])}" (${shortSha(pair[0])}) does not fold into its owner "${subjectOf(pair[1])}" (${shortSha(pair[1])}): the replay stopped applying it there`,
-          ];
+      const reason =
+        pair === undefined
+          ? stoppedSha === ""
+            ? "the replay failed before applying a commit"
+            : `the replay stopped at ${name(stoppedSha)}`
+          : `fixup "${subjectOf(pair[0])}" (${shortSha(pair[0])}) does not fold into its owner "${subjectOf(pair[1])}" (${shortSha(pair[1])}): the replay stopped applying it there`;
+      const detail = [result.stderr.trim(), result.error?.message].filter(Boolean).join("\n");
+      return [detail === "" ? reason : `${reason}\n${detail}`];
     }
     const replayedTree = replay.run(["rev-parse", "HEAD^{tree}"]).trim();
     const tipTree = git.run(["rev-parse", `${head}^{tree}`]).trim();
