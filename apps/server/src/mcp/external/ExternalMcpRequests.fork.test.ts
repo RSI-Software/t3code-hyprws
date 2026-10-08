@@ -555,7 +555,28 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
         );
         session ??= response.headers.get("mcp-session-id");
         assert.equal(response.status, 200);
-        const body: unknown = yield* Effect.promise(() => response.json());
+        const text = yield* Effect.promise(() => response.text());
+        const encodedResponses = response.headers
+          .get("content-type")
+          ?.startsWith("text/event-stream")
+          ? text
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trim())
+          : [text];
+        const bodies = yield* Effect.forEach(
+          encodedResponses,
+          Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown)),
+        );
+        // SSE may carry notifications before the response to this request.
+        const body = bodies.find(
+          (candidate) =>
+            typeof candidate === "object" &&
+            candidate !== null &&
+            "id" in candidate &&
+            candidate.id === id,
+        );
+        assert.isDefined(body);
         // T3_REQUEST_EVIDENCE=1 prints the JSON-RPC transcript for PR evidence.
         if (process.env.T3_REQUEST_EVIDENCE === "1") {
           const line = yield* encodeJson({
@@ -623,7 +644,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
     // The HTTP middleware reloads the grant on every call.
     yield* grant({ ...principal.policy, coordinate: false });
     const denied = yield* call("t3_external_request_respond", respond);
-    assert.match(errorText(denied), /^capability_denied:/);
+    assert.match(errorText(denied), /approved for read-only access/);
     assert.equal((yield* call("t3_external_request_list", { threadId })).isError, false);
     yield* grant({ ...principal.policy, projectIds: [] });
     assert.match(
