@@ -219,3 +219,14 @@ describe("thread menu permissions", () => {
     expect(state.effects).toEqual([effect]);
   });
 });
+vi.mock("../state/threadFork.fork", () => ({
+  // The real module loads the connection runtime, which reaches the draft store's UI.
+  threadForkCommand: "thread-fork",
+  buildLatestStableForkCommandFork: vi.fn(),
+  forkInFlight: () => false,
+  forkRefInFlightFork: () => false,
+  setForkInFlight: vi.fn(),
+  waitForChildShellFork: vi.fn(),
+  readForkSourceTitleFork: () => null,
+  readForkProviderFork: () => null,
+})); // fork-hook: thread-fork/header-test-fork-state

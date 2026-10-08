@@ -71,7 +71,8 @@ describe.each(["floating", "sidebar"] as const)("%s terminal controls", (layout)
     );
 
     const button = container.querySelector("button");
-    expect(button?.disabled).toBe(true);
+    // Upstream disables terminal actions by `aria-disabled`, so the tooltip still opens on hover.
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
     expect(button?.getAttribute("aria-label")).toBe(
       "Checkout mode is locked while the thread is moving",
     );
