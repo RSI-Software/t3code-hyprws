@@ -53,6 +53,27 @@ it("keeps every vp step in order, skips provisioning, and reads vpr as vp run", 
   });
 });
 
+it("downloads the server browser without reinstalling runner-only system libraries", () => {
+  const [job] = deriveCiTestJobs(
+    workflow(`  test_server:
+    steps:
+      - run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+      - run: vp run --filter t3 test
+`),
+  );
+  assert.deepStrictEqual(job?.commands, [
+    [
+      "exec",
+      "node",
+      "apps/server/node_modules/playwright-core/cli.js",
+      "install",
+      "--only-shell",
+      "chromium",
+    ],
+    ["run", "--filter", "t3", "test"],
+  ]);
+});
+
 it("refuses a test job step it cannot run exactly", () => {
   const derive = (step: string) => () =>
     deriveCiTestJobs(workflow(`  test:\n    name: Test\n    steps:\n      - run: ${step}\n`));
