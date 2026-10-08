@@ -2,6 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeReadline from "node:readline";
+import { withoutConversationForkNoticeFork } from "../src/orchestration-v2/conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-replay-notice-import
 
 interface ReplayEntry {
   readonly type: "emit_inbound" | "expect_outbound" | "runtime_exit";
@@ -112,6 +113,9 @@ function expandExpectedString(value: string): string {
 }
 
 function matchesExpected(expected: unknown, actual: unknown): boolean {
+  const noticeFreeFork =
+    typeof actual === "string" ? withoutConversationForkNoticeFork(actual) : undefined; // fork-hook: upstream-fixes/conversation-fork-replay-notice
+  if (noticeFreeFork !== undefined) return matchesExpected(expected, noticeFreeFork); // fork-hook: upstream-fixes/conversation-fork-replay-notice-strip
   if (expected === "<any>") return true;
   if (typeof expected === "string" && typeof actual === "string") {
     const expanded = expandExpectedString(expected);
