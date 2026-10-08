@@ -278,7 +278,7 @@ import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
-import { wsRpcHandlersLayerFork, wsRpcTagsFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
+import { makeWsRpcHandlersFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
@@ -1458,14 +1458,12 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
-const ServerWsRpcHandlerGroupFork = ServerWsRpcGroup.omit(...wsRpcTagsFork); // fork-hook: upstream-fixes/ws-rpc-handler-group-omit
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
   reportProfiles: ServerBrowser.ProfileReporter,
   settingsClient: ServerSettings.SettingsClient,
-  ServerWsRpcGroup = ServerWsRpcHandlerGroupFork, // fork-hook: upstream-fixes/ws-rpc-handler-group
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -2045,6 +2043,7 @@ export const layerWsRpc = (
         return yield* mutateProjectWithClone(projectService, projectCloneTracker, mutation);
       });
 
+      const handlersFork = yield* makeWsRpcHandlersFork; // fork-hook: upstream-fixes/ws-rpc-handlers-make
       const handlers = ServerWsRpcGroup.of({
         [WS_METHODS.issuesList]: (input) => issues.list(input),
         [WS_METHODS.issuesDetail]: (input) => issues.detail(input),
@@ -2060,6 +2059,7 @@ export const layerWsRpc = (
         [WS_METHODS.issueTrackersList]: () => issueTrackers.list,
         [WS_METHODS.issueTrackersConnect]: (input) => issueTrackers.connect(input),
         [WS_METHODS.issueTrackersBindProject]: (input) => issueTrackers.bindProject(input),
+        ...handlersFork, // fork-hook: upstream-fixes/ws-rpc-handlers
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -3896,7 +3896,6 @@ export const layer = Layer.unwrap(
               reportProfiles,
               readSettingsClient(url.value),
             ).pipe(
-              Layer.merge(wsRpcHandlersLayerFork), // fork-hook: upstream-fixes/ws-rpc-handlers-layer
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),
