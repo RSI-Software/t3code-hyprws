@@ -281,3 +281,28 @@ describe("thread Git mutation permissions", () => {
     expect(state.results).toEqual([]);
   });
 });
+
+beforeEach(async () => {
+  // The fork attaches a new worktree through the server's checkout move, which records the
+  // worktree's path and branch on the thread as the metadata update above does.
+  type Command = (request: {
+    environmentId: string;
+    input: Record<string, unknown>;
+  }) => Promise<unknown>;
+  const threads = (await import("./threads")) as unknown as {
+    threadEnvironment: Record<string, Command>;
+  };
+  const vcs = (await import("./vcs")) as unknown as { vcsEnvironment: Record<string, Command> };
+  if (threads.threadEnvironment.moveCheckout) return;
+  let worktreeBranch: unknown;
+  const createWorktree = vcs.vcsEnvironment.createWorktree!;
+  vcs.vcsEnvironment.createWorktree = (request) => {
+    worktreeBranch = request.input.newRefName;
+    return createWorktree(request);
+  };
+  threads.threadEnvironment.moveCheckout = ({ environmentId, input }) =>
+    threads.threadEnvironment.updateMetadata!({
+      environmentId,
+      input: { branch: worktreeBranch, worktreePath: input.requestedPath },
+    });
+}); // fork-hook: zmux-estate/checkout-move-git-actions-test
