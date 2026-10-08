@@ -13,6 +13,13 @@ Remote browsers and mobile devices use the server host's zmux, not a binary on t
 If zmux is unavailable or too old, T3 Code preserves the existing terminal and reports the failure.
 Update or configure zmux on the host, then retry.
 
+## Settle a thread
+
+Settling a worktree thread removes its zmux session when no other active thread or external viewer uses it.
+The worktree and branch remain, and unsettling the thread restores the session.
+The base checkout's `main` session stays available.
+Configured settle scripts run in independent shells so session removal does not interrupt them.
+
 ## Move a thread to another checkout
 
 1. The move queues while a turn runs or waits.
