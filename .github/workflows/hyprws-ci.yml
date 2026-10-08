@@ -257,6 +257,9 @@ jobs:
         run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
 
       - name: Test
+        # Upstream's release-link tests assume `GITHUB_REPOSITORY` names upstream.
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
         run: vp run --filter @t3tools/web test --testTimeout=60000
 
   # The fork's scripts suite is large and does not shrink with the
@@ -324,6 +327,9 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
+
+      - name: Install Chromium for server browser integration tests
+        run: node apps/server/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
 
       - name: Test
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
