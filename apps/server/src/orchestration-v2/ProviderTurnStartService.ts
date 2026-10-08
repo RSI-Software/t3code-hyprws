@@ -87,6 +87,13 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import { isCompactionCommandMessage } from "@t3tools/contracts"; // fork-hook: upstream-fixes/conversation-fork-compaction-import
+import {
+  conversationForkContextFork,
+  conversationForkNoticeOwedFork,
+  appendConversationForkContextFork,
+  conversationForkTurnInputFork,
+} from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -1538,6 +1545,19 @@ export const layer: Layer.Layer<
               tokenCap,
               modelContextWindow,
               userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+              userText: appendConversationForkContextFork(
+                restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                conversationForkContextFork(
+                  projection.thread,
+                  conversationForkNoticeOwedFork(projection, {
+                    sameNativeThread,
+                    acceptedAttempts,
+                    nativeInputRunIds,
+                    legacyInputRunIds,
+                  }),
+                ),
+                isCompactionCommandMessage(message),
+              ), // fork-hook: upstream-fixes/conversation-fork-context-budget
               attachments: providerMessage.attachments,
               providerThread: budgetProviderThread,
               nativeContextEstimate:
@@ -2453,6 +2473,15 @@ export const layer: Layer.Layer<
         deliveredItemIds,
         retryHandoff,
       };
+      const forkContextFork = conversationForkContextFork(
+        projection.thread,
+        conversationForkNoticeOwedFork(projection, {
+          sameNativeThread,
+          acceptedAttempts,
+          nativeInputRunIds,
+          legacyInputRunIds,
+        }),
+      ); // fork-hook: upstream-fixes/conversation-fork-context
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const { providerThread: targetThread, retryHandoff } = deliveryTarget;
@@ -2493,6 +2522,11 @@ export const layer: Layer.Layer<
           const context = [delivery.context, sideChatContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
+          const forkAwareContextFork = appendConversationForkContextFork(
+            context,
+            forkContextFork,
+            compact,
+          ); // fork-hook: upstream-fixes/conversation-fork-context-append
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           const startInput = noteContinuation ? promptedInput : turnInput;
           const { resume: _resume, ...contextInput } = startInput;
@@ -2531,6 +2565,12 @@ export const layer: Layer.Layer<
                   ...(text === userText
                     ? {}
                     : { inlineContextLength: text.length - userText.length }),
+                  ...conversationForkTurnInputFork(
+                    turnInput.message,
+                    missedAttachments,
+                    goalCommand ? userText : withInlineContext(forkAwareContextFork, requestText),
+                    userText,
+                  ), // fork-hook: upstream-fixes/conversation-fork-context-text
                 });
           yield* operation.pipe(
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
@@ -2704,9 +2744,11 @@ export const layer: Layer.Layer<
               }),
         ),
       );
-      const deliverySession = carriesPendingContext
-        ? makeDeliverySession(session, startWithHandoffs)
-        : session;
+      const deliverySession =
+        forkContextFork === "" && // fork-hook: upstream-fixes/conversation-fork-context-delivery
+        !carriesPendingContext
+          ? session
+          : makeDeliverySession(session, startWithHandoffs);
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
