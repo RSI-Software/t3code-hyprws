@@ -108,6 +108,11 @@ export function useSelectedThreadGitActions() {
         ),
       );
     }
+    const checkoutMove = checkoutMoveRequestFork(thread, nextState, selectedThreadProject); // fork-hook: zmux-estate/checkout-move-request
+    if (checkoutMove) {
+      // A new worktree moves through the server, so the thread's sessions follow it.
+      return moveThreadCheckout({ environmentId: thread.environmentId, input: checkoutMove });
+    } // fork-hook: zmux-estate/checkout-move-update-result
     return updateThreadMetadata({
       environmentId: thread.environmentId,
       input: {
@@ -226,6 +231,10 @@ export function useSelectedThreadGitActions() {
     };
   }): Promise<AtomCommandResult<void, unknown>> => {
     // Git already changed; refresh even if metadata updates fail so the sheet shows the current branch.
+    const checkoutMoveRequested =
+      input.nextThreadState !== undefined &&
+      checkoutMoveRequestFork(input.thread, input.nextThreadState, selectedThreadProject) !==
+        null; // fork-hook: zmux-estate/checkout-move-request
     const updateResult = input.nextThreadState
       ? await updateThreadGitContext(input.thread, input.nextThreadState)
       : AsyncResult.success(undefined);
@@ -406,3 +415,21 @@ export function useSelectedThreadGitActions() {
     onRunSelectedThreadGitAction,
   };
 }
+
+function checkoutMoveRequestFork(
+  thread: EnvironmentThreadShell,
+  nextState: { readonly worktreePath?: string | null },
+  project: EnvironmentProject | null,
+) {
+  // The server checkout move a thread's next worktree needs, or null when it stays put.
+  if (!project || nextState.worktreePath === undefined) return null;
+  if (nextState.worktreePath === thread.worktreePath) return null;
+  return {
+    threadId: thread.id,
+    requestedPath: nextState.worktreePath ?? project.workspaceRoot,
+    expectedCheckoutRoot:
+      (thread.checkoutMove ? checkoutMoveExpectedRoot(thread.checkoutMove) : null) ??
+      thread.worktreePath ??
+      project.workspaceRoot,
+  };
+} // fork-hook: zmux-estate/checkout-move-request
