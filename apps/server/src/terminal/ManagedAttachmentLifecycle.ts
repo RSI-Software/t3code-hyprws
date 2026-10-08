@@ -24,7 +24,8 @@ export type ManagedAttachmentAction =
   | { readonly type: "suspend-elapsed"; readonly generation: number }
   | { readonly type: "resume-succeeded" }
   | { readonly type: "resume-failed" }
-  | { readonly type: "process-exited" };
+  | { readonly type: "process-exited" }
+  | { readonly type: "settle-released" };
 
 export type ManagedAttachmentCommand =
   | { readonly type: "cancel-suspend" }
@@ -127,6 +128,25 @@ export function transitionManagedAttachment(
         state: { ...state, phase: "suspended" },
         commands: [{ type: "suspend" }],
       };
+    case "settle-released": {
+      // Settlement releases a settled thread's managed attachments regardless
+      // of demand, so its lane's session can be cleaned up without a visible
+      // T3 viewer holding it. The demand counter is left alone: a stale
+      // release decrements a suspended attachment harmlessly, and the next
+      // demand-added resumes through the normal attach path.
+      if (
+        state.phase === "unmanaged" ||
+        state.phase === "suspended" ||
+        state.phase === "resuming" ||
+        state.phase === "resume-failed"
+      ) {
+        return { state, commands: [] };
+      }
+      return {
+        state: { ...state, phase: "suspended", generation: state.generation + 1 },
+        commands: [{ type: "cancel-suspend" }, { type: "suspend" }],
+      };
+    }
     case "suspend-elapsed":
       if (
         state.phase !== "suspend-pending" ||
