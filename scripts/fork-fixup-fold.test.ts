@@ -4,8 +4,9 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 
+import * as ForkCommand from "./lib/fork-command.ts";
 import { fixupFoldFailures } from "./fork-fixup-fold.ts";
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
@@ -44,6 +45,85 @@ it("passes a stack whose fixups fold at their owners, squash suffix included", (
     // The throwaway replay worktree is gone again.
     assert.strictEqual(worktreeCount(root), 1);
   } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("folds without configured Git identity and leaves the live repository unchanged", () => {
+  const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
+  try {
+    git(root, ["init", "--quiet", "--initial-branch", "main"]);
+    identity(root);
+    commit(root, "upstream base", { "file.txt": "one\ntwo\n" });
+    const base = git(root, ["rev-parse", "HEAD"]);
+    commit(root, "owner edit", { "file.txt": "ONE\ntwo\n" });
+    commit(root, "fixup! owner edit", { "file.txt": "ONE!\ntwo\n" });
+    const tip = git(root, ["rev-parse", "HEAD"]);
+    // Empty local values mask any ambient global identity, like a clean CI runner.
+    git(root, ["config", "user.name", ""]);
+    git(root, ["config", "user.email", ""]);
+    assert.deepStrictEqual(fixupFoldFailures(root, base, "HEAD"), []);
+    assert.strictEqual(git(root, ["rev-parse", "HEAD"]), tip);
+    assert.strictEqual(git(root, ["config", "user.name"]), "");
+    assert.strictEqual(git(root, ["config", "user.email"]), "");
+    assert.strictEqual(worktreeCount(root), 1);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("reports Git's error when the replay fails before applying a commit", () => {
+  const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
+  try {
+    git(root, ["init", "--quiet", "--initial-branch", "main"]);
+    identity(root);
+    commit(root, "upstream base", { "file.txt": "one\n" });
+    const base = git(root, ["rev-parse", "HEAD"]);
+    commit(root, "owner edit", { "file.txt": "ONE\n" });
+    commit(root, "fixup! owner edit", { "file.txt": "ONE!\n" });
+    const hooks = `${root}/hooks`;
+    NodeFS.mkdirSync(hooks);
+    NodeFS.writeFileSync(
+      `${hooks}/pre-rebase`,
+      "#!/bin/sh\necho 'fixture refuses replay' >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    git(root, ["config", "core.hooksPath", hooks]);
+    const [failure] = fixupFoldFailures(root, base, "HEAD");
+    assert.ok(failure?.includes("the replay failed before applying a commit"), failure);
+    assert.ok(failure?.includes("fixture refuses replay"), failure);
+    assert.strictEqual(worktreeCount(root), 1);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps both Git stderr and a subprocess timeout error", () => {
+  const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
+  try {
+    git(root, ["init", "--quiet", "--initial-branch", "main"]);
+    identity(root);
+    commit(root, "upstream base", { "file.txt": "one\n" });
+    const base = git(root, ["rev-parse", "HEAD"]);
+    commit(root, "owner edit", { "file.txt": "ONE\n" });
+    commit(root, "fixup! owner edit", { "file.txt": "ONE!\n" });
+    const runCommand = ForkCommand.runCommand;
+    vi.spyOn(ForkCommand, "runCommand").mockImplementation((command, args, options) =>
+      command === "git" && args.includes("rebase") && args.includes("-i")
+        ? {
+            status: 1,
+            stdout: "",
+            stderr: "replay progress",
+            error: new Error("spawnSync git ETIMEDOUT"),
+          }
+        : runCommand(command, args, options),
+    );
+    const [failure] = fixupFoldFailures(root, base, "HEAD");
+    assert.ok(failure?.includes("replay progress"), failure);
+    assert.ok(failure?.includes("spawnSync git ETIMEDOUT"), failure);
+    assert.strictEqual(worktreeCount(root), 1);
+  } finally {
+    vi.restoreAllMocks();
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
