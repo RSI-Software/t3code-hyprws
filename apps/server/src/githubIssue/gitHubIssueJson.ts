@@ -182,7 +182,7 @@ function state(raw: string): string {
  * A close reason in the wire's own words. An open issue, one reopened since its last close
  * (`REOPENED`), and anything a future GitHub adds all read as none rather than as a guess.
  */
-export function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
+function closeReason(raw: string | null | undefined): GitHubIssueCloseReasonType | null {
   if (raw === "COMPLETED") return "completed";
   if (raw === "NOT_PLANNED") return "not planned";
   return null;
@@ -279,29 +279,9 @@ const IssueSummary = Schema.Struct({
 });
 export type GitHubIssueSummary = typeof IssueSummary.Type;
 
-const decodeIssueSummary = Schema.decodeEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      title: Schema.String,
-      state: Schema.String,
-      stateReason: Schema.optional(Schema.NullOr(Schema.String)),
-    }),
-  ),
-);
 const decodeNormalizedIssueSummary = Schema.decodeUnknownEffect(IssueSummary);
 
-export const decodeGitHubIssueSummary = Effect.fn("decodeGitHubIssueSummary")(function* (
-  raw: string,
-) {
-  const decoded = yield* decodeIssueSummary(raw);
-  return yield* decodeNormalizedIssueSummary({
-    title: decoded.title,
-    state: state(decoded.state),
-    closeReason: closeReason(decoded.stateReason),
-  });
-});
-
-/** The same read for a summary that was never a JSON string. */
+/** A linked issue's summary, read from a row the caller already parsed. */
 export const decodeParsedGitHubIssueSummary = Effect.fn("decodeParsedGitHubIssueSummary")(
   function* (row: {
     readonly title: string;
