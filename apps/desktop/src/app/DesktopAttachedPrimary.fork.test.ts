@@ -225,7 +225,7 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
         "orchestration%3Aread",
         "orchestration%3Aoperate",
         "terminal%3Aoperate",
-        "review%3Awrite",
+        "source-control%3Awrite",
         "relay%3Aread",
       ]) {
         assert.ok(
