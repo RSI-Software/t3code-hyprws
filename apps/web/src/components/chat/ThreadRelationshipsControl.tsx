@@ -560,6 +560,9 @@ export function ThreadRelationshipsPanel(props: {
                           : `shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"} ${trailingVisibilityClass}`
                       }
                     >
+                      {/* fork-hook: upstream-fixes/lineage-parent-label */}
+                      {isParent && edge.kind === "fork" ? "Parent · " : null}
+                      {/* fork-hook-end */}
                       {threadRelationshipStatusLabel(rowStatus)}
                     </span>
                   ) : null}
@@ -662,6 +665,9 @@ export function ThreadRelationshipsPanel(props: {
                         </TooltipPopup>
                       </Tooltip>
                       <span className="shrink-0 border border-transparent ps-1 pe-2.5 text-2xs font-medium text-muted-foreground">
+                        {/* fork-hook: upstream-fixes/lineage-merge-parent-label */}
+                        {isParent && edge.kind === "fork" ? "Parent · " : null}
+                        {/* fork-hook-end */}
                         {threadRelationshipStatusLabel(rowStatus)}
                       </span>
                     </div>
