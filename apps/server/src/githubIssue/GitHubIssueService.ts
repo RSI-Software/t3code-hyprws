@@ -165,10 +165,6 @@ export class GitHubIssueService extends Context.Service<
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
-function cliRepository(project: GitHubProject, repository = project.repository): string {
-  return `${project.host}/${repository}`;
-}
-
 function authCommandForHost(host: string): string {
   return host === "github.com" ? "gh auth login" : `gh auth login --hostname ${host}`;
 }
@@ -273,10 +269,13 @@ export const make = Effect.gen(function* () {
     return projects;
   });
 
-  /** The search a repository's list asks for; `gh` combined `--repo`, `--state`, and `--search`. */
+  /**
+   * The search a repository's list asks for. The host picks the API endpoint, so the `repo:`
+   * qualifier stays `OWNER/REPO`; a host-qualified one matches nothing.
+   */
   const searchQueryFor = (project: GitHubProject, input: GitHubIssueListInput): string =>
     [
-      `repo:${cliRepository(project)}`,
+      `repo:${project.repository}`,
       "is:issue",
       ...(input.state === "all" ? [] : [`state:${input.state}`]),
       ...(input.query === undefined ? [] : [input.query]),

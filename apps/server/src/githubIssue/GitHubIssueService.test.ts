@@ -132,7 +132,7 @@ describe("GitHubIssueService", () => {
       assert.strictEqual(call?.host, "github.com");
       assert.strictEqual(
         call?.variables?.query,
-        "repo:github.com/acme/web is:issue state:open websocket sort:updated-desc",
+        "repo:acme/web is:issue state:open websocket sort:updated-desc",
       );
       // The +1 that detects truncation rides the same page.
       assert.strictEqual(call?.variables?.first, 2);
@@ -149,12 +149,12 @@ describe("GitHubIssueService", () => {
       yield* service.list({ state: "all" });
       assert.strictEqual(
         graphql.mock.calls[0]?.[0].variables?.query,
-        "repo:github.com/acme/web is:issue sort:updated-desc",
+        "repo:acme/web is:issue sort:updated-desc",
       );
     }),
   );
 
-  it.effect("uses host-qualified Enterprise repositories", () =>
+  it.effect("routes Enterprise repositories to their host", () =>
     Effect.gen(function* () {
       const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() => searchAnswer([]));
       const service = yield* makeService(
@@ -174,7 +174,7 @@ describe("GitHubIssueService", () => {
       assert.strictEqual(call?.host, "ghe.acme.dev");
       assert.strictEqual(
         call?.variables?.query,
-        "repo:ghe.acme.dev/acme/internal is:issue state:open sort:updated-desc",
+        "repo:acme/internal is:issue state:open sort:updated-desc",
       );
     }),
   );
