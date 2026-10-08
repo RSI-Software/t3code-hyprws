@@ -31,6 +31,8 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import { ExternalMcpPolicy } from "../../../auth/ExternalMcpGrant.fork.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   ExternalMcpRequestListResult,
   ExternalMcpRequestRespondResult,
@@ -41,7 +43,12 @@ import {
   ExternalMcpServiceFork,
 } from "../../external/ExternalMcpService.fork.ts";
 
-const dependencies = [ExternalMcpPrincipalFork, ExternalMcpServiceFork];
+const dependencies = [
+  McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
+  ExternalMcpPrincipalFork,
+  ExternalMcpServiceFork,
+];
 
 /** Required on every mutation: the retry key that makes it idempotent. */
 const ClientRequestId = TrimmedNonEmptyString.check(Schema.isMaxLength(256)).annotate({
