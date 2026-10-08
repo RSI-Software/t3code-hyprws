@@ -1146,6 +1146,14 @@ export const layerMcpTransport = McpServer.layerHttp({
   allowSessionTermination: true,
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
+export const layerMcpTransportAtFork = (name: string, path: HttpRouter.PathInput) =>
+  McpServer.layerHttp({
+    name,
+    version: packageJson.version,
+    path,
+    protocols: [McpProtocol.v2025_06_18],
+  }); // fork-hook: device-auth/external-mcp-transport
+
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
 export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
