@@ -22,6 +22,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { withCheckoutSessionMutationFork } from "../zmux/CheckoutSessionStateLease.fork.ts"; // fork-hook: zmux-estate/settlement-state-lease-import
 import { replayAndBufferProjectedLiveEvents } from "./LiveStreamBudget.ts";
 import type { UnsequencedProjectEvent } from "../persistence/OrchestrationEventStore.ts";
 import { projectDomainEventForWire } from "./WireProjection.ts";
@@ -258,14 +259,16 @@ const layerBase: Layer.Layer<
           ),
           Effect.uninterruptible,
         );
-        return sql
-          .withTransaction(Effect.tap(transaction, () => takeLane))
-          .pipe(
-            Effect.tap(publish),
-            Effect.ensuring(
-              Effect.suspend(() => (holdsLane ? publishLane.release(1) : Effect.void)),
+        return withCheckoutSessionMutationFork(
+          sql
+            .withTransaction(Effect.tap(transaction, () => takeLane))
+            .pipe(
+              Effect.tap(publish),
+              Effect.ensuring(
+                Effect.suspend(() => (holdsLane ? publishLane.release(1) : Effect.void)),
+              ),
             ),
-          );
+        ); // fork-hook: zmux-estate/settlement-state-commit-lease
       });
 
     // A user can answer after terminal normalization reads the pending request.

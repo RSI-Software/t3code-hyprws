@@ -226,6 +226,7 @@ export interface CreateManagerOptions {
   ptyAdapter?: FakePtyAdapter;
   terminalSessionMode?: "shell" | "zmux";
   ensureZmuxSession?: ZmuxSessionBinder.ZmuxSessionBinder["Service"]["ensure"];
+  resolveOnlyForSettledThread?: (threadId: string) => Effect.Effect<boolean>;
 }
 export interface ManagerFixture {
   readonly baseDir: string;
@@ -288,6 +289,9 @@ export const createManager = (
           : {}),
         ...(options.ensureZmuxSession !== undefined
           ? { ensureZmuxSession: options.ensureZmuxSession }
+          : {}),
+        ...(options.resolveOnlyForSettledThread !== undefined
+          ? { resolveOnlyForSettledThread: options.resolveOnlyForSettledThread }
           : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
