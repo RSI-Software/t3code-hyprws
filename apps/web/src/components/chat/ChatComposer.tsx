@@ -3161,7 +3161,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...{
         "data-voice-input-presented-fork": desktopVoiceFork.presented ? "true" : undefined,
-        "data-voice-input-compact-fork": isComposerResting ? "true" : undefined,
+        "data-voice-input-live-fork": desktopVoiceFork.live ? "true" : undefined, // fork-hook: voice-input/live-presentation
+        "data-voice-input-compact-fork": isComposerCollapsedMobile ? "true" : undefined,
       }} /* fork-hook: voice-input/presentation */
       {...threadContextDropTargetProps()}
     >
@@ -3284,10 +3285,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-body="true"
               {...{
                 inert:
-                  desktopVoiceFork.busy || (desktopVoiceFork.presented && isComposerResting)
+                  desktopVoiceFork.busy || (desktopVoiceFork.presented && isComposerCollapsedMobile)
                     ? true
                     : undefined,
-                "aria-hidden": desktopVoiceFork.presented && isComposerResting ? true : undefined,
+                "aria-hidden":
+                  desktopVoiceFork.presented && isComposerCollapsedMobile && !desktopVoiceFork.live
+                    ? true
+                    : undefined, // fork-hook: voice-input/live-editor-presentation
               }} /* fork-hook: voice-input/editor-presentation */
               className={cn(
                 "relative px-4 pb-2",
@@ -3364,6 +3368,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
                     draftKey={composerDraftTargetKey}
+                    voicePreviewFork={
+                      desktopVoiceFork.preview
+                    } /* fork-hook: voice-input/preview-editor */
                     // Switching threads lands focus here, so the label names the thread.
                     ariaLabel={activeThread ? `Message ${activeThread.title}` : "Message"}
                     suggestionListId={composerSuggestionListId}
@@ -3566,6 +3573,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     data-chat-composer-resting-controls="true"
                     aria-hidden={restingControlsVisible ? undefined : true}
                     inert={restingControlsVisible ? undefined : true}
+                    {...(desktopVoiceFork.presented
+                      ? { "data-voice-input-hidden-fork": "true", "aria-hidden": true, inert: true }
+                      : {})} /* fork-hook: voice-input/resting-presentation */
                     className={cn(
                       "relative flex w-max min-w-0 max-w-full items-center gap-1 text-muted-foreground/70 [&_button]:text-xs!",
                       !restingControlsVisible && "invisible",
@@ -3579,7 +3589,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {/* fork-hook: voice-input/footer */}
             <VoiceComposerFooterFork
               toolbar={desktopVoiceFork.toolbar}
-              compact={isComposerResting}
+              compact={isComposerCollapsedMobile}
               presented={desktopVoiceFork.presented}
             />
             {/* fork-hook-end */}
