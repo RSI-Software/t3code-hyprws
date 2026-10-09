@@ -15,8 +15,10 @@ Update or configure zmux on the host, then retry.
 
 ## Settle a thread
 
-Settling a worktree thread removes its zmux session when no other active thread or external viewer uses it.
-The worktree and branch remain, and unsettling the thread restores the session.
+Settling or deleting a worktree thread removes its entire zmux session, including every tab and running command.
+This also disconnects other viewers and threads using that session.
+Settlement keeps the worktree and branch, but discards the session permanently.
+Unsettling does not restore it; opening a terminal creates a fresh session.
 The base checkout's `main` session stays available.
 Configured settle scripts run in independent shells so session removal does not interrupt them.
 
