@@ -1,0 +1,97 @@
+/* Mobile's 260ms cubic toolbar flip, including its shared horizontal axis. */
+@property --voice-toolbar-angle-fork {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+[data-voice-input-compact-fork="true"] [data-chat-composer-body="true"],
+[data-chat-composer-form="true"] [data-chat-composer-footer="true"],
+[data-chat-composer-form="true"] [data-voice-input-toolbar-fork="true"],
+[data-chat-composer-resting-controls="true"] {
+  backface-visibility: hidden;
+  transform: perspective(600px) translateY(calc(-22px * sin(var(--voice-toolbar-angle-fork))))
+    rotateX(var(--voice-toolbar-angle-fork));
+  transition:
+    --voice-toolbar-angle-fork 260ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 260ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+[data-voice-input-presented-fork="true"] [data-chat-composer-footer="true"],
+[data-voice-input-hidden-fork="true"],
+[data-voice-input-presented-fork="true"][data-voice-input-compact-fork="true"]
+  [data-chat-composer-body="true"] {
+  --voice-toolbar-angle-fork: 90deg;
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-chat-composer-form="true"] [data-voice-input-toolbar-fork="true"] {
+  --voice-toolbar-angle-fork: -90deg;
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-voice-input-presented-fork="true"] [data-voice-input-toolbar-fork="true"] {
+  --voice-toolbar-angle-fork: 0deg;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+[data-voice-input-resting-fork="true"] {
+  max-height: 32px;
+  transition: max-height 220ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+[data-voice-input-presented-fork="true"] [data-voice-input-resting-fork="true"] {
+  max-height: 0;
+  overflow: hidden;
+}
+
+/* The desktop's separate model strip leaves with its portaled controls. */
+[data-composer-model-strip]:has([data-chat-composer-resting-controls="true"]) {
+  transition: opacity 260ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+[data-composer-model-strip]:has([data-voice-input-hidden-fork="true"]) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-slot="composer-shell"]:has(
+    [data-voice-input-presented-fork="true"][data-voice-input-compact-fork="true"]
+  )::before {
+  bottom: var(--chat-composer-context-extension, 0px);
+  border-radius: 1.5rem;
+  clip-path: none;
+}
+
+[data-voice-waveform-bar-fork="true"] {
+  transition:
+    transform 100ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 100ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+[data-voice-waveform-face-fork="true"],
+[data-voice-status-face-fork="true"] {
+  transition: opacity 220ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+[data-voice-recording-fork="false"] [data-voice-waveform-face-fork="true"],
+[data-voice-recording-fork="true"] [data-voice-status-face-fork="true"] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-chat-composer-form="true"] [data-chat-composer-body="true"],
+  [data-chat-composer-form="true"] [data-chat-composer-footer="true"],
+  [data-chat-composer-form="true"] [data-voice-input-toolbar-fork="true"],
+  [data-chat-composer-resting-controls="true"],
+  [data-voice-input-resting-fork="true"],
+  [data-composer-model-strip]:has([data-chat-composer-resting-controls="true"]),
+  [data-voice-waveform-bar-fork="true"],
+  [data-voice-waveform-face-fork="true"],
+  [data-voice-status-face-fork="true"] {
+    transition: none;
+  }
+}
