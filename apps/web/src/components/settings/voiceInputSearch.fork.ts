@@ -6,7 +6,7 @@ export const voiceInputSearchItemsFork = [
     scope: "environment-defaults",
     desktopOnly: true,
     searchTerms: [
-      "microphone input device voice speech transcription muse meta local openai compatible custom endpoint api key",
+      "microphone input device voice speech transcription muse meta local openai compatible custom endpoint api key ducking speakers output volume fade",
     ],
   },
 ] as const;

@@ -2,6 +2,7 @@ import type { VoiceRecorder, VoiceRecorderStatus } from "@t3tools/client-runtime
 import { readVoiceMicrophoneFork, voiceMicrophoneConstraintsFork } from "./microphone.fork";
 import pcmWorkletUrl from "./pcm.worklet.fork.ts?worker&url";
 import type { LiveVoiceSessionFork } from "./realtime.fork";
+import { VoiceRecorderDuckingFork } from "./ducking.fork";
 
 /** Mono PCM16 at 16 kHz is accepted by every implemented dictation adapter. */
 export function encodeVoiceWavFork(samples: Float32Array): Uint8Array<ArrayBuffer> {
@@ -66,6 +67,7 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
   private flush: (() => void) | null = null;
   private liveRecording = false;
   private stopping: Promise<void> | null = null;
+  private restoration: Promise<void> = Promise.resolve();
   private meter: {
     context: AudioContext;
     analyser: AnalyserNode;
@@ -75,6 +77,10 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
   constructor(
     private readonly onStatus: (status: VoiceRecorderStatus) => void,
     private readonly readMicrophone = readVoiceMicrophoneFork,
+    private readonly ducking: Pick<
+      VoiceRecorderDuckingFork,
+      "start" | "stop"
+    > = new VoiceRecorderDuckingFork(),
   ) {}
 
   useLiveSession(session: LiveVoiceSessionFork | null) {
@@ -117,11 +123,13 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
         // The processor emits silence; a destination keeps it pulling microphone frames.
         this.pcm.connect(context.destination);
         await context.resume();
+        await this.ducking.start();
         this.uri = String(++this.sequence);
         this.stopping = null;
         return;
       }
       this.recorder = new MediaRecorder(this.stream);
+      await this.ducking.start();
       this.uri = String(++this.sequence);
       this.chunks = [];
       this.blob = null;
@@ -183,6 +191,7 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     if (this.recorder?.state !== "inactive") this.recorder?.stop();
     this.release();
     if (this.finished) await this.finished;
+    await this.restoration;
   }
 
   private async stopLive() {
@@ -204,6 +213,7 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     } finally {
       this.flush = null;
       this.release();
+      await this.restoration;
     }
     if (wasRecording)
       this.onStatus({ isFinished: true, hasError: false, error: null, url: this.uri });
@@ -219,6 +229,11 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     this.pcm?.disconnect();
     this.pcm?.port.close();
     this.pcm = null;
+    this.restoration = Promise.all([this.restoration, this.ducking.stop()])
+      .then(() => {})
+      .catch((error) => {
+        console.warn("Could not restore speaker output after dictation:", error);
+      });
     if (this.meter) {
       void this.meter.context.close().catch(() => {});
       this.meter = null;
