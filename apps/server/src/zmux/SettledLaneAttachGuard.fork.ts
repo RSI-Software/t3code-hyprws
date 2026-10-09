@@ -16,7 +16,7 @@ export const make = Effect.gen(function* () {
   return SettledLaneAttachGuard.of({
     isSettledThread: (threadId) =>
       projections.getThread(ThreadId.make(threadId)).pipe(
-        Effect.map((thread) => thread.settledOverride === "settled"),
+        Effect.map((thread) => thread.settledOverride === "settled" || thread.deletedAt !== null),
         // An unreadable thread is not permission to create a managed session.
         Effect.catch((error) =>
           Effect.logWarning("could not verify terminal thread settlement", {
