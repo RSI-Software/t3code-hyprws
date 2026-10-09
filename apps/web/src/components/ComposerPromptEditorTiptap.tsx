@@ -85,6 +85,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { importPastedComposerText } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
+import {
+  VoicePreviewExtensionFork,
+  useVoicePreviewEditorFork,
+  type VoicePreviewFork,
+} from "../voice-input/preview.fork"; // fork-hook: voice-input/editor-import
 
 export interface ComposerPromptEditorHandle {
   focus: () => void;
@@ -108,6 +113,7 @@ export interface ComposerPromptEditorHandle {
 }
 
 export interface ComposerPromptEditorProps {
+  voicePreviewFork?: VoicePreviewFork | null; // fork-hook: voice-input/editor-prop
   value: string;
   cursor: number;
   /**
@@ -834,6 +840,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         ComposerCitationExtension,
         ComposerContextReferenceExtension,
         ComposerMarkersExtension,
+        VoicePreviewExtensionFork, // fork-hook: voice-input/editor-extension
         ...(richText
           ? [
               ComposerCodeExtension,
@@ -1103,6 +1110,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
+  useVoicePreviewEditorFork(editor, props.voicePreviewFork); // fork-hook: voice-input/editor-preview
 
   useEffect(() => {
     editorHolder.current = editor;
@@ -1411,7 +1419,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
               onCopyCapture={(event) => handleCopyCut(event, false)}
               onCutCapture={(event) => handleCopyCut(event, true)}
             />
-            {isEmpty && contextRecords.size === 0 && placeholder ? (
+            {isEmpty && contextRecords.size === 0 && placeholder && !props.voicePreviewFork ? ( // fork-hook: voice-input/preview-placeholder
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0 leading-relaxed text-placeholder/75",
