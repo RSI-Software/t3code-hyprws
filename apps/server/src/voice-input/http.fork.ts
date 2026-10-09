@@ -12,10 +12,12 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as VoiceInput from "./VoiceInput.fork.ts";
+import { failEnvironmentAuthInvalid } from "../auth/http.ts";
 const isVoiceInputError = Schema.is(VoiceInput.VoiceInputError);
 const decodeSettingsJson = Schema.decodeEffect(Schema.fromJsonString(VoiceInputConfigUpdateFork));
 
@@ -35,12 +37,12 @@ const authorize = (scope: AuthEnvironmentScope) =>
           : json({ error: "Permission required.", requiredScope: scope }, 403),
       ),
       Effect.catch((error) =>
-        Effect.succeed(
-          json(
-            { error: "Authentication failed." },
-            EnvironmentAuth.isServerAuthCredentialError(error) ? 401 : 500,
-          ),
-        ),
+        EnvironmentAuth.isServerAuthCredentialError(error)
+          ? failEnvironmentAuthInvalid(
+              EnvironmentAuth.serverAuthCredentialReason(error),
+              EnvironmentAuth.serverAuthDpopFailureReason(error),
+            ).pipe(Effect.catch(HttpServerRespondable.toResponse))
+          : Effect.succeed(json({ error: "Authentication failed." }, 500)),
       ),
     );
   });
@@ -87,6 +89,22 @@ const failure = (error: VoiceInput.VoiceInputError) =>
     ),
   );
 
+const configureSettings = (service: VoiceInput.VoiceInput["Service"]) =>
+  Effect.gen(function* () {
+    const refusal = yield* authorize(AuthSettingsWriteScope);
+    if (refusal) return refusal;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
+      return json({ error: "Expected JSON settings." }, 415);
+    return yield* readBody(16384).pipe(
+      Effect.flatMap((bytes) => decodeSettingsJson(new TextDecoder().decode(bytes))),
+      Effect.mapError((cause) => new VoiceInput.VoiceInputError({ reason: "settings", cause })),
+      Effect.flatMap(service.configure),
+      Effect.map((settings) => json(settings)),
+      Effect.catch(failure),
+    );
+  });
+
 export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
   Layer.mergeAll(
     HttpRouter.add(
@@ -101,24 +119,9 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
         );
       }),
     ),
-    HttpRouter.add(
-      "PUT",
-      `${VOICE_INPUT_ROUTE_FORK}/settings`,
-      Effect.gen(function* () {
-        const refusal = yield* authorize(AuthSettingsWriteScope);
-        if (refusal) return refusal;
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
-          return json({ error: "Expected JSON settings." }, 415);
-        return yield* readBody(16384).pipe(
-          Effect.flatMap((bytes) => decodeSettingsJson(new TextDecoder().decode(bytes))),
-          Effect.mapError((cause) => new VoiceInput.VoiceInputError({ reason: "settings", cause })),
-          Effect.flatMap(service.configure),
-          Effect.map((settings) => json(settings)),
-          Effect.catch(failure),
-        );
-      }),
-    ),
+    HttpRouter.add("PUT", `${VOICE_INPUT_ROUTE_FORK}/settings`, configureSettings(service)),
+    // POST follows the existing browser/desktop CORS policy; PUT remains compatible.
+    HttpRouter.add("POST", `${VOICE_INPUT_ROUTE_FORK}/settings`, configureSettings(service)),
     HttpRouter.add(
       "POST",
       `${VOICE_INPUT_ROUTE_FORK}/transcribe`,

@@ -857,12 +857,17 @@ Upstream desktop dictation supports configurable external transcription services
 
 ### Rebase scan
 
-| Path                                                  | Why it matters         |
-| ----------------------------------------------------- | ---------------------- |
-| `apps/server/src/server.ts`                           | Route mount and import |
-| `packages/contracts/src/index.ts`                     | Fork contract export   |
-| `apps/web/src/components/chat/ChatComposer.tsx`       | Desktop mic mount      |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | Desktop settings mount |
+| Path                                                      | Why it matters          |
+| --------------------------------------------------------- | ----------------------- |
+| `apps/server/src/server.ts`                               | Route mount and import  |
+| `packages/contracts/src/index.ts`                         | Fork contract export    |
+| `packages/client-runtime/src/rpc/index.ts`                | Dictation HTTP export   |
+| `apps/web/src/components/chat/ChatComposer.tsx`           | Mic and send guards     |
+| `apps/web/src/components/settings/SettingsSidebarNav.tsx` | Desktop navigation      |
+| `apps/web/src/routes/settings.tsx`                        | Environment selection   |
+| `apps/web/src/components/settings/settingsSearch.ts`      | Dictation search entry  |
+| `apps/desktop/scripts/electron-launcher.mjs`              | macOS mic permission    |
+| `scripts/build-desktop-artifact.ts`                       | Packaged mic permission |
 
 ## Adding a domain
 
