@@ -60,14 +60,7 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  FolderIcon,
-  ListFilterIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SettingsIcon } from "lucide-react"; // fork-hook: workspaces/chooser-icons
 import {
   useEffect,
   useLayoutEffect,
@@ -1144,7 +1137,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1176,11 +1168,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
-  const selectedProjectScopeItem =
-    projectScopeKeys.length > 1
-      ? null
-      : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
-        projectScopeItems[0]!);
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,
@@ -1189,7 +1176,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedProjectKeys = windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
   useWindowProjectFilterChange(clearSelection); // fork-hook: workspaces/chooser-clear-selection
   const threadSearch = useThreadSearch(
     connectedEnvironmentIds,
@@ -3103,36 +3090,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
-                  onValueChange={(item, eventDetails) => {
+                  value={projectChooser.value} // fork-hook: workspaces/chooser-value
+                  onValueChange={(items) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    if (item.value === "all") {
-                      setProjectScopeKeys([]);
-                    } else if (
-                      eventDetails.event instanceof MouseEvent &&
-                      eventDetails.event.shiftKey
-                    ) {
-                      // Canceling skips Base UI's commit, which would freeze the search query, and its close.
-                      eventDetails.cancel();
-                      toggleProjectScopeKey(item.value);
-                    } else {
-                      setProjectScopeKeys([item.value]);
-                    }
-                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
-                  }}
+                    projectChooser.onValueChange(items);
+                  }} // fork-hook: workspaces/chooser-change
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroups.length > 0
-                            ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                            : "Filter threads by project"
-                        }
+                        label={projectChooser.label} // fork-hook: workspaces/chooser-label
                       />
                     }
                   >
@@ -3159,12 +3129,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     anchor={headerSearchRef}
                     className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
                   >
-                    {/* fork-hook: workspaces/chooser-mode */}
-                    <ProjectChooserModeFork
-                      filter={windowFilter.filter}
-                      setFilter={windowFilter.setFilter}
-                    />
-                    {/* fork-hook-end */}
                     <ComboboxSearchInput
                       aria-label="Search projects"
                       placeholder="Search projects..."
@@ -3238,6 +3202,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )}
                             </ProjectScopeRowIcon>
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-mode */}
+                            {item.value === "all" ? (
+                              <ProjectChooserModeFork
+                                filter={windowFilter.filter}
+                                setFilter={windowFilter.setFilter}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {/* fork-hook: workspaces/chooser-row-unavailable */}
                             <ProjectChooserUnavailableFork
                               unavailable={projectChooser.unavailableValues.has(item.value)}
