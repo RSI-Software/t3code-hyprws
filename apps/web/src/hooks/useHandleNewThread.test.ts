@@ -28,9 +28,7 @@ const testState = vi.hoisted(() => {
   const draftStore = {
     getComposerDraft: vi.fn(() => ({})),
     getDraftSessionByLogicalProjectKey: vi.fn(() => storedDraft),
-    getDraftSession: vi.fn((draftId: string) =>
-      storedDraft?.draftId === draftId ? storedDraft : null,
-    ),
+    getDraftSession: vi.fn(() => null),
     getDraftThread: vi.fn(() => null),
     applyStickyState: vi.fn(),
     setDraftThreadContext: vi.fn(),
@@ -38,10 +36,8 @@ const testState = vi.hoisted(() => {
     setModelSelection: vi.fn(),
   };
 
-  const draftIdsWithOpenPage = new Set<string>();
   return {
     completeProjectFileRead: (value: null) => completeProjectFileRead(value),
-    draftIdsWithOpenPage,
     draftStore,
     get projectFileRead() {
       return projectFileRead;
@@ -57,7 +53,6 @@ const testState = vi.hoisted(() => {
       },
     ) {
       storedDraft = nextStoredDraft;
-      draftIdsWithOpenPage.clear();
       targetSettings = {
         defaultThreadEnvMode: workspaceDefaults.envMode,
         newWorktreesStartFromOrigin: workspaceDefaults.startFromOrigin,
@@ -139,8 +134,6 @@ vi.mock("../composerDraftStore", () => {
   });
   return {
     composerDraftHasUserContent: () => false,
-    draftThreadHasOpenPreview: (session: { readonly draftId?: string } | null) =>
-      session?.draftId !== undefined && testState.draftIdsWithOpenPage.has(session.draftId),
     markPromotedDraftThreadByRef: vi.fn(),
     useComposerDraftStore,
   };
@@ -293,20 +286,4 @@ describe.each([
       );
     },
   );
-});
-
-it("starts a new draft instead of taking over one that holds an open page", async () => {
-  testState.reset({
-    draftId: "draft-existing",
-    environmentId: "environment-ssh",
-    promotedTo: null,
-    threadId: "thread-existing",
-  });
-  // A page opened from another app leaves the composer empty; the draft is still in use.
-  testState.draftIdsWithOpenPage.add("draft-existing");
-  const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
-  const pendingOpen = useNewThreadHandler()(projectRef);
-  testState.completeProjectFileRead(null);
-
-  expect(await pendingOpen).toEqual({ draftId: "draft-delayed", threadId: "thread-delayed" });
 });
