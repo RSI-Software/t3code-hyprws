@@ -1561,8 +1561,10 @@ function getComposerDraftState(
  * A draft holding an open page, such as one started for a link another app
  * opened, is work in progress even with an empty composer.
  */
-function draftThreadHasOpenPreview(draftThread: DraftThreadState | undefined): boolean {
-  if (draftThread === undefined) return false;
+export function draftThreadHasOpenPreview(
+  draftThread: DraftThreadState | null | undefined,
+): boolean {
+  if (!draftThread) return false;
   const ref = scopeThreadRef(draftThread.environmentId, draftThread.threadId);
   return Object.keys(readThreadPreviewState(ref).sessions).length > 0;
 }
