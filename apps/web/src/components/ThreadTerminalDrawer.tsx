@@ -196,11 +196,12 @@ function writeSystemMessage(terminal: GhosttyTerminalSurface, message: string): 
 }
 
 export function writeTerminalOutputUpdate(
-  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write">,
+  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write" | "clearSelection">,
   update: TerminalOutputUpdate,
 ): void {
   if (update.type === "reset") {
     terminal.resetAndWrite(update.data);
+    terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
   } else if (update.type === "append") {
     terminal.write(update.data);
   }
@@ -214,7 +215,6 @@ export function synchronizeTerminalOutput(
   if (session.version === 0) return cursor;
   const update = readTerminalOutputUpdate(session.output, cursor);
   writeTerminalOutputUpdate(terminal, update);
-  terminal.clearSelection();
   return update.cursor;
 }
 
@@ -955,6 +955,7 @@ export function TerminalViewport({
         if (!hasTerminalWriteAccess()) return;
         const activeTerminal = terminalRef.current;
         if (!activeTerminal) return;
+        activeTerminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         const result = await writeTerminal(data);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
@@ -1047,6 +1048,7 @@ export function TerminalViewport({
 
       function handleData(data: string): void {
         if (!hasTerminalWriteAccess()) return;
+        terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         void (async () => {
           const result = await writeTerminal(data);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
@@ -1177,11 +1179,11 @@ export function TerminalViewport({
       );
       if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
         terminal.resetSession(outputUpdate.data);
+        terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
       } else {
         writeTerminalOutputUpdate(terminal, outputUpdate);
       }
       outputCursorRef.current = outputUpdate.cursor;
-      terminal.clearSelection();
     } // fork-hook: zmux-estate/terminal-lifecycle-output
 
     if (current.error !== null && current.error !== previous.error) {
