@@ -1,6 +1,9 @@
 import type { VoiceInputConfigUpdateFork } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as HttpClient from "effect/http/HttpClient";
@@ -35,7 +38,11 @@ const local: VoiceInputConfigUpdateFork = {
   model: "",
 };
 
-function harness(body: unknown = { text: " spoken words " }, status = 200) {
+function harness(
+  body: unknown = { text: " spoken words " },
+  status = 200,
+  customClient?: HttpClient.HttpClient,
+) {
   const stored = new Map<string, Uint8Array>();
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
   const secrets = ServerSecretStore.ServerSecretStore.of({
@@ -67,7 +74,7 @@ function harness(body: unknown = { text: " spoken words " }, status = 200) {
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(ServerSecretStore.ServerSecretStore, secrets),
-        Layer.succeed(HttpClient.HttpClient, client),
+        Layer.succeed(HttpClient.HttpClient, customClient ?? client),
       ),
     ),
   );
@@ -101,6 +108,84 @@ describe("external dictation service", () => {
       yield* h.run((s) => s.transcribe(recording()));
       expect(h.requests[0]?.headers.authorization).toBe("Bearer legacy-secret");
     }),
+  );
+  it.effect("bounds provider latency and interrupts pending requests", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      let released = false;
+      const client = HttpClient.make(() =>
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(
+            Effect.sync(() => {
+              released = true;
+            }),
+          ),
+        ),
+      );
+      const h = harness(undefined, 200, client);
+      yield* h.run((s) => s.configure(local));
+      const pending = yield* h
+        .run((s) => s.transcribe(recording()))
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Deferred.await(started);
+      yield* TestClock.adjust("61 seconds");
+      expect(yield* Fiber.join(pending)).toMatchObject({ reason: "upstream" });
+      expect(released).toBe(true);
+    }),
+  );
+  it.effect("uses Meta's JSON request and WAV audio parts and reads transcript", () =>
+    Effect.gen(function* () {
+      const h = harness({ transcript: " meta words " });
+      const audio = recording();
+      const text = yield* h.run((s) =>
+        Effect.gen(function* () {
+          yield* s.configure({
+            enabled: true,
+            provider: "meta",
+            endpoint: "https://api.meta.ai/v1/asr/transcribe",
+            model: "muse-voice-transcribe-1.0",
+            apiKey: "meta-key",
+          });
+          return yield* s.transcribe(audio);
+        }),
+      );
+      expect(text).toBe("meta words");
+      expect(h.requests[0]?.headers.authorization).toBe("Bearer meta-key");
+      const body = h.requests[0]?.body;
+      if (body?._tag !== "FormData") throw new Error("Expected Meta multipart upload");
+      const request = body.formData.get("request");
+      const file = body.formData.get("audio");
+      if (!(request instanceof Blob) || !(file instanceof Blob))
+        throw new Error("Expected JSON and WAV parts");
+      expect(request.type).toBe("application/json");
+      expect(JSON.parse(yield* Effect.promise(() => request.text()))).toEqual({
+        model: "muse-voice-transcribe-1.0",
+        audioEncoding: "WAV",
+        mode: "PUSH_TO_TALK",
+      });
+      expect(file.type).toBe("audio/wav");
+      expect(new Uint8Array(yield* Effect.promise(() => file.arrayBuffer()))).toEqual(audio);
+      expect(body.formData.has("file")).toBe(false);
+    }),
+  );
+  it.effect.each([{ text: "wrong response shape" }, { transcript: 42 }])(
+    "rejects invalid Meta responses",
+    (body) =>
+      Effect.gen(function* () {
+        const h = harness(body);
+        yield* h.run((s) =>
+          s.configure({
+            enabled: true,
+            provider: "meta",
+            endpoint: "https://api.meta.ai/v1/asr/transcribe",
+            model: "muse-voice-transcribe-1.0",
+          }),
+        );
+        expect(yield* h.run((s) => s.transcribe(recording())).pipe(Effect.flip)).toMatchObject({
+          reason: "response",
+        });
+      }),
   );
   it.effect("starts disabled and redacts keys", () =>
     Effect.gen(function* () {
