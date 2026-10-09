@@ -17,6 +17,7 @@ import { runVoiceInputRequestFork } from "./client.fork";
 import { DesktopVoiceRecorderFork, recordingToWavFork } from "./recorder.fork";
 import { DesktopVoiceSessionFork } from "./session.fork";
 import { voiceInputUnavailableReasonFork } from "./settings.fork";
+import { prepareLiveVoiceFork } from "./realtime.fork";
 
 function createDesktopVoiceRuntimeFork() {
   const recorder = new DesktopVoiceRecorderFork((status) => {
@@ -30,11 +31,26 @@ function createDesktopVoiceRuntimeFork() {
     deleteRecording: (uri) => recorder.delete(uri),
     getTranscriber: (target) => ({
       prepare: async ({ signal }) => {
+        recorder.useLiveSession(null);
         const prepared = readPreparedConnection(target.environmentId);
         if (!prepared) throw new Error("Environment is disconnected.");
         const config = await runVoiceInputRequestFork(readVoiceInputSettingsFork(prepared), signal);
         const unavailableReason = voiceInputUnavailableReasonFork(config);
         if (unavailableReason) throw new Error(unavailableReason);
+        if (config.provider === "meta") {
+          const live = await prepareLiveVoiceFork(
+            prepared,
+            signal,
+            (text) => {
+              if (!signal.aborted) session.previewTranscript(text, navigator.language);
+            },
+            () => {
+              void session.controller.interruptRecording("Live dictation disconnected. Try again.");
+            },
+          );
+          recorder.useLiveSession(live);
+          return { locale: navigator.language, transcribe: async () => live.result };
+        }
         return {
           locale: navigator.language,
           transcribe: async (uri, { signal }) => {
