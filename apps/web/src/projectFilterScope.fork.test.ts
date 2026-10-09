@@ -40,6 +40,16 @@ const filterOf = (...selected: Array<typeof api>): ProjectFilter => ({
 });
 
 describe("outside thread", () => {
+  it("adding an excluded open thread's project removes its exclusion", () => {
+    const filter: ProjectFilter = { ...filterOf(api, web), mode: "exclude" };
+    expect(outsideFilterProjectGroup(filter, groups, ref("vm", "web"))).toBe(web);
+    expect(outsideFilterProjectGroup(filter, groups, ref("local", "docs"))).toBeNull();
+    const added = addProjectFilterEntry(filter, web);
+    expect(added).toEqual({ ...filterOf(api), mode: "exclude" });
+    expect(outsideFilterProjectGroup(added, groups, ref("vm", "web"))).toBeNull();
+    expect(addProjectFilterEntry(added, docs)).toBe(added);
+  });
+
   it("Outside: a thread outside the filter names the group to add", () => {
     expect(outsideFilterProjectGroup(filterOf(api), groups, ref("vm", "web"))).toBe(web);
   });
@@ -59,6 +69,16 @@ describe("outside thread", () => {
 });
 
 describe("new thread under the filter", () => {
+  it("exclusion opens the scoped picker rather than creating in the hidden project", () => {
+    const filter: ProjectFilter = { ...filterOf(api), mode: "exclude" };
+    expect(resolveFilteredNewThread({ filter, contextProjectRef: null, direct: false })).toEqual({
+      kind: "choose",
+    });
+    expect(
+      resolveFilteredNewThread({ filter, contextProjectRef: ref("local", "api"), direct: true }),
+    ).toEqual({ kind: "project", projectRef: ref("local", "api") });
+  });
+
   it("New thread: all projects keeps upstream's resolution", () => {
     for (const direct of [false, true]) {
       expect(
