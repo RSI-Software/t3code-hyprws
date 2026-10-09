@@ -1,5 +1,5 @@
 import { createClerkBridge } from "@clerk/electron";
-import * as NodeUrl from "node:url";
+import * as NodeURL from "node:url";
 import { storage } from "@clerk/electron/storage";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -204,7 +204,7 @@ export const make = Effect.gen(function* () {
       yield* electronApp.on("open-file", (event: { preventDefault: () => void }, path: string) => {
         if (!DesktopWebLinks.isWebPageFile(path)) return;
         event.preventDefault();
-        void runPromise(webLinks.receive(NodeUrl.pathToFileURL(path).href));
+        void runPromise(webLinks.receive(NodeURL.pathToFileURL(path).href));
       });
       yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
         if (argv?.some((value) => startProviderAuthHandoff(value) || resumeProviderAuth(value)))
