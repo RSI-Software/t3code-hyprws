@@ -117,7 +117,11 @@ export function selectDesktopAgentWorkspaceSelector(
   environment: Readonly<Record<string, string | undefined>>,
 ): DesktopAgentWorkspaceSelector {
   return parseDesktopAgentWorkspaceSelector(
-    workspaceOverride ?? environment["T3CODE_DESKTOP_AGENT_WORKSPACE"],
+    workspaceOverride ??
+      // The launcher owns this destination. Keep it through watcher restarts,
+      // ahead of repository defaults that would otherwise restore a human workspace.
+      (environment["DONJOR_HYPR_LAUNCH"] ? environment["DONJOR_HYPR_WORKSPACE"] : undefined) ??
+      environment["T3CODE_DESKTOP_AGENT_WORKSPACE"],
   );
 }
 

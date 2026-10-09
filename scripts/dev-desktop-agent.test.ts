@@ -131,6 +131,47 @@ describe("desktop agent launcher", () => {
     );
   });
 
+  it("retains the launcher's assigned workspace ahead of repository defaults", () => {
+    const environment = {
+      DONJOR_HYPR_LAUNCH: "dl-lane-a",
+      DONJOR_HYPR_WORKSPACE: "108",
+      T3CODE_DESKTOP_AGENT_WORKSPACE: "+1",
+    };
+    const dependencies = {
+      readActiveWorkspace: () => ({ id: 6, name: "6" }),
+      readClients: () => {
+        throw new Error("must not select the active app");
+      },
+      selfPid: 1,
+      readParent: () => 0,
+    };
+    assert.deepStrictEqual(captureDesktopAgentWorkspace(undefined, environment, dependencies), {
+      origin: null,
+      target: { id: 108, name: "108" },
+    });
+    assert.deepStrictEqual(selectDesktopAgentWorkspaceSelector("none", environment), {
+      kind: "default",
+    });
+    assert.deepStrictEqual(selectDesktopAgentWorkspaceSelector("109", environment), {
+      kind: "numbered",
+      workspace: { id: 109, name: "109" },
+    });
+    assert.deepStrictEqual(
+      selectDesktopAgentWorkspaceSelector(undefined, {
+        DONJOR_HYPR_WORKSPACE: "108",
+      }),
+      { kind: "default" },
+    );
+    assert.throws(
+      () =>
+        selectDesktopAgentWorkspaceSelector(undefined, {
+          DONJOR_HYPR_LAUNCH: "dl-lane-a",
+          DONJOR_HYPR_WORKSPACE: "broken",
+        }),
+      /invalid.+selector/u,
+    );
+  });
+
   it("captures a relative origin from the invoking project window and verifies absolute placement", () => {
     let clientsCalls = 0;
     let activeWorkspaceCalls = 0;
