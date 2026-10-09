@@ -2,7 +2,11 @@
 // tools outside the app can find the window a project's work lives in
 // (`apps/desktop/src/window/WindowProjectManifest.fork.ts`).
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
+import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  projectFilterProjectKeys,
+  type ProjectFilter,
+} from "@t3tools/client-runtime/state/project-filter";
 import type {
   DesktopBridge,
   DesktopWindowProjectScope,
@@ -14,15 +18,32 @@ import { useAllEnvironmentProjectSnapshotsReady, useProjects } from "./state/ent
 import { pendingWindowScopeSeed, windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
- * The scope a window's filter shows: every project when the filter is empty,
- * else each member project the client knows, with its checkout. A member the
- * client does not know, such as a removed project, is left out.
+ * Legacy empty filters show every project; explicit empty inclusion shows none.
+ * Otherwise report each known member with its checkout, leaving out removed projects.
  */
 export function windowProjectScope(
   filter: ProjectFilter,
   projects: ReadonlyArray<EnvironmentProject>,
 ): DesktopWindowProjectScope {
-  if (filter.entries.length === 0) return { kind: "all" };
+  if (filter.entries.length === 0 && filter.mode !== "include") return { kind: "all" };
+  if (filter.mode === "exclude") {
+    const keys = projectFilterProjectKeys(
+      filter,
+      projects.map((project) => scopeProjectRef(project.environmentId, project.id)),
+    )!;
+    return {
+      kind: "projects",
+      projects: projects
+        .filter((project) =>
+          keys.has(scopedProjectKey(scopeProjectRef(project.environmentId, project.id))),
+        )
+        .map((project) => ({
+          environmentId: project.environmentId,
+          projectId: project.id,
+          workspaceRoot: project.workspaceRoot,
+        })),
+    };
+  }
   const seen = new Set<string>();
   const shown = filter.entries.flatMap((entry) =>
     entry.members.flatMap((member) => {
@@ -69,7 +90,7 @@ export function publishedWindowScope(input: {
       ),
     ),
   );
-  if (!known && !input.settled) return null;
+  if (filter.mode !== "exclude" && !known && !input.settled) return null;
   return windowProjectScope(filter, input.projects);
 }
 

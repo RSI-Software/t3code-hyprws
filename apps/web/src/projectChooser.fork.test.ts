@@ -6,7 +6,8 @@ import { EnvironmentId, ProjectId, type ScopedProjectRef } from "@t3tools/contra
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  ALL_PROJECTS_CHOOSER_VALUE,
+  projectChooserMode,
+  projectFilterFromMode,
   projectChooserState,
   projectFilterFromChooser,
   showOnlyProjectFilter,
@@ -30,23 +31,67 @@ const web = {
 const groups = [api, web];
 
 const filterOf = (...selected: Array<typeof api>): ProjectFilter => ({
+  mode: "include",
   entries: selected.map((group) => ({ key: group.projectKey, members: group.memberProjectRefs })),
 });
 const values = (filter: ProjectFilter) =>
   projectChooserState(filter, groups).value.map((item) => item.value);
 
 describe("project chooser", () => {
-  it("Empty: an empty filter selects All projects and reads Projects: All", () => {
+  it("exclusion labels the hidden picks rather than presenting one as the shown project", () => {
+    const filter: ProjectFilter = { ...filterOf(web), mode: "exclude" };
+    const state = projectChooserState(filter, groups);
+    expect(state.label).toBe("Projects: All except 1");
+    expect(state.titleLabel).toBe("All except web");
+    expect(state.single).toBeNull();
+    expect(state.value.map((item) => item.value)).toEqual([web.projectKey]);
+    expect(projectFilterFromChooser(filter, [web.projectKey, api.projectKey], groups)).toEqual({
+      ...filterOf(web, api),
+      mode: "exclude",
+    });
+    expect(projectFilterFromChooser(filter, [], groups)).toEqual({ entries: [], mode: "exclude" });
+    expect(showOnlyProjectFilter(api)).toEqual(filterOf(api));
+  });
+
+  it("exclusion can pick its first hidden project from an empty selection", () => {
+    const empty: ProjectFilter = { mode: "exclude", entries: [] };
+    expect(projectChooserState(empty, groups).label).toBe("Projects: All");
+    expect(projectFilterFromChooser(empty, [web.projectKey], groups)).toEqual({
+      ...filterOf(web),
+      mode: "exclude",
+    });
+  });
+
+  it("All heads the list and is selected without counting as a project pick", () => {
     const state = projectChooserState(ALL_PROJECTS_FILTER, groups);
-    expect(state.value.map((item) => item.value)).toEqual([ALL_PROJECTS_CHOOSER_VALUE]);
+    expect(state.value.map((item) => item.value)).toEqual(["all"]);
     expect(state.label).toBe("Projects: All");
     expect(state.count).toBe(0);
     expect(state.single).toBeNull();
-    expect(state.items.map((item) => item.value)).toEqual([
-      ALL_PROJECTS_CHOOSER_VALUE,
-      api.projectKey,
-      web.projectKey,
-    ]);
+    expect(state.items.map((item) => item.value)).toEqual(["all", api.projectKey, web.projectKey]);
+  });
+
+  it("All resets picks, while picking a project from All drops its sentinel", () => {
+    expect(projectFilterFromChooser(filterOf(api), [api.projectKey, "all"], groups)).toBe(
+      ALL_PROJECTS_FILTER,
+    );
+    expect(
+      projectFilterFromChooser(
+        { ...filterOf(web), mode: "exclude" },
+        [web.projectKey, "all"],
+        groups,
+      ),
+    ).toBe(ALL_PROJECTS_FILTER);
+    expect(projectFilterFromChooser(ALL_PROJECTS_FILTER, ["all", api.projectKey], groups)).toEqual(
+      filterOf(api),
+    );
+    const excluding: ProjectFilter = { mode: "exclude", entries: [] };
+    expect(projectFilterFromChooser(excluding, ["all", web.projectKey], groups)).toEqual({
+      ...filterOf(web),
+      mode: "exclude",
+    });
+    expect(projectFilterFromChooser(excluding, [], groups)).toBe(ALL_PROJECTS_FILTER);
+    expect(projectFilterFromChooser(ALL_PROJECTS_FILTER, [], groups)).toBe(ALL_PROJECTS_FILTER);
   });
 
   it("Label: one entry shows its name, several show a count", () => {
@@ -82,24 +127,36 @@ describe("project chooser", () => {
     const removed = projectFilterFromChooser(added, [web.projectKey], groups);
     expect(removed).toEqual(filterOf(web));
 
-    // From All projects, the combobox reports All beside the new pick.
-    const fromAll = projectFilterFromChooser(
-      ALL_PROJECTS_FILTER,
-      [ALL_PROJECTS_CHOOSER_VALUE, api.projectKey],
-      groups,
-    );
+    const fromAll = projectFilterFromChooser(ALL_PROJECTS_FILTER, [api.projectKey], groups);
     expect(fromAll).toEqual(filterOf(api));
   });
 
-  it("Toggle: All projects clears the filter, and unpicking the last entry returns to all", () => {
-    expect(
-      projectFilterFromChooser(
-        filterOf(api, web),
-        [api.projectKey, web.projectKey, ALL_PROJECTS_CHOOSER_VALUE],
-        groups,
-      ),
-    ).toBe(ALL_PROJECTS_FILTER);
-    expect(projectFilterFromChooser(filterOf(api), [], groups)).toBe(ALL_PROJECTS_FILTER);
+  it("unselecting the last project shows none until All resets the filter", () => {
+    const none = projectFilterFromChooser(filterOf(api), [], groups);
+    expect(none).toEqual({ mode: "include", entries: [] });
+    expect(projectChooserState(none, groups)).toMatchObject({
+      label: "Projects: None",
+      titleLabel: "No projects",
+      value: [],
+      single: null,
+    });
+    expect(projectFilterFromMode(none, "all")).toBe(ALL_PROJECTS_FILTER);
+    expect(projectFilterFromMode(filterOf(api, web), "all")).toBe(ALL_PROJECTS_FILTER);
+  });
+
+  it("mode switches preserve picks, including empty selections and legacy filters", () => {
+    expect(projectChooserMode(ALL_PROJECTS_FILTER)).toBe("all");
+    expect(projectChooserMode({ entries: filterOf(api).entries })).toBe("include");
+    const excluded = projectFilterFromMode(filterOf(api, web), "exclude");
+    expect(projectChooserMode(excluded)).toBe("exclude");
+    expect(excluded.entries).toEqual(filterOf(api, web).entries);
+    expect(projectFilterFromMode(excluded, "include")).toEqual(filterOf(api, web));
+    const none = projectFilterFromMode(ALL_PROJECTS_FILTER, "include");
+    expect(projectChooserMode(none)).toBe("include");
+    expect(projectChooserState(none, groups).label).toBe("Projects: None");
+    const allExceptNone = projectFilterFromMode(none, "exclude");
+    expect(projectChooserState(allExceptNone, groups).label).toBe("Projects: All");
+    expect(projectChooserMode(allExceptNone)).toBe("exclude");
   });
 
   it("Offline: an entry no group carries stays selected and is marked unavailable", () => {
