@@ -1,3 +1,4 @@
+import { DesktopVoiceInputProviderFork } from "../voice-input/VoiceInputProvider.fork"; // fork-hook: voice-input/window-provider-import
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -226,7 +227,9 @@ function RootRouteBranch() {
         {primaryEnvironmentAuthenticated ? (
           <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
         ) : null}
-        {appShell}
+        {/* fork-hook: voice-input/window-provider */}
+        <DesktopVoiceInputProviderFork>{appShell}</DesktopVoiceInputProviderFork>
+        {/* fork-hook-end */}
         {/* Keep the theme editor above the router so drafts survive navigation. */}
         <ThemeEditorHost />
       </FirstRunGate>
