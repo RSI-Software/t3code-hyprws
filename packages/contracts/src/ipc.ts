@@ -1062,6 +1062,7 @@ export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 export type WindowScopeSeed = ScopedProjectRef | "all-projects"; // fork-hook: multi-window/window-scope-seed-type
 
 export interface DesktopBridge {
+  voiceDuckingFork?: import("./voiceDucking.fork.ts").VoiceDuckingBridgeFork; // fork-hook: voice-input/ducking-bridge
   getAppBranding: () => DesktopAppBranding | null;
   getPathForFile?: (file: File) => string;
   getClientPlatform?: () => string;
