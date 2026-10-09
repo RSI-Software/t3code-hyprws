@@ -1,7 +1,7 @@
 // A window's project filter (RSI-Software/t3code-hyprws#1338): any number of
-// scope-dropdown entries, each keeping the project refs it stands for. An
-// empty filter shows every project. The filter is client-local; each client
-// stores it and reconciles it against its current project groups.
+// scope-dropdown entries, each keeping the project refs it stands for. A legacy
+// empty filter shows every project; explicit inclusion can show none. Each
+// client stores it and reconciles it against its current project groups.
 import { ScopedProjectRef } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -14,7 +14,7 @@ export interface ProjectFilterEntry {
   readonly members: ReadonlyArray<ScopedProjectRef>;
 }
 
-/** Empty entries show all projects; absent mode preserves legacy inclusion filters. */
+/** Empty explicit inclusion shows none; a legacy empty filter still shows all. */
 export interface ProjectFilter {
   readonly mode?: "include" | "exclude";
   readonly entries: ReadonlyArray<ProjectFilterEntry>;
@@ -56,7 +56,7 @@ export function projectFilterProjectKeys(
   filter: ProjectFilter,
   available: ReadonlyArray<ScopedProjectRef> = [],
 ): ReadonlySet<string> | null {
-  if (filter.entries.length === 0) return null;
+  if (filter.entries.length === 0 && filter.mode !== "include") return null;
   const selected = new Set(filter.entries.flatMap((entry) => entry.members.map(scopedProjectKey)));
   return filter.mode === "exclude"
     ? new Set(available.map(scopedProjectKey).filter((key) => !selected.has(key)))
@@ -69,7 +69,8 @@ export function projectFilterProjectKeys(
  * becomes the groups now holding its members, so a grouping change re-maps
  * it. An entry nothing resolves stays selected until the project list is
  * `settled`, because an offline environment cannot prove its project gone;
- * once settled it is dropped, and dropping the last entry returns to all.
+ * once settled it is dropped. Explicit inclusion stays empty after its last
+ * entry disappears; legacy filters return to all.
  * Returns `filter` itself when nothing changed.
  */
 export function reconcileProjectFilter(
