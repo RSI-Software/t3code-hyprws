@@ -10,6 +10,7 @@ import {
   VcsUnsupportedOperationError,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -38,6 +39,7 @@ const shell = (overrides: Partial<OrchestrationV2AppThread> = {}) =>
     projectId,
     worktreePath: "/repo-feature",
     archivedAt: null,
+    deletedAt: null,
     settledOverride: "settled",
     ...overrides,
   }) as OrchestrationV2AppThread;
@@ -154,7 +156,7 @@ const harness = () =>
       restored: Queue.take(restored),
       subscribed: Deferred.await(subscribed),
       removed: Queue.take(removed),
-      emit: (type: "thread.settled" | "thread.unsettled" | "thread.pinned") =>
+      emit: (type: "thread.settled" | "thread.deleted" | "thread.unsettled" | "thread.pinned") =>
         Queue.offer(events, { type, threadId: id } as OrchestrationV2DomainEvent),
       setThread: (value: Partial<OrchestrationV2AppThread>) => {
         thread = { ...thread, ...value };
@@ -228,18 +230,18 @@ describe("settled checkout sessions", () => {
   );
 
   it.effect.each([projectId, ProjectId.make("another-project")])(
-    "preserves active shared consumers in %s",
+    "removes the session despite active shared consumers in %s",
     (owner) =>
       Effect.gen(function* () {
         const h = yield* harness();
         h.share({ projectId: owner });
         yield* h.reactor.reconcile(id);
-        expect(h.calls).toEqual(["release"]);
+        expect(yield* h.removed).toEqual(identity);
       }),
   );
 
   it.effect.each(["/repo-feature/packages/server", "/alias-feature"])(
-    "preserves an active consumer reached through %s",
+    "removes the session despite an active consumer reached through %s",
     (cwd) =>
       Effect.gen(function* () {
         const h = yield* harness();
@@ -247,12 +249,12 @@ describe("settled checkout sessions", () => {
         h.setRealPath("/alias-feature", "/repo-feature");
         h.share({ worktreePath: cwd });
         yield* h.reactor.reconcile(id);
-        expect(h.calls).toEqual(["release"]);
+        expect(yield* h.removed).toEqual(identity);
       }),
   );
 
   it.effect.each(["/repo-feature/packages/server", "/alias-feature"])(
-    "preserves another project's active root reached through %s",
+    "removes the session despite another project's active root reached through %s",
     (cwd) =>
       Effect.gen(function* () {
         const h = yield* harness();
@@ -262,17 +264,17 @@ describe("settled checkout sessions", () => {
         h.setRoot(owner, cwd);
         h.share({ projectId: owner, worktreePath: null });
         yield* h.reactor.reconcile(id);
-        expect(h.calls).toEqual(["release"]);
+        expect(yield* h.removed).toEqual(identity);
       }),
   );
 
-  it.effect("preserves uncertain active-consumer identity", () =>
+  it.effect("an unrelated missing checkout does not block session removal", () =>
     Effect.gen(function* () {
       const h = yield* harness();
       h.share({ worktreePath: "/unknown-checkout" });
       h.forgetIdentity("/unknown-checkout");
       yield* h.reactor.reconcile(id);
-      expect(h.calls).toEqual(["release"]);
+      expect(yield* h.removed).toEqual(identity);
     }),
   );
 
@@ -306,7 +308,7 @@ describe("settled checkout sessions", () => {
       yield* h.reactor.reconcile(id);
       expect(h.calls).not.toContain("unbind");
       yield* h.reactor.reconcile(id);
-      expect(h.calls.at(-1)).toBe("bind:/repo-feature");
+      expect(h.calls).not.toContain("bind:/repo-feature");
     }),
   );
 
@@ -326,21 +328,23 @@ describe("settled checkout sessions", () => {
       }),
   );
 
-  it.effect("rechecks shared consumers immediately before cleanup", () =>
+  it.effect("a new shared consumer does not cancel requested teardown", () =>
     Effect.gen(function* () {
       const h = yield* harness();
       h.setBeforeCleanup(Effect.sync(() => h.share()));
       yield* h.reactor.reconcile(id);
-      expect(h.calls).not.toContain("unbind");
+      expect(yield* h.removed).toEqual(identity);
     }),
   );
 
-  it.effect("restores an unsettled checkout through the binder, not terminal ensure", () =>
+  it.effect("unsettling leaves the removed session gone", () =>
     Effect.gen(function* () {
       const h = yield* harness();
+      yield* h.reactor.reconcile(id);
+      expect(yield* h.removed).toEqual(identity);
       h.setThread({ settledOverride: "active" });
       yield* h.reactor.reconcile(id);
-      expect(h.calls).toEqual(["bind:/repo-feature"]);
+      expect(h.calls).not.toContain("bind:/repo-feature");
     }),
   );
 
@@ -356,44 +360,50 @@ describe("settled checkout sessions", () => {
     }),
   );
 
-  it.effect("starts a live subscription for settlement from every transport", () =>
-    Effect.gen(function* () {
-      const h = yield* harness();
-      yield* h.reactor.start();
-      yield* h.subscribed;
-      yield* h.emit("thread.settled");
-      expect(yield* h.removed).toEqual(identity);
-    }),
+  it.effect.each(["thread.settled", "thread.deleted"] as const)(
+    "tears down the session on %s from every transport",
+    (type) =>
+      Effect.gen(function* () {
+        const h = yield* harness();
+        yield* h.reactor.start();
+        yield* h.subscribed;
+        if (type === "thread.deleted") {
+          h.setThread({
+            settledOverride: "active",
+            deletedAt: DateTime.makeUnsafe("2026-10-10T00:00:00Z"),
+          });
+        }
+        yield* h.emit(type);
+        expect(yield* h.removed).toEqual(identity);
+      }),
   );
 
-  it.effect("preserves a lane used as another active project's root", () =>
+  it.effect("removes a lane used as another active project's root", () =>
     Effect.gen(function* () {
       const h = yield* harness();
       const owner = ProjectId.make("root-consumer");
       h.setRoot(owner, "/repo-feature");
       h.share({ projectId: owner, worktreePath: null });
       yield* h.reactor.reconcile(id);
-      expect(h.calls).toEqual(["release"]);
+      expect(yield* h.removed).toEqual(identity);
     }),
   );
 
-  it.effect("does not remove a session whose local viewer has not exited", () =>
+  it.effect("removes the session even when the local viewer does not acknowledge exit", () =>
     Effect.gen(function* () {
       const h = yield* harness();
       h.failRelease();
       yield* h.reactor.reconcile(id);
-      expect(h.calls).toEqual(["release"]);
+      expect(yield* h.removed).toEqual(identity);
     }),
   );
 
-  it.effect("pin promotion restores without opening a terminal", () =>
+  it.effect("an active thread does not recreate a session", () =>
     Effect.gen(function* () {
       const h = yield* harness();
-      yield* h.reactor.start();
-      yield* h.subscribed;
       h.setThread({ settledOverride: "active" });
-      yield* h.emit("thread.pinned");
-      expect(yield* h.restored).toBe("/repo-feature");
+      yield* h.reactor.reconcile(id);
+      expect(h.calls).toEqual([]);
     }),
   );
 
@@ -424,7 +434,7 @@ describe("settled checkout sessions", () => {
       yield* Deferred.await(mutationDone);
       expect(yield* h.removed).toEqual(identity);
       yield* h.reactor.reconcile(id);
-      expect(yield* h.restored).toBe("/repo-feature");
+      expect(h.calls).not.toContain("bind:/repo-feature");
     }),
   );
 
@@ -435,6 +445,18 @@ describe("settled checkout sessions", () => {
       expect(yield* guard.isSettledThread(id)).toBe(true);
       h.setThread({ settledOverride: "active" });
       expect(yield* guard.isSettledThread(id)).toBe(false);
+    }),
+  );
+
+  it.effect("blocks session recreation after deletion even if the thread was active", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      h.setThread({
+        settledOverride: "active",
+        deletedAt: DateTime.makeUnsafe("2026-10-10T00:00:00Z"),
+      });
+      const guard = yield* AttachGuard.make.pipe(Effect.provide(h.dependencies));
+      expect(yield* guard.isSettledThread(id)).toBe(true);
     }),
   );
 });

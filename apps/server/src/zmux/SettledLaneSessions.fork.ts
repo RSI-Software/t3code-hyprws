@@ -1,5 +1,5 @@
-// The physical checkout owns its session; threads are consumers. Settlement
-// releases only the last active consumer's worktree session, never root/main.
+// Settling or deleting a worktree thread tears down its checkout's whole
+// managed session. The base checkout and main session remain separate.
 import { type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -43,44 +43,13 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
   const sameCheckout = (left: string | null, right: string) =>
     left !== null && path.resolve(left) === path.resolve(right);
 
-  // A checkout may also have consumers registered under another project.
-  const hasActiveConsumer = (threadId: ThreadId, lane: string) =>
-    orchestrator.getShellSnapshot().pipe(
-      Effect.flatMap((snapshot) =>
-        Effect.gen(function* () {
-          const rootsByCwd = new Map<string, Option.Option<string>>();
-          for (const consumer of snapshot.threads) {
-            if (
-              consumer.id === threadId ||
-              consumer.settledOverride === "settled" ||
-              consumer.archivedAt !== null
-            )
-              continue;
-            let cwd = consumer.worktreePath;
-            if (cwd === null) {
-              const owner = yield* projects.getShell(consumer.projectId);
-              if (Option.isNone(owner)) return true;
-              cwd = owner.value.workspaceRoot;
-            }
-            const key = path.resolve(cwd);
-            let root = rootsByCwd.get(key);
-            if (root === undefined) {
-              root = yield* checkoutRootOf(key);
-              rootsByCwd.set(key, root);
-            }
-            if (Option.isNone(root) || root.value === lane) return true;
-          }
-          return false;
-        }),
-      ),
-    );
-
   const reconcile = (threadId: ThreadId) =>
     permits.withPermits(1)(
       Effect.gen(function* () {
         const thread = yield* projections.getThread(threadId);
         const lane = thread.worktreePath;
-        if (lane === null || thread.archivedAt !== null) return;
+        if (lane === null) return;
+        if (thread.settledOverride !== "settled" && thread.deletedAt === null) return;
         const project = yield* projects.getShell(thread.projectId);
         // Missing ownership information is never permission to remove a session.
         if (Option.isNone(project)) return;
@@ -94,20 +63,9 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
         )
           return;
 
-        if (thread.settledOverride !== "settled") {
-          const restored = yield* binder.bind(lane);
-          if (restored.status === "failed") {
-            yield* Effect.logWarning("could not restore unsettled checkout session", {
-              threadId,
-              detail: restored.notice.detail,
-            });
-          }
-          return;
-        }
-
-        // Release this consumer's managed PTYs, not plain shells or other viewers.
-        if (!(yield* terminals.releaseSettledManagedAttachments({ threadId }))) return;
-        if (yield* hasActiveConsumer(threadId, laneIdentity.value)) return;
+        // Detach local viewers first, but a missing exit acknowledgement must
+        // not leave the session's tabs and background processes running.
+        yield* terminals.releaseSettledManagedAttachments({ threadId });
         const prepared = yield* binder.prepareUnbind(lane);
         if (prepared.status !== "prepared") {
           if (prepared.status === "failed") {
@@ -132,10 +90,8 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
           Effect.gen(function* () {
             const latest = yield* projections.getThread(threadId);
             if (
-              latest.settledOverride !== "settled" ||
-              !sameCheckout(latest.worktreePath, lane) ||
-              latest.archivedAt !== null ||
-              (yield* hasActiveConsumer(threadId, laneIdentity.value))
+              (latest.settledOverride !== "settled" && latest.deletedAt === null) ||
+              !sameCheckout(latest.worktreePath, lane)
             )
               return;
             const latestProject = yield* projects.getShell(latest.projectId);
@@ -181,9 +137,7 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
     start: () =>
       forkParked(
         Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
-          event.type === "thread.settled" ||
-          event.type === "thread.unsettled" ||
-          event.type === "thread.pinned"
+          event.type === "thread.settled" || event.type === "thread.deleted"
             ? reconcile(event.threadId)
             : Effect.void,
         ).pipe(
