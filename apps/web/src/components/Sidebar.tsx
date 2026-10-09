@@ -120,12 +120,15 @@ import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-
 import { useWindowProjectFilter, useWindowProjectFilterChange } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
 import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import {
-  ProjectChooserRowCheckFork,
   ProjectChooserShowOnlyButtonFork,
   ProjectChooserTriggerIconFork,
   ProjectChooserUnavailableFork,
   useSidebarProjectChooserFork,
 } from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
+import {
+  ProjectChooserModeFork,
+  ProjectChooserRowMarkFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-mode-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -4839,6 +4842,12 @@ export default function Sidebar() {
                     anchor={headerSearchRef}
                     className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
                   >
+                    {/* fork-hook: workspaces/chooser-mode */}
+                    <ProjectChooserModeFork
+                      filter={windowFilter.filter}
+                      setFilter={windowFilter.setFilter}
+                    />
+                    {/* fork-hook-end */}
                     <ComboboxSearchInput
                       aria-label="Search projects"
                       placeholder="Search projects..."
@@ -4878,9 +4887,12 @@ export default function Sidebar() {
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
-                            {/* fork-hook: workspaces/chooser-row-check */}
-                            <ProjectChooserRowCheckFork
+                            {/* fork-hook: workspaces/chooser-row-mark */}
+                            <ProjectChooserRowMarkFork
                               selected={projectChooser.selectedValues.has(item.value)}
+                              excluded={
+                                windowFilter.filter.mode === "exclude" && item.value !== "all"
+                              }
                             />
                             {/* fork-hook-end */}
                             {project ? (
