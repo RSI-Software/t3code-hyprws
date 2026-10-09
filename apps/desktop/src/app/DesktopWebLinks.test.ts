@@ -1,4 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - Stands in for an Electron webContents.
 import { assert, describe, it } from "@effect/vitest";
+import * as NodeEvents from "node:events";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -10,14 +12,16 @@ import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 const makeWindow = () => {
   const sent: Array<string> = [];
   const revealed: Array<unknown> = [];
-  const window = {
-    webContents: {
-      isDestroyed: () => false,
-      send: (channel: string, url: string) => {
-        if (channel === WEB_LINK_OPEN_CHANNEL) sent.push(url);
-      },
+  const webContents = Object.assign(new NodeEvents.EventEmitter(), {
+    isDestroyed: () => false,
+    send: (channel: string, url: string) => {
+      if (channel === WEB_LINK_OPEN_CHANNEL) sent.push(url);
     },
-  } as unknown as Electron.BrowserWindow;
+  });
+  const window = { webContents } as unknown as Electron.BrowserWindow;
+  /** The web app starts loading a new page, as a reload does. */
+  const reload = () =>
+    webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
   const layer = DesktopWebLinks.layer.pipe(
     Layer.provide(
       Layer.succeed(
@@ -29,7 +33,7 @@ const makeWindow = () => {
       ),
     ),
   );
-  return { sent, revealed, layer };
+  return { sent, revealed, layer, reload };
 };
 
 describe("DesktopWebLinks", () => {
@@ -61,6 +65,21 @@ describe("DesktopWebLinks", () => {
       yield* webLinks.setRendererReady(false);
       yield* webLinks.receive("https://example.com/fourth");
       assert.strictEqual(sent.length, 3);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("holds links that arrive while the web app reloads until it listens again", () => {
+    const { sent, layer, reload } = makeWindow();
+    return Effect.gen(function* () {
+      const webLinks = yield* DesktopWebLinks.DesktopWebLinks;
+      yield* webLinks.setRendererReady(true);
+      // The old page never says it stopped; the reload itself ends its listening.
+      reload();
+      yield* webLinks.receive("https://example.com/during-reload");
+      assert.deepStrictEqual(sent, []);
+
+      yield* webLinks.setRendererReady(true);
+      assert.deepStrictEqual(sent, ["https://example.com/during-reload"]);
     }).pipe(Effect.provide(layer));
   });
 });
