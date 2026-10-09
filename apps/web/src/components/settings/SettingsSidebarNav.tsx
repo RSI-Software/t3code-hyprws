@@ -50,6 +50,8 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
+import { isElectron } from "../../env"; // fork-hook: voice-input/settings-desktop-import
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -78,6 +80,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/appearance": PaletteIcon,
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
@@ -113,7 +116,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
   const navItems = SETTINGS_NAV_ITEMS.filter(
     (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
-  );
+  ).filter((item) => item.to !== "/settings/dictation" || isElectron); // fork-hook: voice-input/settings-desktop
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
