@@ -35,13 +35,33 @@ it("reads stable output names and each channel's raw volume", async () => {
 
 it("writes raw per-channel volumes without invoking a shell or changing mute", async () => {
   vi.mocked(NodeChildProcess.execFile).mockImplementation((_file, _args, _options, callback) => {
-    callback?.(null, "", "");
+    callback?.(
+      null,
+      JSON.stringify([
+        {
+          name: "speakers",
+          description: "Speakers",
+          volume: { "front-left": { value: 60293 }, "front-right": { value: 30147 } },
+        },
+      ]),
+      "",
+    );
     return {} as NodeChildProcess.ChildProcess;
   });
-  await linuxAudioOutputsFork.setVolumes("speakers", [60000, 30000]);
-  expect(NodeChildProcess.execFile).toHaveBeenCalledExactlyOnceWith(
+  expect(await linuxAudioOutputsFork.setVolumes("speakers", [60000, 30000])).toEqual([
+    60293, 30147,
+  ]);
+  expect(NodeChildProcess.execFile).toHaveBeenNthCalledWith(
+    1,
     "pactl",
     ["set-sink-volume", "speakers", "60000", "30000"],
+    { timeout: 2000, maxBuffer: 2 * 1024 * 1024 },
+    expect.any(Function),
+  );
+  expect(NodeChildProcess.execFile).toHaveBeenNthCalledWith(
+    2,
+    "pactl",
+    ["--format=json", "list", "sinks"],
     { timeout: 2000, maxBuffer: 2 * 1024 * 1024 },
     expect.any(Function),
   );

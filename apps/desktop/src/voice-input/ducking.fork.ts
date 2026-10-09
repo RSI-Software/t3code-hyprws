@@ -13,6 +13,7 @@ type Output = {
   target: readonly number[];
   fadeUpMs: number;
   manual: boolean;
+  needsReadback: boolean;
   transition: { from: readonly number[]; started: number; duration: number } | null;
 };
 const sameVolume = (a: readonly number[], b: readonly number[]) =>
@@ -28,11 +29,18 @@ export class SpeakerDuckingFork {
   private readonly audio: AudioOutputsFork;
   private readonly onError: (error: unknown) => void;
   private readonly now: () => number;
+  private readonly trace: (message: string) => void;
 
-  constructor(audio: AudioOutputsFork, onError: (error: unknown) => void, now = () => Date.now()) {
+  constructor(
+    audio: AudioOutputsFork,
+    onError: (error: unknown) => void,
+    now = () => Date.now(),
+    trace = (_message: string) => {},
+  ) {
     this.audio = audio;
     this.onError = onError;
     this.now = now;
+    this.trace = trace;
   }
 
   private enqueue<A>(run: () => Promise<A>): Promise<A> {
@@ -58,6 +66,7 @@ export class SpeakerDuckingFork {
       if (ids.length === 0)
         throw new Error("No selected speaker output is available. Check Dictation settings.");
       this.sessions.set(key, { owner, ids, settings });
+      this.trace(`Ducking start ${key}: ${JSON.stringify({ ids, settings, available })}`);
       for (const id of ids) {
         if (this.outputs.has(id)) continue;
         const original = available.find((output) => output.id === id)!.volumes;
@@ -67,6 +76,7 @@ export class SpeakerDuckingFork {
           target: original,
           fadeUpMs: settings.fadeUpMs,
           manual: false,
+          needsReadback: false,
           transition: null,
         });
       }
@@ -97,6 +107,9 @@ export class SpeakerDuckingFork {
           this.sessions.delete(key);
       }
       if (this.outputs.size === 0) return;
+      this.trace(
+        `Ducking stop ${owner}:${sessionId ?? "all"}: ${JSON.stringify({ remaining: [...this.sessions.keys()], outputs: [...this.outputs] })}`,
+      );
       try {
         const current = await this.audio.list();
         this.retarget(current, 0);
@@ -111,8 +124,19 @@ export class SpeakerDuckingFork {
     for (const [id, output] of this.outputs) {
       const device = current.find((item) => item.id === id);
       const claims = [...this.sessions.values()].filter((session) => session.ids.includes(id));
+      // A failed write/readback is reconciled before rollback or retry.
+      if (output.needsReadback && device) {
+        output.last = device.volumes;
+        output.needsReadback = false;
+      }
       // A changed channel count belongs to a different device profile; never overwrite it.
-      if (!device || !sameVolume(device.volumes, output.last)) output.manual = true;
+      if (!device || !sameVolume(device.volumes, output.last)) {
+        if (!output.manual)
+          this.trace(
+            `Ducking volume changed ${id}: ${JSON.stringify({ expected: output.last, observed: device?.volumes, original: output.original })}`,
+          );
+        output.manual = true;
+      }
       if (output.manual) {
         output.transition = null;
         if (claims.length === 0) this.outputs.delete(id);
@@ -143,6 +167,9 @@ export class SpeakerDuckingFork {
       if (!output.transition) continue;
       const device = current.find((item) => item.id === id);
       if (!device || !sameVolume(device.volumes, output.last)) {
+        this.trace(
+          `Ducking fade volume changed ${id}: ${JSON.stringify({ expected: output.last, observed: device?.volumes, original: output.original })}`,
+        );
         output.manual = true;
         output.transition = null;
         if (![...this.sessions.values()].some((session) => session.ids.includes(id)))
@@ -155,8 +182,9 @@ export class SpeakerDuckingFork {
         Math.round(volume + (output.target[index]! - volume) * progress),
       );
       if (!sameVolume(next, output.last)) {
-        await this.audio.setVolumes(id, next);
-        output.last = next;
+        output.needsReadback = true;
+        output.last = await this.audio.setVolumes(id, next);
+        output.needsReadback = false;
       }
       if (progress === 1) {
         output.transition = null;

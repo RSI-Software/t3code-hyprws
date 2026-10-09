@@ -14,6 +14,7 @@ function fixture() {
     const index = devices.findIndex((device) => device.id === id);
     if (index < 0) throw new Error("Output disconnected");
     devices[index] = { ...devices[index]!, volumes: [...volumes] };
+    return devices[index]!.volumes;
   });
   const list = vi.fn(async () =>
     devices.map((device) => ({ ...device, volumes: [...device.volumes] })),
@@ -61,6 +62,42 @@ it("has independent fade-down and fade-up durations", async () => {
   await vi.advanceTimersByTimeAsync(500);
   expect(f.volume()).toEqual([36000, 18000]);
   await vi.advanceTimersByTimeAsync(500);
+  expect(f.volume()).toEqual([60000, 30000]);
+  await f.manager.close();
+});
+
+it("restores hardware-rounded volumes while preserving later manual changes", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.devices[0] = { ...f.devices[0]!, volumes: [36700, 36700] };
+  f.write.mockImplementation(async (id, volumes) => {
+    const accepted = volumes
+      .map((volume) => Math.round(volume / 1310.72) * 1310.72)
+      .map(Math.round);
+    const index = f.devices.findIndex((device) => device.id === id);
+    f.devices[index] = { ...f.devices[index]!, volumes: accepted };
+    return accepted;
+  });
+  await f.manager.start(1, "rounded", settings);
+  expect(f.volume()).toEqual([7864, 7864]);
+  await f.manager.stop(1, "rounded");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.volume()).toEqual([36700, 36700]);
+  await f.manager.start(1, "manual", settings);
+  f.devices[0] = { ...f.devices[0]!, volumes: [26214, 26214] };
+  await f.manager.stop(1, "manual");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.volume()).toEqual([26214, 26214]);
+  await f.manager.close();
+});
+
+it("rolls back a hardware write when its readback fails", async () => {
+  const f = fixture();
+  f.write.mockImplementationOnce(async (_id, volumes) => {
+    f.devices[0] = { ...f.devices[0]!, volumes: volumes.map((volume) => volume + 524) };
+    throw new Error("Audio readback failed");
+  });
+  await expect(f.manager.start(1, "failed", settings)).rejects.toThrow("Audio readback failed");
   expect(f.volume()).toEqual([60000, 30000]);
   await f.manager.close();
 });
@@ -126,6 +163,7 @@ it("rolls back an output already ducked when another selected output fails", asy
     .mockImplementationOnce(async (id, volumes) => {
       f.devices[0] = { ...f.devices[0]!, volumes: [...volumes] };
       expect(id).toBe("speakers");
+      return f.devices[0]!.volumes;
     })
     .mockRejectedValueOnce(new Error("Output disconnected"));
   await expect(

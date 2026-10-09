@@ -11,7 +11,8 @@ export interface AudioOutputFork {
 
 export interface AudioOutputsFork {
   list(): Promise<readonly AudioOutputFork[]>;
-  setVolumes(id: string, volumes: readonly number[]): Promise<void>;
+  /** Returns the device's accepted volume, including hardware rounding. */
+  setVolumes(id: string, volumes: readonly number[]): Promise<readonly number[]>;
 }
 
 const Sinks = Schema.Array(
@@ -63,5 +64,10 @@ export const linuxAudioOutputsFork: AudioOutputsFork = {
   },
   async setVolumes(id, volumes) {
     await pactl(["set-sink-volume", id, ...volumes.map((volume) => String(Math.round(volume)))]);
+    const accepted = decodeSinks(JSON.parse(await pactl(["--format=json", "list", "sinks"]))).find(
+      (sink) => sink.name === id,
+    );
+    if (!accepted) throw new Error("Speaker output disconnected while setting volume.");
+    return Object.values(accepted.volume).map((channel) => channel.value);
   },
 };
