@@ -3,7 +3,6 @@ import { it } from "@effect/vitest";
 import {
   ProjectId,
   ThreadId,
-  type OrchestrationProjectShell,
   type OrchestrationV2AppThread,
   type OrchestrationV2ThreadShellSnapshot,
 } from "@t3tools/contracts";
@@ -125,10 +124,8 @@ const harness = Effect.gen(function* () {
     ServerSettings.layerTest(),
     Layer.mock(ProjectService.ProjectService)({}),
     Layer.mock(ProjectStore.ProjectStoreV2)({
-      getShell: () =>
-        Effect.succeed(
-          Option.some({ workspaceRoot: fixture.baseDir } as OrchestrationProjectShell),
-        ),
+      get: () =>
+        Effect.succeed(Option.some({ workspaceRoot: fixture.baseDir } as ProjectStore.ProjectRow)),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread: () => Effect.succeed(thread) }),
     Layer.mock(Orchestrator.OrchestratorV2)({
