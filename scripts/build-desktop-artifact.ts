@@ -61,6 +61,10 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { forkDesktopEntryName } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
+import {
+  enableVoiceInputMacEntitlementsFork,
+  voiceInputMacPurposeFork,
+} from "./lib/voice-input-mac.fork.ts"; // fork-hook: voice-input/mac-build-import
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.t3tools.t3code";
@@ -2835,6 +2839,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
         NSLocalNetworkUsageDescription:
           "T3 Code connects to devices on your local network for remote environments and commands run by terminals and coding agents.",
+        ...voiceInputMacPurposeFork, // fork-hook: voice-input/packaged-mic-purpose
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
         NSCameraUsageDescription:
@@ -3840,6 +3845,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       macEntitlementsPath,
       renderMacPasskeyEntitlements(macPasskeySigning, macWebAuthn),
     );
+    yield* enableVoiceInputMacEntitlementsFork(fs, macEntitlementsPath); // fork-hook: voice-input/mac-mic-entitlement
   }
 
   const stageDependencies =
