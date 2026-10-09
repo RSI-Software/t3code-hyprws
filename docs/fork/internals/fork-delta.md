@@ -864,6 +864,8 @@ Upstream desktop dictation supports configurable external transcription services
 | `packages/client-runtime/src/rpc/index.ts`                | Dictation HTTP export     |
 | `apps/web/src/components/chat/ChatComposer.tsx`           | Mic and send guards       |
 | `apps/web/src/routes/__root.tsx`                          | Window dictation lifetime |
+| `apps/web/src/components/ComposerPromptEditorTiptap.tsx`  | Provisional dictation     |
+| `packages/client-runtime/src/voice-input/index.ts`        | Transcript helper export  |
 | `apps/web/src/components/settings/SettingsSidebarNav.tsx` | Desktop navigation        |
 | `apps/web/src/routes/settings.tsx`                        | Environment selection     |
 | `apps/web/src/components/settings/settingsSearch.ts`      | Dictation search entry    |
