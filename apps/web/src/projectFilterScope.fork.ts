@@ -30,7 +30,10 @@ export function outsideFilterProjectGroup<Group extends ProjectChooserGroup>(
   groups: ReadonlyArray<Group>,
   projectRef: ScopedProjectRef,
 ): Group | null {
-  const shown = projectFilterProjectKeys(filter);
+  const shown = projectFilterProjectKeys(
+    filter,
+    groups.flatMap((group) => group.memberProjectRefs),
+  );
   if (shown === null || shown.has(scopedProjectKey(projectRef))) return null;
   return (
     groups.find((group) => group.memberProjectRefs.some((ref) => sameRef(ref, projectRef))) ?? null
@@ -42,6 +45,10 @@ export function addProjectFilterEntry(
   filter: ProjectFilter,
   group: ProjectChooserGroup,
 ): ProjectFilter {
+  if (filter.mode === "exclude") {
+    const entries = filter.entries.filter((entry) => entry.key !== group.projectKey);
+    return entries.length === filter.entries.length ? filter : { ...filter, entries };
+  }
   if (filter.entries.some((entry) => entry.key === group.projectKey)) return filter;
   return {
     entries: [...filter.entries, { key: group.projectKey, members: group.memberProjectRefs }],
@@ -77,7 +84,7 @@ export function resolveFilteredNewThread(input: {
   if (direct && contextProjectRef !== null) {
     return { kind: "project", projectRef: contextProjectRef };
   }
-  if (filter.entries.length > 1) return { kind: "choose" };
+  if (filter.mode === "exclude" || filter.entries.length > 1) return { kind: "choose" };
   const members = filter.entries[0]!.members;
   const viewed =
     contextProjectRef === null
