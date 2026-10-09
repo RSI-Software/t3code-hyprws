@@ -1,0 +1,16 @@
+# Upstream workflows run on Blacksmith runners and use keys actionlint
+# 1.7.12 rejects; ignore those, lint everything else.
+self-hosted-runner:
+  labels:
+    - blacksmith-*
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'property "run_started_at" is not defined'
+      - 'unexpected key "queue" for "concurrency" section'
+      - 'invalid activity type "(closed|reopened)" for "discussion"'
+      - 'SC2016:'
+      - 'SC2129:'
+  .github/workflows/release-desktop.yml:
+    ignore:
+      - 'SC2046:'

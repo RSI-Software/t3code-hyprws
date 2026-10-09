@@ -1,0 +1,13 @@
+name: actionlint
+on:
+  pull_request:
+    paths: [.github/workflows/**, .github/actionlint.yaml]
+  push:
+    branches: [hyprws]
+    paths: [.github/workflows/**, .github/actionlint.yaml]
+permissions: {}
+jobs:
+  actionlint:
+    uses: RSI-Software/.github/.github/workflows/actionlint.yml@actionlint-sparse
+    permissions:
+      contents: read
