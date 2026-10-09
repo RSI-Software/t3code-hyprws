@@ -51,6 +51,7 @@ export function addProjectFilterEntry(
   }
   if (filter.entries.some((entry) => entry.key === group.projectKey)) return filter;
   return {
+    ...filter,
     entries: [...filter.entries, { key: group.projectKey, members: group.memberProjectRefs }],
   };
 }
@@ -80,11 +81,11 @@ export function resolveFilteredNewThread(input: {
   readonly direct: boolean;
 }): FilteredNewThread {
   const { filter, contextProjectRef, direct } = input;
-  if (filter.entries.length === 0) return { kind: "default" };
+  if (filter.entries.length === 0 && filter.mode !== "include") return { kind: "default" };
   if (direct && contextProjectRef !== null) {
     return { kind: "project", projectRef: contextProjectRef };
   }
-  if (filter.mode === "exclude" || filter.entries.length > 1) return { kind: "choose" };
+  if (filter.mode === "exclude" || filter.entries.length !== 1) return { kind: "choose" };
   const members = filter.entries[0]!.members;
   const viewed =
     contextProjectRef === null
