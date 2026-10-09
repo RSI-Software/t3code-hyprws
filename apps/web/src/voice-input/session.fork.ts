@@ -1,5 +1,6 @@
 import {
   VoiceInputController,
+  resolveTranscriptCommit,
   voiceInputBlocksSubmission,
   type VoiceDraftSnapshot,
   type VoiceInputControllerDependencies,
@@ -8,6 +9,7 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { ThreadRouteTarget } from "../threadRoutes";
+import type { VoicePreviewFork } from "./preview.fork";
 
 export interface DesktopVoiceTargetFork {
   readonly ownerKey: string;
@@ -27,6 +29,7 @@ export interface DesktopVoiceSnapshotFork {
   readonly target: DesktopVoiceTargetFork | null;
   readonly visibleOwner: string | null;
   readonly transcript: string | null;
+  readonly preview: VoicePreviewFork | null;
 }
 
 /** Like mobile's global session, bind the controller to a draft rather than a mounted editor. */
@@ -38,9 +41,11 @@ export class DesktopVoiceSessionFork {
     target: null,
     visibleOwner: null,
     transcript: null,
+    preview: null,
   };
   private readonly listeners = new Set<() => void>();
   private revision = 0;
+  private capturedDraft: VoiceDraftSnapshot | null = null;
   private unsubscribeDraft: (() => void) | null = null;
   private editorCommit: VoiceInputControllerDependencies["commitDraft"] | null = null;
 
@@ -83,12 +88,17 @@ export class DesktopVoiceSessionFork {
         };
       },
       onStateChange: (state) => {
+        if (state.phase === "recording") {
+          const draft = this.snapshot.target?.readDraft();
+          this.capturedDraft = draft ? { ...draft, revision: this.revision } : null;
+        }
         if (!voiceInputBlocksSubmission(state)) {
           this.unsubscribeDraft?.();
           this.unsubscribeDraft = null;
         }
         this.update({
           state,
+          ...(state.phase === "idle" || state.phase === "error" ? { preview: null } : {}),
           ...(state.phase === "idle" ? { transcript: null } : { toolbarState: state }),
         });
       },
@@ -121,20 +131,47 @@ export class DesktopVoiceSessionFork {
     if (voiceInputBlocksSubmission(this.snapshot.state)) return Promise.resolve();
     this.unsubscribeDraft?.();
     this.revision = 0;
-    this.update({ target, transcript: null });
+    this.capturedDraft = null;
+    this.update({ target, transcript: null, preview: null });
     let previous = target.readDraft()?.text;
     this.unsubscribeDraft = target.subscribe(() => {
       const text = target.readDraft()?.text;
       if (text !== previous) {
         previous = text;
         this.revision++;
+        this.update({ preview: null });
       }
     });
     return this.controller.start();
   }
 
   markDraftChanged(ownerKey: string) {
-    if (this.snapshot.target?.ownerKey === ownerKey) this.revision++;
+    if (this.snapshot.target?.ownerKey === ownerKey) {
+      this.revision++;
+      this.update({ preview: null });
+    }
+  }
+
+  /** View-only words share the captured draft and conflict checks of the final commit. */
+  previewTranscript(text: string, locale: string) {
+    const captured = this.capturedDraft;
+    const draft = this.snapshot.target?.readDraft();
+    if (!captured || !draft || !voiceInputBlocksSubmission(this.snapshot.state)) return;
+    const result = resolveTranscriptCommit(
+      captured,
+      { ...draft, revision: this.revision },
+      text,
+      locale,
+    );
+    this.update({
+      preview:
+        result.kind === "commit"
+          ? {
+              draft: captured,
+              text: result.text.slice(captured.selection.start, result.selection.end),
+            }
+          : null,
+    });
   }
 
   dispose() {
