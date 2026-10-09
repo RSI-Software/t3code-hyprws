@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "./VoiceTextGeneration.fork.ts"; // fork-hook: voice-input/generation-runner-import
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -301,5 +302,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     }).pipe(Effect.ensuring(cleanup));
   });
 
-  return TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson);
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner("CodexTextGeneration", runCodexJson),
+    runCodexJson,
+  ); // fork-hook: voice-input/generation-runner
 });
