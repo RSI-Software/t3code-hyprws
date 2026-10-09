@@ -409,6 +409,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       {
         kind: "action" as const,
         value: `thread:${thread.id}`,
+        projectKeyFork: `${thread.environmentId}:${thread.projectId}`, // fork-hook: workspaces/palette-thread-project-key
         searchTerms: [
           thread.title,
           ...threadPullRequestSearchTerms(thread),
