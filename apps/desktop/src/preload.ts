@@ -11,6 +11,7 @@ import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
 import { makeAttachedPrimaryBridge } from "./attachedPrimaryPreload.fork.ts"; // fork-hook: backend-attach/preload-import
 import * as IpcChannels from "./ipc/channels.ts";
+import { makeVoiceDuckingBridgeFork } from "./voice-input/preload.fork.ts"; // fork-hook: voice-input/ducking-preload-import
 import { mergeLegacyLocalStorage } from "./legacyLocalStorageMerge.ts";
 import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";
 
@@ -77,6 +78,7 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 }
 
 const desktopBridge = {
+  voiceDuckingFork: makeVoiceDuckingBridgeFork(ipcRenderer), // fork-hook: voice-input/ducking-preload
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {

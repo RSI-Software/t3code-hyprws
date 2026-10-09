@@ -870,6 +870,7 @@ Upstream desktop dictation supports configurable external transcription services
 | `apps/web/src/routes/settings.tsx`                        | Environment selection     |
 | `apps/web/src/components/settings/settingsSearch.ts`      | Dictation search entry    |
 | `apps/desktop/scripts/electron-launcher.mjs`              | macOS mic permission      |
+| `apps/desktop/src/main.ts`, `apps/desktop/src/preload.ts`, `apps/desktop/src/ipc/DesktopIpcHandlers.ts`, `packages/contracts/src/ipc.ts` | Desktop speaker ducking |
 | `scripts/build-desktop-artifact.ts`                       | Packaged mic permission   |
 
 ## Adding a domain
