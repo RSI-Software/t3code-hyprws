@@ -36,6 +36,32 @@ const values = (filter: ProjectFilter) =>
   projectChooserState(filter, groups).value.map((item) => item.value);
 
 describe("project chooser", () => {
+  it("exclusion labels the hidden picks rather than presenting one as the shown project", () => {
+    const filter: ProjectFilter = { ...filterOf(web), mode: "exclude" };
+    const state = projectChooserState(filter, groups);
+    expect(state.label).toBe("Projects: All except 1");
+    expect(state.titleLabel).toBe("All except web");
+    expect(state.single).toBeNull();
+    expect(state.value.map((item) => item.value)).toEqual([web.projectKey]);
+    expect(projectFilterFromChooser(filter, [web.projectKey, api.projectKey], groups)).toEqual({
+      ...filterOf(web, api),
+      mode: "exclude",
+    });
+    expect(projectFilterFromChooser(filter, [], groups)).toEqual({ entries: [], mode: "exclude" });
+    expect(
+      projectFilterFromChooser(filter, [web.projectKey, ALL_PROJECTS_CHOOSER_VALUE], groups),
+    ).toEqual({ entries: [], mode: "exclude" });
+    expect(showOnlyProjectFilter(api)).toEqual(filterOf(api));
+  });
+
+  it("exclusion can pick its first hidden project from an empty selection", () => {
+    const empty: ProjectFilter = { mode: "exclude", entries: [] };
+    expect(projectChooserState(empty, groups).label).toBe("Projects: All");
+    expect(
+      projectFilterFromChooser(empty, [ALL_PROJECTS_CHOOSER_VALUE, web.projectKey], groups),
+    ).toEqual({ ...filterOf(web), mode: "exclude" });
+  });
+
   it("Empty: an empty filter selects All projects and reads Projects: All", () => {
     const state = projectChooserState(ALL_PROJECTS_FILTER, groups);
     expect(state.value.map((item) => item.value)).toEqual([ALL_PROJECTS_CHOOSER_VALUE]);
