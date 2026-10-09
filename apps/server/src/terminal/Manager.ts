@@ -440,6 +440,7 @@ interface TerminalSessionState {
   managedSuspendFiber: Fiber.Fiber<void, never> | null;
   runtimeEnv: Record<string, string> | null;
   stopOnSettle: boolean;
+  plainShellFork: boolean; // fork-hook: zmux-estate/plain-shell-state
 }
 
 interface TerminalGrid {
@@ -2799,6 +2800,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         type: "exited",
         threadId: action.threadId,
         terminalId: action.terminalId,
+        ...(session.attachmentId ? { attachmentId: session.attachmentId } : {}), // fork-hook: zmux-estate/terminal-exit-viewer
         sequence: action.sequence,
         exitCode: action.exitCode,
         exitSignal: action.exitSignal,
@@ -2933,6 +2935,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     session: TerminalSessionState,
     input: TerminalStartInput,
   ): Effect.fn.Return<PreparedManagedRetarget | null, TerminalError> {
+    if (session.plainShellFork) return null; // fork-hook: zmux-estate/plain-shell-retarget
     if ((yield* effectiveTerminalSessionMode) !== "zmux") return null; // fork-hook: zmux-estate/settle-hook-shell-retarget-mode
 
     const worktreePath = input.worktreePath ?? null;
@@ -3315,7 +3318,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                 }
               }
             }
-            const mode = yield* effectiveTerminalSessionMode; // fork-hook: zmux-estate/settle-hook-shell-open-mode
+            const mode = session.plainShellFork ? "shell" : yield* effectiveTerminalSessionMode; // fork-hook: zmux-estate/settle-hook-shell-open-mode
             let shellCandidates = plainShellCandidates;
             let spawnEnv = terminalEnv;
             let managedTarget: string | null = null;
@@ -4160,6 +4163,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           },
           managedSuspendFiber: null,
           runtimeEnv: current.runtimeEnv,
+          plainShellFork: false, // fork-hook: zmux-estate/plain-shell-retained
         };
         const sessions = new Map(state.sessions);
         sessions.set(key, session);
@@ -4226,6 +4230,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         managedSuspendFiber: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
         stopOnSettle: input.stopOnSettle ?? false,
+        plainShellFork: input.plainShellFork === true, // fork-hook: zmux-estate/plain-shell-open-state
       };
 
       const createdSession = session;
