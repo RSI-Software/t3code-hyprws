@@ -48,6 +48,14 @@ describe("windowProjectScope", () => {
 
   it("reports every project for an empty filter", () => {
     expect(windowProjectScope({ entries: [] }, projects)).toEqual({ kind: "all" });
+    expect(windowProjectScope({ mode: "exclude", entries: [] }, projects)).toEqual({ kind: "all" });
+  });
+
+  it("reports no checkouts for explicit empty inclusion", () => {
+    expect(windowProjectScope({ mode: "include", entries: [] }, projects)).toEqual({
+      kind: "projects",
+      projects: [],
+    });
   });
 
   it("reports each member with its environment's checkout", () => {
@@ -96,6 +104,17 @@ describe("windowProjectScope", () => {
 });
 
 describe("publishedWindowScope", () => {
+  it.each([false, true])("publishes No projects with settled=%s", (settled) => {
+    expect(
+      publishedWindowScope({
+        filter: { mode: "include", entries: [] },
+        pendingSeed: null,
+        settled,
+        projects,
+      }),
+    ).toEqual({ kind: "projects", projects: [] });
+  });
+
   it("publishes visible projects even when an excluded environment is offline", () => {
     expect(
       publishedWindowScope({
