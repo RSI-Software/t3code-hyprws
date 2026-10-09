@@ -2,6 +2,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { VoiceInputSettingsFork } from "../components/settings/VoiceInputSettings.fork";
 import { VoiceMicrophoneSettingsFork } from "../components/settings/VoiceMicrophoneSettings.fork";
+import { VoiceDuckingSettingsFork } from "../components/settings/VoiceDuckingSettings.fork";
 import { useSettingsScope } from "../components/settings/SettingsScopeContext";
 import { SettingsPageContainer } from "../components/settings/settingsLayout";
 
@@ -14,6 +15,7 @@ function DictationSettingsRoute() {
       {window.desktopBridge ? (
         <>
           <VoiceMicrophoneSettingsFork />
+          <VoiceDuckingSettingsFork />
           <VoiceInputSettingsFork key={environmentId ?? "none"} environmentId={environmentId} />
         </>
       ) : (
