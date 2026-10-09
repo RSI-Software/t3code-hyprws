@@ -1,4 +1,3 @@
-/// <reference lib="es2024.promise" />
 import { readVoiceInputSettingsFork } from "@t3tools/client-runtime/rpc";
 import {
   voiceInputBlocksSubmission,
@@ -90,7 +89,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   useLayoutEffect(
     () =>
       session.attach(input.ownerKey, (text, selection) => {
-        latest.current.commitDraft(text, selection.end);
+        if (latest.current.enabled) latest.current.commitDraft(text, selection.end);
       }),
     [session, input.ownerKey],
   );

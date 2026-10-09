@@ -89,12 +89,10 @@ function BackgroundVoiceControlFork() {
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "dictation-transcript" });
   const busy = voiceInputBlocksSubmission(state);
   const offscreen = target && target.ownerKey !== visibleOwner;
-  if (
-    !window.desktopBridge ||
-    !target ||
-    (!(transcript && state.error) && (!offscreen || (!busy && !state.error)))
-  )
-    return null;
+  const recoverable = Boolean(transcript && state.error);
+  const backgroundActive = offscreen && (busy || state.error);
+  if (!window.desktopBridge || !target) return null;
+  if (!recoverable && !backgroundActive) return null;
 
   const returnToDraft = () => {
     const route = target.route;
