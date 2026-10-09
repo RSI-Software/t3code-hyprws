@@ -162,6 +162,11 @@ import {
 } from "./composerAttachmentInsertion";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
 import { SharedTooltipTrigger } from "./ui/shared-tooltip";
+import {
+  VoicePreviewExtensionFork,
+  useVoicePreviewEditorFork,
+  type VoicePreviewFork,
+} from "../voice-input/preview.fork"; // fork-hook: voice-input/editor-import
 
 export interface ComposerPromptEditorHandle {
   focus: () => void;
@@ -182,6 +187,7 @@ export interface ComposerPromptEditorHandle {
 
 export interface ComposerPromptEditorProps {
   draftKey?: string;
+  voicePreviewFork?: VoicePreviewFork | null; // fork-hook: voice-input/editor-prop
   value: string;
   cursor: number;
   richTextEnabled?: boolean;
@@ -954,6 +960,7 @@ function createComposerExtensions(richText: boolean) {
     ComposerCitationExtension,
     ComposerContextReferenceExtension,
     ComposerChipSelectionExtension,
+    VoicePreviewExtensionFork, // fork-hook: voice-input/editor-extension
     ...(richText
       ? [
           ComposerMarkdownSourceExtension,
@@ -1750,6 +1757,7 @@ function ComposerPromptEditorTiptapInner(
       editor.view.focus();
     }
   }, [disabled, editor]);
+  useVoicePreviewEditorFork(editor, props.voicePreviewFork); // fork-hook: voice-input/editor-preview
 
   // Push attributes before layout measurements; Tiptap updates them later in a passive effect.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes DOM attributes into the ProseMirror view before layout measurements read them
@@ -2164,7 +2172,7 @@ function ComposerPromptEditorTiptapInner(
               onCopyCapture={(event) => handleCopyCut(event, false)}
               onCutCapture={(event) => handleCopyCut(event, true)}
             />
-            {isEmpty && contextRecords.size === 0 && placeholder ? (
+            {isEmpty && contextRecords.size === 0 && placeholder && !props.voicePreviewFork ? ( // fork-hook: voice-input/preview-placeholder
               <div
                 className={cn(
                   "pointer-events-none relative col-start-1 row-start-1 leading-relaxed text-placeholder",
