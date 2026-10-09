@@ -72,6 +72,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as HyprlandPlacement from "../window/HyprlandPlacement.ts"; // fork-hook: multi-window/desktop-app-test-placement-import
+import * as DesktopVoiceDuckingFork from "../voice-input/DesktopVoiceDucking.fork.ts"; // fork-hook: voice-input/desktop-app-test-ducking-import
 
 it.effect.each([false, true])(
   "stops backends together before flushing history and cancels Linux registration, stop defect=%s",
@@ -245,6 +246,7 @@ it.effect.each([false, true])(
             Layer.mock(ElectronWindow.ElectronWindow, {}),
             Layer.mock(MacPermissions.MacPermissions, {}),
             Layer.mock(HyprlandPlacement.HyprlandPlacement, { isAvailable: false }), // fork-hook: multi-window/desktop-app-test-placement
+            Layer.mock(DesktopVoiceDuckingFork.DesktopVoiceDuckingFork, { shutdown: Effect.void }), // fork-hook: voice-input/desktop-app-test-ducking
             Layer.mock(PreviewManager.PreviewManager, {
               isBrowserPartition: () => {
                 throw new Error("unexpected browser partition lookup");
