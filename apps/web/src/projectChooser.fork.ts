@@ -92,6 +92,7 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
           return item === undefined ? [] : [item];
         });
   const count = filter.entries.length;
+  const excluding = filter.mode === "exclude";
   const only = count === 1 ? value[0] : undefined;
   return {
     items,
@@ -99,11 +100,14 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
     label:
       count === 0
         ? "Projects: All"
-        : only !== undefined
-          ? `Projects: ${only.label}`
-          : `Projects: ${count} selected`,
-    titleLabel: count === 0 ? null : titleLabelOf(value),
-    single: only === undefined ? null : (groupByKey.get(only.value) ?? null),
+        : excluding
+          ? `Projects: All except ${count}`
+          : only !== undefined
+            ? `Projects: ${only.label}`
+            : `Projects: ${count} selected`,
+    titleLabel:
+      count === 0 ? null : excluding ? `All except ${titleLabelOf(value)}` : titleLabelOf(value),
+    single: excluding || only === undefined ? null : (groupByKey.get(only.value) ?? null),
     count,
   };
 }
@@ -123,7 +127,7 @@ export function projectFilterFromChooser(
   // "All projects" is in the selection only while the filter is empty, so
   // seeing it beside entries means the user just picked it.
   if (values.includes(ALL_PROJECTS_CHOOSER_VALUE) && filter.entries.length > 0) {
-    return ALL_PROJECTS_FILTER;
+    return filter.mode === "exclude" ? { mode: "exclude", entries: [] } : ALL_PROJECTS_FILTER;
   }
   const keys = new Set(values.filter((value) => value !== ALL_PROJECTS_CHOOSER_VALUE));
   const kept = filter.entries.filter((entry) => keys.has(entry.key));
@@ -135,7 +139,11 @@ export function projectFilterFromChooser(
     }));
   const entries = [...kept, ...added];
   if (entries.length === filter.entries.length && added.length === 0) return filter;
-  return entries.length === 0 ? ALL_PROJECTS_FILTER : { entries };
+  return filter.mode === "exclude"
+    ? { mode: "exclude", entries }
+    : entries.length === 0
+      ? ALL_PROJECTS_FILTER
+      : { entries };
 }
 
 /** A project row's Show only: the filter becomes that one project. */
