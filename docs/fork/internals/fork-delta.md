@@ -716,7 +716,7 @@ The domain retires when it is empty.
 | Switch    | `terminalSessionMode`; `"zmux"` attaches terminals and adopts worktrees, verified by `session resolve` |
 | Ownership | The physical checkout owns its managed session; threads are consumers                                  |
 | Cleanup   | T3 snapshots a session identity and hands it back for conditional removal                              |
-| Refusal   | A refused or shared-viewer removal preserves every viewer and reports partially                        |
+| Teardown  | Settle/delete kills the checkout session and every tab; viewers and busy commands do not preserve it   |
 | Fallback  | Each plain-shell fallback prints its reason; a missing binary degrades silently                        |
 | Legacy    | `zmuxSessions` folds into `terminalSessionMode` on load                                                |
 | Binder    | `apps/server/src/zmux/`, called through `ProcessRunner` with tmux variables stripped                   |
