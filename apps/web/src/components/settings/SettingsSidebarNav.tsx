@@ -63,6 +63,8 @@ import {
   useAvailableSettingsSearchItems,
   useHasSecretProvidersEnvironment,
 } from "./useAvailableSettingsSearchItems";
+import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
+import { isElectron } from "../../env"; // fork-hook: voice-input/settings-desktop-import
 import { handleSettingsSectionKeyDown } from "./settingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 
@@ -94,6 +96,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/diagnostics": WrenchIcon,
+  "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/voice": MicIcon,
   "/settings/appearance": PaletteIcon,
   "/settings/chat": MessageSquareTextIcon,
