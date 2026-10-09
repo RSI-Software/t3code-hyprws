@@ -54,10 +54,14 @@ function RecordingWaveformFork({
       >
         {meter.levels.slice(-barCount).map((level, index) => (
           <span
+            // oxlint-disable-next-line react/no-array-index-key -- bars are fixed positional slots of a rolling level window.
             key={index}
             data-voice-waveform-bar-fork="true"
             className="h-8 w-0.5 shrink-0 rounded-full bg-foreground"
-            style={{ transform: `scaleY(${(2 + level * 30) / 32})`, opacity: 0.22 + level * 0.78 }}
+            style={{
+              transform: `scaleY(${(2 + level * 30) / 32})`,
+              opacity: 0.22 + level * 0.78,
+            }}
           />
         ))}
       </div>
