@@ -17,30 +17,28 @@ Usage:
 Commands:
   run        Restart this worktree's prior runner, then run dev:desktop.
   url        Print the live worktree instance's CDP origin.
-
 Options:
   --dry-run              Resolve placement and port without writing state or starting processes.
   --workspace <selector> Override T3CODE_DESKTOP_AGENT_WORKSPACE for this run.
   --home-dir <path>      Forward an explicit T3 Code data directory to dev:desktop.
   -h, --help             Show this help before side effects.
-
 Workspace selectors:
-  none or unset  Let the compositor place the window normally (default).
+  none           Disable the runner's workspace override.
+  unset          Use the Hypr launch assignment, else normal compositor placement.
   -1             Place one numbered workspace before the invoking app.
   +1             Place one numbered workspace after the invoking app.
   <id>           Place on a fixed positive numbered workspace.
-
 Environment:
   T3CODE_DESKTOP_AGENT_WORKSPACE is loaded from .env and .env.local.
-  Precedence: --workspace, environment/repo env, default placement.
+  DONJOR_HYPR_LAUNCH and DONJOR_HYPR_WORKSPACE carry the launcher's assignment.
+  Precedence: --workspace, Hypr launch assignment, environment/repo env, default.
+  Hypr launch assignment survives Electron watcher restarts.
   --home-dir outranks repository and inherited T3CODE_HOME in dev:desktop.
-
 Exit codes:
   0 success
   1 runtime failure or no live URL
   2 invalid flags or usage
   130 interrupted by SIGINT
-
 Output:
   run prints placement and CDP status, followed by dev:desktop output.
   url prints one loopback HTTP origin; errors are written to stderr.
