@@ -5,14 +5,14 @@ import {
   type WindowScopeSeed,
 } from "@t3tools/contracts";
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
-import { Storage } from "happy-dom";
+import { MemoryStorage as Storage } from "./testStorage.fork";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { create } from "zustand";
 
 import {
   parsePersistedState,
   PERSISTED_STATE_KEY,
-  setSidebarProjectScopeKey,
+  setSidebarProjectScopeKeys,
   type UiState,
 } from "./uiStateStore";
 import {
@@ -90,16 +90,16 @@ function openWindow(
   } = {},
 ) {
   const raw = local.getItem(PERSISTED_STATE_KEY);
-  const store = create<UiState & { setSidebarProjectScopeKey: (key: string | null) => void }>(
+  const store = create<UiState & { setSidebarProjectScopeKeys: (keys: readonly string[]) => void }>(
     (set) => ({
       ...parsePersistedState(raw === null ? {} : JSON.parse(raw)),
-      setSidebarProjectScopeKey: (key) => set((state) => setSidebarProjectScopeKey(state, key)),
+      setSidebarProjectScopeKeys: (keys) => set((state) => setSidebarProjectScopeKeys(state, keys)),
     }),
   );
   store.subscribe((state) =>
     local.setItem(
       PERSISTED_STATE_KEY,
-      JSON.stringify({ sidebarProjectScopeKey: state.sidebarProjectScopeKey }),
+      JSON.stringify({ sidebarProjectScopeKeys: state.sidebarProjectScopeKeys }),
     ),
   );
   const scope = createWindowSidebarScope(
@@ -113,8 +113,18 @@ function openWindow(
   );
   const filter = bindWindowSidebarScope(store, scope);
   // The chooser's pick, through the store action as upstream's chooser calls it.
-  const choose = (scopeKey: string | null) => store.getState().setSidebarProjectScopeKey(scopeKey);
-  return { store, scope, filter, choose, scopeKey: () => store.getState().sidebarProjectScopeKey };
+  const choose = (scopeKey: string | null) =>
+    store.getState().setSidebarProjectScopeKeys(scopeKey === null ? [] : [scopeKey]);
+  return {
+    store,
+    scope,
+    filter,
+    choose,
+    scopeKey: () => {
+      const keys = store.getState().sidebarProjectScopeKeys;
+      return keys.length === 1 ? keys[0] : null;
+    },
+  };
 }
 
 const entry = (key: string) => {
@@ -192,7 +202,7 @@ describe("per-window sidebar project scope", () => {
     const scopeKey = seeded.scope.takeSeed(groups, false);
     expect(scopeKey).toBe("github.com/acme/web");
     expect(seeded.scope.pendingSeed()).toBeNull();
-    seeded.store.setState({ sidebarProjectScopeKey: scopeKey });
+    seeded.store.setState({ sidebarProjectScopeKeys: [scopeKey!] });
     expect(seeded.scope.takeSeed(groups, true)).toBeNull();
 
     // Electron replays the seed argument on reload; the window's own choice wins.
@@ -299,6 +309,42 @@ describe("per-window sidebar project scope", () => {
 });
 
 describe("per-window project filter", () => {
+  it("inherits and restores plural upstream picks without affecting another window", () => {
+    const local = new Storage();
+    const a = openWindow(local, WINDOW_A);
+    a.store.getState().setSidebarProjectScopeKeys(["github.com/acme/api", "github.com/acme/web"]);
+    expect(a.filter.get().entries.map((entry) => entry.key)).toEqual([
+      "github.com/acme/api",
+      "github.com/acme/web",
+    ]);
+    const b = openWindow(local, WINDOW_B);
+    expect(b.filter.get()).toEqual(a.filter.get());
+    b.choose("github.com/acme/web");
+    expect(openWindow(local, WINDOW_A).filter.get()).toEqual(a.filter.get());
+  });
+
+  it("preserves resolved project refs through plural reorder and removal", () => {
+    const a = openWindow(new Storage(), WINDOW_A);
+    a.filter.set(bothProjects);
+    a.store.getState().setSidebarProjectScopeKeys(["github.com/acme/web", "github.com/acme/api"]);
+    expect(a.filter.get()).toEqual({
+      entries: [entry("github.com/acme/web"), entry("github.com/acme/api")],
+    });
+    a.store.getState().setSidebarProjectScopeKeys(["github.com/acme/web"]);
+    expect(a.filter.get()).toEqual({ entries: [entry("github.com/acme/web")] });
+  });
+
+  it("No projects survives reopening without affecting another window", () => {
+    const local = new Storage();
+    const none: ProjectFilter = { mode: "include", entries: [] };
+    const a = openWindow(local, WINDOW_A);
+    a.filter.set(none);
+    a.choose(null);
+    expect(a.filter.get()).toBe(none);
+    openWindow(local, WINDOW_B).filter.set(bothProjects);
+    expect(openWindow(local, WINDOW_A).filter.get()).toEqual(none);
+    expect(openWindow(local, WINDOW_B).filter.get()).toEqual(bothProjects);
+  });
   it("restores an exclusion without mirroring it as an included project or clearing it", () => {
     const local = new Storage();
     const a = openWindow(local, WINDOW_A);
@@ -320,8 +366,10 @@ describe("per-window project filter", () => {
     const local = new Storage();
     const a = openWindow(local, WINDOW_A);
     a.filter.set(bothProjects);
-    // Two entries have no single-select value, so the shared key shows all.
-    expect(a.scopeKey()).toBeNull();
+    expect(a.store.getState().sidebarProjectScopeKeys).toEqual([
+      "github.com/acme/api",
+      "github.com/acme/web",
+    ]);
     openWindow(local, WINDOW_B).choose("github.com/acme/web");
 
     const restored = openWindow(local, WINDOW_A);
@@ -340,12 +388,11 @@ describe("per-window project filter", () => {
     expect(a.filter.get().entries).toEqual([]);
   });
 
-  it("stale keys: upstream's reset keeps several entries, and a thread-menu pick replaces them", () => {
+  it("upstream's plural reset clears several entries, and a thread-menu pick replaces them", () => {
     const a = openWindow(new Storage(), WINDOW_A);
     a.filter.set(bothProjects);
-    // Upstream's stale-scope reset writes null; only a one-entry filter mirrors a key.
     a.choose(null);
-    expect(a.filter.get()).toEqual(bothProjects);
+    expect(a.filter.get()).toEqual({ entries: [] });
 
     a.choose("github.com/acme/api");
     expect(a.filter.get().entries.map((entry) => entry.key)).toEqual(["github.com/acme/api"]);
@@ -411,7 +458,10 @@ describe("installing the per-window scope", () => {
     // A reload keeps the tab's sessionStorage and reopens on its filter.
     const reloaded = await installInto(undefined, { session: first.session });
     expect(reloaded.module.windowProjectFilterState().get()).toEqual(bothProjects);
-    expect(reloaded.store.getState().sidebarProjectScopeKey).toBeNull();
+    expect(reloaded.store.getState().sidebarProjectScopeKeys).toEqual([
+      "github.com/acme/api",
+      "github.com/acme/web",
+    ]);
 
     // Another tab has its own sessionStorage and does not see it.
     const other = await installInto(undefined, { local: first.local });
@@ -423,13 +473,13 @@ describe("installing the per-window scope", () => {
       windowId: WINDOW_A,
       windowScopeSeed: ref("vm", "web"),
     });
-    expect(store.getState().sidebarProjectScopeKey).toBeNull();
+    expect(store.getState().sidebarProjectScopeKeys).toEqual([]);
 
     module.applyWindowSidebarScopeSeed([], false);
-    expect(store.getState().sidebarProjectScopeKey).toBeNull();
+    expect(store.getState().sidebarProjectScopeKeys).toEqual([]);
     module.applyWindowSidebarScopeSeed(groups, false);
 
-    expect(store.getState().sidebarProjectScopeKey).toBe("github.com/acme/web");
+    expect(store.getState().sidebarProjectScopeKeys).toEqual(["github.com/acme/web"]);
     expect(JSON.parse(local.getItem(`${WINDOW_SIDEBAR_SCOPE_PREFIX}${WINDOW_A}`) ?? "{}")).toEqual(
       expect.objectContaining({
         filter: { entries: [{ key: "github.com/acme/web", members: [] }] },
