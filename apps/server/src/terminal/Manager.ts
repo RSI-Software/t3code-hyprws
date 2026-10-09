@@ -2565,6 +2565,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         type: "exited",
         threadId: action.threadId,
         terminalId: action.terminalId,
+        ...(session.attachmentId ? { attachmentId: session.attachmentId } : {}), // fork-hook: zmux-estate/terminal-exit-viewer
         sequence: action.sequence,
         exitCode: action.exitCode,
         exitSignal: action.exitSignal,
