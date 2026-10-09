@@ -12,6 +12,7 @@ export const FORK_DOMAINS = [
   "thread-ordering",
   "thread-fork",
   "upstream-fixes",
+  "voice-input",
   "workspace-files",
   "workspaces",
   "worktrunk-hooks",
