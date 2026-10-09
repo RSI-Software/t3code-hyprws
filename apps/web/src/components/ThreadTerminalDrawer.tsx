@@ -233,11 +233,12 @@ function writeSystemMessage(
 }
 
 export function writeTerminalOutputUpdate(
-  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write">,
+  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write" | "clearSelection">,
   update: TerminalOutputUpdate,
 ): void {
   if (update.type === "reset") {
     terminal.resetAndWrite(update.data);
+    terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
   } else if (update.type === "append") {
     terminal.write(update.data);
   }
@@ -1102,6 +1103,7 @@ function TerminalSessionViewport({
         if (!hasTerminalWriteAccess()) return;
         const activeTerminal = terminalRef.current;
         if (!activeTerminal) return;
+        activeTerminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         const result = await writeTerminal(data);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
@@ -1194,6 +1196,7 @@ function TerminalSessionViewport({
 
       function handleData(data: string): void {
         if (!hasTerminalWriteAccess()) return;
+        terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         void (async () => {
           const result = await writeTerminal(data);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
