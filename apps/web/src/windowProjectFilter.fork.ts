@@ -8,9 +8,9 @@ import {
   reconcileProjectFilter,
 } from "@t3tools/client-runtime/state/project-filter";
 import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
-import { useAllEnvironmentProjectSnapshotsReady } from "./state/entities";
+import { useAllEnvironmentProjectSnapshotsReady, useProjects } from "./state/entities";
 import { pendingWindowScopeSeed, windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
@@ -42,12 +42,14 @@ export function useWindowProjectFilter(
     scopeKey: projectFilterScopeKey(filter),
     projectKeys: projectFilterProjectKeys(
       filter,
-      setFilter: state.set,
-      scopeKey: projectFilterScopeKey(filter),
-      projectKeys: projectFilterProjectKeys(filter),
-    }),
-    [filter, state],
-  );
+      groups.flatMap((group) => group.members),
+    ),
+  };
+}
+
+/** Runs `onChange` after every write to this window's filter. */
+export function useWindowProjectFilterChange(onChange: () => void) {
+  useEffect(() => windowProjectFilterState().subscribe(onChange), [onChange]);
 }
 
 interface WindowFilterableProject {
@@ -70,7 +72,11 @@ export function filterProjectsToWindow<Project extends WindowFilterableProject>(
 export function useWindowProjectKeys(): ReadonlySet<string> | null {
   const state = windowProjectFilterState();
   const stored = useSyncExternalStore(state.subscribe, state.get);
-  return useMemo(() => projectFilterProjectKeys(stored), [stored]);
+  const projects = useProjects();
+  return projectFilterProjectKeys(
+    stored,
+    projects.map((project) => scopeProjectRef(project.environmentId, project.id)),
+  );
 }
 
 /** A project a link names explicitly; `environmentId` is absent on older links. */
@@ -120,6 +126,7 @@ export function windowLandingProjects<Project extends WindowFilterableProject>(
   projects: ReadonlyArray<Project>,
   projectKeys: ReadonlySet<string> | null,
   pendingSeed: ScopedProjectRef | null,
+  fallbackToAll = true,
 ): ReadonlyArray<Project> {
   const seeded =
     pendingSeed === null
@@ -131,7 +138,7 @@ export function windowLandingProjects<Project extends WindowFilterableProject>(
         );
   if (seeded.length > 0) return seeded;
   const shown = filterProjectsToWindow(projects, projectKeys);
-  return shown.length > 0 ? shown : projects;
+  return shown.length > 0 || !fallbackToAll ? shown : projects;
 }
 
 /** `windowLandingProjects` for this window. */
@@ -139,11 +146,11 @@ export function useWindowLandingProjects<Project extends WindowFilterableProject
   projects: ReadonlyArray<Project>,
 ): ReadonlyArray<Project> {
   const projectKeys = useWindowProjectKeys();
+  const state = windowProjectFilterState();
+  const filter = useSyncExternalStore(state.subscribe, state.get);
+  const fallbackToAll = filter.mode !== "exclude";
   // Read on each change of the inputs: the seed only ever goes from pending to
   // applied, and applying it changes `projectKeys`.
   const pendingSeed = pendingWindowScopeSeed();
-  return useMemo(
-    () => windowLandingProjects(projects, projectKeys, pendingSeed),
-    [pendingSeed, projectKeys, projects],
-  );
+  return windowLandingProjects(projects, projectKeys, pendingSeed, fallbackToAll);
 }
