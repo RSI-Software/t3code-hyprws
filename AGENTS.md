@@ -2,37 +2,35 @@
 
 ## Fork direction
 
-This checkout is the `RSI-Software/t3code-hyprws` fork.
-Read [Fork development](docs/fork/internals/fork-development.md) before changing fork behavior or Git topology.
-Read [Fork delta](docs/fork/internals/fork-delta.md) before adding to the fork, and walk its rebase scan on every upstream rebase.
+This checkout is `RSI-Software/t3code-hyprws`.
+Fork rules override upstream guidance below; keep those upstream sections unchanged.
+[Fork development](docs/fork/internals/fork-development.md) and [Fork delta](docs/fork/internals/fork-delta.md) own the detailed procedures and domain boundaries.
 
-Upstream guidance below remains the default unless this section or the fork guide overrides it.
+**Every change must satisfy all three priorities.**
 
-- Treat any desktop window as the user's T3 instance.
-- Keep the all-projects view available and share the Electron process, backend pool, auth, providers, and persisted state.
-- Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
-- Keep local `main` identical to `upstream/main`; never add fork commits to it.
-- Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
-- Rebase `hyprws` onto any upstream release tag, stable or nightly; never merge upstream into the fork branch.
-- Never target an untagged upstream commit; use the `fork-sync` skill for the rebase.
-- Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
-- Run `vp run fork:ci` before every pull request.
-  It derives the CI scan flags and runs the delta check, the stale-delete check, the rebase scan, `vp check`, plus the whole scripts workspace, so scripts tests are never hand-picked.
-  That is a subset of the pull-request jobs, not all of them.
-- Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
-- Publish rebased history only with the explicit expected-old lease documented in the fork guide.
-- Fold the ahead commits to one intent each with the [`fork-fold`](.agents/skills/fork-fold/SKILL.md) skill.
-- Never delete an upstream line a fork commit later restores; `fork:ci` refuses it. Add beside an upstream block instead of rewriting it.
-- Keep patches small, upstream-native, and checked across every affected client and connection mode.
-- Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.
+| Priority                      | Required approach                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Limit sync conflicts**      | Design every fork feature and change for frequent `fork-sync` rebases: isolate fork code and keep upstream edits to narrow extension hooks |
+| **Easy retirement**           | Keep each implementation separable so it can be removed cleanly when upstream supersedes it                                                |
+| **Long-term maintainability** | For lasting features, favor designs that remain simple to maintain across many upstream syncs                                              |
+
+Judge each design by: **How hard is the next sync? How cleanly can we remove this? What must we keep maintaining?**
+Correctness and client compatibility remain the baseline.
+
+| Concern     | Rule                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `main`      | Keep local `main` identical to `upstream/main`; never add fork commits                                                   |
+| Base branch | `hyprws` is the fork trunk; base fork worktrees on freshly fetched `origin/hyprws`, not potentially stale local `hyprws` |
+| Topology    | Rebase onto upstream release tags, stable or nightly; never merge upstream or target an untagged commit                  |
+| Trailers    | Every fork commit needs `Fork-Domain` and `Fork-Tier`; bugfixes also need `Fork-Upstreamable: yes` or `no`               |
+| PR gate     | Run `vp run fork:ci` before every PR; it overrides the upstream restriction on repo-wide checks                          |
+| Windows     | Keep all-projects available; share Electron, backend, auth, providers, and state; leave placement to Hyprland            |
+| Citations   | Upstream items stay in code spans or fences; fork references use the full `RSI-Software/t3code-hyprws#108` form          |
 
 **Nothing is posted upstream.**
-The fork posts nothing to `pingdotgg/t3code`: no pull request, issue, comment, review, or reaction.
-Reading upstream is fine; writing to it is not.
-This is a baseline rule, not a preference: it holds until at least 2026-11-27, may hold permanently, and only the human may lift it.
-`Fork-Upstreamable: yes` is a tracking tag only.
-It marks a commit upstream is likely to supersede so the rebase feasibility walk can flag it as a retire candidate, and it never authorizes contributing that commit.
-The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
+Reads of `pingdotgg/t3code` are allowed; no PR, issue, comment, review, or reaction.
+Only the human may lift this rule; it holds until at least 2026-11-27 and may be permanent.
+`Fork-Upstreamable` tracks retirement only; it never authorizes contributing.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
