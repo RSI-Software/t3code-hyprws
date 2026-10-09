@@ -13,13 +13,18 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import * as Socket from "effect/socket/Socket";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as VoiceInput from "./VoiceInput.fork.ts";
-import { failEnvironmentAuthInvalid } from "../auth/http.ts";
+import { authenticateMediaRequest, failEnvironmentAuthInvalid } from "../auth/http.ts";
 const isVoiceInputError = Schema.is(VoiceInput.VoiceInputError);
 const decodeSettingsJson = Schema.decodeEffect(Schema.fromJsonString(VoiceInputConfigUpdateFork));
+const encodeStreamError = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Struct({ type: Schema.Literal("error"), message: Schema.String })),
+);
 
 const json = (body: unknown, status = 200) =>
   HttpServerResponse.jsonUnsafe(body, {
@@ -107,6 +112,34 @@ const configureSettings = (service: VoiceInput.VoiceInput["Service"]) =>
 
 export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
   Layer.mergeAll(
+    HttpRouter.add(
+      "GET",
+      `${VOICE_INPUT_ROUTE_FORK}/realtime`,
+      Effect.gen(function* () {
+        yield* authenticateMediaRequest(AuthOrchestrationOperateScope);
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const socket = yield* request.upgrade;
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const reader = yield* socket.reader;
+            const writer = yield* socket.writer;
+            const connected = Socket.make({
+              reader: Effect.succeed(reader),
+              writer: Effect.succeed(writer),
+            });
+            yield* service.stream(connected).pipe(
+              Effect.catch((error) =>
+                Effect.gen(function* () {
+                  yield* writer.write(encodeStreamError({ type: "error", message: error.message }));
+                  yield* writer.write(new Socket.CloseEvent(1011, "Dictation failed"));
+                }),
+              ),
+            );
+          }),
+        ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructor), Effect.ignoreCause);
+        return HttpServerResponse.empty();
+      }),
+    ),
     HttpRouter.add(
       "GET",
       `${VOICE_INPUT_ROUTE_FORK}/settings`,
