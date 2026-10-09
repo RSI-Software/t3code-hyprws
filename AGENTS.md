@@ -241,4 +241,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 ## Additional tips
 
+Verify with a browser or Electron autonomously **only** when a skill or method provides a path that does not interfere with the user's windows or Hyprland workspaces.
+Use the available isolated verification paths.
+
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
