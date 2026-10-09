@@ -144,6 +144,7 @@ const trackInstaller = (install: (session: Session) => void) =>
 | [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach externally      |
 | [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream exposes worktree lifecycle hooks |
 | [delegated-rounds](#delegated-rounds)   | Active | core              | Upstream ships delegated follow-ups       |
+| [voice-input](#voice-input)             | Active | core              | Upstream supports external desktop STT    |
 
 A domain is a reason the fork exists, not a feature area.
 
@@ -832,6 +833,36 @@ Retention and release stay fork scope until upstream keeps one task across round
 | `apps/server/src/orchestration-v2/delegatedRounds.fork.ts`, `apps/server/src/provider/T3OrchestrationInstructions.fork.ts`                                     | Fork-only; a conflict means upstream took the path |
 | `apps/server/src/orchestration-v2/Orchestrator.ts`, `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/provider/T3OrchestrationInstructions.ts` | Shared server and orchestration seams              |
 | `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/orchestratorMcp.ts`                                                                       | Shared contracts and wire schemas                  |
+
+## voice-input
+
+### Need
+
+- **Dictation:** desktop audio to editable text
+- **Engines:** external HTTP services
+
+### Shape
+
+Fork-owned contracts, service, adapters, and desktop controls.
+Marked imports and mounts are the only upstream seams.
+Settings and API keys use the server secret store; audio is never persisted by T3.
+The local HTTP contract is a WAV request body and a JSON `{text}` response.
+Custom services use the OpenAI-compatible multipart transcription contract.
+Provider stubs refuse execution until implemented.
+Mobile remains upstream-owned.
+
+### Retirement condition
+
+Upstream desktop dictation supports configurable external transcription services.
+
+### Rebase scan
+
+| Path                                                  | Why it matters         |
+| ----------------------------------------------------- | ---------------------- |
+| `apps/server/src/server.ts`                           | Route mount and import |
+| `packages/contracts/src/index.ts`                     | Fork contract export   |
+| `apps/web/src/components/chat/ChatComposer.tsx`       | Desktop mic mount      |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | Desktop settings mount |
 
 ## Adding a domain
 
