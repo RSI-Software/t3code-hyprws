@@ -5,7 +5,7 @@ export const voiceInputProvidersFork = [
   {
     id: "meta",
     label: "Meta",
-    available: false,
+    available: true,
     endpoint: "https://api.meta.ai/v1/asr/transcribe",
     model: "muse-voice-transcribe-1.0",
   },
