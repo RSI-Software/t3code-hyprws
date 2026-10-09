@@ -53,7 +53,13 @@ describe("dictation HTTP boundary", () => {
   it.effect("refuses unauthenticated audio", () =>
     Effect.gen(function* () {
       const h = yield* harness([], false);
-      expect((yield* Effect.promise(() => h.handler(upload()))).status).toBe(401);
+      const response = yield* Effect.promise(() => h.handler(upload()));
+      expect(response.status).toBe(401);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        _tag: "EnvironmentAuthInvalidError",
+        code: "auth_invalid",
+        reason: "missing_credential",
+      });
       expect(h.calls()).toBe(0);
     }),
   );
@@ -96,7 +102,7 @@ describe("dictation HTTP boundary", () => {
       const response = yield* Effect.promise(() =>
         h.handler(
           new Request(`http://env.local${VOICE_INPUT_ROUTE_FORK}/settings`, {
-            method: "PUT",
+            method: "POST",
             headers: { "content-type": "application/json" },
             body: "{}",
           }),
