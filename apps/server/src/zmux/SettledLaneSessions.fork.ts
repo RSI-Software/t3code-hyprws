@@ -50,7 +50,7 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
         const lane = thread.worktreePath;
         if (lane === null) return;
         if (thread.settledOverride !== "settled" && thread.deletedAt === null) return;
-        const project = yield* projects.getShell(thread.projectId);
+        const project = yield* projects.get(thread.projectId, { includeDeleted: true });
         // Missing ownership information is never permission to remove a session.
         if (Option.isNone(project)) return;
         const root = project.value.workspaceRoot;
@@ -94,7 +94,7 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
               !sameCheckout(latest.worktreePath, lane)
             )
               return;
-            const latestProject = yield* projects.getShell(latest.projectId);
+            const latestProject = yield* projects.get(latest.projectId, { includeDeleted: true });
             if (Option.isNone(latestProject)) return;
             const latestLaneIdentity = yield* checkoutRootOf(lane);
             const latestRootIdentity = yield* checkoutRootOf(latestProject.value.workspaceRoot);

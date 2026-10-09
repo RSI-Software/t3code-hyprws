@@ -3,7 +3,6 @@ import { it } from "@effect/vitest";
 import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ThreadShellSnapshot,
-  type OrchestrationProjectShell,
   type OrchestrationV2DomainEvent,
   ProjectId,
   ThreadId,
@@ -59,6 +58,7 @@ const harness = () =>
     const roots = new Map([[projectId, "/repo"]]);
     let refuse = false;
     let hasProject = true;
+    let projectDeleted = false;
     const calls: string[] = [];
     const removed = yield* Queue.unbounded<Binder.ZmuxUnbindIdentity>();
     const subscribed = yield* Deferred.make<void>();
@@ -86,12 +86,12 @@ const harness = () =>
       }),
       Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread: () => Effect.sync(() => thread) }),
       Layer.mock(ProjectStore.ProjectStoreV2)({
-        getShell: (owner) =>
+        get: (owner, options) =>
           Effect.sync(() =>
-            hasProject
+            hasProject && (!projectDeleted || options?.includeDeleted)
               ? Option.some({
                   workspaceRoot: roots.get(owner) ?? "/repo",
-                } as OrchestrationProjectShell)
+                } as ProjectStore.ProjectRow)
               : Option.none(),
           ),
       }),
@@ -197,6 +197,9 @@ const harness = () =>
       forgetProject: () => {
         hasProject = false;
       },
+      deleteProject: () => {
+        projectDeleted = true;
+      },
     };
   }).pipe(Effect.provide(NodeServices.layer));
 
@@ -215,6 +218,7 @@ describe("settled checkout sessions", () => {
     (worktreePath) =>
       Effect.gen(function* () {
         const h = yield* harness();
+        h.deleteProject();
         h.setThread({ worktreePath });
         yield* h.reactor.reconcile(id);
         h.setThread({ settledOverride: "active" });
@@ -226,10 +230,28 @@ describe("settled checkout sessions", () => {
   it.effect("preserves a malformed main-session binding", () =>
     Effect.gen(function* () {
       const h = yield* harness();
+      h.deleteProject();
       h.setTarget("proof/main");
       yield* h.reactor.reconcile(id);
       expect(h.calls).not.toContain("unbind");
     }),
+  );
+
+  it.effect.each(["before reconciliation", "during identity preparation"])(
+    "removes the session when its project is deleted %s",
+    (timing) =>
+      Effect.gen(function* () {
+        const h = yield* harness();
+        h.setThread({
+          settledOverride: "active",
+          deletedAt: DateTime.makeUnsafe("2026-10-10T00:00:00Z"),
+        });
+        if (timing === "before reconciliation") h.deleteProject();
+        else h.setBeforeCleanup(Effect.sync(h.deleteProject));
+        yield* h.reactor.reconcile(id);
+        expect(h.calls).toEqual(["release", "prepare:/repo-feature", "unbind"]);
+        expect(yield* h.removed).toEqual(identity);
+      }),
   );
 
   it.effect("shared and unrelated consumers do not veto requested teardown", () =>
