@@ -3,16 +3,18 @@ import {
   type VoiceDuckingOutputsFork,
   type VoiceDuckingSettingsFork as DuckingSettings,
 } from "@t3tools/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
+import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import {
   readVoiceDuckingFork,
   saveVoiceDuckingFork,
   VOICE_DUCKING_CHANGED_FORK,
 } from "../../voice-input/ducking.fork";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
-import { Input } from "../ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Switch } from "../ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 async function listSpeakerOutputs(): Promise<VoiceDuckingOutputsFork> {
@@ -25,6 +27,64 @@ async function listSpeakerOutputs(): Promise<VoiceDuckingOutputsFork> {
   } catch {
     return { unavailableReason: "Could not list speaker outputs. Try refreshing.", outputs: [] };
   }
+}
+
+function DuckingValueControl({
+  label,
+  value,
+  max,
+  unit,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  unit: "%" | "ms";
+  onChange: (value: number) => void;
+}) {
+  const ratio = value / max;
+  const style = {
+    "--settings-slider-progress": `${ratio * 100}%`,
+    "--settings-slider-fill-offset": `${0.5 - ratio}rem`,
+  } as CSSProperties;
+  return (
+    <div className="flex w-full items-center gap-3 sm:w-72">
+      <input
+        aria-label={`${label} slider`}
+        aria-valuetext={`${value} ${unit}`}
+        className="settings-slider min-w-0 flex-1"
+        type="range"
+        min={0}
+        max={max}
+        step={unit === "%" ? 1 : 50}
+        style={style}
+        value={value}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+      />
+      <div className="w-28 shrink-0">
+        <InputGroup>
+          <InputGroupInput
+            type="number"
+            size="sm"
+            aria-label={label}
+            min={0}
+            max={max}
+            step={1}
+            value={value}
+            onChange={(event) => {
+              if (event.currentTarget.value !== "" && event.currentTarget.validity.valid)
+                onChange(Number(event.currentTarget.value));
+            }}
+          />
+          <InputGroupAddon align="inline-end">
+            <span aria-hidden className="text-xs text-muted-foreground">
+              {unit}
+            </span>
+          </InputGroupAddon>
+        </InputGroup>
+      </div>
+    </div>
+  );
 }
 
 export function VoiceDuckingSettingsFork() {
@@ -76,6 +136,18 @@ export function VoiceDuckingSettingsFork() {
     (id) => id !== VOICE_DUCKING_DEFAULT_OUTPUT_FORK && !outputIds.has(id),
   );
   const unavailable = !devices || devices.unavailableReason !== null;
+  const selectableIds = [VOICE_DUCKING_DEFAULT_OUTPUT_FORK, ...outputs.map((output) => output.id)];
+  const allSelected = selectableIds.every((id) => selectedIds.has(id));
+  const selectionLabel =
+    allSelected && outputs.length
+      ? "All outputs"
+      : settings.outputIds.length === 1
+        ? settings.outputIds[0] === VOICE_DUCKING_DEFAULT_OUTPUT_FORK
+          ? "System default"
+          : (outputs.find((output) => selectedIds.has(output.id))?.label ?? "Unavailable output")
+        : settings.outputIds.length
+          ? `${settings.outputIds.length} selected`
+          : "Select outputs";
   return (
     <SettingsSection id="voice-ducking-fork" title="Speaker ducking">
       <SettingsRow
@@ -93,122 +165,129 @@ export function VoiceDuckingSettingsFork() {
       <SettingsRow
         title="Output devices"
         description="Select one or more. System default is resolved when recording starts."
-      >
-        <div className="grid gap-2 py-3">
-          <label className="flex min-h-9 items-center gap-3 text-sm">
-            <Checkbox
-              checked={selectedIds.has(VOICE_DUCKING_DEFAULT_OUTPUT_FORK)}
-              disabled={unavailable}
-              onCheckedChange={(checked) =>
-                toggleOutput(VOICE_DUCKING_DEFAULT_OUTPUT_FORK, checked)
-              }
-            />
-            <span>
-              System default
-              {defaultLabel ? ` (${defaultLabel})` : ""}
-            </span>
-          </label>
-          {outputs.map((output) => (
-            <label key={output.id} className="flex min-h-9 items-center gap-3 text-sm">
-              <Checkbox
-                checked={selectedIds.has(output.id)}
-                onCheckedChange={(checked) => toggleOutput(output.id, checked)}
+        control={
+          <div className="flex min-w-0 items-center gap-1">
+            <Menu>
+              <MenuTrigger
+                render={<Button size="sm" variant="outline" />}
+                aria-label="Output devices"
+              >
+                <span className="max-w-48 truncate">{selectionLabel}</span>
+                <ChevronDownIcon aria-hidden />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuCheckboxItem
+                  checked={allSelected}
+                  disabled={unavailable}
+                  closeOnClick={false}
+                  onCheckedChange={(checked) =>
+                    update({
+                      outputIds: checked
+                        ? [...new Set([...settings.outputIds, ...selectableIds])]
+                        : [],
+                    })
+                  }
+                >
+                  Select all
+                </MenuCheckboxItem>
+                <MenuSeparator />
+                <MenuCheckboxItem
+                  checked={selectedIds.has(VOICE_DUCKING_DEFAULT_OUTPUT_FORK)}
+                  disabled={unavailable}
+                  closeOnClick={false}
+                  onCheckedChange={(checked) =>
+                    toggleOutput(VOICE_DUCKING_DEFAULT_OUTPUT_FORK, checked)
+                  }
+                >
+                  System default{defaultLabel ? ` (${defaultLabel})` : ""}
+                </MenuCheckboxItem>
+                {outputs.map((output) => (
+                  <MenuCheckboxItem
+                    key={output.id}
+                    checked={selectedIds.has(output.id)}
+                    closeOnClick={false}
+                    onCheckedChange={(checked) => toggleOutput(output.id, checked)}
+                  >
+                    {output.label}
+                  </MenuCheckboxItem>
+                ))}
+                {missing.map((id) => (
+                  <MenuCheckboxItem
+                    key={id}
+                    checked
+                    closeOnClick={false}
+                    onCheckedChange={(checked) => toggleOutput(id, checked)}
+                  >
+                    <span className="text-muted-foreground">{id} (unavailable)</span>
+                  </MenuCheckboxItem>
+                ))}
+              </MenuPopup>
+            </Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Refresh outputs"
+                    disabled={refreshing}
+                    onClick={() => {
+                      setRefreshing(true);
+                      void refresh();
+                    }}
+                  >
+                    <RefreshCwIcon aria-hidden />
+                  </Button>
+                }
               />
-              <span>{output.label}</span>
-            </label>
-          ))}
-          {missing.map((id) => (
-            <label
-              key={id}
-              className="flex min-h-9 items-center gap-3 text-sm text-muted-foreground"
-            >
-              <Checkbox checked onCheckedChange={(checked) => toggleOutput(id, checked)} />
-              <span className="min-w-0 break-all">{id} (unavailable)</span>
-            </label>
-          ))}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={refreshing}
-              onClick={() => {
-                setRefreshing(true);
-                void refresh();
-              }}
-            >
-              {refreshing ? "Refreshing…" : "Refresh outputs"}
-            </Button>
-            <p role="status" className="text-xs text-muted-foreground">
-              {devices?.unavailableReason ?? (!devices ? "Loading outputs…" : null)}
-            </p>
+              <TooltipPopup>{refreshing ? "Refreshing outputs…" : "Refresh outputs"}</TooltipPopup>
+            </Tooltip>
           </div>
-        </div>
-      </SettingsRow>
+        }
+      />
       <SettingsRow
-        title="Target volume (%)"
+        title="Target volume"
         description="Percentage of each output’s starting volume. 0% silences it; 100% leaves it unchanged."
         control={
-          <div className="w-28">
-            <Input
-              type="number"
-              size="sm"
-              aria-label="Ducking target volume (%)"
-              min={0}
-              max={100}
-              step={1}
-              value={settings.targetPercent}
-              onChange={(event) => {
-                if (event.target.value !== "" && event.target.validity.valid)
-                  update({ targetPercent: Number(event.target.value) });
-              }}
-            />
-          </div>
+          <DuckingValueControl
+            label="Ducking target volume (%)"
+            value={settings.targetPercent}
+            max={100}
+            unit="%"
+            onChange={(targetPercent) => update({ targetPercent })}
+          />
         }
       />
       <SettingsRow
-        title="Fade down (ms)"
+        title="Fade down"
         description="How quickly output drops when recording starts. 0 is instant."
         control={
-          <div className="w-28">
-            <Input
-              type="number"
-              size="sm"
-              aria-label="Fade down (ms)"
-              min={0}
-              max={10000}
-              step={1}
-              value={settings.fadeDownMs}
-              onChange={(event) => {
-                if (event.target.value !== "" && event.target.validity.valid)
-                  update({ fadeDownMs: Number(event.target.value) });
-              }}
-            />
-          </div>
+          <DuckingValueControl
+            label="Fade down (ms)"
+            value={settings.fadeDownMs}
+            max={10000}
+            unit="ms"
+            onChange={(fadeDownMs) => update({ fadeDownMs })}
+          />
         }
       />
       <SettingsRow
-        title="Fade back up (ms)"
+        title="Fade back up"
         description="How quickly volume returns after stop or cancel. 1000 is one second."
         control={
-          <div className="w-28">
-            <Input
-              type="number"
-              size="sm"
-              aria-label="Fade back up (ms)"
-              min={0}
-              max={10000}
-              step={1}
-              value={settings.fadeUpMs}
-              onChange={(event) => {
-                if (event.target.value !== "" && event.target.validity.valid)
-                  update({ fadeUpMs: Number(event.target.value) });
-              }}
-            />
-          </div>
+          <DuckingValueControl
+            label="Fade back up (ms)"
+            value={settings.fadeUpMs}
+            max={10000}
+            unit="ms"
+            onChange={(fadeUpMs) => update({ fadeUpMs })}
+          />
         }
       />
       <p role="status" className="pt-2 text-xs text-muted-foreground">
         {error ??
+          devices?.unavailableReason ??
+          (!devices ? "Loading outputs…" : null) ??
           (settings.enabled && !settings.outputIds.length
             ? "Select at least one output before recording."
             : "Manual volume changes during recording are preserved. Mute state is unchanged.")}
