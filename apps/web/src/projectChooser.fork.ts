@@ -11,9 +11,6 @@ import {
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useEffect, useSyncExternalStore } from "react";
 
-/** Upstream's "All projects" item value in the scope combobox. */
-export const ALL_PROJECTS_CHOOSER_VALUE = "all";
-
 export interface ProjectChooserGroup {
   readonly projectKey: string;
   readonly displayName: string;
@@ -28,9 +25,9 @@ export interface ProjectChooserItem {
 }
 
 export interface ProjectChooserState<Group extends ProjectChooserGroup> {
-  /** "All projects", every group, then each selected entry no group carries. */
+  /** All projects, every group, then each selected entry no group carries. */
   readonly items: ReadonlyArray<ProjectChooserItem>;
-  /** The selected items; "All projects" alone when the filter is empty. */
+  /** All projects when unscoped, otherwise the selected project items. */
   // Mutable because Base UI's multiple Combobox value prop takes a plain array.
   readonly value: ProjectChooserItem[];
   /** The header's name for the filter: "Projects: All", one name, or "N selected". */
@@ -42,14 +39,18 @@ export interface ProjectChooserState<Group extends ProjectChooserGroup> {
   readonly count: number;
 }
 
-const ALL_ITEM: ProjectChooserItem = {
-  value: ALL_PROJECTS_CHOOSER_VALUE,
+// The window title names at most this many projects, then counts the rest.
+const TITLE_LABEL_NAMES = 3;
+
+const ALL_PROJECTS_ITEM: ProjectChooserItem = {
+  value: "all",
   label: "All projects",
   unavailable: false,
 };
 
-// The window title names at most this many projects, then counts the rest.
-const TITLE_LABEL_NAMES = 3;
+function showsAllProjects(filter: ProjectFilter) {
+  return filter.entries.length === 0 && filter.mode !== "include";
+}
 
 function titleLabelOf(items: ReadonlyArray<ProjectChooserItem>): string | null {
   if (items.length === 0) return null;
@@ -82,31 +83,36 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
       label: unavailableEntryLabel(entry.key),
       unavailable: true,
     }));
-  const items = [ALL_ITEM, ...groupItems, ...unavailableItems];
+  const items = [ALL_PROJECTS_ITEM, ...groupItems, ...unavailableItems];
   const itemByValue = new Map(items.map((item) => [item.value, item] as const));
-  const value =
-    filter.entries.length === 0
-      ? [ALL_ITEM]
-      : filter.entries.flatMap((entry) => {
-          const item = itemByValue.get(entry.key);
-          return item === undefined ? [] : [item];
-        });
+  const picked = filter.entries.flatMap((entry) => {
+    const item = itemByValue.get(entry.key);
+    return item === undefined ? [] : [item];
+  });
+  const value = showsAllProjects(filter) ? [ALL_PROJECTS_ITEM] : picked;
   const count = filter.entries.length;
   const excluding = filter.mode === "exclude";
+  const emptySelection = count === 0 && filter.mode === "include";
   const only = count === 1 ? value[0] : undefined;
   return {
     items,
     value,
-    label:
-      count === 0
+    label: emptySelection
+      ? "Projects: None"
+      : count === 0
         ? "Projects: All"
         : excluding
           ? `Projects: All except ${count}`
           : only !== undefined
             ? `Projects: ${only.label}`
             : `Projects: ${count} selected`,
-    titleLabel:
-      count === 0 ? null : excluding ? `All except ${titleLabelOf(value)}` : titleLabelOf(value),
+    titleLabel: emptySelection
+      ? "No projects"
+      : count === 0
+        ? null
+        : excluding
+          ? `All except ${titleLabelOf(value)}`
+          : titleLabelOf(value),
     single: excluding || only === undefined ? null : (groupByKey.get(only.value) ?? null),
     count,
   };
@@ -114,8 +120,7 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
 
 /**
  * The filter after the combobox reports `values`, the selection with one item
- * toggled. Picking "All projects" clears the filter; toggling a project adds or
- * removes its entry. Entries keep their members, so an offline entry the user
+ * toggled. Toggling a project adds or removes its entry. Entries keep their members, so an offline entry the user
  * did not touch stays selected.
  */
 export function projectFilterFromChooser(
@@ -123,13 +128,12 @@ export function projectFilterFromChooser(
   values: ReadonlyArray<string>,
   groups: ReadonlyArray<ProjectChooserGroup>,
 ): ProjectFilter {
-  const selected = new Set(filter.entries.map((entry) => entry.key));
-  // "All projects" is in the selection only while the filter is empty, so
-  // seeing it beside entries means the user just picked it.
-  if (values.includes(ALL_PROJECTS_CHOOSER_VALUE) && filter.entries.length > 0) {
-    return filter.mode === "exclude" ? { mode: "exclude", entries: [] } : ALL_PROJECTS_FILTER;
+  const allShown = showsAllProjects(filter);
+  if ((values.includes("all") && !allShown) || (allShown && values.length === 0)) {
+    return ALL_PROJECTS_FILTER;
   }
-  const keys = new Set(values.filter((value) => value !== ALL_PROJECTS_CHOOSER_VALUE));
+  const selected = new Set(filter.entries.map((entry) => entry.key));
+  const keys = new Set(values.filter((value) => value !== "all"));
   const kept = filter.entries.filter((entry) => keys.has(entry.key));
   const added = groups
     .filter((group) => keys.has(group.projectKey) && !selected.has(group.projectKey))
@@ -139,16 +143,25 @@ export function projectFilterFromChooser(
     }));
   const entries = [...kept, ...added];
   if (entries.length === filter.entries.length && added.length === 0) return filter;
-  return filter.mode === "exclude"
-    ? { mode: "exclude", entries }
-    : entries.length === 0
-      ? ALL_PROJECTS_FILTER
-      : { entries };
+  return { mode: filter.mode === "exclude" ? "exclude" : "include", entries };
+}
+
+/** The control's mode; old empty filters retain their All projects default. */
+export function projectChooserMode(filter: ProjectFilter) {
+  return filter.mode ?? (filter.entries.length === 0 ? "all" : "include");
+}
+
+/** All resets the picks; switching inclusion/exclusion retains them. */
+export function projectFilterFromMode(filter: ProjectFilter, mode: "all" | "include" | "exclude") {
+  return mode === "all" ? ALL_PROJECTS_FILTER : { ...filter, mode };
 }
 
 /** A project row's Show only: the filter becomes that one project. */
 export function showOnlyProjectFilter(group: ProjectChooserGroup): ProjectFilter {
-  return { entries: [{ key: group.projectKey, members: group.memberProjectRefs }] };
+  return {
+    mode: "include",
+    entries: [{ key: group.projectKey, members: group.memberProjectRefs }],
+  };
 }
 
 // The chooser lives in the sidebar; the other surfaces reach it through this
