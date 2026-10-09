@@ -3,7 +3,7 @@
 // combobox and carries marked hook lines pointing here: the chooser state, its
 // value and change handler, the trigger's label and icon, and the row extras.
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
-import { CheckIcon, FocusIcon, FolderIcon, FoldersIcon } from "lucide-react";
+import { CheckIcon, FocusIcon, FolderIcon, FoldersIcon, MinusIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
@@ -17,6 +17,7 @@ import {
 } from "../../projectChooser.fork";
 import { Button } from "../ui/button";
 import { useSidebar } from "../ui/sidebar";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(input: {
   readonly filter: ProjectFilter;
@@ -87,9 +88,45 @@ export function ProjectChooserTriggerIconFork({ count }: { readonly count: numbe
 }
 
 /** A row's selection mark; kept in layout when unselected so labels stay aligned. */
-export function ProjectChooserRowCheckFork({ selected }: { readonly selected: boolean }) {
+export function ProjectChooserRowMarkFork({
+  selected,
+  excluded = false,
+}: {
+  readonly selected: boolean;
+  readonly excluded?: boolean;
+}) {
+  const Icon = excluded ? MinusIcon : CheckIcon;
+  return <Icon aria-hidden className={cn("size-3.5 shrink-0", selected ? null : "invisible")} />;
+}
+
+/** Switching modes keeps the picks; their meaning changes explicitly, not via a modifier key. */
+export function ProjectChooserModeFork({
+  filter,
+  setFilter,
+}: {
+  readonly filter: ProjectFilter;
+  readonly setFilter: (filter: ProjectFilter) => void;
+}) {
+  const mode = filter.mode ?? "include";
   return (
-    <CheckIcon aria-hidden className={cn("size-3.5 shrink-0", selected ? null : "invisible")} />
+    <div className="flex flex-col gap-2 px-2 pt-2 pb-1">
+      <ToggleGroup
+        aria-label="Project filter mode"
+        value={[mode]}
+        onValueChange={(values) => {
+          const next = values[0];
+          if (next === "include" || next === "exclude") setFilter({ ...filter, mode: next });
+        }}
+      >
+        <Toggle value="include">Only selected</Toggle>
+        <Toggle value="exclude">All except selected</Toggle>
+      </ToggleGroup>
+      <p className="text-xs text-muted-foreground">
+        {mode === "exclude"
+          ? "Select projects to hide. New projects stay visible."
+          : "Select projects to show. No selection shows all."}
+      </p>
+    </div>
   );
 }
 
