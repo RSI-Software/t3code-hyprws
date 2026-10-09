@@ -1004,13 +1004,15 @@ function OpenCommandPaletteDialog(props: {
   );
   const pickerProjects = useMemo(
     () =>
-      scopePaletteProjectEntriesFork(projectPickerEntries, paletteProjectScope.projectKeys).map(
-        ({ group, targetProject }) => ({
-          ...targetProject,
-          displayName: group.displayName,
-        }),
-      ), // fork-hook: workspaces/palette-scope-projects
-    [projectPickerEntries, paletteProjectScope.projectKeys], // fork-hook: workspaces/palette-scope-projects
+      scopePaletteProjectEntriesFork(
+        projectPickerEntries,
+        paletteProjectScope.projectKeys,
+        paletteProjectScope.preserveEmpty,
+      ).map(({ group, targetProject }) => ({
+        ...targetProject,
+        displayName: group.displayName,
+      })), // fork-hook: workspaces/palette-scope-projects
+    [projectPickerEntries, paletteProjectScope.projectKeys, paletteProjectScope.preserveEmpty], // fork-hook: workspaces/palette-scope-projects
   );
   const projectGroupByTargetKey = useMemo(
     () =>
