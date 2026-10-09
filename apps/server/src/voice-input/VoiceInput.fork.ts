@@ -13,6 +13,9 @@ import * as Semaphore from "effect/Semaphore";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Socket from "effect/socket/Socket";
+import type * as Scope from "effect/Scope";
+import { metaRealtimeUrlFork, streamMetaVoiceFork } from "./realtime.fork.ts";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { voiceInputProvidersFork } from "./providers.fork.ts";
@@ -86,6 +89,9 @@ export class VoiceInput extends Context.Service<
       input: VoiceInputConfigUpdateFork,
     ) => Effect.Effect<VoiceInputSettingsFork, VoiceInputError>;
     readonly transcribe: (audio: Uint8Array) => Effect.Effect<string, VoiceInputError>;
+    readonly stream: (
+      socket: Socket.Socket,
+    ) => Effect.Effect<void, VoiceInputError, Scope.Scope | Socket.WebSocketConstructor>;
   }
 >()("t3/voice-input/VoiceInput.fork/VoiceInput") {}
 
@@ -193,6 +199,23 @@ const make = Effect.gen(function* () {
   return VoiceInput.of({
     settings: read.pipe(Effect.map(publicSettings)),
     configure: (input) => writes.withPermits(1)(configure(input)),
+    stream: (socket) =>
+      Effect.gen(function* () {
+        const config = yield* read;
+        if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
+        if (config.provider !== "meta")
+          return yield* new VoiceInputError({ reason: "unsupported" });
+        const url = yield* Effect.try({
+          try: () => metaRealtimeUrlFork(config.endpoint),
+          catch: () => new VoiceInputError({ reason: "settings" }),
+        });
+        const upstream = yield* Socket.makeWebSocket(url, { openTimeout: "10 seconds" });
+        yield* streamMetaVoiceFork(socket, upstream, config);
+      }).pipe(
+        Effect.mapError((cause) =>
+          isVoiceInputError(cause) ? cause : new VoiceInputError({ reason: "upstream", cause }),
+        ),
+      ),
     transcribe: (audio) =>
       transcribe(audio).pipe(
         Effect.timeout("60 seconds"),
@@ -206,3 +229,4 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(VoiceInput, make);
+const isVoiceInputError = Schema.is(VoiceInputError);

@@ -19,6 +19,7 @@ const harness = (scopes: EnvironmentAuth.AuthenticatedSession["scopes"], authent
     const service = VoiceInput.VoiceInput.of({
       settings: Effect.die("not used"),
       configure: () => Effect.die("not used"),
+      stream: () => Effect.die("not used"),
       transcribe: () =>
         Effect.sync(() => {
           calls++;
@@ -28,6 +29,15 @@ const harness = (scopes: EnvironmentAuth.AuthenticatedSession["scopes"], authent
     const context = yield* Layer.build(
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({
         authenticateHttpRequest: () =>
+          authenticated
+            ? Effect.succeed({
+                sessionId: AuthSessionId.make("test"),
+                subject: "test",
+                method: "bearer-access-token",
+                scopes,
+              })
+            : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError()),
+        authenticateWebSocketUpgrade: () =>
           authenticated
             ? Effect.succeed({
                 sessionId: AuthSessionId.make("test"),
@@ -50,6 +60,25 @@ const upload = (body = new Uint8Array([1]), contentType = "audio/wav") =>
   });
 
 describe("dictation HTTP boundary", () => {
+  it.effect.each([
+    { authenticated: false, scopes: [], status: 401 },
+    { authenticated: true, scopes: [AuthOrchestrationReadScope], status: 403 },
+  ])(
+    "refuses realtime upgrades before calling the speech service",
+    ({ authenticated, scopes, status }) =>
+      Effect.gen(function* () {
+        const h = yield* harness(scopes, authenticated);
+        const response = yield* Effect.promise(() =>
+          h.handler(
+            new Request(`http://env.local${VOICE_INPUT_ROUTE_FORK}/realtime`, {
+              headers: { upgrade: "websocket" },
+            }),
+          ),
+        );
+        expect(response.status).toBe(status);
+        expect(h.calls()).toBe(0);
+      }),
+  );
   it.effect("refuses unauthenticated audio", () =>
     Effect.gen(function* () {
       const h = yield* harness([], false);

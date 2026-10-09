@@ -86,6 +86,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   const ownsSession = snapshot.target?.ownerKey === input.ownerKey;
   const state = ownsSession ? snapshot.state : IDLE;
   const toolbarState = ownsSession ? snapshot.toolbarState : IDLE;
+  const preview = ownsSession ? snapshot.preview : null;
   useLayoutEffect(
     () =>
       session.attach(input.ownerKey, (text, selection) => {
@@ -146,19 +147,26 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   );
   return {
     busy,
+    preview,
     markDraftChanged,
     blocksSubmission,
     sendProps: busy ? { sendDisabledReason: "Finish or cancel dictation before sending." } : {},
     presented,
+    live: settings?.provider === "meta",
     toolbar: window.desktopBridge ? (
-      <VoiceDictationToolbarFork
-        state={toolbarState}
-        active={presented}
-        recorder={recorder}
-        onCancel={() => controller.cancel()}
-        onFinish={() => void controller.stop()}
-        onStart={start}
-      />
+      <>
+        <span className="sr-only" role="status">
+          {preview?.text}
+        </span>
+        <VoiceDictationToolbarFork
+          state={toolbarState}
+          active={presented}
+          recorder={recorder}
+          onCancel={() => controller.cancel()}
+          onFinish={() => void controller.stop()}
+          onStart={start}
+        />
+      </>
     ) : null,
     controls: window.desktopBridge ? (
       <div className="flex items-center gap-1" role="group" aria-label="Dictation">
