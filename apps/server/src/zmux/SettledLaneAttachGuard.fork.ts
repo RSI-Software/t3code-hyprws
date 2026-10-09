@@ -14,9 +14,9 @@ export class SettledLaneAttachGuard extends Context.Service<
 export const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   return SettledLaneAttachGuard.of({
-    isSettledThread: (threadId) =>
-      projections.getThread(ThreadId.make(threadId)).pipe(
-        Effect.map((thread) => thread.settledOverride === "settled"),
+    isSettledThread: Effect.fn("SettledLaneAttachGuard.isSettledThread")(function (threadId) {
+      return projections.getThread(ThreadId.make(threadId)).pipe(
+        Effect.map((thread) => thread.settledOverride === "settled" || thread.deletedAt !== null),
         // An unreadable thread is not permission to create a managed session.
         Effect.catch((error) =>
           Effect.logWarning("could not verify terminal thread settlement", {
@@ -24,7 +24,8 @@ export const make = Effect.gen(function* () {
             detail: error.message,
           }).pipe(Effect.as(true)),
         ),
-      ),
+      );
+    }),
   });
 });
 
