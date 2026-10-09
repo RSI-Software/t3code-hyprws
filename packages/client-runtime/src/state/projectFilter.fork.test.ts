@@ -33,6 +33,41 @@ const filterOf = (...keys: string[]): ProjectFilter => ({
 });
 
 describe("window project filter model", () => {
+  it("excludes grouped members across environments, while newly added projects stay visible", () => {
+    const filter: ProjectFilter = { ...filterOf("github.com/acme/web"), mode: "exclude" };
+    const available = [api, webLocal, webVm, docs, ref("local", "new")];
+    expect(projectFilterProjectKeys(filter, available)).toEqual(
+      new Set(["local:api", "local:docs", "local:new"]),
+    );
+    expect(projectFilterScopeKey(filter)).toBeNull();
+    expect(
+      projectFilterProjectKeys(
+        { ...filterOf(...byRepository.map((group) => group.key)), mode: "exclude" },
+        [api, webLocal, webVm, docs],
+      ),
+    ).toEqual(new Set());
+  });
+
+  it("persists exclusion mode through decoding, regrouping, offline state, and deletion", () => {
+    const filter: ProjectFilter = { ...filterOf("github.com/acme/web"), mode: "exclude" };
+    expect(decodeProjectFilter(JSON.parse(JSON.stringify(filter)))).toEqual(filter);
+    expect(decodeProjectFilter({ ...filter, mode: "invalid" })).toBeNull();
+    const separate = [api, webLocal, webVm, docs].map((member) => ({
+      key: `${member.environmentId}:${member.projectId}`,
+      members: [member],
+    }));
+    const regrouped = reconcileProjectFilter(filter, separate, true);
+    expect(regrouped.mode).toBe("exclude");
+    expect(projectFilterProjectKeys(regrouped, [api, webLocal, webVm, docs])).toEqual(
+      new Set(["local:api", "local:docs"]),
+    );
+    const withoutWeb = byRepository.filter((group) => group.key !== "github.com/acme/web");
+    expect(reconcileProjectFilter(filter, withoutWeb, false)).toBe(filter);
+    const removed = reconcileProjectFilter(filter, withoutWeb, true);
+    expect(removed).toEqual({ mode: "exclude", entries: [] });
+    expect(projectFilterProjectKeys(removed, [api, docs])).toBeNull();
+  });
+
   it("Members: entries keep member refs, and the projection is their union", () => {
     const filter = reconcileProjectFilter(
       projectFilterFromKey("github.com/acme/web"),
