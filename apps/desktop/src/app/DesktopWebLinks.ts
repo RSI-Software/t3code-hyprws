@@ -13,8 +13,12 @@ export const isWebLink = (value: string) => {
   return protocol === "http:" || protocol === "https:";
 };
 
+/** An HTML file the operating system asked T3 Code to open, as browsers are asked to. */
+export const isWebPageFile = (path: string) => /\.x?html?$/i.test(path);
+
 /**
- * Web links macOS opens with T3 Code once it is the default browser. They can
+ * Web links and HTML files macOS opens with T3 Code once it is the default
+ * browser. Files arrive as file:// URLs. They can
  * arrive before the app is ready (the link that launched it) or while the web
  * app reloads, so they wait until the renderer says it is listening.
  */

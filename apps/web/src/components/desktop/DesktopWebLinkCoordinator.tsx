@@ -2,24 +2,31 @@ import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEffect, useEffectEvent, useRef } from "react";
 
-import { openUrlInPreview } from "../../browser/openFileInPreview";
+import { openFileInPreview, openUrlInPreview } from "../../browser/openFileInPreview";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { assetEnvironment } from "../../state/assets";
+import { useEnvironmentHttpBaseUrl, usePrimaryEnvironment } from "../../state/environments";
 import { previewEnvironment } from "../../state/preview";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 /**
- * Opens each web link the OS hands T3 Code as the default browser (macOS) in a
- * new thread without a project, its browser panel maximized on the page.
+ * Opens each web link or HTML file the OS hands T3 Code as the default browser
+ * (macOS) in a new thread without a project, its browser panel maximized on the page.
  */
 export function DesktopWebLinkCoordinator() {
   const primaryEnvironment = usePrimaryEnvironment();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
   const openThread = useNewThreadHandler();
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
+    reportFailure: false,
+    refresh: true,
+  });
+  const httpBaseUrl = useEnvironmentHttpBaseUrl(primaryEnvironment?.environmentId ?? null);
   const queueRef = useRef(Promise.resolve());
   const webLinks = window.desktopBridge?.webLinks;
   const ready =
@@ -39,7 +46,20 @@ export function DesktopWebLinkCoordinator() {
     if (!opened) return;
     const threadRef = scopeThreadRef(project.environmentId, opened.threadId);
     useRightPanelStore.getState().requestMaximize(threadRef);
-    const result = await openUrlInPreview({ threadRef, url, openPreview });
+    // An HTML file is served from the environment, which runs on this machine.
+    const result = url.startsWith("file:")
+      ? httpBaseUrl === null
+        ? null
+        : await openFileInPreview({
+            threadRef,
+            filePath: decodeURIComponent(new URL(url).pathname),
+            workspaceRoot: undefined,
+            httpBaseUrl,
+            createAssetUrl,
+            openPreview,
+          })
+      : await openUrlInPreview({ threadRef, url, openPreview });
+    if (result === null) return;
     if (result._tag === "Failure") {
       const error = squashAtomCommandFailure(result);
       toastManager.add(
