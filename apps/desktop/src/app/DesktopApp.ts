@@ -46,6 +46,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { msg } from "gt-i18n";
 import { m } from "../i18n/messages.ts";
+import * as DesktopVoiceDuckingFork from "../voice-input/DesktopVoiceDucking.fork.ts"; // fork-hook: voice-input/ducking-shutdown-import
 
 const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
@@ -468,6 +469,7 @@ const scopedProgram = Effect.scoped(
       ),
     );
 
+    yield* DesktopVoiceDuckingFork.registerShutdown; // fork-hook: voice-input/ducking-program-finalizer
     yield* startup;
     yield* shutdown.awaitRequest;
   }),
