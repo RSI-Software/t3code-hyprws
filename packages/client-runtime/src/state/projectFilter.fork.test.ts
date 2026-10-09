@@ -33,6 +33,17 @@ const filterOf = (...keys: string[]): ProjectFilter => ({
 });
 
 describe("window project filter model", () => {
+  it("explicit empty inclusion stays empty through decoding and reconciliation", () => {
+    const none: ProjectFilter = { mode: "include", entries: [] };
+    const restored = decodeProjectFilter(JSON.parse(JSON.stringify(none)));
+    expect(restored).toEqual(none);
+    expect(projectFilterProjectKeys(restored!, [api, webLocal])).toEqual(new Set());
+    expect(reconcileProjectFilter(none, byRepository, true)).toBe(none);
+    const selected: ProjectFilter = { ...filterOf("github.com/acme/web"), mode: "include" };
+    const deleted = reconcileProjectFilter(selected, [], true);
+    expect(deleted).toEqual(none);
+    expect(projectFilterProjectKeys(deleted, [api])).toEqual(new Set());
+  });
   it("excludes grouped members across environments, while newly added projects stay visible", () => {
     const filter: ProjectFilter = { ...filterOf("github.com/acme/web"), mode: "exclude" };
     const available = [api, webLocal, webVm, docs, ref("local", "new")];
