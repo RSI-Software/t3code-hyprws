@@ -1295,36 +1295,40 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     threadRef,
   ]);
 
-  const createNewTerminal = useCallback(() => {
-    if (!hasTerminalWriteAccess() || !cwd) {
-      return;
-    }
-    const terminalId = allocateTerminalId();
-    storeNewTerminal(threadRef, terminalId);
-    bumpFocusRequestId();
-    void openTerminal({
-      environmentId: threadRef.environmentId,
-      input: {
-        threadId,
-        terminalId,
-        attachmentId: terminalAttachmentId(terminalId),
-        cwd,
-        ...(effectiveWorktreePath != null ? { worktreePath: effectiveWorktreePath } : {}),
-        env: runtimeEnv,
-      },
-    });
-  }, [
-    bumpFocusRequestId,
-    cwd,
-    effectiveWorktreePath,
-    allocateTerminalId,
-    runtimeEnv,
-    storeNewTerminal,
-    threadId,
-    threadRef,
-    openTerminal,
-    hasTerminalWriteAccess,
-  ]);
+  const createNewTerminal = useCallback(
+    (plainShell = false) => {
+      if (!hasTerminalWriteAccess() || !cwd) {
+        return;
+      }
+      const terminalId = allocateTerminalId();
+      storeNewTerminal(threadRef, terminalId, plainShell);
+      bumpFocusRequestId();
+      void openTerminal({
+        environmentId: threadRef.environmentId,
+        input: {
+          threadId,
+          terminalId,
+          attachmentId: terminalAttachmentId(terminalId),
+          ...(plainShell ? { plainShellFork: true } : {}),
+          cwd,
+          ...(effectiveWorktreePath != null ? { worktreePath: effectiveWorktreePath } : {}),
+          env: runtimeEnv,
+        },
+      });
+    },
+    [
+      bumpFocusRequestId,
+      cwd,
+      effectiveWorktreePath,
+      allocateTerminalId,
+      runtimeEnv,
+      storeNewTerminal,
+      threadId,
+      threadRef,
+      openTerminal,
+      hasTerminalWriteAccess,
+    ],
+  ); // fork-hook: zmux-estate/plain-shell-drawer-create
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
@@ -1458,7 +1462,7 @@ interface PersistentThreadTerminalPanelProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (plainShell?: boolean) => void; // fork-hook: zmux-estate/plain-shell-panel-action
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   splitShortcutLabel?: string | undefined;
@@ -6094,10 +6098,12 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const togglePreviewPanelStable = useStableCallback(togglePreviewPanel);
-  const addTerminalSurface = () => {
+  const addTerminalSurface = (plainShell = false) => {
     if (!hasTerminalWriteAccess() || !activeThreadRef || !activeThreadId || !activeProject) return;
     const cwd = gitCwd ?? activeProject.workspaceRoot;
     const terminalId = allocateTerminalId();
+    if (plainShell)
+      useTerminalUiStateStore.getState().setTerminalPlainShellFork(activeThreadRef, terminalId);
     useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId);
     noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     setTerminalFocusRequestId((value) => value + 1);
@@ -6107,6 +6113,7 @@ export default function ChatView(props: ChatViewProps) {
         threadId: activeThreadId,
         terminalId,
         attachmentId: terminalAttachmentId(terminalId),
+        ...(plainShell ? { plainShellFork: true } : {}),
         cwd,
         ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
         env: projectScriptRuntimeEnv({
@@ -6115,7 +6122,7 @@ export default function ChatView(props: ChatViewProps) {
         }),
       },
     });
-  };
+  }; // fork-hook: zmux-estate/plain-shell-panel-create
   const addTerminalSurfaceStable = useStableCallback(addTerminalSurface);
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
