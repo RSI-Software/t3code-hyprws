@@ -5,7 +5,8 @@
   initial-value: 0deg;
 }
 
-[data-voice-input-compact-fork="true"] [data-chat-composer-body="true"],
+[data-voice-input-compact-fork="true"]:not([data-voice-input-live-fork="true"])
+  [data-chat-composer-body="true"],
 [data-chat-composer-form="true"] [data-chat-composer-footer="true"],
 [data-chat-composer-form="true"] [data-voice-input-toolbar-fork="true"],
 [data-chat-composer-resting-controls="true"] {
@@ -19,11 +20,25 @@
 
 [data-voice-input-presented-fork="true"] [data-chat-composer-footer="true"],
 [data-voice-input-hidden-fork="true"],
-[data-voice-input-presented-fork="true"][data-voice-input-compact-fork="true"]
+[data-voice-input-presented-fork="true"][data-voice-input-compact-fork="true"]:not(
+    [data-voice-input-live-fork="true"]
+  )
   [data-chat-composer-body="true"] {
   --voice-toolbar-angle-fork: 90deg;
   opacity: 0;
   pointer-events: none;
+}
+
+/* Live dictation keeps the normal input above the compact recording controls. */
+[data-voice-input-presented-fork="true"][data-voice-input-compact-fork="true"][data-voice-input-live-fork="true"]
+  [data-chat-composer-body="true"] {
+  padding-bottom: 3rem;
+}
+
+[data-voice-input-presented-fork="true"][data-voice-input-live-fork="true"] .composer-tiptap {
+  max-height: 13rem;
+  overflow-y: auto;
+  white-space: pre-wrap !important;
 }
 
 [data-chat-composer-form="true"] [data-voice-input-toolbar-fork="true"] {
