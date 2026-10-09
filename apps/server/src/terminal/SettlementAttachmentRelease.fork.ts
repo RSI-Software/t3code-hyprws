@@ -47,10 +47,10 @@ export const makeSettlementAttachmentReleaseFork =
                     Effect.ensuring(Effect.sync(unsubscribe)),
                   );
                 if (Option.isNone(result)) {
-                  yield* Effect.logWarning(
-                    "settled managed viewer did not confirm exit; session preserved",
-                    { threadId, pid: process.pid },
-                  );
+                  yield* Effect.logWarning("settled managed viewer did not confirm exit", {
+                    threadId,
+                    pid: process.pid,
+                  });
                 }
                 return Option.isSome(result);
               }),
