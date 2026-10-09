@@ -23,6 +23,7 @@ import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
+import * as DesktopVoiceDuckingFork from "./voice-input/DesktopVoiceDucking.fork.ts"; // fork-hook: voice-input/ducking-layer-import
 import * as ElectronApp from "./electron/ElectronApp.ts";
 import * as ElectronDialog from "./electron/ElectronDialog.ts";
 import * as ElectronMenu from "./electron/ElectronMenu.ts";
@@ -145,6 +146,7 @@ const layerElectron = Layer.mergeAll(
 );
 
 const layerDesktopFoundation = Layer.mergeAll(
+  DesktopVoiceDuckingFork.layer, // fork-hook: voice-input/ducking-layer
   MacPermissions.layer,
   DesktopState.layer,
   DesktopShutdown.layer,
