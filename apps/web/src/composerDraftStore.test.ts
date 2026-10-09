@@ -1484,6 +1484,9 @@ describe("composerDraftStore project draft thread mapping", () => {
       store.setProjectDraftThreadId(projectRef, otherDraftId, { threadId: otherThreadId });
 
       expect(useComposerDraftStore.getState().getDraftThread(draftId)?.threadId).toBe(threadId);
+      // It survives a reload too, so the page is still there when the app comes back.
+      const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+      expect(persisted.draftThreadsByThreadKey[draftId]?.threadId).toBe(threadId);
     } finally {
       resetPreviewStateForTests();
     }
