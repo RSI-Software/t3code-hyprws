@@ -58,6 +58,40 @@ it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
   { excludeTestServices: true },
 )("TerminalManager", (it) => {
+  it.effect("delivers process exits only to the owning viewer and allows reattachment", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const ownerEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      const siblingEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      for (const [attachmentId, events] of [
+        ["viewer-a", ownerEvents],
+        ["viewer-b", siblingEvents],
+      ] as const) {
+        const release = yield* manager.attachStream(openInput({ attachmentId }), (event) =>
+          Ref.update(events, (current) => [...current, event]),
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(release));
+      }
+      const exited = yield* Deferred.make<TerminalEvent>();
+      const unsubscribe = yield* manager.subscribe((event) =>
+        event.type === "exited" ? Deferred.succeed(exited, event).pipe(Effect.asVoid) : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      ptyAdapter.processes[0]?.emitExit({ exitCode: 0, signal: null });
+      const event = yield* Deferred.await(exited);
+      expect(event).toMatchObject({ type: "exited", attachmentId: "viewer-a", exitCode: 0 });
+      expect(yield* Ref.get(ownerEvents)).toContainEqual(event);
+      expect((yield* Ref.get(siblingEvents)).some((entry) => entry.type === "exited")).toBe(false);
+      const reopened = yield* manager.open(openInput({ attachmentId: "viewer-a" }));
+      expect(reopened.status).toBe("running");
+      expect(ptyAdapter.processes).toHaveLength(3);
+      yield* manager.write({
+        ...openInput({ attachmentId: "viewer-a" }),
+        data: "echo recovered\r",
+      });
+      expect(ptyAdapter.processes[2]?.writes).toEqual(["echo recovered\r"]);
+    }),
+  );
   it.effect("keeps shell mode unchanged", () =>
     Effect.gen(function* () {
       const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
