@@ -108,6 +108,8 @@ export function buildProjectChooserActionItemFork(
 const NEW_THREAD_IN_VIEW = "projects";
 
 export interface CommandPaletteProjectScope {
+  /** Explicit inclusion can intentionally show no projects. */
+  readonly preserveEmpty?: boolean;
   /** The project keys the palette shows; `null` shows every project. */
   readonly projectKeys: ReadonlySet<string> | null;
   /** The toggle between the filter and every project; `null` when unscoped. */
@@ -153,8 +155,12 @@ export function useCommandPaletteProjectScopeFork(): CommandPaletteProjectScope 
           keepOpen: true,
           run: async () => setSearchAll(true),
         };
-    return { projectKeys: searchAll ? null : filterKeys, toggle };
-  }, [filterKeys, label, searchAll]);
+    return {
+      projectKeys: searchAll ? null : filterKeys,
+      toggle,
+      preserveEmpty: filter?.mode === "include",
+    };
+  }, [filterKeys, label, searchAll, filter?.mode]);
 }
 
 /**
@@ -206,17 +212,20 @@ export function useScopedPaletteThreadsFork<
 }
 
 /**
- * The palette's project picker entries under the scope. A scope that leaves no
- * entry (its projects not loaded yet) shows every project, so the picker is
- * never empty.
+ * Explicit inclusion keeps an empty picker empty. Legacy/exclusion filters
+ * retain the existing fallback when none of their projects are available.
  */
 export function scopePaletteProjectEntriesFork<
   Entry extends { readonly group: { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> } },
->(entries: ReadonlyArray<Entry>, projectKeys: ReadonlySet<string> | null): ReadonlyArray<Entry> {
+>(
+  entries: ReadonlyArray<Entry>,
+  projectKeys: ReadonlySet<string> | null,
+  preserveEmpty = false,
+): ReadonlyArray<Entry> {
   const scoped = scopeToProjectKeys(entries, projectKeys, (entry) =>
     entry.group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
   );
-  return scoped.length > 0 ? scoped : entries;
+  return scoped.length === 0 && !preserveEmpty ? entries : scoped;
 }
 
 /**

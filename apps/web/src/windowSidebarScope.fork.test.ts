@@ -299,6 +299,16 @@ describe("per-window sidebar project scope", () => {
 });
 
 describe("per-window project filter", () => {
+  it("No projects survives reopening without affecting another window", () => {
+    const local = new Storage();
+    const none: ProjectFilter = { mode: "include", entries: [] };
+    const a = openWindow(local, WINDOW_A);
+    a.filter.set(none);
+    a.choose(null);
+    openWindow(local, WINDOW_B).filter.set(bothProjects);
+    expect(openWindow(local, WINDOW_A).filter.get()).toEqual(none);
+    expect(openWindow(local, WINDOW_B).filter.get()).toEqual(bothProjects);
+  });
   it("restores an exclusion without mirroring it as an included project or clearing it", () => {
     const local = new Storage();
     const a = openWindow(local, WINDOW_A);
