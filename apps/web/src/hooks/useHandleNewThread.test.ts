@@ -287,3 +287,18 @@ describe.each([
     },
   );
 });
+
+it("starts a new draft for fresh requests even when an empty one could be reused", async () => {
+  testState.reset({
+    draftId: "draft-existing",
+    environmentId: "environment-ssh",
+    promotedTo: null,
+    threadId: "thread-existing",
+  });
+  const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+  const pendingOpen = useNewThreadHandler()(projectRef, { fresh: true });
+  testState.completeProjectFileRead(null);
+
+  // A page another app opened is its own thread, not the one the last page took.
+  expect(await pendingOpen).toEqual({ draftId: "draft-delayed", threadId: "thread-delayed" });
+});

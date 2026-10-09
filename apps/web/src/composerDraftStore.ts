@@ -40,6 +40,7 @@ import { DeepMutable } from "effect/Types";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
+import { readThreadPreviewState } from "./previewStateStore";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -1556,6 +1557,10 @@ function getComposerDraftState(
   return state.draftsByThreadKey[threadKey] ?? null;
 }
 
+function draftThreadHasOpenPreview(ref: ScopedThreadRef): boolean {
+  return Object.keys(readThreadPreviewState(ref).sessions).length > 0;
+}
+
 function isComposerThreadKeyInUse(mappings: Record<string, string>, threadKey: string): boolean {
   return Object.values(mappings).includes(threadKey);
 }
@@ -2792,6 +2797,14 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               !isDraftThreadPromoting(previousDraftThread) &&
               !composerDraftHasUserContent(
                 state.draftsByThreadKey[previousThreadKeyForLogicalProject],
+              ) &&
+              // A draft holding an open page, such as one started for a link
+              // another app opened, is work in progress even with an empty composer.
+              !(
+                previousDraftThread !== undefined &&
+                draftThreadHasOpenPreview(
+                  scopeThreadRef(previousDraftThread.environmentId, previousDraftThread.threadId),
+                )
               )
             ) {
               delete nextDraftThreadsByThreadKey[previousThreadKeyForLogicalProject];

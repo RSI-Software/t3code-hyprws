@@ -32,7 +32,10 @@ export function DesktopWebLinkCoordinator() {
     if (environmentId === null) return;
     const project = await openScratchProject(environmentId, "Could not open the link");
     if (!project) return;
-    const opened = await openThread(scopeProjectRef(project.environmentId, project.id));
+    // Each link is its own thread, even before the user types in the last one.
+    const opened = await openThread(scopeProjectRef(project.environmentId, project.id), {
+      fresh: true,
+    });
     if (!opened) return;
     const threadRef = scopeThreadRef(project.environmentId, opened.threadId);
     useRightPanelStore.getState().requestMaximize(threadRef);
