@@ -278,6 +278,7 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 - [Install and first run](./docs/user/install.md)
 - [Browser bookmarks](./docs/fork/user/browser.md)
+- [Desktop dictation](./docs/fork/user/dictation.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Source control](./docs/user/source-control.md)
