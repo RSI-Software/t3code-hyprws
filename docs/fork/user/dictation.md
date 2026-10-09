@@ -4,9 +4,9 @@ Open **Settings > Dictation** and select an environment.
 Choose your microphone; allow microphone access to show device names.
 Choose a speech service, enter its endpoint and API key if required, enable dictation, then save.
 
-In chat, click the mic, speak, then click the red mic to stop.
+In chat, click the mic, speak, then click the check to finish.
 Review or edit the transcript before sending.
-Press Escape to cancel; editing the draft during recording prevents a stale transcript from replacing your text.
+Click X or press Escape to cancel.
 
 **Meta Muse:** use the default endpoint and model with your Meta API key.
 The mic stays disabled until the saved speech configuration is complete.
@@ -15,5 +15,5 @@ The mic stays disabled until the saved speech configuration is complete.
 Other listed services are unavailable until their adapters are implemented.
 
 Endpoints resolve from the selected environment's server: `localhost` means that server's machine.
-Audio stays in memory, is limited to five minutes, and is uploaded after Stop.
+Audio stays in memory, is limited to five minutes, and is uploaded when recording finishes.
 Keys are stored on that environment; changing the service or endpoint clears a saved key.
