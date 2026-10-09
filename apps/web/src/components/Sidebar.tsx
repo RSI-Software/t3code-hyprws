@@ -61,14 +61,7 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  FolderIcon,
-  ListFilterIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, SettingsIcon } from "lucide-react"; // fork-hook: workspaces/chooser-icons
 import {
   useEffect,
   useLayoutEffect,
@@ -96,12 +89,15 @@ import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-
 import { useWindowProjectFilter, useWindowProjectFilterChange } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
 import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import {
-  ProjectChooserRowCheckFork,
   ProjectChooserShowOnlyButtonFork,
   ProjectChooserTriggerIconFork,
   ProjectChooserUnavailableFork,
   useSidebarProjectChooserFork,
 } from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
+import {
+  ProjectChooserModeFork,
+  ProjectChooserRowMarkFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-mode-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -1183,7 +1179,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1221,11 +1216,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     (item) => item.value,
     projectScopeMenuState.open,
   );
-  const selectedProjectScopeItem =
-    projectScopeKeys.length > 1
-      ? null
-      : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
-        projectScopeItems[0]!);
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,
@@ -1234,7 +1224,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedProjectKeys = windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
   useWindowProjectFilterChange(clearSelection); // fork-hook: workspaces/chooser-clear-selection
   const threadSearch = useThreadSearch(
     connectedEnvironmentIds,
@@ -3163,36 +3153,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
-                  onValueChange={(item, eventDetails) => {
+                  value={projectChooser.value} // fork-hook: workspaces/chooser-value
+                  onValueChange={(items) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    if (item.value === "all") {
-                      setProjectScopeKeys([]);
-                    } else if (
-                      eventDetails.event instanceof MouseEvent &&
-                      eventDetails.event.shiftKey
-                    ) {
-                      // Canceling skips Base UI's commit, which would freeze the search query, and its close.
-                      eventDetails.cancel();
-                      toggleProjectScopeKey(item.value);
-                    } else {
-                      setProjectScopeKeys([item.value]);
-                    }
-                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
-                  }}
+                    projectChooser.onValueChange(items);
+                  }} // fork-hook: workspaces/chooser-change
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroups.length > 0
-                            ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                            : "Filter threads by project"
-                        }
+                        label={projectChooser.label} // fork-hook: workspaces/chooser-label
                       />
                     }
                   >
@@ -3292,9 +3265,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
-                            {/* fork-hook: workspaces/chooser-row-check */}
-                            <ProjectChooserRowCheckFork
+                            {/* fork-hook: workspaces/chooser-row-mark */}
+                            <ProjectChooserRowMarkFork
                               selected={projectChooser.selectedValues.has(item.value)}
+                              excluded={
+                                windowFilter.filter.mode === "exclude" && item.value !== "all"
+                              }
                             />
                             {/* fork-hook-end */}
                             <ProjectScopeRowIcon isSelected={isSelected}>
@@ -3305,6 +3281,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               )}
                             </ProjectScopeRowIcon>
                             <span className="min-w-0 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-mode */}
+                            {item.value === "all" ? (
+                              <ProjectChooserModeFork
+                                filter={windowFilter.filter}
+                                setFilter={windowFilter.setFilter}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {/* fork-hook: workspaces/chooser-row-unavailable */}
                             <ProjectChooserUnavailableFork
                               unavailable={projectChooser.unavailableValues.has(item.value)}
