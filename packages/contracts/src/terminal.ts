@@ -37,6 +37,7 @@ export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionIn
 
 export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
+  plainShellFork: Schema.optional(Schema.Boolean), // fork-hook: zmux-estate/plain-shell-open-contract
   cwd: TrimmedNonEmptyStringSchema,
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
@@ -48,6 +49,7 @@ export type TerminalOpenInput = typeof TerminalOpenInput.Type;
 
 export const TerminalAttachInput = Schema.Struct({
   ...TerminalSessionInput.fields,
+  plainShellFork: Schema.optional(Schema.Boolean), // fork-hook: zmux-estate/plain-shell-attach-contract
   cwd: Schema.optional(TrimmedNonEmptyStringSchema),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
@@ -81,6 +83,7 @@ export type TerminalClearInput = Schema.Codec.Encoded<typeof TerminalClearInput>
 
 export const TerminalRestartInput = Schema.Struct({
   ...TerminalSessionInput.fields,
+  plainShellFork: Schema.optional(Schema.Boolean), // fork-hook: zmux-estate/plain-shell-restart-contract
   cwd: TrimmedNonEmptyStringSchema,
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: TerminalColsSchema,
