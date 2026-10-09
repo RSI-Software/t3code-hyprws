@@ -57,6 +57,9 @@ Attachment identities and follow or pin preferences are never sent in a move req
 
 ## Shell behavior
 
+To open a shell outside zmux, choose **New plain shell** from the terminal's **+** menu.
+That terminal keeps its plain-shell choice when you reload or follow another checkout.
+
 Managed attachment starts the shell through zmux in explicit escape mode.
 Shell startup files and environment variables still apply inside the attached shell.
 A restorable session is restored through zmux before attachment.
