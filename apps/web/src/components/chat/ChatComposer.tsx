@@ -6502,6 +6502,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...{
         "data-voice-input-presented-fork": desktopVoiceFork.presented ? "true" : undefined,
+        "data-voice-input-live-fork": desktopVoiceFork.live ? "true" : undefined, // fork-hook: voice-input/live-presentation
         "data-voice-input-compact-fork": isComposerResting ? "true" : undefined,
       }} /* fork-hook: voice-input/presentation */
       {...threadContextDropTargetProps()}
@@ -6711,7 +6712,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   desktopVoiceFork.busy || (desktopVoiceFork.presented && isComposerResting)
                     ? true
                     : undefined,
-                "aria-hidden": desktopVoiceFork.presented && isComposerResting ? true : undefined,
+                "aria-hidden":
+                  desktopVoiceFork.presented && isComposerResting && !desktopVoiceFork.live
+                    ? true
+                    : undefined, // fork-hook: voice-input/live-editor-presentation
               }} /* fork-hook: voice-input/editor-presentation */
               className={cn(
                 "relative px-3 pb-2 sm:px-4",
@@ -7185,6 +7189,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
                     draftKey={composerDraftTargetKey}
+                    voicePreviewFork={
+                      desktopVoiceFork.preview
+                    } /* fork-hook: voice-input/preview-editor */
                     ariaLabel="Message"
                     suggestionListId={composerSuggestionListId}
                     activeSuggestionId={
