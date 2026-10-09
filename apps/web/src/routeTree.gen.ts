@@ -16,6 +16,7 @@ import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
+import { Route as SettingsDictationRouteImport } from './routes/settings.dictation'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ProjectSplatRouteImport } from './routes/project.$'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
@@ -87,6 +88,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatRoute,
+} as any)
+const SettingsDictationRoute = SettingsDictationRouteImport.update({
+  id: '/settings/dictation',
+  path: '/settings/dictation',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   id: '/projects/$projectKey',
@@ -294,6 +300,7 @@ export interface FileRoutesByFullPath {
   '/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/dictation': typeof SettingsDictationRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/settings/about': typeof ChatSettingsAboutRoute
@@ -338,6 +345,7 @@ export interface FileRoutesByTo {
   '/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/dictation': typeof SettingsDictationRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -385,6 +393,7 @@ export interface FileRoutesById {
   '/_chat/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/settings/dictation': typeof SettingsDictationRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -433,6 +442,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/project/$'
     | '/projects/$projectKey'
+    | '/settings/dictation'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/settings/about'
@@ -477,6 +487,7 @@ export interface FileRouteTypes {
     | '/usage'
     | '/project/$'
     | '/projects/$projectKey'
+    | '/settings/dictation'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -523,6 +534,7 @@ export interface FileRouteTypes {
     | '/_chat/usage'
     | '/project/$'
     | '/projects/$projectKey'
+    | '/settings/dictation'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -565,6 +577,7 @@ export interface RootRouteChildren {
   WelcomeRoute: typeof WelcomeRoute
   ProjectSplatRoute: typeof ProjectSplatRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
+  SettingsDictationRoute: typeof SettingsDictationRoute
   ThreadsEnvironmentIdThreadIdRoute: typeof ThreadsEnvironmentIdThreadIdRoute
 }
 
@@ -618,6 +631,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
+    }
+    '/settings/dictation': {
+      id: '/settings/dictation'
+      path: '/settings/dictation'
+      fullPath: '/settings/dictation'
+      preLoaderRoute: typeof SettingsDictationRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/projects/$projectKey': {
       id: '/projects/$projectKey'
@@ -978,6 +998,7 @@ const rootRouteChildren: RootRouteChildren = {
   WelcomeRoute: WelcomeRoute,
   ProjectSplatRoute: ProjectSplatRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
+  SettingsDictationRoute: SettingsDictationRoute,
   ThreadsEnvironmentIdThreadIdRoute: ThreadsEnvironmentIdThreadIdRoute,
 }
 export const routeTree = rootRouteImport
