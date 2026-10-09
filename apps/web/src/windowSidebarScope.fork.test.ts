@@ -299,6 +299,23 @@ describe("per-window sidebar project scope", () => {
 });
 
 describe("per-window project filter", () => {
+  it("restores an exclusion without mirroring it as an included project or clearing it", () => {
+    const local = new Storage();
+    const a = openWindow(local, WINDOW_A);
+    const excluded: ProjectFilter = { mode: "exclude", entries: [entry("github.com/acme/web")] };
+    a.filter.set(excluded);
+    expect(a.scopeKey()).toBeNull();
+    a.choose(null);
+    expect(a.filter.get()).toEqual(excluded);
+    const restored = openWindow(local, WINDOW_A);
+    expect(restored.filter.get()).toEqual(excluded);
+    expect(restored.scopeKey()).toBeNull();
+    restored.choose("github.com/acme/api");
+    expect(restored.filter.get()).toEqual({
+      entries: [{ key: "github.com/acme/api", members: [] }],
+    });
+  });
+
   it("restart: a window reopens on every entry it selected", () => {
     const local = new Storage();
     const a = openWindow(local, WINDOW_A);
