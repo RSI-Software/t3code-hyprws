@@ -69,6 +69,15 @@ describe("palette project scope", () => {
     expect(scopePaletteProjectEntriesFork(entries, null)).toBe(entries);
   });
 
+  it("explicit inclusion keeps No projects empty, with Search all as the escape", () => {
+    const entries = [entryOf("api"), entryOf("web")];
+    expect(scopePaletteProjectEntriesFork(entries, new Set(), true)).toEqual([]);
+    expect(scopePaletteProjectEntriesFork(entries, new Set(["local:gone"]), true)).toEqual([]);
+    expect(scopePaletteProjectEntriesFork(entries, null, true)).toBe(entries);
+    // Preserve the known parent all-excluded picker fallback.
+    expect(scopePaletteProjectEntriesFork(entries, new Set())).toBe(entries);
+  });
+
   it("Search all: the pushed new-thread picker follows the scope, keeping its lead first", () => {
     const pushed = [{ value: "projects", label: "Projects", items: [item("b"), item("a")] }];
     const refreshed = refreshNewThreadInViewFork(pushed, [item("a"), item("b"), item("c")]);
