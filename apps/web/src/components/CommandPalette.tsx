@@ -630,10 +630,14 @@ function OpenCommandPaletteDialog(props: {
     groups: projectGroups,
     preferredProjectRef: contextualProjectRef,
   });
-  const pickerProjects = scopePaletteProjectEntriesFork(projectPickerEntries, paletteProjectScope.projectKeys).map(({ group, targetProject }) => ({ // fork-hook: workspaces/palette-scope-projects
+  const pickerProjects = scopePaletteProjectEntriesFork(
+    projectPickerEntries,
+    paletteProjectScope.projectKeys,
+    paletteProjectScope.preserveEmpty,
+  ).map(({ group, targetProject }) => ({
     ...targetProject,
     displayName: group.displayName,
-  }));
+  })); // fork-hook: workspaces/palette-scope-projects
   const projectGroupByTargetKey = new Map(
     projectPickerEntries.map(({ group, targetProject }) => [
       `${targetProject.environmentId}:${targetProject.id}`,

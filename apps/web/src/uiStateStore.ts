@@ -762,3 +762,5 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     debouncedPersistState.flush();
   });
 }
+
+export { setSidebarProjectScopeKey }; // fork-hook: workspaces/sidebar-scope-key-export
