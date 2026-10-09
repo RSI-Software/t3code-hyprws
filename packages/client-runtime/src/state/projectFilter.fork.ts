@@ -1,7 +1,7 @@
 // A window's project filter (RSI-Software/t3code-hyprws#1338): any number of
-// scope-dropdown entries, each keeping the project refs it stands for. An
-// empty filter shows every project. The filter is client-local; each client
-// stores it and reconciles it against its current project groups.
+// scope-dropdown entries, each keeping the project refs it stands for. A legacy
+// empty filter shows every project; explicit inclusion can show none. Each
+// client stores it and reconciles it against its current project groups.
 import { ScopedProjectRef } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -14,8 +14,9 @@ export interface ProjectFilterEntry {
   readonly members: ReadonlyArray<ScopedProjectRef>;
 }
 
-/** `entries` empty = all projects. */
+/** Empty explicit inclusion shows none; a legacy empty filter still shows all. */
 export interface ProjectFilter {
+  readonly mode?: "include" | "exclude";
   readonly entries: ReadonlyArray<ProjectFilterEntry>;
 }
 
@@ -47,23 +48,26 @@ export function projectFilterFromKey(
 
 /** The single-select chooser's value: the one entry's key, else `null`. */
 export function projectFilterScopeKey(filter: ProjectFilter): string | null {
-  return filter.entries.length === 1 ? filter.entries[0]!.key : null;
+  return filter.mode !== "exclude" && filter.entries.length === 1 ? filter.entries[0]!.key : null;
 }
 
-/** The scoped project keys the filter shows; `null` shows every project. */
-export function projectFilterProjectKeys(filter: ProjectFilter): ReadonlySet<string> | null {
-  if (filter.entries.length === 0) return null;
-  return new Set(filter.entries.flatMap((entry) => entry.members.map(scopedProjectKey)));
+/** The keys shown; exclusion uses the current catalog so future projects remain visible. `null` means all. */
+export function projectFilterProjectKeys(
+  filter: ProjectFilter,
+  available: ReadonlyArray<ScopedProjectRef> = [],
+): ReadonlySet<string> | null {
+  if (filter.entries.length === 0 && filter.mode !== "include") return null;
+  const selected = new Set(filter.entries.flatMap((entry) => entry.members.map(scopedProjectKey)));
+  return filter.mode === "exclude"
+    ? new Set(available.map(scopedProjectKey).filter((key) => !selected.has(key)))
+    : selected;
 }
 
 /**
- * Follows the filter onto the current groups. An entry whose group still
- * exists takes its members, so new members join. An entry whose key is gone
- * becomes the groups now holding its members, so a grouping change re-maps
- * it. An entry nothing resolves stays selected until the project list is
- * `settled`, because an offline environment cannot prove its project gone;
- * once settled it is dropped, and dropping the last entry returns to all.
- * Returns `filter` itself when nothing changed.
+ * Follows the filter onto the current groups: an entry takes its group's members, or the groups
+ * now holding its members once its key is gone. An unresolved entry stays until the list is
+ * `settled`, since an offline environment cannot prove it gone. Emptied explicit inclusion stays
+ * empty; legacy filters return to all. Returns `filter` itself when nothing changed.
  */
 export function reconcileProjectFilter(
   filter: ProjectFilter,
@@ -99,10 +103,13 @@ export function reconcileProjectFilter(
   const unchanged =
     entries.length === filter.entries.length &&
     entries.every((entry, index) => sameEntry(entry, filter.entries[index]!));
-  return unchanged ? filter : { entries };
+  return unchanged ? filter : { ...filter, entries };
 }
 
-const StoredFilter = Schema.Struct({ entries: Schema.Array(Schema.Unknown) });
+const StoredFilter = Schema.Struct({
+  mode: Schema.optional(Schema.Literals(["include", "exclude"])),
+  entries: Schema.Array(Schema.Unknown),
+});
 const StoredEntry = Schema.Struct({
   key: Schema.String.check(Schema.isNonEmpty()),
   members: Schema.Array(Schema.Unknown),
@@ -116,6 +123,7 @@ export function decodeProjectFilter(value: unknown): ProjectFilter | null {
   const stored = decodeStoredFilter(value);
   if (Option.isNone(stored)) return null;
   return {
+    ...(stored.value.mode === undefined ? {} : { mode: stored.value.mode }),
     entries: stored.value.entries.flatMap((raw) => {
       const entry = decodeStoredEntry(raw);
       if (Option.isNone(entry)) return [];
