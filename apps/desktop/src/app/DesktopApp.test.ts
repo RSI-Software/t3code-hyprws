@@ -74,6 +74,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as LoopbackTunnel from "../preview/LoopbackTunnel.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as DesktopVoiceDuckingFork from "../voice-input/DesktopVoiceDucking.fork.ts"; // fork-hook: voice-input/desktop-app-test-ducking-import
 import * as HyprlandPlacement from "../window/HyprlandPlacement.ts"; // fork-hook: multi-window/desktop-app-test-placement-import
 import * as AppleSpeech from "../speech/AppleSpeech.ts";
 
@@ -237,6 +238,7 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           Layer.mock(ElectronTheme.ElectronTheme, {}),
           Layer.mock(ElectronWindow.ElectronWindow, {}),
           Layer.mock(MacPermissions.MacPermissions, {}),
+          Layer.mock(DesktopVoiceDuckingFork.DesktopVoiceDuckingFork, { shutdown: Effect.void }), // fork-hook: voice-input/desktop-app-test-ducking
           Layer.mock(HyprlandPlacement.HyprlandPlacement, { isAvailable: false }), // fork-hook: multi-window/desktop-app-test-placement
           Layer.mock(AppleSpeech.AppleSpeech, {}),
           Layer.mock(LoopbackTunnel.LoopbackTunnel, {}),
