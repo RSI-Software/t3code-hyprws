@@ -9,6 +9,7 @@ import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
   composerDraftHasUserContent,
+  draftThreadHasOpenPreview,
   markPromotedDraftThreadByRef,
   type DraftId,
   type DraftThreadEnvMode,
@@ -72,12 +73,6 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
-        /**
-         * Always start a new draft, even when the project has an empty one to
-         * reuse. For work that is not typed into the composer, such as a page
-         * opened from another app, which would otherwise land in the same draft.
-         */
-        fresh?: boolean;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
@@ -98,6 +93,11 @@ export function useNewThreadHandler() {
       } = useComposerDraftStore.getState();
       const requestingRouteHref = router.state.location.href;
       const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
+      // Typed content, attachments, or an open page make a draft work in
+      // progress that a new-thread request must not take over.
+      const draftHasWork = (draftId: DraftId) =>
+        composerDraftHasUserContent(getComposerDraft(draftId)) ||
+        draftThreadHasOpenPreview(getDraftSession(draftId));
       const currentRouteTarget = getCurrentRouteTarget();
       // A new thread carries the user's working mode from the thread being
       // viewed. The target project's configured model still wins; interaction
@@ -195,9 +195,7 @@ export function useNewThreadHandler() {
       // fresh draft instead — the remap in the store preserves invested
       // drafts rather than deleting them.
       const emptyStoredDraftThread =
-        !options?.fresh &&
-        reusableStoredDraftThread &&
-        !composerDraftHasUserContent(getComposerDraft(reusableStoredDraftThread.draftId))
+        reusableStoredDraftThread && !draftHasWork(reusableStoredDraftThread.draftId)
           ? reusableStoredDraftThread
           : null;
       const latestActiveDraftThread: DraftThreadState | null = currentRouteTarget
@@ -250,9 +248,7 @@ export function useNewThreadHandler() {
             const remappedMeanwhile =
               getDraftSessionByLogicalProjectKey(logicalProjectKey)?.draftId !==
               emptyStoredDraftThread.draftId;
-            const investedMeanwhile = composerDraftHasUserContent(
-              getComposerDraft(emptyStoredDraftThread.draftId),
-            );
+            const investedMeanwhile = draftHasWork(emptyStoredDraftThread.draftId);
             if (openedMeanwhile || promotedMeanwhile || remappedMeanwhile || investedMeanwhile) {
               return null;
             }
@@ -334,14 +330,13 @@ export function useNewThreadHandler() {
       }
 
       if (
-        !options?.fresh &&
         latestActiveDraftThread &&
         currentRouteTarget?.kind === "draft" &&
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null &&
         // Same content rule as above: a new-thread request while viewing an
         // invested draft mints a fresh one instead of repurposing it.
-        !composerDraftHasUserContent(getComposerDraft(currentRouteTarget.draftId))
+        !draftHasWork(currentRouteTarget.draftId)
       ) {
         if (
           hasBranchOption ||
@@ -378,7 +373,6 @@ export function useNewThreadHandler() {
         // reuse the winner instead, like the synchronous path above does.
         const racedDraft = getDraftSessionByLogicalProjectKey(logicalProjectKey);
         if (
-          !options?.fresh &&
           racedDraft &&
           // Only a draft REGISTERED during the await counts as a raced
           // winner. An invested draft this invocation deliberately declined
