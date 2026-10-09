@@ -71,6 +71,54 @@ function createSession() {
 }
 
 describe("desktop dictation across navigation", () => {
+  it("replaces live hypotheses without changing the draft and commits the final once", async () => {
+    const { session, result, entered } = createSession();
+    const original = createDraft("original");
+    await session.start(original.target);
+    session.previewTranscript("spoken", "en-US");
+    session.previewTranscript("spoken text", "en-US");
+    expect(session.getSnapshot().preview?.text).toBe("spoken text");
+    expect(original.read()).toBe("hello world");
+    expect(original.commit).not.toHaveBeenCalled();
+    const finishing = session.controller.stop();
+    await entered.promise;
+    result.resolve("Final words.");
+    await finishing;
+    expect(original.commit).toHaveBeenCalledOnce();
+    expect(original.read()).toBe("hello Final words.");
+    expect(session.getSnapshot().preview).toBeNull();
+  });
+
+  it.each(["edited", "edited and undone"])(
+    "clears and refuses live preview when %s",
+    async (change) => {
+      const { session } = createSession();
+      const original = createDraft("original");
+      await session.start(original.target);
+      session.previewTranscript("spoken", "en-US");
+      expect(session.getSnapshot().preview).not.toBeNull();
+      original.change("changed draft");
+      expect(session.getSnapshot().preview).toBeNull();
+      if (change === "edited and undone") original.change("hello world");
+      session.previewTranscript("late words", "en-US");
+      expect(session.getSnapshot().preview).toBeNull();
+      session.controller.cancel();
+    },
+  );
+
+  it("clears live preview when leaving a recording and ignores late words", async () => {
+    const { session } = createSession();
+    const original = createDraft("original");
+    const detach = session.attach("original", vi.fn());
+    await session.start(original.target);
+    session.previewTranscript("spoken", "en-US");
+    detach();
+    session.previewTranscript("late words", "en-US");
+    expect(session.getSnapshot().preview).toBeNull();
+    expect(original.read()).toBe("hello world");
+    expect(original.commit).not.toHaveBeenCalled();
+  });
+
   it.each(["existing thread", "new thread", "settings"])(
     "finishes in the original draft after navigating to %s",
     async (destination) => {
