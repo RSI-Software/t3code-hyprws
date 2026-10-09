@@ -63,8 +63,9 @@ import { buildLinkGitHubIssueActionItemFork } from "./CommandPalette.fork"; // f
 import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
 import {
   dropNewThreadHintFork,
-  refreshNewThreadInViewFork,
-  scopePaletteProjectEntriesFork,
+  paletteGroupsInputFork,
+  scopePalettePickerProjectsFork,
+  scopePaletteThreadItemsFork,
   useCommandPaletteProjectScopeFork,
   useNewThreadHintFork,
   withProjectScopeToggleFork,
@@ -619,10 +620,11 @@ function OpenCommandPaletteDialog(props: {
     groups: pickableProjectGroups(projectGroups),
     preferredProjectRef: contextualProjectRef,
   });
-  const pickerProjects = scopePaletteProjectEntriesFork(projectPickerEntries, paletteProjectScope.projectKeys).map(({ group, targetProject }) => ({ // fork-hook: workspaces/palette-scope-projects
+  const pickerProjects = projectPickerEntries.map(({ group, targetProject }) => ({
     ...targetProject,
     displayName: group.displayName,
   }));
+  scopePalettePickerProjectsFork(pickerProjects, projectPickerEntries, paletteProjectScope); // fork-hook: workspaces/palette-scope-projects
   const projectGroupByTargetKey = new Map(
     projectPickerEntries.map(({ group, targetProject }) => [
       `${targetProject.environmentId}:${targetProject.id}`,
@@ -995,8 +997,8 @@ function OpenCommandPaletteDialog(props: {
   } = useCommandPaletteThreadItems({
     activeThread: activeThread ?? null,
     threadSearchQuery,
-    projectKeysFork: paletteProjectScope.projectKeys,
-  }); // fork-hook: workspaces/palette-scope-threads
+  });
+  scopePaletteThreadItemsFork(allThreadItems, paletteProjectScope.projectKeys); // fork-hook: workspaces/palette-scope-threads
   // Recent means used recently: written in or opened, whichever is later. The
   // open thread would always lead that list, so it is left out.
   const activeThreadValue = activeThread
@@ -1985,13 +1987,14 @@ function OpenCommandPaletteDialog(props: {
               ? changeThemeItem.groups
               : currentView?.groups[0]?.value === "appearance"
                 ? changeAppearanceItem.groups
-                : refreshNewThreadInViewFork(currentView?.groups ?? rootGroups, projectThreadItems); // fork-hook: workspaces/palette-scope-picker
+                : (currentView?.groups ?? rootGroups);
 
   const isLinkedThreadSearch =
     linkedThreadSearch?.linkedThreads !== undefined && deferredQuery === linkedThreadSearch.query;
   const searchedGroups = filterCommandPaletteGroups(
     {
       activeGroups,
+      ...paletteGroupsInputFork(activeGroups, projectThreadItems), // fork-hook: workspaces/palette-scope-picker
       query: deferredQuery,
       isInSubmenu: currentView !== null,
       ...(deferredQuery.trim().length > 0
