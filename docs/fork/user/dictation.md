@@ -2,6 +2,11 @@
 
 Open **Settings > Dictation** and select an environment.
 Choose your microphone; allow microphone access to show device names.
+Enable **Speaker ducking** to lower selected outputs while recording (Linux with PipeWire or PulseAudio).
+Check one or more outputs; **System default** selects the default at recording start.
+**Target volume** is a percentage of each output’s starting volume; set separate fade-down and fade-back-up times in milliseconds (`0` is instant, `1000` is one second).
+These preferences save automatically on this desktop.
+Stop, cancel, or closing the recording window restores volume; manual volume adjustments and mute state are preserved.
 Choose a speech service, enter its endpoint and API key if required, enable dictation, then save.
 
 In chat, click the mic, speak, then click the check to finish.

@@ -107,6 +107,46 @@ it("reports an unavailable selected microphone instead of recording from another
   expect(getUserMedia).toHaveBeenCalledOnce();
 });
 
+it("ducks outputs before capture and releases ducking as soon as the microphone stops", async () => {
+  const { track } = microphoneFixture();
+  const start = vi.fn(async () => {});
+  const stop = vi.fn(async () => {
+    expect(track.stop).toHaveBeenCalled();
+  });
+  const recorder = new DesktopVoiceRecorderFork(vi.fn(), () => "", { start, stop });
+  await recorder.prepareToRecordAsync();
+  expect(start).toHaveBeenCalledOnce();
+  expect(stop).not.toHaveBeenCalled();
+  recorder.record({ forDuration: 300 });
+  await recorder.stop();
+  expect(stop).toHaveBeenCalled();
+});
+
+it("releases the microphone and any partial ducking when output control fails", async () => {
+  const { track } = microphoneFixture();
+  const stop = vi.fn(async () => {});
+  const recorder = new DesktopVoiceRecorderFork(vi.fn(), () => "", {
+    start: async () => {
+      throw new Error("Speaker unavailable");
+    },
+    stop,
+  });
+  await expect(recorder.prepareToRecordAsync()).rejects.toThrow("Speaker unavailable");
+  expect(track.stop).toHaveBeenCalledOnce();
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it("restores ducking on the automatic recording limit", async () => {
+  vi.useFakeTimers();
+  microphoneFixture();
+  const stop = vi.fn(async () => {});
+  const recorder = new DesktopVoiceRecorderFork(vi.fn(), () => "", { start: async () => {}, stop });
+  await recorder.prepareToRecordAsync();
+  recorder.record({ forDuration: 1 });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(stop).toHaveBeenCalled();
+});
+
 it("meters the active microphone and closes its audio context on Stop", async () => {
   microphoneFixture();
   const close = vi.fn(async () => {});
@@ -191,9 +231,15 @@ function liveMicrophoneFixture() {
 it("flushes live PCM before ending input and releases the microphone without cancelling the final", async () => {
   const h = liveMicrophoneFixture();
   const status = vi.fn();
-  const recorder = new DesktopVoiceRecorderFork(status);
+  const start = vi.fn(async () => {});
+  const stop = vi.fn(async () => {
+    expect(h.track.stop).toHaveBeenCalledOnce();
+    expect(h.live.finish).toHaveBeenCalledOnce();
+  });
+  const recorder = new DesktopVoiceRecorderFork(status, () => "", { start, stop });
   recorder.useLiveSession(h.live);
   await recorder.prepareToRecordAsync();
+  expect(start).toHaveBeenCalledOnce();
   recorder.record({ forDuration: 300 });
   await Promise.all([recorder.stop(), recorder.stop()]);
   expect(h.sent).toEqual(["start", "stop"]);
@@ -206,17 +252,20 @@ it("flushes live PCM before ending input and releases the microphone without can
   expect(h.track.stop).toHaveBeenCalledOnce();
   expect(h.close).toHaveBeenCalledOnce();
   expect(h.node.port.close).toHaveBeenCalledOnce();
+  expect(stop).toHaveBeenCalledOnce();
   expect(status).toHaveBeenCalledOnce();
   recorder.delete(recorder.uri!);
 });
 it("cancels live capture on release and can then record through the upload path", async () => {
   const h = liveMicrophoneFixture();
-  const recorder = new DesktopVoiceRecorderFork(vi.fn());
+  const stop = vi.fn(async () => {});
+  const recorder = new DesktopVoiceRecorderFork(vi.fn(), () => "", { start: async () => {}, stop });
   recorder.useLiveSession(h.live);
   await recorder.prepareToRecordAsync();
   recorder.record({ forDuration: 300 });
   recorder.release();
   expect(h.live.cancel).toHaveBeenCalledOnce();
+  expect(stop).toHaveBeenCalledOnce();
   recorder.delete(recorder.uri!);
   await recorder.prepareToRecordAsync();
   recorder.record({ forDuration: 300 });
