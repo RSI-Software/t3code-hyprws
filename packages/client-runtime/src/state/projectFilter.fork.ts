@@ -14,8 +14,9 @@ export interface ProjectFilterEntry {
   readonly members: ReadonlyArray<ScopedProjectRef>;
 }
 
-/** `entries` empty = all projects. */
+/** Empty entries show all projects; absent mode preserves legacy inclusion filters. */
 export interface ProjectFilter {
+  readonly mode?: "include" | "exclude";
   readonly entries: ReadonlyArray<ProjectFilterEntry>;
 }
 
@@ -47,13 +48,19 @@ export function projectFilterFromKey(
 
 /** The single-select chooser's value: the one entry's key, else `null`. */
 export function projectFilterScopeKey(filter: ProjectFilter): string | null {
-  return filter.entries.length === 1 ? filter.entries[0]!.key : null;
+  return filter.mode !== "exclude" && filter.entries.length === 1 ? filter.entries[0]!.key : null;
 }
 
-/** The scoped project keys the filter shows; `null` shows every project. */
-export function projectFilterProjectKeys(filter: ProjectFilter): ReadonlySet<string> | null {
+/** The keys shown; exclusion uses the current catalog so future projects remain visible. `null` means all. */
+export function projectFilterProjectKeys(
+  filter: ProjectFilter,
+  available: ReadonlyArray<ScopedProjectRef> = [],
+): ReadonlySet<string> | null {
   if (filter.entries.length === 0) return null;
-  return new Set(filter.entries.flatMap((entry) => entry.members.map(scopedProjectKey)));
+  const selected = new Set(filter.entries.flatMap((entry) => entry.members.map(scopedProjectKey)));
+  return filter.mode === "exclude"
+    ? new Set(available.map(scopedProjectKey).filter((key) => !selected.has(key)))
+    : selected;
 }
 
 /**
@@ -99,10 +106,13 @@ export function reconcileProjectFilter(
   const unchanged =
     entries.length === filter.entries.length &&
     entries.every((entry, index) => sameEntry(entry, filter.entries[index]!));
-  return unchanged ? filter : { entries };
+  return unchanged ? filter : { ...filter, entries };
 }
 
-const StoredFilter = Schema.Struct({ entries: Schema.Array(Schema.Unknown) });
+const StoredFilter = Schema.Struct({
+  mode: Schema.optional(Schema.Literals(["include", "exclude"])),
+  entries: Schema.Array(Schema.Unknown),
+});
 const StoredEntry = Schema.Struct({
   key: Schema.String.check(Schema.isNonEmpty()),
   members: Schema.Array(Schema.Unknown),
@@ -116,6 +126,7 @@ export function decodeProjectFilter(value: unknown): ProjectFilter | null {
   const stored = decodeStoredFilter(value);
   if (Option.isNone(stored)) return null;
   return {
+    ...(stored.value.mode === undefined ? {} : { mode: stored.value.mode }),
     entries: stored.value.entries.flatMap((raw) => {
       const entry = decodeStoredEntry(raw);
       if (Option.isNone(entry)) return [];

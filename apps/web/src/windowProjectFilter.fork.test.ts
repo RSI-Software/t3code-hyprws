@@ -70,6 +70,10 @@ describe("windowListProjects", () => {
 });
 
 describe("windowLandingProjects", () => {
+  it("does not reintroduce excluded projects when every project is excluded", () => {
+    expect(windowLandingProjects([project("env-a", "solar")], new Set(), null, false)).toEqual([]);
+  });
+
   const projects = [
     project("env-a", "solar"),
     project("env-a", "quarry"),
