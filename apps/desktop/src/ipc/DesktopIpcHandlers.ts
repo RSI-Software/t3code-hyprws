@@ -8,6 +8,7 @@ import {
   appleSpeechTranscribe,
 } from "./methods/appleSpeech.ts";
 import * as DesktopIpc from "./DesktopIpc.ts";
+import * as VoiceDuckingFork from "./methods/voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-ipc-import
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
 import { getConnectionCatalog, setConnectionCatalog } from "./methods/connectionCatalog.ts";
@@ -97,6 +98,9 @@ import {
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
+  yield* ipc.handle(VoiceDuckingFork.listOutputs); // fork-hook: voice-input/ducking-outputs-ipc
+  yield* ipc.handle(VoiceDuckingFork.start); // fork-hook: voice-input/ducking-start-ipc
+  yield* ipc.handle(VoiceDuckingFork.stop); // fork-hook: voice-input/ducking-stop-ipc
   yield* installNotificationBadge();
   yield* PreviewIpc.installPreviewEventForwarding();
 
