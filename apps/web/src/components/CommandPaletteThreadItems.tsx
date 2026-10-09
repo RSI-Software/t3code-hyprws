@@ -1,5 +1,4 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { scopedPaletteThreadsFork } from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-threads-import
 import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
 import {
   claimThreadOpen,
@@ -118,7 +117,6 @@ type PaletteActiveThread = { readonly environmentId: EnvironmentId; readonly id:
 function useThreadActionItems(input: {
   readonly activeThread: PaletteActiveThread | null;
   readonly runThread: (thread: SidebarThreadSummary) => Promise<void>;
-  readonly projectKeysFork?: ReadonlySet<string> | null; // fork-hook: workspaces/palette-scope-threads-input
 }) {
   const { activeThread, runThread } = input;
   const messages = useMessages();
@@ -131,7 +129,7 @@ function useThreadActionItems(input: {
   const { projectByKey } = useProjectLookups();
   return buildThreadActionItems(
     {
-      threads: scopedPaletteThreadsFork(threads, input.projectKeysFork ?? null), // fork-hook: workspaces/palette-scope-threads
+      threads,
       delegatedUnderParent,
       ...(environments.length > 1
         ? {
