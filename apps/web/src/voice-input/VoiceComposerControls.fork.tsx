@@ -56,7 +56,10 @@ function RecordingWaveformFork({
             key={index}
             data-voice-waveform-bar-fork="true"
             className="h-8 w-0.5 shrink-0 rounded-full bg-foreground"
-            style={{ transform: `scaleY(${(2 + level * 30) / 32})`, opacity: 0.22 + level * 0.78 }}
+            style={{
+              transform: `scaleY(${(2 + level * 30) / 32})`,
+              opacity: 0.22 + level * 0.78,
+            }}
           />
         ))}
       </div>

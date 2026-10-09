@@ -1,5 +1,7 @@
 import type { VoiceRecorder, VoiceRecorderStatus } from "@t3tools/client-runtime/voice-input";
 import { readVoiceMicrophoneFork, voiceMicrophoneConstraintsFork } from "./microphone.fork";
+import pcmWorkletUrl from "./pcm.worklet.fork.ts?worker&url";
+import type { LiveVoiceSessionFork } from "./realtime.fork";
 
 /** Mono PCM16 at 16 kHz is accepted by every implemented dictation adapter. */
 export function encodeVoiceWavFork(samples: Float32Array): Uint8Array<ArrayBuffer> {
@@ -59,6 +61,11 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
   private finished: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private sequence = 0;
+  private live: LiveVoiceSessionFork | null = null;
+  private pcm: AudioWorkletNode | null = null;
+  private flush: (() => void) | null = null;
+  private liveRecording = false;
+  private stopping: Promise<void> | null = null;
   private meter: {
     context: AudioContext;
     analyser: AnalyserNode;
@@ -70,11 +77,50 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     private readonly readMicrophone = readVoiceMicrophoneFork,
   ) {}
 
+  useLiveSession(session: LiveVoiceSessionFork | null) {
+    this.live?.cancel();
+    this.live = session;
+  }
+
   async prepareToRecordAsync() {
     this.stream = await navigator.mediaDevices.getUserMedia(
       voiceMicrophoneConstraintsFork(this.readMicrophone()),
     );
     try {
+      if (this.live) {
+        const context = new AudioContext({ sampleRate: 16000 });
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        this.meter = { context, analyser, samples: new Float32Array(analyser.fftSize) };
+        await context.audioWorklet.addModule(pcmWorkletUrl);
+        this.pcm = new AudioWorkletNode(context, "voice-pcm-fork", {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+        });
+        this.pcm.port.addEventListener("message", ({ data }) => {
+          if (data === "stopped") this.flush?.();
+          else if (data instanceof ArrayBuffer && this.live?.active) this.live.send(data);
+        });
+        this.pcm.port.start();
+        this.pcm.addEventListener("processorerror", () =>
+          this.onStatus({
+            isFinished: false,
+            hasError: true,
+            error: "Microphone recording failed.",
+            url: this.uri,
+          }),
+        );
+        const source = context.createMediaStreamSource(this.stream);
+        source.connect(analyser);
+        source.connect(this.pcm);
+        // The processor emits silence; a destination keeps it pulling microphone frames.
+        this.pcm.connect(context.destination);
+        await context.resume();
+        this.uri = String(++this.sequence);
+        this.stopping = null;
+        return;
+      }
       this.recorder = new MediaRecorder(this.stream);
       this.uri = String(++this.sequence);
       this.chunks = [];
@@ -108,17 +154,59 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
   }
 
   record({ forDuration }: { readonly forDuration: number }) {
-    if (!this.recorder) throw new Error("Microphone is not prepared.");
-    this.recorder.start(1000);
+    if (this.live) {
+      if (!this.pcm || !this.live.active) throw new Error("Live dictation is not ready.");
+      this.liveRecording = true;
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Private MessagePort, not Window.
+      this.pcm.port.postMessage("start");
+    } else {
+      if (!this.recorder) throw new Error("Microphone is not prepared.");
+      this.recorder.start(1000);
+    }
     this.timer = setTimeout(() => {
-      void this.stop();
+      void this.stop().catch(() =>
+        this.onStatus({
+          isFinished: false,
+          hasError: true,
+          error: "Could not finish microphone recording.",
+          url: this.uri,
+        }),
+      );
     }, forDuration * 1000);
   }
 
   async stop() {
+    if (this.live && this.pcm) {
+      this.stopping ??= this.stopLive();
+      return this.stopping;
+    }
     if (this.recorder?.state !== "inactive") this.recorder?.stop();
     this.release();
     if (this.finished) await this.finished;
+  }
+
+  private async stopLive() {
+    const wasRecording = this.liveRecording;
+    this.liveRecording = false;
+    try {
+      if (wasRecording && this.live?.active) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Could not stop microphone.")), 2000);
+          this.flush = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Private MessagePort, not Window.
+          this.pcm!.port.postMessage("stop");
+        });
+        this.live.finish();
+      }
+    } finally {
+      this.flush = null;
+      this.release();
+    }
+    if (wasRecording)
+      this.onStatus({ isFinished: true, hasError: false, error: null, url: this.uri });
   }
 
   release() {
@@ -126,6 +214,11 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     this.timer = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
+    if (this.live?.active) this.live.cancel();
+    this.live = null;
+    this.pcm?.disconnect();
+    this.pcm?.port.close();
+    this.pcm = null;
     if (this.meter) {
       void this.meter.context.close().catch(() => {});
       this.meter = null;
@@ -134,7 +227,7 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
 
   /** Meter only while the recording toolbar is visible; never connects to speakers. */
   readLevel() {
-    if (!this.stream || this.recorder?.state !== "recording") return 0;
+    if (!this.stream || (!this.liveRecording && this.recorder?.state !== "recording")) return 0;
     if (!this.meter) {
       const context = new AudioContext();
       const analyser = context.createAnalyser();
@@ -162,5 +255,8 @@ export class DesktopVoiceRecorderFork implements VoiceRecorder {
     this.uri = null;
     this.recorder = null;
     this.finished = null;
+    this.live?.cancel();
+    this.live = null;
+    this.stopping = null;
   }
 }

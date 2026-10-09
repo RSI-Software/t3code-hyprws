@@ -134,3 +134,92 @@ it("meters the active microphone and closes its audio context on Stop", async ()
   expect(close).toHaveBeenCalledOnce();
   expect(recorder.readLevel()).toBe(0);
 });
+
+function liveMicrophoneFixture() {
+  const microphone = microphoneFixture();
+  const close = vi.fn(async () => {});
+  const sent: string[] = [];
+  const events = new EventTarget();
+  const tail = new ArrayBuffer(128);
+  const node = {
+    port: {
+      addEventListener: events.addEventListener.bind(events),
+      start: vi.fn(),
+      close: vi.fn(),
+      postMessage: (message: string) => {
+        sent.push(message);
+        if (message === "stop") {
+          events.dispatchEvent(new MessageEvent("message", { data: tail }));
+          events.dispatchEvent(new MessageEvent("message", { data: "stopped" }));
+        }
+      },
+    },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    addEventListener: vi.fn(),
+  };
+  vi.stubGlobal(
+    "AudioContext",
+    class {
+      audioWorklet = { addModule: vi.fn(async () => {}) };
+      destination = {};
+      close = close;
+      resume = async () => {};
+      createAnalyser = () => ({ fftSize: 256 });
+      createMediaStreamSource = () => ({ connect: vi.fn() });
+    },
+  );
+  vi.stubGlobal("AudioWorkletNode", function () {
+    return node;
+  });
+  let active = true;
+  const live = {
+    get active() {
+      return active;
+    },
+    result: Promise.resolve("words"),
+    send: vi.fn(),
+    finish: vi.fn(() => {
+      active = false;
+    }),
+    cancel: vi.fn(() => {
+      active = false;
+    }),
+  };
+  return { ...microphone, node, live, close, sent, tail };
+}
+it("flushes live PCM before ending input and releases the microphone without cancelling the final", async () => {
+  const h = liveMicrophoneFixture();
+  const status = vi.fn();
+  const recorder = new DesktopVoiceRecorderFork(status);
+  recorder.useLiveSession(h.live);
+  await recorder.prepareToRecordAsync();
+  recorder.record({ forDuration: 300 });
+  await Promise.all([recorder.stop(), recorder.stop()]);
+  expect(h.sent).toEqual(["start", "stop"]);
+  expect(h.live.send).toHaveBeenCalledWith(h.tail);
+  expect(h.live.send.mock.invocationCallOrder[0]).toBeLessThan(
+    h.live.finish.mock.invocationCallOrder[0]!,
+  );
+  expect(h.live.finish).toHaveBeenCalledOnce();
+  expect(h.live.cancel).not.toHaveBeenCalled();
+  expect(h.track.stop).toHaveBeenCalledOnce();
+  expect(h.close).toHaveBeenCalledOnce();
+  expect(h.node.port.close).toHaveBeenCalledOnce();
+  expect(status).toHaveBeenCalledOnce();
+  recorder.delete(recorder.uri!);
+});
+it("cancels live capture on release and can then record through the upload path", async () => {
+  const h = liveMicrophoneFixture();
+  const recorder = new DesktopVoiceRecorderFork(vi.fn());
+  recorder.useLiveSession(h.live);
+  await recorder.prepareToRecordAsync();
+  recorder.record({ forDuration: 300 });
+  recorder.release();
+  expect(h.live.cancel).toHaveBeenCalledOnce();
+  recorder.delete(recorder.uri!);
+  await recorder.prepareToRecordAsync();
+  recorder.record({ forDuration: 300 });
+  await recorder.stop();
+  expect(await recorder.read(recorder.uri!).text()).toBe("recorded audio");
+});
