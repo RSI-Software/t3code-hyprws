@@ -32,7 +32,10 @@ The fork encodes none of that policy.
 | `mod+alt+f`   | Choose this window's projects                  |
 | `mod+alt+o`   | Reuse a window showing this project, else open |
 
-- **Filter:** narrows lists, never hides live work
+Choose **Only selected** to show specific projects, or **All except selected** to hide selected projects and include new ones automatically.
+With no selection, both modes show all projects.
+The filter narrows lists without closing open threads.
+
 - **Same thread:** **Open in New Window**, both live
 - **Update:** back on their Hyprland workspaces
 - **Old links:** `#/project/...` links still open
