@@ -3,13 +3,17 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   browseInputEndPaddingClass,
+  buildThreadActionItems,
   filterCommandPaletteGroups,
   type CommandPaletteActionItem,
 } from "./CommandPalette.logic";
+import { makeThreadFixture } from "../test-fixtures";
 import {
   buildLinkGitHubIssueActionItemFork,
   refreshNewThreadInViewFork,
   scopePaletteProjectEntriesFork,
+  scopePalettePickerProjectsFork,
+  scopePaletteThreadItemsFork,
   withProjectScopeToggleFork,
 } from "./CommandPalette.fork";
 
@@ -67,6 +71,56 @@ describe("palette project scope", () => {
     ).toEqual(["web"]);
     expect(scopePaletteProjectEntriesFork(entries, new Set(["local:gone"]))).toBe(entries);
     expect(scopePaletteProjectEntriesFork(entries, null)).toBe(entries);
+  });
+
+  it("explicit inclusion keeps No projects empty, with Search all as the escape", () => {
+    const entries = [entryOf("api"), entryOf("web")];
+    expect(scopePaletteProjectEntriesFork(entries, new Set(), true)).toEqual([]);
+    expect(scopePaletteProjectEntriesFork(entries, new Set(["local:gone"]), true)).toEqual([]);
+    expect(scopePaletteProjectEntriesFork(entries, null, true)).toBe(entries);
+    // Preserve the known parent all-excluded picker fallback.
+    expect(scopePaletteProjectEntriesFork(entries, new Set())).toBe(entries);
+  });
+
+  it("filters extracted thread items by project and environment, not thread id", () => {
+    const threads = ["local", "remote"].map((environmentId) =>
+      makeThreadFixture({
+        id: ThreadId.make("shared-thread-id"),
+        projectId: ProjectId.make("api"),
+        environmentId: EnvironmentId.make(environmentId),
+      }),
+    );
+    const items = buildThreadActionItems({
+      threads,
+      projectByKey: new Map(),
+      icon: null,
+      runThread: async () => {},
+    });
+    const remoteItem = items[1];
+    scopePaletteThreadItemsFork(items, new Set(["remote:api"]));
+    expect(items).toEqual([remoteItem]);
+    scopePaletteThreadItemsFork(items, new Set());
+    expect(items).toEqual([]);
+  });
+
+  it("filters derived picker projects through group members and preserves explicit empty", () => {
+    const entries = ["api", "web"].map((id) => ({
+      ...entryOf(id),
+      targetProject: { environmentId: "local", id },
+    }));
+    entries[1]!.group.memberProjectRefs.push(ref("remote", "alias"));
+    const projects = entries.map(({ targetProject }) => ({ ...targetProject }));
+    scopePalettePickerProjectsFork(projects, entries, {
+      projectKeys: new Set(["remote:alias"]),
+      toggle: null,
+    });
+    expect(projects.map(({ id }) => id)).toEqual(["web"]);
+    scopePalettePickerProjectsFork(projects, entries, {
+      projectKeys: new Set(),
+      preserveEmpty: true,
+      toggle: null,
+    });
+    expect(projects).toEqual([]);
   });
 
   it("Search all: the pushed new-thread picker follows the scope, keeping its lead first", () => {
