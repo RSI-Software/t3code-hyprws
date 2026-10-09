@@ -2997,12 +2997,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     anchor={headerSearchRef}
                     className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
                   >
-                    {/* fork-hook: workspaces/chooser-mode */}
-                    <ProjectChooserModeFork
-                      filter={windowFilter.filter}
-                      setFilter={windowFilter.setFilter}
-                    />
-                    {/* fork-hook-end */}
                     <ComboboxSearchInput
                       aria-label="Search projects"
                       placeholder="Search projects..."
@@ -3056,6 +3050,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <FolderIcon className="size-4 shrink-0" />
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-mode */}
+                            {item.value === "all" ? (
+                              <ProjectChooserModeFork
+                                filter={windowFilter.filter}
+                                setFilter={windowFilter.setFilter}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {/* fork-hook: workspaces/chooser-row-unavailable */}
                             <ProjectChooserUnavailableFork
                               unavailable={projectChooser.unavailableValues.has(item.value)}
