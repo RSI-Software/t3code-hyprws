@@ -129,6 +129,22 @@ it("restarts during restoration without treating the partly restored volume as t
   await f.manager.close();
 });
 
+it.each([0, 500])("finishes restoration when closed %i ms after stop", async (elapsed) => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.manager.start(1, "recording", settings);
+  await f.manager.stop(1, "recording");
+  await vi.advanceTimersByTimeAsync(elapsed);
+  await f.manager.close();
+  expect(f.volume()).toEqual([60000, 30000]);
+  expect(vi.getTimerCount()).toBe(0);
+  const writes = f.write.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.manager.close();
+  expect(f.write).toHaveBeenCalledTimes(writes);
+  await expect(f.manager.start(1, "late", settings)).rejects.toThrow("shutting down");
+});
+
 it("preserves manual volume changes during a recording and during restoration", async () => {
   vi.useFakeTimers();
   const f = fixture();

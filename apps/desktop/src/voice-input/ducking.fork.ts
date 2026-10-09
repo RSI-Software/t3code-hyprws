@@ -134,6 +134,7 @@ export class SpeakerDuckingFork {
       if (claims.length)
         output.fadeUpMs = Math.max(...claims.map((session) => session.settings.fadeUpMs));
       if (sameVolume(target, output.target)) {
+        if (immediate && output.transition) output.transition.duration = 0;
         if (!claims.length && !output.transition) this.outputs.delete(id);
         continue;
       }

@@ -31,6 +31,7 @@ export class DesktopVoiceDuckingFork extends Context.Service<
       settings: VoiceDuckingSettingsFork,
     ) => Effect.Effect<void, VoiceDuckingErrorFork>;
     readonly stop: (owner: number, sessionId: string) => Effect.Effect<void, VoiceDuckingErrorFork>;
+    readonly shutdown: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/voice-input/DesktopVoiceDucking.fork/DesktopVoiceDuckingFork") {}
 
@@ -79,16 +80,15 @@ export const layer = Layer.effect(
       contents.on("did-start-navigation", navigation);
       watchers.set(id, cleanup);
     };
-    yield* Effect.addFinalizer(() =>
-      attempt(async () => {
-        for (const cleanup of watchers.values()) cleanup();
-        await manager.close();
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Could not restore speaker volume on shutdown.", error),
-        ),
+    const shutdown = attempt(async () => {
+      for (const cleanup of watchers.values()) cleanup();
+      await manager.close();
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not restore speaker volume on shutdown.", error),
       ),
     );
+    yield* Effect.addFinalizer(() => shutdown);
     return DesktopVoiceDuckingFork.of({
       list: unsupported
         ? Effect.succeed({ unavailableReason: unsupported, outputs: [] })
@@ -113,6 +113,13 @@ export const layer = Layer.effect(
             await manager.stop(owner);
         }),
       stop: (owner, sessionId) => attempt(() => manager.stop(owner, sessionId)),
+      shutdown,
     });
   }),
 );
+
+/** Register after the completion finalizer so restoration runs before Electron may quit. */
+export const registerShutdown = Effect.gen(function* () {
+  const ducking = yield* DesktopVoiceDuckingFork;
+  yield* Effect.addFinalizer(() => ducking.shutdown);
+});

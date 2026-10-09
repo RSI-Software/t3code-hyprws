@@ -871,6 +871,7 @@ Upstream desktop dictation supports configurable external transcription services
 | `apps/web/src/components/settings/settingsSearch.ts`      | Dictation search entry    |
 | `apps/desktop/scripts/electron-launcher.mjs`              | macOS mic permission      |
 | `apps/desktop/src/main.ts`                                | Desktop ducking lifetime  |
+| `apps/desktop/src/app/DesktopApp.ts`                      | Await speaker restoration |
 | `apps/desktop/src/preload.ts`                             | Speaker control bridge    |
 | `apps/desktop/src/ipc/DesktopIpcHandlers.ts`              | Speaker control handlers  |
 | `packages/contracts/src/ipc.ts`                           | Speaker bridge contract   |
