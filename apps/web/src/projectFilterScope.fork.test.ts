@@ -40,6 +40,21 @@ const filterOf = (...selected: Array<typeof api>): ProjectFilter => ({
 });
 
 describe("outside thread", () => {
+  it("adding a project from No projects preserves explicit inclusion", () => {
+    const none: ProjectFilter = { mode: "include", entries: [] };
+    expect(outsideFilterProjectGroup(none, groups, ref("vm", "web"))).toBe(web);
+    expect(addProjectFilterEntry(none, web)).toEqual({ ...filterOf(web), mode: "include" });
+  });
+  it("adding an excluded open thread's project removes its exclusion", () => {
+    const filter: ProjectFilter = { ...filterOf(api, web), mode: "exclude" };
+    expect(outsideFilterProjectGroup(filter, groups, ref("vm", "web"))).toBe(web);
+    expect(outsideFilterProjectGroup(filter, groups, ref("local", "docs"))).toBeNull();
+    const added = addProjectFilterEntry(filter, web);
+    expect(added).toEqual({ ...filterOf(api), mode: "exclude" });
+    expect(outsideFilterProjectGroup(added, groups, ref("vm", "web"))).toBeNull();
+    expect(addProjectFilterEntry(added, docs)).toBe(added);
+  });
+
   it("Outside: a thread outside the filter names the group to add", () => {
     expect(outsideFilterProjectGroup(filterOf(api), groups, ref("vm", "web"))).toBe(web);
   });
@@ -59,6 +74,34 @@ describe("outside thread", () => {
 });
 
 describe("new thread under the filter", () => {
+  it("No projects opens the picker unless the user explicitly names a project", () => {
+    const filter: ProjectFilter = { mode: "include", entries: [] };
+    const contextProjectRef = ref("local", "api");
+    expect(resolveFilteredNewThread({ filter, contextProjectRef, direct: false })).toEqual({
+      kind: "choose",
+    });
+    expect(resolveFilteredNewThread({ filter, contextProjectRef, direct: true })).toEqual({
+      kind: "project",
+      projectRef: contextProjectRef,
+    });
+    expect(
+      chatNewMatchesCurrentProject(filter, {
+        activeDraftThread: null,
+        activeThread: undefined,
+        defaultProjectRef: contextProjectRef,
+      }),
+    ).toBe(false);
+  });
+  it("exclusion opens the scoped picker rather than creating in the hidden project", () => {
+    const filter: ProjectFilter = { ...filterOf(api), mode: "exclude" };
+    expect(resolveFilteredNewThread({ filter, contextProjectRef: null, direct: false })).toEqual({
+      kind: "choose",
+    });
+    expect(
+      resolveFilteredNewThread({ filter, contextProjectRef: ref("local", "api"), direct: true }),
+    ).toEqual({ kind: "project", projectRef: ref("local", "api") });
+  });
+
   it("New thread: all projects keeps upstream's resolution", () => {
     for (const direct of [false, true]) {
       expect(
