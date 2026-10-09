@@ -17,6 +17,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { voiceInputProvidersFork } from "./providers.fork.ts";
 import { isVoiceRecordingFork } from "./recording.fork.ts";
+import { metaVoiceRequestFork, metaVoiceTranscriptFork } from "./meta.fork.ts";
 
 export class VoiceInputError extends Schema.TaggedError<VoiceInputError>()("VoiceInputError", {
   reason: Schema.Literals([
@@ -159,34 +160,48 @@ const make = Effect.gen(function* () {
       return yield* new VoiceInputError({ reason: "unsupported" });
     }
     if (!isVoiceRecordingFork(audio)) return yield* new VoiceInputError({ reason: "audio" });
-    let request = HttpClientRequest.post(config.endpoint);
+    let request =
+      config.provider === "meta"
+        ? metaVoiceRequestFork(config.endpoint, config.model, audio)
+        : HttpClientRequest.post(config.endpoint);
     if (config.apiKey)
       request = HttpClientRequest.setHeader(request, "authorization", `Bearer ${config.apiKey}`);
     if (config.provider === "local") {
       request = HttpClientRequest.bodyUint8Array(request, audio, "audio/wav");
-    } else {
+    } else if (config.provider === "openai-compatible") {
       const form = new FormData();
       form.set("file", new Blob([new Uint8Array(audio)], { type: "audio/wav" }), "dictation.wav");
       form.set("model", config.model);
       form.set("response_format", "json");
       request = HttpClientRequest.bodyFormData(request, form);
     }
-    const response = yield* client.execute(request).pipe(
-      Effect.timeout("60 seconds"),
-      Effect.mapError((cause) => new VoiceInputError({ reason: "upstream", cause })),
-    );
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.mapError((cause) => new VoiceInputError({ reason: "upstream", cause })));
     if (response.status < 200 || response.status >= 300) {
       return yield* new VoiceInputError({ reason: "upstream", status: response.status });
     }
-    const body = yield* HttpClientResponse.schemaBodyJson(VoiceInputTranscriptFork)(response).pipe(
-      Effect.mapError((cause) => new VoiceInputError({ reason: "response", cause })),
-    );
-    return body.text.trim();
+    const text = yield* (
+      config.provider === "meta"
+        ? metaVoiceTranscriptFork(response)
+        : HttpClientResponse.schemaBodyJson(VoiceInputTranscriptFork)(response).pipe(
+            Effect.map((body) => body.text),
+          )
+    ).pipe(Effect.mapError((cause) => new VoiceInputError({ reason: "response", cause })));
+    return text.trim();
   });
   return VoiceInput.of({
     settings: read.pipe(Effect.map(publicSettings)),
     configure: (input) => writes.withPermits(1)(configure(input)),
-    transcribe,
+    transcribe: (audio) =>
+      transcribe(audio).pipe(
+        Effect.timeout("60 seconds"),
+        Effect.mapError((cause) =>
+          cause._tag === "TimeoutError"
+            ? new VoiceInputError({ reason: "upstream", cause })
+            : cause,
+        ),
+      ),
   });
 });
 
