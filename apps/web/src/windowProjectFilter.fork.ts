@@ -157,7 +157,7 @@ export function useWindowLandingProjects<Project extends WindowFilterableProject
   const projectKeys = useWindowProjectKeys();
   const state = windowProjectFilterState();
   const filter = useSyncExternalStore(state.subscribe, state.get);
-  const fallbackToAll = filter.mode !== "exclude";
+  const fallbackToAll = filter.mode === undefined;
   // Read on each change of the inputs: the seed only ever goes from pending to
   // applied, and applying it changes `projectKeys`.
   const pendingSeed = pendingWindowScopeSeed();

@@ -9,6 +9,8 @@ import { useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from
 import { cn } from "~/lib/utils";
 import {
   projectChooserState,
+  projectChooserMode,
+  projectFilterFromMode,
   projectFilterFromChooser,
   showOnlyProjectFilter,
   useProjectChooserHost,
@@ -16,8 +18,9 @@ import {
   type ProjectChooserItem,
 } from "../../projectChooser.fork";
 import { Button } from "../ui/button";
+import { Label } from "../ui/label";
 import { useSidebar } from "../ui/sidebar";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { Switch } from "../ui/switch";
 
 export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(input: {
   readonly filter: ProjectFilter;
@@ -99,7 +102,7 @@ export function ProjectChooserRowMarkFork({
   return <Icon aria-hidden className={cn("size-3.5 shrink-0", selected ? null : "invisible")} />;
 }
 
-/** Switching modes keeps the picks; their meaning changes explicitly, not via a modifier key. */
+/** The All projects row's exclusion switch changes the picks' meaning without resetting them. */
 export function ProjectChooserModeFork({
   filter,
   setFilter,
@@ -107,26 +110,23 @@ export function ProjectChooserModeFork({
   readonly filter: ProjectFilter;
   readonly setFilter: (filter: ProjectFilter) => void;
 }) {
-  const mode = filter.mode ?? "include";
+  const mode = projectChooserMode(filter);
   return (
-    <div className="flex flex-col gap-2 px-2 pt-2 pb-1">
-      <ToggleGroup
-        aria-label="Project filter mode"
-        value={[mode]}
-        onValueChange={(values) => {
-          const next = values[0];
-          if (next === "include" || next === "exclude") setFilter({ ...filter, mode: next });
-        }}
-      >
-        <Toggle value="include">Only selected</Toggle>
-        <Toggle value="exclude">All except selected</Toggle>
-      </ToggleGroup>
-      <p className="text-xs text-muted-foreground">
-        {mode === "exclude"
-          ? "Select projects to hide. New projects stay visible."
-          : "Select projects to show. No selection shows all."}
-      </p>
-    </div>
+    <Label
+      className="shrink-0"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      onFocus={(event) => event.stopPropagation()}
+    >
+      Exclude
+      <Switch
+        checked={mode === "exclude"}
+        onCheckedChange={(checked) =>
+          setFilter(projectFilterFromMode(filter, checked ? "exclude" : "include"))
+        }
+      />
+    </Label>
   );
 }
 
