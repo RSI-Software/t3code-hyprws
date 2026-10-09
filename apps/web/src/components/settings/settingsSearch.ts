@@ -15,6 +15,7 @@ import {
 } from "./settingsScope";
 
 export type SettingsPath =
+  | "/settings/dictation" // fork-hook: voice-input/settings-path
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -76,6 +77,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Project",
   "/settings/general": "General",
+  "/settings/dictation": "Dictation", // fork-hook: voice-input/settings-label
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
@@ -129,7 +131,9 @@ const SOURCE_CONTROL_HOST_SEARCH_ITEMS = sourceControlClients.definitions.flatMa
     : [],
 );
 
+import { voiceInputSearchItemsFork } from "./voiceInputSearch.fork"; // fork-hook: voice-input/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
+  ...voiceInputSearchItemsFork, // fork-hook: voice-input/settings-search-items
   {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
@@ -1032,6 +1036,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
+  "/settings/dictation": null, // fork-hook: voice-input/settings-scope
   "/settings/appearance": null,
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
