@@ -118,10 +118,17 @@ export function useCommandPaletteProjectScopeFork(): CommandPaletteProjectScope 
   const chooser = useProjectChooserHostValue();
   const filter = chooser?.filter ?? null;
   const label = chooser?.label ?? null;
+  const groups = chooser?.groups;
   const [searchAll, setSearchAll] = useState(false);
   const filterKeys = useMemo(
-    () => (filter === null ? null : projectFilterProjectKeys(filter)),
-    [filter],
+    () =>
+      filter === null
+        ? null
+        : projectFilterProjectKeys(
+            filter,
+            groups?.flatMap((group) => group.memberProjectRefs),
+          ),
+    [filter, groups],
   );
   return useMemo(() => {
     if (filterKeys === null || label === null) return { projectKeys: null, toggle: null };
