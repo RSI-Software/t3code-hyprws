@@ -67,13 +67,26 @@ export function DesktopWebLinkCoordinator() {
     primaryEnvironment?.connection.phase === "connected" &&
     primaryEnvironment.serverConfig !== null;
 
-  const startThread = async (): Promise<ScopedThreadRef | null> => {
+  const reportFailure = (url: string, description = url) =>
+    toastManager.add(
+      stackedThreadToast({ type: "error", title: "Could not open the link", description }),
+    );
+
+  // The OS hands each link over once, so a thread that could not start says so.
+  const startThread = async (url: string): Promise<ScopedThreadRef | null> => {
     const environmentId = scratchEnvironmentId(primaryEnvironment?.environmentId ?? null);
-    if (environmentId === null) return null;
+    if (environmentId === null) {
+      reportFailure(url);
+      return null;
+    }
+    // Reports its own failure.
     const project = await openScratchProject(environmentId, "Could not open the link");
     if (!project) return null;
     const opened = await openThread(scopeProjectRef(project.environmentId, project.id));
-    if (!opened) return null;
+    if (!opened) {
+      reportFailure(url);
+      return null;
+    }
     const threadRef = scopeThreadRef(project.environmentId, opened.threadId);
     useRightPanelStore.getState().requestMaximize(threadRef);
     return threadRef;
@@ -86,7 +99,7 @@ export function DesktopWebLinkCoordinator() {
       threadShowingBrowser(
         routeParams,
         isFile ? (primaryEnvironment?.environmentId ?? null) : null,
-      ) ?? (await startThread());
+      ) ?? (await startThread(url));
     if (threadRef === null) return;
     // An HTML file is served from the environment, which runs on this machine.
     const result = isFile
@@ -101,23 +114,20 @@ export function DesktopWebLinkCoordinator() {
             openPreview,
           })
       : await openUrlInPreview({ threadRef, url, openPreview });
-    if (result === null) return;
+    if (result === null) {
+      reportFailure(url);
+      return;
+    }
     if (result._tag === "Failure") {
       const error = squashAtomCommandFailure(result);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not open the link",
-          description: error instanceof Error ? error.message : url,
-        }),
-      );
+      reportFailure(url, error instanceof Error ? error.message : url);
     }
   });
 
   useEffect(() => {
     if (!ready || webLinks === undefined) return;
     let subscribed = true;
-    // Links open one at a time, so each gets its own thread in the order they came.
+    // Links open one at a time, in the order they came.
     const unsubscribe = webLinks.onOpen((url) => {
       queueRef.current = queueRef.current.then(() => openLink(url)).catch(() => undefined);
     });
