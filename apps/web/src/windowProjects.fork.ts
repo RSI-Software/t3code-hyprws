@@ -18,15 +18,14 @@ import { useAllEnvironmentProjectSnapshotsReady, useProjects } from "./state/ent
 import { pendingWindowScopeSeed, windowProjectFilterState } from "./windowSidebarScope.fork";
 
 /**
- * The scope a window's filter shows: every project when the filter is empty,
- * else each member project the client knows, with its checkout. A member the
- * client does not know, such as a removed project, is left out.
+ * Legacy empty filters show every project; explicit empty inclusion shows none.
+ * Otherwise report each known member with its checkout, leaving out removed projects.
  */
 export function windowProjectScope(
   filter: ProjectFilter,
   projects: ReadonlyArray<EnvironmentProject>,
 ): DesktopWindowProjectScope {
-  if (filter.entries.length === 0) return { kind: "all" };
+  if (filter.entries.length === 0 && filter.mode !== "include") return { kind: "all" };
   if (filter.mode === "exclude") {
     const keys = projectFilterProjectKeys(
       filter,
