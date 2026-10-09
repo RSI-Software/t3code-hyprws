@@ -57,7 +57,6 @@ const harness = () =>
     let beforeUnbind: Effect.Effect<void> = Effect.void;
     let releaseSucceeded = true;
     const roots = new Map([[projectId, "/repo"]]);
-    const restored = yield* Queue.unbounded<string>();
     let refuse = false;
     let hasProject = true;
     const calls: string[] = [];
@@ -119,7 +118,6 @@ const harness = () =>
         bind: (lane) =>
           Effect.sync(() => {
             calls.push(`bind:${lane}`);
-            Queue.offerUnsafe(restored, lane);
             return { status: "bound", target, outcome: "created" } as const;
           }),
         prepareUnbind: (lane) =>
@@ -153,7 +151,6 @@ const harness = () =>
       reactor,
       calls,
       dependencies,
-      restored: Queue.take(restored),
       subscribed: Deferred.await(subscribed),
       removed: Queue.take(removed),
       emit: (type: "thread.settled" | "thread.deleted" | "thread.unsettled" | "thread.pinned") =>
@@ -162,7 +159,13 @@ const harness = () =>
         thread = { ...thread, ...value };
       },
       share: (value: Partial<OrchestrationV2AppThread> = {}) => {
-        consumers.push(shell({ id: ThreadId.make("other"), settledOverride: "active", ...value }));
+        consumers.push(
+          shell({
+            id: ThreadId.make(`other-${consumers.length}`),
+            settledOverride: "active",
+            ...value,
+          }),
+        );
       },
       setTarget: (value: string) => {
         target = value;
@@ -229,50 +232,25 @@ describe("settled checkout sessions", () => {
     }),
   );
 
-  it.effect.each([projectId, ProjectId.make("another-project")])(
-    "removes the session despite active shared consumers in %s",
-    (owner) =>
-      Effect.gen(function* () {
-        const h = yield* harness();
-        h.share({ projectId: owner });
-        yield* h.reactor.reconcile(id);
-        expect(yield* h.removed).toEqual(identity);
-      }),
-  );
-
-  it.effect.each(["/repo-feature/packages/server", "/alias-feature"])(
-    "removes the session despite an active consumer reached through %s",
-    (cwd) =>
-      Effect.gen(function* () {
-        const h = yield* harness();
-        h.setCheckoutRoot(cwd, cwd === "/alias-feature" ? cwd : "/repo-feature");
-        h.setRealPath("/alias-feature", "/repo-feature");
-        h.share({ worktreePath: cwd });
-        yield* h.reactor.reconcile(id);
-        expect(yield* h.removed).toEqual(identity);
-      }),
-  );
-
-  it.effect.each(["/repo-feature/packages/server", "/alias-feature"])(
-    "removes the session despite another project's active root reached through %s",
-    (cwd) =>
-      Effect.gen(function* () {
-        const h = yield* harness();
-        const owner = ProjectId.make("alias-root-consumer");
-        h.setCheckoutRoot(cwd, cwd === "/alias-feature" ? cwd : "/repo-feature");
-        h.setRealPath("/alias-feature", "/repo-feature");
-        h.setRoot(owner, cwd);
-        h.share({ projectId: owner, worktreePath: null });
-        yield* h.reactor.reconcile(id);
-        expect(yield* h.removed).toEqual(identity);
-      }),
-  );
-
-  it.effect("an unrelated missing checkout does not block session removal", () =>
+  it.effect("shared and unrelated consumers do not veto requested teardown", () =>
     Effect.gen(function* () {
       const h = yield* harness();
-      h.share({ worktreePath: "/unknown-checkout" });
+      const owner = ProjectId.make("other-project");
+      h.setRoot(owner, "/repo-feature");
+      h.setCheckoutRoot("/repo-feature/packages/server", "/repo-feature");
+      h.setRealPath("/alias-feature", "/repo-feature");
       h.forgetIdentity("/unknown-checkout");
+      const consumers: Partial<OrchestrationV2AppThread>[] = [
+        {},
+        { projectId: owner },
+        { projectId: owner, worktreePath: null },
+        ...["/repo-feature/packages/server", "/alias-feature", "/unknown-checkout"].map(
+          (worktreePath) => ({ worktreePath }),
+        ),
+        { settledOverride: "settled" },
+        { archivedAt: DateTime.makeUnsafe("2026-01-01T00:00:00Z") },
+      ];
+      consumers.forEach(h.share);
       yield* h.reactor.reconcile(id);
       expect(yield* h.removed).toEqual(identity);
     }),
@@ -286,18 +264,6 @@ describe("settled checkout sessions", () => {
       h.setBeforeCleanup(Effect.sync(() => h.setRealPath("/alias-root", "/repo-feature")));
       yield* h.reactor.reconcile(id);
       expect(h.calls).not.toContain("unbind");
-    }),
-  );
-
-  it.effect.each([
-    { settledOverride: "settled" as const },
-    { archivedAt: "2026-01-01" as unknown as OrchestrationV2AppThread["archivedAt"] },
-  ])("ignores parked consumers %j", (other) =>
-    Effect.gen(function* () {
-      const h = yield* harness();
-      h.share(other);
-      yield* h.reactor.reconcile(id);
-      expect(h.calls).toContain("unbind");
     }),
   );
 
@@ -376,17 +342,6 @@ describe("settled checkout sessions", () => {
         yield* h.emit(type);
         expect(yield* h.removed).toEqual(identity);
       }),
-  );
-
-  it.effect("removes a lane used as another active project's root", () =>
-    Effect.gen(function* () {
-      const h = yield* harness();
-      const owner = ProjectId.make("root-consumer");
-      h.setRoot(owner, "/repo-feature");
-      h.share({ projectId: owner, worktreePath: null });
-      yield* h.reactor.reconcile(id);
-      expect(yield* h.removed).toEqual(identity);
-    }),
   );
 
   it.effect("removes the session even when the local viewer does not acknowledge exit", () =>
