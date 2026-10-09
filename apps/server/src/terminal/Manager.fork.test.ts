@@ -107,6 +107,34 @@ it.layer(
       });
     }),
   );
+  it.effect("keeps a requested plain shell through reattach, restart, and checkout follow", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        subprocessInspector: () =>
+          Effect.succeed({ hasRunningSubprocess: false, childCommand: null, processIds: [] }),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const input = openInput({ attachmentId: "plain-viewer", plainShellFork: true });
+      yield* manager.open(input);
+      const release = yield* manager.attachStream(input, () => Effect.void);
+      yield* Effect.addFinalizer(() => Effect.sync(release));
+      yield* manager.restart({ ...input, cols: 100, rows: 24 });
+      const destination = join(baseDir, "destination");
+      yield* (yield* FileSystem.FileSystem).makeDirectory(destination);
+      yield* manager.open({ ...input, cwd: destination, worktreePath: destination });
+      expect(processRunner.inputs).toEqual([]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(3);
+      expect(ptyAdapter.spawnInputs.every((spawn) => spawn.shell === "/bin/bash")).toBe(true);
+      expect(ptyAdapter.spawnInputs[2]?.cwd).toBe(destination);
+      yield* manager.open(
+        openInput({ attachmentId: "managed-viewer", worktreePath: process.cwd() }),
+      );
+      expect(processRunner.inputs.length).toBeGreaterThan(0);
+      expect(ptyAdapter.spawnInputs[3]?.shell).toBe("zmux");
+    }),
+  );
   it.effect("uses fresh activity when deciding whether an unmanaged terminal can retarget", () =>
     Effect.gen(function* () {
       let running = false;
