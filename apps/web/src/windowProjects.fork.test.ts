@@ -19,6 +19,33 @@ const projects = [
 ];
 
 describe("windowProjectScope", () => {
+  it("reports only nonexcluded checkouts, including projects added later", () => {
+    const filter = {
+      mode: "exclude" as const,
+      entries: [
+        {
+          key: "web",
+          members: [
+            { environmentId: local, projectId: web },
+            { environmentId: remote, projectId: web },
+          ],
+        },
+      ],
+    };
+    expect(windowProjectScope(filter, projects)).toEqual({
+      kind: "projects",
+      projects: [{ environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" }],
+    });
+    const newProject = project(remote, api, "/srv/api");
+    expect(windowProjectScope(filter, [...projects, newProject])).toEqual({
+      kind: "projects",
+      projects: [
+        { environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" },
+        { environmentId: remote, projectId: api, workspaceRoot: "/srv/api" },
+      ],
+    });
+  });
+
   it("reports every project for an empty filter", () => {
     expect(windowProjectScope({ entries: [] }, projects)).toEqual({ kind: "all" });
   });
@@ -69,6 +96,26 @@ describe("windowProjectScope", () => {
 });
 
 describe("publishedWindowScope", () => {
+  it("publishes visible projects even when an excluded environment is offline", () => {
+    expect(
+      publishedWindowScope({
+        filter: {
+          mode: "exclude",
+          entries: [{ key: "offline", members: [{ environmentId: remote, projectId: web }] }],
+        },
+        pendingSeed: null,
+        settled: false,
+        projects: [projects[0]!, projects[1]!],
+      }),
+    ).toEqual({
+      kind: "projects",
+      projects: [
+        { environmentId: local, projectId: web, workspaceRoot: "/home/me/src/web" },
+        { environmentId: local, projectId: api, workspaceRoot: "/home/me/src/api" },
+      ],
+    });
+  });
+
   const apiOnly = {
     entries: [{ key: "api", members: [{ environmentId: local, projectId: api }] }],
   };
