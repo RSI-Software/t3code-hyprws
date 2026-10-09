@@ -11,7 +11,6 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
-  Plus,
   Pin,
   Square,
   SquareSplitHorizontal,
@@ -49,6 +48,8 @@ import {
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
+import { TerminalNewMenu } from "./TerminalNewMenu.fork"; // fork-hook: zmux-estate/plain-shell-menu-import
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore"; // fork-hook: zmux-estate/plain-shell-choice-import
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -619,6 +620,11 @@ function TerminalSessionViewport({
       isTerminalUrl(text) || readEnvironmentScope(environmentId, AuthOrchestrationOperateScope),
   );
   const attachmentId = useMemo(() => terminalAttachmentId(terminalId), [terminalId]);
+  const plainShellFork = useTerminalUiStateStore(
+    (state) =>
+      selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef)
+        .plainShellByTerminalId?.[terminalId] === true,
+  ); // fork-hook: zmux-estate/plain-shell-choice
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
@@ -666,6 +672,7 @@ function TerminalSessionViewport({
         cwd,
         ...(worktreePath !== undefined ? { worktreePath } : {}),
         ...(runtimeEnv ? { env: runtimeEnv } : {}),
+        ...(plainShellFork ? { plainShellFork } : {}), // fork-hook: zmux-estate/plain-shell-retarget-input
       },
     }),
   );
@@ -706,6 +713,7 @@ function TerminalSessionViewport({
     cwd,
     ...(worktreePath !== undefined ? { worktreePath } : {}),
     ...(runtimeEnv ? { env: runtimeEnv } : {}),
+    ...(plainShellFork ? { plainShellFork } : {}), // fork-hook: zmux-estate/plain-shell-attach-input
     ...(providerInstanceId ? { providerInstanceId } : {}),
   });
   // Attaching starts with the viewport, while the WASM surface is still loading;
@@ -1308,7 +1316,7 @@ interface ThreadTerminalDrawerProps {
   activeTerminalGroupId: string;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (plainShell?: boolean) => void; // fork-hook: zmux-estate/plain-shell-drawer-action
   splitShortcutLabel?: string | undefined;
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
@@ -1809,9 +1817,9 @@ export default function ThreadTerminalDrawer({
     if (!canOperateTerminal || hasReachedSplitLimit) return;
     onSplitTerminalVertical();
   };
-  const onNewTerminalAction = () => {
+  const onNewTerminalAction = (plainShell = false) => { // fork-hook: zmux-estate/plain-shell-create-action
     if (!canOperateTerminal) return;
-    onNewTerminal();
+      onNewTerminal(plainShell);
   };
   const confirmCloseTerminal = (terminalId: string) => {
     if (!canOperateTerminal) return;
@@ -1943,11 +1951,21 @@ export default function ThreadTerminalDrawer({
           <Button
             size="xs"
             variant="outline"
-            onClick={onNewTerminalAction}
+            onClick={() => onNewTerminalAction()} // fork-hook: zmux-estate/plain-shell-empty-default
             disabled={!canOperateTerminal}
           >
             {newTerminalActionLabel}
           </Button>
+          {/* fork-hook: zmux-estate/plain-shell-empty-menu */}
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!canOperateTerminal}
+            onClick={() => onNewTerminalAction(true)}
+          >
+            New plain shell
+          </Button>
+          {/* fork-hook-end */}
         </div>
       </aside>
     );
@@ -2017,14 +2035,13 @@ export default function ThreadTerminalDrawer({
               onModeChange={onCheckoutModeChange}
             />
             <div className="h-4 w-px bg-border/80" />
-            <TerminalActionButton
+            {/* fork-hook: zmux-estate/plain-shell-floating-menu */}
+            <TerminalNewMenu
               disabled={!canOperateTerminal}
-              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
-              onClick={onNewTerminalAction}
+              onNewTerminal={onNewTerminalAction}
               label={newTerminalActionLabel}
-            >
-              <Plus className="size-3.25" />
-            </TerminalActionButton>
+            />
+            {/* fork-hook-end */}
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               disabled={!canOperateTerminal}
@@ -2100,14 +2117,13 @@ export default function ThreadTerminalDrawer({
                     disabled={checkoutModeChangeDisabled}
                     onModeChange={onCheckoutModeChange}
                   />
-                  <TerminalActionButton
+                  {/* fork-hook: zmux-estate/plain-shell-sidebar-menu */}
+                  <TerminalNewMenu
                     disabled={!canOperateTerminal}
-                    className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
-                    onClick={onNewTerminalAction}
+                    onNewTerminal={onNewTerminalAction}
                     label={newTerminalActionLabel}
-                  >
-                    <Plus className="size-3.25" />
-                  </TerminalActionButton>
+                  />
+                  {/* fork-hook-end */}
                   <TerminalActionButton
                     disabled={!canOperateTerminal}
                     className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
