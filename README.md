@@ -45,6 +45,10 @@ https://github.com/user-attachments/assets/13204279-65d2-4599-b111-9c5043ca98fd
 <details>
 <summary>More clips</summary>
 
+**Choose projects, exclude them, or reset to all**
+
+https://github.com/user-attachments/assets/0c52e249-b643-4798-9829-7c1fd61ea41f
+
 **One thread in two windows, streaming in both**
 
 https://github.com/user-attachments/assets/61675d70-4b33-4337-b322-d7c86a20c2c7
@@ -77,6 +81,16 @@ https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
 
 </details>
 
+### Desktop dictation
+
+- **Speak:** record into an editable draft
+- **Live:** Meta words appear while you speak
+- **Finish:** commit, review, then send
+- **Cancel:** keep the original draft
+- [Guide](docs/fork/user/dictation.md)
+
+https://github.com/user-attachments/assets/28ce39fe-31ac-44c8-99a8-7ddc51327a4b
+
 ### Rich Markdown editing
 
 - **Modes:** Rich and Source for Markdown files
@@ -105,6 +119,15 @@ https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
 
 https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
 
+<details>
+<summary>More clips</summary>
+
+**Open a plain shell alongside managed `zmux`**
+
+https://github.com/user-attachments/assets/283f3ee9-a2f5-4f8a-821f-7d67d0994064
+
+</details>
+
 ### Worktrunk worktrees
 
 - **Mode:** **New worktrunk** for a thread
@@ -128,8 +151,16 @@ https://github.com/user-attachments/assets/0dfb8ebb-2145-4a81-92b5-d9c3b3a02a16
 - **Browse:** issues on web and desktop
 - **Detail:** filters, comments, and tabs
 - **Hand off:** one issue to a new thread as a draft
+- **Link:** issues and threads in both directions
 
 https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
+
+<details>
+<summary>Linked threads</summary>
+
+![An issue lists its linked thread](https://github.com/user-attachments/assets/39af8559-f194-4ae6-bba2-e6e8d9cd6a2d)
+
+</details>
 
 ### Threads
 
@@ -137,6 +168,16 @@ https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
 - **Fork:** continue a copy on the same provider
 
 https://github.com/user-attachments/assets/532802d4-4ddc-473e-b337-4f2c5906d3f8
+
+### Delegated follow-up rounds
+
+- **Continue:** the same child keeps its context
+- **Return:** each round wakes the parent
+- **Control:** track or cancel the current round
+
+**Two rounds, one child: typing 8×, work 6×**
+
+https://github.com/user-attachments/assets/ac99f00f-f561-4b8e-b1c6-403708464b54
 
 ### Browser bookmarks
 
@@ -156,17 +197,34 @@ https://github.com/user-attachments/assets/0992bf8a-37c7-425b-992c-5d08c61cc22e
 
 https://github.com/user-attachments/assets/46931a1e-d0f3-41d2-bf61-8fb79db19713
 
-### Device approval
+### Device approval and external agents
 
 - **Grant:** RFC 8628-style device flow
 - **Approve:** on the host, `t3 auth device approve`
 - **Token:** never passes through a person
+- **MCP:** outside agents create and steer threads
+- **Limit:** selected projects, revocable access
+
+**A client on another machine starts a T3 thread**
+
+https://github.com/user-attachments/assets/c10b2b05-a493-4ada-b7b2-c52420ed8611
+
+<details>
+<summary>More clips</summary>
+
+**An external MCP client answers an agent's question**
+
+https://github.com/user-attachments/assets/442458b8-dfc8-4bb4-8f99-40207fab03f1
+
+</details>
 
 ### Backend attach
 
 - **Attach:** desktop joins a running backend
 - **Pair:** automatically, once per launch
 - **State:** one writer on `state.sqlite`, not two
+
+![Client-only desktop connected to a local backend](https://github.com/user-attachments/assets/cc5573e5-9f55-40dd-b827-90ac7a08d4b8)
 
 ### Releases and upstream fixes
 
