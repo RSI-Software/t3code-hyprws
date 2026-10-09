@@ -2183,15 +2183,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const desktopVoiceFork = useDesktopVoiceInputFork({
     environmentId,
     ownerKey: composerDraftTargetKey,
+    draftTarget: composerDraftTarget, // fork-hook: voice-input/draft-target
+    label: activeThread?.title || "New thread", // fork-hook: voice-input/draft-label
     enabled: canOperateThread && !activePendingProgress && pendingApprovals.length === 0,
-    readDraft: () => ({
-      ownerKey: composerDraftTargetKeyRef.current,
-      text: promptRef.current,
-      selection: composerEditorRef.current?.readSelectionRange() ?? {
+    readSelection: () =>
+      composerEditorRef.current?.readSelectionRange() ?? {
         start: promptRef.current.length,
         end: promptRef.current.length,
-      },
-    }),
+      }, // fork-hook: voice-input/draft-selection
     commitDraft: (text, cursor) => {
       const collapsedCursor = collapseExpandedComposerCursor(text, cursor);
       onPromptChange(text, collapsedCursor, cursor, false, collectInlineContextIds(text));

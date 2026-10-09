@@ -1,4 +1,5 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
+import { DesktopVoiceInputProviderFork } from "../voice-input/VoiceInputProvider.fork"; // fork-hook: voice-input/window-provider-import
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -261,7 +262,9 @@ function RootRouteView() {
           {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
           {/* Hosted Nightly is "hosted-static", not authenticated, and needs it too. */}
           <NightlyMobileBetaNotice />
-          {appShell}
+          {/* fork-hook: voice-input/window-provider */}
+          <DesktopVoiceInputProviderFork>{appShell}</DesktopVoiceInputProviderFork>
+          {/* fork-hook-end */}
           {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}
           <ThemeEditorHost />
