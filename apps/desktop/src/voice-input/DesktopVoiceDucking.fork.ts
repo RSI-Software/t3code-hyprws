@@ -42,17 +42,11 @@ export const layer = Layer.effect(
       environment.platform === "linux"
         ? null
         : "Speaker ducking currently supports Linux with PipeWire or PulseAudio.";
-    let runBackground = Effect.runForkWith(yield* Effect.context<never>());
+    const runBackground = Effect.runForkWith(yield* Effect.context<never>());
     const warn = (error: unknown) => {
       runBackground(Effect.logWarning("Speaker ducking:", error));
     };
-    const manager = new SpeakerDuckingFork(linuxAudioOutputsFork, warn, undefined, (message) => {
-      runBackground(
-        Effect.void.pipe(
-          Effect.withSpan("desktop.voiceDucking.state", { attributes: { message } }),
-        ),
-      );
-    });
+    const manager = new SpeakerDuckingFork(linuxAudioOutputsFork, warn);
     const watchers = new Map<number, () => void>();
     const watchOwner = (id: number) => {
       if (watchers.has(id)) return;
@@ -111,16 +105,12 @@ export const layer = Layer.effect(
             ),
           ),
       start: (owner, sessionId, settings) =>
-        Effect.gen(function* () {
-          // IPC runs with the installed tracer; foundation construction precedes it.
-          runBackground = Effect.runForkWith(yield* Effect.context<never>());
-          yield* attempt(async () => {
-            if (unsupported) throw new Error(unsupported);
-            watchOwner(owner);
-            await manager.start(owner, sessionId, settings);
-            if (Electron.webContents.fromId(owner)?.isDestroyed() !== false)
-              await manager.stop(owner);
-          });
+        attempt(async () => {
+          if (unsupported) throw new Error(unsupported);
+          watchOwner(owner);
+          await manager.start(owner, sessionId, settings);
+          if (Electron.webContents.fromId(owner)?.isDestroyed() !== false)
+            await manager.stop(owner);
         }),
       stop: (owner, sessionId) => attempt(() => manager.stop(owner, sessionId)),
     });

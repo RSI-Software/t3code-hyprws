@@ -17,6 +17,34 @@ import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
+const valueSettings = [
+  {
+    key: "targetPercent",
+    title: "Target volume",
+    description:
+      "Percentage of each output’s starting volume. 0% silences it; 100% leaves it unchanged.",
+    label: "Ducking target volume (%)",
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "fadeDownMs",
+    title: "Fade down",
+    description: "How quickly output drops when recording starts. 0 is instant.",
+    label: "Fade down (ms)",
+    max: 10000,
+    unit: "ms",
+  },
+  {
+    key: "fadeUpMs",
+    title: "Fade back up",
+    description: "How quickly volume returns after stop or cancel. 1000 is one second.",
+    label: "Fade back up (ms)",
+    max: 10000,
+    unit: "ms",
+  },
+] as const;
+
 async function listSpeakerOutputs(): Promise<VoiceDuckingOutputsFork> {
   const bridge = window.desktopBridge?.voiceDuckingFork;
   if (!bridge) {
@@ -137,6 +165,14 @@ export function VoiceDuckingSettingsFork() {
   );
   const unavailable = !devices || devices.unavailableReason !== null;
   const selectableIds = [VOICE_DUCKING_DEFAULT_OUTPUT_FORK, ...outputs.map((output) => output.id)];
+  const choices = [
+    {
+      id: VOICE_DUCKING_DEFAULT_OUTPUT_FORK,
+      label: `System default${defaultLabel ? ` (${defaultLabel})` : ""}`,
+    },
+    ...outputs,
+    ...missing.map((id) => ({ id, label: `${id} (unavailable)` })),
+  ];
   const allSelected = selectableIds.every((id) => selectedIds.has(id));
   const selectionLabel =
     allSelected && outputs.length
@@ -191,34 +227,19 @@ export function VoiceDuckingSettingsFork() {
                   Select all
                 </MenuCheckboxItem>
                 <MenuSeparator />
-                <MenuCheckboxItem
-                  checked={selectedIds.has(VOICE_DUCKING_DEFAULT_OUTPUT_FORK)}
-                  disabled={unavailable}
-                  closeOnClick={false}
-                  onCheckedChange={(checked) =>
-                    toggleOutput(VOICE_DUCKING_DEFAULT_OUTPUT_FORK, checked)
-                  }
-                >
-                  System default{defaultLabel ? ` (${defaultLabel})` : ""}
-                </MenuCheckboxItem>
-                {outputs.map((output) => (
-                  <MenuCheckboxItem
-                    key={output.id}
-                    checked={selectedIds.has(output.id)}
-                    closeOnClick={false}
-                    onCheckedChange={(checked) => toggleOutput(output.id, checked)}
-                  >
-                    {output.label}
-                  </MenuCheckboxItem>
-                ))}
-                {missing.map((id) => (
+                {choices.map(({ id, label }) => (
                   <MenuCheckboxItem
                     key={id}
-                    checked
+                    checked={selectedIds.has(id)}
+                    disabled={id === VOICE_DUCKING_DEFAULT_OUTPUT_FORK && unavailable}
                     closeOnClick={false}
                     onCheckedChange={(checked) => toggleOutput(id, checked)}
                   >
-                    <span className="text-muted-foreground">{id} (unavailable)</span>
+                    {missing.includes(id) ? (
+                      <span className="text-muted-foreground">{label}</span>
+                    ) : (
+                      label
+                    )}
                   </MenuCheckboxItem>
                 ))}
               </MenuPopup>
@@ -245,45 +266,20 @@ export function VoiceDuckingSettingsFork() {
           </div>
         }
       />
-      <SettingsRow
-        title="Target volume"
-        description="Percentage of each output’s starting volume. 0% silences it; 100% leaves it unchanged."
-        control={
-          <DuckingValueControl
-            label="Ducking target volume (%)"
-            value={settings.targetPercent}
-            max={100}
-            unit="%"
-            onChange={(targetPercent) => update({ targetPercent })}
-          />
-        }
-      />
-      <SettingsRow
-        title="Fade down"
-        description="How quickly output drops when recording starts. 0 is instant."
-        control={
-          <DuckingValueControl
-            label="Fade down (ms)"
-            value={settings.fadeDownMs}
-            max={10000}
-            unit="ms"
-            onChange={(fadeDownMs) => update({ fadeDownMs })}
-          />
-        }
-      />
-      <SettingsRow
-        title="Fade back up"
-        description="How quickly volume returns after stop or cancel. 1000 is one second."
-        control={
-          <DuckingValueControl
-            label="Fade back up (ms)"
-            value={settings.fadeUpMs}
-            max={10000}
-            unit="ms"
-            onChange={(fadeUpMs) => update({ fadeUpMs })}
-          />
-        }
-      />
+      {valueSettings.map(({ key, title, description, ...control }) => (
+        <SettingsRow
+          key={key}
+          title={title}
+          description={description}
+          control={
+            <DuckingValueControl
+              {...control}
+              value={settings[key]}
+              onChange={(value) => update({ [key]: value })}
+            />
+          }
+        />
+      ))}
       <p role="status" className="pt-2 text-xs text-muted-foreground">
         {error ??
           devices?.unavailableReason ??

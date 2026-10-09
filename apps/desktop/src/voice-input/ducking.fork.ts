@@ -1,4 +1,4 @@
-// @effect-diagnostics globalDate:off - The imperative audio ramp shares its clock with the injected fake-timer tests.
+// @effect-diagnostics globalDate:off - The audio ramp shares the fake timers' clock.
 // @effect-diagnostics globalTimers:off - The ramp owns one cancellable timer, cleared by the desktop service finalizer.
 import {
   VOICE_DUCKING_DEFAULT_OUTPUT_FORK,
@@ -28,19 +28,14 @@ export class SpeakerDuckingFork {
   private closed = false;
   private readonly audio: AudioOutputsFork;
   private readonly onError: (error: unknown) => void;
-  private readonly now: () => number;
-  private readonly trace: (message: string) => void;
 
-  constructor(
-    audio: AudioOutputsFork,
-    onError: (error: unknown) => void,
-    now = () => Date.now(),
-    trace = (_message: string) => {},
-  ) {
+  constructor(audio: AudioOutputsFork, onError: (error: unknown) => void) {
     this.audio = audio;
     this.onError = onError;
-    this.now = now;
-    this.trace = trace;
+  }
+
+  private claims(id: string) {
+    return [...this.sessions.values()].filter((session) => session.ids.includes(id));
   }
 
   private enqueue<A>(run: () => Promise<A>): Promise<A> {
@@ -66,7 +61,6 @@ export class SpeakerDuckingFork {
       if (ids.length === 0)
         throw new Error("No selected speaker output is available. Check Dictation settings.");
       this.sessions.set(key, { owner, ids, settings });
-      this.trace(`Ducking start ${key}: ${JSON.stringify({ ids, settings, available })}`);
       for (const id of ids) {
         if (this.outputs.has(id)) continue;
         const original = available.find((output) => output.id === id)!.volumes;
@@ -107,9 +101,6 @@ export class SpeakerDuckingFork {
           this.sessions.delete(key);
       }
       if (this.outputs.size === 0) return;
-      this.trace(
-        `Ducking stop ${owner}:${sessionId ?? "all"}: ${JSON.stringify({ remaining: [...this.sessions.keys()], outputs: [...this.outputs] })}`,
-      );
       try {
         const current = await this.audio.list();
         this.retarget(current, 0);
@@ -123,20 +114,14 @@ export class SpeakerDuckingFork {
   private retarget(current: readonly AudioOutputFork[], fadeDownMs: number, immediate = false) {
     for (const [id, output] of this.outputs) {
       const device = current.find((item) => item.id === id);
-      const claims = [...this.sessions.values()].filter((session) => session.ids.includes(id));
+      const claims = this.claims(id);
       // A failed write/readback is reconciled before rollback or retry.
       if (output.needsReadback && device) {
         output.last = device.volumes;
         output.needsReadback = false;
       }
       // A changed channel count belongs to a different device profile; never overwrite it.
-      if (!device || !sameVolume(device.volumes, output.last)) {
-        if (!output.manual)
-          this.trace(
-            `Ducking volume changed ${id}: ${JSON.stringify({ expected: output.last, observed: device?.volumes, original: output.original })}`,
-          );
-        output.manual = true;
-      }
+      if (!device || !sameVolume(device.volumes, output.last)) output.manual = true;
       if (output.manual) {
         output.transition = null;
         if (claims.length === 0) this.outputs.delete(id);
@@ -156,7 +141,7 @@ export class SpeakerDuckingFork {
       output.target = target;
       output.transition = {
         from: output.last,
-        started: this.now(),
+        started: Date.now(),
         duration: immediate ? 0 : goingDown ? fadeDownMs : output.fadeUpMs,
       };
     }
@@ -167,17 +152,13 @@ export class SpeakerDuckingFork {
       if (!output.transition) continue;
       const device = current.find((item) => item.id === id);
       if (!device || !sameVolume(device.volumes, output.last)) {
-        this.trace(
-          `Ducking fade volume changed ${id}: ${JSON.stringify({ expected: output.last, observed: device?.volumes, original: output.original })}`,
-        );
         output.manual = true;
         output.transition = null;
-        if (![...this.sessions.values()].some((session) => session.ids.includes(id)))
-          this.outputs.delete(id);
+        if (!this.claims(id).length) this.outputs.delete(id);
         continue;
       }
       const { from, started, duration } = output.transition;
-      const progress = duration === 0 ? 1 : Math.min(1, (this.now() - started) / duration);
+      const progress = duration === 0 ? 1 : Math.min(1, (Date.now() - started) / duration);
       const next = from.map((volume, index) =>
         Math.round(volume + (output.target[index]! - volume) * progress),
       );
@@ -188,17 +169,14 @@ export class SpeakerDuckingFork {
       }
       if (progress === 1) {
         output.transition = null;
-        if (![...this.sessions.values()].some((session) => session.ids.includes(id)))
-          this.outputs.delete(id);
+        if (!this.claims(id).length) this.outputs.delete(id);
       }
     }
   }
 
   private schedule(delay = 50) {
     const pending = [...this.outputs].some(
-      ([id, output]) =>
-        output.transition ||
-        ![...this.sessions.values()].some((session) => session.ids.includes(id)),
+      ([id, output]) => output.transition || !this.claims(id).length,
     );
     if (this.timer || this.closed || !pending) return;
     // Only fades tick. Steady ducking has no polling or continuously running process.
