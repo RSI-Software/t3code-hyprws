@@ -82,3 +82,4 @@ export * from "./secretReference.ts";
 export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./voiceInput.fork.ts"; // fork-hook: voice-input/contracts-export
+export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
