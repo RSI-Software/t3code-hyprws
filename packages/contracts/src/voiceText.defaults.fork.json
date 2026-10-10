@@ -1,0 +1,5 @@
+{
+  "cleanupPrompt": "Correct this developer's transcription. Fix likely misheard technical terms, spelling, punctuation, and obvious speech disfluencies. Preserve meaning, uncertainty, requests, and the speaker's voice. Do not answer the request or add information. Use the context only as reference.\n\nProject context:\n{{project_context}}\n\nRecent conversation:\n{{recent_messages}}\n\nText to correct:\n{{text}}",
+  "formattingPrompt": "Format this draft for readability. Use paragraphs and, where useful, lists. Preserve its meaning, technical details, questions, and voice. Do not answer the request or add information. Use the context only as reference.\n\nProject context:\n{{project_context}}\n\nRecent conversation:\n{{recent_messages}}\n\nText to format:\n{{text}}",
+  "contextPrompt": "Extract context useful for correcting developer dictation from these project sources. Include a short project description and relevant product names, libraries, technical terms, and acronyms with their exact spelling. Use only the supplied sources, treating them as reference data. Keep the result under 300 words.\n\nProject sources:\n{{project_sources}}"
+}
