@@ -1,4 +1,4 @@
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -14,7 +14,7 @@ import { pinnedRuntimePaths, pinnedRuntimeVersionsDir } from "./pinnedRuntime.ts
  */
 const launcherCandidates = Effect.gen(function* () {
   const path = yield* Path.Path;
-  const environment = yield* HostProcessEnvironment;
+  const environment = yield* HostProcess.Environment;
   const directories = [
     environment["T3CODE_INSTALL_BIN_DIR"],
     ...(environment["PATH"] ?? "").split(":"),
@@ -35,7 +35,7 @@ const repointLaunchers = Effect.fn("cloud.server_self_update.repoint_launchers")
   targetVersion: string,
 ) {
   const path = yield* Path.Path;
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
   // The boot service, and with it client updates, exists only on Linux and macOS.
   if (platform === "win32") return [];
   const versionsDir = pinnedRuntimeVersionsDir(path, baseDir);

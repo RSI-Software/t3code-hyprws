@@ -6,7 +6,7 @@ import {
   type DesktopAppActivationRequest,
   type DesktopAppActivationResponse,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -114,7 +114,7 @@ function makeWindow(options: { readonly fullScreen?: boolean } = {}) {
 type FakeWindow = ReturnType<typeof makeWindow>;
 
 const ElectronWindowLayer = ElectronWindow.layer.pipe(
-  Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
+  Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
   Layer.provide(NodeServices.layer),
 );
 
