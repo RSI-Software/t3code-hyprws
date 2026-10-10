@@ -1,6 +1,7 @@
 import type { VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { CheckIcon, MicIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { observeResize } from "~/lib/observeResize";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import type { DesktopVoiceRecorderFork } from "./recorder.fork";
@@ -37,11 +38,9 @@ function RecordingWaveformFork({
   useEffect(() => {
     const element = host.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => {
+    return observeResize(element, ([entry]) => {
       if (entry) setBarCount(Math.max(1, Math.min(64, Math.floor(entry.contentRect.width / 5))));
     });
-    observer.observe(element);
-    return () => observer.disconnect();
   }, []);
   const elapsed = `${Math.floor(meter.seconds / 60)}:${String(meter.seconds % 60).padStart(2, "0")}`;
   return (
