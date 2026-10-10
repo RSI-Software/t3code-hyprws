@@ -37,7 +37,8 @@ import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/Cod
 import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
-import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
