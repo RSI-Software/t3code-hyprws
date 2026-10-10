@@ -23,7 +23,7 @@ import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as EventSink from "./EventSink.ts";
-import * as IdAllocator from "./IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 
 interface ThreadWorktreeCreatedFork {
   readonly threadId: ThreadId;
