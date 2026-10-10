@@ -65,7 +65,6 @@ import {
   useHasSecretProvidersEnvironment,
 } from "./useAvailableSettingsSearchItems";
 import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
-import { isElectron } from "../../env"; // fork-hook: voice-input/settings-desktop-import
 import { handleSettingsSectionKeyDown } from "./settingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 
