@@ -9,11 +9,9 @@ import { assert, it } from "@effect/vitest";
 import type { FoldCommit } from "./fork-fold.ts";
 import {
   blockedIssueBody,
-  checkCommands,
   blockingShaMarker,
   checkFailureDetail,
   closeBlocks,
-  dependencySetChanged,
   failureIssueBody,
   failureMarker,
   foldSyncMessages,
@@ -29,13 +27,9 @@ import {
   renderReport,
   reportPath,
   run,
-  runChecks,
   type CommandRunner,
   type ForkSyncReport,
-  type ReleaseTag,
 } from "./fork-sync.ts";
-import { deriveCiTestJobs, workflowJobIds } from "./lib/fork-ci-jobs.ts";
-import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import { FOLD_MESSAGES_ENV, placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
@@ -46,40 +40,6 @@ const refused = (stderr: string): CommandResult => ({ status: 1, stdout: "", std
 // ---------------------------------------------------------------------------
 // Fixture: one upstream remote, one origin remote, a fork trunk
 // ---------------------------------------------------------------------------
-
-/** A hyprws CI workflow in miniature: a Check job, a pooled job, and a matrix job. */
-const FIXTURE_WORKFLOW = `name: hyprws CI
-jobs:
-  check:
-    name: Check
-    steps:
-      - run: vp check
-  test:
-    name: Test
-    steps:
-      - name: Install libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
-      - run: vp run --filter '!t3' test --testTimeout=60000
-  test_server:
-    name: Test Server \${{ matrix.shard }}
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    steps:
-      - run: vp run --filter t3 test --shard \${{ matrix.shard }}/\${{ strategy.job-total }}
-`;
-
-const FIXTURE_TEST_JOBS = deriveCiTestJobs(FIXTURE_WORKFLOW);
-
-/** Every row a full battery reports: the Check-job commands, then each test job. */
-const BATTERY_ROWS = checkCommands().length + FIXTURE_TEST_JOBS.length;
-
-const writeWorkflow = (root: string, source = FIXTURE_WORKFLOW): void => {
-  const path = NodePath.join(root, FORK_CI_WORKFLOW_PATH);
-  NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
-  NodeFS.writeFileSync(path, source);
-};
 
 interface Fixture {
   readonly root: string;
@@ -130,7 +90,6 @@ const fixture = (options: {
       ],
     }),
   );
-  writeWorkflow(repo);
   for (const [path, content] of Object.entries(options.baseFiles ?? {}))
     NodeFS.writeFileSync(NodePath.join(repo, path), content);
   git(["add", "."], repo);
@@ -200,7 +159,7 @@ const withFixture = (
 };
 
 // ---------------------------------------------------------------------------
-// Runner stub: git is real, vp/gh are recorded
+// Runner stub: git is real, vp/gh are recorded, GitHub CI is faked
 // ---------------------------------------------------------------------------
 
 interface Recording {
@@ -208,20 +167,67 @@ interface Recording {
   readonly calls: ReadonlyArray<{ readonly command: string; readonly args: ReadonlyArray<string> }>;
 }
 
+const RUN_URL = "https://github.com/RSI-Software/t3code-hyprws/actions/runs/7";
+const CANDIDATE_PUSH = /^([0-9a-f]{40}):refs\/heads\/sync\/candidate$/;
+
+/** hyprws CI as the fake GitHub runs it: one run per pushed candidate sha. */
+interface CiFake {
+  /** The run's conclusion; its `Test Server 2` job carries the same one. */
+  readonly conclusion?: string;
+  /** Polls that see the run in progress before it completes. */
+  readonly pending?: number;
+  /** Shas that already have a run, as if a previous driver pushed them. */
+  readonly known?: ReadonlyArray<string>;
+  /** A candidate push starts no run. */
+  readonly silent?: boolean;
+}
+
 const exec = (
   handlers: {
     readonly vp?: (args: ReadonlyArray<string>) => CommandResult;
     readonly gh?: (args: ReadonlyArray<string>) => CommandResult;
+    readonly ci?: CiFake;
   } = {},
 ): Recording => {
   const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+  const candidates = new Set(handlers.ci?.known ?? []);
+  const conclusion = handlers.ci?.conclusion ?? "success";
+  let pending = handlers.ci?.pending ?? 0;
+  const fakeCi = (args: ReadonlyArray<string>): CommandResult => {
+    if (args[1] === "view")
+      return ok(
+        JSON.stringify({
+          jobs: [
+            { name: "Check", conclusion: "success", url: `${RUN_URL}/job/1`, status: "completed" },
+            { name: "Test Server 2", conclusion, url: `${RUN_URL}/job/2`, status: "completed" },
+          ],
+        }),
+      );
+    if (!candidates.has(args[args.indexOf("--commit") + 1] ?? "")) return ok("[]");
+    const done = pending <= 0;
+    pending -= 1;
+    return ok(
+      JSON.stringify([
+        {
+          databaseId: 7,
+          status: done ? "completed" : "in_progress",
+          conclusion: done ? conclusion : "",
+          url: RUN_URL,
+        },
+      ]),
+    );
+  };
   return {
     calls,
     runner: {
       run: (command, args, spec) => {
         calls.push({ command, args });
         if (command === "vp") return handlers.vp?.(args) ?? ok();
+        if (command === "sleep") return ok();
+        if (command === "gh" && args[0] === "run") return fakeCi(args);
         if (command === "gh") return handlers.gh?.(args) ?? ok("[]");
+        const candidate = command === "git" ? CANDIDATE_PUSH.exec(args.at(-1) ?? "") : null;
+        if (candidate !== null && handlers.ci?.silent !== true) candidates.add(candidate[1]!);
         return runCommand(command, args, {
           cwd: spec.cwd,
           ...(spec.env === undefined ? {} : { env: spec.env }),
@@ -231,6 +237,17 @@ const exec = (
     },
   };
 };
+
+const isLeasePush = ({
+  command,
+  args,
+}: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+}): boolean =>
+  command === "git" &&
+  args[0] === "push" &&
+  args.some((argument) => argument.startsWith("--force-with-lease="));
 
 const capture = <T>(effect: () => T): { readonly output: string; readonly value: T } => {
   const chunks: string[] = [];
@@ -309,8 +326,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.strictEqual(report.push.pushed, false);
       // the hand-finished stop still reports its row
       assert.deepEqual(report.conflicts, blocked.conflicts);
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
-      for (const check of report.checks) assert.strictEqual(check.status, "passed");
+      assert.strictEqual(report.ci?.conclusion, "success");
     },
   );
 });
@@ -323,7 +339,6 @@ it("runs the repo's worktree setup once, so the first stop already has its depen
       setup: "mkdir -p node_modules/.bin && touch node_modules/.bin/tsc",
     },
     (f) => {
-      const shas = forkShas(f);
       const first = exec();
       capture(() => run(["v1.0.0"], { runner: first.runner, root: f.root }));
       assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "blocked");
@@ -332,10 +347,6 @@ it("runs the repo's worktree setup once, so the first stop already has its depen
         NodeFS.existsSync(NodePath.join(f.worktree, "node_modules/.bin/tsc")),
         true,
       );
-      const state = JSON.parse(
-        NodeFS.readFileSync(NodePath.join(NodePath.dirname(f.worktree), "worktree.json"), "utf8"),
-      );
-      assert.strictEqual(state.installed, shas.fork);
 
       NodeFS.writeFileSync(
         NodePath.join(f.worktree, "shared.txt"),
@@ -344,16 +355,14 @@ it("runs the repo's worktree setup once, so the first stop already has its depen
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // the adopted rerun neither repeats the setup nor installs a second time
+      // the adopted rerun never repeats the setup
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
       );
       assert.strictEqual(applied.value, 0);
       assert.strictEqual(
-        second.calls.some(
-          ({ command, args }) => command === "sh" || (command === "vp" && args[0] === "i"),
-        ),
+        second.calls.some(({ command }) => command === "sh"),
         false,
       );
     },
@@ -380,7 +389,7 @@ it("writes no rerere field and still reads a report that carries one", () => {
   );
 });
 
-it("refuses the push when the check battery is red and records the failing command", () => {
+it("leaves the trunk alone and names the red jobs when hyprws CI is red on the candidate", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
@@ -388,58 +397,44 @@ it("refuses the push when the check battery is red and records the failing comma
     },
     (f) => {
       const shas = forkShas(f);
-      const recording = exec({
-        vp: (args) =>
-          args[1] === "fork:ci"
-            ? refused("fork:ci: scripts suite failed; fix above before pushing\n")
-            : ok(),
-      });
+      const recording = exec({ ci: { conclusion: "failure" } });
       const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
       assert.strictEqual(printed.value, 1);
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "failed");
-      assert.strictEqual(report.error, "the check battery is red: vp run fork:ci");
-      assert.strictEqual(report.trunk.after, null);
+      assert.strictEqual(report.failure?.step, "ci");
+      const tip = report.decision.tip!;
+      assert.strictEqual(
+        report.error,
+        `hyprws CI failure on candidate ${tip.slice(0, 7)}: Test Server 2 (${RUN_URL})`,
+      );
+      assert.deepStrictEqual(report.ci, {
+        run: RUN_URL,
+        conclusion: "failure",
+        jobs: [
+          { name: "Check", conclusion: "success", url: `${RUN_URL}/job/1` },
+          { name: "Test Server 2", conclusion: "failure", url: `${RUN_URL}/job/2` },
+        ],
+      });
       assert.match(printed.output, /Trunk: [0-9a-f]{7} → unchanged/);
-      assert.strictEqual(report.push.pushed, false);
+      assert.match(printed.output, /❌ Test Server 2 — https:\/\/github\.com\/.+\/job\/2/);
       // the red tip survives in the kept worktree the report names
       assert.strictEqual(report.decision.worktree, f.worktree);
-      const tip = report.decision.tip;
-      assert.notStrictEqual(tip, undefined);
       assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
-      assert.match(printed.output, new RegExp(`Tip: \`${tip}\``));
-      const red = report.checks.find((check) => check.status === "failed");
-      assert.notStrictEqual(red, undefined);
-      assert.strictEqual(red!.command, "vp run fork:ci");
-      assert.match(red!.detail, /scripts suite failed/);
-      assert.match(red!.detail, /exit 1/);
-      // the rendered report shows the red row
-      assert.match(printed.output, /❌ `vp run fork:ci`/);
-      // a red fork:ci decides the run: every later row is skipped, never run
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
-      assert.deepStrictEqual(
-        report.checks.slice(1).map((check) => check.status),
-        Array.from({ length: BATTERY_ROWS - 1 }, () => "skipped"),
+      assert.match(
+        report.decision.resume,
+        /gh run rerun 7 --failed --repo RSI-Software\/t3code-hyprws/,
       );
-      assert.deepStrictEqual(
-        recording.calls
-          .filter(({ command, args }) => command === "vp" && args[0] === "run")
-          .map(({ args }) => args[1]),
-        ["fork:ci"],
-      );
-      assert.match(printed.output, /⏭️ `vp run typecheck`/);
-      // a red battery never reaches the push
-      assert.strictEqual(
-        recording.calls.some(({ command, args }) => command === "git" && args[0] === "push"),
-        false,
-      );
+      // the candidate went out; the trunk never did
+      assert.strictEqual(f.git(["rev-parse", "origin/sync/candidate"], f.root), tip);
+      assert.strictEqual(recording.calls.some(isLeasePush), false);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
     },
   );
 });
 
 const redThenGreen = (): { readonly red: Recording; readonly green: Recording } => ({
-  red: exec({ vp: (args) => (args[1] === "fork:ci" ? refused("red\n") : ok()) }),
+  red: exec({ ci: { conclusion: "failure" } }),
   green: exec(),
 });
 
@@ -516,12 +511,12 @@ it("keeps a green dry run's tip and the real run publishes exactly that tip", ()
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
       // the dry run's stop still reports its row
       assert.deepEqual(report.conflicts, blocked.conflicts);
-      // no second rebase; the battery checks the adopted tip again
+      // no second rebase
       assert.strictEqual(
         real.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
         false,
       );
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
+      assert.strictEqual(report.ci?.conclusion, "success");
       assert.strictEqual(NodeFS.existsSync(f.worktree), false);
     },
   );
@@ -611,27 +606,52 @@ it("blocks again on a rerun while the kept rebase still has unresolved paths", (
   );
 });
 
-it("pushes the rebased tip after a green battery", () => {
+it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
       upstreamContent: "line1\nline2\nline3 upstream\n",
     },
     (f) => {
-      const recording = exec();
+      const recording = exec({ ci: { pending: 2 } });
       const code = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root })).value;
       assert.strictEqual(code, 0);
       const report = readReport(f.root, "v1.0.0");
+      const tip = report.trunk.after!;
       assert.strictEqual(report.outcome, "applied");
       assert.strictEqual(report.push.pushed, true);
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
-      for (const check of report.checks) assert.strictEqual(check.status, "passed");
-      const push = recording.calls.find(
-        ({ command, args }) => command === "git" && args[0] === "push",
-      );
-      assert.notStrictEqual(push, undefined);
-      assert.match(push!.args.join(" "), /--force-with-lease=hyprws:/);
-      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), report.trunk.after);
+      assert.strictEqual(report.ci?.run, RUN_URL);
+      assert.strictEqual(report.ci?.conclusion, "success");
+      // candidate push, polls until the run completes, then the lease push
+      const steps = recording.calls
+        .filter(
+          ({ command, args }) =>
+            command === "sleep" ||
+            (command === "git" && args[0] === "push") ||
+            (command === "gh" && args[0] === "run"),
+        )
+        .map(({ command, args }) =>
+          command === "git"
+            ? args.at(-1)!
+            : command === "sleep"
+              ? `sleep ${args[0]}`
+              : `gh ${args[1]}`,
+        );
+      assert.deepStrictEqual(steps, [
+        "gh list",
+        `${tip}:refs/heads/sync/candidate`,
+        "sleep 30",
+        "gh list",
+        "sleep 30",
+        "gh list",
+        "sleep 30",
+        "gh list",
+        "gh view",
+        `--force-with-lease=hyprws:${report.lease.expectedOld}`,
+      ]);
+      const lease = recording.calls.find(isLeasePush);
+      assert.include(lease!.args, `${tip}:hyprws`);
+      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
     },
   );
 });
@@ -647,7 +667,7 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
       const green = exec();
       const refusing: CommandRunner = {
         run: (command, args, spec) =>
-          command === "git" && args[0] === "push"
+          isLeasePush({ command, args })
             ? refused("! [rejected] hyprws (stale info)\n")
             : green.runner.run(command, args, spec),
       };
@@ -777,8 +797,7 @@ it("accepts an upstream delete whose fork edit is net-zero and continues the reb
         f.git(["ls-tree", "--name-only", report.trunk.after!, "--", "shared.txt"], f.root),
         "",
       );
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
-      for (const check of report.checks) assert.strictEqual(check.status, "passed");
+      assert.strictEqual(report.ci?.conclusion, "success");
     },
   );
 });
@@ -1124,7 +1143,7 @@ it("refuses a target that is not a release tag on upstream", () => {
 // ---------------------------------------------------------------------------
 
 const blockedReport = (blockingSha: string): ForkSyncReport => ({
-  schema: "fork.sync-report.v1",
+  schema: "fork.sync-report.v2",
   outcome: "blocked",
   dryRun: false,
   startedAt: "2026-09-21T10:00:00.000Z",
@@ -1145,7 +1164,7 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
       hooksReapplied: [],
     },
   ],
-  checks: [],
+  ci: null,
   closedBlocks: [],
   decision: {
     worktree: "/tmp/fork-sync/worktree",
@@ -1165,7 +1184,7 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
 });
 
 const failedReport = (step: string, key: string): ForkSyncReport => ({
-  schema: "fork.sync-report.v1",
+  schema: "fork.sync-report.v2",
   outcome: "failed",
   dryRun: false,
   startedAt: "2026-09-21T10:00:00.000Z",
@@ -1176,7 +1195,11 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
   trunk: { before: "2".repeat(40), after: null },
   base: "3".repeat(40),
   conflicts: [],
-  checks: [{ command: "vp run fork:delta --check", status: "failed", detail: "red" }],
+  ci: {
+    run: RUN_URL,
+    conclusion: "failure",
+    jobs: [{ name: "Check", conclusion: "failure", url: `${RUN_URL}/job/1` }],
+  },
   decision: { worktree: "", paths: [], resume: "" },
   blocked: null,
   closedBlocks: [],
@@ -1189,7 +1212,7 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
     publishedVia: null,
   },
   push: { pushed: false, detail: "" },
-  error: "the check battery is red",
+  error: "hyprws CI failure on candidate 1111111: Check",
 });
 
 it("files one issue per blocking sha with the governed fields", () => {
@@ -1509,11 +1532,11 @@ const checkRedFixture = {
   upstreamContent: "line1\nline2\nline3 upstream\n",
 };
 
-it("files one governed failure issue when the check battery goes red", () => {
+it("files one governed failure issue when hyprws CI is red on the candidate", () => {
   withFixture(checkRedFixture, (f) => {
     const issueBodies: string[] = [];
     const recording = exec({
-      vp: () => refused("fork:ci is red"),
+      ci: { conclusion: "failure" },
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") {
           issueBodies.push(
@@ -1528,7 +1551,7 @@ it("files one governed failure issue when the check battery goes red", () => {
     assert.strictEqual(code, 1);
     const report = readReport(f.root, "v1.0.0");
     assert.strictEqual(report.outcome, "failed");
-    assert.strictEqual(report.failure?.step, "check");
+    assert.strictEqual(report.failure?.step, "ci");
     assert.strictEqual(report.failure?.key, "v1.0.0");
     assert.strictEqual(report.failure?.issue, 42);
     assert.strictEqual(report.failure?.publishedVia, "gh");
@@ -1539,7 +1562,7 @@ it("files one governed failure issue when the check battery goes red", () => {
     assert.notStrictEqual(create, undefined);
     const args = create!.args;
     const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
-    assert.strictEqual(value("--title"), "hyprws sync failed at check (v1.0.0)");
+    assert.strictEqual(value("--title"), "hyprws sync failed at ci (v1.0.0)");
     assert.strictEqual(value("--type"), "Notification 🔔");
     assert.deepStrictEqual(
       args.filter((argument, index) => args[index - 1] === "--label"),
@@ -1553,11 +1576,11 @@ it("files one governed failure issue when the check battery goes red", () => {
       '"hyprws sync failed" in:title',
     );
     const body = issueBodies[0] ?? "";
-    assert.match(body, /failed at the `check` step/);
-    assert.match(body, /```\nthe check battery is red: vp run fork:ci\n```/);
-    assert.match(body, /\| Test Server 2 · `vp run --filter t3 test --shard 2\/2` \| skipped \|/);
-    assert.match(body, /\| `vp run fork:ci` \| failed \|/);
-    assert.include(body, failureMarker("check", "v1.0.0"));
+    assert.match(body, /failed at the `ci` step/);
+    assert.match(body, /```\nhyprws CI failure on candidate [0-9a-f]{7}: Test Server 2 \(https:/);
+    assert.include(body, `| [Test Server 2](${RUN_URL}/job/2) | failure |`);
+    assert.notInclude(body, "[Check]");
+    assert.include(body, failureMarker("ci", "v1.0.0"));
   });
 });
 
@@ -1567,7 +1590,7 @@ it("a rerun with the same failure edits the issue in place instead of filing aga
     const edits: string[] = [];
     let listResponse = ok("[]");
     const recording = exec({
-      vp: () => refused("fork:ci is red"),
+      ci: { conclusion: "failure" },
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "list") return listResponse;
         if (args[0] === "issue" && args[1] === "create") {
@@ -1588,8 +1611,8 @@ it("a rerun with the same failure edits the issue in place instead of filing aga
       JSON.stringify([
         {
           number: 42,
-          title: "hyprws sync failed at check (v1.0.0)",
-          body: `first failure\n${failureMarker("check", "v1.0.0")}`,
+          title: "hyprws sync failed at ci (v1.0.0)",
+          body: `first failure\n${failureMarker("ci", "v1.0.0")}`,
         },
       ]),
     );
@@ -1614,7 +1637,7 @@ it("a dry run reports the failure and files nothing", () => {
   withFixture(checkRedFixture, (f) => {
     let creates = 0;
     const recording = exec({
-      vp: () => refused("fork:ci is red"),
+      ci: { conclusion: "failure" },
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "create") creates += 1;
         return ok("[]");
@@ -1626,10 +1649,12 @@ it("a dry run reports the failure and files nothing", () => {
     assert.strictEqual(code, 1);
     const report = readReport(f.root, "v1.0.0");
     assert.strictEqual(report.outcome, "failed");
-    assert.strictEqual(report.failure?.step, "check");
+    assert.strictEqual(report.failure?.step, "ci");
     assert.strictEqual(report.failure?.issue, null);
     assert.strictEqual(creates, 0);
-    for (const call of recording.calls) assert.notStrictEqual(call.command, "gh");
+    // a dry run still proves the candidate on CI, but never touches an issue
+    for (const call of recording.calls)
+      if (call.command === "gh") assert.strictEqual(call.args[0], "run");
   });
 });
 
@@ -1844,7 +1869,6 @@ const foldFixture = (fixupSubject = "fixup! feat(fork): owned change"): Fixture 
   git(["init", "--quiet", "--initial-branch", "main", repo]);
   configure(repo);
   NodeFS.writeFileSync(NodePath.join(repo, "shared.txt"), "line1\nline2\nline3\n");
-  writeWorkflow(repo);
   git(["add", "."], repo);
   git(["commit", "--quiet", "-m", "base"], repo);
   git(["remote", "add", "origin", origin], repo);
@@ -2204,40 +2228,6 @@ it("folds the fixup into its owner so the applied series never carries fix-of-fi
   });
 });
 
-it("scopes the sync battery's fork:ci to the rehearsal target", () => {
-  withFixture(
-    {
-      forkContent: "fork line1\nline2\nline3\n",
-      upstreamContent: "line1\nline2\nline3 upstream\n",
-    },
-    (f) => {
-      const target = f.git(["rev-parse", "v1.0.0"], f.root);
-      const seen: Array<ReadonlyArray<string>> = [];
-      const recording = exec({
-        vp: (args) => {
-          seen.push(args);
-          return ok();
-        },
-      });
-      const code = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root })).value;
-      assert.strictEqual(code, 0);
-      const ci = seen.find((args) => args[1] === "fork:ci");
-      assert.notStrictEqual(ci, undefined);
-      // The rehearsal head authors no commits: the battery guards the replayed
-      // fork delta after the target, not every commit since the upstream base.
-      assert.deepStrictEqual(ci, ["run", "fork:ci", "--since", target]);
-      for (const args of seen) {
-        if (args[1] === "fork:ci") continue;
-        assert.strictEqual(
-          args.includes("--since"),
-          false,
-          `only fork:ci takes --since: ${args.join(" ")}`,
-        );
-      }
-    },
-  );
-});
-
 it("keeps the combined check output tail in the failure detail", () => {
   const lines = Array.from({ length: 50 }, (_, index) => `line ${index + 1}`);
   const detail = checkFailureDetail({ status: 1, stdout: lines.join("\n"), stderr: "boom\n" });
@@ -2259,298 +2249,91 @@ it("says no output only when both check streams are empty", () => {
   );
 });
 
-it("records a non-empty detail tail when a streamed battery check fails", () => {
-  withFixture(
-    {
-      forkContent: "fork line1\nline2\nline3\n",
-      upstreamContent: "line1\nline2\nline3 upstream\n",
-    },
-    (f) => {
-      // A nested vp failure whose output arrives the streamed way: captured
-      // text present on the result, the way runCommand's stream mode returns.
-      const nested = Array.from({ length: 45 }, (_, index) => `nested line ${index + 1}`);
-      const recording = exec({
-        vp: () => ({ status: 1, stdout: `${nested.join("\n")}\n`, stderr: "nested boom\n" }),
-      });
-      const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
-      assert.strictEqual(printed.value, 1);
-      const report = readReport(f.root, "v1.0.0");
-      const red = report.checks.find((check) => check.status === "failed");
-      assert.notStrictEqual(red, undefined);
-      assert.notMatch(red!.detail, /no output/);
-      const kept = red!.detail.replace(/ \(exit 1\)$/, "").split("\n");
-      assert.strictEqual(kept.length, 40);
-      assert.strictEqual(kept[kept.length - 1], "nested boom");
-      assert.match(red!.detail, /exit 1/);
-    },
-  );
-});
-
-// ---------------------------------------------------------------------------
-// The setup step's install vs a second one: the dependency-set skew guard
-// ---------------------------------------------------------------------------
-
-/** A minimal repo (no upstream/origin remotes) for the dependency-diff guard. */
-const dependencyRepo = (): { readonly root: string; readonly worktree: string } => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-deps-test-"));
-  const git = (args: ReadonlyArray<string>): string => {
-    const result = runCommand("git", args, { cwd: root });
-    if (result.status !== 0)
-      throw new Error(`git ${args.join(" ")} in ${root}: ${result.stderr.trim() || "failed"}`);
-    return result.stdout.trim();
-  };
-  git(["init", "--quiet", "--initial-branch", "main"]);
-  git(["config", "user.email", "fork@example.invalid"]);
-  git(["config", "user.name", "fork"]);
-  NodeFS.writeFileSync(NodePath.join(root, "pnpm-lock.yaml"), "lockfileVersion: 1\n");
-  git(["add", "."]);
-  git(["commit", "--quiet", "-m", "trunk"]);
-  const worktree = NodePath.join(root, "replay-worktree");
-  writeWorkflow(worktree);
-  return { root, worktree };
-};
-
-it("installs again in the replay worktree when the tip changed the lockfile since setup", () => {
-  const repo = dependencyRepo();
-  try {
-    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-    NodeFS.writeFileSync(NodePath.join(repo.root, "pnpm-lock.yaml"), "lockfileVersion: 2\n");
-    runCommand("git", ["commit", "--quiet", "-am", "bump vite-plus"], { cwd: repo.root });
-    const targetSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-
-    assert.strictEqual(dependencySetChanged(realRunner, repo.root, trunkSha, targetSha), true);
-
-    const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
-    const runner: CommandRunner = {
-      run: (command, args, spec) => {
-        calls.push({ command, args });
-        if (command === "vp") return ok();
-        return runCommand(command, args, { cwd: spec.cwd });
-      },
-    };
-    const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
-    const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
-
-    assert.match(printed.output, /sync: dependency set changed since/);
-    const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
-    assert.notStrictEqual(install, undefined);
-    assert.deepStrictEqual(install!.args, ["i", "--frozen-lockfile"]);
-  } finally {
-    NodeFS.rmSync(repo.root, { recursive: true, force: true });
-  }
-});
-
-it("skips a second install when the tip kept the dependency set setup installed", () => {
-  const repo = dependencyRepo();
-  try {
-    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-    NodeFS.writeFileSync(NodePath.join(repo.root, "unrelated.txt"), "hello\n");
-    runCommand("git", ["add", "."], { cwd: repo.root });
-    runCommand("git", ["commit", "--quiet", "-m", "unrelated change"], { cwd: repo.root });
-    const targetSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-
-    assert.strictEqual(dependencySetChanged(realRunner, repo.root, trunkSha, targetSha), false);
-
-    const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
-    const runner: CommandRunner = {
-      run: (command, args, spec) => {
-        calls.push({ command, args });
-        if (command === "vp") return ok();
-        return runCommand(command, args, { cwd: spec.cwd });
-      },
-    };
-    const target: ReleaseTag = { tag: "v1.0.0", sha: targetSha };
-    const printed = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
-
-    assert.notMatch(printed.output, /installing/);
-    const install = calls.find((call) => call.command === "vp" && call.args[0] === "i");
-    assert.strictEqual(install, undefined);
-
-    // a worktree no setup step installed gets the battery's own install
-    const bare = capture(() => runChecks(runner, repo.root, repo.worktree, target, null));
-    assert.match(bare.output, /nothing installed in the replay worktree/);
+it("reuses the run a sha already has instead of pushing the candidate again", () => {
+  withFixture(checkRedFixture, (f) => {
+    capture(() => run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root }));
+    const tip = readReport(f.root, "v1.0.0").decision.tip!;
+    const real = exec({ ci: { known: [tip] } });
     assert.strictEqual(
-      calls.filter((call) => call.command === "vp" && call.args[0] === "i").length,
+      capture(() => run(["v1.0.0"], { runner: real.runner, root: f.root })).value,
+      0,
+    );
+    const pushes = real.calls.filter(
+      ({ command, args }) => command === "git" && args[0] === "push",
+    );
+    assert.deepStrictEqual(pushes.length, 1);
+    assert.isTrue(isLeasePush(pushes[0]!));
+    assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+  });
+});
+
+it("gives up without moving the trunk when the candidate never gets a CI run", () => {
+  withFixture(checkRedFixture, (f) => {
+    const shas = forkShas(f);
+    const recording = exec({ ci: { silent: true } });
+    assert.strictEqual(
+      capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root })).value,
       1,
     );
-  } finally {
-    NodeFS.rmSync(repo.root, { recursive: true, force: true });
-  }
-});
-
-it("runs every single-command step of the CI Check job before a direct trunk push", () => {
-  // Setup steps, and steps `fork:ci` already runs in CI's shape.
-  const coveredElsewhere = new Set([
-    "vp run --filter @t3tools/desktop ensure:electron",
-    "vp run fork:stale-delete",
-    "vp run fork:fixup-fold",
-    "vp check",
-  ]);
-  const workflow = NodeFS.readFileSync(
-    NodePath.join(import.meta.dirname, "..", ".github", "workflows", "hyprws-ci.yml"),
-    "utf8",
-  );
-  const job = workflow.slice(
-    workflow.indexOf("\n  check:\n"),
-    workflow.indexOf("\n  merge-tree:\n"),
-  );
-  const steps = [...job.matchAll(/^\s+run: (vpr? .+)$/gm)].map((match) => match[1]!.trim());
-  const battery = new Set(checkCommands().map((args) => args.join(" ")));
-  const uncovered = steps.filter((step) => {
-    const command = step.split(" --base ")[0]!;
-    if (coveredElsewhere.has(command)) return false;
-    return !battery.has(command.replace(/^vpr /, "run ").replace(/^vp /, ""));
+    const report = readReport(f.root, "v1.0.0");
+    assert.deepStrictEqual(report.ci, { run: "", conclusion: "never started", jobs: [] });
+    assert.match(report.error ?? "", /^hyprws CI never started on candidate [0-9a-f]{7}$/);
+    // five minutes of thirty-second polls, then the run stops waiting
+    assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 10);
+    assert.strictEqual(recording.calls.some(isLeasePush), false);
+    assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
   });
-  assert.isAbove(steps.length, 3);
-  assert.deepStrictEqual(uncovered, []);
 });
 
-it("runs every hyprws CI test job before a direct trunk push", () => {
-  const source = NodeFS.readFileSync(
-    NodePath.join(import.meta.dirname, "..", FORK_CI_WORKFLOW_PATH),
-    "utf8",
-  );
-  const jobs = deriveCiTestJobs(source);
-  const derived = new Set(jobs.map((job) => job.id));
-  // `check` is guarded by the Check-job test above; `merge-tree` gates a
-  // pull-request head's conflicts against the trunk and tests nothing.
-  assert.deepStrictEqual(
-    workflowJobIds(source).filter((id) => !derived.has(id)),
-    ["check", "merge-tree"],
-  );
-
-  const repo = dependencyRepo();
-  try {
-    writeWorkflow(repo.worktree, source);
-    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-    const calls: Array<ReadonlyArray<string>> = [];
-    const runner: CommandRunner = {
-      run: (command, args, spec) => {
-        if (command === "vp") {
-          calls.push(args);
-          return ok();
-        }
-        return runCommand(command, args, { cwd: spec.cwd });
-      },
-    };
-    const target: ReleaseTag = { tag: "v1.0.0", sha: trunkSha };
-    const rows = capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha)).value;
-    assert.deepStrictEqual(
-      calls.slice(checkCommands().length),
-      jobs.flatMap((job) => job.commands),
-    );
-    assert.deepStrictEqual(
-      rows.flatMap((row) => (row.job === undefined ? [] : [row.job])),
-      jobs.map((job) => job.name),
-    );
-  } finally {
-    NodeFS.rmSync(repo.root, { recursive: true, force: true });
-  }
-});
-
-it("leaves the trunk alone and names the suite when one CI test job is red", () => {
-  withFixture(
-    {
-      forkContent: "fork line1\nline2\nline3\n",
-      upstreamContent: "line1\nline2\nline3 upstream\n",
-    },
-    (f) => {
-      const shas = forkShas(f);
-      const recording = exec({
-        vp: (args) =>
-          args.includes("2/2") ? refused("FAIL src/rateLimit.test.ts > probes GraphQL\n") : ok(),
-      });
-      const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
-      assert.strictEqual(printed.value, 1);
-      const report = readReport(f.root, "v1.0.0");
-      assert.strictEqual(report.outcome, "failed");
-      assert.strictEqual(report.error, "the check battery is red: Test Server 2");
-      assert.deepStrictEqual(
-        report.checks.filter((check) => check.status === "failed").map((check) => check.job),
-        ["Test Server 2"],
-      );
-      // the battery still runs every other job, so one report names every red suite
-      assert.strictEqual(report.checks.length, BATTERY_ROWS);
-      assert.match(printed.output, /❌ Test Server 2 · `vp run --filter t3 test --shard 2\/2`/);
-      assert.strictEqual(
-        recording.calls.some(({ command, args }) => command === "git" && args[0] === "push"),
-        false,
-      );
-      assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
-    },
-  );
-});
-
-it("runs the battery with CI's umask and a scrubbed environment", () => {
-  const repo = dependencyRepo();
-  const inherited = {
-    T3_SERVICE_LAUNCHER_CONTEXT: process.env.T3_SERVICE_LAUNCHER_CONTEXT,
-    T3CODE_HOME: process.env.T3CODE_HOME,
-    GH_REPO: process.env.GH_REPO,
-    GH_HOST: process.env.GH_HOST,
-    GH_TOKEN: process.env.GH_TOKEN,
-  };
-  const outer = process.umask(0o077);
+it("runs the worktree setup in a scrubbed environment", () => {
+  const keys = ["T3_SERVICE_LAUNCHER_CONTEXT", "T3CODE_HOME", "GH_REPO", "GH_HOST", "GH_TOKEN"];
+  const inherited = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
     process.env.T3_SERVICE_LAUNCHER_CONTEXT = '{"childVersion":"9.9.9"}';
-    process.env.T3CODE_HOME = NodePath.join(repo.root, "live-home");
+    process.env.T3CODE_HOME = "/live-home";
     process.env.GH_REPO = "RSI-Software/t3code-hyprws";
     process.env.GH_HOST = "github.example.com";
     process.env.GH_TOKEN = "kept";
-    const trunkSha = runCommand("git", ["rev-parse", "HEAD"], { cwd: repo.root }).stdout.trim();
-    const seen: Array<{
-      readonly umask: number;
-      readonly keys: ReadonlyArray<string>;
-      readonly token: string | undefined;
-    }> = [];
-    const runner: CommandRunner = {
-      run: (command, args, spec) => {
-        if (command !== "vp") return runCommand(command, args, { cwd: spec.cwd });
-        const umask = process.umask(0o022);
-        process.umask(umask);
-        seen.push({
-          umask,
-          keys: Object.keys(spec.env ?? {}).filter(
-            (key) => key.startsWith("T3") || key === "GH_REPO" || key === "GH_HOST",
-          ),
-          token: spec.env?.GH_TOKEN,
-        });
-        return ok();
-      },
-    };
-    const target: ReleaseTag = { tag: "v1.0.0", sha: trunkSha };
-    capture(() => runChecks(runner, repo.root, repo.worktree, target, trunkSha));
-    assert.strictEqual(seen.length, checkCommands().length + 3);
-    for (const call of seen)
-      assert.deepStrictEqual(call, { umask: 0o022, keys: [], token: "kept" });
-    const restored = process.umask(outer);
-    assert.strictEqual(restored, 0o077);
+    withFixture(checkRedFixture, (f) => {
+      const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+      const recording = exec();
+      const runner: CommandRunner = {
+        run: (command, args, spec) => {
+          if (command === "sh") seen.push(spec.env);
+          return recording.runner.run(command, args, spec);
+        },
+      };
+      capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root }));
+      assert.strictEqual(seen.length, 1);
+      const env = seen[0] ?? {};
+      assert.deepStrictEqual(
+        Object.keys(env).filter(
+          (key) =>
+            (key.startsWith("T3") &&
+              key !== "T3CODE_PROJECT_ROOT" &&
+              key !== "T3CODE_WORKTREE_PATH") ||
+            key === "GH_REPO" ||
+            key === "GH_HOST",
+        ),
+        [],
+      );
+      assert.strictEqual(env.GH_TOKEN, "kept");
+    });
   } finally {
-    process.umask(outer);
     for (const [key, value] of Object.entries(inherited)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    NodeFS.rmSync(repo.root, { recursive: true, force: true });
   }
 });
 
-it("takes no flag that drops a battery row", () => {
-  withFixture(
-    {
-      forkContent: "fork line1\nline2\nline3\n",
-      upstreamContent: "line1\nline2\nline3 upstream\n",
-    },
-    (f) => {
-      const recording = exec();
-      const code = capture(() =>
-        run(["v1.0.0", "--skip-tests"], { runner: recording.runner, root: f.root }),
-      ).value;
-      assert.strictEqual(code, 1);
-      assert.strictEqual(
-        recording.calls.some(({ command }) => command === "vp"),
-        false,
-      );
-    },
-  );
+it("refuses an unknown flag before touching anything", () => {
+  withFixture(checkRedFixture, (f) => {
+    const recording = exec();
+    const code = capture(() =>
+      run(["v1.0.0", "--skip-tests"], { runner: recording.runner, root: f.root }),
+    ).value;
+    assert.strictEqual(code, 1);
+    assert.deepStrictEqual(recording.calls, []);
+  });
 });

@@ -2,7 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver bootstraps Git before any Effect runtime exists.
 
 // One driver, one run, one exit code, one report. `fork:sync [<tag>] [--dry-run]`
-// walks one upstream release tag end to end: target, fetch, rebase, check, push,
+// walks one upstream release tag end to end: target, fetch, rebase, ci, push,
 // blocked, report. There is no state machine, no gates, no lanes, and no modes —
 // a rerun of the same command is always the next move.
 //
@@ -10,21 +10,21 @@
 // sha, lease, and every stop's conflict rows beside it; a rerun on the same
 // three adopts the kept worktree — continuing a resolved rebase, or taking a
 // finished HEAD with any reshape extras committed there — and reports every
-// stop so far. A green dry run keeps it too, so the real run publishes the
-// tip the dry run proved. A different tag or a moved lease recreates it. A new
-// worktree runs the repo's own worktree setup step, so a stop already has
-// dependencies.
+// stop so far. A red candidate or a green dry run keeps it too, so a fix
+// commits there and the real run publishes the tip CI proved. A different tag
+// or a moved lease recreates it. A new worktree runs the repo's own worktree
+// setup step, so a stop already has dependencies.
 //
 // | Step    | Fails when                                         |
 // | ------- | -------------------------------------------------- |
 // | target  | the named target is not a release tag on upstream  |
 // | fetch   | the fetch errors                                   |
 // | rebase  | a conflict neither rerere nor hook re-apply fixes  |
-// | check   | the check battery (`checkCommands`) is red         |
+// | ci      | hyprws CI is not green on the candidate tip        |
 // | push    | the expected-old lease is refused                  |
 // | blocked | `gh` refuses the write                             |
 //
-// A failed run — target, fetch, check, push, or a crash — files one issue the
+// A failed run — target, fetch, ci, push, or a crash — files one issue the
 // way a blocked run files its block issue: keyed by the failing step and the
 // target tag (the trunk sha before a tag resolves), refreshed by a rerun with
 // the same failure, closed by the next clean run.
@@ -33,10 +33,10 @@
 // Markdown this prints is output, never read back. Publication goes through
 // plain `gh`, and nothing is ever posted to upstream.
 //
-// The check battery installs again in the replay worktree only when the
-// rebased tip changed the lockfile, the workspace catalog, or a manifest since
-// the setup step installed, so the battery's toolchain always matches the
-// tip's declared dependency set.
+// The trunk moves only to a sha hyprws CI already passed: the driver pushes
+// the rebased tip to the candidate branch, waits for the CI run on that exact
+// sha, and lease-pushes the same sha. CI is the one check authority; the
+// driver never restates it locally.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -58,7 +58,7 @@ import {
   withoutSquashes,
   type FoldCommit,
 } from "./fork-fold.ts";
-import { ciTestJobs } from "./lib/fork-ci-jobs.ts";
+import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 import {
   commandText,
@@ -74,6 +74,7 @@ import {
   HYPRWS_BRANCH,
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
+  SYNC_CANDIDATE_BRANCH,
 } from "./lib/fork-policy.ts";
 import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
@@ -88,7 +89,7 @@ const WORKTREE_DIR = "worktree";
 const BLOCK_LABEL = "ci";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
-const REPORT_SCHEMA = "fork.sync-report.v1";
+const REPORT_SCHEMA = "fork.sync-report.v2";
 
 const blockIssueTitle = (tag: string, blockingShortSha: string): string =>
   `hyprws sync blocked at ${tag} (upstream ${blockingShortSha})`;
@@ -206,7 +207,7 @@ export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 export const DecisionRoute = Schema.Struct({
   /** The detached worktree holding the stopped rebase or kept tip; `""` when nothing to resume. */
   worktree: Schema.String,
-  /** The rebased tip a red battery or a green dry run left in the worktree; trunk did not move. */
+  /** The rebased tip a red candidate or a green dry run left in the worktree; trunk did not move. */
   tip: Schema.optionalKey(Schema.String),
   /** The paths resolved by hand there. */
   paths: Schema.Array(Schema.String),
@@ -215,14 +216,24 @@ export const DecisionRoute = Schema.Struct({
 });
 export interface DecisionRoute extends Schema.Schema.Type<typeof DecisionRoute> {}
 
-export const CheckRow = Schema.Struct({
-  /** The hyprws CI test job a row runs; absent on a Check-job row. */
-  job: Schema.optionalKey(Schema.String),
-  command: Schema.String,
-  status: Schema.Literals(["passed", "failed", "skipped"]),
-  detail: Schema.String,
+/** One hyprws CI job on the candidate sha, as GitHub concluded it. */
+export const CiJob = Schema.Struct({
+  name: Schema.String,
+  /** GitHub's conclusion: `success`, `failure`, `cancelled`, `skipped`, … */
+  conclusion: Schema.String,
+  url: Schema.String,
 });
-export interface CheckRow extends Schema.Schema.Type<typeof CheckRow> {}
+export interface CiJob extends Schema.Schema.Type<typeof CiJob> {}
+
+/** The hyprws CI verdict on the candidate sha: the one gate before the trunk push. */
+export const CandidateCi = Schema.Struct({
+  /** The run's URL; `""` when no run started. */
+  run: Schema.String,
+  /** GitHub's run conclusion, or `never started` / `timed out` when the wait gave up. */
+  conclusion: Schema.String,
+  jobs: Schema.Array(CiJob),
+});
+export interface CandidateCi extends Schema.Schema.Type<typeof CandidateCi> {}
 
 /** One stale block issue an applied run tried to close after the push. */
 export const BlockClosure = Schema.Struct({
@@ -251,7 +262,8 @@ export const ForkSyncReport = Schema.Struct({
   base: Schema.String,
   /** Every stop's rows, earlier runs on the same kept worktree included, in stop order. */
   conflicts: Schema.Array(ConflictRow),
-  checks: Schema.Array(CheckRow),
+  /** hyprws CI on the candidate sha; `null` when no rebase completed. */
+  ci: Schema.NullOr(CandidateCi),
   /** The block issues the applied run closed, or failed to close, after the push. */
   closedBlocks: Schema.Array(BlockClosure),
   decision: DecisionRoute,
@@ -375,8 +387,6 @@ const WorktreeState = Schema.Struct({
   tag: Schema.String,
   targetSha: Schema.String,
   lease: Schema.String,
-  /** The commit whose dependency set the setup step installed; absent when none ran. */
-  installed: Schema.optionalKey(Schema.String),
   /** Every stop's rows so far, so the run that finishes the rebase reports them all. */
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
 });
@@ -425,21 +435,20 @@ const mergeStops = (
 /**
  * Run the setup step the worktree's `t3.json` marks `runOnWorktreeCreate`, as
  * T3 Code runs it for a thread worktree (`scripts/setup-worktree.ts` here: it
- * installs dependencies). It runs in the battery's scrubbed environment, so the
- * push credential and the live instance's variables never reach it. Returns
- * whether a setup step ran.
+ * installs dependencies). It runs in a scrubbed environment, so the push
+ * credential and the live instance's variables never reach it.
  */
-const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string): boolean => {
+const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string): void => {
   let contents: string;
   try {
     contents = NodeFS.readFileSync(NodePath.join(worktree, "t3.json"), "utf8");
   } catch {
-    return false;
+    return;
   }
   const setup = parseT3ProjectFile(contents)?.scripts?.find(
     (script) => script.runOnWorktreeCreate === true,
   );
-  if (setup === undefined) return false;
+  if (setup === undefined) return;
   process.stdout.write(`sync: running worktree setup '${setup.command}' in ${worktree}\n`);
   runRequire(runner, "sh", ["-c", setup.command], {
     cwd: worktree,
@@ -449,7 +458,6 @@ const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string)
     },
     stream: true,
   });
-  return true;
 };
 
 /** Drop the sync worktree and its state once nothing is left to carry. */
@@ -963,8 +971,6 @@ const replayOnto = (
 export type SyncRebase = RebaseOutcome & {
   /** Every stop's rows, earlier runs on the same kept worktree included, in stop order. */
   readonly recorded: ReadonlyArray<ConflictRow>;
-  /** The commit whose dependency set the worktree has installed; `null` when none is. */
-  readonly installed: string | null;
 };
 
 /**
@@ -987,9 +993,8 @@ export const rebaseOnto = (
     dropWorktree(runner, root);
     git(runner, root, ["worktree", "prune"]);
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
-    state = runWorktreeSetup(runner, root, worktree)
-      ? { ...expected, installed: oldSha }
-      : expected;
+    runWorktreeSetup(runner, root, worktree);
+    state = expected;
     writeWorktreeState(root, state);
   }
   const carried = state.conflicts ?? [];
@@ -1000,15 +1005,11 @@ export const rebaseOnto = (
   } finally {
     writeWorktreeState(root, { ...state, conflicts: mergeStops(carried, conflicts) });
   }
-  return {
-    ...outcome,
-    recorded: mergeStops(carried, outcome.conflicts),
-    installed: state.installed ?? null,
-  };
+  return { ...outcome, recorded: mergeStops(carried, outcome.conflicts) };
 };
 
 // ---------------------------------------------------------------------------
-// Check
+// Scrubbed environment
 // ---------------------------------------------------------------------------
 
 const VERIFICATION_ENV_KEYS = new Set([
@@ -1021,28 +1022,24 @@ const VERIFICATION_ENV_KEYS = new Set([
   "VP_NODE_DIST_MIRROR",
   "VP_NODE_SKIP_SIGNATURE_VERIFY",
   "VP_NODE_VERSION",
-  // The push credential lives in the Git environment. Check commands run
-  // rebased code, which must never see it; the driver's own pushes keep it.
+  // The push credential lives in the Git environment. Setup and regeneration
+  // run rebased code, which must never see it; the driver's own pushes keep it.
   "GIT_CONFIG_COUNT",
   "GIT_CONFIG_KEY_0",
   "GIT_CONFIG_VALUE_0",
   "HYPRWS_PUSH_TOKEN",
-  // The server's GitHub code reads these to pick its repository and host, so
-  // a shell that exports them changes what the rebased tests exercise. CI sets
-  // neither. `GH_TOKEN` stays: it only authenticates.
+  // The server's GitHub code reads these to pick its repository and host; CI
+  // sets neither. `GH_TOKEN` stays: it only authenticates.
   "GH_HOST",
   "GH_REPO",
 ]);
 
 /**
  * A shell inside T3 Code inherits the live instance's own variables: its home,
- * port, and service-launcher context. CI has none, and the rebased tests must
+ * port, and service-launcher context. CI has none, and rebased code must
  * never reach live state, so every one of them is scrubbed.
  */
 const VERIFICATION_ENV_PREFIX = /^T3(?:CODE)?_/;
-
-/** The umask GitHub-hosted runners give every CI step. */
-const CI_UMASK = 0o022;
 
 /** The worktree's own `.bin` first, and no other checkout's bin directory at all. */
 const worktreeExecutablePath = (inherited: string | undefined, worktree: string): string => {
@@ -1067,51 +1064,7 @@ const verificationEnv = (worktree: string): NodeJS.ProcessEnv => ({
   PATH: worktreeExecutablePath(process.env.PATH, worktree),
 });
 
-/** The files whose diff marks a commit as having changed the installed dependency set. */
-const DEPENDENCY_FILES = ["pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"];
-
-/**
- * True when the dependency set differs between two commits: the lockfile, the
- * catalog, or a manifest. An install is only reusable while the replay's
- * sources expect what it installed — a bumped catalog entry (e.g. `vite-plus`
- * 0.3.0 → 0.3.3) means an older toolchain runs against newer sources and skews
- * tool output (see e.g. `oxfmt` formatting) that no fork commit touches.
- */
-export const dependencySetChanged = (
-  runner: CommandRunner,
-  root: string,
-  fromSha: string,
-  toSha: string,
-): boolean =>
-  gitResult(runner, root, ["diff", "--quiet", fromSha, toSha, "--", ...DEPENDENCY_FILES]).status !==
-  0;
-
-/**
- * The Check-job half of the battery: everything the fork's pull-request CI
- * Check job runs — `vp run fork:ci` runs the ledger check, derives the pinned
- * scan flags from HEAD (scripts/lib/fork-ci-flags.ts), and runs the rebase scan,
- * `vp check`, and the whole scripts suite — then the Check job's unused-code,
- * `vpr typecheck`, and desktop build steps. The test-job half is never listed
- * here: `runChecks` derives it from the workflow (scripts/lib/fork-ci-jobs.ts).
- */
-export const checkCommands = (): ReadonlyArray<ReadonlyArray<string>> => [
-  ["run", "fork:ci"],
-  ["run", "knip:check"],
-  ["run", "typecheck"],
-  ["run", "build:desktop"],
-];
-
-const CHECK_MARK: Readonly<Record<CheckRow["status"], string>> = {
-  passed: "✅",
-  failed: "❌",
-  skipped: "⏭️",
-};
-
-/** A check row as a report line names it: the CI test job first, when it has one. */
-export const checkLabel = (check: CheckRow): string =>
-  check.job === undefined ? `\`${check.command}\`` : `${check.job} · \`${check.command}\``;
-
-/** The last lines of combined check output kept in a failure detail. */
+/** The last lines of combined command output kept in a failure detail. */
 export const CHECK_DETAIL_TAIL_LINES = 40;
 
 export const checkFailureDetail = (
@@ -1124,81 +1077,101 @@ export const checkFailureDetail = (
   return `${text.split("\n").slice(-tail).join("\n")} (exit ${result.status})`;
 };
 
+// ---------------------------------------------------------------------------
+// Candidate CI
+// ---------------------------------------------------------------------------
+
+const CI_WORKFLOW = NodePath.basename(FORK_CI_WORKFLOW_PATH);
+const CI_POLL_SECONDS = 30;
+/** A push that has no run this long after it never will. */
+const CI_START_SECONDS = 5 * 60;
+/** Inside the sync workflow's own timeout, with the rebase before it. */
+const CI_TIMEOUT_SECONDS = 60 * 60;
+
+interface CiRun {
+  readonly databaseId: number;
+  readonly status: string;
+  readonly conclusion: string;
+  readonly url: string;
+}
+
+/** The newest hyprws CI push run on the candidate branch at `sha`, if any. */
+const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | null =>
+  (
+    JSON.parse(
+      runRequire(
+        runner,
+        "gh",
+        [
+          "run",
+          "list",
+          "--repo",
+          FORK_REPOSITORY,
+          "--workflow",
+          CI_WORKFLOW,
+          "--branch",
+          SYNC_CANDIDATE_BRANCH,
+          "--commit",
+          sha,
+          "--event",
+          "push",
+          "--limit",
+          "1",
+          "--json",
+          "databaseId,status,conclusion,url",
+        ],
+        { cwd: root },
+      ),
+    ) as ReadonlyArray<CiRun>
+  )[0] ?? null;
+
 /**
- * The check battery, in the CI shape: `checkCommands`, then every hyprws CI
- * test job the replayed workflow declares, matrix cells included. A direct
- * push to the trunk has no pull request to gate it, so the driver runs the
- * whole battery itself, and any red row keeps the push from happening. A red
- * `fork:ci` already decides the run, so every later row is `skipped` instead
- * of spending the battery. There is no flag that drops a row.
- *
- * `installed` is the commit whose dependency set the worktree setup step
- * installed. The battery installs again only when the rebased tip changed that
- * set, or when nothing is installed.
+ * hyprws CI's verdict on `sha`. A sha with a run already — a dry run's proven
+ * tip, or a red run rerun by hand — reuses it; any other sha is force-pushed
+ * to the candidate branch first. The driver then polls until the run
+ * completes, and a run that never starts or never finishes is not green.
  */
-export const runChecks = (
-  runner: CommandRunner,
-  root: string,
-  worktree: string,
-  target: ReleaseTag,
-  installed: string | null,
-): ReadonlyArray<CheckRow> => {
-  const testJobs = ciTestJobs(worktree);
-  const env = verificationEnv(worktree);
-  const tip = git(runner, worktree, ["rev-parse", "HEAD"]);
-  if (installed === null || dependencySetChanged(runner, root, installed, tip)) {
-    process.stdout.write(
-      installed === null
-        ? "sync: nothing installed in the replay worktree; installing\n"
-        : `sync: dependency set changed since ${installed.slice(0, 7)}; installing in the replay worktree\n`,
-    );
-    runRequire(runner, "vp", ["i", "--frozen-lockfile"], { cwd: worktree, env, stream: true });
+export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
+  let latest = latestCiRun(runner, root, sha);
+  if (latest === null) {
+    process.stdout.write(`sync: pushing ${sha.slice(0, 7)} to ${SYNC_CANDIDATE_BRANCH}\n`);
+    git(runner, root, ["push", "--force", "origin", `${sha}:refs/heads/${SYNC_CANDIDATE_BRANCH}`]);
   }
-  const passed = (result: CommandResult): boolean =>
-    result.status === 0 && result.error === undefined;
-  const runOne = (args: ReadonlyArray<string>): CommandResult => {
-    const result = runner.run("vp", args, { cwd: worktree, env, stream: true });
-    if (!passed(result))
-      process.stderr.write(`${commandText("vp", args)} failed:\n${checkFailureDetail(result)}\n`);
-    return result;
+  for (let waited = 0; latest?.status !== "completed"; waited += CI_POLL_SECONDS) {
+    if (waited >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
+      return {
+        run: latest?.url ?? "",
+        conclusion: latest === null ? "never started" : "timed out",
+        jobs: [],
+      };
+    if (waited % (10 * CI_POLL_SECONDS) === 0)
+      process.stdout.write(
+        `sync: waiting on hyprws CI for ${sha.slice(0, 7)}${latest === null ? "" : ` (${latest.url})`}\n`,
+      );
+    runner.run("sleep", [String(CI_POLL_SECONDS)], { cwd: root });
+    latest = latestCiRun(runner, root, sha);
+  }
+  const { jobs } = JSON.parse(
+    runRequire(
+      runner,
+      "gh",
+      ["run", "view", String(latest.databaseId), "--repo", FORK_REPOSITORY, "--json", "jobs"],
+      { cwd: root },
+    ),
+  ) as { readonly jobs: ReadonlyArray<CiJob> };
+  return {
+    run: latest.url,
+    conclusion: latest.conclusion,
+    jobs: jobs.map(({ name, conclusion, url }) => ({ name, conclusion, url })),
   };
-  let gateFailed = false;
-  const skipped = (command: string, job?: string): CheckRow => ({
-    ...(job === undefined ? {} : { job }),
-    command,
-    status: "skipped",
-    detail: "fork:ci failed",
-  });
-  const previousUmask = process.umask(CI_UMASK);
-  try {
-    const checkRows = checkCommands().map((args): CheckRow => {
-      const command = commandText("vp", args);
-      if (gateFailed) return skipped(command);
-      // The rehearsal head authors no commits, so the battery scopes the hook
-      // guard to the replayed fork delta: everything after the rehearsal
-      // target. Pull-request runs keep the merge-base rule inside fork:ci.
-      const gate = args[1] === "fork:ci";
-      const result = runOne(gate ? [...args, "--since", target.sha] : args);
-      if (passed(result)) return { command, status: "passed", detail: "" };
-      gateFailed = gate;
-      return { command, status: "failed", detail: checkFailureDetail(result) };
-    });
-    // A job stops at its first red step, as a CI job does.
-    const testRows = testJobs.map((job): CheckRow => {
-      const command = job.commands.map((args) => commandText("vp", args)).join(" && ");
-      if (gateFailed) return skipped(command, job.name);
-      for (const args of job.commands) {
-        const result = runOne(args);
-        if (!passed(result))
-          return { job: job.name, command, status: "failed", detail: checkFailureDetail(result) };
-      }
-      return { job: job.name, command, status: "passed", detail: "" };
-    });
-    return [...checkRows, ...testRows];
-  } finally {
-    process.umask(previousUmask);
-  }
 };
+
+const ciMark = (conclusion: string): string =>
+  conclusion === "success" ? "✅" : conclusion === "skipped" ? "⏭️" : "❌";
+
+/** The jobs that kept the candidate from green. */
+const redJobs = (ci: CandidateCi): ReadonlyArray<CiJob> =>
+  ci.jobs.filter((job) => job.conclusion !== "success" && job.conclusion !== "skipped");
 
 // ---------------------------------------------------------------------------
 // Issue publication
@@ -1552,13 +1525,13 @@ export const failureIssueBody = (report: ForkSyncReport, previous?: string): str
     "```",
     report.error ?? "unknown error",
     "```",
-    ...(report.checks.length === 0
+    ...(report.ci === null || redJobs(report.ci).length === 0
       ? []
       : [
           "",
-          "| Check | Verdict |",
+          "| Job | Conclusion |",
           "| --- | --- |",
-          ...report.checks.map((check) => `| ${checkLabel(check)} | ${check.status} |`),
+          ...redJobs(report.ci).map((job) => `| [${job.name}](${job.url}) | ${job.conclusion} |`),
         ]),
     ...(report.target.tag === ""
       ? []
@@ -1676,10 +1649,16 @@ export const renderReport = (report: ForkSyncReport): string => {
               `| \`${row.path}\` | \`${row.forkCommit.slice(0, 7)} ${row.forkSubject}\` | \`${row.upstreamCommit.slice(0, 7)} ${row.upstreamSubject}\` | ${row.via}${row.hooksReapplied.length > 0 ? ` (${row.hooksReapplied.join(", ")})` : ""} |`,
           ),
         ];
-  const checks =
-    report.checks.length === 0
+  const ci =
+    report.ci === null
       ? []
-      : ["", ...report.checks.map((check) => `- ${CHECK_MARK[check.status]} ${checkLabel(check)}`)];
+      : [
+          "",
+          `CI: ${ciMark(report.ci.conclusion)} ${report.ci.conclusion}${report.ci.run === "" ? "" : ` — ${report.ci.run}`}`,
+          ...redJobs(report.ci).map(
+            (job) => `- ${ciMark(job.conclusion)} ${job.name} — ${job.url}`,
+          ),
+        ];
   const decision =
     report.decision.worktree === ""
       ? []
@@ -1698,7 +1677,7 @@ export const renderReport = (report: ForkSyncReport): string => {
           "```",
         ];
   const failure = report.error === null ? [] : ["", `Error: ${report.error}`];
-  return [...rows, ...conflictTable, ...checks, ...blocks, ...decision, ...failure].join("\n");
+  return [...rows, ...conflictTable, ...ci, ...blocks, ...decision, ...failure].join("\n");
 };
 
 // ---------------------------------------------------------------------------
@@ -1762,7 +1741,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       trunk: { before: expectedOld, after: null },
       base: mergeBase(expectedOld),
       conflicts: [],
-      checks: [],
+      ci: null,
       closedBlocks: [],
       decision: emptyDecision(),
       blocked: null,
@@ -1902,28 +1881,31 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     }
     const newSha = rebase.newSha;
 
-    // check
-    step = "check";
-    const checks = runChecks(runner, root, worktreePath(root), target, rebase.installed);
-    if (checks.some((check) => check.status === "failed")) {
+    // ci — hyprws CI on the candidate sha is the one gate before the trunk moves
+    step = "ci";
+    const ci = candidateCi(runner, root, newSha);
+    if (ci.conclusion !== "success") {
       // The worktree stays: it carries the red tip and any fix committed there.
       const worktree = worktreePath(root);
+      const red = redJobs(ci).map((job) => job.name);
       return fail({
         conflicts: [...rebase.recorded],
-        checks,
+        ci,
         decision: {
           worktree,
           tip: newSha,
           paths: [],
           resume: [
-            `# fix the red check in ${worktree} and commit there`,
+            `# fix the red job in ${worktree} and commit there; a flake reruns in place:`,
+            ...(ci.run === ""
+              ? []
+              : [
+                  `#   gh run rerun ${ci.run.split("/").at(-1)} --failed --repo ${FORK_REPOSITORY}`,
+                ]),
             `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
           ].join("\n"),
         },
-        error: `the check battery is red: ${checks
-          .filter((check) => check.status === "failed")
-          .map((check) => check.job ?? check.command)
-          .join(", ")}`,
+        error: `hyprws CI ${ci.conclusion} on candidate ${newSha.slice(0, 7)}${red.length === 0 ? "" : `: ${red.join(", ")}`}${ci.run === "" ? "" : ` (${ci.run})`}`,
       });
     }
 
@@ -1939,7 +1921,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           outcome: "applied",
           trunk: { before: expectedOld, after: newSha },
           conflicts: [...rebase.recorded],
-          checks,
+          ci,
           decision: {
             worktree,
             tip: newSha,
@@ -1963,7 +1945,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       const worktree = worktreePath(root);
       return fail({
         conflicts: [...rebase.recorded],
-        checks,
+        ci,
         decision: {
           worktree,
           tip: newSha,
@@ -1986,7 +1968,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         outcome: "applied",
         trunk: { before: expectedOld, after: newSha },
         conflicts: [...rebase.recorded],
-        checks,
+        ci,
         push: { pushed: true, detail: `${newSha.slice(0, 7)} → origin/${HYPRWS_BRANCH}` },
         closedBlocks: [...close.closed],
         ...(close.error === null ? {} : { error: close.error }),
@@ -2015,7 +1997,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         trunk: { before: "", after: null },
         base: "",
         conflicts: [],
-        checks: [],
+        ci: null,
         closedBlocks: [],
         decision: emptyDecision(),
         blocked: null,
