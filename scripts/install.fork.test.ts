@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Drives the real shell installer with stub curl and uname binaries.
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -70,7 +70,7 @@ const runInstaller = async (input: { uname: string; env?: Record<string, string>
   return { status: result.status, stderr: result.stderr, urls: urls.trim().split("\n") };
 };
 
-describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("fork installer", () => {
+describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("fork installer", () => {
   it("resolves the newest -hyprws stable from the fork's releases, never a nightly", async () => {
     const { stderr, urls } = await runInstaller({ uname: "Linux x86_64" });
     expect(stderr).toContain("Installing T3 Code 0.0.43-hyprws.3\n");

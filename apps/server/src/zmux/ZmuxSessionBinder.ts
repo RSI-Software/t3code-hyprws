@@ -1,5 +1,5 @@
 import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -247,7 +247,7 @@ const failureDetail = Effect.fn("ZmuxSessionBinder.failureDetail")(function* (
 const make = Effect.gen(function* () {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const hostEnvironment = yield* HostProcessEnvironment;
+  const hostEnvironment = yield* HostProcess.Environment;
   const path = yield* Path.Path;
   const env = stripInheritedTmuxEnv(hostEnvironment);
   const ensureSemaphore = yield* Semaphore.make(1);
