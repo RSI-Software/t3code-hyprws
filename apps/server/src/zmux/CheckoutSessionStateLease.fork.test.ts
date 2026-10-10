@@ -19,7 +19,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
-import * as IdAllocator from "../orchestration-v2/IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";

@@ -15,7 +15,7 @@ import { ChildProcessSpawner } from "effect/process";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as TerminalManager from "./Manager.ts";
-import * as PtyAdapter from "./PtyAdapter.ts";
+import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 
 class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
@@ -121,10 +121,10 @@ export class FakeProcessRunner {
     this.result = result;
   }
   readonly service = ProcessRunner.ProcessRunner.of({
-    run: (input) => {
+    run: Effect.fn("TerminalTestProcessRunner.run")((input) => {
       this.inputs.push(input);
       return typeof this.result === "function" ? this.result(input) : this.result;
-    },
+    }),
   });
 }
 export function processResult(
