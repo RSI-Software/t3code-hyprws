@@ -34,6 +34,15 @@ export interface DesktopVoiceSnapshotFork {
   readonly preview: VoicePreviewFork | null;
 }
 
+interface VoiceTextCallbacksFork {
+  readonly processTranscript: (
+    text: string,
+    signal: AbortSignal,
+    draft?: VoiceDraftSnapshot,
+  ) => Promise<string>;
+  readonly transcriptionCommitted: (text: string) => void;
+}
+
 /** Like mobile's global session, bind the controller to a draft rather than a mounted editor. */
 export class DesktopVoiceSessionFork {
   readonly controller: VoiceInputController;
@@ -50,6 +59,7 @@ export class DesktopVoiceSessionFork {
   private capturedDraft: VoiceDraftSnapshot | null = null;
   private unsubscribeDraft: (() => void) | null = null;
   private editorCommit: VoiceInputControllerDependencies["commitDraft"] | null = null;
+  private editorText: VoiceTextCallbacksFork | null = null;
 
   constructor(
     dependencies: Omit<
@@ -69,7 +79,10 @@ export class DesktopVoiceSessionFork {
         const target = this.snapshot.target;
         if (!target) return;
         target.commitDraft(text, selection);
-        if (this.snapshot.visibleOwner === target.ownerKey) this.editorCommit?.(text, selection);
+        if (this.snapshot.visibleOwner === target.ownerKey) {
+          this.editorCommit?.(text, selection);
+          this.editorText?.transcriptionCommitted(text);
+        }
       },
       getTranscriber: () => {
         const target = this.snapshot.target;
@@ -83,6 +96,16 @@ export class DesktopVoiceSessionFork {
               transcribe: async (uri, transcriptionOptions) => {
                 const transcript = await prepared.transcribe(uri, transcriptionOptions);
                 if (!transcriptionOptions.signal.aborted) this.update({ transcript });
+                if (
+                  !transcriptionOptions.signal.aborted &&
+                  this.snapshot.visibleOwner === target.ownerKey &&
+                  this.editorText
+                )
+                  return this.editorText.processTranscript(
+                    transcript,
+                    transcriptionOptions.signal,
+                    this.capturedDraft ?? undefined,
+                  );
                 return transcript;
               },
             };
@@ -113,12 +136,18 @@ export class DesktopVoiceSessionFork {
     return () => this.listeners.delete(listener);
   };
 
-  attach(ownerKey: string, commit: VoiceInputControllerDependencies["commitDraft"]) {
+  attach(
+    ownerKey: string,
+    commit: VoiceInputControllerDependencies["commitDraft"],
+    text?: VoiceTextCallbacksFork,
+  ) {
     this.editorCommit = commit;
+    this.editorText = text ?? null;
     this.update({ visibleOwner: ownerKey });
     return () => {
       if (this.snapshot.visibleOwner !== ownerKey) return;
       this.editorCommit = null;
+      this.editorText = null;
       this.update({ visibleOwner: null });
       // Only completed audio may keep running off screen. Never leave an unseen microphone live.
       if (
