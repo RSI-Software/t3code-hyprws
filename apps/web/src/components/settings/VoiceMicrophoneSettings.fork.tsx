@@ -3,6 +3,7 @@ import {
   readVoiceMicrophoneFork,
   saveVoiceMicrophoneFork,
 } from "../../voice-input/microphone.fork";
+import { voiceRecordingUnavailableReasonFork } from "../../voice-input/settings.fork";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -12,22 +13,22 @@ export function VoiceMicrophoneSettingsFork() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(
-    () =>
-      navigator.mediaDevices.enumerateDevices().then(
-        (available) => {
-          setDevices(available.filter((d) => d.kind === "audioinput" && d.deviceId !== "default"));
-          setError(null);
-        },
-        () =>
-          setError("Could not list microphones. Check microphone access in your system settings."),
-      ),
-    [],
-  );
+  const unavailableReason = voiceRecordingUnavailableReasonFork();
+  const refresh = useCallback(() => {
+    if (!navigator.mediaDevices) return Promise.resolve();
+    return navigator.mediaDevices.enumerateDevices().then(
+      (available) => {
+        setDevices(available.filter((d) => d.kind === "audioinput" && d.deviceId !== "default"));
+        setError(null);
+      },
+      () =>
+        setError("Could not list microphones. Check microphone access in your system settings."),
+    );
+  }, []);
   useEffect(() => {
     void refresh();
-    navigator.mediaDevices.addEventListener("devicechange", refresh);
-    return () => navigator.mediaDevices.removeEventListener("devicechange", refresh);
+    navigator.mediaDevices?.addEventListener("devicechange", refresh);
+    return () => navigator.mediaDevices?.removeEventListener("devicechange", refresh);
   }, [refresh]);
   const requestAccess = async () => {
     setBusy(true);
@@ -45,10 +46,11 @@ export function VoiceMicrophoneSettingsFork() {
     <SettingsSection title="Microphone">
       <SettingsRow
         title="Input device"
-        description="Used on this desktop. Changes are saved automatically."
+        description="Used on this device. Changes are saved automatically."
         control={
           <div className="w-full sm:w-72">
             <Select
+              disabled={unavailableReason !== null}
               value={deviceId || "system-default"}
               onValueChange={(value) => {
                 if (value === null) return;
@@ -95,12 +97,14 @@ export function VoiceMicrophoneSettingsFork() {
             <Button
               size="xs"
               variant="outline"
-              disabled={busy}
+              disabled={busy || unavailableReason !== null}
               onClick={() => void requestAccess()}
             >
               {busy ? "Checking…" : "Allow microphone access"}
             </Button>
-            <p className="text-xs text-muted-foreground">Allow access to show microphone names.</p>
+            <p className="text-xs text-muted-foreground">
+              {unavailableReason ?? "Allow access to show microphone names."}
+            </p>
             {error ? (
               <p role="alert" className="text-xs text-destructive">
                 {error}

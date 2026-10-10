@@ -1,70 +1,32 @@
-import { readVoiceInputSettingsFork } from "@t3tools/client-runtime/rpc";
 import {
   voiceInputBlocksSubmission,
   type VoiceInputState,
+  type VoiceDraftSnapshot,
 } from "@t3tools/client-runtime/voice-input";
 import {
   type EnvironmentId,
   type ScopedThreadRef,
-  type VoiceInputSettingsFork,
-  AuthOrchestrationReadScope,
+  type ProjectId,
+  type ThreadId,
+  AuthOrchestrationOperateScope,
 } from "@t3tools/contracts";
 import { MicIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import * as Option from "effect/Option";
-import { useEnvironmentScope, usePreparedConnection } from "../state/session";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useEnvironmentScope } from "../state/session";
 import { Button } from "../components/ui/button";
-import { runVoiceInputRequestFork, VOICE_SETTINGS_CHANGED_FORK } from "./client.fork";
+import { useVoiceSettingsFork } from "./useVoiceSettings.fork";
 import { voiceInputUnavailableReasonFork } from "./settings.fork";
 import { VoiceDictationToolbarFork } from "./VoiceComposerControls.fork";
 import { useDesktopVoiceRuntimeFork } from "./VoiceInputProvider.fork";
 import { commitVoiceDraftFork, readVoiceDraftTextFork } from "./draft.fork";
 import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
-
-export function useVoiceSettingsFork(environmentId: EnvironmentId | null) {
-  const preparedOption = usePreparedConnection(environmentId);
-  const prepared = Option.getOrNull(preparedOption);
-  const canRead = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
-  const [result, setResult] = useState<{
-    environmentId: EnvironmentId;
-    settings: VoiceInputSettingsFork;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!window.desktopBridge || !prepared || !canRead) return;
-    let active = true;
-    let request: AbortController | null = null;
-    const load = () => {
-      request?.abort();
-      const current = new AbortController();
-      request = current;
-      void runVoiceInputRequestFork(readVoiceInputSettingsFork(prepared), current.signal).then(
-        (settings) => {
-          if (active && !current.signal.aborted) {
-            setResult({ environmentId: prepared.environmentId, settings });
-            setError(null);
-          }
-        },
-        () => {
-          if (active && !current.signal.aborted) setError("Could not load dictation settings.");
-        },
-      );
-    };
-    load();
-    window.addEventListener(VOICE_SETTINGS_CHANGED_FORK, load);
-    window.addEventListener("focus", load);
-    return () => {
-      active = false;
-      request?.abort();
-      window.removeEventListener(VOICE_SETTINGS_CHANGED_FORK, load);
-      window.removeEventListener("focus", load);
-    };
-  }, [prepared, canRead]);
-  return { settings: result?.environmentId === environmentId ? result.settings : null, error };
-}
+import { useVoiceTextFork } from "./useVoiceText.fork";
+import { voiceRecordingUnavailableReasonFork } from "./settings.fork";
 
 interface DesktopVoiceInputFork {
   environmentId: EnvironmentId;
+  projectId: ProjectId | null;
+  threadId: ThreadId | null;
   ownerKey: string;
   draftTarget: ScopedThreadRef | DraftId;
   label: string;
@@ -79,6 +41,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   const { settings } = useVoiceSettingsFork(input.environmentId);
   const { session, recorder, snapshot } = useDesktopVoiceRuntimeFork();
   const controller = session.controller;
+  const canOperate = useEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope);
   const latest = useRef(input);
   useLayoutEffect(() => {
     latest.current = input;
@@ -87,12 +50,33 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   const state = ownsSession ? snapshot.state : IDLE;
   const toolbarState = ownsSession ? snapshot.toolbarState : IDLE;
   const preview = ownsSession ? snapshot.preview : null;
+  const revision = useRef(0);
+  const textActions = useVoiceTextFork({
+    ...input,
+    enabled: input.enabled && !voiceInputBlocksSubmission(state),
+    readDraft: (): VoiceDraftSnapshot => ({
+      ownerKey: input.ownerKey,
+      text: readVoiceDraftTextFork(input.draftTarget) ?? "",
+      selection: input.readSelection(),
+      revision: revision.current,
+    }),
+  });
+  const {
+    processTranscript,
+    transcriptionCommitted,
+    cancel: cancelText,
+    blocksSubmission: textBlocksSubmission,
+  } = textActions;
   useLayoutEffect(
     () =>
-      session.attach(input.ownerKey, (text, selection) => {
-        if (latest.current.enabled) latest.current.commitDraft(text, selection.end);
-      }),
-    [session, input.ownerKey],
+      session.attach(
+        input.ownerKey,
+        (text, selection) => {
+          if (latest.current.enabled) latest.current.commitDraft(text, selection.end);
+        },
+        { processTranscript, transcriptionCommitted },
+      ),
+    [session, input.ownerKey, processTranscript, transcriptionCommitted],
   );
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
@@ -104,13 +88,14 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
         return;
       event.preventDefault();
       event.stopPropagation();
-      controller.cancel();
+      if (textBlocksSubmission()) cancelText();
+      else controller.cancel();
     };
     document.addEventListener("keydown", cancel, true);
     return () => {
       document.removeEventListener("keydown", cancel, true);
     };
-  }, [controller, session]);
+  }, [controller, session, cancelText, textBlocksSubmission]);
   const start = useCallback(() => {
     const captured = latest.current;
     if (!captured.enabled || voiceInputBlocksSubmission(controller.currentState)) return;
@@ -131,29 +116,36 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
       subscribe: (onChange) => useComposerDraftStore.subscribe(onChange),
     });
   }, [controller, session]);
-  const unavailableReason = input.enabled
-    ? voiceInputUnavailableReasonFork(settings)
-    : "Dictation is unavailable while this thread needs a response.";
-  const busy = voiceInputBlocksSubmission(state);
-  const presented = Boolean(window.desktopBridge && (busy || state.error));
+  const unavailableReason =
+    input.enabled && canOperate
+      ? (voiceRecordingUnavailableReasonFork() ?? voiceInputUnavailableReasonFork(settings))
+      : "Dictation is unavailable while this thread needs a response.";
+  const busy = voiceInputBlocksSubmission(state) || textActions.busy;
+  const presented = Boolean(voiceInputBlocksSubmission(state) || state.error);
+  const { markDraftChanged: markTextDraftChanged } = textActions;
   const markDraftChanged = useCallback(() => {
+    revision.current++;
     session.markDraftChanged(input.ownerKey);
-  }, [session, input.ownerKey]);
+    markTextDraftChanged();
+  }, [session, input.ownerKey, markTextDraftChanged]);
   const blocksSubmission = useCallback(
     () =>
-      session.getSnapshot().target?.ownerKey === input.ownerKey &&
-      voiceInputBlocksSubmission(controller.currentState),
-    [controller, session, input.ownerKey],
+      (session.getSnapshot().target?.ownerKey === input.ownerKey &&
+        voiceInputBlocksSubmission(controller.currentState)) ||
+      textBlocksSubmission(),
+    [controller, session, input.ownerKey, textBlocksSubmission],
   );
   return {
     busy,
     preview,
     markDraftChanged,
     blocksSubmission,
-    sendProps: busy ? { sendDisabledReason: "Finish or cancel dictation before sending." } : {},
+    sendProps: busy
+      ? { sendDisabledReason: "Finish or cancel text processing before sending." }
+      : {},
     presented,
     live: settings?.provider === "meta",
-    toolbar: window.desktopBridge ? (
+    toolbar: (
       <>
         <span className="sr-only" role="status">
           {preview?.text}
@@ -162,33 +154,40 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
           state={toolbarState}
           active={presented}
           recorder={recorder}
-          onCancel={() => controller.cancel()}
+          processingPhase={textActions.phase}
+          onCancel={() => (textBlocksSubmission() ? cancelText() : controller.cancel())}
           onFinish={() => void controller.stop()}
           onStart={start}
         />
       </>
-    ) : null,
-    controls: window.desktopBridge ? (
-      <div className="flex items-center gap-1" role="group" aria-label="Dictation">
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Record dictation"
-          title={
-            voiceInputBlocksSubmission(snapshot.state) && !ownsSession
-              ? "Dictation is finishing in another thread."
-              : (unavailableReason ?? "Record dictation")
-          }
-          disabled={voiceInputBlocksSubmission(snapshot.state) || unavailableReason !== null}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => {
-            if (!voiceInputBlocksSubmission(controller.currentState) && !unavailableReason) start();
-          }}
-        >
-          <MicIcon />
-        </Button>
-      </div>
-    ) : null,
+    ),
+    controls: (
+      <>
+        {textActions.controls}
+        <div className="flex items-center gap-1" role="group" aria-label="Dictation">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Record dictation"
+            title={
+              voiceInputBlocksSubmission(snapshot.state) && !ownsSession
+                ? "Dictation is finishing in another thread."
+                : (unavailableReason ?? "Record dictation")
+            }
+            disabled={
+              busy || voiceInputBlocksSubmission(snapshot.state) || unavailableReason !== null
+            }
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => {
+              if (!voiceInputBlocksSubmission(controller.currentState) && !unavailableReason)
+                start();
+            }}
+          >
+            <MicIcon />
+          </Button>
+        </div>
+      </>
+    ),
   };
 }

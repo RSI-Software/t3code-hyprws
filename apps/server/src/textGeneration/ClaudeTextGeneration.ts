@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 /**
  * ClaudeTextGeneration – Text generation layer using the Claude CLI.
  *
@@ -289,5 +290,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
   });
 
-  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson);
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson),
+    runClaudeJson,
+  ); // fork-hook: voice-input/generation-runner
 });
