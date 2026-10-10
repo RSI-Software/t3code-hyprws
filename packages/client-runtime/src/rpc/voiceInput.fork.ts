@@ -5,6 +5,10 @@ import {
   VoiceInputSettingsFork,
   VoiceInputTranscriptFork,
   type VoiceInputConfigUpdateFork,
+  VoiceTextSettingsFork,
+  type VoiceTextConfigureFork,
+  type VoiceTextTransformFork,
+  type VoiceTextContextFork,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -23,14 +27,26 @@ const decodeHttpError = Schema.decodeUnknownEffect(EnvironmentHttpCommonError);
 /** Uses the selected environment's cookies, bearer grant, or refreshed relay proof. */
 const requestVoiceInputFork = Effect.fn(function* <A, E>(
   prepared: PreparedConnection,
-  operation: "read" | "save" | "transcribe",
+  operation:
+    | "read"
+    | "save"
+    | "transcribe"
+    | "text-read"
+    | "text-save"
+    | "text-transform"
+    | "text-context",
   decode: (value: unknown) => Effect.Effect<A, E>,
-  payload?: VoiceInputConfigUpdateFork | Uint8Array,
+  payload?:
+    | VoiceInputConfigUpdateFork
+    | Uint8Array
+    | VoiceTextConfigureFork
+    | VoiceTextTransformFork
+    | VoiceTextContextFork,
 ) {
   const http = yield* HttpClient.HttpClient;
   const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
   const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
-  const method = operation === "read" ? "GET" : "POST";
+  const method = operation === "read" || operation === "text-read" ? "GET" : "POST";
   let requestUrl = "";
   return yield* executeAuthenticatedEnvironmentHttpRequest({
     prepared,
@@ -38,11 +54,22 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
     remoteAuthorization,
     method,
     group: "orchestration",
-    timeoutMs: operation === "transcribe" ? 75_000 : 15_000,
-    url: (base) => {
+    timeoutMs:
+      operation === "transcribe"
+        ? 75_000
+        : operation === "text-transform" || operation === "text-context"
+          ? 200_000
+          : 15_000,
+    url: (urls) => {
       requestUrl = environmentEndpointUrl(
-        base,
-        `${VOICE_INPUT_ROUTE_FORK}/${operation === "transcribe" ? "transcribe" : "settings"}`,
+        urls.generateThreadGroupTitle(),
+        `${VOICE_INPUT_ROUTE_FORK}/${
+          operation.startsWith("text-")
+            ? `text/${operation === "text-transform" ? "transform" : operation === "text-context" ? "context" : "settings"}`
+            : operation === "transcribe"
+              ? "transcribe"
+              : "settings"
+        }`,
       );
       return requestUrl;
     },
@@ -81,3 +108,24 @@ export const saveVoiceInputSettingsFork = (
 ) => requestVoiceInputFork(prepared, "save", decodeSettings, input);
 export const transcribeVoiceInputFork = (prepared: PreparedConnection, wav: Uint8Array) =>
   requestVoiceInputFork(prepared, "transcribe", decodeTranscript, wav);
+
+export const readVoiceTextSettingsFork = (prepared: PreparedConnection) =>
+  requestVoiceInputFork(prepared, "text-read", Schema.decodeUnknownEffect(VoiceTextSettingsFork));
+export const saveVoiceTextSettingsFork = (
+  prepared: PreparedConnection,
+  input: VoiceTextConfigureFork,
+) =>
+  requestVoiceInputFork(
+    prepared,
+    "text-save",
+    Schema.decodeUnknownEffect(VoiceTextSettingsFork),
+    input,
+  );
+export const transformVoiceTextFork = (
+  prepared: PreparedConnection,
+  input: VoiceTextTransformFork,
+) => requestVoiceInputFork(prepared, "text-transform", decodeTranscript, input);
+export const generateVoiceTextContextFork = (
+  prepared: PreparedConnection,
+  input: VoiceTextContextFork,
+) => requestVoiceInputFork(prepared, "text-context", decodeTranscript, input);

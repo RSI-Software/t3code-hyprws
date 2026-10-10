@@ -58,7 +58,6 @@ import {
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
 import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
-import { isElectron } from "../../env"; // fork-hook: voice-input/settings-desktop-import
 import { useSettingsSectionNavigation } from "./useSettingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 

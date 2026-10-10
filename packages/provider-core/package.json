@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./server/voiceTextGeneration.fork": {
+      "types": "./src/server/voiceTextGeneration.fork.ts",
+      "import": "./src/server/voiceTextGeneration.fork.ts"
+    },
     "./server/providerSessionEnvironment.fork": {
       "types": "./src/server/providerSessionEnvironment.fork.ts",
       "import": "./src/server/providerSessionEnvironment.fork.ts"

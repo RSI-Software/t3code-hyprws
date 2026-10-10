@@ -8,6 +8,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 export async function runVoiceInputRequestFork<A, E>(
   effect: Effect.Effect<A, E, HttpClient.HttpClient>,
   signal?: AbortSignal,
+  failureMessage = "Dictation request failed. Check the endpoint, API key, and environment permissions.",
 ) {
   const result = await executeAtomQuery(appAtomRegistry, connectionAtomRuntime.atom(effect), {
     ...(signal ? { signal } : {}),
@@ -15,9 +16,7 @@ export async function runVoiceInputRequestFork<A, E>(
     reportDefect: false,
   });
   if (AsyncResult.isSuccess(result)) return result.value;
-  throw new Error(
-    "Dictation request failed. Check the endpoint, API key, and environment permissions.",
-  );
+  throw new Error(failureMessage);
 }
 
 export const VOICE_SETTINGS_CHANGED_FORK = "fork-voice-input-settings-changed";
