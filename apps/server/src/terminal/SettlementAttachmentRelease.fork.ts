@@ -2,7 +2,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type * as PtyAdapter from "./PtyAdapter.ts";
+import type * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 
 interface Attachment {
   readonly status: string;
