@@ -283,6 +283,7 @@ describe("GitWorkflowService", () => {
               Layer.provide(NodeServices.layer),
             ),
           ),
+          Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/ref-named-test-layer
           Layer.provideMerge(NodeServices.layer),
         ),
       ),
