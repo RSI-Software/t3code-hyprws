@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 // Generate endpoints return 403 on the free tier; use and remove a temporary prompt session.
 import { AbsolutePath, Location, Model, Provider, Session } from "@opencode/client/effect";
 import { TextGenerationError } from "@t3tools/contracts";
@@ -186,8 +187,11 @@ export const make = Effect.fn("OpenCode2TextGeneration.make")(function* () {
         ),
         Effect.flatMap((raw) => TextGenerationOperations.decodeJsonReply(input, "OpenCode", raw)),
       );
-  return TextGenerationOperations.fromRunner(
-    "OpenCode2TextGeneration",
-    TextGenerationOperations.withoutInvestigation("OpenCode", run),
-  );
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner(
+      "OpenCode2TextGeneration",
+      TextGenerationOperations.withoutInvestigation("OpenCode", run),
+    ),
+    run,
+  ); // fork-hook: voice-input/generation-runner
 });

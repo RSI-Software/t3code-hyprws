@@ -838,14 +838,16 @@ Retention and release stay fork scope until upstream keeps one task across round
 
 ### Need
 
-- **Dictation:** desktop audio to editable text
+- **Dictation:** client audio to editable text
+- **Cleanup:** editable prompts, separate model
 - **Engines:** external HTTP services
 
 ### Shape
 
-Fork-owned contracts, service, adapters, and desktop controls.
+Fork-owned contracts, services, adapters, and web/desktop controls.
 Marked imports and mounts are the only upstream seams.
 Settings and API keys use the server secret store; audio is never persisted by T3.
+Cleanup and formatting reuse text generation runners; automatic processing follows transcription completion only.
 The local HTTP contract is a WAV request body and a JSON `{text}` response.
 Custom services use the OpenAI-compatible multipart transcription contract.
 Provider stubs refuse execution until implemented.
@@ -857,25 +859,28 @@ Upstream desktop dictation supports configurable external transcription services
 
 ### Rebase scan
 
-| Path                                                      | Why it matters            |
-| --------------------------------------------------------- | ------------------------- |
-| `apps/server/src/server.ts`                               | Route mount and import    |
-| `packages/contracts/src/index.ts`                         | Fork contract export      |
-| `packages/client-runtime/src/rpc/index.ts`                | Dictation HTTP export     |
-| `apps/web/src/components/chat/ChatComposer.tsx`           | Mic and send guards       |
-| `apps/web/src/routes/__root.tsx`                          | Window dictation lifetime |
-| `apps/web/src/components/ComposerPromptEditorTiptap.tsx`  | Provisional dictation     |
-| `packages/client-runtime/src/voice-input/index.ts`        | Transcript helper export  |
-| `apps/web/src/components/settings/SettingsSidebarNav.tsx` | Desktop navigation        |
-| `apps/web/src/routes/settings.tsx`                        | Environment selection     |
-| `apps/web/src/components/settings/settingsSearch.ts`      | Dictation search entry    |
-| `apps/desktop/scripts/electron-launcher.mjs`              | macOS mic permission      |
-| `apps/desktop/src/main.ts`                                | Desktop ducking lifetime  |
-| `apps/desktop/src/app/DesktopApp.ts`                      | Await speaker restoration |
-| `apps/desktop/src/preload.ts`                             | Speaker control bridge    |
-| `apps/desktop/src/ipc/DesktopIpcHandlers.ts`              | Speaker control handlers  |
-| `packages/contracts/src/ipc.ts`                           | Speaker bridge contract   |
-| `scripts/build-desktop-artifact.ts`                       | Packaged mic permission   |
+| Path                                                       | Why it matters            |
+| ---------------------------------------------------------- | ------------------------- |
+| `apps/server/src/server.ts`                                | Route mount and import    |
+| `apps/server/src/textGeneration/*TextGeneration.ts`        | Provider runner extension |
+| `apps/server/src/provider/Drivers/OpenCodeDriver.ts`       | Generation runtime choice |
+| `apps/server/src/provider/Drivers/CodexManagedProvider.ts` | Managed generation bridge |
+| `packages/contracts/src/index.ts`                          | Fork contract export      |
+| `packages/client-runtime/src/rpc/index.ts`                 | Dictation HTTP export     |
+| `apps/web/src/components/chat/ChatComposer.tsx`            | Mic and send guards       |
+| `apps/web/src/routes/__root.tsx`                           | Window dictation lifetime |
+| `apps/web/src/components/ComposerPromptEditorTiptap.tsx`   | Provisional dictation     |
+| `packages/client-runtime/src/voice-input/index.ts`         | Transcript helper export  |
+| `apps/web/src/components/settings/SettingsSidebarNav.tsx`  | Desktop navigation        |
+| `apps/web/src/routes/settings.tsx`                         | Environment selection     |
+| `apps/web/src/components/settings/settingsSearch.ts`       | Dictation search entry    |
+| `apps/desktop/scripts/electron-launcher.mjs`               | macOS mic permission      |
+| `apps/desktop/src/main.ts`                                 | Desktop ducking lifetime  |
+| `apps/desktop/src/app/DesktopApp.ts`                       | Await speaker restoration |
+| `apps/desktop/src/preload.ts`                              | Speaker control bridge    |
+| `apps/desktop/src/ipc/DesktopIpcHandlers.ts`               | Speaker control handlers  |
+| `packages/contracts/src/ipc.ts`                            | Speaker bridge contract   |
+| `scripts/build-desktop-artifact.ts`                        | Packaged mic permission   |
 
 ## Adding a domain
 
