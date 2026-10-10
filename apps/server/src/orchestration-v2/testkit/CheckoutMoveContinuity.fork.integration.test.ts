@@ -20,7 +20,7 @@ import {
   CodexOrchestratorReplayHarness,
   layer as codexReplayRegistryLayer,
 } from "../Adapters/CodexAdapterV2.testkit.ts";
-import * as IdAllocator from "../IdAllocator.ts";
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type { OrchestratorV2ScenarioStep } from "./OrchestratorScenario.ts";
 import { provideDeterministicTestRuntime } from "./DeterministicRuntime.ts";
 import {
@@ -36,11 +36,11 @@ import {
   projectionFor,
 } from "./fixtures/shared.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
-import { checkpointWorkspace } from "./ReplayFixtureWorkspace.ts";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import {
   materializeReplayTranscriptWorkspace,
   readProviderReplayTranscript,
-} from "./ReplayTranscriptNdjson.ts";
+} from "@t3tools/provider-testing/replayTranscript";
 
 /**
  * Two turns on a thread that starts in `source`, with the checkout move's
