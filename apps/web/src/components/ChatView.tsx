@@ -243,13 +243,7 @@ import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl"
 import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { draftModelSelectionApplies, threadHasStarted } from "../lib/chatThreadActions";
-import {
-  terminalFocusPropsFork,
-  composerFocusCommandsFork,
-  shouldAutoFocusComposerOnThreadChange,
-  useTerminalFocusGateFork,
-  useOpenDrawerComposerFocusFork,
-} from "./ChatView.focus.fork"; // fork-hook: upstream-fixes/composer-refocus-import
+import { composerFocusCommandsFork, useOpenDrawerComposerFocusFork } from "./ChatView.focus.fork"; // fork-hook: upstream-fixes/composer-refocus-import
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -1096,10 +1090,6 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const terminalFocusGateFork = useTerminalFocusGateFork({
-    requestId: terminalFocusRequestId,
-    threadKey: activeThreadKey,
-  }); // fork-hook: upstream-fixes/terminal-focus-gate
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -2962,7 +2952,7 @@ export default function ChatView(props: ChatViewProps) {
         toggleMaximized: toggleRightPanelMaximizedStable,
         drawerOpen: terminalUiState.terminalOpen,
         toggleDrawer: toggleTerminalVisibilityStable,
-        setRequestId: setTerminalFocusRequestId,
+        threadRef: activeThreadRef,
         focusComposer: focusComposerStable,
         scheduleComposerFocus: scheduleComposerFocusStable,
       }), // fork-hook: upstream-fixes/terminal-focus-command
@@ -3486,7 +3476,6 @@ export default function ChatView(props: ChatViewProps) {
       sideChatParentPanel={sideChatParentPanel}
       terminal={{
         launchContext: activeTerminalLaunchContext ?? null,
-        ...terminalFocusPropsFork(terminalFocusGateFork.panelRequestId), // fork-hook: upstream-fixes/terminal-focus-gate-panel
         keybindings,
         onAddTerminalContext: addTerminalContextToDraftStable,
         onSplitTerminal: splitPanelTerminalStable,
@@ -3845,7 +3834,6 @@ export default function ChatView(props: ChatViewProps) {
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host
-                          className="sm:focus-within:ring-1 sm:focus-within:ring-ring"
                           inert={queuedRunEdit.isSaving}
                           aria-busy={queuedRunEdit.isSaving}
                         >
@@ -4237,11 +4225,6 @@ export default function ChatView(props: ChatViewProps) {
             activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
             composerHeight={composerReservedHeight}
             launchContext={activeTerminalLaunchContext ?? null}
-            {
-              ...terminalFocusPropsFork(
-                terminalFocusGateFork.drawerRequestId,
-              ) /* fork-hook: upstream-fixes/terminal-focus-gate-drawer */
-            }
             splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
             splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
             newShortcutLabel={newTerminalShortcutLabel ?? undefined}
