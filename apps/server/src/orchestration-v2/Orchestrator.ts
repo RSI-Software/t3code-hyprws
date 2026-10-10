@@ -120,7 +120,6 @@ import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
 import {
   makeSubagentChildThread,
   subagentResultForRun,
-  delegatedTaskProgress,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
