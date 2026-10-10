@@ -44,12 +44,13 @@ import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import {
   type ProviderAdapterV2Event,
   ProviderAdapterProtocolError,
-  type ProviderAdapterV2Shape,
+  type ProviderAdapterV2,
   type ProviderAdapterV2TurnInput,
-} from "../../orchestration-v2/ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { checkpointWorkspace } from "../../orchestration-v2/testkit/ReplayFixtureWorkspace.ts";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
