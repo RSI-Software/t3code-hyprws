@@ -50,7 +50,7 @@ function GitHubIssueRowImpl({
         PULL_REQUEST_ROW_CLASS,
         PAGE_ROW_CLASS,
         "relative transition-colors [content-visibility:auto]",
-        "has-[[data-row-open]:focus-visible]:ring-1 has-[[data-row-open]:focus-visible]:ring-ring",
+        "has-[[data-row-open]:focus-visible]:ring-1 has-[[data-row-open]:focus-visible]:ring-ring has-[[data-row-open]:focus-visible]:ring-inset",
         selected ? "bg-accent" : "hover:bg-accent/60",
       )}
     >
