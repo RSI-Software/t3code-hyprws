@@ -5,7 +5,6 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import { noteTerminalFocusIntentFork, requestTerminalFocusFork } from "../ChatView.focus.fork"; // fork-hook: upstream-fixes/terminal-focus-import
 import type { Dispatch } from "react";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { selectThreadTerminalUiState } from "../../terminalUiStateStore";
@@ -137,8 +136,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
   const hasReachedSplitLimit =
     (activeTerminalGroup?.terminalIds.length ?? 0) >= MAX_TERMINALS_PER_GROUP;
   /*__HOOK__*/
-  const requestDrawerFocusFork = () =>
-    requestTerminalFocusFork("drawer", setTerminalFocusRequestId); // fork-hook: upstream-fixes/terminal-focus-request
   const addTerminalContextToDraft = (selection: TerminalContextSelection) => {
     composerRef.current?.addTerminalContext(selection);
   };
@@ -167,12 +164,10 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       const existingTerminalId =
         runningTerminalIds.find(isReusable) ?? activeServerOrderedTerminalIds.find(isReusable);
       if (existingTerminalId !== undefined) {
-        requestDrawerFocusFork(); // fork-hook: upstream-fixes/drawer-open-focus-request
         storeEnsureTerminal(activeThreadRef, existingTerminalId, { open: true, active: true });
         focusActiveDrawerTerminal(activeThreadRef);
         return;
       }
-      requestDrawerFocusFork(); // fork-hook: upstream-fixes/drawer-open-focus-request
       void terminalActions.launchTerminal({
         place: (terminalId) => storeEnsureTerminal(activeThreadRef, terminalId, { open: true }),
       })?.result;
@@ -180,7 +175,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       return;
     }
     setTerminalOpen(nextOpen);
-    if (nextOpen) requestDrawerFocusFork(); // fork-hook: upstream-fixes/drawer-open-focus-request
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
@@ -192,7 +186,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
           : storeSplitTerminal(activeThreadRef, terminalId),
     });
     if (!launched) return;
-    noteTerminalFocusIntentFork("drawer"); // fork-hook: upstream-fixes/terminal-focus-intent-drawer
     focusTerminal(activeThreadRef, launched.terminalId);
     void launched.result;
   };
@@ -203,7 +196,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       place: (terminalId) => storeNewTerminal(activeThreadRef, terminalId),
     });
     if (!launched) return;
-    noteTerminalFocusIntentFork("drawer"); // fork-hook: upstream-fixes/terminal-focus-intent-drawer
     focusTerminal(activeThreadRef, launched.terminalId);
     void launched.result;
   };
@@ -212,7 +204,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     if (!hasTerminalWriteAccess() || !activeThreadRef) return;
     terminalActions.closeTerminalSession(terminalId, activeThreadRef);
     storeCloseTerminal(activeThreadRef, terminalId);
-    noteTerminalFocusIntentFork("drawer"); // fork-hook: upstream-fixes/terminal-focus-intent-drawer
     focusActiveDrawerTerminal(activeThreadRef);
   };
   const runProjectScript = async (
@@ -261,7 +252,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     if (!activeThreadRef) {
       return;
     }
-    noteTerminalFocusIntentFork("drawer"); // fork-hook: upstream-fixes/terminal-focus-intent-drawer
 
     const launched = terminalActions.launchTerminal({
       // The drawer opens with the target already placed: opening it empty would claim
@@ -355,7 +345,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
         useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId),
     });
     if (!launched) return;
-    noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     focusTerminal(activeThreadRef, launched.terminalId);
     void launched.result;
   };
@@ -364,7 +353,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     activeThreadRef,
     terminalActions,
     addTerminalSurfaceStable,
-    setTerminalFocusRequestId,
   ); // fork-hook: zmux-estate/session-mode-panel-create
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
@@ -382,7 +370,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
           .splitTerminal(activeThreadRef, surfaceId, terminalId, direction),
     });
     if (!launched) return;
-    noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     focusTerminal(activeThreadRef, launched.terminalId);
     void launched.result;
   };
@@ -396,7 +383,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     useRightPanelStore
       .getState()
       .activateTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
-    noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     focusTerminal(activeThreadRef, terminalId);
   };
   const activatePanelTerminalStable = useStableCallback(activatePanelTerminal);
@@ -410,7 +396,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     terminalActions.closeTerminalSession(terminalId, target);
     storeCloseTerminal(target, terminalId);
     store.closeTerminal(target, surface.id, terminalId);
-    noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     focusActivePanelTerminal(target);
   };
   const closePanelTerminalStable = useStableCallback(closePanelTerminal);
