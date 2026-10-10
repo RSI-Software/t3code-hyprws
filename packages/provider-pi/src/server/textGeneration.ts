@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 /**
  * PiTextGeneration — commit messages, PR content, branch names, and thread
  * titles generated through an ephemeral `pi --mode rpc --no-session` process.
@@ -119,8 +120,11 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
     );
   };
 
-  return TextGenerationOperations.fromRunner(
-    "PiTextGeneration",
-    TextGenerationOperations.withoutInvestigation("Pi", runPiJson),
-  );
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner(
+      "PiTextGeneration",
+      TextGenerationOperations.withoutInvestigation("Pi", runPiJson),
+    ),
+    runPiJson,
+  ); // fork-hook: voice-input/generation-runner
 });

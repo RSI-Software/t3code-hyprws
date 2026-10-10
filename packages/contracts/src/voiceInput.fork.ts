@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 
+export * from "./voiceText.fork.ts";
+
 export const VOICE_INPUT_ROUTE_FORK = "/api/fork/voice-input";
 export const VOICE_INPUT_MAX_BYTES_FORK = 16 * 1024 * 1024;
 
