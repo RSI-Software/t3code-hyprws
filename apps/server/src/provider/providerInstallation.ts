@@ -141,7 +141,7 @@ export const makeProviderInstallation = Effect.fn("makeProviderInstallation")(fu
         }
         const binaryPath = entry.config.binaryPath.trim();
         const resolved = yield* resolveCommandPath(binaryPath, {
-          env: yield* mergeProviderInstanceEnvironment(entry.environment),
+          env: yield* mergeProviderInstanceEnvironment(entry.environment, entry.driver), // fork-hook: upstream-fixes/provider-instance-environment
         });
         return resolved === null ? [binaryPath] : [binaryPath, resolved];
       }),
