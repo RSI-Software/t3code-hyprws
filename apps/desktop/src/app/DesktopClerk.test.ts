@@ -426,7 +426,7 @@ it.effect("hands a web link to the renderer and leaves other links alone", () =>
       assert.deepStrictEqual(received, ["https://example.com/page", "http://localhost:3000/"]);
     }).pipe(
       Effect.provide(layerDesktopClerk(true, [], "darwin")),
-      Effect.provideService(HostProcessArguments, ["t3"]),
+      Effect.provideService(HostProcess.Arguments, ["t3"]),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(
         ElectronWindow.ElectronWindow,
