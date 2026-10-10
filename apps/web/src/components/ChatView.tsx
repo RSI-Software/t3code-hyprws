@@ -11905,7 +11905,6 @@ export default function ChatView(props: ChatViewProps) {
                       contextStrip={showComposerContextStrip || showComposerModelStrip}
                     >
                       <ComposerSurface.Host
-                        className="sm:focus-within:ring-1 sm:focus-within:ring-ring"
                         inert={isSavingQueuedEdit}
                         aria-busy={isSavingQueuedEdit}
                       >
