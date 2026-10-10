@@ -1,5 +1,6 @@
 import type { ProviderInstanceEnvironment } from "@t3tools/contracts";
 import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env";
+import * as Effect from "effect/Effect";
 
 import { mergeProviderInstanceEnvironment } from "./instanceEnvironment.ts";
 
@@ -8,9 +9,18 @@ export function mergeForkProviderInstanceEnvironment(
   environment: ProviderInstanceEnvironment | undefined,
   ownDriverKind?: string,
   baseEnv: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
+): Effect.Effect<NodeJS.ProcessEnv> {
   return mergeProviderInstanceEnvironment(
     environment,
     stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(baseEnv), ownDriverKind),
   );
+}
+
+/** Strips inherited tmux and foreign harness identity variables in place, for a base env still being built. */
+export function stripForkHostEnvironment(
+  environment: NodeJS.ProcessEnv,
+  ownDriverKind?: string,
+): void {
+  const kept = stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(environment), ownDriverKind);
+  for (const name of Object.keys(environment)) if (!(name in kept)) delete environment[name];
 }

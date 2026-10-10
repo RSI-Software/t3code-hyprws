@@ -10,7 +10,6 @@ import { HttpClient } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
-import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
@@ -32,8 +31,7 @@ export const fetchEnvironmentThreadGroupTitle = Effect.fn(
     ...input,
     group: "orchestration",
     method: "POST",
-    url: (httpBaseUrl) =>
-      environmentEndpointUrl(httpBaseUrl, "/api/orchestration/thread-group-title"),
+    url: (urls) => urls.generateThreadGroupTitle(),
     timeoutMs: input.timeoutMs ?? DEFAULT_THREAD_GROUP_TITLE_TIMEOUT_MS,
     request: ({ client, headers }) =>
       client.generateThreadGroupTitle({ payload: input.request, headers }),
