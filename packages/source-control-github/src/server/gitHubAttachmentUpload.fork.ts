@@ -6,8 +6,8 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import type * as GitHubApi from "../sourceControl/GitHubApi.ts";
-import type * as VcsProcess from "../vcs/VcsProcess.ts";
+import type * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 
 export class GitHubAttachmentUploadError extends Schema.TaggedError<GitHubAttachmentUploadError>()(
   "GitHubAttachmentUploadError",
@@ -57,10 +57,10 @@ export function parseGitHubAttachmentUploadOutput(input: {
 export const uploadGitHubAttachment = (
   {
     api,
-    vcsProcess,
+    process,
   }: {
     readonly api: GitHubApi.GitHubApi["Service"];
-    readonly vcsProcess: VcsProcess.VcsProcess["Service"];
+    readonly process: SourceControlHost.SourceControlHost["Service"]["process"];
   },
   input: {
     readonly cwd: string;
@@ -99,7 +99,7 @@ export const uploadGitHubAttachment = (
         readonly timeoutMs?: number | undefined;
         readonly failureDetail: string;
       }) =>
-        vcsProcess
+        process
           .run({
             operation: "GitHubPullRequestCli.uploadAttachment",
             command: "gh",

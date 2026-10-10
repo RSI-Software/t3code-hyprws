@@ -142,7 +142,7 @@ export const makeProviderInstallation = Effect.fn("makeProviderInstallation")(fu
         }
         const binaryPath = entry.config.binaryPath.trim();
         return yield* resolveCommandPath(binaryPath, {
-          env: yield* mergeProviderInstanceEnvironment(entry.environment),
+          env: yield* mergeProviderInstanceEnvironment(entry.environment, entry.driver), // fork-hook: upstream-fixes/provider-instance-environment
         }).pipe(
           Effect.map((resolved) => [binaryPath, resolved]),
           Effect.orElseSucceed(() => [binaryPath]),
