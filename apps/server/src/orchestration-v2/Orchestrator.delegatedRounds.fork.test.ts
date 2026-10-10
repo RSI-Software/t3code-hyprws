@@ -180,6 +180,40 @@ it.effect("a delegated task continues on the same child, one result per round", 
       turnItem,
     );
 
+    // Upstream thread_send creates a separate task in this same child.
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("send-separate-followup"),
+      threadId: childThreadId,
+      senderThreadId: parentThreadId,
+      messageId: MessageId.make("message:separate-followup"),
+      text: "Independent follow-up",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const followupRun = (yield* projections.getThreadProjection(childThreadId)).runs.find(
+      (run) => run.ordinal === 3,
+    )!;
+    assert.ok(followupRun.delegatedTaskId);
+    assert.notEqual(followupRun.delegatedTaskId, opened.id);
+    yield* endRound(childThreadId, followupRun.id, "separate-followup");
+    const afterFollowup = yield* readParent;
+    assert.deepEqual(
+      afterFollowup.subagents.find((candidate) => candidate.id === opened.id),
+      afterRound2.subagents[0],
+    );
+    assert.equal(
+      afterFollowup.subagents.find((candidate) => candidate.id === followupRun.delegatedTaskId)
+        ?.status,
+      "interrupted",
+    );
+    assert.equal(
+      afterFollowup.nodes.find((candidate) => candidate.id === followupRun.delegatedTaskId)?.status,
+      "interrupted",
+    );
+
     yield* orchestrator.dispatch({
       type: "thread.archive",
       commandId: CommandId.make("release-child"),
@@ -193,6 +227,15 @@ it.effect("a delegated task continues on the same child, one result per round", 
     });
     yield* delegate("round-3", opened.id);
     assert.equal((yield* readParent).subagents[0]!.status, "running");
+    const round3Run = (yield* projections.getThreadProjection(childThreadId)).runs.find(
+      (run) => run.ordinal === 4,
+    )!;
+    yield* endRound(childThreadId, round3Run.id, "round-3");
+    assert.equal((yield* readParent).subagents[0]!.status, "interrupted");
+    assert.deepEqual(
+      (yield* resultTransfers).map((transfer) => transfer.sourcePoint.runId),
+      [round1Run.id, round2Run.id, followupRun.id, round3Run.id],
+    );
 
     assert.include(
       yield* refusal("unknown", NodeId.make("node:unknown")),

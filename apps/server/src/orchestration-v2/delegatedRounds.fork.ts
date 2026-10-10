@@ -142,15 +142,20 @@ export const delegatedRoundIsLaterFork = (
  */
 export const delegatedRoundProgressFork = (
   projection: Omit<Parameters<typeof delegatedTaskProgress>[0], "messages"> & {
-    readonly thread: Pick<OrchestrationV2ThreadProjection["thread"], "lineage">;
     readonly messages: ReadonlyArray<
       Pick<OrchestrationV2ConversationMessage, "runId" | "notification" | "senderThreadId">
     >;
   },
+  parentThreadId: string | null,
 ) => {
+  // Upstream follow-ups own separate task rows; fork rounds belong to the
+  // original task and must not consume those follow-ups' runs.
+  projection = {
+    ...projection,
+    runs: projection.runs.filter((run) => run.delegatedTaskId === undefined),
+  };
   const progress = delegatedTaskProgress(projection);
   const resultRun = progress.resultRun;
-  const parentThreadId = projection.thread.lineage.parentThreadId;
   if (progress.state === "working" || resultRun === undefined || parentThreadId === null) {
     return progress;
   }

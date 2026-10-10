@@ -9940,14 +9940,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ) {
         return;
       }
-      const progress = delegatedRoundProgressFork(childControls); // fork-hook: delegated-rounds/round-progress
       const taskRuns = childControls.runs.filter((run) => run.delegatedTaskId === options.taskId);
+      const progress = delegatedRoundProgressFork(
+        childControls,
+        childControls.thread.lineage.parentThreadId,
+      ); // fork-hook: delegated-rounds/round-progress
+      if (taskRuns.length === 0 && progress.state !== "result_available") return; // fork-hook: delegated-rounds/round-result-gate
       const childRun =
-        taskRuns.length === 0
-          ? options.taskId === forkedFrom.nodeId
-            ? options.resultRun
-            : undefined
-          : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+        taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0] ??
+        (options.taskId === forkedFrom.nodeId ? progress.resultRun : undefined); // fork-hook: delegated-rounds/task-result-run
       if (childRun === undefined) return;
       const terminalStatus = delegatedTaskTerminalStatus(childRun.status);
       if (terminalStatus === null) {
@@ -10012,7 +10013,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (existingResultTransfer !== undefined) {
         return;
       }
-      const laterRoundFork = delegatedRoundIsLaterFork(task, parentProjection.contextTransfers); // fork-hook: delegated-rounds/later-round
+      const laterRoundFork =
+        task.id === forkedFrom.nodeId &&
+        delegatedRoundIsLaterFork(task, parentProjection.contextTransfers); // fork-hook: delegated-rounds/later-round
 
       const now = yield* DateTime.now;
       const result = subagentResultForRun(childProjection, childRun);
@@ -10238,7 +10241,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         childControls.thread.forkedFrom?.type !== "node"
       )
         return;
-      const progress = delegatedTaskProgress(childControls);
+      const progress = delegatedRoundProgressFork(
+        childControls,
+        childControls.thread.lineage.parentThreadId,
+      ); // fork-hook: delegated-rounds/finalize-progress
       const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
         "subagents",
         "contextTransfers",
@@ -11226,7 +11232,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (run === undefined || delegatedTaskTerminalStatus(run.status) === null) return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
-      const progress = delegatedTaskProgress(child);
+      const progress = delegatedRoundProgressFork(child, child.thread.lineage.parentThreadId); // fork-hook: delegated-rounds/pending-progress
       // A caller's older read saw a result; newer work since then means it is not final.
       if (progress.state !== "result_available") return true;
       if (progress.resultRun === undefined) return false;

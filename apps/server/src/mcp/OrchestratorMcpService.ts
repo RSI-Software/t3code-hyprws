@@ -1,3 +1,4 @@
+import { delegatedRoundProgressFork } from "../orchestration-v2/delegatedRounds.fork.ts"; // fork-hook: delegated-rounds/mcp-progress-import
 import {
   CommandId,
   type RunId,
@@ -72,10 +73,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import {
-  subagentResultForRun,
-  delegatedTaskProgress,
-} from "@t3tools/provider-core/server/subagentProjection";
+import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection"; // fork-hook: delegated-rounds/mcp-result-import
 import {
   DispatchModeLimit,
   type DispatchModeRefusal,
@@ -1277,7 +1275,7 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(threadManagementFailure));
       const childRun = delegatedTaskRun(childControls, task);
       const terminalRun = latestTerminalResultRun(childControls, childRun);
-      const progress = delegatedTaskProgress(childControls);
+      const progress = delegatedRoundProgressFork(childControls, task.threadId); // fork-hook: delegated-rounds/mcp-progress
       const taskResultRun =
         childRun?.delegatedTaskId === task.id
           ? childControls.runs
@@ -1353,7 +1351,9 @@ const make = Effect.gen(function* () {
               ? resultTransfers.find((transfer) => transfer.sourcePoint.runId === undefined)
               : undefined) ??
             null);
-      const resultTransfer = resultTransferForRun(progress.resultRun) ?? resultTransfers[0] ?? null; // fork-hook: delegated-rounds/current-round-transfer
+      const resultTransfer =
+        resultTransferForRun(taskResultRun) ??
+        (task.result === null ? null : taskResultTransfer(parentProjection, childProjection, task)); // fork-hook: delegated-rounds/current-round-transfer
       const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
       const response = {
         taskId: task.id,
