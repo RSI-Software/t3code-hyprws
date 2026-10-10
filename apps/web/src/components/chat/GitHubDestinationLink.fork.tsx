@@ -186,7 +186,7 @@ function GitHubDestinationLink({
         aria-label={`Open ${reference} in ${defaultName}`}
         className={cn(
           "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[inherit] py-1.75 pr-10 pl-2.5 text-sm leading-snug text-foreground no-underline",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
           linkTarget.kind === "repository"
             ? "[@media(hover:none)]:pr-17"
             : "[@media(hover:none)]:pr-25",
