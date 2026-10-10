@@ -460,6 +460,7 @@ const make = Effect.gen(function* () {
               type: "thread.metadata.update",
               commandId: CommandId.make(`${input.commandId}:branch-rename`),
               threadId,
+              expectedWorktreePath: worktreeCwd, // fork-hook: upstream-fixes/launch-branch-rename-worktree-guard
               branch: renamed.branch,
               worktreePath: worktreeCwd,
             }),
