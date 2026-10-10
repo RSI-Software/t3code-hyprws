@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/process";
@@ -53,7 +53,7 @@ describe("stripInheritedProviderSessionIdentity", () => {
     Effect.gen(function* () {
       const environment: NodeJS.ProcessEnv = { ...leaked };
       yield* stripInheritedProviderSessionIdentity.pipe(
-        Effect.provideService(HostProcessEnvironment, environment),
+        Effect.provideService(HostProcess.Environment, environment),
       );
       expect(environment).toEqual({ PATH: "/bin" });
     }),
