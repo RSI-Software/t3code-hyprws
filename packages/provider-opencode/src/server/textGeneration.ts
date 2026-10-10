@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -19,6 +20,7 @@ const OpenCodeTextGenerationOperation = Schema.Literals([
   "generateThreadTitle",
   "generateReviewGuide",
   "generateTranscriptionPostProcessing",
+  "generateTextFork", // fork-hook: voice-input/opencode-generation-operation
 ]);
 
 const openCodeTextGenerationErrorContext = {
@@ -395,8 +397,11 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
     return yield* TextGenerationOperations.decodeJsonReply(input, "OpenCode", rawOutput);
   });
 
-  return TextGenerationOperations.fromRunner(
-    "OpenCodeTextGeneration",
-    TextGenerationOperations.withoutInvestigation("OpenCode", runOpenCodeJson),
-  );
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner(
+      "OpenCodeTextGeneration",
+      TextGenerationOperations.withoutInvestigation("OpenCode", runOpenCodeJson),
+    ),
+    runOpenCodeJson,
+  ); // fork-hook: voice-input/generation-runner
 });
