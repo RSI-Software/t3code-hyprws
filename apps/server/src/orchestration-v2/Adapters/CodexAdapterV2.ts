@@ -1650,7 +1650,11 @@ export const createCodexAdapterV2 = (
     return yield* makeCodexAdapterV2({
       instanceId,
       settings,
-      environment: yield* mergeProviderInstanceEnvironment(environment, hostEnvironment),
+      environment: yield* mergeProviderInstanceEnvironment(
+        environment,
+        CODEX_DRIVER_KIND,
+        hostEnvironment,
+      ), // fork-hook: upstream-fixes/provider-instance-environment
       clientFactory,
       crypto,
       fileSystem,
