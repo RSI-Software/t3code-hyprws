@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
@@ -40,7 +40,7 @@ import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 
 const buildLinuxOptions = DesktopPreReadyPlatform.DesktopPreReadyElectronOptions.pipe(
   Effect.provide(
-    DesktopPreReadyPlatform.layer.pipe(Layer.provide(Layer.succeed(HostProcessPlatform, "linux"))),
+    DesktopPreReadyPlatform.layer.pipe(Layer.provide(Layer.succeed(HostProcess.Platform, "linux"))),
   ),
 );
 
