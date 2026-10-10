@@ -1,10 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -41,8 +37,8 @@ const repoint = (
   environment: NodeJS.ProcessEnv,
 ) =>
   repointLaunchersFork(home.fs, home.path, home.baseDir, "1.1.0").pipe(
-    Effect.provideService(HostProcessEnvironment, environment),
-    Effect.provideService(HostProcessPlatform, "linux"),
+    Effect.provideService(HostProcess.Environment, environment),
+    Effect.provideService(HostProcess.Platform, "linux"),
   );
 
 const runResult = (stdout: string) => ({
@@ -112,8 +108,8 @@ const makeSelfUpdate = Effect.fn("test.make_launcher_self_update")(function* (
       commit: () => Effect.die("unexpected desktop app update commit"),
     }),
     Effect.provideService(HttpClient.HttpClient, httpClient),
-    Effect.provideService(HostProcessPlatform, "linux"),
-    Effect.provideService(HostProcessArchitecture, "x64"),
+    Effect.provideService(HostProcess.Platform, "linux"),
+    Effect.provideService(HostProcess.Architecture, "x64"),
     Effect.provide(ServerConfig.layer({ ...config, mode: "web" })),
   );
 });
@@ -126,7 +122,7 @@ it.layer(NodeServices.layer)("launcher repoint on a client update", (it) => {
       const selfUpdate = yield* makeSelfUpdate(home, "ready");
       yield* selfUpdate
         .update({ targetVersion: "1.1.0" })
-        .pipe(Effect.provideService(HostProcessEnvironment, { PATH: home.binDir }));
+        .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }));
       expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.1.0"));
     }),
   );
@@ -138,7 +134,7 @@ it.layer(NodeServices.layer)("launcher repoint on a client update", (it) => {
       const selfUpdate = yield* makeSelfUpdate(home, "blocked");
       yield* selfUpdate
         .update({ targetVersion: "1.1.0" })
-        .pipe(Effect.provideService(HostProcessEnvironment, { PATH: home.binDir }), Effect.flip);
+        .pipe(Effect.provideService(HostProcess.Environment, { PATH: home.binDir }), Effect.flip);
       expect(yield* home.fs.readLink(home.launcher)).toBe(home.target("1.0.0"));
     }),
   );
