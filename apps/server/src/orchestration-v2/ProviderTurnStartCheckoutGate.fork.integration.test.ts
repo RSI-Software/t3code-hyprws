@@ -37,14 +37,18 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
-import type { ProviderAdapterV2Event, ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
+import type {
+  ProviderAdapterV2Event,
+  ProviderAdapterV2,
+} from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import { providerTurnStartCheckoutGateFork } from "./ProviderTurnStartCheckoutGate.fork.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import { layerWithRegistry } from "./testkit/ProviderReplayHarness.ts";
 import type { ReplayTurnStartWrapperFork } from "./testkit/ProviderReplayHarness.fork.ts";
-import { checkpointWorkspace } from "./testkit/ReplayFixtureWorkspace.ts";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 
 const driver = ProviderDriverKind.make("claudeAgent");
 const providerInstanceId = ProviderInstanceId.make("claude-recovery-test");
