@@ -73,6 +73,7 @@ export const MuseDriver: ProviderDriver<MuseSettings, MuseDriverEnv> = {
       // Drop an inherited META_API_KEY so Muse uses its login; an instance value still wins.
       const processEnvironment = yield* mergeProviderInstanceEnvironment(
         environment,
+        "muse", // fork-hook: upstream-fixes/muse-own-harness-kind
         makeMuseEnvironment(hostEnvironment),
       );
       const effectiveConfig = {
