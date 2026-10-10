@@ -527,7 +527,7 @@ export function GitHubSubIssueRow({
   );
   const actionClassName = cn(
     PULL_REQUEST_ROW_CLASS,
-    "min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+    "min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
   );
 
   if (onSelect === undefined || !sameRepository) {

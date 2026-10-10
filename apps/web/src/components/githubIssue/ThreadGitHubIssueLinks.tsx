@@ -123,7 +123,7 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
             >
               <button
                 type="button"
-                className={`${PULL_REQUEST_ROW_CLASS} min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring`}
+                className={`${PULL_REQUEST_ROW_CLASS} min-w-0 flex-1 px-2 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset`}
                 onClick={() =>
                   useRightPanelStore.getState().openGitHubIssue(threadRef, {
                     environmentId: threadRef.environmentId,
