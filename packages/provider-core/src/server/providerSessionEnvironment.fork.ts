@@ -1,5 +1,5 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 
 import type { ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
@@ -69,7 +69,7 @@ export function withProviderSessionIdentity(
  * own environment, and would otherwise name that other thread as theirs.
  */
 export const stripInheritedProviderSessionIdentity = Effect.gen(function* () {
-  const environment = yield* HostProcessEnvironment;
+  const environment = yield* HostProcess.Environment;
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.projectId];
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.threadId];
 });

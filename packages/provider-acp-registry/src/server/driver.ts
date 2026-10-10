@@ -26,7 +26,7 @@ import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
-import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
+import { mergeForkProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -497,10 +497,11 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         continuationKey: continuationIdentity.continuationKey,
       };
       const effectiveConfig = { ...config, enabled } satisfies AcpRegistrySettings;
-      const processEnvironment = yield* mergeProviderInstanceEnvironment(
+      const processEnvironment = yield* mergeForkProviderInstanceEnvironment(
         environment,
+        DRIVER_KIND,
         hostEnvironment,
-      );
+      ); // fork-hook: upstream-fixes/provider-driver-instance-env
       const orchestrationAdapter = yield* AcpRegistryAdapterV2Driver.create({
         instanceId,
         displayName,

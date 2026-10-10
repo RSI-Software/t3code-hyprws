@@ -7,9 +7,11 @@ import type { HttpMethod } from "effect/http";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
-import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
-import type { makeEnvironmentHttpApiGroupClient } from "../rpc/http.ts";
+import type {
+  makeEnvironmentHttpApiGroupClient,
+  makeEnvironmentHttpApiUrlBuilder,
+} from "../rpc/http.ts";
 import {
   type EnvironmentHttpAuthHeaders,
   executeAuthenticatedEnvironmentHttpRequest,
@@ -30,7 +32,7 @@ const executeAuthRequest = Effect.fn("clientRuntime.state.authHttp.executeAuthRe
   R,
 >(
   method: HttpMethod.HttpMethod,
-  pathname: string,
+  url: (urls: ReturnType<typeof makeEnvironmentHttpApiUrlBuilder>["auth"]) => string,
   request: (input: {
     readonly client: AuthHttpClient;
     readonly headers: EnvironmentHttpAuthHeaders;
@@ -51,7 +53,7 @@ const executeAuthRequest = Effect.fn("clientRuntime.state.authHttp.executeAuthRe
     ),
     group: "auth",
     method,
-    url: (httpBaseUrl) => environmentEndpointUrl(httpBaseUrl, pathname),
+    url,
     timeoutMs: AUTH_MUTATION_TIMEOUT_MS,
     request,
   });
@@ -60,8 +62,10 @@ const executeAuthRequest = Effect.fn("clientRuntime.state.authHttp.executeAuthRe
 export const fetchEnvironmentSessionState = Effect.fn(
   "clientRuntime.state.authHttp.fetchEnvironmentSessionState",
 )(function* () {
-  return yield* executeAuthRequest("GET", "/api/auth/session", ({ client, headers }) =>
-    client.session({ headers }),
+  return yield* executeAuthRequest(
+    "GET",
+    (urls) => urls.session(),
+    ({ client, headers }) => client.session({ headers }),
   );
 });
 
@@ -73,14 +77,17 @@ export const createEnvironmentPairingCredential = Effect.fn(
   readonly scopes?: ReadonlyArray<AuthGrantScope>;
 }) {
   const trimmedLabel = input.label?.trim();
-  return yield* executeAuthRequest("POST", "/api/auth/pairing-token", ({ client, headers }) =>
-    client.pairingCredential({
-      headers,
-      payload: {
-        ...(trimmedLabel ? { label: trimmedLabel } : {}),
-        ...(input.scopes ? { scopes: input.scopes } : {}),
-      },
-    }),
+  return yield* executeAuthRequest(
+    "POST",
+    (urls) => urls.pairingCredential(),
+    ({ client, headers }) =>
+      client.pairingCredential({
+        headers,
+        payload: {
+          ...(trimmedLabel ? { label: trimmedLabel } : {}),
+          ...(input.scopes ? { scopes: input.scopes } : {}),
+        },
+      }),
   );
 });
 
@@ -89,7 +96,7 @@ export const revokeEnvironmentPairingLink = Effect.fn(
 )(function* (input: { readonly id: string }) {
   return yield* executeAuthRequest(
     "POST",
-    "/api/auth/pairing-links/revoke",
+    (urls) => urls.revokePairingLink(),
     ({ client, headers }) => client.revokePairingLink({ headers, payload: { id: input.id } }),
   );
 });
@@ -97,8 +104,11 @@ export const revokeEnvironmentPairingLink = Effect.fn(
 export const revokeEnvironmentClientSession = Effect.fn(
   "clientRuntime.state.authHttp.revokeEnvironmentClientSession",
 )(function* (input: { readonly sessionId: AuthSessionId }) {
-  return yield* executeAuthRequest("POST", "/api/auth/clients/revoke", ({ client, headers }) =>
-    client.revokeClient({ headers, payload: { sessionId: input.sessionId } }),
+  return yield* executeAuthRequest(
+    "POST",
+    (urls) => urls.revokeClient(),
+    ({ client, headers }) =>
+      client.revokeClient({ headers, payload: { sessionId: input.sessionId } }),
   );
 });
 
@@ -107,7 +117,7 @@ export const revokeOtherEnvironmentClientSessions = Effect.fn(
 )(function* () {
   return yield* executeAuthRequest(
     "POST",
-    "/api/auth/clients/revoke-others",
+    (urls) => urls.revokeOtherClients(),
     ({ client, headers }) => client.revokeOtherClients({ headers }),
   );
 });

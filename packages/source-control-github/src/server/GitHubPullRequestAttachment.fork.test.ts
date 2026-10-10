@@ -9,12 +9,13 @@ import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/process";
 import * as Redacted from "effect/Redacted";
 import { VcsProcessExitError } from "@t3tools/contracts";
-import * as GitHubApi from "../sourceControl/GitHubApi.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
-import * as GitHubPullRequestApi from "./GitHubPullRequestApi.ts";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
+import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
+import * as GitHubPullRequestApi from "@t3tools/source-control-github/server/GitHubPullRequestApi";
 import { parseGitHubAttachmentUploadOutput } from "./gitHubAttachmentUpload.fork.ts";
 
-const mockedRun = vi.fn<VcsProcess.VcsProcess["Service"]["run"]>();
+const mockedRun = vi.fn<SourceControlHost.SourceControlHost["Service"]["process"]["run"]>();
 const mockedCredential = vi.fn<GitHubApi.GitHubApi["Service"]["credential"]>(() =>
   Effect.succeed({ token: Redacted.make("token"), fingerprint: "github.com:token" }),
 );
@@ -29,7 +30,7 @@ const mockApi = Layer.succeed(
 const layer = it.layer(
   GitHubPullRequestApi.layer.pipe(
     Layer.provide(mockApi),
-    Layer.provide(Layer.mock(VcsProcess.VcsProcess)({ run: mockedRun })),
+    Layer.provide(TestSourceControlHost.layer({ process: { run: mockedRun } })),
     Layer.provide(NodeCrypto.layer),
     Layer.provide(NodeServices.layer),
   ),

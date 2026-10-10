@@ -17,7 +17,7 @@ import type {
 import { GitHubIssueOperationError } from "@t3tools/contracts";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import * as GitHubApi from "../sourceControl/GitHubApi.ts";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
