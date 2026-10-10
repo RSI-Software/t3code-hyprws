@@ -1,5 +1,5 @@
 import * as NodePath from "@effect/platform-node/NodePath";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -73,7 +73,7 @@ function layer(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: routed })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest({ terminalSessionMode: "zmux" })),
     Layer.provide(NodePath.layer),
-    Layer.provide(Layer.succeed(HostProcessEnvironment, { PATH: "/usr/bin" })),
+    Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "/usr/bin" })),
   );
 }
 
