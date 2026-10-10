@@ -33,23 +33,24 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import * as CommandReceiptStore from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import {
   type ProviderAdapterV2Event,
   ProviderAdapterProtocolError,
-  type ProviderAdapterV2Shape,
+  type ProviderAdapterV2,
   type ProviderAdapterV2TurnInput,
-} from "../../orchestration-v2/ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
+type ProviderAdapterV2Shape = ProviderAdapterV2["Service"];
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import { checkpointWorkspace } from "../../orchestration-v2/testkit/ReplayFixtureWorkspace.ts";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
@@ -253,19 +254,21 @@ const makeAdapter = () => {
   return { adapter, started, steered, complete, holdStarts, steerReached };
 };
 
+// The stream replays the store before tailing it, and projections commit with their
+// events, so re-reading on each of the thread's events sees every state it reaches.
 const waitForProjection = (
   orchestrator: Orchestrator.OrchestratorV2Shape,
   threadId: ThreadId,
   predicate: (projection: OrchestrationV2ThreadProjection) => boolean,
 ) =>
-  Effect.gen(function* () {
-    for (let attempt = 0; attempt < 1_000; attempt += 1) {
-      const projection = yield* orchestrator.getThreadProjection(threadId);
-      if (predicate(projection)) return projection;
-      yield* Effect.sleep("5 millis");
-    }
-    return yield* Effect.die(new Error(`Timed out waiting for ${threadId}.`));
-  });
+  orchestrator.streamStoredEvents.pipe(
+    Stream.filter(({ event }) => event.threadId === threadId),
+    Stream.mapEffect(() => orchestrator.getThreadProjection(threadId)),
+    Stream.filter(predicate),
+    Stream.runHead,
+    Effect.flatMap(Effect.fromOption),
+    Effect.orDie,
+  );
 
 const hasRun = (status: string) => (projection: OrchestrationV2ThreadProjection) =>
   projection.runs.at(-1)?.status === status &&
@@ -342,7 +345,11 @@ const harness = <A, E>(
               }).pipe(Effect.andThen(inner.dispatch(command))),
           };
         }),
-      ).pipe(Layer.provide(ThreadManagementService.layer), Layer.provide(orchestratorLayer));
+      ).pipe(
+        Layer.provide(ThreadManagementService.layer),
+        Layer.provide(orchestratorLayer),
+        Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory))),
+      );
       const layer = Layer.mergeAll(
         orchestratorLayer,
         ProjectionStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
@@ -350,7 +357,7 @@ const harness = <A, E>(
           Layer.provideMerge(threadManagementLayer),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
-              getShell: () => Effect.succeed(Option.some(shell)),
+              getShell: () => Effect.succeedSome(shell),
             }),
           ),
           Layer.provide(registryLayer),
