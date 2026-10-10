@@ -1,5 +1,6 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect } from "react";
+import { shouldAutoFocusComposerOnThreadChange } from "../ChatView.focus.fork"; // fork-hook: upstream-fixes/composer-refocus-predicate-import
 
 import { restoreFocusOnThreadEnter } from "../../lib/terminalFocus";
 
@@ -14,6 +15,7 @@ export function useFocusComposerOnThreadOpen(
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores DOM focus on thread entry and after the drawer opens or closes
   useEffect(() => {
     if (!threadRef || !enabled || !root) return;
+    if (!shouldAutoFocusComposerOnThreadChange(document.activeElement)) return; // fork-hook: upstream-fixes/composer-refocus-predicate
     let frame: number | undefined;
     const leave = restoreFocusOnThreadEnter(threadRef, {
       root,
