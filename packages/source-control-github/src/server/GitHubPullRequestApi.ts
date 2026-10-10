@@ -2834,7 +2834,8 @@ export const make = Effect.gen(function* () {
         ),
       ),
 
-    uploadAttachment: (input) => uploadGitHubAttachment({ api, vcsProcess }, input), // fork-hook: upstream-fixes/attachment-media-verified-host
+    uploadAttachment: (input) =>
+      uploadGitHubAttachment({ api, process: sourceControlHost.process }, input), // fork-hook: upstream-fixes/attachment-media-verified-host
 
     updateComment: (input) =>
       subjectBelongsToPullRequest({

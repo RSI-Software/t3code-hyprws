@@ -278,7 +278,11 @@ export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
       return yield* makeAcpRegistryAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: yield* mergeProviderInstanceEnvironment(
+          input.environment,
+          ACP_REGISTRY_PROVIDER,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/provider-instance-environment
         selfInvocation,
         nativeLogging: (threadId) =>
           makeNativeLogger({

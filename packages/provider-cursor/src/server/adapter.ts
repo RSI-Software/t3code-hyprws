@@ -2627,7 +2627,11 @@ export const CursorAdapterV2Driver: ProviderAdapterDriver<
           ...input.config,
           enabled: input.enabled,
         },
-        environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: yield* mergeProviderInstanceEnvironment(
+          input.environment,
+          CURSOR_DRIVER_KIND,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/provider-instance-environment
       });
     },
     (effect, input) =>

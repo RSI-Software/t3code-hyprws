@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubApi from "../sourceControl/GitHubApi.ts";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import { SUB_ISSUE_REASONS_QUERY } from "./subIssueCloseReasons.fork.ts";
 

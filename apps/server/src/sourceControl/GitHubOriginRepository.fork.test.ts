@@ -1,15 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
-import * as GitHubApi from "./GitHubApi.ts";
-import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
+import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubSourceControlProvider from "@t3tools/source-control-github/server/GitHubSourceControlProvider";
 
 it.effect.each(["github.com", "enterprise.test"])(
   "keeps PR reads and writes on the selected origin at %s",
@@ -70,8 +69,9 @@ it.effect.each(["github.com", "enterprise.test"])(
             });
           }),
       }),
-      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-      Layer.mock(VcsProcess.VcsProcess)({ run: () => Effect.die("unexpected git read") }),
+      TestSourceControlHost.layer({
+        process: { run: () => Effect.die("unexpected git read") },
+      }),
       NodeServices.layer,
       FileSystem.layerNoop({ readFileString: () => Effect.succeed("PR body") }),
     );
@@ -123,7 +123,7 @@ it.effect.each(["github.com", "enterprise.test"])(
       }
     }).pipe(
       Effect.provide(layer),
-      Effect.provideService(HostProcessEnvironment, { GH_REPO: "upstream/other" }),
+      Effect.provideService(HostProcess.Environment, { GH_REPO: "upstream/other" }),
     );
   },
 );
