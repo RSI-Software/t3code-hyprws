@@ -1,3 +1,4 @@
+import { voiceTextGeneratorFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/opencode-generation-import
 /**
  * OpenCodeDriver — `ProviderDriver` for the OpenCode runtime.
  *
@@ -149,6 +150,8 @@ function selectOpenCodeRuntimeTextGeneration(
   v1: ProviderTextGeneration,
   v2: ProviderTextGeneration,
 ): ProviderTextGeneration {
+  const generateV1 = voiceTextGeneratorFork(v1); // fork-hook: voice-input/opencode-generation-capability
+  const generateV2 = voiceTextGeneratorFork(v2); // fork-hook: voice-input/opencode-generation-capability
   return {
     generateCommitMessage: (input) =>
       byOpenCodeRuntime(probe.get, {
@@ -170,6 +173,15 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generateThreadTitle(input),
         v2: v2.generateThreadTitle(input),
       }),
+    ...(generateV1 && generateV2
+      ? {
+          generateTextFork: (input: Parameters<typeof generateV1>[0]) =>
+            byOpenCodeRuntime(probe.get, {
+              v1: generateV1(input),
+              v2: generateV2(input),
+            }),
+        }
+      : {}), // fork-hook: voice-input/opencode-text-generation
   };
 }
 

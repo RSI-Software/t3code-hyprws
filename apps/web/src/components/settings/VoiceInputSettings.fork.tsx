@@ -11,7 +11,7 @@ import {
   runVoiceInputRequestFork,
   VOICE_SETTINGS_CHANGED_FORK,
 } from "../../voice-input/client.fork";
-import { useVoiceSettingsFork } from "../../voice-input/useVoiceInput.fork";
+import { useVoiceSettingsFork } from "../../voice-input/useVoiceSettings.fork";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
