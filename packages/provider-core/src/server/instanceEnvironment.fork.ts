@@ -1,5 +1,6 @@
 import type { ProviderInstanceEnvironment } from "@t3tools/contracts";
 import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env";
+import * as Effect from "effect/Effect";
 
 import { mergeProviderInstanceEnvironment } from "./instanceEnvironment.ts";
 
@@ -8,7 +9,7 @@ export function mergeForkProviderInstanceEnvironment(
   environment: ProviderInstanceEnvironment | undefined,
   ownDriverKind?: string,
   baseEnv: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
+): Effect.Effect<NodeJS.ProcessEnv> {
   return mergeProviderInstanceEnvironment(
     environment,
     stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(baseEnv), ownDriverKind),
