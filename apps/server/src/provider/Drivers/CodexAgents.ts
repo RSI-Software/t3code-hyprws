@@ -64,7 +64,9 @@ function resolveCodexHomePath(input: {
   readonly environment?: NodeJS.ProcessEnv;
 }): string {
   const configuredHome = input.homePath?.trim() || input.environment?.CODEX_HOME?.trim();
-  return configuredHome ? expandHomePath(configuredHome) : `${NodeOS.homedir()}/.codex`;
+  return configuredHome
+    ? expandHomePath(configuredHome, NodeOS.homedir())
+    : `${NodeOS.homedir()}/.codex`;
 }
 
 const readAgentDirectory = Effect.fn("CodexAgents.readDirectory")(function* (directory: string) {
