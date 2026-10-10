@@ -80,6 +80,7 @@ export function VoiceDictationToolbarFork({
   onCancel,
   onFinish,
   onStart,
+  processingPhase,
 }: {
   state: VoiceInputState;
   active: boolean;
@@ -87,10 +88,18 @@ export function VoiceDictationToolbarFork({
   onCancel: () => void;
   onFinish: () => void;
   onStart: () => void;
+  processingPhase?: "cleanup" | "format" | null;
 }) {
   const recording = state.phase === "recording";
   const error = state.phase === "error";
-  const status = state.phase === "preparing" ? "Preparing" : "Transcribing";
+  const status =
+    processingPhase === "cleanup"
+      ? "Cleaning up"
+      : processingPhase === "format"
+        ? "Formatting"
+        : state.phase === "preparing"
+          ? "Preparing"
+          : "Transcribing";
   return (
     <div
       className="flex h-8 w-full min-w-0 items-center gap-3"
@@ -100,8 +109,20 @@ export function VoiceDictationToolbarFork({
       <Button
         size="icon-sm"
         variant="ghost"
-        aria-label={error ? "Dismiss dictation error" : "Cancel dictation"}
-        title={error ? "Dismiss" : "Cancel dictation (Escape)"}
+        aria-label={
+          processingPhase
+            ? "Cancel text processing"
+            : error
+              ? "Dismiss dictation error"
+              : "Cancel dictation"
+        }
+        title={
+          processingPhase
+            ? "Cancel text processing (Escape)"
+            : error
+              ? "Dismiss"
+              : "Cancel dictation (Escape)"
+        }
         onPointerDown={(event) => event.preventDefault()}
         onClick={onCancel}
       >

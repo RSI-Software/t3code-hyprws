@@ -107,7 +107,7 @@ function BackgroundVoiceControlFork() {
   const offscreen = target && target.ownerKey !== visibleOwner;
   const recoverable = Boolean(transcript && state.error);
   const backgroundActive = offscreen && (busy || state.error);
-  if (!window.desktopBridge || !target) return null;
+  if (!target) return null;
   if (!recoverable && !backgroundActive) return null;
 
   const returnToDraft = () => {

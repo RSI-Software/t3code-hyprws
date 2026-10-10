@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork"; // fork-hook: voice-input/generation-runner-import
 /**
  * Text generation on an OpenCode 2 server. Both of its `generate` endpoints
  * answer 403 on OpenCode's free tier ("free tier can only be used from within
@@ -201,5 +202,8 @@ export const make = Effect.fn("OpenCode2TextGeneration.make")(function* () {
         ),
         Effect.flatMap((raw) => TextGenerationOperations.decodeJsonReply(input, "OpenCode", raw)),
       );
-  return TextGenerationOperations.fromRunner("OpenCode2TextGeneration", run);
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner("OpenCode2TextGeneration", run),
+    run,
+  ); // fork-hook: voice-input/generation-runner
 });
