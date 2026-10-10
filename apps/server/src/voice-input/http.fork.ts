@@ -6,6 +6,9 @@ import {
   VOICE_INPUT_ROUTE_FORK,
   VOICE_INPUT_MAX_BYTES_FORK,
   type AuthEnvironmentScope,
+  VoiceTextConfigureFork,
+  VoiceTextTransformFork,
+  VoiceTextContextFork,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -20,6 +23,9 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as VoiceInput from "./VoiceInput.fork.ts";
 import { authenticateMediaRequest, failEnvironmentAuthInvalid } from "../auth/http.ts";
+import * as VoiceText from "./VoiceText.fork.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 const isVoiceInputError = Schema.is(VoiceInput.VoiceInputError);
 const decodeSettingsJson = Schema.decodeEffect(Schema.fromJsonString(VoiceInputConfigUpdateFork));
 const encodeStreamError = Schema.encodeSync(
@@ -173,6 +179,73 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
     ),
   );
 
-export const routeLayer = Layer.unwrap(Effect.map(VoiceInput.VoiceInput, routes)).pipe(
+const voiceInputRoutes = Layer.unwrap(Effect.map(VoiceInput.VoiceInput, routes)).pipe(
   Layer.provide(VoiceInput.layer.pipe(Layer.provide(ServerSecretStore.layer))),
 );
+
+const voiceTextRoutes = Layer.unwrap(
+  Effect.map(VoiceText.VoiceText, (service) => {
+    const post = <S extends Schema.Top & { readonly DecodingServices: never }>(
+      route: string,
+      scope: AuthEnvironmentScope,
+      schema: S,
+      run: (input: S["Type"]) => Effect.Effect<unknown, VoiceText.VoiceTextError>,
+    ) =>
+      HttpRouter.add(
+        "POST",
+        `${VOICE_INPUT_ROUTE_FORK}/text/${route}`,
+        Effect.gen(function* () {
+          const refusal = yield* authorize(scope);
+          if (refusal) return refusal;
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
+            return json({ error: "Expected JSON." }, 415);
+          return yield* readBody(512_000).pipe(
+            Effect.flatMap((bytes) =>
+              Schema.decodeEffect(Schema.fromJsonString(schema))(new TextDecoder().decode(bytes)),
+            ),
+            Effect.mapError((cause) => new VoiceText.VoiceTextError({ reason: "settings", cause })),
+            Effect.flatMap(run),
+            Effect.map((result) => json(result)),
+            Effect.catch((error) =>
+              Effect.succeed(
+                json(
+                  { error: error.message, code: error.reason },
+                  error.reason === "model" || error.reason === "response" ? 502 : 400,
+                ),
+              ),
+            ),
+          );
+        }),
+      );
+    return Layer.mergeAll(
+      HttpRouter.add(
+        "GET",
+        `${VOICE_INPUT_ROUTE_FORK}/text/settings`,
+        Effect.gen(function* () {
+          const refusal = yield* authorize(AuthOrchestrationReadScope);
+          if (refusal) return refusal;
+          return yield* service.settings.pipe(
+            Effect.map((result) => json(result)),
+            Effect.catch((error) =>
+              Effect.succeed(json({ error: error.message, code: error.reason }, 500)),
+            ),
+          );
+        }),
+      ),
+      post("settings", AuthSettingsWriteScope, VoiceTextConfigureFork, service.configure),
+      post("transform", AuthOrchestrationOperateScope, VoiceTextTransformFork, service.transform),
+      post("context", AuthOrchestrationOperateScope, VoiceTextContextFork, service.generateContext),
+    );
+  }),
+).pipe(
+  Layer.provide(
+    VoiceText.layer.pipe(
+      Layer.provide(ServerSecretStore.layer),
+      Layer.provide(ProjectStore.layer),
+      Layer.provide(ProjectionStore.layer),
+    ),
+  ),
+);
+
+export const routeLayer = Layer.merge(voiceInputRoutes, voiceTextRoutes);

@@ -4,9 +4,8 @@ export const voiceInputSearchItemsFork = [
     title: "Dictation",
     to: "/settings/dictation",
     scope: "environment-defaults",
-    desktopOnly: true,
     searchTerms: [
-      "microphone input device voice speech transcription muse meta local openai compatible custom endpoint api key ducking speakers output volume fade",
+      "microphone input device voice speech transcription muse meta local openai compatible custom endpoint api key ducking speakers output volume fade cleanup formatting project context prompt model",
     ],
   },
 ] as const;
