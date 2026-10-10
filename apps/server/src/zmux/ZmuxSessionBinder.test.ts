@@ -1,5 +1,5 @@
 import * as NodePath from "@effect/platform-node/NodePath";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -65,7 +65,7 @@ function makeLayer(
     Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
     Layer.provide(NodePath.layer),
     Layer.provide(
-      Layer.succeed(HostProcessEnvironment, {
+      Layer.succeed(HostProcess.Environment, {
         PATH: "/usr/bin",
         KEEP_ME: "yes",
         TMUX: "/tmp/tmux/default",

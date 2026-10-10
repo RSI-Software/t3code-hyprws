@@ -5,7 +5,7 @@ import type { GitHubSubIssue } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import * as GitHubApi from "../sourceControl/GitHubApi.ts";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
 import { decodeGitHubSubIssueReasons } from "./gitHubIssueJson.ts";
 
 // GitHub caps the `subIssues` connection at `first: 100`; asking for more fails the whole query.

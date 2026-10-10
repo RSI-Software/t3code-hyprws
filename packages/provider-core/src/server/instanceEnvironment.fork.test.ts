@@ -1,120 +1,151 @@
-import { describe, expect, it } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { describe, expect, it } from "@effect/vitest";
 import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "./instanceEnvironment.fork.ts";
 describe("mergeProviderInstanceEnvironment", () => {
-  it("strips inherited tmux environment without changing unrelated values", () => {
-    expect(
-      mergeProviderInstanceEnvironment(undefined, "codex", {
-        TMUX: "/tmp/tmux-1000/default,123,0",
-        TMUX_PANE: "%42",
-        TMUX_TMPDIR: "/tmp/tmux-1000",
-        PATH: "/bin",
-      }),
-    ).toEqual({ PATH: "/bin" });
-  });
-  it("overrides inherited environment values, preserving empty strings and explicit tmux values", () => {
-    expect(
-      mergeProviderInstanceEnvironment(
-        [
-          { name: "OPENROUTER_API_KEY", value: "sk-or-test", sensitive: true },
-          { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
-          { name: "TMUX", value: "/operator/tmux", sensitive: false },
-          { name: "TMUX_PANE", value: "%7", sensitive: false },
-        ],
-        "codex",
-        {
-          ANTHROPIC_API_KEY: "inherited",
-          PATH: "/bin",
+  it.effect("expands configured homes using upstream's injected host home", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(
+          [{ name: "CODEX_HOME", value: "~/.codex", sensitive: false }],
+          "codex",
+          { CLAUDECODE: "1", PATH: "/bin" },
+        ).pipe(Effect.provideService(HostProcess.HomeDirectory, "/isolated/home")),
+      ).toEqual({ CODEX_HOME: "/isolated/home/.codex", PATH: "/bin" });
+    }),
+  );
+  it.effect("strips inherited tmux environment without changing unrelated values", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(undefined, "codex", {
           TMUX: "/tmp/tmux-1000/default,123,0",
           TMUX_PANE: "%42",
           TMUX_TMPDIR: "/tmp/tmux-1000",
-        },
-      ),
-    ).toEqual({
-      OPENROUTER_API_KEY: "sk-or-test",
-      ANTHROPIC_API_KEY: "",
-      PATH: "/bin",
-      TMUX: "/operator/tmux",
-      TMUX_PANE: "%7",
-    });
-  });
-  it("drops another harness's identity while keeping session identity and credentials", () => {
-    expect(
-      mergeProviderInstanceEnvironment(undefined, "codex", {
-        CLAUDECODE: "1",
-        CLAUDE_CODE_SESSION_ID: "0b6d",
-        CLAUDE_EFFORT: "high",
-        CLAUDE_CONFIG_DIR: "/home/dev/.claude",
-        CURSOR_AGENT: "1",
+          PATH: "/bin",
+        }),
+      ).toEqual({ PATH: "/bin" });
+    }),
+  );
+  it.effect(
+    "overrides inherited environment values, preserving empty strings and explicit tmux values",
+    () =>
+      Effect.gen(function* () {
+        expect(
+          yield* mergeProviderInstanceEnvironment(
+            [
+              { name: "OPENROUTER_API_KEY", value: "sk-or-test", sensitive: true },
+              { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
+              { name: "TMUX", value: "/operator/tmux", sensitive: false },
+              { name: "TMUX_PANE", value: "%7", sensitive: false },
+            ],
+            "codex",
+            {
+              ANTHROPIC_API_KEY: "inherited",
+              PATH: "/bin",
+              TMUX: "/tmp/tmux-1000/default,123,0",
+              TMUX_PANE: "%42",
+              TMUX_TMPDIR: "/tmp/tmux-1000",
+            },
+          ),
+        ).toEqual({
+          OPENROUTER_API_KEY: "sk-or-test",
+          ANTHROPIC_API_KEY: "",
+          PATH: "/bin",
+          TMUX: "/operator/tmux",
+          TMUX_PANE: "%7",
+        });
+      }),
+  );
+  it.effect("drops another harness's identity while keeping session identity and credentials", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(undefined, "codex", {
+          CLAUDECODE: "1",
+          CLAUDE_CODE_SESSION_ID: "0b6d",
+          CLAUDE_EFFORT: "high",
+          CLAUDE_CONFIG_DIR: "/home/dev/.claude",
+          CURSOR_AGENT: "1",
+          ANTHROPIC_API_KEY: "sk-ant-test",
+          T3CODE_PROJECT_ID: "project-1",
+          T3CODE_THREAD_ID: "thread-1",
+          PATH: "/bin",
+        }),
+      ).toEqual({
         ANTHROPIC_API_KEY: "sk-ant-test",
         T3CODE_PROJECT_ID: "project-1",
         T3CODE_THREAD_ID: "thread-1",
         PATH: "/bin",
-      }),
-    ).toEqual({
-      ANTHROPIC_API_KEY: "sk-ant-test",
-      T3CODE_PROJECT_ID: "project-1",
-      T3CODE_THREAD_ID: "thread-1",
-      PATH: "/bin",
-    });
-  });
-  it("keeps the target provider's own harness identity", () => {
-    expect(
-      mergeProviderInstanceEnvironment(undefined, "codex", {
+      });
+    }),
+  );
+  it.effect("keeps the target provider's own harness identity", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(undefined, "codex", {
+          CODEX_HOME: "/home/dev/.codex",
+          CODEX_THREAD_ID: "4784c777",
+          CLAUDECODE: "1",
+          PATH: "/bin",
+        }),
+      ).toEqual({
         CODEX_HOME: "/home/dev/.codex",
         CODEX_THREAD_ID: "4784c777",
-        CLAUDECODE: "1",
         PATH: "/bin",
-      }),
-    ).toEqual({
-      CODEX_HOME: "/home/dev/.codex",
-      CODEX_THREAD_ID: "4784c777",
-      PATH: "/bin",
-    });
-  });
+      });
+    }),
+  );
   // Split by driver kind because a spawn keeps only its own provider's home:
   // the inherited value still goes through untouched, which is what this covers.
-  it.each([
+  it.effect.each([
     { ownDriverKind: "codex", kept: { CODEX_HOME: "~/.codex" } },
     { ownDriverKind: "claudeAgent", kept: { CLAUDE_CONFIG_DIR: "~\\.claude" } },
-  ])("leaves the inherited $ownDriverKind provider home unchanged", ({ ownDriverKind, kept }) => {
-    const baseEnv = { CODEX_HOME: "~/.codex", CLAUDE_CONFIG_DIR: "~\\.claude" };
+  ])("leaves the inherited $ownDriverKind provider home unchanged", ({ ownDriverKind, kept }) =>
+    Effect.gen(function* () {
+      const baseEnv = { CODEX_HOME: "~/.codex", CLAUDE_CONFIG_DIR: "~\\.claude" };
 
-    expect(
-      mergeProviderInstanceEnvironment(
-        [{ name: "CUSTOM_VALUE", value: "~/.custom", sensitive: false }],
-        ownDriverKind,
-        baseEnv,
-      ),
-    ).toEqual({ ...kept, CUSTOM_VALUE: "~/.custom" });
-  });
-  it("drops codex identity from a claude spawn, the reciprocal of the codex case", () => {
-    expect(
-      mergeProviderInstanceEnvironment(undefined, "claudeAgent", {
-        CODEX_THREAD_ID: "4784c777",
-        CODEX_HOME: "/home/dev/.codex",
-        CLAUDE_CONFIG_DIR: "/home/dev/.claude",
-        PATH: "/bin",
-      }),
-    ).toEqual({ CLAUDE_CONFIG_DIR: "/home/dev/.claude", PATH: "/bin" });
-  });
-  it("treats every harness marker as foreign to an unknown driver kind", () => {
-    expect(
-      mergeProviderInstanceEnvironment(undefined, undefined, {
-        CLAUDECODE: "1",
-        CODEX_THREAD_ID: "4784c777",
-        OPENCODE_INSTANCE_ID: "oc-1",
-        GROK_OAUTH2_REFERRER: "t3",
-        PATH: "/bin",
-      }),
-    ).toEqual({ PATH: "/bin" });
-  });
-  it("lets an explicit instance variable reinstate a foreign marker", () => {
-    expect(
-      mergeProviderInstanceEnvironment(
-        [{ name: "CLAUDE_CONFIG_DIR", value: "/operator/.claude", sensitive: false }],
-        "codex",
-        { CLAUDE_CONFIG_DIR: "/home/dev/.claude", PATH: "/bin" },
-      ),
-    ).toEqual({ CLAUDE_CONFIG_DIR: "/operator/.claude", PATH: "/bin" });
-  });
+      expect(
+        yield* mergeProviderInstanceEnvironment(
+          [{ name: "CUSTOM_VALUE", value: "~/.custom", sensitive: false }],
+          ownDriverKind,
+          baseEnv,
+        ),
+      ).toEqual({ ...kept, CUSTOM_VALUE: "~/.custom" });
+    }),
+  );
+  it.effect("drops codex identity from a claude spawn, the reciprocal of the codex case", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(undefined, "claudeAgent", {
+          CODEX_THREAD_ID: "4784c777",
+          CODEX_HOME: "/home/dev/.codex",
+          CLAUDE_CONFIG_DIR: "/home/dev/.claude",
+          PATH: "/bin",
+        }),
+      ).toEqual({ CLAUDE_CONFIG_DIR: "/home/dev/.claude", PATH: "/bin" });
+    }),
+  );
+  it.effect("treats every harness marker as foreign to an unknown driver kind", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(undefined, undefined, {
+          CLAUDECODE: "1",
+          CODEX_THREAD_ID: "4784c777",
+          OPENCODE_INSTANCE_ID: "oc-1",
+          GROK_OAUTH2_REFERRER: "t3",
+          PATH: "/bin",
+        }),
+      ).toEqual({ PATH: "/bin" });
+    }),
+  );
+  it.effect("lets an explicit instance variable reinstate a foreign marker", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* mergeProviderInstanceEnvironment(
+          [{ name: "CLAUDE_CONFIG_DIR", value: "/operator/.claude", sensitive: false }],
+          "codex",
+          { CLAUDE_CONFIG_DIR: "/home/dev/.claude", PATH: "/bin" },
+        ),
+      ).toEqual({ CLAUDE_CONFIG_DIR: "/operator/.claude", PATH: "/bin" });
+    }),
+  );
 });

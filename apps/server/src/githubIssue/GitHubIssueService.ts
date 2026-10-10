@@ -26,7 +26,7 @@ import * as Schema from "effect/Schema";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubApi from "../sourceControl/GitHubApi.ts";
+import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
 import {
   decodeParsedGitHubIssueDetail,
   decodeParsedGitHubIssueList,
