@@ -2815,7 +2815,9 @@ export const make = Effect.gen(function* () {
       );
     }),
 
-    uploadAttachment: (input) => uploadGitHubAttachment({ api, vcsProcess }, input), // fork-hook: upstream-fixes/attachment-media-verified-host
+    uploadAttachment: Effect.fn("GitHubPullRequestApi.uploadAttachment")((input) =>
+      uploadGitHubAttachment({ api, process: sourceControlHost.process }, input),
+    ), // fork-hook: upstream-fixes/attachment-media-verified-host
 
     updateComment: Effect.fn("GitHubPullRequestApi.updateComment")(function (input) {
       return subjectBelongsToPullRequest({
