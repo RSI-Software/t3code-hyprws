@@ -1,5 +1,13 @@
 import type { VoiceInputSettingsFork } from "@t3tools/contracts";
 
+/** Browsers need a secure origin and recording APIs; Electron exposes the same APIs. */
+export function voiceRecordingUnavailableReasonFork() {
+  if (!window.isSecureContext) return "Microphone access requires HTTPS or localhost.";
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined")
+    return "This client does not support microphone recording.";
+  return null;
+}
+
 /** A saved configuration must be usable before opening the microphone. */
 export function voiceInputUnavailableReasonFork(settings: VoiceInputSettingsFork | null) {
   if (!settings) return "Loading dictation settings…";
