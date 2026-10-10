@@ -1,6 +1,6 @@
 import type { ScopedThreadRef, TerminalSessionMode } from "@t3tools/contracts";
-import type { Dispatch, SetStateAction } from "react";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { focusTerminal } from "../../lib/terminalFocus";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useTerminalUiStateStore } from "../../terminalUiStateStore";
 import { terminalSessionModeChoiceFork } from "../TerminalNewMenu.fork";
@@ -10,7 +10,6 @@ export function useTerminalPanelActionsFork(
   threadRef: ScopedThreadRef | null,
   terminalActions: ReturnType<typeof useThreadTerminalActions>,
   launchDefault: () => void,
-  setFocusRequestId: Dispatch<SetStateAction<number>>,
 ) {
   const addTerminalSurfaceStable = useStableCallback((modeArg?: TerminalSessionMode) => {
     const sessionMode = terminalSessionModeChoiceFork(modeArg);
@@ -27,7 +26,7 @@ export function useTerminalPanelActionsFork(
       sessionModeFork: sessionMode,
     });
     if (!launched) return;
-    setFocusRequestId((value) => value + 1);
+    focusTerminal(threadRef, launched.terminalId);
     void launched.result;
   });
   return threadRef ? { addTerminalSurfaceStable } : null;
