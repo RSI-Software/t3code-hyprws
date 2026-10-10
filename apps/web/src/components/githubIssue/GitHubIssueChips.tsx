@@ -82,7 +82,7 @@ export function GitHubIssueChip({
       type="button"
       aria-label={`Filter by ${label}`}
       className={cn(
-        "relative inline-flex min-w-0 max-w-40 shrink cursor-pointer rounded-sm outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
+        "relative inline-flex min-w-0 max-w-40 shrink cursor-pointer rounded-sm outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         className,
       )}
       onClick={(event: MouseEvent) => {
