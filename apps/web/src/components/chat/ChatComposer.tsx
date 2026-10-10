@@ -2182,6 +2182,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const desktopVoiceFork = useDesktopVoiceInputFork({
     environmentId,
+    projectId: activeThread?.projectId ?? pullRequestProjectId, // fork-hook: voice-input/text-processing-project
+    threadId: routeKind === "server" ? (activeThread?.id ?? null) : null, // fork-hook: voice-input/text-processing-context
     ownerKey: composerDraftTargetKey,
     draftTarget: composerDraftTarget, // fork-hook: voice-input/draft-target
     label: activeThread?.title || "New thread", // fork-hook: voice-input/draft-label

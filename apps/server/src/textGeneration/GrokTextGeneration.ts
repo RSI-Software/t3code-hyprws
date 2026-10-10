@@ -1,3 +1,4 @@
+import { withVoiceTextGenerationFork } from "./VoiceTextGeneration.fork.ts"; // fork-hook: voice-input/generation-runner-import
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -126,5 +127,8 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
     );
   };
 
-  return TextGenerationOperations.fromRunner("GrokTextGeneration", runGrokJson);
+  return withVoiceTextGenerationFork(
+    TextGenerationOperations.fromRunner("GrokTextGeneration", runGrokJson),
+    runGrokJson,
+  ); // fork-hook: voice-input/generation-runner
 });
