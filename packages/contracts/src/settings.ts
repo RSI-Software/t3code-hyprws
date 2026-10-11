@@ -1569,13 +1569,15 @@ export const ServerSettings = Schema.Struct({
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** Clones default to `<addProjectBaseDirectory>/<host>/<owner>/<repo>`, like ghq. */
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  // The single zmux switch: "zmux" attaches thread terminals to the
-  // checkout's managed session AND binds new worktrees to one. The retired
   // `zmuxSessions` boolean folds into this key via
   // `migrateLegacyZmuxSettings` before decode.
   terminalSessionMode: TerminalSessionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_SESSION_MODE)),
   ),
+  zmuxAutoSessions: Schema.NullOr(Schema.Boolean).pipe(
+    // Null follows the launch mode; read it through `zmuxAutoSessionsEnabled`.
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ), // fork-hook: zmux-estate/auto-sessions-setting
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -2023,6 +2025,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   terminalSessionMode: Schema.optionalKey(TerminalSessionMode),
+  zmuxAutoSessions: Schema.optionalKey(Schema.NullOr(Schema.Boolean)), // fork-hook: zmux-estate/auto-sessions-patch
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
