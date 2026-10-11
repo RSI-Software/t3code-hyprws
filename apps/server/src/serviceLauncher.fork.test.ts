@@ -7,6 +7,7 @@ import * as NodeSqlite from "node:sqlite";
 import { afterEach, expect, it } from "@effect/vitest";
 
 import { Launcher, readServiceState, writeServiceState } from "./serviceLauncher.ts";
+import { backupDatabaseForMigrationsFork } from "./serviceLauncherBackup.fork.ts";
 import { runServicePreflight } from "./cloud/servicePreflight.ts";
 import { SERVICE_LAUNCHER_PROTOCOL } from "./cloud/serviceProtocol.ts";
 import { migrationManifest } from "./persistence/Migrations.ts";
@@ -153,4 +154,42 @@ if (context.update?.status === "pending") {
     });
   }
   await expect(NodeFSP.stat(backupDir)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("never passes the launcher's own context to the preflight runtime", async () => {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-launcher-fork-env-"));
+  roots.push(root);
+  // An agent running under a trial child inherits a pending context for the live database.
+  const livePath = NodePath.join(root, "live.sqlite");
+  await NodeFSP.writeFile(livePath, "live");
+  const executable = NodePath.join(root, "t3");
+  await NodeFSP.writeFile(
+    executable,
+    `#!${process.execPath}
+const context = process.env.T3_SERVICE_LAUNCHER_CONTEXT;
+if (context !== undefined) require("node:fs").writeFileSync(JSON.parse(context).update.dbPath, "clobbered");
+process.exit(1);
+`,
+    { mode: 0o755 },
+  );
+  const pending = {
+    id: "update-1",
+    fromVersion: "1.0.0",
+    targetVersion: "1.1.0",
+    dbPath: livePath,
+    status: "pending",
+  } as const;
+  const previous = process.env.T3_SERVICE_LAUNCHER_CONTEXT;
+  process.env.T3_SERVICE_LAUNCHER_CONTEXT = JSON.stringify({ update: pending });
+  let backedUp = false;
+  try {
+    await backupDatabaseForMigrationsFork(root, pending, executable, async () => {
+      backedUp = true;
+    });
+  } finally {
+    if (previous === undefined) delete process.env.T3_SERVICE_LAUNCHER_CONTEXT;
+    else process.env.T3_SERVICE_LAUNCHER_CONTEXT = previous;
+  }
+  expect(await NodeFSP.readFile(livePath, "utf8")).toBe("live");
+  expect(backedUp).toBe(true);
 });

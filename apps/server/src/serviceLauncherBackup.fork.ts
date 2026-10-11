@@ -1,7 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Keep the launcher independent of Effect and target persistence.
 import * as NodeChildProcess from "node:child_process";
 
-import { SERVICE_LAUNCHER_PROTOCOL, type PendingServiceUpdate } from "./cloud/serviceProtocol.ts";
+import {
+  SERVICE_LAUNCHER_CONTEXT_ENV,
+  SERVICE_LAUNCHER_PROTOCOL,
+  type PendingServiceUpdate,
+} from "./cloud/serviceProtocol.ts";
 
 /** Check the target against the quiescent DB, including on launcher recovery. */
 export async function backupDatabaseForMigrationsFork(
@@ -10,6 +14,9 @@ export async function backupDatabaseForMigrationsFork(
   executable: string,
   backup: (baseDir: string, pending: PendingServiceUpdate) => Promise<void>,
 ): Promise<void> {
+  // Never hand the preflight a launcher context: a runtime that reads one as a
+  // pending trial may write to pending.dbPath, the live database.
+  const { [SERVICE_LAUNCHER_CONTEXT_ENV]: _context, ...env } = process.env;
   const skipBackup = await new Promise<boolean>((resolve) => {
     NodeChildProcess.execFile(
       executable,
@@ -20,7 +27,7 @@ export async function backupDatabaseForMigrationsFork(
         "--launcher-protocol",
         String(SERVICE_LAUNCHER_PROTOCOL),
       ],
-      { timeout: 5_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024 },
+      { env, timeout: 5_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024 },
       (error, stdout) => {
         if (error !== null) return resolve(false);
         try {
