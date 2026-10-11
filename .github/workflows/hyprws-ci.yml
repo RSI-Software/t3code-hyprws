@@ -20,14 +20,17 @@ on:
   # workflow, so without this trigger a queued entry reports nothing and sits
   # until it times out.
   merge_group:
+  # `fork:sync` pushes each rebased tip to `sync/candidate` and moves the
+  # trunk only once this workflow is green on that exact sha.
   push:
     branches:
       - hyprws
       - "release/**"
+      - sync/candidate
 
 concurrency:
   group: hyprws-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/sync/candidate' }}
 
 permissions:
   contents: read
@@ -71,8 +74,10 @@ jobs:
           node scripts/lib/fork-ci-flags.ts ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       # Judge only this branch's commits: `since` is the ledger's trunk
-      # merge base, so the stack below it stays out of scope.
+      # merge base, so the stack below it stays out of scope. A sync
+      # candidate authors none; every commit on it is replayed.
       - name: Fork stale-delete check
+        if: steps.fork_ledger.outputs.rebased != 'true'
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SINCE: ${{ steps.fork_ledger.outputs.since }}
@@ -189,10 +194,6 @@ jobs:
           fi
           echo "merge-tree clean: no head-only conflicts"
 
-  # `fork:sync` runs every `test*` job below before it pushes the trunk,
-  # reading each `vp` step from this file (scripts/lib/fork-ci-jobs.ts). Keep
-  # a test step one plain `vp` command; any other shape stops the sync.
-  #
   # Everything except `t3` (apps/server), `web`, and the fork's own
   # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
   # Four pooled suites share a GitHub-hosted runner, so the fork widens the

@@ -5,6 +5,8 @@ export const UPSTREAM_REPOSITORY = "pingdotgg/t3code";
 export const HYPRWS_BRANCH = "hyprws";
 export const HYPRWS_REF = `refs/heads/${HYPRWS_BRANCH}`;
 export const ORIGIN_HYPRWS_REF = `refs/remotes/origin/${HYPRWS_BRANCH}`;
+/** Where `fork:sync` pushes a rebased tip for hyprws CI before the trunk moves. */
+export const SYNC_CANDIDATE_BRANCH = "sync/candidate";
 export const UPSTREAM_LANE = "upstream/main";
 
 export interface VersionParts {
