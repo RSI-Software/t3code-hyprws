@@ -142,7 +142,9 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
               ),
             );
           }),
-        ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructor), Effect.ignoreCause);
+          // `ws` stays on HTTP/1.1. Node 26's undici negotiates WebSocket over HTTP/2 with Meta, then
+          // fails the valid RFC 8441 response for lacking Sec-WebSocket-Accept.
+        ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructorWS), Effect.ignoreCause);
         return HttpServerResponse.empty();
       }),
     ),
