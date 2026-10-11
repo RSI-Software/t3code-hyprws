@@ -4,11 +4,11 @@ import * as Persistence from "effect/persistence/Persistence";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type {
-  OrchestrationProjectShell,
-  ProjectId,
-  PullRequestReviewCapabilities,
-  PullRequestReviewerCapabilities,
+import {
+  type OrchestrationProjectShell,
+  type ProjectId,
+  type PullRequestReviewCapabilities,
+  type PullRequestReviewerCapabilities,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
@@ -63,7 +63,7 @@ function project(input: {
   };
 }
 const requestFailed = new PullRequestProviderError({
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   operation: "listChangeRequests",
   reason: "failed",
   detail: "HTTP 404",
@@ -179,7 +179,7 @@ it.effect("uses the requested project to read another repository on the same hos
         project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
       ],
       providers: [
-        fakeProvider("github", {
+        fakeProvider(SourceControlProviderKind.make("github"), {
           getDiff: (input) => {
             repositories.push(input.repository);
             return Effect.succeed({ patch: "", truncated: false, nextCursor: null });
@@ -216,9 +216,9 @@ it.effect("stages and publishes an attachment through the selected project's pro
     const service = yield* makeService({
       projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
       providers: [
-        fakeProvider("github", {
+        fakeProvider(SourceControlProviderKind.make("github"), {
           capabilities: {
-            ...fakeProvider("github").capabilities,
+            ...fakeProvider(SourceControlProviderKind.make("github")).capabilities,
             attachments: true,
           },
           uploadAttachment: (input) => {
@@ -279,9 +279,9 @@ it.effect("removes a staged attachment when publication fails", () =>
     const service = yield* makeService({
       projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
       providers: [
-        fakeProvider("github", {
+        fakeProvider(SourceControlProviderKind.make("github"), {
           capabilities: {
-            ...fakeProvider("github").capabilities,
+            ...fakeProvider(SourceControlProviderKind.make("github")).capabilities,
             attachments: true,
           },
           uploadAttachment: () => Effect.fail(requestFailed),
