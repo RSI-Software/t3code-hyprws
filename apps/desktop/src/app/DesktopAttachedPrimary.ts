@@ -146,6 +146,9 @@ export const make = Effect.gen(function* () {
   const state: { current: AttachmentState | null } = { current: null };
   const cache: { current: CachedAttachedBootstrap | null } = { current: null };
   const generation = { current: 0 };
+  // Re-verifies run outside the lock and can finish out of order: only the
+  // newest result publishes a server instance.
+  const verifications = { started: 0, published: 0 };
   // Server instances auto-attach skips: a 401 survived a re-mint, so its auth
   // is broken. A restart is a new identity, so it attaches again.
   const skipped = new Set<string>();
@@ -171,14 +174,12 @@ export const make = Effect.gen(function* () {
       }
       // discover() verifies env id (persisted vs probed descriptor) and
       // endpoint reachability, but a restart on the SAME port keeps both.
-      // Identity beyond the URL: pid + start time must match, and the live
-      // descriptor must still report the attached env id. Anything else
-      // means the server restarted away: never serve a stale primary.
-      if (live.pid !== server.pid || live.startedAt !== server.startedAt) {
-        return yield* new DesktopAttachedPrimaryUnavailableError({
-          detail: `Attached server ${server.environmentId} restarted (pid or start time changed).`,
-        });
-      }
+      // Identity is the environment id: the live descriptor must still report
+      // the attached env id. A same-environment restart (an update restart)
+      // then re-verifies in place with its fresh pid/start time
+      // (RSI-Software/t3code-hyprws#1706) instead of dropping the client's
+      // environments; a different server reports a different env id and is
+      // rejected here or by the discovery find above.
       const descriptor = yield* fetchDescriptorEnvironmentId(live);
       if (descriptor.environmentId !== server.environmentId) {
         return yield* new DesktopAttachedPrimaryUnavailableError({
@@ -322,18 +323,29 @@ export const make = Effect.gen(function* () {
   // matches, so a stale primary is never served.
   const reverify = Effect.gen(function* () {
     const started = generation.current;
+    const sequence = ++verifications.started;
     const held = state.current;
     if (held === null) {
       return Option.none<RunningLocalServer>();
     }
     const verified = yield* verifyServer(held.server).pipe(Effect.option);
-    if (generation.current !== started) {
-      // Something newer dropped or replaced the attachment meanwhile.
+    // Something newer dropped or replaced the attachment meanwhile, or a
+    // later verify already published: a stale result, success or failure,
+    // must neither drop nor roll back the attachment.
+    if (generation.current !== started || sequence < verifications.published) {
       return heldServer();
     }
     if (Option.isNone(verified) || verified.value.httpBaseUrl !== held.server.httpBaseUrl) {
       dropNow();
       return Option.none<RunningLocalServer>();
+    }
+    verifications.published = sequence;
+    // A same-environment restart re-attaches in place: track the new instance
+    // so identity-keyed skip/backoff state and snapshots follow it. Update the
+    // current attachment, not `held`: a mint may have replaced its bearer.
+    const latest = state.current ?? held;
+    if (serverIdentity(verified.value) !== serverIdentity(latest.server)) {
+      state.current = { ...latest, server: verified.value };
     }
     cache.current = { server: verified.value };
     return Option.some(verified.value);
@@ -410,11 +422,9 @@ export const make = Effect.gen(function* () {
         dropNow();
         return yield* new DesktopAttachedPrimaryNotAttachedError();
       }
-      state.current = {
-        selection: held.selection,
-        server: live.value,
-        bearerToken: bearerToken.value,
-      };
+      // Keep the latest verified instance: a restart re-verified during the
+      // mint must stay the identity an unauthorized reject skips.
+      state.current = { ...(state.current ?? held), bearerToken: bearerToken.value };
       return bearerToken.value;
     });
 

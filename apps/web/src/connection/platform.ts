@@ -68,6 +68,7 @@ import {
 } from "./desktopLocal";
 import * as ConnectionStorage from "./storage";
 import { clientPresentationMetadata } from "./clientMetadata";
+import { keepPrimaryThroughAbsenceFork } from "./primaryAbsenceGrace.fork"; // fork-hook: backend-attach/platform-absence-import
 
 let nextObservedRpcRequestId = 0;
 
@@ -694,6 +695,7 @@ const layerPlatformConnectionSource = Layer.effect(
           }
         }
       }
+      keepPrimaryThroughAbsenceFork(previous, next, registrations, primaryTopologyRead); // fork-hook: backend-attach/platform-absence-grace
 
       const topologyRead = readDesktopSecondaryBootstrapsResult();
       for (const [id, cached] of secondaryRegistrationsToRetainAfterTopologyRead(
