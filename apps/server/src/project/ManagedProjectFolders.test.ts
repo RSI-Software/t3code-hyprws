@@ -28,6 +28,8 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: upstream-fixes/managed-project-folders-test-layer
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts"; // fork-hook: upstream-fixes/managed-project-folders-test-layer
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
@@ -40,6 +42,8 @@ const layerGitWorkflow = (vcsProcess?: Layer.Layer<VcsProcess.VcsProcess>) =>
   GitWorkflow.layer.pipe(
     Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(vcsProcess ?? VcsProcess.layer))),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    Layer.provide(Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({})), // fork-hook: upstream-fixes/managed-project-folders-test-layer
+    Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: upstream-fixes/managed-project-folders-test-layer
   );
 
 const layerEnrichment = ProjectEnrichmentService.layer.pipe(
