@@ -27,10 +27,10 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a tag
 `fork:scan` fails when a domain's own commits change a file its table omits and upstream also changed.
 Every code span in a Path cell is one pattern: `*` stays inside a segment, `**` spans them.
 
-| Where                                                     | Mode                 | Against                 |
-| --------------------------------------------------------- | -------------------- | ----------------------- |
-| Fork CI                                                   | Blocking, every push | its upstream merge base |
-| The sync driver's check step (`hyprws-upstream-sync.yml`) | Blocking             | the target tag          |
+| Where                       | Mode                    | Against                 |
+| --------------------------- | ----------------------- | ----------------------- |
+| Fork CI                     | Blocking, every push    | its upstream merge base |
+| Fork CI on `sync/candidate` | Blocking, before a sync | the target tag          |
 
 ## Why the fork exists
 

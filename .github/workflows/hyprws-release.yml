@@ -182,7 +182,7 @@ jobs:
       # the cut without failing the step, since the CI run being red is the
       # expected reason not to release, not a gate malfunction.
       - id: release_gate
-        name: Gate the cut on the lease push and a green battery
+        name: Gate the cut on the lease push and a green hyprws CI
         uses: actions/github-script@v8
         env:
           RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
