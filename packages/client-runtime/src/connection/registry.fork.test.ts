@@ -3,7 +3,6 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -27,12 +26,13 @@ const TARGET = new PrimaryConnectionTarget({
   wsBaseUrl: "ws://127.0.0.1:3773",
 });
 
-/** Only the stores `registerPlatform` and `reconcilePlatform` touch are live. */
 const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
   Effect.gen(function* () {
     const storedTargets = yield* Ref.make(
       new Map(initialTargets.map((target) => [target.environmentId, target])),
     );
+    const cacheClears = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
+    const ownedDataClears = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
     const edit = (change: (next: Map<EnvironmentId, ConnectionTarget>) => void) =>
       Ref.update(storedTargets, (current) => {
         const next = new Map(current);
@@ -42,6 +42,7 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
     const network = yield* SubscriptionRef.make<"unknown" | "offline" | "online">("online");
     const connects = yield* Ref.make<ReadonlyArray<ConnectionTarget["_tag"]>>([]);
     const connected = yield* Deferred.make<void>();
+    const disconnects = yield* Ref.make(0);
     const layer = EnvironmentRegistry.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
@@ -91,9 +92,10 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
               Ref.update(connects, (current) => [...current, entry.target._tag]).pipe(
                 Effect.andThen(Deferred.succeed(connected, undefined)),
                 Effect.andThen(Effect.never),
+                Effect.onInterrupt(() => Ref.update(disconnects, (count) => count + 1)),
               ),
-            checkRoute: () => Effect.succeed("unchecked"),
-            preflight: () => Effect.succeed(true),
+            checkHost: () => Effect.succeed("unchecked"),
+            preflight: () => Effect.succeed("ready"),
           }),
           Layer.succeed(Persistence.EnvironmentCacheStore, {
             loadShell: () => Effect.succeedNone,
@@ -107,20 +109,24 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
             saveVcsRefs: () => Effect.void,
             removeVcsRefs: () => Effect.void,
             clearVcsRefs: () => Effect.void,
-            clear: () => Effect.void,
+            clear: (environmentId) =>
+              Ref.update(cacheClears, (current) => [...current, environmentId]),
           }),
-          Layer.succeed(Persistence.EnvironmentOwnedDataCleanup, { clear: () => Effect.void }),
+          Layer.succeed(Persistence.EnvironmentOwnedDataCleanup, {
+            clear: (environmentId) =>
+              Ref.update(ownedDataClears, (current) => [...current, environmentId]),
+          }),
         ),
       ),
     );
-    return { layer, storedTargets, connects, connected };
+    return { layer, storedTargets, connects, connected, disconnects, cacheClears, ownedDataClears };
   });
 
 const withAuth = (savedConnectionsOutrankPrimary: boolean) =>
   Effect.provideService(
     ClientCapabilities.PrimaryEnvironmentAuth,
     ClientCapabilities.PrimaryEnvironmentAuth.of({
-      bearerToken: Effect.succeed(Option.none()),
+      bearerToken: Effect.succeedNone,
       savedConnectionsOutrankPrimary,
     }),
   );
@@ -142,11 +148,11 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
         const stored = Ref.get(harness.storedTargets).pipe(
           Effect.map((targets) => targets.get(TARGET.environmentId)),
         );
-        yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
         expect(yield* targetOf).toEqual(TARGET);
         expect(yield* stored).toEqual(savedTarget);
         // A re-attach while attached must not stash the primary as the saved entry.
-        yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
         yield* registry.reconcilePlatform([]);
         expect(yield* targetOf).toEqual(savedTarget);
         expect(yield* stored).toEqual(savedTarget);
@@ -171,8 +177,7 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
         yield* Deferred.await(harness.connected);
         yield* poll;
         yield* poll;
-        // A reinstalled entry connects from a forked fiber on the next turn.
-        yield* Effect.yieldNow;
+        expect(yield* Ref.get(harness.disconnects)).toBe(0);
         expect(yield* Ref.get(harness.connects)).toEqual(["PrimaryConnectionTarget"]);
       }).pipe(Effect.provide(harness.layer), withAuth(true), Effect.scoped);
     }),
@@ -183,11 +188,40 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
       const harness = yield* makeHarness([savedTarget]);
       yield* Effect.gen(function* () {
         const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-        yield* registry.registerPlatform(new PrimaryConnectionRegistration({ target: TARGET }));
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
         expect(
           (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
         ).toEqual(TARGET);
       }).pipe(Effect.provide(harness.layer), withAuth(false), Effect.scoped);
+    }),
+  );
+});
+
+describe("EnvironmentRegistry platform re-registration RSI-Software/t3code-hyprws#1706", () => {
+  it.effect("a replaced registration refreshes without clearing cache or owned data", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([]);
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
+        // A re-attach can replace the registration (new label, new bearer):
+        // the environment must refresh in place, never lose cached shells or
+        // drafts to the removal path.
+        yield* registry.reconcilePlatform([
+          new PrimaryConnectionRegistration({
+            target: new PrimaryConnectionTarget({
+              environmentId: TARGET.environmentId,
+              label: "Renamed local server",
+              httpBaseUrl: TARGET.httpBaseUrl,
+              wsBaseUrl: TARGET.wsBaseUrl,
+            }),
+          }),
+        ]);
+
+        expect((yield* SubscriptionRef.get(registry.entries)).has(TARGET.environmentId)).toBe(true);
+        expect(yield* Ref.get(harness.cacheClears)).toEqual([]);
+        expect(yield* Ref.get(harness.ownedDataClears)).toEqual([]);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
 });
