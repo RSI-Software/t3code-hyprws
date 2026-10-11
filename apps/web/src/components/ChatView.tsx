@@ -2383,7 +2383,8 @@ export default function ChatView(props: ChatViewProps) {
         ),
         actions: updateInProgress ? (
           disconnectAction
-        ) : !versionMismatch ||
+        ) : serverUpdateState.status === "completed" ||
+          !versionMismatch ||
           (versionMismatchSelfUpdate === "desktop-managed" &&
             !versionMismatchDesktopAppUpdate) ? undefined : (
           <ServerUpdateAction
