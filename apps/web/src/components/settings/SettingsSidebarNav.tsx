@@ -51,6 +51,7 @@ import {
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
 import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
+import { SquareTerminalIcon } from "lucide-react"; // fork-hook: zmux-estate/settings-icon-import
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -81,6 +82,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/general": Settings2Icon,
   "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/appearance": PaletteIcon,
+  "/settings/terminal": SquareTerminalIcon, // fork-hook: zmux-estate/settings-icon
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
