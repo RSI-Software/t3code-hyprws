@@ -55,3 +55,34 @@ export function ExternalSymlinksSettingsRowFork() {
     />
   );
 }
+
+/** The Settings → General row for showing gitignored paths in workspace file trees. */
+export function ShowIgnoredFilesSettingsRowFork() {
+  const searchableSetting = useSearchableSetting();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+
+  return (
+    <SettingsRow
+      {...searchableSetting("show-ignored-files")}
+      description="Include gitignored paths in workspace file trees. They remain hidden by default."
+      resetAction={
+        settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
+          <SettingResetButton
+            ariaLabel="Reset ignored files to default"
+            onClick={() =>
+              updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.showIgnoredFiles}
+          onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
+          aria-label="Show ignored files in workspace file trees"
+        />
+      }
+    />
+  );
+}
