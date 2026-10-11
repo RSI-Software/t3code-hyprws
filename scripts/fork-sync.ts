@@ -112,6 +112,7 @@ export interface CommandSpec {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly stream?: boolean;
+  readonly timeout?: number;
 }
 
 export interface CommandRunner {
@@ -125,6 +126,7 @@ export const realRunner: CommandRunner = {
       cwd: spec.cwd,
       ...(spec.env === undefined ? {} : { env: spec.env }),
       ...(spec.stream === undefined ? {} : { stream: spec.stream }),
+      ...(spec.timeout === undefined ? {} : { timeout: spec.timeout }),
     }),
 };
 
@@ -1087,6 +1089,8 @@ const CI_POLL_SECONDS = 30;
 const CI_START_SECONDS = 5 * 60;
 /** Inside the sync workflow's own timeout, with the rebase before it. */
 const CI_TIMEOUT_SECONDS = 60 * 60;
+/** One GitHub read inside the wait; a hung read must not outlast the deadlines. */
+const CI_READ_TIMEOUT_MS = 60_000;
 
 interface CiRun {
   readonly databaseId: number;
@@ -1120,7 +1124,7 @@ const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | 
           "--json",
           "databaseId,status,conclusion,url",
         ],
-        { cwd: root },
+        { cwd: root, timeout: CI_READ_TIMEOUT_MS },
       ),
     ) as ReadonlyArray<CiRun>
   )[0] ?? null;
@@ -1164,7 +1168,7 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
       runner,
       "gh",
       ["run", "view", String(latest.databaseId), "--repo", FORK_REPOSITORY, "--json", "jobs"],
-      { cwd: root },
+      { cwd: root, timeout: CI_READ_TIMEOUT_MS },
     ),
   ) as { readonly jobs: ReadonlyArray<CiJob> };
   return {

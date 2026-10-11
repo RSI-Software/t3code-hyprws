@@ -2310,13 +2310,17 @@ it("recreates the candidate branch when a retry pushes the same sha", () => {
 it("gives up on a never-started candidate by wall time when GitHub reads are slow", () => {
   withFixture(checkRedFixture, (f) => {
     let clock = 0;
+    const timeouts: Array<number | undefined> = [];
     const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
     try {
       const recording = exec({ ci: { silent: true } });
       const runner: CommandRunner = {
         run: (command, args, spec) => {
           // Each run list takes a minute.
-          if (command === "gh" && args[0] === "run" && args[1] === "list") clock += 60_000;
+          if (command === "gh" && args[0] === "run" && args[1] === "list") {
+            clock += 60_000;
+            timeouts.push(spec.timeout);
+          }
           return recording.runner.run(command, args, spec);
         },
       };
@@ -2324,6 +2328,9 @@ it("gives up on a never-started candidate by wall time when GitHub reads are slo
       assert.strictEqual(readReport(f.root, "v1.0.0").ci?.conclusion, "never started");
       // five minutes of minute-long reads, not ten thirty-second sleeps
       assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 4);
+      // and no single read may hang past a minute
+      assert.isTrue(timeouts.length > 0);
+      assert.isTrue(timeouts.every((timeout) => timeout === 60_000));
     } finally {
       now.mockRestore();
     }
