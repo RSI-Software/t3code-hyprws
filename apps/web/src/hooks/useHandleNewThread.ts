@@ -164,11 +164,27 @@ export function useNewThreadHandler() {
         const projectFile = consultProjectFile
           ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
           : null;
-        return resolveDefaultStoredThreadEnvMode({
-          projectSetting: project ? fromWireThreadEnvModeFields(project) : null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
-          projectFile: projectFile?.defaultThreadEnvMode ?? null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
-          globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
-        });
+        return resolveNewThreadEnvMode({
+          projectSettings: resolveProjectSettings(
+            targetServerSettings,
+            project?.id ?? null,
+            project,
+            projectFile,
+          ),
+          workspaceRoot: project?.workspaceRoot ?? null,
+          newProjectsRoot: environmentServerConfigs.get(projectRef.environmentId)?.newProjectsRoot,
+          projectHasThreads: readThreadShells().some(
+            (thread) =>
+              thread.environmentId === projectRef.environmentId &&
+              thread.projectId === projectRef.projectId,
+          ),
+        }) === "local"
+          ? "local"
+          : resolveDefaultStoredThreadEnvMode({
+              projectSetting: project ? fromWireThreadEnvModeFields(project) : null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+              projectFile: projectFile?.defaultThreadEnvMode ?? null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+              globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
+            }); // fork-hook: worktrunk-hooks/env-mode-new-project-folder
       };
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
