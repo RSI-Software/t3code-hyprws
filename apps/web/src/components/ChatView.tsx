@@ -36,6 +36,8 @@ import {
   latestRootProviderFailure,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import type { TerminalSessionMode } from "@t3tools/contracts"; // fork-hook: zmux-estate/session-mode-chat-import
+import { terminalSessionModeChoiceFork } from "./TerminalNewMenu.fork"; // fork-hook: zmux-estate/session-mode-choice-import
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
@@ -3138,17 +3140,24 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const togglePreviewPanelStable = useStableCallback(togglePreviewPanel);
-  const addTerminalSurface = () => {
+  const addTerminalSurface = (sessionModeArg?: TerminalSessionMode) => {
     if (!activeThreadRef) return;
+    const sessionMode = terminalSessionModeChoiceFork(sessionModeArg);
     const launched = terminalActions.launchTerminal({
-      place: (terminalId) =>
-        useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId),
+      place: (terminalId) => {
+        if (sessionMode)
+          useTerminalUiStateStore
+            .getState()
+            .setTerminalSessionModeFork(activeThreadRef, terminalId, sessionMode);
+        useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId);
+      },
+      sessionModeFork: sessionMode,
     });
     if (!launched) return;
     noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
     setTerminalFocusRequestId((value) => value + 1);
     void launched.result;
-  };
+  }; // fork-hook: zmux-estate/session-mode-panel-create
   const addTerminalSurfaceStable = useStableCallback(addTerminalSurface);
   const splitPanelTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
     if (
