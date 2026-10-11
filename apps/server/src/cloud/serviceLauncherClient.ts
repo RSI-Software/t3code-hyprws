@@ -13,6 +13,7 @@ import {
   type ServiceLauncherChildMessage,
   type ServiceLauncherParentMessage,
 } from "./serviceProtocol.ts";
+import { heldServiceLauncherContextFork } from "./serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 export class ServiceLauncherClientError extends Schema.TaggedError<ServiceLauncherClientError>()(
   "ServiceLauncherClientError",
@@ -116,7 +117,9 @@ const resolveStartup = Effect.fn("cloud.service_launcher_client.resolve_startup"
     // The launcher always spawns its child with an IPC channel, and Node does
     // not pass that channel on. Without one, the context was inherited from an
     // ancestor (e.g. `t3 serve` run in a T3 terminal), so it describes someone else.
-    const rawContext = host.connected ? environment[SERVICE_LAUNCHER_CONTEXT_ENV] : undefined;
+    const rawContext = host.connected
+      ? (environment[SERVICE_LAUNCHER_CONTEXT_ENV] ?? heldServiceLauncherContextFork())
+      : undefined; // fork-hook: upstream-fixes/launcher-context-env
     const context = rawContext === undefined ? undefined : decodeServiceLauncherContext(rawContext);
 
     if (rawContext !== undefined && context === undefined) {
