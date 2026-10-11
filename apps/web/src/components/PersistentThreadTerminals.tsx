@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type TerminalSessionMode, // fork-hook: zmux-estate/session-mode-persistent-import
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -216,25 +217,32 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     storeSetTerminalHeight(threadRef, height);
   };
 
-  const launchDrawerTerminal = (place: (terminalId: string) => void) => {
+  const launchDrawerTerminal = (
+    place: (terminalId: string) => void,
+    sessionMode?: TerminalSessionMode, // fork-hook: zmux-estate/session-mode-drawer-launch
+  ) => {
     if (!cwd) return;
     const launched = terminalActions.launchTerminal({
       place,
       location: { cwd, worktreePath: effectiveWorktreePath },
+      sessionModeFork: sessionMode, // fork-hook: zmux-estate/session-mode-drawer-launch
     });
     if (!launched) return;
     bumpFocusRequestId();
     void launched.result;
-  };
+  }; // fork-hook: zmux-estate/session-mode-drawer-launch
   const splitTerminal = useStableCallback(() =>
     launchDrawerTerminal((terminalId) => storeSplitTerminal(threadRef, terminalId)),
   );
   const splitTerminalVertical = useStableCallback(() =>
     launchDrawerTerminal((terminalId) => storeSplitTerminalVertical(threadRef, terminalId)),
   );
-  const createNewTerminal = useStableCallback(() =>
-    launchDrawerTerminal((terminalId) => storeNewTerminal(threadRef, terminalId)),
-  );
+  const createNewTerminal = useStableCallback((sessionMode?: TerminalSessionMode) =>
+    launchDrawerTerminal(
+      (terminalId) => storeNewTerminal(threadRef, terminalId, sessionMode),
+      sessionMode,
+    ),
+  ); // fork-hook: zmux-estate/session-mode-drawer-create
 
   const activateTerminal = (terminalId: string) => {
     storeSetActiveTerminal(threadRef, terminalId);
@@ -319,7 +327,7 @@ export interface PersistentThreadTerminalPanelProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (sessionMode?: TerminalSessionMode) => void; // fork-hook: zmux-estate/plain-shell-panel-action
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   splitShortcutLabel?: string | undefined;
