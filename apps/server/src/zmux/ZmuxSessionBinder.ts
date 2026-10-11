@@ -1,3 +1,4 @@
+import { zmuxAutoSessionsEnabled } from "@t3tools/contracts";
 import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
@@ -252,8 +253,12 @@ const make = Effect.gen(function* () {
   const env = stripInheritedTmuxEnv(hostEnvironment);
   const ensureSemaphore = yield* Semaphore.make(1);
 
-  const enabled = serverSettings.getSettings.pipe(
-    Effect.map((settings) => settings.terminalSessionMode === "zmux"),
+  // Only automatic creation for new worktrees follows the toggle. Lookups,
+  // reconciliation, and cleanup always run, so a session opened by an
+  // explicit zmux terminal still settles with its thread; `ensure` is
+  // ungated because its caller already chose a zmux terminal.
+  const autoSessions = serverSettings.getSettings.pipe(
+    Effect.map(zmuxAutoSessionsEnabled),
     Effect.catch((error) =>
       Effect.logDebug("zmux session binding disabled because settings could not be read", {
         detail: error.message,
@@ -490,9 +495,6 @@ const make = Effect.gen(function* () {
     if (resolved.status === "unavailable") {
       return { status: "unavailable" } as const;
     }
-    if (resolved.status === "disabled") {
-      return { status: "disabled" } as const;
-    }
     if (resolved.status !== "resolved") {
       const detail =
         resolved.status === "failed"
@@ -543,7 +545,7 @@ const make = Effect.gen(function* () {
 
   const bind: ZmuxSessionBinder["Service"]["bind"] = Effect.fn("ZmuxSessionBinder.bind")(
     function* (worktreePath, options) {
-      if (!(yield* enabled)) return { status: "disabled" } as const;
+      if (!(yield* autoSessions)) return { status: "disabled" } as const;
       return yield* ensureSemaphore.withPermits(1)(bindEnabled(worktreePath, options));
     },
   );
@@ -636,7 +638,6 @@ const make = Effect.gen(function* () {
 
   const ensure: ZmuxSessionBinder["Service"]["ensure"] = Effect.fn("ZmuxSessionBinder.ensure")(
     function* (checkoutPath, options) {
-      if (!(yield* enabled)) return { status: "disabled" } as const;
       return yield* ensureSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const inspected = yield* inspectCheckout(checkoutPath);
@@ -663,19 +664,11 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const resolve: ZmuxSessionBinder["Service"]["resolve"] = Effect.fn("ZmuxSessionBinder.resolve")(
-    function* (dir) {
-      if (!(yield* enabled)) {
-        return { status: "disabled" } as const;
-      }
-      return yield* resolveEnabled(dir);
-    },
-  );
+  const resolve: ZmuxSessionBinder["Service"]["resolve"] = resolveEnabled;
 
   const reconcileExisting: ZmuxSessionBinder["Service"]["reconcileExisting"] = Effect.fn(
     "ZmuxSessionBinder.reconcileExisting",
   )(function* (checkoutPath) {
-    if (!(yield* enabled)) return { status: "disabled" } as const;
     return yield* ensureSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const inspected = yield* inspectCheckout(checkoutPath);
