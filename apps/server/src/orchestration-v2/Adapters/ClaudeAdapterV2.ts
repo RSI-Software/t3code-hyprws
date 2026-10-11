@@ -7542,7 +7542,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const shouldResume =
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
           const forkSessionEnvironment = withProviderSessionIdentity(
-            { ...adapterOptions.environment, ...mcpOverrides.mcpEnvironment }, // fork-hook: upstream-fixes/claude-session-mcp-environment
+            adapterOptions.environment, // fork-hook: upstream-fixes/claude-session-mcp-environment
             input,
           ); // fork-hook: upstream-fixes/claude-session-identity
           const queryOptions = makeClaudeQueryOptions({
