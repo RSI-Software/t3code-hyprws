@@ -19,33 +19,33 @@ The rebase refuses a rebased tip that dropped any PR link.
 | target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
 | fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`                    | fetch error                                        |
 | rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
-| check   | the [check battery](#check-battery), in the worktree                      | any red                                            |
+| ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                               |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
 | blocked | one standing block issue, rewritten per run, through `gh`                 | `gh` refuses the write                             |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
 
 A tag the fork already sits on reports `already applied`, after closing any open block or failure issue.
-`--dry-run` rebases and checks, then stops: no push, no issue, no close.
+`--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no close.
 A green dry run keeps its tip in the [sync worktree](#unblocking-by-hand); `decision.tip` names it.
-The real run on the same tag and lease adopts that tip, reruns the battery, and pushes it, with no second rebase.
+The real run on the same tag and lease adopts that tip, reuses its green run, and pushes it, with no second rebase.
 An applied run cuts the nightly by itself: `hyprws-ci.yml` completion triggers `hyprws-release.yml` through `workflow_run`.
-The release gate needs the current `origin/hyprws` tip with a green `hyprws CI`; a red battery cuts no release (RSI-Software/t3code-hyprws#1181).
+The release gate needs the current `origin/hyprws` tip with a green `hyprws CI` (RSI-Software/t3code-hyprws#1181).
 
-## Check battery
+## Candidate CI
 
-A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the push; the battery does.
+A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the push; the candidate branch does.
 
-| Rule      | Contract                                                          |
-| --------- | ----------------------------------------------------------------- |
-| Check job | `fork:ci`, then the Check job's own steps                         |
-| Test jobs | every `test*` job in `hyprws-ci.yml`, one row per matrix cell     |
-| Derived   | read from the replayed workflow; an unreadable step stops the run |
-| No skip   | no flag drops a row                                               |
-| Fail fast | a red `fork:ci` marks every later row `skipped`                   |
-| Push      | only when every row is green; a red row leaves `hyprws` unmoved   |
-| Report    | each row names its CI job; the run's error lists every red one    |
-| Env       | umask `022`; no `T3_*` or `T3CODE_*` variable reaches a check     |
-| Install   | only when the tip changed the set the setup step installed        |
+| Rule   | Contract                                                  |
+| ------ | --------------------------------------------------------- |
+| Branch | `sync/candidate`, force-pushed with the tip; unprotected  |
+| Run    | the full `hyprws CI` push run on that sha                 |
+| Reuse  | a sha that already has a run reuses it; no second push    |
+| Wait   | gives up if no run starts in 5 minutes or ends in an hour |
+| Push   | only the sha the run passed, under the lease              |
+| Red    | `hyprws` stays put; `ci.jobs` names each red job          |
+| Scope  | `fork:ci` scans from the new base and skips stale-delete  |
+
+A candidate replays every fork commit, so stale-delete has nothing new to judge.
 
 `fork-fold` publishes only a tree-equal fold, so it inherits the same guarantee.
 
@@ -74,7 +74,7 @@ Issue comments are projections of it: never parse one, and never treat an edit t
 | `lease`       | The fetched `origin/hyprws` sha the push is leased against |
 | `trunk`       | Trunk before and after                                     |
 | `conflicts[]` | Every stop's path, fork and upstream commit, resolution    |
-| `checks[]`    | The check battery and each verdict                         |
+| `ci`          | The candidate's `hyprws CI` run, conclusion, and jobs      |
 | `decision`    | A blocked run's or kept tip's worktree, paths, and resume  |
 
 Decisions persist to the report before any comment posts.
@@ -139,12 +139,12 @@ Autosquash discards a fixup's body, so a reason worth keeping goes in its own co
 
 **Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed.
 It carries every stop's rows between runs, so the report keeps them.
-A green dry run or a refused push keeps it, so its tip and tip fixups reach the next run.
+A red candidate, a green dry run, or a refused push keeps it, so its tip and tip fixups reach the next run.
 Rerun after each stop: the report records only the stops a run saw.
 
 ## Failure lifecycle
 
-A run that fails on a non-blocked step (target, fetch, rebase, check, push, or a crash) rewrites one standing failure issue the same way a block does, through the same `gh` route.
+A run that fails on a non-blocked step (target, fetch, rebase, ci, push, or a crash) rewrites one standing failure issue the same way a block does, through the same `gh` route.
 
 | Rule     | Detail                                                                                                                                                                   |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -185,13 +185,14 @@ Conflict tables live in the block issue.
 
 Create a fine-grained token owned by the automation actor, scoped to this repository, with read-and-write **Contents** and **Workflows**.
 Store it as the `HYPRWS_MIRROR_TOKEN` Actions secret.
-The workflow uses its own `GITHUB_TOKEN` with `issues: write`; never widen the token.
+Only its push of `sync/candidate` starts `hyprws CI`; a `GITHUB_TOKEN` push starts no workflow.
+The workflow uses its own `GITHUB_TOKEN` with `actions: read` and `issues: write`; never widen the token.
 
 ### Which events run the fork matrix
 
 `hyprws-ci.yml` produces every context the `hyprws` ruleset requires: `Check`, `Test`, `Test Scripts`, `Test Web`, `merge-tree`, and three `Test Server` shards.
 `hyprws-body.yml` stays advisory: no ruleset requires its `Body` context.
-It runs on a pull request opened, pushed to, or reopened, on a push to a fork trunk or release branch, and on `merge_group`.
+It runs on a pull request opened, pushed to, or reopened, on a push to a fork trunk, release branch, or `sync/candidate`, and on `merge_group`.
 
 It skips `ready_for_review`, already covered on that draft head.
 Add the `merge_group` trigger before requiring a queue in the ruleset.
@@ -253,7 +254,7 @@ T3 Connect stays dark unless all four repository variables exist:
 | **Trunk lease rejected**    | `decision.tip` keeps the tip; inspect, rerun; never `--force`    |
 | **A blocked issue remains** | Unblock by hand. Retirement needs a traced decision              |
 | **A failure issue remains** | Inspect the report, fix, and rerun; the next clean run closes it |
-| **Check battery red**       | Fix by pull request; never weaken a check                        |
+| **Candidate CI red**        | Fix in the kept worktree, or `gh run rerun --failed` a flake     |
 | **Stable release fails**    | Fix and rerun. Never move a published tag                        |
 
 ## Version ordering caveat
