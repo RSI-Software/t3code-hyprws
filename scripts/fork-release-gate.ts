@@ -4,7 +4,7 @@
 // green. The release sha must be the current tip of origin/hyprws (so it is
 // what the lease push moved the trunk to) AND that sha must carry a green
 // `hyprws CI` conclusion. A green sha that is no longer the tip, or a tip
-// whose battery never ran green, cuts nothing. Missing or red means no cut.
+// whose hyprws CI never ran green, cuts nothing. Missing or red means no cut.
 
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 
