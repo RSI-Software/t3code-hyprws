@@ -26,6 +26,25 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 
+/** Titles the banner by its most urgent status; completed machines count only when all are. */
+export function summarizeServerUpdates(states: readonly ServerUpdateState[]) {
+  const count = (status: ServerUpdateState["status"]) =>
+    states.filter((state) => state.status === status).length;
+  const running = count("running");
+  const failed = count("failed");
+  const pending = count("idle");
+  const total = running || failed || pending || states.length;
+  const status = running ? "running" : failed ? "failed" : pending ? "idle" : "completed";
+  const prefix = running
+    ? "Updating"
+    : failed
+      ? "Could not update"
+      : pending
+        ? "Update available for"
+        : "Updated";
+  return { status, title: `${prefix} ${total} ${total === 1 ? "machine" : "machines"}` } as const;
+}
+
 export function useAutoBalanceUpdateBanner(
   environments: readonly EnvironmentPresentation[],
 ): ComposerBannerStackItem | null {
@@ -80,12 +99,12 @@ export function useAutoBalanceUpdateBanner(
   const failed = machines.filter((machine) => machine.state.status === "failed").length;
   const manual = machines.filter((machine) => !machine.remoteUpdate).length;
   const targets = machines.filter(
-    (machine) => machine.connected && machine.remoteUpdate && machine.state.status !== "running",
+    (machine) =>
+      machine.connected &&
+      machine.remoteUpdate &&
+      (machine.state.status === "idle" || machine.state.status === "failed"),
   );
-  const count = running || failed || machines.length;
-  const status = running ? "running" : failed ? "failed" : "idle";
-  const prefix = running ? "Updating" : failed ? "Could not update" : "Update available for";
-  const title = `${prefix} ${count} ${count === 1 ? "machine" : "machines"}`;
+  const { status, title } = summarizeServerUpdates(machines.map((machine) => machine.state));
   return {
     id: `auto-balance-server-updates-${dismissedNotices.size}`,
     variant: failed ? "error" : "default",
@@ -151,7 +170,7 @@ export function useAutoBalanceUpdateBanner(
               dismissServerUpdateFailure(state);
               dismissVersionMismatch(dismissKey);
               if (dismissKey) next.add(dismissKey);
-              if (state.status === "failed") next.add(state);
+              if (state.status === "failed" || state.status === "completed") next.add(state);
             }
             setDismissedNotices(next);
           },
