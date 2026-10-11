@@ -27,4 +27,6 @@ function DictationSettingsRoute() {
   );
 }
 
-export const Route = createFileRoute("/settings/dictation")({ component: DictationSettingsRoute });
+export const Route = createFileRoute("/_chat/settings/dictation")({
+  component: DictationSettingsRoute,
+});
