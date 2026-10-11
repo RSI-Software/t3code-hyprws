@@ -127,6 +127,7 @@ import * as SourceControlRepositoryService from "./sourceControl/SourceControlRe
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as Observability from "./observability/Observability.ts";
 import * as HeapSnapshot from "./observability/HeapSnapshot.ts";
+import * as MemoryWatch from "./observability/MemoryWatch.fork.ts"; // fork-hook: upstream-fixes/memory-watch-import
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
@@ -1153,6 +1154,7 @@ const layerMakeServer = Layer.unwrap(
       layerTailscaleServe,
       layerCloudDesiredLinkReconcile,
       HeapSnapshot.layer,
+      MemoryWatch.layer, // fork-hook: upstream-fixes/memory-watch
     );
 
     return layerServerApplication.pipe(
