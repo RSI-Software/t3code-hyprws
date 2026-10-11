@@ -21,16 +21,20 @@ export interface VersionMismatch {
 
 const VERSION_MISMATCH_DISMISSALS_STORAGE_KEY = "t3code:version-mismatch-dismissals:v1";
 
-// Runtime failures retain their identity until the next attempt. Dismiss only
-// that attempt, across chat remounts, without clearing the error in Settings.
+// Terminal outcomes retain their identity until the next attempt. Dismiss only
+// that attempt, across chat remounts, without clearing the outcome in Settings.
 const dismissedServerUpdateFailures = new WeakSet<ServerUpdateState>();
 
 export function isServerUpdateFailureDismissed(state: ServerUpdateState): boolean {
-  return state.status === "failed" && dismissedServerUpdateFailures.has(state);
+  return (
+    (state.status === "failed" || state.status === "completed") &&
+    dismissedServerUpdateFailures.has(state)
+  );
 }
 
 export function dismissServerUpdateFailure(state: ServerUpdateState): void {
-  if (state.status === "failed") dismissedServerUpdateFailures.add(state);
+  if (state.status === "failed" || state.status === "completed")
+    dismissedServerUpdateFailures.add(state);
 }
 
 const VersionMismatchDismissalsSchema = Schema.Struct({
