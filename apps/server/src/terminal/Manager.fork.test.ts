@@ -116,7 +116,7 @@ it.layer(
         subprocessInspector: () =>
           Effect.succeed({ hasRunningSubprocess: false, childCommand: null, processIds: [] }),
       }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
-      const input = openInput({ attachmentId: "plain-viewer", plainShellFork: true });
+      const input = openInput({ attachmentId: "plain-viewer", sessionModeFork: "shell" });
       yield* manager.open(input);
       const release = yield* manager.attachStream(input, () => Effect.void);
       yield* Effect.addFinalizer(() => Effect.sync(release));
@@ -133,6 +133,18 @@ it.layer(
       );
       expect(processRunner.inputs.length).toBeGreaterThan(0);
       expect(ptyAdapter.spawnInputs[3]?.shell).toBe("zmux");
+    }),
+  );
+  it.effect("opens a requested zmux shell when the default is a plain shell", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "shell",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      yield* manager.open(openInput({ worktreePath: process.cwd(), sessionModeFork: "zmux" }));
+      yield* manager.open(openInput({ terminalId: "term-2", worktreePath: process.cwd() }));
+      expect(ptyAdapter.spawnInputs.map((spawn) => spawn.shell)).toEqual(["zmux", "/bin/bash"]);
     }),
   );
   it.effect("uses fresh activity when deciding whether an unmanaged terminal can retarget", () =>
@@ -1514,6 +1526,56 @@ it.layer(
       });
       expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
       reopenedRelease();
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+  it.effect("keeps a chosen zmux mode through eviction under a plain shell default", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "shell",
+        managedAttachmentSuspendGraceMs: 10,
+        maxRetainedInactiveSessions: 1,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      yield* Effect.addFinalizer(() =>
+        Effect.forEach(
+          ["thread-1", "thread-2"],
+          (threadId) => manager.close({ threadId }).pipe(Effect.ignore),
+          { discard: true },
+        ),
+      );
+      const firstClosed = yield* Deferred.make<TerminalEvent>();
+      const suspended = yield* Ref.make<ReadonlyArray<string>>([]);
+      const unsubscribe = yield* manager.subscribe((event) =>
+        event.type === "closed" && event.threadId === "thread-1"
+          ? Deferred.succeed(firstClosed, event).pipe(Effect.asVoid)
+          : event.type === "activity" && event.attachmentStatus === "suspended"
+            ? Ref.update(suspended, (ids) => [...ids, event.threadId])
+            : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      for (const threadId of ["thread-1", "thread-2"]) {
+        const release = yield* manager.attachStream(
+          openInput({ threadId, worktreePath: process.cwd(), sessionModeFork: "zmux" }),
+          () => Effect.void,
+        );
+        release();
+        yield* TestClock.adjust("10 millis");
+      }
+      yield* Deferred.await(firstClosed);
+      expect(yield* Ref.get(suspended)).toEqual(["thread-1", "thread-2"]);
+      const release = yield* manager.attachStream(
+        { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID },
+        () => Effect.void,
+      );
+      expect(ptyAdapter.spawnInputs.at(-1)?.shell).toBe("zmux");
+      yield* manager.restart({
+        ...openInput({ threadId: "thread-1", worktreePath: process.cwd() }),
+        cols: 100,
+        rows: 24,
+      });
+      expect(ptyAdapter.spawnInputs.at(-1)?.shell).toBe("zmux");
+      release();
     }).pipe(Effect.provide(TestClock.layer())),
   );
   it.effect("bounds compact exact-target identities separately from full records", () =>
