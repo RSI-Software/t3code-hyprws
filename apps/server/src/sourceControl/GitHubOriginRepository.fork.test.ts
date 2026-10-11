@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -16,7 +17,11 @@ it.effect.each(["github.com", "enterprise.test"])(
     const restCalls: GitHubApi.GitHubRestInput[] = [];
     const graphqlCalls: GitHubApi.GitHubGraphQlInput[] = [];
     const context = {
-      provider: { kind: "github" as const, name: "GitHub", baseUrl: `https://${host}` },
+      provider: {
+        kind: SourceControlProviderKind.make("github"),
+        name: "GitHub",
+        baseUrl: `https://${host}`,
+      },
       remoteName: "origin",
       remoteUrl: "git@github-work:RSI-Software/t3code-hyprws.git",
       preferRemoteRepositoryFork: true,
