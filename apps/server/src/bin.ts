@@ -4,6 +4,7 @@ import * as NodeSea from "node:sea";
 import * as NodeURL from "node:url";
 
 import { isEntrypoint } from "./entrypoint.ts";
+import { takeServiceLauncherContextFork } from "./cloud/serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 // Loads the CLI outside the launcher's module graph. Packaged builds embed it as a raw asset.
 async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
@@ -37,6 +38,7 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
+  takeServiceLauncherContextFork(); // fork-hook: upstream-fixes/launcher-context-env
   // The launcher owns shutdown until its child exits, so it bypasses the Effect CLI runtime.
   // The service unit passes no arguments; flags and help go through the full CLI.
   if (process.argv[2] === "__service-launcher" && process.argv.length === 3) {

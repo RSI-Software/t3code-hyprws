@@ -1,5 +1,6 @@
 import packageJson from "../../package.json" with { type: "json" };
 import { BUILD_MIGRATION_HEAD, recordedMigrations } from "../persistence/databaseMigrationHead.ts";
+import { serviceMigrationPreflightFork } from "./serviceMigrationPreflight.fork.ts"; // fork-hook: upstream-fixes/migration-preflight
 import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
 export type ServicePreflightResult =
@@ -7,6 +8,7 @@ export type ServicePreflightResult =
       readonly status: "ready";
       readonly version: string;
       readonly launcherProtocol: typeof SERVICE_LAUNCHER_PROTOCOL;
+      readonly pendingMigrationsFork?: boolean; // fork-hook: upstream-fixes/migration-preflight
     }
   | {
       readonly status: "blocked";
@@ -51,7 +53,12 @@ export function runServicePreflight(input: {
     };
   }
 
-  return { status: "ready", version, launcherProtocol: SERVICE_LAUNCHER_PROTOCOL };
+  return {
+    status: "ready",
+    version,
+    launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
+    ...serviceMigrationPreflightFork(input.databasePath),
+  }; // fork-hook: upstream-fixes/migration-preflight
 }
 
 /** Migrations a newer build recorded, or null when the database exists but cannot be read.
