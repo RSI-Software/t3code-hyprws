@@ -72,6 +72,30 @@ it("folds without configured Git identity and leaves the live repository unchang
   }
 });
 
+it("hydrates a blob:none clone up front, so the replay never lazy-fetches", () => {
+  const origin = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-origin-");
+  const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
+  try {
+    git(origin, ["init", "--quiet", "--initial-branch", "main"]);
+    identity(origin);
+    git(origin, ["config", "uploadpack.allowFilter", "true"]);
+    git(origin, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    commit(origin, "upstream base", { "file.txt": "one\ntwo\n", "other.txt": "base\n" });
+    const base = git(origin, ["rev-parse", "HEAD"]);
+    commit(origin, "owner edit", { "file.txt": "ONE\ntwo\n" });
+    commit(origin, "fixup! owner edit", { "file.txt": "ONE!\ntwo\n" });
+    git(root, ["clone", "--quiet", "--filter=blob:none", "--no-checkout", `file://${origin}`, "."]);
+    identity(root);
+    // The replay runs with lazy fetches off: every blob it reads, the base
+    // tree's included, must already be local.
+    assert.deepStrictEqual(fixupFoldFailures(root, base, "origin/main"), []);
+    assert.strictEqual(worktreeCount(root), 1);
+  } finally {
+    NodeFS.rmSync(origin, { recursive: true, force: true });
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("reports Git's error when the replay fails before applying a commit", () => {
   const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
   try {

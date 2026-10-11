@@ -56,6 +56,47 @@ const stackSubjects = (git: SystemGit, base: string, head: string): ReadonlyArra
       return { sha, subject };
     });
 
+/**
+ * Fetch, in one batch, every blob the replay reads (the base tree and the
+ * stack's commits) that a partial clone lacks. CI checks out `blob:none`, and
+ * lazy fetches mid-replay are unsafe: git 2.55 batched a blob the replay had
+ * just written into one, and GitHub refused it ("not our ref"). The replay
+ * then runs with lazy fetches off, so a missed blob fails loudly.
+ */
+const hydrateStack = (git: SystemGit, base: string, head: string): void => {
+  const promisor = /^remote\.(.+)\.promisor true$/m.exec(
+    git.runResult(["config", "--get-regexp", String.raw`^remote\..*\.promisor$`]).stdout,
+  )?.[1];
+  if (promisor === undefined) return;
+  const missingIn = (args: ReadonlyArray<string>): ReadonlyArray<string> =>
+    git
+      .run(["rev-list", "--objects", "--missing=print", ...args])
+      .split("\n")
+      .filter((line) => line.startsWith("?"))
+      .map((line) => line.slice(1));
+  const missing = [
+    ...new Set([...missingIn(["--no-walk", base]), ...missingIn([`${base}..${head}`])]),
+  ];
+  if (missing.length === 0) return;
+  const fetch = runCommand(
+    "git",
+    [
+      "-c",
+      "fetch.negotiationAlgorithm=noop",
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--no-write-fetch-head",
+      "--filter=blob:none",
+      promisor,
+      "--stdin",
+    ],
+    { cwd: git.cwd, input: `${missing.join("\n")}\n` },
+  );
+  if (fetch.status !== 0)
+    throw new Error(`could not fetch the stack's blobs from ${promisor}: ${fetch.stderr.trim()}`);
+};
+
 /** Abort a mid-stop rebase, then claim the worktree and its admin entry; a leaked replay must not outlive the check. */
 const removeReplayWorktree = (git: SystemGit, worktree: string): void => {
   const rebaseMerge = new SystemGit(worktree).runResult([
@@ -91,6 +132,7 @@ export const fixupFoldFailures = (
   const nameOf = new Map(subjects.map((commit) => [commit.sha, commit.subject]));
   const subjectOf = (sha: string): string => nameOf.get(sha) ?? "unknown";
   const name = (sha: string): string => `${subjectOf(sha)} (${shortSha(sha)})`;
+  hydrateStack(git, base, head);
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fixup-fold-"));
   try {
     git.run(["worktree", "add", "--quiet", "--detach", worktree, head]);
@@ -99,6 +141,7 @@ export const fixupFoldFailures = (
       cwd: worktree,
       env: {
         ...process.env,
+        GIT_NO_LAZY_FETCH: "1",
         // Only the discarded replay commits need an identity; preserve the original authors.
         GIT_COMMITTER_NAME: "Fork Fixup Fold",
         GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
