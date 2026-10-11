@@ -26,6 +26,7 @@ const fakeGit = (overrides: {
   readonly base?: string;
   readonly trunkMergeBase?: string | null;
   readonly trunkResolves?: boolean;
+  readonly trunkBelowBase?: boolean;
 }): ForkCiGit => ({
   run: (args) => {
     if (args[0] === "merge-base" && args[1] === "upstream/main")
@@ -34,6 +35,8 @@ const fakeGit = (overrides: {
     throw new Error(`unexpected required git call: ${args.join(" ")}`);
   },
   attempt: (args) => {
+    if (args[0] === "merge-base" && args[1] === "--is-ancestor")
+      return overrides.trunkBelowBase === true ? "" : null;
     if (args[0] === "merge-base")
       return overrides.trunkMergeBase === undefined ? `${TRUNK}\n` : overrides.trunkMergeBase;
     if (args[0] === "rev-parse") return overrides.trunkResolves === false ? null : `${TRUNK}\n`;
@@ -48,6 +51,7 @@ it("derives base, since, target, and replay-of the way the workflow used to", ()
     since: TRUNK,
     target: BASE,
     replayOf: "origin/hyprws",
+    rebased: false,
   });
 });
 
@@ -90,13 +94,17 @@ it("passes the whole CI shape to fork:scan, replay-of included only when it reso
 it("renders the base and since outputs the workflow consumes", () => {
   assert.strictEqual(
     renderForkCiOutputs(deriveForkCiFlags(fakeGit({}), HEAD)),
-    `base=${BASE}\nsince=${TRUNK}\n`,
+    `base=${BASE}\nsince=${TRUNK}\nrebased=false\n`,
   );
   assert.strictEqual(
     renderForkCiOutputs(
       deriveForkCiFlags(fakeGit({ trunkResolves: false, trunkMergeBase: null }), HEAD),
     ),
-    `base=${BASE}\nsince=${HEAD}^\n`,
+    `base=${BASE}\nsince=${HEAD}^\nrebased=false\n`,
+  );
+  assert.strictEqual(
+    renderForkCiOutputs(deriveForkCiFlags(fakeGit({ trunkBelowBase: true }), HEAD)),
+    `base=${BASE}\nsince=${BASE}\nrebased=true\n`,
   );
 });
 
@@ -142,6 +150,7 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
       since: `${head}^`,
       target: base,
       replayOf: null,
+      rebased: false,
     });
     reader.run(["update-ref", "refs/remotes/origin/hyprws", "main"]);
     // The head sits on the trunk tip: still head^, but the trunk now resolves.
@@ -151,6 +160,7 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
       since: `${head}^`,
       target: base,
       replayOf: "origin/hyprws",
+      rebased: false,
     });
     reader.run(["update-ref", "refs/remotes/origin/hyprws", "trunk"]);
     // One fork commit above the trunk: the trunk commit is the since.
@@ -160,37 +170,41 @@ it("derives the same flags from a real repository with remote-tracking refs", ()
       since: base,
       target: base,
       replayOf: "origin/hyprws",
+      rebased: false,
+    });
+    // A sync candidate: the fork commit replayed onto a newer upstream base.
+    reader.run(["checkout", "--quiet", "--detach", "trunk"]);
+    NodeFS.writeFileSync(NodePath.join(root, "upstream.txt"), "upstream v2\n");
+    reader.run(["commit", "--quiet", "--all", "-m", "upstream release"]);
+    reader.run(["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+    const newBase = reader.run(["rev-parse", "HEAD"]).trim();
+    reader.run(["cherry-pick", head]);
+    reader.run(["update-ref", "refs/remotes/origin/hyprws", head]);
+    const candidate = reader.run(["rev-parse", "HEAD"]).trim();
+    assert.deepStrictEqual(deriveForkCiFlags(git, candidate), {
+      head: candidate,
+      base: newBase,
+      since: newBase,
+      target: newBase,
+      replayOf: "origin/hyprws",
+      rebased: true,
     });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
-it("lets an explicit since override the merge-base derivation", () => {
-  const flags = deriveForkCiFlags(fakeGit({}), HEAD, { since: "ffff5555" });
-  assert.strictEqual(flags.since, "ffff5555");
-  // The override touches only the range start: the pull-request shape is intact.
-  assert.deepStrictEqual(flags, {
-    head: HEAD,
-    base: BASE,
-    since: "ffff5555",
-    target: BASE,
-    replayOf: "origin/hyprws",
-  });
-  assert.deepStrictEqual(forkScanArguments(flags), [
-    "--head",
-    HEAD,
-    "--target",
-    BASE,
-    "--since",
-    "ffff5555",
-    "--replay-of",
-    "origin/hyprws",
-    "--no-typecheck",
-  ]);
+it("starts a sync candidate's range at its base, not the old trunk's upstream base", () => {
+  const flags = deriveForkCiFlags(fakeGit({ trunkBelowBase: true }), HEAD);
+  assert.strictEqual(flags.since, BASE);
+  assert.strictEqual(flags.rebased, true);
 });
 
-it("ignores an empty since override and keeps the merge-base rule", () => {
-  const flags = deriveForkCiFlags(fakeGit({}), HEAD, { since: "" });
-  assert.strictEqual(flags.since, TRUNK);
+it("never treats the trunk tip itself as a candidate", () => {
+  const flags = deriveForkCiFlags(
+    fakeGit({ trunkMergeBase: `${HEAD}\n`, trunkBelowBase: true }),
+    HEAD,
+  );
+  assert.strictEqual(flags.since, `${HEAD}^`);
+  assert.strictEqual(flags.rebased, false);
 });
