@@ -28,7 +28,6 @@ import {
   type ChatWidth,
   type DiffLayout,
   type EnvironmentIdentificationMode,
-  type TerminalSessionMode,
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
   MAX_GLASS_OPACITY,
@@ -178,6 +177,7 @@ import {
   ExternalSymlinksSettingsRowFork,
   externalSymlinksRestoreLabelFork,
 } from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
+import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
@@ -203,11 +203,6 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
   manual: "Manual",
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
-
-const TERMINAL_SESSION_MODE_LABELS: Record<TerminalSessionMode, string> = {
-  shell: "Plain shell",
-  zmux: "Managed zmux session",
-};
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -611,9 +606,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
         ? ["Composer context"]
         : []),
-      ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
-        ? ["Terminal session"]
-        : []),
+      ...terminalRestoreLabelsFork(settings), // fork-hook: zmux-estate/settings-restore-labels
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
         ? ["Default diff file state"]
@@ -744,6 +737,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
       settings.terminalSessionMode,
+      settings.zmuxAutoSessions, // fork-hook: zmux-estate/settings-restore-deps
       settings.wordWrap,
       followSystem,
       theme,
@@ -823,7 +817,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-      terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
+      ...terminalRestoreDefaultsFork, // fork-hook: zmux-estate/settings-restore-defaults
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
@@ -1543,7 +1537,6 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <TypographySection />
-      <TerminalSessionSection />
     </SettingsPageContainer>
   );
 }
@@ -1865,56 +1858,6 @@ function TypographySection() {
     >
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
-    </SettingsSection>
-  );
-}
-
-function TerminalSessionSection() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-
-  return (
-    <SettingsSection title="Terminal">
-      <SettingsRow
-        {...searchableSetting("terminal-session-mode")}
-        description="Choose whether threads use plain shells or managed zmux sessions: terminals attach to the checkout's session, and new worktrees get a session of their own."
-        resetAction={
-          settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode ? (
-            <SettingResetButton
-              label="terminal session"
-              onClick={() =>
-                updateSettings({
-                  terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
-                })
-              }
-            />
-          ) : null
-        }
-        control={
-          <Select
-            value={settings.terminalSessionMode}
-            onValueChange={(value) => {
-              if (value === "shell" || value === "zmux") {
-                updateSettings({ terminalSessionMode: value });
-              }
-            }}
-          >
-            <SelectTrigger className="w-full sm:w-52" aria-label="Terminal session">
-              <SelectValue>
-                {TERMINAL_SESSION_MODE_LABELS[settings.terminalSessionMode]}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem hideIndicator value="shell">
-                Plain shell
-              </SelectItem>
-              <SelectItem hideIndicator value="zmux">
-                Managed zmux session
-              </SelectItem>
-            </SelectPopup>
-          </Select>
-        }
-      />
     </SettingsSection>
   );
 }

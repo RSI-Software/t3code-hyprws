@@ -15,6 +15,7 @@ import {
 
 export type SettingsPath =
   | "/settings/dictation" // fork-hook: voice-input/settings-path
+  | "/settings/terminal" // fork-hook: zmux-estate/settings-path
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
@@ -97,6 +98,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/dictation": "Dictation", // fork-hook: voice-input/settings-label
   "/settings/appearance": "Appearance",
+  "/settings/terminal": "Terminal", // fork-hook: zmux-estate/settings-label
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -141,8 +143,10 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
  * that may not be mounted point at their nearest stable section instead.
  */
 import { voiceInputSearchItemsFork } from "./voiceInputSearch.fork"; // fork-hook: voice-input/settings-search-import
+import { terminalSearchItemsFork } from "./terminalSearch.fork"; // fork-hook: zmux-estate/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
   ...voiceInputSearchItemsFork, // fork-hook: voice-input/settings-search-items
+  ...terminalSearchItemsFork, // fork-hook: zmux-estate/settings-search-items
   {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
@@ -291,11 +295,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Terminal font",
     to: "/settings/appearance",
     searchTerms: ["typography family size monospace output"],
-  },
-  {
-    id: "terminal-session-mode",
-    title: "Terminal session",
-    to: "/settings/appearance",
   },
   {
     id: "font-smoothing",
@@ -991,6 +990,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/dictation": null, // fork-hook: voice-input/settings-scope
+  "/settings/terminal": null, // fork-hook: zmux-estate/settings-scope
   "/settings/appearance": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative
