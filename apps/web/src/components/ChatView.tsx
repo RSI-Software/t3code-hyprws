@@ -571,7 +571,7 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { Button, InlineButton } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ServerUpdateAction, serverUpdateStageLabel } from "./ServerUpdateAction";
+import { ServerUpdateAction, ServerUpdateDetail, serverUpdateVerb } from "./ServerUpdateAction"; // fork-hook: upstream-fixes/server-update-completed-banner
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import { ComposerServerUpdateIcon } from "./chat/ComposerServerUpdateStatus";
 import {
@@ -2445,14 +2445,15 @@ export default function ChatView(props: ChatViewProps) {
     ) {
       const updateInProgress = serverUpdateState.status === "running";
       const updateFailed = serverUpdateState.status === "failed";
+      const updateSettled = updateFailed || serverUpdateState.status === "completed"; // fork-hook: upstream-fixes/server-update-completed-dismiss
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
         priority: updateInProgress ? "urgent" : "notice",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
         title:
-          updateInProgress || updateFailed ? (
-            `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`
+          serverUpdateState.status !== "idle" ? ( // fork-hook: upstream-fixes/server-update-completed-banner
+            `${serverUpdateVerb(serverUpdateState.status)} ${versionMismatchServerLabel}` // fork-hook: upstream-fixes/server-update-completed-banner
           ) : versionMismatch ? (
             <Tooltip>
               <TooltipTrigger
@@ -2474,18 +2475,17 @@ export default function ChatView(props: ChatViewProps) {
             "Server update available"
           ),
         description:
-          serverUpdateState.status === "failed"
-            ? serverUpdateState.message
-            : serverUpdateState.status === "running"
-              ? serverUpdateStageLabel(serverUpdateState.stage)
-              : versionMismatchSelfUpdate !== null &&
-                  (versionMismatchSelfUpdate !== "desktop-managed" ||
-                    !versionMismatchDesktopAppUpdate)
-                ? serverUpdateGuidance(versionMismatchSelfUpdate)
-                : undefined,
+          serverUpdateState.status !== "idle" ? (
+            <ServerUpdateDetail state={serverUpdateState} /> // fork-hook: upstream-fixes/server-update-completed-banner
+          ) : versionMismatchSelfUpdate !== null &&
+            (versionMismatchSelfUpdate !== "desktop-managed" ||
+              !versionMismatchDesktopAppUpdate) ? (
+            serverUpdateGuidance(versionMismatchSelfUpdate)
+          ) : undefined,
         actions: updateInProgress ? (
           disconnectAction
-        ) : !versionMismatch ||
+        ) : serverUpdateState.status === "completed" ||
+          !versionMismatch ||
           (versionMismatchSelfUpdate === "desktop-managed" &&
             !versionMismatchDesktopAppUpdate) ? undefined : (
           <ServerUpdateAction
@@ -2500,12 +2500,12 @@ export default function ChatView(props: ChatViewProps) {
             variant="ghost"
           />
         ),
-        ...(updateInProgress || (!updateFailed && !versionMismatchDismissKey)
+        ...(updateInProgress || (!updateSettled && !versionMismatchDismissKey) // fork-hook: upstream-fixes/server-update-completed-dismiss
           ? {}
           : {
               dismissLabel: "Dismiss update notice",
               onDismiss: () => {
-                if (updateFailed) {
+                if (updateSettled) {
                   dismissServerUpdateFailure(serverUpdateState);
                   setDismissedServerUpdateState(serverUpdateState);
                 }
