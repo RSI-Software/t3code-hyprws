@@ -56,6 +56,7 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+import { SquareTerminalIcon } from "lucide-react"; // fork-hook: zmux-estate/settings-icon-import
 import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
@@ -88,6 +89,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/diagnostics": WrenchIcon,
   "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/appearance": PaletteIcon,
+  "/settings/terminal": SquareTerminalIcon, // fork-hook: zmux-estate/settings-icon
   "/settings/chat": MessageSquareTextIcon,
   "/settings/diffs": FileDiffIcon,
   "/settings/projects": PanelsTopLeftIcon,
@@ -129,6 +131,9 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = validateSettingsScopeSearch(currentSearch);
+  const navItems = SETTINGS_NAV_ITEMS.filter(
+    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
+  ); // fork-hook: voice-input/text-settings-web
   const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
