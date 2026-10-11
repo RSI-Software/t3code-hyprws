@@ -16,6 +16,7 @@ import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
+import { Route as SettingsTerminalRouteImport } from './routes/settings.terminal'
 import { Route as SettingsDictationRouteImport } from './routes/settings.dictation'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ProjectSplatRouteImport } from './routes/project.$'
@@ -86,6 +87,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatRoute,
+} as any)
+const SettingsTerminalRoute = SettingsTerminalRouteImport.update({
+  id: '/settings/terminal',
+  path: '/settings/terminal',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsDictationRoute = SettingsDictationRouteImport.update({
   id: '/settings/dictation',
@@ -288,6 +294,7 @@ export interface FileRoutesByFullPath {
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/dictation': typeof SettingsDictationRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/settings/about': typeof ChatSettingsAboutRoute
@@ -331,6 +338,7 @@ export interface FileRoutesByTo {
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/dictation': typeof SettingsDictationRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -377,6 +385,7 @@ export interface FileRoutesById {
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/dictation': typeof SettingsDictationRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -424,6 +433,7 @@ export interface FileRouteTypes {
     | '/project/$'
     | '/projects/$projectKey'
     | '/settings/dictation'
+    | '/settings/terminal'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/settings/about'
@@ -467,6 +477,7 @@ export interface FileRouteTypes {
     | '/project/$'
     | '/projects/$projectKey'
     | '/settings/dictation'
+    | '/settings/terminal'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -512,6 +523,7 @@ export interface FileRouteTypes {
     | '/project/$'
     | '/projects/$projectKey'
     | '/settings/dictation'
+    | '/settings/terminal'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -553,6 +565,7 @@ export interface RootRouteChildren {
   ProjectSplatRoute: typeof ProjectSplatRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
   SettingsDictationRoute: typeof SettingsDictationRoute
+  SettingsTerminalRoute: typeof SettingsTerminalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -605,6 +618,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
+    }
+    '/settings/terminal': {
+      id: '/settings/terminal'
+      path: '/settings/terminal'
+      fullPath: '/settings/terminal'
+      preLoaderRoute: typeof SettingsTerminalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/settings/dictation': {
       id: '/settings/dictation'
@@ -957,6 +977,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectSplatRoute: ProjectSplatRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
   SettingsDictationRoute: SettingsDictationRoute,
+  SettingsTerminalRoute: SettingsTerminalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
