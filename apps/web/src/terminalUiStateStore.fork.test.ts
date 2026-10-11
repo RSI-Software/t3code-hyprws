@@ -49,40 +49,58 @@ beforeEach(() => {
   });
 });
 
-it("retains plain-shell choice through layout reconciliation and drops closed choices", () => {
+it("retains each terminal's mode choice through layout reconciliation and drops closed choices", () => {
   const store = useTerminalUiStateStore.getState();
-  store.newTerminal(thread, "plain", true);
-  store.newTerminal(thread, "other-plain", true);
-  store.newTerminal(thread, "managed");
-  store.reconcileTerminalIds(thread, ["managed", "plain", "other-plain"]);
-  expect(read().plainShellByTerminalId).toEqual({ plain: true, "other-plain": true });
+  store.newTerminal(thread, "plain", "shell");
+  store.newTerminal(thread, "managed", "zmux");
+  store.newTerminal(thread, "default");
+  store.reconcileTerminalIds(thread, ["default", "plain", "managed"]);
+  expect(read().sessionModeByTerminalId).toEqual({ plain: "shell", managed: "zmux" });
   store.setTerminalOpen(thread, false);
   store.setTerminalOpen(thread, true);
-  expect(read().plainShellByTerminalId).toEqual({ plain: true, "other-plain": true });
+  expect(read().sessionModeByTerminalId).toEqual({ plain: "shell", managed: "zmux" });
   store.closeTerminal(thread, "plain");
-  expect(read().plainShellByTerminalId).toEqual({ "other-plain": true });
+  expect(read().sessionModeByTerminalId).toEqual({ managed: "zmux" });
   store.newTerminal(thread, "plain");
-  expect(read().plainShellByTerminalId).toEqual({ "other-plain": true });
-  store.closeTerminal(thread, "other-plain");
-  expect(read().plainShellByTerminalId ?? {}).toEqual({});
+  expect(read().sessionModeByTerminalId).toEqual({ managed: "zmux" });
+  store.closeTerminal(thread, "managed");
+  expect(read().sessionModeByTerminalId ?? {}).toEqual({});
 });
 
-it("persists a panel shell choice without adding a drawer terminal or opening it", async () => {
+it("persists a panel mode choice without adding a drawer terminal or opening it", async () => {
   const store = useTerminalUiStateStore.getState();
-  store.newTerminal(thread, "drawer", true);
+  store.newTerminal(thread, "drawer", "shell");
   store.setTerminalOpen(thread, false);
-  store.setTerminalPlainShellFork(thread, "panel");
+  store.setTerminalSessionModeFork(thread, "panel", "zmux");
   expect(read().terminalIds).toEqual(["drawer"]);
   expect(read().terminalOpen).toBe(false);
   store.closeTerminal(thread, "drawer");
-  expect(read().plainShellByTerminalId).toEqual({ panel: true });
+  expect(read().sessionModeByTerminalId).toEqual({ panel: "zmux" });
   const { storage, name } = useTerminalUiStateStore.persist.getOptions();
   const saved = await storage!.getItem(name!);
   useTerminalUiStateStore.setState({ terminalUiStateByThreadKey: {} });
   await storage!.setItem(name!, saved!);
   await useTerminalUiStateStore.persist.rehydrate();
-  expect(read().plainShellByTerminalId).toEqual({ panel: true });
+  expect(read().sessionModeByTerminalId).toEqual({ panel: "zmux" });
   expect(read().terminalIds).toEqual([]);
   store.closeTerminal(thread, "panel");
-  expect(read().plainShellByTerminalId ?? {}).toEqual({});
+  expect(read().sessionModeByTerminalId ?? {}).toEqual({});
+});
+
+it("rehydrates legacy plain-shell flags as shell modes without overriding newer modes", async () => {
+  const store = useTerminalUiStateStore.getState();
+  store.newTerminal(thread, "legacy");
+  store.newTerminal(thread, "managed", "zmux");
+  const { storage, name } = useTerminalUiStateStore.persist.getOptions();
+  const saved = (await storage!.getItem(name!)) as {
+    state: { terminalUiStateByThreadKey: Record<string, Record<string, unknown>> };
+  };
+  for (const threadState of Object.values(saved.state.terminalUiStateByThreadKey)) {
+    threadState.plainShellByTerminalId = { legacy: true, managed: true };
+  }
+  useTerminalUiStateStore.setState({ terminalUiStateByThreadKey: {} });
+  await storage!.setItem(name!, saved as never);
+  await useTerminalUiStateStore.persist.rehydrate();
+  expect(read().sessionModeByTerminalId).toEqual({ legacy: "shell", managed: "zmux" });
+  expect(read()).not.toHaveProperty("plainShellByTerminalId");
 });
