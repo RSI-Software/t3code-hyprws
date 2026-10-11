@@ -2157,7 +2157,7 @@ it.effect("refuses a repository that does not belong to the requested project", 
       projects: [
         project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
       ],
-      providers: [fakeProvider("github")],
+      providers: [fakeProvider(SourceControlProviderKind.make("github"))],
     });
 
     const error = yield* service
