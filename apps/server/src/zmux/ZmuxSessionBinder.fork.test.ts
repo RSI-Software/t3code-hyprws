@@ -56,6 +56,9 @@ function layer(
   run: ProcessRunner.ProcessRunner["Service"]["run"],
   topLevel = "/repo/project",
   branch = "main",
+  settings: Parameters<typeof ServerSettings.ServerSettingsService.layerTest>[0] = {
+    terminalSessionMode: "zmux",
+  },
 ) {
   const routed: ProcessRunner.ProcessRunner["Service"]["run"] = (input) =>
     input.command !== "git"
@@ -71,7 +74,7 @@ function layer(
         );
   return Binder.layer.pipe(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: routed })),
-    Layer.provide(ServerSettings.ServerSettingsService.layerTest({ terminalSessionMode: "zmux" })),
+    Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
     Layer.provide(NodePath.layer),
     Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "/usr/bin" })),
   );
@@ -326,5 +329,86 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
         assert.equal(result.session, "team/renamed");
       }
     }).pipe(Effect.provide(layer(run, "/repo/project-worktree", "team/renamed")));
+  });
+});
+
+describe("ZmuxSessionBinder settings gates", () => {
+  const ensureRun = () => {
+    let resolves = 0;
+    return vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] !== "session") return Effect.succeed(output(ensured()));
+      resolves++;
+      return Effect.succeed(output(resolves === 1 ? "" : project, resolves === 1 ? 1 : 0));
+    });
+  };
+
+  it.effect("ensures a chosen zmux terminal under a plain shell default", () => {
+    const run = ensureRun();
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
+      assert.equal(result.status, "ensured");
+    }).pipe(Effect.provide(layer(run, "/repo/project", "main", { terminalSessionMode: "shell" })));
+  });
+
+  it.effect("skips automatic sessions when the toggle is off under zmux", () => {
+    const run = vi.fn(() => Effect.succeed(output()));
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      assert.deepStrictEqual(yield* binder.bind("/repo/project-worktree"), {
+        status: "disabled",
+      });
+      assert.equal(run.mock.calls.length, 0);
+    }).pipe(
+      Effect.provide(
+        layer(run, "/repo/project-worktree", "feature", {
+          terminalSessionMode: "zmux",
+          zmuxAutoSessions: false,
+        }),
+      ),
+    );
+  });
+
+  it.effect("still finds and settles an explicit zmux session with automatic sessions off", () => {
+    const run = vi.fn(() => Effect.succeed(output(worktree)));
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      assert.equal((yield* binder.resolve("/repo/project-worktree")).status, "resolved");
+      assert.equal((yield* binder.prepareUnbind("/repo/project-worktree")).status, "prepared");
+      assert.equal(run.mock.calls.length, 2);
+    }).pipe(
+      Effect.provide(
+        layer(run, "/repo/project-worktree", "feature", {
+          terminalSessionMode: "shell",
+          zmuxAutoSessions: false,
+        }),
+      ),
+    );
+  });
+
+  it.effect("creates automatic sessions when the toggle is on under a shell default", () => {
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(
+        output(
+          input.args[0] === "session"
+            ? input.args[3] === "/repo/project"
+              ? project
+              : worktree
+            : ensured(true),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.bind("/repo/project-worktree", { projectPath: "/repo/project" });
+      assert.equal(result.status, "bound");
+    }).pipe(
+      Effect.provide(
+        layer(run, "/repo/project-worktree", "feature", {
+          terminalSessionMode: "shell",
+          zmuxAutoSessions: true,
+        }),
+      ),
+    );
   });
 });
