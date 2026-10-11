@@ -95,6 +95,11 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
+import {
+  ExternalSymlinksSettingsRowFork,
+  externalSymlinksRestoreLabelFork,
+} from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
+import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: "Wait for the full response",
@@ -112,11 +117,6 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
   manual: "Manual",
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
-
-const TERMINAL_SESSION_MODE_LABELS: Record<TerminalSessionMode, string> = {
-  shell: "Plain shell",
-  zmux: "Managed zmux session",
-};
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -459,9 +459,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? ["Composer context"]
       : []),
-    ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
-      ? ["Terminal session"]
-      : []),
+    ...terminalRestoreLabelsFork(settings), // fork-hook: zmux-estate/settings-restore-labels
     ...getChangedTypographySettingLabels(settings),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? ["Default diff file state"]
@@ -598,7 +596,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-      terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
+      ...terminalRestoreDefaultsFork, // fork-hook: zmux-estate/settings-restore-defaults
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
