@@ -13,6 +13,7 @@ import {
   type ServiceLauncherChildMessage,
   type ServiceLauncherParentMessage,
 } from "./serviceProtocol.ts";
+import { heldServiceLauncherContextFork } from "./serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 export class ServiceLauncherClientError extends Schema.TaggedError<ServiceLauncherClientError>()(
   "ServiceLauncherClientError",
@@ -116,7 +117,8 @@ const resolveStartup = Effect.fn("cloud.service_launcher_client.resolve_startup"
     const host = yield* ServiceLauncherHostProcess;
     const environment = yield* HostProcess.Environment;
     const currentVersion = options?.currentVersion ?? packageJson.version;
-    const rawContext = environment[SERVICE_LAUNCHER_CONTEXT_ENV];
+    const rawContext =
+      environment[SERVICE_LAUNCHER_CONTEXT_ENV] ?? heldServiceLauncherContextFork(); // fork-hook: upstream-fixes/launcher-context-env
     const context = rawContext === undefined ? undefined : decodeServiceLauncherContext(rawContext);
 
     if (rawContext !== undefined && context === undefined) {

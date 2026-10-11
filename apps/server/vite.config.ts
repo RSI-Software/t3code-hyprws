@@ -124,7 +124,10 @@ export default mergeConfig(
       fileParallelism: false,
       sequence: { sequencer: WeightedShardSequencer },
       // Appended to the root setup, which mergeConfig concatenates.
-      setupFiles: ["./src/testUtils/gitConfig.setup.ts"],
+      setupFiles: [
+        "./src/testUtils/gitConfig.setup.ts",
+        "./src/testUtils/launcherContext.fork.setup.ts",
+      ], // fork-hook: upstream-fixes/launcher-context-env
       hookTimeout: 120_000,
       testTimeout: 120_000,
     },
