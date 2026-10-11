@@ -15,6 +15,7 @@ import {
   GitHubIssueCliUnauthenticatedError as GitHubIssueCliUnauthenticatedErrorClass,
   GitHubIssueOperationError as GitHubIssueOperationErrorClass,
   pullRequestHostOf,
+  SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
@@ -260,7 +261,10 @@ export const make = Effect.gen(function* () {
       if (project.repositoryIdentity?.provider !== "github") continue;
       const repository = sourceControlRepositorySelector(project.repositoryIdentity);
       if (repository === null) continue;
-      const host = pullRequestHostOf(project.repositoryIdentity, "github");
+      const host = pullRequestHostOf(
+        project.repositoryIdentity,
+        SourceControlProviderKind.make("github"),
+      );
       const key = `${host}/${repository}`.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
