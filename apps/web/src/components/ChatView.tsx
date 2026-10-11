@@ -2351,7 +2351,7 @@ export default function ChatView(props: ChatViewProps) {
         priority: updateInProgress ? "urgent" : "notice",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
         title:
-          updateInProgress || updateFailed ? (
+          serverUpdateState.status !== "idle" ? (
             <ComposerServerUpdateStatus
               state={serverUpdateState}
               serverLabel={versionMismatchServerLabel}
@@ -2379,13 +2379,15 @@ export default function ChatView(props: ChatViewProps) {
         description:
           !updateInProgress &&
           !updateFailed &&
+          serverUpdateState.status !== "completed" &&
           versionMismatchSelfUpdate !== null &&
           (versionMismatchSelfUpdate !== "desktop-managed" || !versionMismatchDesktopAppUpdate)
             ? serverUpdateGuidance(versionMismatchSelfUpdate)
             : undefined,
         actions: updateInProgress ? (
           disconnectAction
-        ) : !versionMismatch ||
+        ) : serverUpdateState.status === "completed" ||
+          !versionMismatch ||
           (versionMismatchSelfUpdate === "desktop-managed" &&
             !versionMismatchDesktopAppUpdate) ? undefined : (
           <ServerUpdateAction
@@ -2400,12 +2402,12 @@ export default function ChatView(props: ChatViewProps) {
             variant="ghost"
           />
         ),
-        ...(updateInProgress || (!updateFailed && !versionMismatchDismissKey)
+        ...(updateInProgress || (serverUpdateState.status === "idle" && !versionMismatchDismissKey)
           ? {}
           : {
               dismissLabel: "Dismiss update notice",
               onDismiss: () => {
-                if (updateFailed) {
+                if (serverUpdateState.status !== "idle") {
                   dismissServerUpdateFailure(serverUpdateState);
                   setDismissedServerUpdateState(serverUpdateState);
                 }
