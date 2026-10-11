@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { TerminalSessionMode } from "./settings.ts"; // fork-hook: zmux-estate/session-mode-contract-import
 
 export const DEFAULT_TERMINAL_ID = "term-1";
 export const DEFAULT_MAX_TERMINAL_BUFFER_BYTES = 512 * 1024;
@@ -38,7 +39,7 @@ export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionIn
 
 export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
-  plainShellFork: Schema.optional(Schema.Boolean), // fork-hook: zmux-estate/plain-shell-open-contract
+  sessionModeFork: Schema.optional(TerminalSessionMode), // fork-hook: zmux-estate/session-mode-open-contract
   cwd: TrimmedNonEmptyStringSchema,
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
@@ -50,7 +51,7 @@ export type TerminalOpenInput = typeof TerminalOpenInput.Type;
 
 export const TerminalAttachInput = Schema.Struct({
   ...TerminalSessionInput.fields,
-  plainShellFork: Schema.optional(Schema.Boolean), // fork-hook: zmux-estate/plain-shell-attach-contract
+  sessionModeFork: Schema.optional(TerminalSessionMode), // fork-hook: zmux-estate/session-mode-attach-contract
   cwd: Schema.optional(TrimmedNonEmptyStringSchema),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
   cols: Schema.optional(TerminalColsSchema),
