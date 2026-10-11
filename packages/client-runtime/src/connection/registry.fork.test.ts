@@ -3,7 +3,6 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -33,6 +32,8 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
     const storedTargets = yield* Ref.make(
       new Map(initialTargets.map((target) => [target.environmentId, target])),
     );
+    const cacheClears = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
+    const ownedDataClears = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
     const edit = (change: (next: Map<EnvironmentId, ConnectionTarget>) => void) =>
       Ref.update(storedTargets, (current) => {
         const next = new Map(current);
@@ -107,20 +108,24 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
             saveVcsRefs: () => Effect.void,
             removeVcsRefs: () => Effect.void,
             clearVcsRefs: () => Effect.void,
-            clear: () => Effect.void,
+            clear: (environmentId) =>
+              Ref.update(cacheClears, (current) => [...current, environmentId]),
           }),
-          Layer.succeed(Persistence.EnvironmentOwnedDataCleanup, { clear: () => Effect.void }),
+          Layer.succeed(Persistence.EnvironmentOwnedDataCleanup, {
+            clear: (environmentId) =>
+              Ref.update(ownedDataClears, (current) => [...current, environmentId]),
+          }),
         ),
       ),
     );
-    return { layer, storedTargets, connects, connected };
+    return { layer, storedTargets, connects, connected, cacheClears, ownedDataClears };
   });
 
 const withAuth = (savedConnectionsOutrankPrimary: boolean) =>
   Effect.provideService(
     ClientCapabilities.PrimaryEnvironmentAuth,
     ClientCapabilities.PrimaryEnvironmentAuth.of({
-      bearerToken: Effect.succeed(Option.none()),
+      bearerToken: Effect.succeedNone,
       savedConnectionsOutrankPrimary,
     }),
   );
@@ -188,6 +193,35 @@ describe("EnvironmentRegistry saved-connection precedence RSI-Software/t3code-hy
           (yield* SubscriptionRef.get(registry.entries)).get(TARGET.environmentId)?.target,
         ).toEqual(TARGET);
       }).pipe(Effect.provide(harness.layer), withAuth(false), Effect.scoped);
+    }),
+  );
+});
+
+describe("EnvironmentRegistry platform re-registration RSI-Software/t3code-hyprws#1706", () => {
+  it.effect("a replaced registration refreshes without clearing cache or owned data", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness([]);
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.reconcilePlatform([new PrimaryConnectionRegistration({ target: TARGET })]);
+        // A re-attach can replace the registration (new label, new bearer):
+        // the environment must refresh in place, never lose cached shells or
+        // drafts to the removal path.
+        yield* registry.reconcilePlatform([
+          new PrimaryConnectionRegistration({
+            target: new PrimaryConnectionTarget({
+              environmentId: TARGET.environmentId,
+              label: "Renamed local server",
+              httpBaseUrl: TARGET.httpBaseUrl,
+              wsBaseUrl: TARGET.wsBaseUrl,
+            }),
+          }),
+        ]);
+
+        expect((yield* SubscriptionRef.get(registry.entries)).has(TARGET.environmentId)).toBe(true);
+        expect(yield* Ref.get(harness.cacheClears)).toEqual([]);
+        expect(yield* Ref.get(harness.ownedDataClears)).toEqual([]);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
 });
