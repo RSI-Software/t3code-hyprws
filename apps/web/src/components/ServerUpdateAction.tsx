@@ -11,7 +11,11 @@ import type {
   ServerInstallation,
   ServerSelfUpdateCapability,
 } from "@t3tools/contracts";
-import type { ServerUpdateStage, ServerUpdateState } from "@t3tools/client-runtime/state/server";
+import {
+  serverUpdateRestartElapsedSeconds,
+  type ServerUpdateStage,
+  type ServerUpdateState,
+} from "@t3tools/client-runtime/state/server";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -19,6 +23,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { CircleArrowUpIcon } from "lucide-react";
 import { type ComponentProps, useRef, useState } from "react";
+import { useEffect } from "react"; // fork-hook: upstream-fixes/server-update-progress-clock
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -28,6 +33,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { manualServerUpdateCommand } from "~/versionSkew";
 import { Button } from "./ui/button";
+import { Progress } from "./ui/progress";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -38,8 +44,14 @@ const UPDATE_STAGE_LABELS: Record<ServerUpdateStage, string> = {
 };
 const pendingUpdateEnvironmentIds = new Set<EnvironmentId>();
 
-export function serverUpdateStageLabel(stage: ServerUpdateStage): string {
+function serverUpdateStageLabel(stage: ServerUpdateStage): string {
   return UPDATE_STAGE_LABELS[stage];
+}
+
+/** Visible phases match the labels: download, then restart. */
+const SERVER_UPDATE_STEPS = 2;
+function serverUpdateStep(stage: ServerUpdateStage): number {
+  return stage === "resuming" ? 2 : 1;
 }
 
 function updateFailureMessage(error: unknown): string {
@@ -174,11 +186,44 @@ export function canUpdateServer(
   return sessionGrantsScope(result.value, AuthEnvironmentMaintainScope);
 }
 
+export function serverUpdateVerb(status: Exclude<ServerUpdateState["status"], "idle">): string {
+  return status === "failed" ? "Could not update" : status === "completed" ? "Updated" : "Updating";
+}
+
+export function ServerUpdateDetail({
+  state,
+}: {
+  readonly state: Exclude<ServerUpdateState, { status: "idle" }>;
+}) {
+  return useServerUpdateDetail(state);
+}
+
+/** The clock exists only while a known transport drop is awaiting ready. */
+function useServerUpdateDetail(state: Exclude<ServerUpdateState, { status: "idle" }>) {
+  const ticking =
+    state.status === "running" &&
+    state.stage === "resuming" &&
+    state.restartStartedAt !== undefined;
+  const [now, setNow] = useState(Date.now);
+  // oxlint-disable-next-line t3code/react-effect-budget -- A wall clock ticks the restart. // fork-hook: upstream-fixes/server-update-progress-clock
+  useEffect(() => {
+    if (!ticking) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  if (state.status === "failed") return state.message;
+  if (state.status === "completed") return `Updated to t3@${state.targetVersion}.`;
+  const elapsed = serverUpdateRestartElapsedSeconds(state, now);
+  return `${serverUpdateStageLabel(state.stage)}${elapsed === null ? "" : ` ${elapsed}s elapsed`}`;
+}
+
+/** Unknown byte counts stay indeterminate; terminal outcomes stop all activity. */
 export function ServerUpdateProgress({
   state,
 }: {
   readonly state: Exclude<ServerUpdateState, { status: "idle" }>;
 }) {
+  const detail = useServerUpdateDetail(state);
   if (state.status === "failed") {
     return (
       <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-destructive" role="alert">
@@ -191,9 +236,18 @@ export function ServerUpdateProgress({
     );
   }
   return (
-    <div className="mt-1 flex items-center gap-2 text-xs font-medium text-foreground">
-      <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-hidden="true" />
-      <span>{serverUpdateStageLabel(state.stage)}</span>
+    <div className="mt-1 min-w-0 space-y-1 text-xs font-medium text-foreground" role="status">
+      <div className="flex items-center gap-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-hidden="true" />
+        <span>{detail}</span>
+      </div>
+      {state.status === "running" ? (
+        <Progress
+          aria-label={serverUpdateStageLabel(state.stage)}
+          step={serverUpdateStep(state.stage)}
+          steps={SERVER_UPDATE_STEPS}
+        />
+      ) : null}
     </div>
   );
 }
