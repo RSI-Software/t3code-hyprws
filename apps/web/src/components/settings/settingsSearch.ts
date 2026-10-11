@@ -18,6 +18,7 @@ import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
   | "/settings/dictation" // fork-hook: voice-input/settings-path
+  | "/settings/terminal" // fork-hook: zmux-estate/settings-path
   | "/settings/projects"
   | "/settings/general"
   | "/settings/diagnostics"
@@ -93,6 +94,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
+  "/settings/terminal": "Terminal", // fork-hook: zmux-estate/settings-label
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -119,7 +121,9 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     heading: null,
     paths: [
       "/settings/general",
+      "/settings/dictation", // fork-hook: voice-input/settings-nav-group
       "/settings/appearance",
+      "/settings/terminal", // fork-hook: zmux-estate/settings-nav-group
       "/settings/chat",
       "/settings/diffs",
       "/settings/keybindings",
@@ -209,8 +213,10 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
   .join(" ");
 
 import { voiceInputSearchItemsFork } from "./voiceInputSearch.fork"; // fork-hook: voice-input/settings-search-import
+import { terminalSearchItemsFork } from "./terminalSearch.fork"; // fork-hook: zmux-estate/settings-search-import
 export const SETTINGS_SEARCH_ITEMS = [
   ...voiceInputSearchItemsFork, // fork-hook: voice-input/settings-search-items
+  ...terminalSearchItemsFork, // fork-hook: zmux-estate/settings-search-items
   {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
@@ -381,11 +387,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Separate fonts",
     to: "/settings/appearance",
     searchTerms: ["typography advanced prompt code terminal font family size individually"],
-  },
-  {
-    id: "terminal-session-mode",
-    title: "Terminal session",
-    to: "/settings/appearance",
   },
   {
     id: "font-smoothing",
@@ -1185,6 +1186,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/dictation": null, // fork-hook: voice-input/settings-scope
+  "/settings/terminal": null, // fork-hook: zmux-estate/settings-scope
   "/settings/appearance": null,
   "/settings/chat": null,
   "/settings/diffs": null,

@@ -56,6 +56,7 @@ import {
 } from "./settingsSearch";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
+import { SquareTerminalIcon } from "lucide-react"; // fork-hook: zmux-estate/settings-icon-import
 import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
 import { useSettingsSectionNavigation } from "./useSettingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
@@ -90,6 +91,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/diagnostics": WrenchIcon,
   "/settings/dictation": MicIcon, // fork-hook: voice-input/settings-icon
   "/settings/appearance": PaletteIcon,
+  "/settings/terminal": SquareTerminalIcon, // fork-hook: zmux-estate/settings-icon
   "/settings/chat": MessageSquareTextIcon,
   "/settings/diffs": FileDiffIcon,
   "/settings/projects": PanelsTopLeftIcon,
