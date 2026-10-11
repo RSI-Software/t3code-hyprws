@@ -1,9 +1,10 @@
 import type { EnvironmentId, ServerSelfUpdateInput } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import type * as HttpClient from "effect/http/HttpClient";
-import type { Atom } from "effect/reactivity";
+import type { Atom, AtomRegistry } from "effect/reactivity";
 import type * as Socket from "effect/socket/Socket";
 
 import { describeOutdatedHost, updateOutdatedHost } from "../connection/outdatedHostUpdate.ts";
@@ -54,34 +55,62 @@ export function createOutdatedServerUpdateCommand<E>(
       mode: "singleFlight",
       key: ({ environmentId }: OutdatedServerUpdateTarget) => environmentId,
     },
-    execute: (target: OutdatedServerUpdateTarget, atomRegistry) => {
-      const stateAtom = serverUpdateStateAtom(target.environmentId);
-      const targetVersion = target.input.targetVersion;
-      const fromVersion = target.fromVersion ?? targetVersion;
-      let currentStage: ServerUpdateStage = "downloading";
-      const setStage = (stage: ServerUpdateStage) =>
-        Effect.sync(() => {
-          currentStage = stage;
-          atomRegistry.set(stateAtom, { status: "running", stage, fromVersion, targetVersion });
-        });
-      return setStage(currentStage).pipe(
-        Effect.andThen(updateOutdatedHost(target.environmentId, target.input, setStage)),
-        Effect.onExit((exit) =>
-          Effect.sync(() => {
-            if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
-              atomRegistry.set(stateAtom, { status: "idle" });
-              return;
-            }
-            atomRegistry.set(stateAtom, {
-              status: "failed",
-              stage: currentStage,
-              fromVersion,
-              targetVersion,
-              message: serverUpdateFailureMessage(Cause.squash(exit.cause)),
-            });
-          }),
-        ),
-      );
-    },
+    execute: (target: OutdatedServerUpdateTarget, atomRegistry) =>
+      trackOutdatedServerUpdate(atomRegistry, target, (onStage) =>
+        updateOutdatedHost(target.environmentId, target.input, onStage),
+      ),
   });
+}
+
+/** Publishes an outdated-host update's lifecycle to the shared update state. */
+export function trackOutdatedServerUpdate<A extends { readonly targetVersion: string }, E, R>(
+  atomRegistry: AtomRegistry.AtomRegistry,
+  target: OutdatedServerUpdateTarget,
+  update: (onStage: (stage: ServerUpdateStage) => Effect.Effect<void>) => Effect.Effect<A, E, R>,
+) {
+  const stateAtom = serverUpdateStateAtom(target.environmentId);
+  const targetVersion = target.input.targetVersion;
+  const fromVersion = target.fromVersion ?? targetVersion;
+  let currentStage: ServerUpdateStage = "downloading";
+  let restartStartedAt: number | undefined;
+  const setStage = Effect.fn("outdatedServerUpdate.setStage")(function* (stage: ServerUpdateStage) {
+    currentStage = stage;
+    // The host is never connected through the registry, so its downtime
+    // starts when the bare update transport hands off to "resuming".
+    if (stage === "resuming") restartStartedAt ??= yield* Clock.currentTimeMillis;
+    atomRegistry.set(stateAtom, {
+      status: "running",
+      stage,
+      fromVersion,
+      targetVersion,
+      ...(restartStartedAt === undefined ? {} : { restartStartedAt }),
+    });
+  });
+  return setStage(currentStage).pipe(
+    Effect.andThen(update(setStage)),
+    Effect.onExit((exit) =>
+      Effect.sync(() => {
+        if (Exit.isSuccess(exit)) {
+          // Verified against the live descriptor; config may still trail it.
+          atomRegistry.set(stateAtom, {
+            status: "completed",
+            fromVersion,
+            targetVersion: exit.value.targetVersion,
+          });
+          return;
+        }
+        if (Cause.hasInterruptsOnly(exit.cause)) {
+          atomRegistry.set(stateAtom, { status: "idle" });
+          return;
+        }
+        atomRegistry.set(stateAtom, {
+          status: "failed",
+          stage: currentStage,
+          fromVersion,
+          targetVersion,
+          message: serverUpdateFailureMessage(Cause.squash(exit.cause)),
+        });
+      }),
+    ),
+  );
 }
