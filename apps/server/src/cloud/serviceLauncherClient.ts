@@ -13,6 +13,7 @@ import {
   type ServiceLauncherChildMessage,
   type ServiceLauncherParentMessage,
 } from "./serviceProtocol.ts";
+import { heldServiceLauncherContextFork } from "./serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 export class ServiceLauncherClientError extends Schema.TaggedError<ServiceLauncherClientError>()(
   "ServiceLauncherClientError",
@@ -114,7 +115,9 @@ const resolveStartup = Effect.fn("cloud.service_launcher_client.resolve_startup"
     const environment = yield* HostProcess.Environment;
     const currentVersion = options?.currentVersion ?? packageJson.version;
     // IPC channels are not inherited; without one, launcher context belongs to an ancestor.
-    const rawContext = host.connected ? environment[SERVICE_LAUNCHER_CONTEXT_ENV] : undefined;
+    const rawContext = host.connected
+      ? (environment[SERVICE_LAUNCHER_CONTEXT_ENV] ?? heldServiceLauncherContextFork())
+      : undefined; // fork-hook: upstream-fixes/launcher-context-env
     const context = rawContext === undefined ? undefined : decodeServiceLauncherContext(rawContext);
 
     if (rawContext !== undefined && context === undefined) {
