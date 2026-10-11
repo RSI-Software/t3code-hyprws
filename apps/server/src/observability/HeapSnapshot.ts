@@ -36,3 +36,5 @@ export const layer = Layer.effectDiscard(
     );
   }),
 );
+
+export { writeHeapSnapshot }; // fork-hook: upstream-fixes/heap-snapshot-export
