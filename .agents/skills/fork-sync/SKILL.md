@@ -5,7 +5,8 @@ description: Sync RSI-Software/t3code-hyprws with upstream: pick a release tag, 
 
 # Fork sync
 
-One driver walks one upstream release tag end to end: fetch, rebase, check, push, blocked, report.
+One driver walks one upstream release tag end to end: fetch, rebase, ci, push, blocked, report.
+The trunk moves only to a sha `hyprws CI` passed on the `sync/candidate` branch.
 A run has one exit code and one typed report.
 No modes, no gates, no lanes: a rerun of the same command is always the next move.
 
@@ -17,7 +18,7 @@ vp run fork:sync <tag>      # one named v… tag
 vp run fork:sync <tag> --dry-run
 ```
 
-`--dry-run` rebases and checks, then stops: no push, no issue, no publication.
+`--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no publication.
 Any other flag is a defect.
 Name a tag only when the user names one; otherwise run with no tag.
 
@@ -26,7 +27,7 @@ A green dry run keeps its tip in the sync worktree for the real run:
 1. Dry run reaches `applied`
 2. `decision.tip` names the kept tip
 3. `vp run fork:sync <tag>` adopts it
-4. The battery reruns; the tip pushes
+4. Its green run is reused; the tip pushes
 
 A moved lease or a new tag rebases again instead.
 
@@ -42,9 +43,9 @@ Post-push recovery reads this file, never a comment.
 | `lease`        | The `origin/hyprws` sha the push is leased against         |
 | `trunk`        | Trunk before and after the run                             |
 | `conflicts[]`  | Every stop's path, fork and upstream commit, route         |
-| `checks[]`     | Each battery command and its result                        |
+| `ci`           | The candidate's `hyprws CI` run, conclusion, and jobs      |
 | `decision`     | A stopped run's worktree, paths, and exact resume commands |
-| `decision.tip` | A red check's or green dry run's tip, kept in the worktree |
+| `decision.tip` | A red candidate's or green dry run's tip, in the worktree  |
 
 Never edit a report; a rerun supersedes it.
 
@@ -54,7 +55,7 @@ Never edit a report; a rerun supersedes it.
 | ------------------------------- | ------------------------------- |
 | `failed` at `fetch` or `target` | [Environment](#environment)     |
 | `blocked` with `manual` rows    | [Conflict](#conflict)           |
-| `failed` at `check`             | [Check battery](#check-battery) |
+| `failed` at `ci`                | [Candidate CI](#candidate-ci)   |
 | `failed` at `push`              | [Lease refusal](#lease-refusal) |
 
 ### Environment
@@ -75,14 +76,15 @@ Resolve each seam by verdict, then follow Unblock.
 | Reshape | Fork side moved too; resolve minimally, adapt at the tip    |
 | Retire  | Upstream owns it now; its own commit, never inside a fixup  |
 
-### Check battery
+### Candidate CI
 
-The battery is red; the worktree keeps the rebased tip.
-A red `fork:ci` skips every later row.
+`hyprws CI` is not green on the candidate; the worktree keeps the tip.
 
-- **Red job**: `checks[].job` names it
-- **Trunk-green fix**: by pull request
-- **Sync-only fix**: commit in the kept worktree
+- **Red job**: `ci.jobs` names it
+- **Real failure**: fix in the kept worktree
+- **Flake**: `gh run rerun` from `decision.resume`
+- **Never started**: check the mirror token
+- **Rerun**: the same command
 - **Never**: weaken a check
 
 ### Lease refusal
