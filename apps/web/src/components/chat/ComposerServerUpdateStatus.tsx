@@ -1,9 +1,14 @@
 import { Spinner } from "~/components/ui/spinner";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
-import { CircleAlertIcon, DownloadIcon } from "lucide-react";
+import { CircleAlertIcon, CircleCheckIcon, DownloadIcon } from "lucide-react";
 import { useId, useState } from "react";
 
-import { serverUpdateStageLabel } from "../ServerUpdateAction";
+import {
+  SERVER_UPDATE_STEPS,
+  serverUpdateStep,
+  useServerUpdateDetail,
+} from "../ServerUpdateAction";
+import { Progress } from "../ui/progress";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerBanner } from "./ComposerBanner";
 
@@ -18,6 +23,7 @@ export function ComposerServerUpdateIcon({
   if (status === "failed") {
     return <CircleAlertIcon aria-hidden className="text-error" />;
   }
+  if (status === "completed") return <CircleCheckIcon aria-hidden />;
   return <DownloadIcon aria-hidden />;
 }
 
@@ -30,8 +36,8 @@ export function ComposerServerUpdateStatus({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const triggerId = useId();
-  const title = `${state.status === "failed" ? "Could not update" : "Updating"} ${serverLabel}`;
-  const detail = state.status === "failed" ? state.message : serverUpdateStageLabel(state.stage);
+  const title = `${state.status === "failed" ? "Could not update" : state.status === "completed" ? "Updated" : "Updating"} ${serverLabel}`;
+  const detail = useServerUpdateDetail(state);
   return (
     <span
       role={state.status === "failed" ? "alert" : "status"}
@@ -59,6 +65,15 @@ export function ComposerServerUpdateStatus({
           {title}: {detail}
         </TooltipPopup>
       </Tooltip>
+      {state.status === "running" ? (
+        <span className="mt-1 block max-w-md">
+          <Progress
+            aria-label={detail}
+            step={serverUpdateStep(state.stage)}
+            steps={SERVER_UPDATE_STEPS}
+          />
+        </span>
+      ) : null}
     </span>
   );
 }
