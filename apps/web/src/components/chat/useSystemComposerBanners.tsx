@@ -23,7 +23,7 @@ import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { ENVIRONMENT_RECONNECT_WARNING_GRACE_MS } from "../ChatView.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
-import { ServerUpdateAction, serverUpdateStageLabel } from "../ServerUpdateAction";
+import { ServerUpdateAction, ServerUpdateDetail, serverUpdateVerb } from "../ServerUpdateAction"; // fork-hook: upstream-fixes/server-update-completed-banner
 import { useAutoBalanceUpdateBanner } from "./useAutoBalanceUpdateBanner";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 import {
@@ -218,33 +218,33 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       !serverUpdateFailureDismissed
     ) {
       const updateFailed = serverUpdateState.status === "failed";
+      const updateSettled = updateFailed || serverUpdateState.status === "completed"; // fork-hook: upstream-fixes/server-update-completed-dismiss
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
         group: "environment",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
-        title: `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`,
-        description:
-          serverUpdateState.status === "failed"
-            ? serverUpdateState.message
-            : serverUpdateStageLabel(serverUpdateState.stage),
-        actions: !updateFailed ? (
-          disconnectAction
-        ) : !versionMismatch ||
-          (versionMismatchSelfUpdate === "desktop-managed" &&
-            !versionMismatchDesktopAppUpdate) ? undefined : (
-          <ServerUpdateAction
-            environmentId={serverUpdateEnvironmentId}
-            serverLabel={versionMismatchServerLabel}
-            selfUpdate={versionMismatchSelfUpdate}
-            installation={versionMismatchInstallation}
-            desktopAppUpdate={versionMismatchDesktopAppUpdate}
-            targetVersion={versionMismatch.clientVersion}
-            label="Retry"
-            variant="ghost"
-          />
-        ),
-        ...(updateFailed
+        title: `${serverUpdateVerb(serverUpdateState.status)} ${versionMismatchServerLabel}`, // fork-hook: upstream-fixes/server-update-completed-banner
+        description: <ServerUpdateDetail state={serverUpdateState} />, // fork-hook: upstream-fixes/server-update-completed-banner
+        actions:
+          serverUpdateState.status === "running" ? ( // fork-hook: upstream-fixes/server-update-completed-actions
+            disconnectAction
+          ) : serverUpdateState.status === "completed" || // fork-hook: upstream-fixes/server-update-completed-actions
+            !versionMismatch ||
+            (versionMismatchSelfUpdate === "desktop-managed" &&
+              !versionMismatchDesktopAppUpdate) ? undefined : (
+            <ServerUpdateAction
+              environmentId={serverUpdateEnvironmentId}
+              serverLabel={versionMismatchServerLabel}
+              selfUpdate={versionMismatchSelfUpdate}
+              installation={versionMismatchInstallation}
+              desktopAppUpdate={versionMismatchDesktopAppUpdate}
+              targetVersion={versionMismatch.clientVersion}
+              label="Retry"
+              variant="ghost"
+            />
+          ),
+        ...(updateSettled // fork-hook: upstream-fixes/server-update-completed-dismiss
           ? {
               dismissLabel: "Dismiss update notice",
               onDismiss: () => {
