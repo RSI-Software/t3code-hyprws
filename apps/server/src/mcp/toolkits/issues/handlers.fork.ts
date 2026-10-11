@@ -7,6 +7,7 @@
 import {
   CommandId,
   pullRequestHostOf,
+  SourceControlProviderKind,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -55,7 +56,7 @@ const GITHUB_DOT_COM = "github.com";
 function projectGitHubHost(project: OrchestrationProjectShell | undefined): string | null {
   const identity = project?.repositoryIdentity;
   if (!identity || identity.provider !== "github") return null;
-  const host = pullRequestHostOf(identity, "github").toLowerCase();
+  const host = pullRequestHostOf(identity, SourceControlProviderKind.make("github")).toLowerCase();
   try {
     const remote = new URL(identity.locator.remoteUrl);
     if (
