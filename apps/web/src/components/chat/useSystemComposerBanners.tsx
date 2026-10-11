@@ -24,7 +24,7 @@ import {
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ServerUpdateAction, serverUpdateStageLabel } from "../ServerUpdateAction";
+import { ServerUpdateAction, ServerUpdateDetail, serverUpdateVerb } from "../ServerUpdateAction"; // fork-hook: upstream-fixes/server-update-completed-banner
 import { useAutoBalanceUpdateBanner } from "./useAutoBalanceUpdateBanner";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 import {
@@ -247,14 +247,15 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
     ) {
       const updateInProgress = serverUpdateState.status === "running";
       const updateFailed = serverUpdateState.status === "failed";
+      const updateSettled = updateFailed || serverUpdateState.status === "completed"; // fork-hook: upstream-fixes/server-update-completed-dismiss
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
         priority: updateInProgress ? "urgent" : "notice",
         icon: <ComposerServerUpdateIcon status={serverUpdateState.status} />,
         title:
-          updateInProgress || updateFailed ? (
-            `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`
+          serverUpdateState.status !== "idle" ? ( // fork-hook: upstream-fixes/server-update-completed-banner
+            `${serverUpdateVerb(serverUpdateState.status)} ${versionMismatchServerLabel}` // fork-hook: upstream-fixes/server-update-completed-banner
           ) : versionMismatch ? (
             <Tooltip>
               <TooltipTrigger
@@ -276,18 +277,17 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
             "Server update available"
           ),
         description:
-          serverUpdateState.status === "failed"
-            ? serverUpdateState.message
-            : serverUpdateState.status === "running"
-              ? serverUpdateStageLabel(serverUpdateState.stage)
-              : versionMismatchSelfUpdate !== null &&
-                  (versionMismatchSelfUpdate !== "desktop-managed" ||
-                    !versionMismatchDesktopAppUpdate)
-                ? serverUpdateGuidance(versionMismatchSelfUpdate)
-                : undefined,
+          serverUpdateState.status !== "idle" ? (
+            <ServerUpdateDetail state={serverUpdateState} /> // fork-hook: upstream-fixes/server-update-completed-banner
+          ) : versionMismatchSelfUpdate !== null &&
+            (versionMismatchSelfUpdate !== "desktop-managed" ||
+              !versionMismatchDesktopAppUpdate) ? (
+            serverUpdateGuidance(versionMismatchSelfUpdate)
+          ) : undefined,
         actions: updateInProgress ? (
           disconnectAction
-        ) : !versionMismatch ||
+        ) : serverUpdateState.status === "completed" || // fork-hook: upstream-fixes/server-update-completed-actions
+          !versionMismatch ||
           (versionMismatchSelfUpdate === "desktop-managed" &&
             !versionMismatchDesktopAppUpdate) ? undefined : (
           <ServerUpdateAction
@@ -302,12 +302,13 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
             variant="ghost"
           />
         ),
-        ...(updateInProgress || (!updateFailed && !versionMismatchDismissKey)
+        ...(updateInProgress || (!updateSettled && !versionMismatchDismissKey) // fork-hook: upstream-fixes/server-update-completed-dismiss
           ? {}
           : {
               dismissLabel: "Dismiss update notice",
               onDismiss: () => {
-                if (updateFailed) {
+                if (updateSettled) {
+                  // fork-hook: upstream-fixes/server-update-completed-dismiss
                   dismissServerUpdateFailure(serverUpdateState);
                   setDismissedServerUpdateState(serverUpdateState);
                 }
