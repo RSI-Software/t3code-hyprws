@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -80,7 +81,9 @@ function LinkGitHubIssueDialog({
     const repository =
       identity.displayName ??
       (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
-    return repository === null ? null : { host: pullRequestHostOf(identity, "github"), repository };
+    return repository === null
+      ? null
+      : { host: pullRequestHostOf(identity, SourceControlProviderKind.make("github")), repository };
   }, [projects, thread?.projectId, threadRef.environmentId]);
   const resolved = resolveGitHubIssueReference(reference, ownProject);
 
