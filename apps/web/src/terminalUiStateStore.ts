@@ -7,6 +7,11 @@
 
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { type ScopedThreadRef } from "@t3tools/contracts";
+import type { TerminalSessionMode } from "@t3tools/contracts"; // fork-hook: zmux-estate/session-mode-ui-import
+import {
+  foldLegacyPlainShellFork,
+  withTerminalSessionModeFork,
+} from "./terminalSessionModeState.fork"; // fork-hook: zmux-estate/session-mode-ui-helper-import
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -26,7 +31,7 @@ interface ThreadTerminalUiState {
   activeTerminalGroupId: string;
   /** Missing entries follow the thread checkout. Pins are local to this viewer. */
   checkoutModeByTerminalId: Record<string, "follow" | "pin">;
-  plainShellByTerminalId?: Record<string, true>; // fork-hook: zmux-estate/plain-shell-ui-state
+  sessionModeByTerminalId?: Record<string, TerminalSessionMode>; // fork-hook: zmux-estate/plain-shell-ui-state
 }
 
 // Keep the old storage key so existing drawer layout preferences migrate.
@@ -182,8 +187,8 @@ function threadTerminalUiStateEqual(
     terminalGroupsEqual(left.terminalGroups, right.terminalGroups) &&
     JSON.stringify(left.checkoutModeByTerminalId) ===
       JSON.stringify(right.checkoutModeByTerminalId) &&
-    JSON.stringify(left.plainShellByTerminalId ?? {}) ===
-      JSON.stringify(right.plainShellByTerminalId ?? {}) // fork-hook: zmux-estate/plain-shell-ui-equality
+    JSON.stringify(left.sessionModeByTerminalId ?? {}) ===
+      JSON.stringify(right.sessionModeByTerminalId ?? {}) // fork-hook: zmux-estate/plain-shell-ui-equality
   );
 }
 
@@ -223,10 +228,10 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
     : null;
   const activeGroupIdFromTerminal =
     terminalGroups.find((group) => group.terminalIds.includes(activeTerminalId))?.id ?? null;
-  const plainShellEntries = Object.entries(state.plainShellByTerminalId ?? {}).filter(
-    // Panel terminals have no drawer layout entry, but share the shell choice.
-    ([terminalId, plainShell]) => terminalId.length > 0 && plainShell === true,
-  ); // fork-hook: zmux-estate/plain-shell-ui-normalize
+  const sessionModeEntries = Object.entries(state.sessionModeByTerminalId ?? {}).filter(
+    // Panel terminals have no drawer layout entry, but share the mode choice.
+    ([terminalId, mode]) => terminalId.length > 0 && (mode === "shell" || mode === "zmux"),
+  ); // fork-hook: zmux-estate/session-mode-ui-normalize
 
   const normalized: ThreadTerminalUiState = {
     terminalOpen: state.terminalOpen,
@@ -244,9 +249,9 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
         state.checkoutModeByTerminalId?.[terminalId] === "pin" ? [[terminalId, "pin"]] : [],
       ),
     ),
-    ...(plainShellEntries.length > 0
-      ? { plainShellByTerminalId: Object.fromEntries(plainShellEntries) }
-      : {}), // fork-hook: zmux-estate/plain-shell-ui-normalized-state
+    ...(sessionModeEntries.length > 0
+      ? { sessionModeByTerminalId: Object.fromEntries(sessionModeEntries) }
+      : {}), // fork-hook: zmux-estate/session-mode-ui-normalized-state
   };
   return threadTerminalUiStateEqual(state, normalized) ? state : normalized;
 }
@@ -592,8 +597,16 @@ interface TerminalUiStateStoreState {
   setTerminalHeight: (threadRef: ScopedThreadRef, height: number) => void;
   splitTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
   splitTerminalVertical: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  newTerminal: (threadRef: ScopedThreadRef, terminalId: string, plainShell?: boolean) => void; // fork-hook: zmux-estate/plain-shell-ui-create-contract
-  setTerminalPlainShellFork: (threadRef: ScopedThreadRef, terminalId: string) => void; // fork-hook: zmux-estate/plain-shell-ui-panel-contract
+  newTerminal: (
+    threadRef: ScopedThreadRef,
+    terminalId: string,
+    sessionMode?: TerminalSessionMode,
+  ) => void; // fork-hook: zmux-estate/plain-shell-ui-create-contract
+  setTerminalSessionModeFork: (
+    threadRef: ScopedThreadRef,
+    terminalId: string,
+    sessionMode: TerminalSessionMode,
+  ) => void; // fork-hook: zmux-estate/plain-shell-ui-panel-contract
   ensureTerminal: (
     threadRef: ScopedThreadRef,
     terminalId: string,
@@ -680,29 +693,22 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
             terminalId,
             suppressed: false,
           }),
-        newTerminal: (threadRef, terminalId, plainShell) =>
+        newTerminal: (threadRef, terminalId, sessionMode) =>
           updateTerminal(
             threadRef,
             (state) => ({
               ...newThreadTerminal(state, terminalId),
-              plainShellByTerminalId: {
-                ...Object.fromEntries(
-                  Object.entries(state.plainShellByTerminalId ?? {}).filter(
-                    ([id]) => id !== terminalId,
-                  ),
-                ),
-                ...(plainShell ? { [terminalId]: true as const } : {}),
-              },
+              ...withTerminalSessionModeFork(state, terminalId, sessionMode), // fork-hook: zmux-estate/session-mode-ui-create-entry
             }),
             {
               terminalId,
               suppressed: false,
             },
           ), // fork-hook: zmux-estate/plain-shell-ui-create
-        setTerminalPlainShellFork: (threadRef, terminalId) =>
+        setTerminalSessionModeFork: (threadRef, terminalId, sessionMode) =>
           updateTerminal(threadRef, (state) => ({
             ...state,
-            plainShellByTerminalId: { ...state.plainShellByTerminalId, [terminalId]: true },
+            ...withTerminalSessionModeFork(state, terminalId, sessionMode), // fork-hook: zmux-estate/session-mode-ui-panel-entry
           })), // fork-hook: zmux-estate/plain-shell-ui-panel
         ensureTerminal: (threadRef, terminalId, options) =>
           updateTerminal(
@@ -743,11 +749,7 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
             threadRef,
             (state) => ({
               ...closeThreadTerminal(state, terminalId),
-              plainShellByTerminalId: Object.fromEntries(
-                Object.entries(state.plainShellByTerminalId ?? {}).filter(
-                  ([id]) => id !== terminalId,
-                ),
-              ),
+              ...withTerminalSessionModeFork(state, terminalId), // fork-hook: zmux-estate/session-mode-ui-close-entry
             }),
             {
               terminalId,
@@ -840,6 +842,7 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
       version: 4,
       storage: createJSONStorage(createTerminalUiStateStorage),
       migrate: migratePersistedTerminalUiStateStoreState,
+      merge: (persisted, current) => ({ ...current, ...foldLegacyPlainShellFork(persisted) }), // fork-hook: zmux-estate/session-mode-ui-legacy
       partialize: (state) => ({
         terminalUiStateByThreadKey: state.terminalUiStateByThreadKey,
       }),
