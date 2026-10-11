@@ -28,14 +28,14 @@ describe("primary absence grace", () => {
    */
   const makePoller = () => {
     let cache: ReadonlyMap<string, Entry> = new Map();
-    return (read: PrimaryEnvironmentTargetRead, nowEpochMs: number, discovered?: Entry) => {
+    return (read: PrimaryEnvironmentTargetRead, nowMs: number, discovered?: Entry) => {
       const next = new Map<string, Entry>();
       const registrations: Array<never> = [];
       if (discovered !== undefined) {
         next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, discovered);
         registrations.push(discovered.registration);
       }
-      keepPrimaryThroughAbsenceFork(cache, next, registrations, read, nowEpochMs);
+      keepPrimaryThroughAbsenceFork(cache, next, registrations, read, nowMs);
       cache = next;
       const primary = next.get(PRIMARY_LOCAL_ENVIRONMENT_ID);
       expect(registrations).toEqual(primary === undefined ? [] : [primary.registration]);
@@ -68,15 +68,15 @@ describe("primary absence grace", () => {
     // Absent, then the target returns but descriptor discovery times out,
     // then absent again: every poll keeps the registration, and it stays
     // unreusable so each later target poll retries discovery.
-    for (const [read, nowEpochMs] of [
+    for (const [read, nowMs] of [
       [absent, 13_000],
       [present, 16_000],
       [absent, 19_000],
       [present, 309_999],
     ] as const) {
-      const kept = poll(read, nowEpochMs);
+      const kept = poll(read, nowMs);
       expect(kept?.registration).toBe(cached.registration);
-      expect(canReuseCachedPlatformRegistration(kept!, signature, nowEpochMs)).toBe(false);
+      expect(canReuseCachedPlatformRegistration(kept!, signature, nowMs)).toBe(false);
     }
     // Failed rediscovery never extends the grace of the last good sighting.
     expect(poll(present, 310_000)).toBeUndefined();

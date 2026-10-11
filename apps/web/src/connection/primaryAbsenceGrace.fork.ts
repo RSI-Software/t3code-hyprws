@@ -12,8 +12,12 @@ const PRIMARY_ABSENCE_GRACE_MS = 300_000;
 /** Matches no endpoint signature, so a kept primary is never reused as-is. */
 const ABSENT_PRIMARY_SIGNATURE = "primary-absent";
 
-/** When the poll last registered a discovered or reused primary. */
-let primarySeenAtEpochMs: number | undefined;
+/**
+ * When the poll last registered a discovered or reused primary, on a
+ * monotonic clock (`performance.now()`): NTP can step the wall clock by
+ * minutes while the server is down, which would end the grace early.
+ */
+let primarySeenAtMs: number | undefined;
 
 /**
  * The cached primary to keep inside the grace of the last good sighting. A
@@ -24,10 +28,10 @@ let primarySeenAtEpochMs: number | undefined;
  */
 export function primaryToKeepThroughAbsenceFork<Entry extends { readonly signature: string }>(
   previous: ReadonlyMap<string, Entry>,
-  seenAtEpochMs: number | undefined,
-  nowEpochMs: number,
+  seenAtMs: number | undefined,
+  nowMs: number,
 ): Entry | undefined {
-  if (seenAtEpochMs === undefined || nowEpochMs - seenAtEpochMs >= PRIMARY_ABSENCE_GRACE_MS) {
+  if (seenAtMs === undefined || nowMs - seenAtMs >= PRIMARY_ABSENCE_GRACE_MS) {
     return undefined;
   }
   const cached = previous.get(PRIMARY_LOCAL_ENVIRONMENT_ID);
@@ -51,14 +55,14 @@ export function keepPrimaryThroughAbsenceFork<
   next: Map<string, Entry>,
   registrations: Array<Registration>,
   topologyRead: PrimaryEnvironmentTargetRead,
-  nowEpochMs: number,
+  nowMs = performance.now(),
 ): void {
   if (topologyRead._tag !== "Success") return;
   if (next.has(PRIMARY_LOCAL_ENVIRONMENT_ID)) {
-    primarySeenAtEpochMs = nowEpochMs;
+    primarySeenAtMs = nowMs;
     return;
   }
-  const kept = primaryToKeepThroughAbsenceFork(previous, primarySeenAtEpochMs, nowEpochMs);
+  const kept = primaryToKeepThroughAbsenceFork(previous, primarySeenAtMs, nowMs);
   if (kept === undefined) return;
   next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, kept);
   registrations.push(kept.registration);

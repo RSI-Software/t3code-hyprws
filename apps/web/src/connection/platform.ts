@@ -637,7 +637,7 @@ const layerPlatformConnectionSource = Layer.effect(
           }
         }
       }
-      keepPrimaryThroughAbsenceFork(previous, next, registrations, primaryTopologyRead, nowEpochMs); // fork-hook: backend-attach/platform-absence-grace
+      keepPrimaryThroughAbsenceFork(previous, next, registrations, primaryTopologyRead); // fork-hook: backend-attach/platform-absence-grace
 
       const topologyRead = readDesktopSecondaryBootstrapsResult();
       for (const [id, cached] of secondaryRegistrationsToRetainAfterTopologyRead(
