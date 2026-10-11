@@ -2,6 +2,7 @@ import {
   AuthTerminalOperateScope,
   AuthTerminalReadScope,
   type ScopedThreadRef,
+  type TerminalSessionMode, // fork-hook: zmux-estate/session-mode-actions-import
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
@@ -101,6 +102,7 @@ export function useThreadTerminalActions(threadRef: ScopedThreadRef | null) {
     readonly location?: TerminalLaunchLocation | null;
     readonly extraEnv?: Record<string, string>;
     readonly size?: { readonly cols: number; readonly rows: number };
+    readonly sessionModeFork?: TerminalSessionMode | undefined; // fork-hook: zmux-estate/session-mode-launch-input
   }) => {
     if (!threadRef || !canWrite() || !project) return null;
     const location = input.location ?? defaultLaunchLocation();
@@ -112,6 +114,8 @@ export function useThreadTerminalActions(threadRef: ScopedThreadRef | null) {
       input: {
         threadId: threadRef.threadId,
         terminalId,
+        attachmentId: terminalAttachmentId(terminalId), // fork-hook: zmux-estate/attachment-launch
+        ...(input.sessionModeFork ? { sessionModeFork: input.sessionModeFork } : {}), // fork-hook: zmux-estate/session-mode-launch
         cwd: location.cwd,
         ...(location.worktreePath !== null ? { worktreePath: location.worktreePath } : {}),
         env: projectScriptRuntimeEnv({

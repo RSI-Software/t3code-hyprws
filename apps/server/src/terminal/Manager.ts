@@ -83,7 +83,7 @@ import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClie
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import { makeSettlementAttachmentReleaseFork } from "./SettlementAttachmentRelease.fork.ts"; // fork-hook: zmux-estate/settled-lane-release-import
-import { settlementHookTerminalModeFork } from "./SettlementHookShell.fork.ts"; // fork-hook: zmux-estate/settle-hook-shell-mode-import
+import { terminalModeForSessionFork } from "./SettlementHookShell.fork.ts"; // fork-hook: zmux-estate/settle-hook-shell-mode-import
 import { SettledLaneAttachGuard } from "../zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/settled-lane-attach-guard-import
 import {
   INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
@@ -415,7 +415,7 @@ interface TerminalSessionState {
   managedAttachment: ManagedAttachmentLifecycle;
   managedSuspendFiber: Fiber.Fiber<void, never> | null;
   runtimeEnv: Record<string, string> | null;
-  plainShellFork: boolean; // fork-hook: zmux-estate/plain-shell-state
+  sessionModeFork: TerminalSessionMode | null; // fork-hook: zmux-estate/session-mode-state
 }
 
 interface PersistHistoryRequest {
@@ -464,6 +464,7 @@ interface RetainedManagedSessionIdentity {
   readonly childCommandLabel: string | null;
   readonly updatedAt: string;
   readonly eventSequence: number;
+  readonly sessionModeFork: TerminalSessionMode | null; // fork-hook: zmux-estate/session-mode-retained
 }
 
 interface TerminalManagerState {
@@ -1817,7 +1818,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const registerTerminalProcesses = options.registerTerminalProcesses ?? (() => Effect.void);
   const unregisterTerminal = options.unregisterTerminal ?? (() => Effect.void);
   const terminalSessionMode = options.terminalSessionMode ?? Effect.succeed("shell" as const);
-  const effectiveTerminalSessionMode = settlementHookTerminalModeFork(terminalSessionMode); // fork-hook: zmux-estate/settle-hook-shell-mode
+  const sessionModeFor = (session: TerminalSessionState) =>
+    terminalModeForSessionFork(session.sessionModeFork, terminalSessionMode); // fork-hook: zmux-estate/settle-hook-shell-mode
 
   const resolveZmuxSession = Effect.fn("terminal.resolveZmuxSession")(function* (
     targetDir: string,
@@ -2511,6 +2513,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               childCommandLabel: session.childCommandLabel,
               updatedAt: session.updatedAt,
               eventSequence,
+              sessionModeFork: session.sessionModeFork, // fork-hook: zmux-estate/session-mode-retained
             });
           }
           events.push({
@@ -2796,8 +2799,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     session: TerminalSessionState,
     input: TerminalStartInput,
   ): Effect.fn.Return<PreparedManagedRetarget | null, TerminalError> {
-    if (session.plainShellFork) return null; // fork-hook: zmux-estate/plain-shell-retarget
-    if ((yield* effectiveTerminalSessionMode) !== "zmux") return null; // fork-hook: zmux-estate/settle-hook-shell-retarget-mode
+    if ((yield* sessionModeFor(session)) !== "zmux") return null; // fork-hook: zmux-estate/settle-hook-shell-retarget-mode
 
     const worktreePath = input.worktreePath ?? null;
     if (worktreePath !== null) {
@@ -3185,7 +3187,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                 }
               }
             }
-            const mode = session.plainShellFork ? "shell" : yield* effectiveTerminalSessionMode; // fork-hook: zmux-estate/settle-hook-shell-open-mode
+            const mode = yield* sessionModeFor(session); // fork-hook: zmux-estate/settle-hook-shell-open-mode
             let shellCandidates = plainShellCandidates;
             let spawnEnv = terminalEnv;
             let managedTarget: string | null = null;
@@ -4034,7 +4036,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           },
           managedSuspendFiber: null,
           runtimeEnv: current.runtimeEnv,
-          plainShellFork: false, // fork-hook: zmux-estate/plain-shell-retained
+          sessionModeFork: current.sessionModeFork, // fork-hook: zmux-estate/session-mode-retained
         };
         const sessions = new Map(state.sessions);
         sessions.set(key, session);
@@ -4098,7 +4100,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         managedAttachment: INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
         managedSuspendFiber: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
-        plainShellFork: input.plainShellFork === true, // fork-hook: zmux-estate/plain-shell-open-state
+        sessionModeFork: input.sessionModeFork ?? null, // fork-hook: zmux-estate/session-mode-open-state
       };
 
       const createdSession = session;
@@ -4735,7 +4737,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         managedAttachment: INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
         managedSuspendFiber: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
-        plainShellFork: input.plainShellFork === true, // fork-hook: zmux-estate/plain-shell-restart-state
+        sessionModeFork: input.sessionModeFork ?? null, // fork-hook: zmux-estate/session-mode-restart-state
       };
       const createdSession = session;
       yield* modifyManagerState((state) => {
