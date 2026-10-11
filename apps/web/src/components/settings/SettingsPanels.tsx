@@ -134,6 +134,12 @@ import { downloadLocalUpdate } from "../sidebar/SidebarUpdatePill";
 import { useUpdateEverythingRun } from "../sidebar/updateEverythingRun";
 import { awaitsTrackSwitch, channelSwitchLabel } from "../sidebar/updateEverything.logic";
 import { isHostedByThisApp } from "../sidebar/useUpdateEverything";
+import {
+  ExternalSymlinksSettingsRowFork,
+  externalSymlinksRestoreLabelFork,
+  ShowIgnoredFilesSettingsRowFork,
+} from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
+import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: msg("Wait for the full response"),
@@ -151,11 +157,6 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
   manual: msg("Manual"),
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
-
-const TERMINAL_SESSION_MODE_LABELS: Record<TerminalSessionMode, string> = {
-  shell: "Plain shell",
-  zmux: "Managed zmux session",
-};
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: msg("System default"),
@@ -574,9 +575,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? [gt("Composer context")]
       : []),
-    ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
-      ? ["Terminal session"]
-      : []),
+    ...terminalRestoreLabelsFork(settings), // fork-hook: zmux-estate/settings-restore-labels
     ...getChangedTypographySettingLabels(settings, messages),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? [gt("Default diff file state")]
@@ -731,7 +730,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-      terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
+      ...terminalRestoreDefaultsFork, // fork-hook: zmux-estate/settings-restore-defaults
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
@@ -1239,27 +1238,9 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("show-ignored-files")}
-          description="Include gitignored paths in workspace file trees. They remain hidden by default."
-          resetAction={
-            settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
-              <SettingResetButton
-                label="ignored files"
-                onClick={() =>
-                  updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.showIgnoredFiles}
-              onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
-              aria-label="Show ignored files in workspace file trees"
-            />
-          }
-        />
+        {/* fork-hook: workspace-files/show-ignored-files-row */}
+        <ShowIgnoredFilesSettingsRowFork />
+        {/* fork-hook-end */}
 
         {/* fork-hook: upstream-fixes/settings-row-mount */}
         <ExternalSymlinksSettingsRowFork />
