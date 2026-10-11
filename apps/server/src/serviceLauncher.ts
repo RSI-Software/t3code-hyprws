@@ -10,6 +10,7 @@ import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
+import { backupDatabaseForMigrationsFork } from "./serviceLauncherBackup.fork.ts"; // fork-hook: upstream-fixes/migration-backup
 
 import type {
   PendingServiceUpdate,
@@ -592,7 +593,12 @@ export class Launcher {
 
   async #startTrial(pending: PendingServiceUpdate): Promise<void> {
     try {
-      await backupDatabaseOnce(this.#baseDir, pending);
+      await backupDatabaseForMigrationsFork(
+        this.#baseDir,
+        pending,
+        runtimePaths(this.#baseDir, pending.targetVersion).entryPath,
+        backupDatabaseOnce,
+      ); // fork-hook: upstream-fixes/migration-backup
     } catch {
       await this.#returnToPrevious(pending, "failed", "db-backup-failed");
       return;
