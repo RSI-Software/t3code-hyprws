@@ -74,3 +74,4 @@ export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./voiceInput.fork.ts"; // fork-hook: voice-input/contracts-export
 export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
+export * from "./terminalSession.fork.ts"; // fork-hook: zmux-estate/terminal-session-export
