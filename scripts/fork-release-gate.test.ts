@@ -26,7 +26,7 @@ it("closes the gate for a green sha that is no longer the trunk tip", () => {
   assert.match(decision.reason, /not what the lease push landed/);
 });
 
-it("closes the gate for a trunk tip whose battery never ran", () => {
+it("closes the gate for a trunk tip whose hyprws CI never ran green", () => {
   const tip = sha("abc");
   for (const ciConclusion of [null, "", "failure", "cancelled", "stale"]) {
     const decision = decideReleaseGate({ releaseSha: tip, trunkTip: tip, ciConclusion });
