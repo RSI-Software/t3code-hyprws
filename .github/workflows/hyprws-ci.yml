@@ -10,11 +10,10 @@ on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
   # matrix has normally passed on this exact head before the draft is marked
   # ready, and listing the event only discards those results and reruns them.
+  # No `branches` filter: a native stack layer targets the layer below it, not
+  # the trunk, and must still get the required checks before it lands.
   pull_request:
     types: [opened, synchronize, reopened]
-    branches:
-      - hyprws
-      - "release/**"
   # A merge queue builds `gh-readonly-queue/<base>/**` and waits for the
   # contexts the branch ruleset requires. Every one of them comes from this
   # workflow, so without this trigger a queued entry reports nothing and sits
