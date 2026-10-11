@@ -260,6 +260,7 @@ const forkSettings = {
   defaultThreadEnvMode: "worktree",
   defaultThreadEnvModeFork: "worktrunk",
   terminalSessionMode: "zmux",
+  zmuxAutoSessions: true,
   githubIssueHandoffPromptTemplate: "Work on #{{number}}",
   followExternalWorkspaceSymlinks: true,
   projectSettingsOverrides: {
@@ -465,7 +466,13 @@ describe("an upstream client reading a fork server", () => {
       },
     });
     const wire = JSON.stringify(decoded);
-    for (const key of ["Fork", "worktrunk", "terminalSessionMode", "githubIssueHandoff"]) {
+    for (const key of [
+      "Fork",
+      "worktrunk",
+      "terminalSessionMode",
+      "zmuxAutoSessions",
+      "githubIssueHandoff",
+    ]) {
       expect(wire).not.toContain(key);
     }
   });
