@@ -711,15 +711,17 @@ The domain retires when it is empty.
 
 ### Shape
 
-| Aspect    | Rule                                                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------------ |
-| Switch    | `terminalSessionMode`; `"zmux"` attaches terminals and adopts worktrees, verified by `session resolve` |
-| Ownership | The physical checkout owns its managed session; threads are consumers                                  |
-| Cleanup   | T3 snapshots a session identity and hands it back for conditional removal                              |
-| Teardown  | Settle/delete kills the checkout session and every tab; viewers and busy commands do not preserve it   |
-| Fallback  | Each plain-shell fallback prints its reason; a missing binary degrades silently                        |
-| Legacy    | `zmuxSessions` folds into `terminalSessionMode` on load                                                |
-| Binder    | `apps/server/src/zmux/`, called through `ProcessRunner` with tmux variables stripped                   |
+| Aspect    | Rule                                                                                                 |
+| --------- | ---------------------------------------------------------------------------------------------------- |
+| Switch    | `terminalSessionMode` is the default launch; a terminal's `sessionModeFork` overrides it             |
+| Automatic | `zmuxAutoSessions` (null follows the launch mode) gates worktree adoption and unsettle restore       |
+| Ownership | The physical checkout owns its managed session; threads are consumers                                |
+| Cleanup   | T3 snapshots a session identity and hands it back for conditional removal                            |
+| Teardown  | Settle/delete kills the checkout session and every tab; viewers and busy commands do not preserve it |
+| Restore   | `thread.unsettled` re-ensures a linked worktree's session through the automatic gate                 |
+| Fallback  | Each plain-shell fallback prints its reason; a missing binary degrades silently                      |
+| Legacy    | `zmuxSessions` folds into `terminalSessionMode` on load                                              |
+| Binder    | `apps/server/src/zmux/`, called through `ProcessRunner` with tmux variables stripped                 |
 
 **Demand leases.** Visible terminal surfaces hold them: web on document visibility, Electron on each shown, non-minimized window, deliberately excluding focus.
 Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand.

@@ -61,6 +61,7 @@ const harness = () =>
     let projectDeleted = false;
     const calls: string[] = [];
     const removed = yield* Queue.unbounded<Binder.ZmuxUnbindIdentity>();
+    const bound = yield* Deferred.make<void>();
     const subscribed = yield* Deferred.make<void>();
     const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
     const dependencies = Layer.mergeAll(
@@ -118,6 +119,7 @@ const harness = () =>
         bind: (lane) =>
           Effect.sync(() => {
             calls.push(`bind:${lane}`);
+            Deferred.doneUnsafe(bound, Effect.void);
             return { status: "bound", target, outcome: "created" } as const;
           }),
         prepareUnbind: (lane) =>
@@ -153,6 +155,7 @@ const harness = () =>
       dependencies,
       subscribed: Deferred.await(subscribed),
       removed: Queue.take(removed),
+      bound: Deferred.await(bound),
       emit: (type: "thread.settled" | "thread.deleted" | "thread.unsettled" | "thread.pinned") =>
         Queue.offer(events, { type, threadId: id } as OrchestrationV2DomainEvent),
       setThread: (value: Partial<OrchestrationV2AppThread>) => {
@@ -325,14 +328,33 @@ describe("settled checkout sessions", () => {
     }),
   );
 
-  it.effect("unsettling leaves the removed session gone", () =>
+  it.effect("unsettling restores the removed session", () =>
     Effect.gen(function* () {
       const h = yield* harness();
-      yield* h.reactor.reconcile(id);
+      yield* h.reactor.start();
+      yield* h.subscribed;
+      yield* h.emit("thread.settled");
       expect(yield* h.removed).toEqual(identity);
-      h.setThread({ settledOverride: "active" });
-      yield* h.reactor.reconcile(id);
-      expect(h.calls).not.toContain("bind:/repo-feature");
+      h.setThread({ settledOverride: null });
+      yield* h.emit("thread.unsettled");
+      yield* h.bound;
+      expect(h.calls).toEqual(["release", "prepare:/repo-feature", "unbind", "bind:/repo-feature"]);
+    }),
+  );
+
+  it.effect.each([
+    ["a settled", {}],
+    [
+      "a deleted",
+      { settledOverride: null, deletedAt: DateTime.makeUnsafe("2026-10-10T00:00:00Z") },
+    ],
+    ["a base checkout", { settledOverride: null, worktreePath: "/repo" }],
+  ] as const)("restore skips %s thread", ([, thread]) =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      h.setThread(thread);
+      yield* h.reactor.restore(id);
+      expect(h.calls).toEqual([]);
     }),
   );
 
