@@ -1132,13 +1132,21 @@ const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | 
  * completes, and a run that never starts or never finishes is not green.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
+  const started = performance.now();
   let latest = latestCiRun(runner, root, sha);
   if (latest === null) {
+    const ref = `refs/heads/${SYNC_CANDIDATE_BRANCH}`;
+    // A retry after a push that started no run would push an unchanged ref,
+    // which GitHub records as no event; recreate the branch so it fires one.
+    if (git(runner, root, ["ls-remote", "origin", ref]).startsWith(sha))
+      git(runner, root, ["push", "origin", "--delete", ref]);
     process.stdout.write(`sync: pushing ${sha.slice(0, 7)} to ${SYNC_CANDIDATE_BRANCH}\n`);
-    git(runner, root, ["push", "--force", "origin", `${sha}:refs/heads/${SYNC_CANDIDATE_BRANCH}`]);
+    git(runner, root, ["push", "--force", "origin", `${sha}:${ref}`]);
   }
   for (let waited = 0; latest?.status !== "completed"; waited += CI_POLL_SECONDS) {
-    if (waited >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
+    // Wall time counts slow GitHub reads; the sleep count bounds a faked sleep.
+    const elapsed = Math.max(waited, (performance.now() - started) / 1000);
+    if (elapsed >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
       return {
         run: latest?.url ?? "",
         conclusion: latest === null ? "never started" : "timed out",

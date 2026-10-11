@@ -4,7 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { assert, it } from "@effect/vitest";
+import { assert, it, vi } from "@effect/vitest";
 
 import type { FoldCommit } from "./fork-fold.ts";
 import {
@@ -226,13 +226,20 @@ const exec = (
         if (command === "sleep") return ok();
         if (command === "gh" && args[0] === "run") return fakeCi(args);
         if (command === "gh") return handlers.gh?.(args) ?? ok("[]");
-        const candidate = command === "git" ? CANDIDATE_PUSH.exec(args.at(-1) ?? "") : null;
-        if (candidate !== null && handlers.ci?.silent !== true) candidates.add(candidate[1]!);
-        return runCommand(command, args, {
+        const result = runCommand(command, args, {
           cwd: spec.cwd,
           ...(spec.env === undefined ? {} : { env: spec.env }),
           ...(spec.stream === undefined ? {} : { stream: spec.stream }),
         });
+        // Like GitHub, only a push that moves the candidate ref starts a run.
+        const candidate = command === "git" ? CANDIDATE_PUSH.exec(args.at(-1) ?? "") : null;
+        if (
+          candidate !== null &&
+          handlers.ci?.silent !== true &&
+          !result.stderr.includes("Everything up-to-date")
+        )
+          candidates.add(candidate[1]!);
+        return result;
       },
     },
   };
@@ -2282,6 +2289,44 @@ it("gives up without moving the trunk when the candidate never gets a CI run", (
     assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 10);
     assert.strictEqual(recording.calls.some(isLeasePush), false);
     assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+  });
+});
+
+it("recreates the candidate branch when a retry pushes the same sha", () => {
+  withFixture(checkRedFixture, (f) => {
+    const silent = exec({ ci: { silent: true } });
+    capture(() => run(["v1.0.0"], { runner: silent.runner, root: f.root }));
+    assert.strictEqual(readReport(f.root, "v1.0.0").ci?.conclusion, "never started");
+    // The token is fixed: the rerun's push must reach GitHub as a new event.
+    const retry = exec();
+    assert.strictEqual(
+      capture(() => run(["v1.0.0"], { runner: retry.runner, root: f.root })).value,
+      0,
+    );
+    assert.strictEqual(retry.calls.some(isLeasePush), true);
+  });
+});
+
+it("gives up on a never-started candidate by wall time when GitHub reads are slow", () => {
+  withFixture(checkRedFixture, (f) => {
+    let clock = 0;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    try {
+      const recording = exec({ ci: { silent: true } });
+      const runner: CommandRunner = {
+        run: (command, args, spec) => {
+          // Each run list takes a minute.
+          if (command === "gh" && args[0] === "run" && args[1] === "list") clock += 60_000;
+          return recording.runner.run(command, args, spec);
+        },
+      };
+      capture(() => run(["v1.0.0"], { runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.0").ci?.conclusion, "never started");
+      // five minutes of minute-long reads, not ten thirty-second sleeps
+      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 4);
+    } finally {
+      now.mockRestore();
+    }
   });
 });
 
