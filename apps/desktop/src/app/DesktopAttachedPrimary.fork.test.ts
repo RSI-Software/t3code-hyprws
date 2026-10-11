@@ -150,14 +150,18 @@ const makeScenario = (input: {
   readonly pairGate?: (
     call: number,
   ) => Effect.Effect<void, DesktopRunningLocalServers.LocalServerPairingError>;
+  /** Holds a given descriptor fetch, i.e. one verify, open. */
+  readonly descriptorGate?: (call: number) => Effect.Effect<void>;
+  /** Answers a given descriptor fetch with a 503, failing that verify. */
+  readonly descriptorFails?: (call: number) => boolean;
 }) =>
   Effect.gen(function* () {
     const live: Array<RunningLocalServer> = [server];
-    const counts = { pair: 0, mint: 0 };
+    const counts = { pair: 0, mint: 0, descriptor: 0 };
     const httpClientLayer = Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           if (request.url.endsWith("/oauth/token")) {
             counts.mint += 1;
             return tokenResponse(`attached-bearer-token-${counts.mint}`);
@@ -168,6 +172,11 @@ const makeScenario = (input: {
               Option.isSome(authorization) &&
                 input.sessionAuthenticated(authorization.value.replace(/^Bearer /, "")),
             );
+          }
+          const call = ++counts.descriptor;
+          yield* input.descriptorGate?.(call) ?? Effect.void;
+          if (input.descriptorFails?.(call) === true) {
+            return HttpClientResponse.fromWeb(request, new Response("down", { status: 503 }));
           }
           return descriptorResponse(server.environmentId as string);
         }),
@@ -384,7 +393,7 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
     }),
   );
 
-  it.effect("catches a same-port restart via pid and start-time identity", () =>
+  it.effect("keeps the attachment across a same-environment restart", () =>
     Effect.gen(function* () {
       let live: ReadonlyArray<RunningLocalServer> = [server];
       const httpClientLayer = Layer.succeed(
@@ -412,13 +421,62 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
       );
 
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
-      // Same URL, same env id — but a new pid and start time: the old server
-      // is gone and its bearer must not be served against the replacement.
+      // Same URL, same env id, new pid and start time: an update restart of
+      // the same environment re-verifies in place and updates the held
+      // identity instead of dropping the client's environments
+      // (RSI-Software/t3code-hyprws#1706).
       live = [{ ...server, pid: 99, startedAt: "2026-02-02T00:00:00.000Z" }];
+      const kept = yield* service.current;
+      assert.ok(Option.isSome(kept));
+      assert.strictEqual(kept.value.pid, 99);
+      assert.ok(Option.isSome(service.cached()));
+      // The persisted session store outlives the restart, so the held bearer
+      // is still served without a re-pair.
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token");
+    }),
+  );
+
+  it.effect("drops the attachment when a different environment takes the port", () =>
+    Effect.gen(function* () {
+      let live: ReadonlyArray<RunningLocalServer> = [server];
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.succeed(
+            request.url.endsWith("/oauth/token")
+              ? tokenResponse("attached-bearer-token")
+              : request.url.endsWith("/api/auth/session")
+                ? sessionResponse(true)
+                : descriptorResponse(server.environmentId as string),
+          ),
+        ),
+      );
+      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
+        discover: Effect.suspend(() => Effect.succeed(live)),
+        pairLocalServer: () =>
+          Effect.succeed({
+            pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
+            pairingExpiresAt: "2099-01-01T00:00:00.000Z",
+          }),
+      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
+      const service = yield* make.pipe(
+        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
+      );
+
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      // Same port, but the env id differs: a different server owns the
+      // endpoint now and the attachment drops immediately.
+      live = [
+        {
+          ...server,
+          pid: 99,
+          startedAt: "2026-02-02T00:00:00.000Z",
+          environmentId: otherEnvironmentId,
+        },
+      ];
       assert.ok(Option.isNone(yield* service.current));
       assert.ok(Option.isNone(service.cached()));
-      const token = yield* Effect.option(service.getBearerToken);
-      assert.ok(Option.isNone(token));
+      assert.ok(Option.isNone(yield* Effect.option(service.getBearerToken)));
     }),
   );
 
@@ -538,13 +596,89 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
     }),
   );
 
-  it.effect("a restart during a re-mint spares the successor from a late reject", () =>
+  it.effect(
+    "a restart during a re-mint publishes the restarted instance and spares it from a late reject",
+    () =>
+      Effect.gen(function* () {
+        const gate = yield* held();
+        const { service, live, counts } = yield* makeScenario({
+          // The first bearer is revoked; every later one is live.
+          sessionAuthenticated: (bearer) => bearer !== "attached-bearer-token-1",
+          pairGate: (call) =>
+            call === 2
+              ? Deferred.succeed(gate.started, undefined).pipe(
+                  Effect.andThen(Deferred.await(gate.release)),
+                )
+              : Effect.void,
+        });
+        assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+        const remint = yield* service.getBearerToken.pipe(Effect.forkChild);
+        yield* Deferred.await(gate.started);
+        // The server restarts under the held re-mint; the poll re-verifies in
+        // place instead of dropping.
+        live.splice(0, live.length, restartedServer);
+        const kept = yield* service.refresh;
+        assert.ok(Option.isSome(kept));
+        assert.strictEqual(kept.value.pid, restartedServer.pid);
+        yield* Deferred.succeed(gate.release, undefined);
+        // The re-mint completes and publishes the restarted instance.
+        assert.strictEqual(yield* Fiber.join(remint), "attached-bearer-token-2");
+        // The renderer's late report names the old bearer: the successor stays.
+        yield* service.reject("attached-bearer-token-1", "transport");
+        assert.ok(Option.isSome(service.cached()));
+        // The new bearer is rejected before anything re-verifies: the skip
+        // lands on the restarted instance the mint published, not the one it
+        // started under, so the same server never auto-attaches again.
+        yield* service.reject("attached-bearer-token-2", "unauthorized");
+        assert.ok(Option.isNone(yield* service.refreshOrAttach));
+        assert.strictEqual(counts.pair, 2);
+        // Only another restart clears the skip.
+        live.splice(0, live.length, { ...restartedServer, pid: 100 });
+        const again = yield* service.refreshOrAttach;
+        assert.ok(Option.isSome(again));
+        assert.strictEqual(again.value.pid, 100);
+      }),
+  );
+
+  it.effect("a stale failed verify does not drop a newer verified restart", () =>
     Effect.gen(function* () {
       const gate = yield* held();
-      const { service, live, counts } = yield* makeScenario({
-        // The first bearer is revoked; every later one is live.
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        // Call 1 is the attach verify; call 2, the older refresh, fails late.
+        descriptorGate: (call) =>
+          call === 2
+            ? Deferred.succeed(gate.started, undefined).pipe(
+                Effect.andThen(Deferred.await(gate.release)),
+              )
+            : Effect.void,
+        descriptorFails: (call) => call === 2,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      live.splice(0, live.length, restartedServer);
+      const older = yield* service.refresh.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.started);
+      // A newer verify sees the restarted server first and publishes it.
+      const newer = yield* service.refresh;
+      assert.ok(Option.isSome(newer));
+      assert.strictEqual(newer.value.pid, restartedServer.pid);
+      yield* Deferred.succeed(gate.release, undefined);
+      const stale = yield* Fiber.join(older);
+      // The older request's failure is stale: the healthy attachment stays.
+      assert.ok(Option.isSome(stale));
+      assert.strictEqual(stale.value.pid, restartedServer.pid);
+      assert.ok(Option.isSome(service.cached()));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+    }),
+  );
+
+  it.effect("a refresh that finishes after a re-mint keeps the new bearer", () =>
+    Effect.gen(function* () {
+      const gate = yield* held();
+      const { service, live } = yield* makeScenario({
         sessionAuthenticated: (bearer) => bearer !== "attached-bearer-token-1",
-        pairGate: (call) =>
+        // Call 1 is the attach verify; call 2 is the background refresh.
+        descriptorGate: (call) =>
           call === 2
             ? Deferred.succeed(gate.started, undefined).pipe(
                 Effect.andThen(Deferred.await(gate.release)),
@@ -552,25 +686,22 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
             : Effect.void,
       });
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
-      const remint = yield* service.getBearerToken.pipe(Effect.forkChild);
-      yield* Deferred.await(gate.started);
-      // The server restarts under the held re-mint; the poll drops and re-attaches.
+      // The server restarts and a poll starts verifying it, captured under
+      // the first bearer, then stalls.
       live.splice(0, live.length, restartedServer);
-      assert.ok(Option.isNone(yield* service.refresh));
-      const reattach = yield* service.refreshOrAttach.pipe(Effect.forkChild);
+      const refresh = yield* service.refresh.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.started);
+      // Meanwhile a bearer read finds the first bearer revoked and re-mints.
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-2");
       yield* Deferred.succeed(gate.release, undefined);
-      // The stale re-mint never publishes over the dropped attachment.
-      assert.ok(Option.isNone(yield* Fiber.join(remint).pipe(Effect.option)));
-      const successor = yield* Fiber.join(reattach);
-      assert.ok(Option.isSome(successor));
-      assert.strictEqual(successor.value.pid, restartedServer.pid);
-      const successorToken = yield* service.getBearerToken;
-      assert.strictEqual(successorToken, `attached-bearer-token-${counts.mint}`);
-      // The renderer's late report names the old bearer: the successor stays.
-      yield* service.reject("attached-bearer-token-1", "transport");
+      const refreshed = yield* Fiber.join(refresh);
+      assert.ok(Option.isSome(refreshed));
+      assert.strictEqual(refreshed.value.pid, restartedServer.pid);
+      // The late refresh did not restore the first bearer, so its late
+      // reject is a no-op and the successor stays attached.
+      yield* service.reject("attached-bearer-token-1", "unauthorized");
       assert.ok(Option.isSome(service.cached()));
-      assert.strictEqual(yield* service.getBearerToken, successorToken);
-      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-2");
     }),
   );
 
@@ -585,6 +716,27 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
       assert.strictEqual(counts.pair, 1);
       yield* TestClock.adjust("2 seconds");
       assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      assert.strictEqual(counts.pair, 2);
+    }),
+  );
+
+  it.effect("a reject backoff does not delay re-attach after a restart", () =>
+    Effect.gen(function* () {
+      const { service, live, counts } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      yield* service.reject(yield* service.getBearerToken, "transport");
+      assert.ok(Option.isNone(service.cached()));
+      // One reset is not a verdict: the same instance waits out the backoff.
+      assert.ok(Option.isNone(yield* service.refreshOrAttach));
+      assert.strictEqual(counts.pair, 1);
+      // A restart is a new instance with empty backoff: the next poll
+      // re-attaches at once instead of waiting out the old window.
+      live.splice(0, live.length, restartedServer);
+      const reattached = yield* service.refreshOrAttach;
+      assert.ok(Option.isSome(reattached));
+      assert.strictEqual(reattached.value.pid, restartedServer.pid);
       assert.strictEqual(counts.pair, 2);
     }),
   );
