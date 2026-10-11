@@ -20,7 +20,7 @@
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
-const HELP = `Usage: vp run fork:ci [--since <ref>]
+const HELP = `Usage: vp run fork:ci
 
 Runs what the fork's pull-request CI jobs run, in CI's own shape:
 
@@ -29,7 +29,8 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
      Fork ledger step runs (scripts/fork-delta.ts)
   3. vp run fork:stale-delete --base <since> --head <head>: no branch
      commit deletes an upstream line a later one restores
-     (scripts/lib/fork-stale-delete.ts); skipped under --since
+     (scripts/lib/fork-stale-delete.ts); skipped on a sync candidate,
+     whose commits are all replayed
   4. vp run fork:fixup-fold --base <upstream base> --head <head>: every
      fixup! commit folds into the commit it names, proved by a replay
      from the upstream base in a throwaway worktree (scripts/fork-fixup-fold.ts)
@@ -65,13 +66,7 @@ export const run = (
     process.stdout.write(HELP);
     return 0;
   }
-  const sinceArg = argv.indexOf("--since");
-  if (sinceArg !== -1 && argv.length <= sinceArg + 1) {
-    process.stderr.write("fork:ci: --since requires a value\n");
-    return 2;
-  }
-  const sinceOverride = sinceArg === -1 ? undefined : argv[sinceArg + 1];
-  if (sinceArg !== -1 && argv.length !== sinceArg + 2) {
+  if (argv.length > 0) {
     process.stderr.write("fork:ci: unexpected argument\n");
     return 2;
   }
@@ -81,14 +76,7 @@ export const run = (
   const head = git.run(["rev-parse", "HEAD"]).trim();
   let flags;
   try {
-    // Only the sync battery passes --since (its rehearsal target tag), so a
-    // rehearsed head guards the replayed fork delta; the pull-request path
-    // keeps the merge-base derivation.
-    flags = deriveForkCiFlags(
-      systemForkCiGit(git),
-      head,
-      sinceOverride === undefined ? {} : { since: sinceOverride },
-    );
+    flags = deriveForkCiFlags(systemForkCiGit(git), head);
   } catch (error) {
     process.stderr.write(
       `fork:ci: ${error instanceof Error ? error.message : String(error)}\n` +
@@ -108,12 +96,11 @@ export const run = (
     return 1;
   }
 
-  // The sync battery's --since spans the whole replayed stack, which predates
-  // the check; a branch run judges only its own commits.
-  const staleDelete =
-    sinceOverride === undefined
-      ? step("vp", ["run", "fork:stale-delete", "--base", flags.since, "--head", flags.head], root)
-      : 0;
+  // A sync candidate's range is the whole replayed stack, which predates the
+  // check; a branch run judges only its own commits.
+  const staleDelete = flags.rebased
+    ? 0
+    : step("vp", ["run", "fork:stale-delete", "--base", flags.since, "--head", flags.head], root);
   if (staleDelete !== 0) {
     process.stderr.write("fork:ci: stale-delete check failed; fix above before pushing\n");
     return 1;
