@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git helper runs before an Effect runtime exists.
 
-// The one derivation of the `fork:scan` flags the hyprws CI pull-request Check
-// job pins a branch with. The workflow's `Fork ledger` and `Fork rebase scan`
+// The one derivation of the `fork:scan` flags the hyprws CI Check job pins a
+// head with. The workflow's `Fork ledger` and `Fork rebase scan`
 // steps call this file, and `vp run fork:ci` imports the same functions, so
 // neither side restates the derivation and a local green run means what CI's
 // green means. Before this helper the flags lived only in the workflow's
@@ -31,6 +31,8 @@ export interface ForkCiFlags {
   readonly target: string;
   /** The trunk ref when it resolves, naming the trunk the head is rehearsed against. */
   readonly replayOf: string | null;
+  /** The head replays the whole fork stack onto a newer upstream base: a sync candidate. */
+  readonly rebased: boolean;
 }
 
 export interface ForkCiGit {
@@ -51,35 +53,28 @@ export const systemForkCiGit = (git: SystemGit): ForkCiGit => ({
 // Both fallbacks mean the head has no trunk ancestry to report from: the trunk
 // ref is absent, or the head is the trunk tip itself so the merge base is the
 // head. The parent then stands in, exactly as the workflow shell used to.
-// An explicit `since` overrides the derivation without touching it: only the
-// sync battery passes one (its rehearsal target tag), so pull-request runs
-// keep the merge-base rule.
-export interface ForkCiSinceOverride {
-  /** Range start for the scan guard; the merge-base derivation when absent. */
-  readonly since?: string;
-}
-
-export const deriveForkCiFlags = (
-  git: ForkCiGit,
-  head: string,
-  overrides: ForkCiSinceOverride = {},
-): ForkCiFlags => {
+//
+// A sync candidate shares no fork commit with the trunk: its trunk merge base
+// is the old upstream base, a strict ancestor of its own. Every commit above its
+// base is a replayed fork commit, so the range starts at the base, and the
+// stale-delete check, which judges a branch's own commits, has nothing to judge.
+export const deriveForkCiFlags = (git: ForkCiGit, head: string): ForkCiFlags => {
   const base = git.run(["merge-base", UPSTREAM_MAIN, head]).trim();
   const resolvedHead = git.run(["rev-parse", head]).trim();
   const trunkMergeBase = git.attempt(["merge-base", FORK_TRUNK_REF, resolvedHead])?.trim() ?? "";
-  const derived =
-    trunkMergeBase.length === 0 || trunkMergeBase === resolvedHead
-      ? `${resolvedHead}^`
-      : trunkMergeBase;
-  const since =
-    overrides.since !== undefined && overrides.since.length > 0 ? overrides.since : derived;
+  const onTrunk = trunkMergeBase.length > 0 && trunkMergeBase !== resolvedHead;
+  const rebased =
+    onTrunk &&
+    trunkMergeBase !== base &&
+    git.attempt(["merge-base", "--is-ancestor", trunkMergeBase, base]) !== null;
   const trunkResolves = git.attempt(["rev-parse", "--verify", "--quiet", FORK_TRUNK_REF]) !== null;
   return {
     head: resolvedHead,
     base,
-    since,
+    since: rebased ? base : onTrunk ? trunkMergeBase : `${resolvedHead}^`,
     target: base,
     replayOf: trunkResolves ? FORK_TRUNK_REF : null,
+    rebased,
   };
 };
 
@@ -94,9 +89,9 @@ export const forkScanArguments = (flags: ForkCiFlags): ReadonlyArray<string> => 
   "--no-typecheck",
 ];
 
-/** The GitHub Actions `since=` and `base=` lines the stale-delete and fixup fold steps read, for `>> "$GITHUB_OUTPUT"`. */
+/** The GitHub Actions `base=`, `since=`, and `rebased=` lines the stale-delete and fixup fold steps read, for `>> "$GITHUB_OUTPUT"`. */
 export const renderForkCiOutputs = (flags: ForkCiFlags): string =>
-  `base=${flags.base}\nsince=${flags.since}\n`;
+  `base=${flags.base}\nsince=${flags.since}\nrebased=${flags.rebased}\n`;
 
 /** The scan argv one token per line, for the workflow's `mapfile -t SCAN_ARGS`. */
 export const renderForkCiScanArguments = (flags: ForkCiFlags): string =>
@@ -123,11 +118,11 @@ const parseInvocation = (argv: ReadonlyArray<string>): Invocation => {
 
 const HELP = `Usage: node ${FORK_CI_FLAGS_SCRIPT} <ledger|scan> [--head <ref>]
 
-Derives the fork:scan flags the hyprws CI pull-request Check job runs.
+Derives the fork:scan flags the hyprws CI Check job runs.
 The workflow calls this file; vp run fork:ci imports the same functions.
 
 Modes:
-  ledger   the GitHub output lines base=<ref> and since=<ref>
+  ledger   the GitHub output lines base=<ref>, since=<ref>, rebased=<bool>
   scan     the fork:scan argv, one token per line
 `;
 

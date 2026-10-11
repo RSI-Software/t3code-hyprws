@@ -127,3 +127,43 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
+
+it("skips stale-delete on a sync candidate and scans from its base", () => {
+  const { root, head: oldTip, base: oldBase } = untaggedFixture();
+  try {
+    git(root, ["update-ref", "refs/remotes/origin/hyprws", oldTip]);
+    git(root, ["checkout", "--quiet", "--detach", oldBase]);
+    NodeFS.writeFileSync(NodePath.join(root, "base.txt"), "base v2\n");
+    git(root, ["commit", "--quiet", "--all", "-m", "upstream release"]);
+    git(root, ["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+    const base = git(root, ["rev-parse", "HEAD"]);
+    git(root, ["cherry-pick", oldTip]);
+    const head = git(root, ["rev-parse", "HEAD"]);
+    const calls: Array<ReadonlyArray<string>> = [];
+    const step: ForkCiStep = (command, args) => {
+      calls.push([command, ...args]);
+      return 0;
+    };
+    assert.strictEqual(run([], root, step), 0);
+    assert.deepStrictEqual(calls.slice(0, 3), [
+      ["vp", "run", "fork:delta", "--check", "--head", head],
+      ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
+      [
+        "vp",
+        "run",
+        "fork:scan",
+        "--head",
+        head,
+        "--target",
+        base,
+        "--since",
+        base,
+        "--replay-of",
+        "origin/hyprws",
+        "--no-typecheck",
+      ],
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
