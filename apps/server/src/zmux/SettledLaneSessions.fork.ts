@@ -1,6 +1,7 @@
 // Settling or deleting a worktree thread tears down its checkout's whole
-// managed session. The base checkout and main session remain separate.
-import { type ThreadId } from "@t3tools/contracts";
+// managed session; unsettling restores it when automatic sessions are on. The
+// base checkout and main session remain separate.
+import { type OrchestrationV2AppThread, type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -21,6 +22,7 @@ import { withCheckoutSessionCleanupFork } from "./CheckoutSessionStateLease.fork
 
 export interface SettledLaneReactor {
   readonly reconcile: (threadId: ThreadId) => Effect.Effect<void>;
+  readonly restore: (threadId: ThreadId) => Effect.Effect<void>;
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
 }
 
@@ -43,25 +45,37 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
   const sameCheckout = (left: string | null, right: string) =>
     left !== null && path.resolve(left) === path.resolve(right);
 
+  const isSettled = (thread: OrchestrationV2AppThread) =>
+    thread.settledOverride === "settled" || thread.deletedAt !== null;
+
+  /** The thread's linked worktree and its project root; none for the base checkout. */
+  const linkedLane = (thread: OrchestrationV2AppThread) =>
+    Effect.gen(function* () {
+      const lane = thread.worktreePath;
+      if (lane === null) return Option.none();
+      const project = yield* projects.get(thread.projectId, { includeDeleted: true });
+      // Missing ownership information is never permission to touch a session.
+      if (Option.isNone(project)) return Option.none();
+      const root = project.value.workspaceRoot;
+      const laneIdentity = yield* checkoutRootOf(lane);
+      const rootIdentity = yield* checkoutRootOf(root);
+      if (
+        Option.isNone(laneIdentity) ||
+        Option.isNone(rootIdentity) ||
+        laneIdentity.value === rootIdentity.value
+      )
+        return Option.none();
+      return Option.some({ lane, root, laneIdentity: laneIdentity.value });
+    });
+
   const reconcile = (threadId: ThreadId) =>
     permits.withPermits(1)(
       Effect.gen(function* () {
         const thread = yield* projections.getThread(threadId);
-        const lane = thread.worktreePath;
-        if (lane === null) return;
-        if (thread.settledOverride !== "settled" && thread.deletedAt === null) return;
-        const project = yield* projects.get(thread.projectId, { includeDeleted: true });
-        // Missing ownership information is never permission to remove a session.
-        if (Option.isNone(project)) return;
-        const root = project.value.workspaceRoot;
-        const laneIdentity = yield* checkoutRootOf(lane);
-        const rootIdentity = yield* checkoutRootOf(root);
-        if (
-          Option.isNone(laneIdentity) ||
-          Option.isNone(rootIdentity) ||
-          laneIdentity.value === rootIdentity.value
-        )
-          return;
+        if (!isSettled(thread)) return;
+        const linked = yield* linkedLane(thread);
+        if (Option.isNone(linked)) return;
+        const { lane, root, laneIdentity } = linked.value;
 
         // Detach local viewers first, but a missing exit acknowledgement must
         // not leave the session's tabs and background processes running.
@@ -89,11 +103,7 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
         yield* withCheckoutSessionCleanupFork(
           Effect.gen(function* () {
             const latest = yield* projections.getThread(threadId);
-            if (
-              (latest.settledOverride !== "settled" && latest.deletedAt === null) ||
-              !sameCheckout(latest.worktreePath, lane)
-            )
-              return;
+            if (!isSettled(latest) || !sameCheckout(latest.worktreePath, lane)) return;
             const latestProject = yield* projects.get(latest.projectId, { includeDeleted: true });
             if (Option.isNone(latestProject)) return;
             const latestLaneIdentity = yield* checkoutRootOf(lane);
@@ -101,7 +111,7 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
             if (
               Option.isNone(latestLaneIdentity) ||
               Option.isNone(latestRootIdentity) ||
-              latestLaneIdentity.value !== laneIdentity.value ||
+              latestLaneIdentity.value !== laneIdentity ||
               latestLaneIdentity.value === latestRootIdentity.value
             )
               return;
@@ -132,14 +142,42 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
       ),
     );
 
+  // The binder creates nothing while automatic sessions are off.
+  const restore = (threadId: ThreadId) =>
+    permits.withPermits(1)(
+      Effect.gen(function* () {
+        const thread = yield* projections.getThread(threadId);
+        if (isSettled(thread)) return;
+        const linked = yield* linkedLane(thread);
+        if (Option.isNone(linked)) return;
+        const bound = yield* binder.bind(linked.value.lane, { projectPath: linked.value.root });
+        if (bound.status === "failed") {
+          yield* Effect.logWarning("could not restore unsettled checkout session", {
+            threadId,
+            detail: bound.notice.detail,
+          });
+        }
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("checkout unsettle restore failed", {
+            threadId,
+            detail: error.message,
+          }),
+        ),
+      ),
+    );
+
   return {
     reconcile,
+    restore,
     start: () =>
       forkParked(
         Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
           event.type === "thread.settled" || event.type === "thread.deleted"
             ? reconcile(event.threadId)
-            : Effect.void,
+            : event.type === "thread.unsettled"
+              ? restore(event.threadId)
+              : Effect.void,
         ).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("checkout settlement stream failed", { cause }),

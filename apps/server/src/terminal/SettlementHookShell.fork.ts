@@ -14,7 +14,15 @@ export const inSettlementHookShellFork = <A, E, R>(
   settle: boolean,
 ) => Effect.provideService(effect, SettlementHookShell, settle);
 
-export const settlementHookTerminalModeFork = (configured: Effect.Effect<TerminalSessionMode>) =>
+/** A terminal's chosen mode wins over the default; settle hooks still force a shell. */
+export const terminalModeForSessionFork = (
+  chosen: TerminalSessionMode | null,
+  configured: Effect.Effect<TerminalSessionMode>,
+) =>
   Effect.flatMap(SettlementHookShell, (settle) =>
-    settle ? Effect.succeed("shell" as const) : configured,
+    settle
+      ? Effect.succeed("shell" as const)
+      : chosen === null
+        ? configured
+        : Effect.succeed(chosen),
   );
