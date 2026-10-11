@@ -5,6 +5,7 @@
  * of evaluation) loads; everything else defers to the real CLI in ./binCli.ts.
  */
 import { isEntrypoint } from "./entrypoint.ts";
+import { takeServiceLauncherContextFork } from "./cloud/serviceLauncherContext.fork.ts"; // fork-hook: upstream-fixes/launcher-context-env
 
 if (
   isEntrypoint({
@@ -13,6 +14,7 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
+  takeServiceLauncherContextFork(); // fork-hook: upstream-fixes/launcher-context-env
   const command = process.argv[2];
   // Guard sockets before either dispatch path can load outbound-capable modules.
   const { ignoreMacosTypeOfServiceEinval } = await import("./outboundHttp.ts");
