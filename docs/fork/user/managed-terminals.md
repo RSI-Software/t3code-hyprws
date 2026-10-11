@@ -1,8 +1,19 @@
 # Managed terminals and checkout moves
 
-With **Managed zmux terminals** on in project settings, a thread's shell attaches to the zmux session owned by its checkout.
+A zmux terminal attaches to the zmux session owned by its thread's checkout.
 The first terminal open may create or restore that session.
 A failure is reported in the terminal instead of silently opening a different shell.
+
+## Settings
+
+Open **Settings → Terminal**.
+
+| Setting                                | Effect                                           |
+| -------------------------------------- | ------------------------------------------------ |
+| **Default terminal**                   | the shell a new terminal opens                   |
+| **Create zmux sessions automatically** | a session per new worktree, restored on unsettle |
+
+Automatic sessions follow the default terminal until you set the switch.
 
 ## Requirements
 
@@ -18,7 +29,8 @@ Update or configure zmux on the host, then retry.
 Settling or deleting a worktree thread removes its entire zmux session, including every tab and running command.
 This also disconnects other viewers and threads using that session.
 Settlement keeps the worktree and branch, but discards the session permanently.
-Unsettling does not restore it; opening a terminal creates a fresh session.
+Unsettling, or new activity on a settled thread, creates a fresh session when automatic sessions are on.
+Otherwise opening a zmux terminal creates it.
 The base checkout's `main` session stays available.
 Configured settle scripts run in independent shells so session removal does not interrupt them.
 
@@ -59,8 +71,8 @@ Attachment identities and follow or pin preferences are never sent in a move req
 
 ## Shell behavior
 
-To open a shell outside zmux, choose **New plain shell** from the terminal's **+** menu.
-That terminal keeps its plain-shell choice when you reload or follow another checkout.
+The terminal's **+** menu also offers the shell that is not your default: **New plain shell** or **New zmux shell**.
+That terminal keeps its choice when you reload or follow another checkout.
 
 Managed attachment starts the shell through zmux in explicit escape mode.
 Shell startup files and environment variables still apply inside the attached shell.

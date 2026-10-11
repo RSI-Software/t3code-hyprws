@@ -31,6 +31,8 @@ import {
   latestRootProviderFailure,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import type { TerminalSessionMode } from "@t3tools/contracts"; // fork-hook: zmux-estate/session-mode-chat-import
+import { terminalSessionModeChoiceFork } from "./TerminalNewMenu.fork"; // fork-hook: zmux-estate/session-mode-choice-import
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
@@ -1288,12 +1290,12 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   ]);
 
   const createNewTerminal = useCallback(
-    (plainShell = false) => {
+    (sessionMode?: TerminalSessionMode) => {
       if (!hasTerminalWriteAccess() || !cwd) {
         return;
       }
       const terminalId = allocateTerminalId();
-      storeNewTerminal(threadRef, terminalId, plainShell);
+      storeNewTerminal(threadRef, terminalId, sessionMode);
       bumpFocusRequestId();
       void openTerminal({
         environmentId: threadRef.environmentId,
@@ -1301,7 +1303,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
           threadId,
           terminalId,
           attachmentId: terminalAttachmentId(terminalId),
-          ...(plainShell ? { plainShellFork: true } : {}),
+          ...(sessionMode ? { sessionModeFork: sessionMode } : {}),
           cwd,
           ...(effectiveWorktreePath != null ? { worktreePath: effectiveWorktreePath } : {}),
           env: runtimeEnv,
@@ -1320,7 +1322,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
       openTerminal,
       hasTerminalWriteAccess,
     ],
-  ); // fork-hook: zmux-estate/plain-shell-drawer-create
+  ); // fork-hook: zmux-estate/session-mode-drawer-create
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
@@ -1454,7 +1456,7 @@ interface PersistentThreadTerminalPanelProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: (plainShell?: boolean) => void; // fork-hook: zmux-estate/plain-shell-panel-action
+  onNewTerminal: (sessionMode?: TerminalSessionMode) => void; // fork-hook: zmux-estate/plain-shell-panel-action
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   splitShortcutLabel?: string | undefined;
@@ -6191,13 +6193,16 @@ export default function ChatView(props: ChatViewProps) {
     previewPanelOpen,
   ]);
   const addTerminalSurface = useCallback(
-    (plainShell = false) => {
+    (sessionModeArg?: TerminalSessionMode) => {
       if (!hasTerminalWriteAccess() || !activeThreadRef || !activeThreadId || !activeProject)
         return;
+      const sessionMode = terminalSessionModeChoiceFork(sessionModeArg);
       const cwd = gitCwd ?? activeProject.workspaceRoot;
       const terminalId = allocateTerminalId();
-      if (plainShell)
-        useTerminalUiStateStore.getState().setTerminalPlainShellFork(activeThreadRef, terminalId);
+      if (sessionMode)
+        useTerminalUiStateStore
+          .getState()
+          .setTerminalSessionModeFork(activeThreadRef, terminalId, sessionMode);
       useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId);
       noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
       setTerminalFocusRequestId((value) => value + 1);
@@ -6207,7 +6212,7 @@ export default function ChatView(props: ChatViewProps) {
           threadId: activeThreadId,
           terminalId,
           attachmentId: terminalAttachmentId(terminalId),
-          ...(plainShell ? { plainShellFork: true } : {}),
+          ...(sessionMode ? { sessionModeFork: sessionMode } : {}),
           cwd,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
@@ -6227,7 +6232,7 @@ export default function ChatView(props: ChatViewProps) {
       openTerminal,
       hasTerminalWriteAccess,
     ],
-  ); // fork-hook: zmux-estate/plain-shell-panel-create
+  ); // fork-hook: zmux-estate/session-mode-panel-create
   const splitPanelTerminal = useCallback(
     (direction: "horizontal" | "vertical" = "horizontal") => {
       if (
