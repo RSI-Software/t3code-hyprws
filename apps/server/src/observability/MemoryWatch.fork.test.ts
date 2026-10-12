@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vite-plus/test";
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - the watched loop must block the real main thread.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
-import { initialState, step } from "./MemoryWatch.fork.ts";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { initialState, startStackWatch, step } from "./MemoryWatch.fork.ts";
 
 const GiB = 1024 ** 3;
 
@@ -27,5 +32,29 @@ describe("MemoryWatch step", () => {
       { report: true, snapshot: false },
       { report: false, snapshot: false },
     ]);
+  });
+});
+
+describe("startStackWatch", () => {
+  it("records the frames of a main thread stuck in a synchronous loop", async () => {
+    const logsDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "memory-watch-"));
+    const worker = startStackWatch({ logsDir, thresholdBytes: 0, samples: 2 });
+    try {
+      await new Promise((resolve) => worker.once("online", resolve));
+      const busyUntil = Date.now() + 3_000;
+      (function stuckInSyncLoop() {
+        while (Date.now() < busyUntil);
+      })();
+      await vi.waitFor(() => expect(NodeFS.readdirSync(logsDir)).toHaveLength(1), {
+        timeout: 5_000,
+      });
+      const [file] = NodeFS.readdirSync(logsDir);
+      const stacks = JSON.parse(NodeFS.readFileSync(NodePath.join(logsDir, file!), "utf8"));
+      expect(stacks).toHaveLength(2);
+      expect(stacks[0].frames[0]).toMatch(/^stuckInSyncLoop /);
+    } finally {
+      await worker.terminate();
+      NodeFS.rmSync(logsDir, { recursive: true, force: true });
+    }
   });
 });
