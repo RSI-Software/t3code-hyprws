@@ -61,11 +61,13 @@ jobs:
 
       # Nothing else ever writes main, so a rejected push means someone did;
       # the job fails instead of forcing (docs/fork/operations/fork-sync.md).
+      # Tags are forced: upstream re-points moving tags such as android-nightly,
+      # and fork tags never share a name with an upstream one.
       - name: Fast-forward main
         run: |
-          git fetch --tags upstream main
+          git fetch --tags --force upstream main
           git push origin upstream/main:refs/heads/main
-          git push origin --tags
+          git push origin --tags --force
 
   sync:
     name: Sync
