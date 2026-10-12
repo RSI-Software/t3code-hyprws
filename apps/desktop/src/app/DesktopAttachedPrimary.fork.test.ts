@@ -279,7 +279,9 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
               ? tokenResponse("attached-bearer-token")
               : request.url.endsWith("/api/auth/session")
                 ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
+                : live.length === 0
+                  ? HttpClientResponse.fromWeb(request, new Response("gone", { status: 503 }))
+                  : descriptorResponse(server.environmentId as string),
           ),
         ),
       );
@@ -781,6 +783,43 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
       // The grace still runs from the newer failure.
       yield* TestClock.adjust("30 seconds");
       assert.ok(Option.isNone(yield* service.refresh));
+    }),
+  );
+
+  it.effect("the held endpoint answering resets the grace when discovery omits it", () =>
+    Effect.gen(function* () {
+      let stalled = false;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      live.splice(0, live.length);
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* TestClock.adjust("20 seconds");
+      // Discovery still omits it, but the held endpoint answers as itself.
+      stalled = false;
+      assert.ok(Option.isSome(yield* service.refresh));
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* TestClock.adjust("20 seconds");
+      assert.ok(Option.isSome(yield* service.refresh));
+    }),
+  );
+
+  it.effect("a port move drops at once even when the new endpoint is silent", () =>
+    Effect.gen(function* () {
+      let stalled = false;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      live.splice(0, live.length, { ...server, httpBaseUrl: "http://127.0.0.1:3999" });
+      stalled = true;
+      assert.ok(Option.isNone(yield* service.refresh));
+      assert.ok(Option.isNone(service.cached()));
     }),
   );
 

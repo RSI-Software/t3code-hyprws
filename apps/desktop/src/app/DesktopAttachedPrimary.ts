@@ -186,13 +186,22 @@ export const make = Effect.gen(function* () {
       const live = servers.find((candidate) => candidate.environmentId === server.environmentId);
       if (live === undefined) {
         // Discovery omits servers it cannot verify, so ask the held endpoint
-        // directly: another environment answering there is a verdict.
+        // directly: the held environment answering there is still attached;
+        // another environment answering is a verdict.
         const probed = yield* fetchDescriptorEnvironmentId(server, PROBE_TIMEOUT_MS).pipe(
           Effect.option,
         );
+        if (Option.isSome(probed) && probed.value.environmentId === server.environmentId) {
+          return server;
+        }
         return yield* new DesktopAttachedPrimaryUnavailableError({
           detail: `Attached server ${server.environmentId} is no longer running.`,
-          unreachable: Option.isNone(probed) || probed.value.environmentId === server.environmentId,
+          unreachable: Option.isNone(probed),
+        });
+      }
+      if (live.httpBaseUrl !== server.httpBaseUrl) {
+        return yield* new DesktopAttachedPrimaryUnavailableError({
+          detail: "The attached server moved to another endpoint.",
         });
       }
       // discover() verifies env id (persisted vs probed descriptor) and
@@ -374,10 +383,6 @@ export const make = Effect.gen(function* () {
         verifications.published = sequence;
         return heldServer();
       }
-      dropNow();
-      return Option.none<RunningLocalServer>();
-    }
-    if (verified.success.httpBaseUrl !== held.server.httpBaseUrl) {
       dropNow();
       return Option.none<RunningLocalServer>();
     }
