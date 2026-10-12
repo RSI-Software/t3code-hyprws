@@ -288,7 +288,8 @@ jobs:
       - name: Fork ledger
         run: |
           git remote add upstream https://github.com/pingdotgg/t3code.git
-          git fetch --tags upstream main
+          # --force: upstream re-points moving tags such as android-nightly.
+          git fetch --tags --force upstream main
           vp run fork:delta --check
 
       - id: upstream_base
