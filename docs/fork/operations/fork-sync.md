@@ -17,7 +17,7 @@ The rebase refuses a rebased tip that dropped any PR link.
 | Step    | Does                                                                      | Fails when                                         |
 | ------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
 | target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
-| fetch   | `git fetch --tags upstream`, `git fetch origin hyprws`                    | fetch error                                        |
+| fetch   | `git fetch --tags --force upstream`, `git fetch origin hyprws`            | fetch error                                        |
 | rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
 | ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                               |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
