@@ -154,6 +154,10 @@ const makeScenario = (input: {
   readonly descriptorGate?: (call: number) => Effect.Effect<void>;
   /** Answers a given descriptor fetch with a 503, failing that verify. */
   readonly descriptorFails?: (call: number) => boolean;
+  /** Answers session checks with a 503, as a stalled or failing server would. */
+  readonly sessionFails?: () => boolean;
+  /** The environment id the endpoint reports; defaults to the attached one. */
+  readonly descriptorEnvironmentId?: () => string;
 }) =>
   Effect.gen(function* () {
     const live: Array<RunningLocalServer> = [server];
@@ -167,6 +171,9 @@ const makeScenario = (input: {
             return tokenResponse(`attached-bearer-token-${counts.mint}`);
           }
           if (request.url.endsWith("/api/auth/session")) {
+            if (input.sessionFails?.() === true) {
+              return HttpClientResponse.fromWeb(request, new Response("down", { status: 503 }));
+            }
             const authorization = Headers.get(request.headers, "authorization");
             return sessionResponse(
               Option.isSome(authorization) &&
@@ -178,7 +185,9 @@ const makeScenario = (input: {
           if (input.descriptorFails?.(call) === true) {
             return HttpClientResponse.fromWeb(request, new Response("down", { status: 503 }));
           }
-          return descriptorResponse(server.environmentId as string);
+          return descriptorResponse(
+            input.descriptorEnvironmentId?.() ?? (server.environmentId as string),
+          );
         }),
       ),
     );
@@ -265,215 +274,102 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
 
   it.effect("drops to hosted-static when the server restarts away", () =>
     Effect.gen(function* () {
-      let live: ReadonlyArray<RunningLocalServer> = [server];
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.succeed(
-            request.url.endsWith("/oauth/token")
-              ? tokenResponse("attached-bearer-token")
-              : request.url.endsWith("/api/auth/session")
-                ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
-          ),
-        ),
-      );
-      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
-        discover: Effect.suspend(() => Effect.succeed(live)),
-        pairLocalServer: () =>
-          Effect.succeed({
-            pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-            pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-          }),
-      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
-      const service = yield* make.pipe(
-        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-      );
-
+      let gone = false;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => gone,
+      });
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
       // The server restarts: pid/state gone, so discovery no longer lists it.
-      live = [];
+      // A stall looks the same at first, so the attachment rides out a grace.
+      live.splice(0, live.length);
+      gone = true;
+      assert.ok(Option.isSome(yield* service.current));
+      yield* TestClock.adjust("30 seconds");
       assert.ok(Option.isNone(yield* service.current));
       assert.ok(Option.isNone(yield* service.snapshot));
-      const token = yield* Effect.option(service.getBearerToken);
-      assert.ok(Option.isNone(token));
+      assert.ok(Option.isNone(yield* Effect.option(service.getBearerToken)));
     }),
   );
 
   it.effect("drops the attachment when the endpoint moves ports", () =>
     Effect.gen(function* () {
-      let live: ReadonlyArray<RunningLocalServer> = [server];
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.succeed(
-            request.url.endsWith("/oauth/token")
-              ? tokenResponse("attached-bearer-token")
-              : request.url.endsWith("/api/auth/session")
-                ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
-          ),
-        ),
-      );
-      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
-        discover: Effect.suspend(() => Effect.succeed(live)),
-        pairLocalServer: () =>
-          Effect.succeed({
-            pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-            pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-          }),
-      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
-      const service = yield* make.pipe(
-        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-      );
-
+      let stalled = false;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
-      live = [{ ...server, httpBaseUrl: "http://127.0.0.1:3999" }];
+      live.splice(0, live.length, { ...server, httpBaseUrl: "http://127.0.0.1:3999" });
+      // Even a silent new endpoint drops at once: the move is the verdict.
+      stalled = true;
       assert.ok(Option.isNone(yield* service.current));
+      assert.ok(Option.isNone(service.cached()));
     }),
   );
 
   it.effect("re-mints the bearer after revocation, then drops when minting fails", () =>
     Effect.gen(function* () {
-      let sessionAuthenticated = true;
+      let revoked = false;
       let pairingWorks = true;
-      // Each exchange mints a distinct bearer so the test proves rotation,
-      // not just a second successful call.
-      let mintCount = 0;
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.gen(function* () {
-            yield* Effect.void;
-            if (request.url.endsWith("/oauth/token")) {
-              mintCount += 1;
-              return tokenResponse(`attached-bearer-token-${mintCount}`);
-            }
-            if (request.url.endsWith("/api/auth/session")) {
-              return sessionResponse(sessionAuthenticated);
-            }
-            return descriptorResponse(server.environmentId as string);
-          }),
-        ),
-      );
-      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
-        discover: Effect.succeed([server]),
-        pairLocalServer: () =>
+      const { service } = yield* makeScenario({
+        sessionAuthenticated: () => !revoked,
+        pairGate: () =>
           pairingWorks
-            ? Effect.succeed({
-                pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-                pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-              })
+            ? Effect.void
             : Effect.fail(
                 new DesktopRunningLocalServers.LocalServerPairingError({
                   reason: "request_failed",
                   detail: "revoked",
                 }),
               ),
-      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
-      const service = yield* make.pipe(
-        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-      );
-
-      const first = yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO);
-      assert.ok(Option.isSome(first));
-      const firstToken = yield* service.getBearerToken;
-      sessionAuthenticated = false;
-      const rotated = yield* service.getBearerToken;
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      revoked = true;
       // Rotation proof: the re-minted bearer differs from the revoked one.
-      assert.notStrictEqual(rotated, firstToken);
-      assert.ok(rotated.startsWith("attached-bearer-token-"));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-2");
       // Re-mint fails too: the attachment drops so the renderer falls back
       // to hosted-static instead of retrying a dead credential.
-      sessionAuthenticated = false;
       pairingWorks = false;
-      const token = yield* Effect.option(service.getBearerToken);
-      assert.ok(Option.isNone(token));
+      assert.ok(Option.isNone(yield* Effect.option(service.getBearerToken)));
       assert.ok(Option.isNone(yield* service.current));
     }),
   );
 
   it.effect("keeps the attachment across a same-environment restart", () =>
     Effect.gen(function* () {
-      let live: ReadonlyArray<RunningLocalServer> = [server];
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.succeed(
-            request.url.endsWith("/oauth/token")
-              ? tokenResponse("attached-bearer-token")
-              : request.url.endsWith("/api/auth/session")
-                ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
-          ),
-        ),
-      );
-      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
-        discover: Effect.suspend(() => Effect.succeed(live)),
-        pairLocalServer: () =>
-          Effect.succeed({
-            pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-            pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-          }),
-      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
-      const service = yield* make.pipe(
-        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-      );
-
+      const { service, live, counts } = yield* makeScenario({ sessionAuthenticated: () => true });
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
       // Same URL, same env id, new pid and start time: an update restart of
       // the same environment re-verifies in place and updates the held
       // identity instead of dropping the client's environments
       // (RSI-Software/t3code-hyprws#1706).
-      live = [{ ...server, pid: 99, startedAt: "2026-02-02T00:00:00.000Z" }];
+      live.splice(0, live.length, restartedServer);
       const kept = yield* service.current;
       assert.ok(Option.isSome(kept));
-      assert.strictEqual(kept.value.pid, 99);
+      assert.strictEqual(kept.value.pid, restartedServer.pid);
       assert.ok(Option.isSome(service.cached()));
       // The persisted session store outlives the restart, so the held bearer
       // is still served without a re-pair.
-      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token");
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      assert.strictEqual(counts.pair, 1);
     }),
   );
 
   it.effect("drops the attachment when a different environment takes the port", () =>
     Effect.gen(function* () {
-      let live: ReadonlyArray<RunningLocalServer> = [server];
-      const httpClientLayer = Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          Effect.succeed(
-            request.url.endsWith("/oauth/token")
-              ? tokenResponse("attached-bearer-token")
-              : request.url.endsWith("/api/auth/session")
-                ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
-          ),
-        ),
-      );
-      const discoveryLayer = Layer.succeed(DesktopRunningLocalServers.DesktopRunningLocalServers, {
-        discover: Effect.suspend(() => Effect.succeed(live)),
-        pairLocalServer: () =>
-          Effect.succeed({
-            pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-            pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-          }),
-      } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"]);
-      const service = yield* make.pipe(
-        Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-      );
-
+      let reported = server.environmentId as string;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorEnvironmentId: () => reported,
+      });
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
       // Same port, but the env id differs: a different server owns the
-      // endpoint now and the attachment drops immediately.
-      live = [
-        {
-          ...server,
-          pid: 99,
-          startedAt: "2026-02-02T00:00:00.000Z",
-          environmentId: otherEnvironmentId,
-        },
-      ];
+      // endpoint now and the attachment drops immediately, even when
+      // discovery cannot list that server.
+      live.splice(0, live.length);
+      reported = otherEnvironmentId as string;
       assert.ok(Option.isNone(yield* service.current));
       assert.ok(Option.isNone(service.cached()));
       assert.ok(Option.isNone(yield* Effect.option(service.getBearerToken)));
@@ -705,6 +601,103 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
     }),
   );
 
+  it.effect("a stalled server keeps its attachment and bearer through the grace", () =>
+    Effect.gen(function* () {
+      let stalled = false;
+      const { service, counts } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // Probes time out while the server is blocked: no drop, no re-pair, no
+      // re-mint, so no window remounts.
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      yield* TestClock.adjust("29 seconds");
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      assert.ok(Option.isSome(service.cached()));
+      assert.strictEqual(counts.pair, 1);
+      // It answers again: the grace resets, so the next stall gets a full one.
+      stalled = false;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      yield* TestClock.adjust("29 seconds");
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // Past the grace a silent server is gone: drop to hosted-static.
+      yield* TestClock.adjust("1 second");
+      assert.ok(Option.isNone(yield* service.refresh));
+      assert.ok(Option.isNone(service.cached()));
+    }),
+  );
+
+  it.effect("a failed session check keeps the held bearer instead of re-pairing", () =>
+    Effect.gen(function* () {
+      let failing = false;
+      const { service, counts } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        sessionFails: () => failing,
+      });
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // The verify answered, then the server stalled before the session check.
+      failing = true;
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      assert.strictEqual(counts.pair, 1);
+      assert.ok(Option.isSome(service.cached()));
+    }),
+  );
+
+  it.effect("an older verify answering late does not reset the grace", () =>
+    Effect.gen(function* () {
+      const gate = yield* held();
+      let stalled = false;
+      const { service } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        // Call 1 is the attach verify; call 2, an older refresh, answers late.
+        descriptorGate: (call) =>
+          call === 2
+            ? Deferred.succeed(gate.started, undefined).pipe(
+                Effect.andThen(Deferred.await(gate.release)),
+              )
+            : Effect.void,
+        descriptorFails: (call) => call !== 2 && stalled,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      const older = yield* service.refresh.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.started);
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* Deferred.succeed(gate.release, undefined);
+      assert.ok(Option.isSome(yield* Fiber.join(older)));
+      // The grace still runs from the newer failure.
+      yield* TestClock.adjust("30 seconds");
+      assert.ok(Option.isNone(yield* service.refresh));
+    }),
+  );
+
+  it.effect("the held endpoint answering resets the grace when discovery omits it", () =>
+    Effect.gen(function* () {
+      let stalled = false;
+      const { service, live } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      live.splice(0, live.length);
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* TestClock.adjust("20 seconds");
+      // Discovery still omits it, but the held endpoint answers as itself.
+      stalled = false;
+      assert.ok(Option.isSome(yield* service.refresh));
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* TestClock.adjust("20 seconds");
+      assert.ok(Option.isSome(yield* service.refresh));
+    }),
+  );
+
   it.effect("a transport-error reject backs off, then re-attaches without a restart", () =>
     Effect.gen(function* () {
       const { service, counts } = yield* makeScenario({ sessionAuthenticated: () => true });
@@ -848,60 +841,30 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
   );
 
   it.effect("a racing detach wins over an in-flight re-mint", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const proceed = yield* Deferred.make<void>();
-        const reminting = yield* Deferred.make<void>();
-        let tokenCalls = 0;
-        const httpClientLayer = Layer.succeed(
-          HttpClient.HttpClient,
-          HttpClient.make((request) =>
-            Effect.gen(function* () {
-              if (request.url.endsWith("/oauth/token")) {
-                tokenCalls += 1;
-                // The attach-time mint completes; only the re-mint holds
-                // open so the test can detach underneath it.
-                if (tokenCalls >= 2) {
-                  yield* Deferred.succeed(reminting, undefined);
-                  yield* Deferred.await(proceed);
-                }
-                return tokenResponse("attached-bearer-token-resurrected");
-              }
-              if (request.url.endsWith("/api/auth/session")) {
-                return sessionResponse(false);
-              }
-              return descriptorResponse(server.environmentId as string);
-            }),
-          ),
-        );
-        const discoveryLayer = Layer.succeed(
-          DesktopRunningLocalServers.DesktopRunningLocalServers,
-          {
-            discover: Effect.succeed([server]),
-            pairLocalServer: () =>
-              Effect.succeed({
-                pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-                pairingExpiresAt: "2099-01-01T00:00:00.000Z",
-              }),
-          } as unknown as DesktopRunningLocalServers.DesktopRunningLocalServers["Service"],
-        );
-        const service = yield* make.pipe(
-          Effect.provide(Layer.mergeAll(discoveryLayer, httpClientLayer)),
-        );
-
-        assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
-        const remint = yield* service.getBearerToken.pipe(Effect.forkChild);
-        yield* Deferred.await(reminting);
-        // Detach lands while the re-mint is held open; when the mint
-        // completes it sees the bumped generation and refuses to publish
-        // instead of resurrecting the attachment.
-        assert.ok(Option.isNone(yield* service.attach(ATTACHED_PRIMARY_SELECTION_NONE)));
-        yield* Deferred.succeed(proceed, undefined);
-        const token = yield* Fiber.join(remint).pipe(Effect.option);
-        assert.ok(Option.isNone(token));
-        assert.ok(Option.isNone(yield* service.current));
-      }),
-    ),
+    Effect.gen(function* () {
+      const gate = yield* held();
+      const { service } = yield* makeScenario({
+        sessionAuthenticated: () => false,
+        // The attach-time pair completes; only the re-mint holds open so the
+        // test can detach underneath it.
+        pairGate: (call) =>
+          call === 2
+            ? Deferred.succeed(gate.started, undefined).pipe(
+                Effect.andThen(Deferred.await(gate.release)),
+              )
+            : Effect.void,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      const remint = yield* service.getBearerToken.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.started);
+      // Detach lands while the re-mint is held open; when the mint
+      // completes it sees the bumped generation and refuses to publish
+      // instead of resurrecting the attachment.
+      assert.ok(Option.isNone(yield* service.attach(ATTACHED_PRIMARY_SELECTION_NONE)));
+      yield* Deferred.succeed(gate.release, undefined);
+      assert.ok(Option.isNone(yield* Fiber.join(remint).pipe(Effect.option)));
+      assert.ok(Option.isNone(yield* service.current));
+    }),
   );
 
   it("builds an attached bootstrap carrying lifecycle and verified env id", () => {
