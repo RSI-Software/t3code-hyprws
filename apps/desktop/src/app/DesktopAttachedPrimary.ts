@@ -13,6 +13,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
@@ -34,7 +35,11 @@ export class DesktopAttachedPrimaryNotAttachedError extends Schema.TaggedError<D
 
 export class DesktopAttachedPrimaryUnavailableError extends Schema.TaggedError<DesktopAttachedPrimaryUnavailableError>()(
   "DesktopAttachedPrimaryUnavailableError",
-  { detail: Schema.String },
+  {
+    detail: Schema.String,
+    /** The server did not answer; it may be stalled, not gone. */
+    unreachable: Schema.optional(Schema.Boolean),
+  },
 ) {
   override get message(): string {
     return this.detail;
@@ -63,6 +68,16 @@ interface CachedAttachedBootstrap {
 }
 
 const ATTACH_TIMEOUT_MS = 10_000;
+
+/**
+ * How long a held attachment survives verifies that get no answer: a server
+ * stalled on disk or a long event-loop block misses the 2s discovery probe,
+ * and dropping then re-pairs and remounts every window.
+ */
+const UNREACHABLE_GRACE_MS = 30_000;
+
+/** Matches the discovery probe, so a stall costs a verify no more than discovery. */
+const PROBE_TIMEOUT_MS = 2_000;
 
 /** A server instance: a restart (new pid or start time) is a new identity. */
 const serverIdentity = (server: RunningLocalServer): string =>
@@ -147,6 +162,8 @@ export const make = Effect.gen(function* () {
   // Re-verifies run outside the lock and can finish out of order: only the
   // newest result publishes a server instance.
   const verifications = { started: 0, published: 0 };
+  // When the held server first stopped answering verifies; null while it answers.
+  const unreachableSince: { current: number | null } = { current: null };
   // Server instances auto-attach skips: a 401 survived a re-mint, so its auth
   // is broken. A restart is a new identity, so it attaches again.
   const skipped = new Set<string>();
@@ -159,91 +176,105 @@ export const make = Effect.gen(function* () {
   // caller. Detach and reject stay outside so they land under a held mint.
   const lock = yield* Semaphore.make(1);
 
-  const verifyServer = (
+  const verifyServer = Effect.fn("DesktopAttachedPrimary.verifyServer")(function* (
     server: RunningLocalServer,
-  ): Effect.Effect<RunningLocalServer, DesktopAttachedPrimaryUnavailableError> =>
-    Effect.gen(function* () {
-      const servers = yield* discovery.discover;
-      const live = servers.find((candidate) => candidate.environmentId === server.environmentId);
-      if (live === undefined) {
-        return yield* new DesktopAttachedPrimaryUnavailableError({
-          detail: `Attached server ${server.environmentId} is no longer running.`,
-        });
+  ): Effect.fn.Return<RunningLocalServer, DesktopAttachedPrimaryUnavailableError> {
+    const servers = yield* discovery.discover;
+    const live = servers.find((candidate) => candidate.environmentId === server.environmentId);
+    if (live === undefined) {
+      // Discovery omits servers it cannot verify, so ask the held endpoint
+      // directly: the held environment answering there is still attached;
+      // another environment answering is a verdict.
+      const probed = yield* fetchDescriptorEnvironmentId(server, PROBE_TIMEOUT_MS).pipe(
+        Effect.option,
+      );
+      if (Option.isSome(probed) && probed.value.environmentId === server.environmentId) {
+        return server;
       }
-      // discover() verifies env id (persisted vs probed descriptor) and
-      // endpoint reachability, but a restart on the SAME port keeps both.
-      // Identity is the environment id: the live descriptor must still report
-      // the attached env id. A same-environment restart (an update restart)
-      // then re-verifies in place with its fresh pid/start time
-      // (RSI-Software/t3code-hyprws#1706) instead of dropping the client's
-      // environments; a different server reports a different env id and is
-      // rejected here or by the discovery find above.
-      const descriptor = yield* fetchDescriptorEnvironmentId(live);
-      if (descriptor.environmentId !== server.environmentId) {
-        return yield* new DesktopAttachedPrimaryUnavailableError({
-          detail: "The attached server reported a different environment id on verify.",
-        });
-      }
-      return live;
-    });
+      return yield* new DesktopAttachedPrimaryUnavailableError({
+        detail: `Attached server ${server.environmentId} is no longer running.`,
+        unreachable: Option.isNone(probed),
+      });
+    }
+    if (live.httpBaseUrl !== server.httpBaseUrl) {
+      return yield* new DesktopAttachedPrimaryUnavailableError({
+        detail: "The attached server moved to another endpoint.",
+      });
+    }
+    // A restart on the same port passes discover(), so identity is the env id:
+    // a same-environment (update) restart re-verifies in place with its fresh
+    // pid/start time instead of dropping the client's environments, while a
+    // different server reports a different env id and is rejected.
+    const descriptor = yield* fetchDescriptorEnvironmentId(live);
+    if (descriptor.environmentId !== server.environmentId) {
+      return yield* new DesktopAttachedPrimaryUnavailableError({
+        detail: "The attached server reported a different environment id on verify.",
+      });
+    }
+    return live;
+  });
 
-  const mintBearerToken = (
+  const mintBearerToken = Effect.fn("DesktopAttachedPrimary.mintBearerToken")(function* (
     server: RunningLocalServer,
-  ): Effect.Effect<string, DesktopAttachedPrimaryUnavailableError> =>
-    Effect.gen(function* () {
-      // The one-time pairing token the bundled `t3 pair` command mints is the
-      // only credential an attached (non-spawned) server will accept: main
-      // holds the resulting bearer and the renderer only ever sees that
-      // bearer through the primary HTTP layer, never the pairing token.
-      const pairing = yield* discovery.pairLocalServer(server.environmentId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new DesktopAttachedPrimaryUnavailableError({
-              detail: `Could not mint an attachment credential: ${cause.detail}`,
-            }),
-        ),
-      );
-      const token = new URL(pairing.pairingUrl).hash.match(/[#&?]token=([^&#]+)/)?.[1] ?? null;
-      const credential = token === null ? "" : decodeURIComponent(token);
-      if (credential.length === 0) {
-        return yield* new DesktopAttachedPrimaryUnavailableError({
-          detail: "The local pairing command returned an empty credential.",
-        });
-      }
-      const session = yield* bootstrapRemoteBearerSession({
-        httpBaseUrl: server.httpBaseUrl,
-        credential,
-        scopes: [...AuthStandardClientScopes],
-        clientMetadata: { label: "T3 Code Desktop", deviceType: "desktop" },
-        timeoutMs: ATTACH_TIMEOUT_MS,
-      }).pipe(
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-        Effect.mapError(
-          (cause) =>
-            new DesktopAttachedPrimaryUnavailableError({
-              detail: `The attached server rejected the attachment credential: ${String(cause)}`,
-            }),
-        ),
-      );
-      return session.access_token;
-    });
-
-  const fetchDescriptorEnvironmentId = (server: RunningLocalServer) =>
-    fetchRemoteEnvironmentDescriptor({
+  ): Effect.fn.Return<string, DesktopAttachedPrimaryUnavailableError> {
+    // The one-time pairing token the bundled `t3 pair` command mints is the
+    // only credential an attached (non-spawned) server will accept: main
+    // holds the resulting bearer and the renderer only ever sees that
+    // bearer through the primary HTTP layer, never the pairing token.
+    const pairing = yield* discovery.pairLocalServer(server.environmentId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DesktopAttachedPrimaryUnavailableError({
+            detail: `Could not mint an attachment credential: ${cause.detail}`,
+          }),
+      ),
+    );
+    const token = new URL(pairing.pairingUrl).hash.match(/[#&?]token=([^&#]+)/)?.[1] ?? null;
+    const credential = token === null ? "" : decodeURIComponent(token);
+    if (credential.length === 0) {
+      return yield* new DesktopAttachedPrimaryUnavailableError({
+        detail: "The local pairing command returned an empty credential.",
+      });
+    }
+    const session = yield* bootstrapRemoteBearerSession({
       httpBaseUrl: server.httpBaseUrl,
+      credential,
+      scopes: [...AuthStandardClientScopes],
+      clientMetadata: { label: "T3 Code Desktop", deviceType: "desktop" },
       timeoutMs: ATTACH_TIMEOUT_MS,
     }).pipe(
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.mapError(
         (cause) =>
           new DesktopAttachedPrimaryUnavailableError({
+            detail: `The attached server rejected the attachment credential: ${String(cause)}`,
+          }),
+      ),
+    );
+    return session.access_token;
+  });
+
+  const fetchDescriptorEnvironmentId = (
+    server: RunningLocalServer,
+    timeoutMs = ATTACH_TIMEOUT_MS,
+  ) =>
+    fetchRemoteEnvironmentDescriptor({
+      httpBaseUrl: server.httpBaseUrl,
+      timeoutMs,
+    }).pipe(
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.mapError(
+        (cause) =>
+          new DesktopAttachedPrimaryUnavailableError({
             detail: `Could not verify the attached server: ${String(cause)}`,
+            unreachable: true,
           }),
       ),
     );
 
   const dropNow = () => {
     generation.current += 1;
+    unreachableSince.current = null;
     state.current = null;
     cache.current = null;
   };
@@ -273,43 +304,44 @@ export const make = Effect.gen(function* () {
       backoff.set(identity, { failures, until: failedAt + attachRetryDelayMs(failures) });
     });
 
-  const attachLocked = (selection: string) =>
-    Effect.gen(function* () {
-      const started = generation.current;
-      const servers = yield* discovery.discover;
-      const explicit = selection !== ATTACHED_PRIMARY_SELECTION_AUTO;
-      const now = yield* Clock.currentTimeMillis;
-      const selected = explicit
-        ? servers.find((candidate) => candidate.environmentId === selection)
-        : servers.length === 1 &&
-            !skipped.has(serverIdentity(servers[0]!)) &&
-            (backoff.get(serverIdentity(servers[0]!))?.until ?? 0) <= now
-          ? servers[0]
-          : undefined;
-      if (selected === undefined) {
-        // None or several: stay hosted-static: only one verified server promotes
-        // rather than guessing which server the user meant.
-        if (generation.current === started) dropNow();
-        return Option.none<RunningLocalServer>();
-      }
-      // Single flight: a caller that queued behind the attach that just
-      // promoted this instance reuses it instead of pairing again.
-      const held = state.current;
-      if (held !== null && serverIdentity(held.server) === serverIdentity(selected)) {
-        return Option.some(held.server);
-      }
-      const minted = yield* Effect.gen(function* () {
-        const verified = yield* verifyServer(selected);
-        return { verified, bearerToken: yield* mintBearerToken(verified) };
-      }).pipe(Effect.tapError(() => (explicit ? Effect.void : backOff(selected))));
-      backoff.delete(serverIdentity(selected));
-      if (generation.current !== started) {
-        return heldServer();
-      }
-      state.current = { selection, server: minted.verified, bearerToken: minted.bearerToken };
-      cache.current = { server: minted.verified };
-      return Option.some(minted.verified);
-    });
+  const attachLocked = Effect.fn("DesktopAttachedPrimary.attachLocked")(function* (
+    selection: string,
+  ) {
+    const started = generation.current;
+    const servers = yield* discovery.discover;
+    const explicit = selection !== ATTACHED_PRIMARY_SELECTION_AUTO;
+    const now = yield* Clock.currentTimeMillis;
+    const selected = explicit
+      ? servers.find((candidate) => candidate.environmentId === selection)
+      : servers.length === 1 &&
+          !skipped.has(serverIdentity(servers[0]!)) &&
+          (backoff.get(serverIdentity(servers[0]!))?.until ?? 0) <= now
+        ? servers[0]
+        : undefined;
+    if (selected === undefined) {
+      // None or several: stay hosted-static: only one verified server promotes
+      // rather than guessing which server the user meant.
+      if (generation.current === started) dropNow();
+      return Option.none<RunningLocalServer>();
+    }
+    // Single flight: a caller that queued behind the attach that just
+    // promoted this instance reuses it instead of pairing again.
+    const held = state.current;
+    if (held !== null && serverIdentity(held.server) === serverIdentity(selected)) {
+      return Option.some(held.server);
+    }
+    const minted = yield* Effect.gen(function* () {
+      const verified = yield* verifyServer(selected);
+      return { verified, bearerToken: yield* mintBearerToken(verified) };
+    }).pipe(Effect.tapError(() => (explicit ? Effect.void : backOff(selected))));
+    backoff.delete(serverIdentity(selected));
+    if (generation.current !== started) {
+      return heldServer();
+    }
+    state.current = { selection, server: minted.verified, bearerToken: minted.bearerToken };
+    cache.current = { server: minted.verified };
+    return Option.some(minted.verified);
+  });
 
   const attach: DesktopAttachedPrimary["Service"]["attach"] = (selection: string) =>
     selection === ATTACHED_PRIMARY_SELECTION_NONE
@@ -318,7 +350,7 @@ export const make = Effect.gen(function* () {
 
   // Shared re-verify used by `current` and the background `refresh`: drops
   // the attachment (state + sync cache) whenever the live server no longer
-  // matches, so a stale primary is never served.
+  // matches, so a stale primary is never served; a silent one gets a grace.
   const reverify = Effect.gen(function* () {
     const started = generation.current;
     const sequence = ++verifications.started;
@@ -326,27 +358,38 @@ export const make = Effect.gen(function* () {
     if (held === null) {
       return Option.none<RunningLocalServer>();
     }
-    const verified = yield* verifyServer(held.server).pipe(Effect.option);
+    const verified = yield* verifyServer(held.server).pipe(Effect.result);
     // Something newer dropped or replaced the attachment meanwhile, or a
     // later verify already published: a stale result, success or failure,
     // must neither drop nor roll back the attachment.
     if (generation.current !== started || sequence < verifications.published) {
       return heldServer();
     }
-    if (Option.isNone(verified) || verified.value.httpBaseUrl !== held.server.httpBaseUrl) {
+    if (Result.isFailure(verified)) {
+      // No answer may be a stall: keep serving the held server until the
+      // grace runs out. A different environment on the port drops at once.
+      const now = yield* Clock.currentTimeMillis;
+      const since = unreachableSince.current ?? now;
+      if (verified.failure.unreachable === true && now - since < UNREACHABLE_GRACE_MS) {
+        unreachableSince.current = since;
+        // An older verify answering late must not reset the grace.
+        verifications.published = sequence;
+        return heldServer();
+      }
       dropNow();
       return Option.none<RunningLocalServer>();
     }
+    unreachableSince.current = null;
     verifications.published = sequence;
     // A same-environment restart re-attaches in place: track the new instance
     // so identity-keyed skip/backoff state and snapshots follow it. Update the
     // current attachment, not `held`: a mint may have replaced its bearer.
     const latest = state.current ?? held;
-    if (serverIdentity(verified.value) !== serverIdentity(latest.server)) {
-      state.current = { ...latest, server: verified.value };
+    if (serverIdentity(verified.success) !== serverIdentity(latest.server)) {
+      state.current = { ...latest, server: verified.success };
     }
-    cache.current = { server: verified.value };
-    return Option.some(verified.value);
+    cache.current = { server: verified.success };
+    return Option.some(verified.success);
   });
 
   const current: DesktopAttachedPrimary["Service"]["current"] = reverify;
@@ -385,46 +428,53 @@ export const make = Effect.gen(function* () {
   const autoAttachOnStartup: DesktopAttachedPrimary["Service"]["autoAttachOnStartup"] =
     refreshOrAttach;
 
-  // Under the lock: the first reader holding a dead bearer re-mints and
-  // parallel readers queue, then find the fresh token already stored. A mint
-  // that raced a drop sees the bumped generation and serves the newer
-  // attachment (or none) instead of resurrecting the dropped one. A mint
-  // failure drops the attachment so the renderer falls back to hosted-static.
-  const readLocked = (probedToken: string | null) =>
-    Effect.gen(function* () {
-      const started = generation.current;
-      const held = state.current;
-      if (held === null) {
-        return yield* new DesktopAttachedPrimaryNotAttachedError();
-      }
-      if (probedToken !== null && held.bearerToken !== probedToken) {
-        return held.bearerToken;
-      }
-      const live = yield* reverify;
-      if (generation.current !== started || Option.isNone(live)) {
-        return yield* heldToken;
-      }
-      const session = yield* fetchRemoteSessionState({
-        httpBaseUrl: live.value.httpBaseUrl,
-        bearerToken: held.bearerToken,
-        timeoutMs: ATTACH_TIMEOUT_MS,
-      }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.option);
-      if (Option.isSome(session) && session.value.authenticated) {
-        return held.bearerToken;
-      }
-      const bearerToken = yield* mintBearerToken(live.value).pipe(Effect.option);
-      if (generation.current !== started) {
-        return yield* heldToken;
-      }
-      if (Option.isNone(bearerToken)) {
-        dropNow();
-        return yield* new DesktopAttachedPrimaryNotAttachedError();
-      }
-      // Keep the latest verified instance: a restart re-verified during the
-      // mint must stay the identity an unauthorized reject skips.
-      state.current = { ...(state.current ?? held), bearerToken: bearerToken.value };
-      return bearerToken.value;
-    });
+  // Under the lock, the first reader with a dead bearer re-mints and the rest
+  // find the fresh token. A mint that raced a drop sees the bumped generation
+  // and never resurrects the dropped attachment; a mint failure drops the
+  // attachment so the renderer falls back to hosted-static.
+  const readLocked = Effect.fn("DesktopAttachedPrimary.readLocked")(function* (
+    probedToken: string | null,
+  ) {
+    const started = generation.current;
+    const held = state.current;
+    if (held === null) {
+      return yield* new DesktopAttachedPrimaryNotAttachedError();
+    }
+    if (probedToken !== null && held.bearerToken !== probedToken) {
+      return held.bearerToken;
+    }
+    const live = yield* reverify;
+    if (generation.current !== started || Option.isNone(live)) {
+      return yield* heldToken;
+    }
+    // Inside the unreachable grace a session check would time out and the
+    // re-mint fail: keep the held bearer until the server answers again.
+    if (unreachableSince.current !== null) {
+      return held.bearerToken;
+    }
+    const session = yield* fetchRemoteSessionState({
+      httpBaseUrl: live.value.httpBaseUrl,
+      bearerToken: held.bearerToken,
+      timeoutMs: ATTACH_TIMEOUT_MS,
+    }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.option);
+    // A bad bearer answers `authenticated: false`; a failed check is
+    // transport, often the stall starting, and re-minting would not help.
+    if (Option.isNone(session) || session.value.authenticated) {
+      return held.bearerToken;
+    }
+    const bearerToken = yield* mintBearerToken(live.value).pipe(Effect.option);
+    if (generation.current !== started) {
+      return yield* heldToken;
+    }
+    if (Option.isNone(bearerToken)) {
+      dropNow();
+      return yield* new DesktopAttachedPrimaryNotAttachedError();
+    }
+    // Keep the latest verified instance: a restart re-verified during the
+    // mint must stay the identity an unauthorized reject skips.
+    state.current = { ...(state.current ?? held), bearerToken: bearerToken.value };
+    return bearerToken.value;
+  });
 
   const getBearerToken: DesktopAttachedPrimary["Service"]["getBearerToken"] = Effect.suspend(() =>
     lock.withPermits(1)(readLocked(state.current?.bearerToken ?? null)),
