@@ -1721,7 +1721,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
   try {
     // fetch — the tag list and the trunk lease both come from the remotes
-    git(runner, root, ["fetch", "--tags", "upstream"]);
+    git(runner, root, ["fetch", "--tags", "--force", "upstream"]);
     git(runner, root, ["fetch", "origin", HYPRWS_BRANCH]);
     const expectedOld = git(runner, root, ["rev-parse", `origin/${HYPRWS_BRANCH}`]);
     const mergeBase = (tip: string): string =>
