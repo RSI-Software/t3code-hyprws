@@ -13,6 +13,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
@@ -34,7 +35,11 @@ export class DesktopAttachedPrimaryNotAttachedError extends Schema.TaggedError<D
 
 export class DesktopAttachedPrimaryUnavailableError extends Schema.TaggedError<DesktopAttachedPrimaryUnavailableError>()(
   "DesktopAttachedPrimaryUnavailableError",
-  { detail: Schema.String },
+  {
+    detail: Schema.String,
+    /** The server did not answer; it may be stalled, not gone. */
+    unreachable: Schema.optional(Schema.Boolean),
+  },
 ) {
   override get message(): string {
     return this.detail;
@@ -63,6 +68,13 @@ interface CachedAttachedBootstrap {
 }
 
 const ATTACH_TIMEOUT_MS = 10_000;
+
+/**
+ * How long a held attachment survives verifies that get no answer: a server
+ * stalled on disk or a long event-loop block misses the 2s discovery probe,
+ * and dropping then re-pairs and remounts every window.
+ */
+const UNREACHABLE_GRACE_MS = 30_000;
 
 /** A server instance: a restart (new pid or start time) is a new identity. */
 const serverIdentity = (server: RunningLocalServer): string =>
@@ -149,6 +161,8 @@ export const make = Effect.gen(function* () {
   // Re-verifies run outside the lock and can finish out of order: only the
   // newest result publishes a server instance.
   const verifications = { started: 0, published: 0 };
+  // When the held server first stopped answering verifies; null while it answers.
+  const unreachableSince: { current: number | null } = { current: null };
   // Server instances auto-attach skips: a 401 survived a re-mint, so its auth
   // is broken. A restart is a new identity, so it attaches again.
   const skipped = new Set<string>();
@@ -170,6 +184,8 @@ export const make = Effect.gen(function* () {
       if (live === undefined) {
         return yield* new DesktopAttachedPrimaryUnavailableError({
           detail: `Attached server ${server.environmentId} is no longer running.`,
+          // Another environment answering on the endpoint is a verdict.
+          unreachable: !servers.some((candidate) => candidate.httpBaseUrl === server.httpBaseUrl),
         });
       }
       // discover() verifies env id (persisted vs probed descriptor) and
@@ -240,12 +256,14 @@ export const make = Effect.gen(function* () {
         (cause) =>
           new DesktopAttachedPrimaryUnavailableError({
             detail: `Could not verify the attached server: ${String(cause)}`,
+            unreachable: true,
           }),
       ),
     );
 
   const dropNow = () => {
     generation.current += 1;
+    unreachableSince.current = null;
     state.current = null;
     cache.current = null;
   };
@@ -320,7 +338,7 @@ export const make = Effect.gen(function* () {
 
   // Shared re-verify used by `current` and the background `refresh`: drops
   // the attachment (state + sync cache) whenever the live server no longer
-  // matches, so a stale primary is never served.
+  // matches, so a stale primary is never served; a silent one gets a grace.
   const reverify = Effect.gen(function* () {
     const started = generation.current;
     const sequence = ++verifications.started;
@@ -328,27 +346,40 @@ export const make = Effect.gen(function* () {
     if (held === null) {
       return Option.none<RunningLocalServer>();
     }
-    const verified = yield* verifyServer(held.server).pipe(Effect.option);
+    const verified = yield* verifyServer(held.server).pipe(Effect.result);
     // Something newer dropped or replaced the attachment meanwhile, or a
     // later verify already published: a stale result, success or failure,
     // must neither drop nor roll back the attachment.
     if (generation.current !== started || sequence < verifications.published) {
       return heldServer();
     }
-    if (Option.isNone(verified) || verified.value.httpBaseUrl !== held.server.httpBaseUrl) {
+    if (Result.isFailure(verified)) {
+      // No answer may be a stall: keep serving the held server until the
+      // grace runs out. A different environment on the port drops at once.
+      const now = yield* Clock.currentTimeMillis;
+      const since = unreachableSince.current ?? now;
+      if (verified.failure.unreachable === true && now - since < UNREACHABLE_GRACE_MS) {
+        unreachableSince.current = since;
+        return heldServer();
+      }
       dropNow();
       return Option.none<RunningLocalServer>();
     }
+    if (verified.success.httpBaseUrl !== held.server.httpBaseUrl) {
+      dropNow();
+      return Option.none<RunningLocalServer>();
+    }
+    unreachableSince.current = null;
     verifications.published = sequence;
     // A same-environment restart re-attaches in place: track the new instance
     // so identity-keyed skip/backoff state and snapshots follow it. Update the
     // current attachment, not `held`: a mint may have replaced its bearer.
     const latest = state.current ?? held;
-    if (serverIdentity(verified.value) !== serverIdentity(latest.server)) {
-      state.current = { ...latest, server: verified.value };
+    if (serverIdentity(verified.success) !== serverIdentity(latest.server)) {
+      state.current = { ...latest, server: verified.success };
     }
-    cache.current = { server: verified.value };
-    return Option.some(verified.value);
+    cache.current = { server: verified.success };
+    return Option.some(verified.success);
   });
 
   const current: DesktopAttachedPrimary["Service"]["current"] = reverify;
@@ -405,6 +436,11 @@ export const make = Effect.gen(function* () {
       const live = yield* reverify;
       if (generation.current !== started || Option.isNone(live)) {
         return yield* heldToken;
+      }
+      // Inside the unreachable grace a session check would time out and the
+      // re-mint fail: keep the held bearer until the server answers again.
+      if (unreachableSince.current !== null) {
+        return held.bearerToken;
       }
       const session = yield* fetchRemoteSessionState({
         httpBaseUrl: live.value.httpBaseUrl,

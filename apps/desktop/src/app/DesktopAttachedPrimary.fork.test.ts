@@ -292,7 +292,10 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
 
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
       // The server restarts: pid/state gone, so discovery no longer lists it.
+      // A stall looks the same at first, so the attachment rides out a grace.
       live = [];
+      assert.ok(Option.isSome(yield* service.current));
+      yield* TestClock.adjust("30 seconds");
       assert.ok(Option.isNone(yield* service.current));
       assert.ok(Option.isNone(yield* service.snapshot));
       const token = yield* Effect.option(service.getBearerToken);
@@ -702,6 +705,37 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
       yield* service.reject("attached-bearer-token-1", "unauthorized");
       assert.ok(Option.isSome(service.cached()));
       assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-2");
+    }),
+  );
+
+  it.effect("a stalled server keeps its attachment and bearer through the grace", () =>
+    Effect.gen(function* () {
+      let stalled = false;
+      const { service, counts } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        descriptorFails: () => stalled,
+      });
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // Probes time out while the server is blocked: no drop, no re-pair, no
+      // re-mint, so no window remounts.
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      yield* TestClock.adjust("29 seconds");
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      assert.ok(Option.isSome(service.cached()));
+      assert.strictEqual(counts.pair, 1);
+      // It answers again: the grace resets, so the next stall gets a full one.
+      stalled = false;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      yield* TestClock.adjust("29 seconds");
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // Past the grace a silent server is gone: drop to hosted-static.
+      yield* TestClock.adjust("1 second");
+      assert.ok(Option.isNone(yield* service.refresh));
+      assert.ok(Option.isNone(service.cached()));
     }),
   );
 
