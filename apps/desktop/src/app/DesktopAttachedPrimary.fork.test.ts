@@ -154,6 +154,8 @@ const makeScenario = (input: {
   readonly descriptorGate?: (call: number) => Effect.Effect<void>;
   /** Answers a given descriptor fetch with a 503, failing that verify. */
   readonly descriptorFails?: (call: number) => boolean;
+  /** Answers session checks with a 503, as a stalled or failing server would. */
+  readonly sessionFails?: () => boolean;
 }) =>
   Effect.gen(function* () {
     const live: Array<RunningLocalServer> = [server];
@@ -167,6 +169,9 @@ const makeScenario = (input: {
             return tokenResponse(`attached-bearer-token-${counts.mint}`);
           }
           if (request.url.endsWith("/api/auth/session")) {
+            if (input.sessionFails?.() === true) {
+              return HttpClientResponse.fromWeb(request, new Response("down", { status: 503 }));
+            }
             const authorization = Headers.get(request.headers, "authorization");
             return sessionResponse(
               Option.isSome(authorization) &&
@@ -442,6 +447,7 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
   it.effect("drops the attachment when a different environment takes the port", () =>
     Effect.gen(function* () {
       let live: ReadonlyArray<RunningLocalServer> = [server];
+      let descriptorEnvironmentId = server.environmentId as string;
       const httpClientLayer = Layer.succeed(
         HttpClient.HttpClient,
         HttpClient.make((request) =>
@@ -450,7 +456,7 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
               ? tokenResponse("attached-bearer-token")
               : request.url.endsWith("/api/auth/session")
                 ? sessionResponse(true)
-                : descriptorResponse(server.environmentId as string),
+                : descriptorResponse(descriptorEnvironmentId),
           ),
         ),
       );
@@ -468,15 +474,10 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
 
       assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
       // Same port, but the env id differs: a different server owns the
-      // endpoint now and the attachment drops immediately.
-      live = [
-        {
-          ...server,
-          pid: 99,
-          startedAt: "2026-02-02T00:00:00.000Z",
-          environmentId: otherEnvironmentId,
-        },
-      ];
+      // endpoint now and the attachment drops immediately, even when
+      // discovery cannot list that server.
+      live = [];
+      descriptorEnvironmentId = otherEnvironmentId as string;
       assert.ok(Option.isNone(yield* service.current));
       assert.ok(Option.isNone(service.cached()));
       assert.ok(Option.isNone(yield* Effect.option(service.getBearerToken)));
@@ -736,6 +737,50 @@ describe("DesktopAttachedPrimary RSI-Software/t3code-hyprws#1350", () => {
       yield* TestClock.adjust("1 second");
       assert.ok(Option.isNone(yield* service.refresh));
       assert.ok(Option.isNone(service.cached()));
+    }),
+  );
+
+  it.effect("a failed session check keeps the held bearer instead of re-pairing", () =>
+    Effect.gen(function* () {
+      let failing = false;
+      const { service, counts } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        sessionFails: () => failing,
+      });
+      assert.ok(Option.isSome(yield* service.refreshOrAttach));
+      // The verify answered, then the server stalled before the session check.
+      failing = true;
+      assert.strictEqual(yield* service.getBearerToken, "attached-bearer-token-1");
+      assert.strictEqual(counts.pair, 1);
+      assert.ok(Option.isSome(service.cached()));
+    }),
+  );
+
+  it.effect("an older verify answering late does not reset the grace", () =>
+    Effect.gen(function* () {
+      const gate = yield* held();
+      let stalled = false;
+      const { service } = yield* makeScenario({
+        sessionAuthenticated: () => true,
+        // Call 1 is the attach verify; call 2, an older refresh, answers late.
+        descriptorGate: (call) =>
+          call === 2
+            ? Deferred.succeed(gate.started, undefined).pipe(
+                Effect.andThen(Deferred.await(gate.release)),
+              )
+            : Effect.void,
+        descriptorFails: (call) => call !== 2 && stalled,
+      });
+      assert.ok(Option.isSome(yield* service.attach(ATTACHED_PRIMARY_SELECTION_AUTO)));
+      const older = yield* service.refresh.pipe(Effect.forkChild);
+      yield* Deferred.await(gate.started);
+      stalled = true;
+      assert.ok(Option.isSome(yield* service.refresh));
+      yield* Deferred.succeed(gate.release, undefined);
+      assert.ok(Option.isSome(yield* Fiber.join(older)));
+      // The grace still runs from the newer failure.
+      yield* TestClock.adjust("30 seconds");
+      assert.ok(Option.isNone(yield* service.refresh));
     }),
   );
 

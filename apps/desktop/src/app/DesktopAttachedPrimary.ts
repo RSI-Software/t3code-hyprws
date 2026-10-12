@@ -76,6 +76,9 @@ const ATTACH_TIMEOUT_MS = 10_000;
  */
 const UNREACHABLE_GRACE_MS = 30_000;
 
+/** Matches the discovery probe, so a stall costs a verify no more than discovery. */
+const PROBE_TIMEOUT_MS = 2_000;
+
 /** A server instance: a restart (new pid or start time) is a new identity. */
 const serverIdentity = (server: RunningLocalServer): string =>
   `${server.environmentId}\u0000${server.pid}\u0000${server.startedAt}`;
@@ -182,10 +185,14 @@ export const make = Effect.gen(function* () {
       const servers = yield* discovery.discover;
       const live = servers.find((candidate) => candidate.environmentId === server.environmentId);
       if (live === undefined) {
+        // Discovery omits servers it cannot verify, so ask the held endpoint
+        // directly: another environment answering there is a verdict.
+        const probed = yield* fetchDescriptorEnvironmentId(server, PROBE_TIMEOUT_MS).pipe(
+          Effect.option,
+        );
         return yield* new DesktopAttachedPrimaryUnavailableError({
           detail: `Attached server ${server.environmentId} is no longer running.`,
-          // Another environment answering on the endpoint is a verdict.
-          unreachable: !servers.some((candidate) => candidate.httpBaseUrl === server.httpBaseUrl),
+          unreachable: Option.isNone(probed) || probed.value.environmentId === server.environmentId,
         });
       }
       // discover() verifies env id (persisted vs probed descriptor) and
@@ -246,10 +253,13 @@ export const make = Effect.gen(function* () {
       return session.access_token;
     });
 
-  const fetchDescriptorEnvironmentId = (server: RunningLocalServer) =>
+  const fetchDescriptorEnvironmentId = (
+    server: RunningLocalServer,
+    timeoutMs = ATTACH_TIMEOUT_MS,
+  ) =>
     fetchRemoteEnvironmentDescriptor({
       httpBaseUrl: server.httpBaseUrl,
-      timeoutMs: ATTACH_TIMEOUT_MS,
+      timeoutMs,
     }).pipe(
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.mapError(
@@ -360,6 +370,8 @@ export const make = Effect.gen(function* () {
       const since = unreachableSince.current ?? now;
       if (verified.failure.unreachable === true && now - since < UNREACHABLE_GRACE_MS) {
         unreachableSince.current = since;
+        // An older verify answering late must not reset the grace.
+        verifications.published = sequence;
         return heldServer();
       }
       dropNow();
@@ -447,7 +459,9 @@ export const make = Effect.gen(function* () {
         bearerToken: held.bearerToken,
         timeoutMs: ATTACH_TIMEOUT_MS,
       }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.option);
-      if (Option.isSome(session) && session.value.authenticated) {
+      // A bad bearer answers `authenticated: false`; a failed check is
+      // transport, often the stall starting, and re-minting would not help.
+      if (Option.isNone(session) || session.value.authenticated) {
         return held.bearerToken;
       }
       const bearerToken = yield* mintBearerToken(live.value).pipe(Effect.option);
