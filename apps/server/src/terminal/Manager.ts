@@ -2757,7 +2757,21 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         yield* HostProcess.HomeDirectory,
       ), // fork-hook: zmux-estate/retarget-spawn-env-platform
     );
-    const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+    const resolved = yield* (
+      // A first-use destination has no session to resolve; the follow move
+      // must ensure it like the open path does instead of stranding the
+      // viewer on the source. Settled threads keep the resolve-only policy,
+      // and the re-resolution keeps the strict readiness receipt.
+      options.ensureZmuxSession && !(yield* resolveOnlyForSettledThread(session.threadId))
+        ? ensureZmuxSession(targetDir, expectedMatch).pipe(
+            Effect.flatMap((ensured) =>
+              ensured.target
+                ? resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
+                : Effect.succeed(ensured),
+            ),
+          )
+        : resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
+    ); // fork-hook: zmux-estate/settled-lane-retarget-guard
     if (!resolved.candidate || !resolved.target) {
       return yield* new TerminalManagedRetargetError({
         cwd: input.cwd,
