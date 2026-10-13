@@ -153,8 +153,9 @@ const make = Effect.gen(function* () {
             yield* writeMove(owned, { ...move, status: "queued", updatedAt: now });
             return;
           }
-          const roots = [...new Set([source.checkoutRoot, destination.checkoutRoot])];
-          const activeThreadId = yield* activeOnCheckout(threadId, roots);
+          // Rebinding this idle thread does not mutate the source checkout or
+          // detach any other thread's session. Only the destination must be idle.
+          const activeThreadId = yield* activeOnCheckout(threadId, [destination.checkoutRoot]);
           if (activeThreadId !== null) {
             return yield* new CheckoutMoveValidationError({
               reason: `checkout is active on thread ${activeThreadId}`,
