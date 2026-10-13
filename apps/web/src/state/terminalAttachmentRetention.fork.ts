@@ -38,7 +38,12 @@ export function updateRetainedTerminalAttachment(
         };
 
   let next = retained;
-  if (source !== null && source !== retained.source) {
+  // A version-0 source is an uninitialized stream's seed, not display state:
+  // the attach query re-keys on the launch identity (checkout move) and
+  // reports the seed until the recreated stream's first snapshot. Accepting
+  // it would replay a phantom "closed" over the live retained buffer and
+  // close the drawer before the server reports the retargeted session.
+  if (source !== null && source.version > 0 && source !== retained.source) {
     const versionDelta =
       retained.source === null
         ? Math.max(1, source.version)
