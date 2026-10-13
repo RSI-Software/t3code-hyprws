@@ -215,6 +215,7 @@ it.effect("waitForThread follows a restart continuation instead of the cut run",
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [],
                 }) as unknown as OrchestrationV2ThreadProjection,
             ),
         }),
@@ -276,6 +277,7 @@ it.effect("waitForThread returns the cut run once its continuation is declined",
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status: "cancelled" }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
@@ -317,6 +319,7 @@ it.effect.each([
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
           dispatch: (command) =>
             Effect.sync(() => {
