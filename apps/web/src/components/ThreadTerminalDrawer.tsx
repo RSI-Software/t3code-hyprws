@@ -95,7 +95,8 @@ import { useClientSettings } from "../hooks/useSettings";
 import { getFileMetadataQueryAtom } from "../hooks/useFileMetadata";
 import { FileMetadataThreadContext } from "../hooks/FileMetadataThreadProvider";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { attachedTerminalSessionAtom } from "../state/terminalSessions";
+import { attachedTerminalSessionAtom } from "../state/terminalAttachmentRetention.fork"; // fork-hook: zmux-estate/terminal-attachment-retention
+import { useTerminalAttachDemandFork } from "../state/terminalAttachmentRetention.fork"; // fork-hook: zmux-estate/terminal-attachment-retention
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
@@ -767,6 +768,7 @@ function TerminalSessionViewport({
   // Attaching starts with the viewport, while the WASM surface is still loading;
   // the surface reads the session itself, so output chunks never re-render here.
   useAtomMount(terminalSessionAtom);
+  useTerminalAttachDemandFork(terminalSessionAtom, attached); // fork-hook: zmux-estate/terminal-attachment-demand
   const readTerminalSession = useEffectEvent(() => appAtomRegistry.get(terminalSessionAtom));
   const subscribeTerminalSession = useEffectEvent(
     (listener: (session: TerminalSessionState) => void) =>
