@@ -406,11 +406,13 @@ const make = Effect.gen(function* () {
           Effect.mapError(threadManagementFailureFork),
           Effect.map(ThreadManagementService.pendingRequestCount),
         );
+      // A final read that sees a pending request reports needed input instead
+      // of a timeout, matching the run wait; work still says what runs.
       return {
         threadId,
         runId: shell.latestRunId,
         status: shell.activityRunStatus ?? shell.status,
-        timedOut: !isWorkSettled(work),
+        timedOut: !isWorkSettled(work) && pendingCount === 0,
         work,
         pendingRequestCount: pendingCount,
       } satisfies ExternalMcpThreadWaitResult;

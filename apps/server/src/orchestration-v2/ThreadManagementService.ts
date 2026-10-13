@@ -154,6 +154,12 @@ export interface ThreadManagementWaitInput {
   readonly threadId: ThreadId;
   readonly runId?: RunId;
   readonly timeoutMs: number;
+  /**
+   * Return only when the run reaches a terminal status: a pending runtime
+   * request never returns this wait. Settlement waits on the run itself, so
+   * it must not stop early on input the caller will not answer.
+   */
+  readonly terminalOnly?: boolean;
 }
 
 export interface ThreadManagementWaitResult {
@@ -886,7 +892,7 @@ const make = Effect.gen(function* () {
       }
       // A run that needs input never turns terminal on its own, so the wait
       // also returns while a request pends and the caller answers it.
-      if (pendingRequestCount(target) > 0) {
+      if (!input.terminalOnly && pendingRequestCount(target) > 0) {
         return {
           threadId: input.threadId,
           run: selectedRun,
@@ -941,9 +947,12 @@ const make = Effect.gen(function* () {
           ),
         ),
         // A resolved request also wakes this stream; the re-read above decides,
-        // so the wait only returns on a terminal run or a still-pending one.
+        // so the wait only returns on a terminal run or, unless the caller
+        // waits for the run itself, a still-pending one.
         Stream.filter(
-          (waited) => isTerminalRunStatus(waited.run.status) || waited.pendingRequestCount > 0,
+          (waited) =>
+            isTerminalRunStatus(waited.run.status) ||
+            (!input.terminalOnly && waited.pendingRequestCount > 0),
         ),
         Stream.runHead,
         Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
@@ -964,13 +973,13 @@ const make = Effect.gen(function* () {
       }
       // The run may have reached a terminal status while the timeout was
       // winning the race; the final projection read decides what actually
-      // happened, so only a still-active run with no pending request counts
-      // as timed out.
+      // happened. Only a still-active run with no pending request counts as
+      // timed out; a settlement wait reports the run alone.
       const count = pendingRequestCount(current);
       return {
         threadId: input.threadId,
         run,
-        timedOut: !isTerminalRunStatus(run.status) && count === 0,
+        timedOut: !isTerminalRunStatus(run.status) && (input.terminalOnly || count === 0),
         pendingRequestCount: count,
       };
     });
@@ -978,8 +987,14 @@ const make = Effect.gen(function* () {
   const settleAfterRun: ThreadManagementServiceShape["settleAfterRun"] = Effect.fn(
     "orchestrationV2.threadManagement.settleAfterRun",
   )(function* (input) {
-    // A turn that outlives this wait leaves its thread active.
-    const { run } = yield* waitForThread({ ...input, timeoutMs: SETTLE_AFTER_RUN_WAIT_MS });
+    // A turn that outlives this wait leaves its thread active. Settlement
+    // waits for the run itself: a pending request must not return this wait
+    // before the run completes, or the thread would never settle.
+    const { run } = yield* waitForThread({
+      ...input,
+      timeoutMs: SETTLE_AFTER_RUN_WAIT_MS,
+      terminalOnly: true,
+    });
     if (run?.status !== "completed") return;
     yield* dispatch({
       type: "thread.settle",
