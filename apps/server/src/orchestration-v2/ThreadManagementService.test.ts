@@ -589,6 +589,7 @@ it.effect.each([
       ({
         thread: { id: threadId, projectId, deletedAt: null },
         runs: status === "missing" ? [] : [{ id: runId, status }],
+        runtimeRequests: [],
       }) as unknown as OrchestrationV2ThreadProjection;
     const layerTest = ThreadManagementService.layer.pipe(
       Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
@@ -677,6 +678,7 @@ it.effect("waitForThread reads the run again only when the run updates", () =>
               return {
                 thread: { id: threadId, projectId, deletedAt: null },
                 runs: [{ id: runId, status }],
+                runtimeRequests: [],
               } as unknown as OrchestrationV2ThreadProjection;
             }),
         }),
@@ -737,6 +739,7 @@ it.effect("waitForThread follows a restart continuation instead of the cut run",
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [],
                 }) as unknown as OrchestrationV2ThreadProjection,
             ),
         }),
@@ -798,6 +801,7 @@ it.effect("waitForThread returns the cut run once its continuation is declined",
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status: "cancelled" }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
@@ -1057,6 +1061,7 @@ it.effect.each([
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
           dispatch: (command) =>
             Effect.sync(() => {
