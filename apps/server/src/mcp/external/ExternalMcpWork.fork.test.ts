@@ -405,6 +405,7 @@ const makeHarness = () => {
                 threadId: input.threadId,
                 run: projection(input.threadId).runs[0] ?? null,
                 timedOut: false,
+                pendingRequestCount: 0,
               };
             }),
         }),
