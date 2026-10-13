@@ -134,7 +134,10 @@ import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
 import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
-import { cancelStoppedRuntimeRequestsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/stopped-request-import
+import {
+  cancelStoppedRuntimeRequestsFork,
+  finishedRunIdsFork,
+} from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/stopped-request-import
 import {
   checkoutMoveMetadataFork,
   detachesCheckoutRecoveryInlineFork,
@@ -9301,6 +9304,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             });
 
       const emitEvent = emit(events, command);
+      // fork-hook: upstream-fixes/interrupt-request-cleanup
+      // The client's Stop rides run.interrupt (holdQueue), so ended-run and
+      // runless request retirement cannot live only on thread.stop. Runs the
+      // target's own paths still handle stay live here and are untouched.
+      yield* cancelStoppedRuntimeRequestsFork({
+        threadId: command.threadId,
+        runIds: finishedRunIdsFork(projection.runs),
+        includeRunless: true,
+        projection,
+        now,
+        emit: emitEvent,
+      });
       const interruptRequestItem: OrchestrationV2TurnItem = {
         id: idAllocator.derive.runSignalTurnItem({
           runId: run.id,
@@ -9638,14 +9653,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // fork-hook: upstream-fixes/stopped-thread-request-cleanup
       yield* cancelStoppedRuntimeRequestsFork({
         threadId: command.threadId,
-        runIds: new Set(
-          projection.runs
-            .filter(
-              (run) =>
-                !["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
-            )
-            .map((run) => run.id),
-        ),
+        runIds: finishedRunIdsFork(projection.runs),
         includeRunless: true,
         projection,
         now: yield* DateTime.now,

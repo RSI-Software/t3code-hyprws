@@ -91,6 +91,18 @@ export const releasedToolEventsFork = (
   });
 };
 
+/** Runs that already ended own the stranded requests a Stop or interrupt retires. */
+export const finishedRunIdsFork = (
+  runs: ReadonlyArray<Pick<OrchestrationV2ThreadProjection["runs"][number], "id" | "status">>,
+): ReadonlySet<RunId> =>
+  new Set(
+    runs
+      .filter(
+        (run) => !["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+      )
+      .map((run) => run.id),
+  );
+
 /** Stop also retires questions stranded by a previously failed run. */
 export const cancelStoppedRuntimeRequestsFork = <E>(input: {
   threadId: ThreadId;
