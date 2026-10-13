@@ -3,6 +3,7 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import {
   EMPTY_TERMINAL_BUFFER_STATE,
+  nextTerminalAttachSeedState,
   terminalOutputText,
 } from "@t3tools/client-runtime/state/terminal";
 import {
@@ -127,5 +128,57 @@ describe("retained terminal attachments", () => {
     const hidden = updateRetainedTerminalAttachment(failed, "terminal", null, null);
 
     expect(hidden.error).toBe("Exact zmux target could not be attached.");
+  });
+
+  it("keeps the retained buffer while a re-keyed stream reports its uninitialized seed", () => {
+    const live = updateRetainedTerminalAttachment(
+      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+      "terminal",
+      buffer(7, "pre-move scrollback"),
+      null,
+    );
+    // A checkout move re-keys the attach query on the launch identity; before
+    // the recreated stream's first snapshot the query reports the
+    // uninitialized seed. That seed must not displace the retained buffer, or
+    // the viewport reads a phantom "closed" and closes the drawer.
+    const rekeyed = updateRetainedTerminalAttachment(
+      live,
+      "terminal",
+      nextTerminalAttachSeedState(),
+      null,
+    );
+    expect(rekeyed).toBe(live);
+    expect(terminalOutputText(rekeyed.value.output)).toBe("pre-move scrollback");
+    expect(rekeyed.value.status).toBe("running");
+
+    // The recreated stream's first real snapshot replaces the buffer and
+    // keeps the public version monotonic.
+    const ready = updateRetainedTerminalAttachment(
+      rekeyed,
+      "terminal",
+      buffer(1, "fresh session"),
+      null,
+    );
+    expect(terminalOutputText(ready.value.output)).toBe("fresh session");
+    expect(ready.value.version).toBe(8);
+  });
+
+  it("ignores the seed after an identity change until a real snapshot arrives", () => {
+    const changed = updateRetainedTerminalAttachment(
+      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+      "env-a/thread-a/terminal-b",
+      nextTerminalAttachSeedState(),
+      null,
+    );
+    expect(changed.value).toBe(EMPTY_TERMINAL_BUFFER_STATE);
+
+    const ready = updateRetainedTerminalAttachment(
+      changed,
+      "env-a/thread-a/terminal-b",
+      buffer(2, "hello"),
+      null,
+    );
+    expect(terminalOutputText(ready.value.output)).toBe("hello");
+    expect(ready.value.version).toBe(2);
   });
 });
