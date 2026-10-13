@@ -350,6 +350,7 @@ it.effect("waitForThread follows a restart continuation instead of the cut run",
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [],
                 }) as unknown as OrchestrationV2ThreadProjection,
             ),
         }),
@@ -427,6 +428,7 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
                   messages: [],
                   subagents,
                   providerThreads: [],
@@ -510,6 +512,7 @@ it.effect(
                   ({
                     thread: { id: threadId, projectId, deletedAt: null },
                     runs,
+                    runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
                   }) as unknown as OrchestrationV2ThreadProjection,
               ),
             dispatch: (command) =>
@@ -604,6 +607,7 @@ it.effect("waitForThread settles delegated work on a thread rolled back past its
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [rolledBack],
+              runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
               messages: [],
               subagents: [],
               providerThreads: [],
@@ -657,6 +661,7 @@ it.effect("waitForThread waits for output only from a run that was asked for one
                 { id: askedRunId, status: "completed", outputSchema: { type: "object" } },
                 { id: plainRunId, status: "completed" },
               ],
+              runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
@@ -710,6 +715,7 @@ it.effect("waitForThread returns the cut run once its continuation is declined",
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status: "cancelled" }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
@@ -906,6 +912,7 @@ it.effect.each([
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs: raced ? [...runs, nextRun] : runs,
+                  runtimeRequests: [],
                   messages: [
                     { id: MessageId.make("original"), runId, role: "user" as const },
                     {
