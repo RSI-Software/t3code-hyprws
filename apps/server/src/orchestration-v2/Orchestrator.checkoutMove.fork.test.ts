@@ -149,6 +149,28 @@ it.effect("persists checkout move progress on the thread shell and commits the m
     assert.deepEqual(committed?.checkoutMove, move("committed"));
     const projection = yield* projections.getThreadProjection(threadId);
     assert.deepEqual(projection.thread.checkoutMove, move("committed"));
+
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("same-checkout-title"),
+      threadId,
+      title: "Renamed",
+      worktreePath: "/repo-feature",
+    });
+    assert.deepEqual(
+      (yield* projections.getThreadShell(threadId))?.checkoutMove,
+      move("committed"),
+    );
+
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("external-checkout-handoff"),
+      threadId,
+      branch: "next-feature",
+      worktreePath: "/repo-next-feature",
+    });
+    assert.equal((yield* projections.getThreadShell(threadId))?.checkoutMove, undefined);
+    assert.equal((yield* projections.getThreadProjection(threadId)).thread.checkoutMove, undefined);
   }).pipe(Effect.provide(testLayer)),
 );
 
