@@ -491,6 +491,8 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   status: OrchestratorMcpThreadStatus,
   timedOut: Schema.Boolean,
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
+  /** Pending runtime requests on the thread; the wait also returns while this is positive. */
+  pendingRequestCount: NonNegativeInt,
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
