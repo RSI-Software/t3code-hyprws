@@ -160,6 +160,11 @@ export interface ThreadManagementWaitResult {
   readonly threadId: ThreadId;
   readonly run: OrchestrationV2Run | null;
   readonly timedOut: boolean;
+  /**
+   * Pending runtime requests on the thread. The wait also returns while this
+   * is positive, so a caller can read and answer the request.
+   */
+  readonly pendingRequestCount: number;
 }
 
 export interface ThreadManagementInterruptInput {
@@ -492,6 +497,13 @@ export function latestRun(
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
 ): OrchestrationV2Run | undefined {
   return projection.runs.toSorted((left, right) => right.ordinal - left.ordinal)[0];
+}
+
+/** Thread-scoped, so a count beside a run-filtered read stays complete. */
+export function pendingRequestCount(
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
+): number {
+  return projection.runtimeRequests.filter((request) => request.status === "pending").length;
 }
 
 export function latestActiveRun(
@@ -845,7 +857,7 @@ const make = Effect.gen(function* () {
       const afterSequence = yield* orchestrator
         .getThreadEventSequence(input.threadId)
         .pipe(Effect.mapError(loadError));
-      const target = yield* getProjectThreadRecords(input, ["runs"]);
+      const target = yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"]);
       const selectedRun =
         input.runId === undefined
           ? latestRun(target)
@@ -857,21 +869,49 @@ const make = Effect.gen(function* () {
         });
       }
       if (selectedRun === undefined) {
-        return { threadId: input.threadId, run: null, timedOut: false };
+        return {
+          threadId: input.threadId,
+          run: null,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
       }
       if (isTerminalRunStatus(selectedRun.status)) {
-        return { threadId: input.threadId, run: selectedRun, timedOut: false };
+        return {
+          threadId: input.threadId,
+          run: selectedRun,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
+      }
+      // A run that needs input never turns terminal on its own, so the wait
+      // also returns while a request pends and the caller answers it.
+      if (pendingRequestCount(target) > 0) {
+        return {
+          threadId: input.threadId,
+          run: selectedRun,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
       }
 
-      // Re-read the run only when the thread records a run update or its
-      // deletion, instead of polling the projection for up to an hour. Each
-      // stream keeps one event type, so transcript events never fill its buffer.
+      // Re-read the run only when the thread records a run update, a runtime
+      // request change, or its deletion, instead of polling the projection for
+      // up to an hour. Each stream keeps one event type, so transcript events
+      // never fill its buffer.
       const wait = Stream.merge(
-        orchestrator.streamStoredEventsFrom({
-          threadId: input.threadId,
-          afterSequence,
-          eventType: "run.updated",
-        }),
+        Stream.merge(
+          orchestrator.streamStoredEventsFrom({
+            threadId: input.threadId,
+            afterSequence,
+            eventType: "run.updated",
+          }),
+          orchestrator.streamStoredEventsFrom({
+            threadId: input.threadId,
+            afterSequence,
+            eventType: "runtime-request.updated",
+          }),
+        ),
         orchestrator.streamStoredEventsFrom({
           threadId: input.threadId,
           afterSequence,
@@ -884,7 +924,9 @@ const make = Effect.gen(function* () {
             stored.event.type !== "run.updated" || stored.event.payload.id === selectedRun.id,
         ),
         Stream.mapEffect(() =>
-          getProjectThreadRecords(input, ["runs"], { runIds: [selectedRun.id] }).pipe(
+          getProjectThreadRecords(input, ["runs", "runtimeRequests"], {
+            runIds: [selectedRun.id],
+          }).pipe(
             Effect.flatMap((current) => {
               const run = current.runs.find((candidate) => candidate.id === selectedRun.id);
               return run === undefined
@@ -894,19 +936,25 @@ const make = Effect.gen(function* () {
                       runId: selectedRun.id,
                     }),
                   )
-                : Effect.succeed(run);
+                : Effect.succeed({ run, pendingRequestCount: pendingRequestCount(current) });
             }),
           ),
         ),
-        Stream.filter((run) => isTerminalRunStatus(run.status)),
+        // A resolved request also wakes this stream; the re-read above decides,
+        // so the wait only returns on a terminal run or a still-pending one.
+        Stream.filter(
+          (waited) => isTerminalRunStatus(waited.run.status) || waited.pendingRequestCount > 0,
+        ),
         Stream.runHead,
         Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
       );
       const waited = Option.flatten(yield* wait);
       if (Option.isSome(waited)) {
-        return { threadId: input.threadId, run: waited.value, timedOut: false };
+        return { threadId: input.threadId, ...waited.value, timedOut: false };
       }
-      const current = yield* getProjectThreadRecords(input, ["runs"], { runIds: [selectedRun.id] });
+      const current = yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"], {
+        runIds: [selectedRun.id],
+      });
       const run = current.runs.find((candidate) => candidate.id === selectedRun.id);
       if (run === undefined) {
         return yield* new ThreadManagementRunNotFoundError({
@@ -916,8 +964,15 @@ const make = Effect.gen(function* () {
       }
       // The run may have reached a terminal status while the timeout was
       // winning the race; the final projection read decides what actually
-      // happened, so only a still-active run counts as timed out.
-      return { threadId: input.threadId, run, timedOut: !isTerminalRunStatus(run.status) };
+      // happened, so only a still-active run with no pending request counts
+      // as timed out.
+      const count = pendingRequestCount(current);
+      return {
+        threadId: input.threadId,
+        run,
+        timedOut: !isTerminalRunStatus(run.status) && count === 0,
+        pendingRequestCount: count,
+      };
     });
 
   const settleAfterRun: ThreadManagementServiceShape["settleAfterRun"] = Effect.fn(

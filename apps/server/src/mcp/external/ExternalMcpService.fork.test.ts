@@ -17,6 +17,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
@@ -78,6 +79,7 @@ const makeHarness = (
   settings: Partial<ServerSettingsValue> = {},
   legacySelection: ModelSelection | null = modelSelection,
   providers: ReadonlyArray<ServerProvider> = [provider],
+  runtimeRequests: ReadonlyArray<unknown> = [],
 ) => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const sent: Array<ThreadManagementService.ThreadManagementSendInput> = [];
@@ -114,7 +116,7 @@ const makeHarness = (
       runs: [],
       messages: [],
       turnItems: [],
-      runtimeRequests: [],
+      runtimeRequests,
       contextTransfers: [],
     } as unknown as OrchestrationV2ThreadProjection;
   };
@@ -129,6 +131,12 @@ const makeHarness = (
                     id: threadId,
                     projectId: threads.get(threadId)!.projectId,
                     deletedAt: null,
+                    lineage: { parentThreadId: null, relationshipToParent: null },
+                    creationSource: "mcp",
+                    status: "idle",
+                    activityRunStatus: null,
+                    pendingRuntimeRequest: null,
+                    updatedAt: DateTime.makeUnsafe(0),
                   } as never)
                 : null,
             ),
@@ -154,6 +162,13 @@ const makeHarness = (
                 delivery: "started",
               } as never);
             }),
+          waitForThread: (input) =>
+            Effect.succeed({
+              threadId: input.threadId,
+              run: { id: RunId.make("run:1"), status: "running" },
+              timedOut: false,
+              pendingRequestCount: 2,
+            } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({
           getShell: (projectId) =>
@@ -187,6 +202,39 @@ const run = <A, E>(
   );
 
 describe("ExternalMcpServiceFork", () => {
+  it.effect("a run wait carries the pending request count through", () => {
+    const harness = makeHarness();
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const waited = yield* service.waitForThread(principal(), {
+          threadId: ThreadId.make("thread:granted"),
+        });
+        assert.equal(waited.timedOut, false);
+        assert.equal(waited.pendingRequestCount, 2);
+      }),
+    );
+  });
+
+  it.effect("a work wait counts pending requests from the thread records", () => {
+    const harness = makeHarness(
+      {},
+      modelSelection,
+      [provider],
+      [
+        { id: "request:1", status: "pending" },
+        { id: "request:2", status: "resolved" },
+      ],
+    );
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const waited = yield* service.waitForThread(principal(), {
+          threadId: ThreadId.make("thread:granted"),
+          until: "work",
+        });
+        assert.equal(waited.pendingRequestCount, 1);
+      }),
+    );
+  });
   it.effect(
     "inherits environment effort for a migrated project and reads changes on each launch",
     () => {
