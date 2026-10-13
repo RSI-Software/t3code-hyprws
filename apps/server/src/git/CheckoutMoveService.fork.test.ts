@@ -367,6 +367,45 @@ describe("CheckoutMoveServiceFork", () => {
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
 
+  it.effect("names a missing requested destination instead of masking the identity failure", () =>
+    Effect.gen(function* () {
+      const { root } = yield* makeRepository;
+      const harness = yield* makeHarness(root);
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        const missing = `${root}-missing`;
+        const detail = yield* moves
+          .request({ threadId, requestedPath: missing, expectedCheckoutRoot: root })
+          .pipe(Effect.flip, Effect.map(errorDetail));
+        expect(detail).toBe(`Checkout move destination does not exist: ${missing}`);
+        // The refusal is pure: nothing dispatched, no move recorded.
+        expect(harness.dispatched).toEqual([]);
+        expect(harness.thread().checkoutMove).toBeUndefined();
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
+  it.effect("names a deleted source worktree instead of masking the identity failure", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { root, feature } = yield* makeRepository;
+      const harness = yield* makeHarness(root);
+      harness.strand(feature, "feature");
+      yield* fileSystem.remove(feature, { recursive: true });
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        const detail = yield* moves
+          .request({ threadId, requestedPath: root, expectedCheckoutRoot: feature })
+          .pipe(Effect.flip, Effect.map(errorDetail));
+        expect(detail).toBe(`Checkout move source no longer exists: ${feature}`);
+        expect(harness.dispatched).toEqual([]);
+        // The thread keeps its recorded worktree for recovery flows.
+        expect(harness.thread().worktreePath).toBe(feature);
+        expect(harness.thread().checkoutMove).toBeUndefined();
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
   it.effect("queues a move during a run and commits it when the run settles", () =>
     Effect.gen(function* () {
       const { root, feature } = yield* makeRepository;
