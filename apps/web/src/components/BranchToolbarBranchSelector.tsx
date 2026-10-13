@@ -259,28 +259,28 @@ export function BranchToolbarBranchSelector({
       (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
     )
       return;
-    if (serverSession && worktreePath !== activeWorktreePath) {
-      void stopThreadSession({
-        environmentId,
-        input: { threadId: activeThreadId },
-      });
-    }
     if (hasServerThread) {
-        if (worktreePath !== activeWorktreePath && serverThread) {
-          const destinationPath = worktreePath ?? activeProject.workspaceRoot;
-          const sourcePath =
-            (serverThread.checkoutMove
-              ? checkoutMoveExpectedRoot(serverThread.checkoutMove)
-              : null) ??
-            activeWorktreePath ??
-            activeProject.workspaceRoot;
-          void runCheckoutMove({
-            requestedPath: destinationPath,
-            expectedCheckoutRoot: sourcePath,
-            failureTitle: "Failed to move thread checkout",
-          });
-          return;
-        }
+      if (worktreePath !== activeWorktreePath && serverThread) {
+        const destinationPath = worktreePath ?? activeProject.workspaceRoot;
+        const sourcePath =
+          (serverThread.checkoutMove
+            ? checkoutMoveExpectedRoot(serverThread.checkoutMove)
+            : null) ??
+          activeWorktreePath ??
+          activeProject.workspaceRoot;
+        void runCheckoutMove({
+          requestedPath: destinationPath,
+          expectedCheckoutRoot: sourcePath,
+          failureTitle: "Failed to move thread checkout",
+        });
+        return;
+      } // fork-hook: zmux-estate/checkout-move-branch-change
+      if (serverSession && worktreePath !== activeWorktreePath) {
+        void stopThreadSession({
+          environmentId,
+          input: { threadId: activeThreadId },
+        });
+      }
       void (automatic ? updateEmptyThreadMetadata : updateThreadMetadata)({
         environmentId,
         input: {
