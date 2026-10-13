@@ -50,6 +50,7 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import { detachedTurnEventsFork, releasedToolEventsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/session-detach-import
 import {
   providerSessionProjectId,
   withThreadProjects,
@@ -691,9 +692,22 @@ export const layerWithOptions = (
           for (const threadId of input.entry.attachedThreadIds) {
             const projection = yield* projectionStore.getThreadRecords(
               threadId,
-              ["runtimeRequests", "nodes", "turnItems"],
-              { turnItemTypes: ["approval_request", "user_input_request"] },
+              ["runtimeRequests", "nodes", "turnItems", "providerThreads"], // fork-hook: upstream-fixes/released-tool-owners
+              { turnItemTypes: ["approval_request", "user_input_request", "dynamic_tool"] }, // fork-hook: upstream-fixes/released-tool-items
             );
+            // fork-hook: upstream-fixes/released-native-tool-cleanup
+            for (const event of releasedToolEventsFork(
+              threadId,
+              projection,
+              providerSessionId,
+              input.releasedAt,
+              input.reason === "runtime_error" ? "failed" : "interrupted",
+            )) {
+              events.push({
+                ...event,
+                id: yield* idAllocator.allocate.event({ threadId, providerSessionId }),
+              });
+            }
             const releasedRequests = projection.runtimeRequests.filter(
               (request) =>
                 request.status === "pending" &&
@@ -954,6 +968,25 @@ export const layerWithOptions = (
                 Effect.gen(function* () {
                   if (input.cancelIdleFiber !== false) {
                     yield* cancelIdleFiber(entry.idleFiber);
+                  }
+                  // fork-hook: upstream-fixes/deliberate-session-release
+                  if (input.reason === "manual_shutdown") {
+                    for (const threadId of entry.attachedThreadIds) {
+                      const projection = yield* projectionStore.getThreadRecords(threadId, [
+                        "providerThreads",
+                        "providerTurns",
+                        "runs",
+                      ]);
+                      for (const event of detachedTurnEventsFork(
+                        projection,
+                        input.providerSessionId,
+                      )) {
+                        yield* publishToSubscribers(entry.eventSubscribers, {
+                          type: "event",
+                          event,
+                        });
+                      }
+                    }
                   }
                   if (input.gracefulSubscribers === true) {
                     yield* endSubscribers(entry);
@@ -1930,7 +1963,11 @@ export const layerWithOptions = (
                       const current = (yield* Ref.get(sessions)).get(
                         sessionKey(entry.runtime.providerSessionId),
                       );
-                      if (current?.runtime !== entry.runtime) return;
+                      if (
+                        current?.runtime !== entry.runtime ||
+                        !current.attachedThreadIds.has(threadId)
+                      )
+                        return; // fork-hook: upstream-fixes/detached-request-gate
                       yield* providerEventIngestor
                         .ingestNormalized({
                           providerSessionId: entry.runtime.providerSessionId,
@@ -2297,6 +2334,24 @@ export const layerWithOptions = (
           Effect.gen(function* () {
             const key = sessionKey(input.providerSessionId);
             const currentEntry = (yield* Ref.get(sessions)).get(key);
+            if (currentEntry === undefined) {
+              if (input.revokeMcpCredential === true) yield* clearMcpSession(input.threadId);
+              return;
+            }
+            // fork-hook: upstream-fixes/detach-last-thread-release
+            if (
+              currentEntry !== undefined &&
+              !currentEntry.supportsMultipleProviderThreads &&
+              currentEntry.attachedThreadIds.size === 1 &&
+              currentEntry.attachedThreadIds.has(input.threadId)
+            ) {
+              yield* releaseEntry({
+                providerSessionId: input.providerSessionId,
+                reason: "manual_shutdown",
+                ...(input.detail === undefined ? {} : { detail: input.detail }),
+              });
+              return;
+            }
             let detachedProviderThreads: ReadonlyArray<OrchestrationV2ProviderThread> = [];
             if (currentEntry?.supportsMultipleProviderThreads === true) {
               const projection = yield* Effect.option(
@@ -2340,56 +2395,64 @@ export const layerWithOptions = (
                 );
               }
             }
-            const detachResult = yield* Ref.modify(sessions, (current) => {
-              const entry = current.get(key);
-              if (entry === undefined || !entry.attachedThreadIds.has(input.threadId)) {
+            // fork-hook: upstream-fixes/detach-request-cutoff
+            // Drain request ingestion before cutting off this attachment.
+            const [detachedAt, detachResult] = yield* Effect.zip(
+              DateTime.now,
+              Ref.modify(sessions, (current) => {
+                const entry = current.get(key);
+                if (
+                  entry?.runtime !== currentEntry.runtime ||
+                  !entry.attachedThreadIds.has(input.threadId)
+                ) {
+                  return [
+                    Option.none<{
+                      readonly entry: LiveSessionEntry;
+                      readonly idleUnloadFiber: Fiber.Fiber<void, never> | null;
+                    }>(),
+                    current,
+                  ] as const;
+                }
+                const attachedThreadIds = new Set(entry.attachedThreadIds);
+                attachedThreadIds.delete(input.threadId);
+                const loadedProviderThreadKeyByThread = new Map(
+                  entry.loadedProviderThreadKeyByThread,
+                );
+                loadedProviderThreadKeyByThread.delete(input.threadId);
+                // For a plain (workspace-change) detach, the credential id stays
+                // recorded: the thread may re-attach and reuse it, and
+                // releaseEntry revokes it when the provider process finally goes
+                // away. A terminal detach (archive/delete) prunes the record so
+                // nothing vetoes the revocation below.
+                const mcpCredentialIdByThread =
+                  input.revokeMcpCredential === true
+                    ? (() => {
+                        const pruned = new Map(entry.mcpCredentialIdByThread);
+                        pruned.delete(input.threadId);
+                        return pruned;
+                      })()
+                    : entry.mcpCredentialIdByThread;
+                // The detach unloads the thread itself below.
+                const idleThreadUnloads = new Map(entry.idleThreadUnloads);
+                idleThreadUnloads.delete(input.threadId);
+                const updatedEntry = {
+                  ...entry,
+                  attachedThreadIds,
+                  loadedProviderThreadKeyByThread,
+                  mcpCredentialIdByThread,
+                  idleThreadUnloads,
+                };
+                const updated = new Map(current);
+                updated.set(key, updatedEntry);
                 return [
-                  Option.none<{
-                    readonly entry: LiveSessionEntry;
-                    readonly idleUnloadFiber: Fiber.Fiber<void, never> | null;
-                  }>(),
-                  current,
+                  Option.some({
+                    entry: updatedEntry,
+                    idleUnloadFiber: entry.idleThreadUnloads.get(input.threadId)?.fiber ?? null,
+                  }),
+                  updated,
                 ] as const;
-              }
-              const attachedThreadIds = new Set(entry.attachedThreadIds);
-              attachedThreadIds.delete(input.threadId);
-              const loadedProviderThreadKeyByThread = new Map(
-                entry.loadedProviderThreadKeyByThread,
-              );
-              loadedProviderThreadKeyByThread.delete(input.threadId);
-              // For a plain (workspace-change) detach, the credential id stays
-              // recorded: the thread may re-attach and reuse it, and
-              // releaseEntry revokes it when the provider process finally goes
-              // away. A terminal detach (archive/delete) prunes the record so
-              // nothing vetoes the revocation below.
-              const mcpCredentialIdByThread =
-                input.revokeMcpCredential === true
-                  ? (() => {
-                      const pruned = new Map(entry.mcpCredentialIdByThread);
-                      pruned.delete(input.threadId);
-                      return pruned;
-                    })()
-                  : entry.mcpCredentialIdByThread;
-              // The detach unloads the thread itself below.
-              const idleThreadUnloads = new Map(entry.idleThreadUnloads);
-              idleThreadUnloads.delete(input.threadId);
-              const updatedEntry = {
-                ...entry,
-                attachedThreadIds,
-                loadedProviderThreadKeyByThread,
-                mcpCredentialIdByThread,
-                idleThreadUnloads,
-              };
-              const updated = new Map(current);
-              updated.set(key, updatedEntry);
-              return [
-                Option.some({
-                  entry: updatedEntry,
-                  idleUnloadFiber: entry.idleThreadUnloads.get(input.threadId)?.fiber ?? null,
-                }),
-                updated,
-              ] as const;
-            });
+              }),
+            ).pipe(currentEntry.requestEventPermit.withPermits(1));
             if (Option.isSome(detachResult)) {
               yield* cancelIdleFiber(detachResult.value.idleUnloadFiber);
             }
@@ -2410,6 +2473,12 @@ export const layerWithOptions = (
             if (Option.isNone(detached)) {
               return;
             }
+            // fork-hook: upstream-fixes/detached-thread-request-cleanup
+            yield* writeReleasedRuntimeRequestEvents({
+              entry: { ...detached.value, attachedThreadIds: new Set([input.threadId]) },
+              reason: "manual_shutdown",
+              releasedAt: detachedAt,
+            }).pipe(detached.value.requestEventPermit.withPermits(1));
             if (
               detached.value.attachedThreadIds.size === 0 &&
               !detached.value.supportsMultipleProviderThreads

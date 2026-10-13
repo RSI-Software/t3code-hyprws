@@ -134,6 +134,7 @@ import { planThreadDeletion } from "./ThreadDeletion.ts";
 import { pullRequestWatchWakePrefix } from "./pullRequestWatch.ts";
 import { dispatchThreadIssueCommandFork } from "./ThreadIssues.fork.ts"; // fork-hook: github-issues/orchestrator-issues-import
 import { recordCheckoutRecoveryFork } from "./checkoutMove.fork.ts"; // fork-hook: zmux-estate/decider-recovery-record-import
+import { cancelStoppedRuntimeRequestsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/stopped-request-import
 import {
   checkoutMoveMetadataFork,
   detachesCheckoutRecoveryInlineFork,
@@ -9228,6 +9229,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             "subagent",
             "assistant_message",
             "reasoning",
+            "user_input_request", // fork-hook: upstream-fixes/interrupt-input-items
+            "approval_request", // fork-hook: upstream-fixes/interrupt-approval-items
           ],
           turnItemStatuses: ["pending", "running", "waiting"],
         },
@@ -9522,6 +9525,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ),
             );
       if (Option.isNone(sessionOption)) {
+        // fork-hook: upstream-fixes/dead-run-request-cleanup
+        yield* cancelStoppedRuntimeRequestsFork({
+          threadId: command.threadId,
+          runIds: new Set([run.id]),
+          projection,
+          now,
+          emit: emitEvent,
+        });
         yield* emitEvent({
           type: "turn-item.updated",
           threadId: command.threadId,
@@ -9603,16 +9614,43 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       const projection = yield* projectionStore
-        .getThreadRecords(command.threadId, ["runs", "providerThreads", "turnItems", "subagents"], {
-          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
-          turnItemStatuses: ["pending", "running", "waiting"],
-        })
+        .getThreadRecords(
+          command.threadId,
+          ["runs", "providerThreads", "turnItems", "subagents", "nodes", "runtimeRequests"],
+          {
+            // fork-hook: upstream-fixes/stop-request-records
+            turnItemTypes: [
+              "command_execution",
+              "dynamic_tool",
+              "subagent",
+              "user_input_request",
+              "approval_request",
+            ], // fork-hook: upstream-fixes/stop-request-items
+            turnItemStatuses: ["pending", "running", "waiting"],
+          },
+        )
         .pipe(
           Effect.mapError(
             (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
           ),
         );
       if (projection.thread.deletedAt !== null) return undefined;
+      // fork-hook: upstream-fixes/stopped-thread-request-cleanup
+      yield* cancelStoppedRuntimeRequestsFork({
+        threadId: command.threadId,
+        runIds: new Set(
+          projection.runs
+            .filter(
+              (run) =>
+                !["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+            )
+            .map((run) => run.id),
+        ),
+        includeRunless: true,
+        projection,
+        now: yield* DateTime.now,
+        emit: emit(events, command),
+      });
       // Queued messages never started and cannot own background work.
       const latestRun = projection.runs.findLast((run) => run.status !== "queued");
       const target =
