@@ -35,9 +35,19 @@ const OTHER_METADATA_FIELDS = [
  */
 export const checkoutMoveMetadataFork = (
   command: OrchestrationV2ServerCommand,
-  thread: Pick<OrchestrationV2AppThread, "updatedAt">,
-): { checkoutMove?: ThreadCheckoutMove; updatedAt?: OrchestrationV2AppThread["updatedAt"] } => {
-  if (command.type !== "thread.metadata.update" || command.checkoutMove === undefined) return {};
+  thread: Pick<OrchestrationV2AppThread, "updatedAt" | "worktreePath">,
+): {
+  checkoutMove?: ThreadCheckoutMove | undefined;
+  updatedAt?: OrchestrationV2AppThread["updatedAt"];
+} => {
+  if (command.type !== "thread.metadata.update") return {};
+  if (command.checkoutMove === undefined) {
+    // A handoff outside the move service supersedes its old recovery/Undo
+    // record. Title edits and same-checkout updates keep that record intact.
+    return command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath
+      ? { checkoutMove: undefined }
+      : {};
+  }
   const progressOnly = OTHER_METADATA_FIELDS.every((field) => command[field] === undefined);
   return progressOnly
     ? { checkoutMove: command.checkoutMove, updatedAt: thread.updatedAt }
@@ -121,22 +131,15 @@ type CheckpointScopeCreated = Extract<
 type TurnItemUpdated = Extract<OrchestrationV2DomainEvent, { type: "turn-item.updated" }>;
 
 /**
- * Records a committed removed-worktree recovery on the thread: a timeline
- * notice, and a fresh checkpoint scope for the run it is committed for. Every
- * turn source commits recovery through this decider path, and the notice id
- * derives from the move's request id, so a retried or replayed commit rewrites
- * the one notice instead of stacking another.
- *
- * The notice joins the live run the recovery is committed for, or the latest
- * run on an idle thread, because a turn item's position comes from its run: a
- * run-less item sorts before the first run, and a paged client drops it.
- *
- * The run's scope still names the removed worktree, where no baseline can be
- * captured, so the turn would end without a checkpoint. The scope id is per
- * thread, so the re-emitted scope replaces the stale one before the turn start
- * reads it, as a turn started on the recovered checkout would.
+ * Records a committed removed-worktree recovery. The timeline notice is keyed by the move's
+ * request id, so a replay rewrites it, and joins the live or latest run, since a paged client
+ * drops run-less items. The re-emitted checkpoint scope replaces the stale one, which names the
+ * removed worktree where no baseline can be captured, before the turn start reads it.
  */
-export const recordCheckoutRecoveryFork = <E, E2>(input: {
+export const recordCheckoutRecoveryFork = Effect.fn("recordCheckoutRecoveryFork")(function <
+  E,
+  E2,
+>(input: {
   readonly command: OrchestrationV2ServerCommand;
   readonly thread: OrchestrationV2AppThread;
   readonly readRuns: Effect.Effect<{ readonly runs: ReadonlyArray<OrchestrationV2Run> }, E>;
@@ -146,7 +149,7 @@ export const recordCheckoutRecoveryFork = <E, E2>(input: {
     event: Omit<Event, "id">,
   ) => Effect.Effect<unknown, E2>;
   readonly now: DateTime.Utc;
-}) => {
+}) {
   const { thread, now } = input;
   const move = committedCheckoutMove(input.command);
   if (move?.reason !== "worktree-recovery") return Effect.void;
@@ -222,4 +225,4 @@ export const recordCheckoutRecoveryFork = <E, E2>(input: {
       ),
     ),
   );
-};
+});
