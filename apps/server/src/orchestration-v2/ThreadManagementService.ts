@@ -173,6 +173,7 @@ export interface ThreadManagementWaitInput {
    * completion delivery will wake it again, as a delegated task's result does.
    */
   readonly untilDelegatedWorkSettled?: boolean;
+  readonly terminalOnly?: boolean; // fork-hook: device-auth/thread-wait-terminal-only
 }
 
 export interface ThreadManagementWaitResult {
@@ -181,6 +182,7 @@ export interface ThreadManagementWaitResult {
   readonly timedOut: boolean;
   /** With `untilDelegatedWorkSettled`, once settled: the run with the thread's final answer. */
   readonly resultRun?: OrchestrationV2Run;
+  readonly pendingRequestCount?: number; // fork-hook: device-auth/thread-wait-request-count
 }
 
 export interface ThreadManagementInterruptInput {
@@ -530,6 +532,12 @@ function latestRestartContinuation(
   }
   return current;
 }
+
+export function pendingRequestCount(
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
+): number {
+  return projection.runtimeRequests.filter((request) => request.status === "pending").length;
+} // fork-hook: device-auth/thread-wait-request-count
 
 export function latestActiveRun(
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
@@ -884,7 +892,7 @@ const make = Effect.gen(function* () {
     const afterSequence = yield* orchestrator
       .getThreadEventSequence(input.threadId)
       .pipe(Effect.mapError(loadError));
-    const target = yield* getProjectThreadRecords(input, ["runs"]);
+    const target = yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"]); // fork-hook: device-auth/thread-wait-requests
     const selectedRun =
       input.runId === undefined
         ? latestRun(target)
@@ -896,7 +904,12 @@ const make = Effect.gen(function* () {
       });
     }
     if (selectedRun === undefined) {
-      return { threadId: input.threadId, run: null, timedOut: false };
+      return {
+        threadId: input.threadId,
+        run: null,
+        timedOut: false,
+        pendingRequestCount: pendingRequestCount(target),
+      }; // fork-hook: device-auth/thread-wait-empty
     }
     // A restart cuts a run and continues it as a new run. Follow that chain,
     // so a cut run is not the answer while its continuation is pending.
@@ -936,9 +949,12 @@ const make = Effect.gen(function* () {
       return pending ? undefined : progress.resultRun;
     });
     const evaluate = Effect.fn("orchestrationV2.threadManagement.evaluate")(function* (
-      runs: ReadonlyArray<OrchestrationV2Run>,
+      records: Pick<OrchestrationV2ThreadProjection, "runs" | "runtimeRequests">, // fork-hook: device-auth/thread-wait-evaluate
     ) {
-      const current = yield* outcome(runs);
+      const current = {
+        ...(yield* outcome(records.runs)),
+        pendingRequestCount: pendingRequestCount(records),
+      }; // fork-hook: device-auth/thread-wait-evaluate
       if (!current.settled || !untilDelegatedWorkSettled) {
         return { ...current, resultRun: undefined };
       }
@@ -948,11 +964,14 @@ const make = Effect.gen(function* () {
     const settledResult = (current: Effect.Success<ReturnType<typeof evaluate>>) => ({
       threadId: input.threadId,
       run: current.run,
-      timedOut: !current.settled,
+      timedOut:
+        !current.settled && (input.terminalOnly === true || current.pendingRequestCount === 0), // fork-hook: device-auth/thread-wait-timeout
+      pendingRequestCount: current.pendingRequestCount, // fork-hook: device-auth/thread-wait-request-count
       ...(current.resultRun === undefined ? {} : { resultRun: current.resultRun }),
     });
-    const initial = yield* evaluate(target.runs);
-    if (initial.settled) return settledResult(initial);
+    const initial = yield* evaluate(target); // fork-hook: device-auth/thread-wait-evaluate
+    if (initial.settled || (!input.terminalOnly && initial.pendingRequestCount > 0))
+      return settledResult(initial); // fork-hook: device-auth/thread-wait-pending
 
     // A declined continuation records no event, so its effect settling wakes
     // the wait too.
@@ -962,6 +981,7 @@ const make = Effect.gen(function* () {
           [
             "run.updated",
             "thread.deleted",
+            "runtime-request.updated", // fork-hook: device-auth/thread-wait-requests
             // What delegated work reads besides runs: tasks and their
             // deliveries, and a provider thread's background tasks.
             ...(untilDelegatedWorkSettled
@@ -990,12 +1010,15 @@ const make = Effect.gen(function* () {
         ? Stream.fromEffect(orchestrator.awaitRestartContinuation(initial.run))
         : Stream.empty,
     ).pipe(
-      Stream.mapEffect(() =>
-        getProjectThreadRecords(input, ["runs"]).pipe(
-          Effect.flatMap((current) => evaluate(current.runs)),
-        ),
+      Stream.mapEffect(
+        () =>
+          getProjectThreadRecords(input, ["runs", "runtimeRequests"]).pipe(
+            Effect.flatMap((current) => evaluate(current)),
+          ), // fork-hook: device-auth/thread-wait-evaluate
       ),
-      Stream.filter((current) => current.settled),
+      Stream.filter(
+        (current) => current.settled || (!input.terminalOnly && current.pendingRequestCount > 0),
+      ), // fork-hook: device-auth/thread-wait-pending
       Stream.runHead,
       Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
     );
@@ -1004,13 +1027,19 @@ const make = Effect.gen(function* () {
     // The run may have reached a terminal status while the timeout was
     // winning the race; the final projection read decides what actually
     // happened, so only a still-active run counts as timed out.
-    return settledResult(yield* evaluate((yield* getProjectThreadRecords(input, ["runs"])).runs));
+    return settledResult(
+      yield* evaluate(yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"])),
+    ); // fork-hook: device-auth/thread-wait-final
   });
 
   const settleAfterRun: ThreadManagementServiceShape["settleAfterRun"] = Effect.fn(
     "orchestrationV2.threadManagement.settleAfterRun",
   )(function* (input) {
-    const { run } = yield* waitForThread({ ...input, timeoutMs: SETTLE_AFTER_RUN_WAIT_MS });
+    const { run } = yield* waitForThread({
+      ...input,
+      timeoutMs: SETTLE_AFTER_RUN_WAIT_MS,
+      terminalOnly: true,
+    }); // fork-hook: device-auth/thread-wait-settlement
     if (run?.status !== "completed") return;
     yield* dispatch({
       type: "thread.settle",
