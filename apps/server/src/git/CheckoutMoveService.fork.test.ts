@@ -439,6 +439,35 @@ describe("CheckoutMoveServiceFork", () => {
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
 
+  it.effect("moves an idle thread away from a busy shared source checkout", () =>
+    Effect.gen(function* () {
+      const { root, feature } = yield* makeRepository;
+      const other = {
+        id: ThreadId.make("thread-2"),
+        projectId,
+        worktreePath: null,
+        activeRunId: "run-2",
+        activityRunStatus: "running",
+        status: "running",
+      } as unknown as OrchestrationV2ThreadShell;
+      const harness = yield* makeHarness(root, [other]);
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        yield* moves.request({ threadId, requestedPath: feature, expectedCheckoutRoot: root });
+        const settled = yield* Deferred.await(harness.settled);
+        expect(settled.status).toBe("committed");
+        expect(harness.thread().worktreePath).toBe(feature);
+        expect(other.worktreePath).toBeNull();
+        expect(other.status).toBe("running");
+        expect(
+          harness.dispatched.every(
+            (command) => "threadId" in command && command.threadId === threadId,
+          ),
+        ).toBe(true);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
   it.effect("fails a move while another busy thread runs in the destination", () =>
     Effect.gen(function* () {
       const { root, feature } = yield* makeRepository;
