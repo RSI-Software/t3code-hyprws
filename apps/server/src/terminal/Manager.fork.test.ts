@@ -6,6 +6,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type TerminalSessionSnapshot,
+  type TerminalSummary,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -853,6 +854,328 @@ it.layer(
       expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
     }),
   );
+  it.effect("checkout move never shows the viewer a phantom exit mid-retarget", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetAdoptionBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "move-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const input = openInput({ worktreePath: process.cwd() });
+      yield* manager.open(input);
+      ptyAdapter.processes[0]?.emitData("source scrollback\r\n");
+      yield* Effect.yieldNow;
+
+      // The checkout move re-keys the viewer's attach stream; the new
+      // subscription must not read the replaced viewer as a dead session.
+      const release = yield* manager.attachStream(input, () => Effect.void);
+      release();
+      ptyAdapter.spawnInitialEvents.push((spawnInput) => managedReadyEvent(spawnInput));
+      const move = yield* Effect.forkChild(
+        manager.open(openInput({ cwd: destination, worktreePath: destination })),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+
+      // The retarget holds the thread lock across the adoption window, so the
+      // mid-retarget status is read through the lock-free metadata snapshot
+      // (the same public status a re-keyed attach snapshot reports). The
+      // status is captured first and asserted after the release, so a red run
+      // cannot hang the suite on the held barrier.
+      const midStatus = yield* Effect.gen(function* () {
+        const summaries = yield* Ref.make<ReadonlyArray<TerminalSummary>>([]);
+        const unsubscribeMetadata = yield* manager.subscribeMetadata((event) =>
+          event.type === "snapshot"
+            ? Ref.set(summaries, event.terminals)
+            : event.type === "upsert"
+              ? Ref.update(summaries, (current) => [
+                  ...current.filter(
+                    (entry) =>
+                      !(
+                        entry.threadId === event.terminal.threadId &&
+                        entry.terminalId === event.terminal.terminalId
+                      ),
+                  ),
+                  event.terminal,
+                ])
+              : Effect.void,
+        );
+        const midSummary = (yield* Ref.get(summaries)).find(
+          (entry) => entry.terminalId === input.terminalId,
+        );
+        unsubscribeMetadata();
+        return midSummary?.status ?? null;
+      }).pipe(Effect.ensuring(Deferred.succeed(releaseBarrier, undefined)));
+      yield* Fiber.join(move);
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      const followed = yield* manager.open(
+        openInput({ cwd: destination, worktreePath: destination }),
+      );
+      expect(followed).toMatchObject({
+        cwd: destination,
+        worktreePath: destination,
+        status: "running",
+      });
+
+      // Undo follows the same seam back to the source checkout.
+      ptyAdapter.spawnInitialEvents.push((spawnInput) => managedReadyEvent(spawnInput));
+      const undo = yield* manager.open(input);
+      expect(undo).toMatchObject({
+        cwd: input.cwd,
+        worktreePath: input.worktreePath,
+        status: "running",
+      });
+
+      // The replacement window must never read as a dead session: the drawer
+      // auto-closes a terminal whose public status reports exited.
+      expect(midStatus).toBe("starting");
+    }),
+  );
+  // A first-use destination has no zmux session to resolve; follow mode must
+  // ensure it (the open path's contract) while keeping the strict readiness
+  // receipt, and never touch the source viewer.
+  const makeFirstUseFixture = (options: {
+    readonly ensure: (
+      dir: string,
+      destination: string,
+    ) => Effect.Effect<
+      | {
+          readonly status: "ensured";
+          readonly workspace: string;
+          readonly session: string;
+          readonly target: string;
+        }
+      | {
+          readonly status: "failed";
+          readonly notice: { readonly summary: string; readonly detail: string };
+        },
+      never
+    >;
+    readonly resolveOnlyForSettledThread?: (threadId: string) => Effect.Effect<boolean>;
+  }) =>
+    Effect.gen(function* () {
+      const ensureAttempts: string[] = [];
+      const ensured: string[] = [];
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "retarget-first-use-",
+      });
+      const sessionJson = (cwd: string | undefined) =>
+        cwd === destination
+          ? JSON.stringify({
+              workspace: "zmux",
+              session: "qa",
+              target: "zmux/qa",
+              tmuxName: "zws_zmux__qa",
+              nativeId: "$31",
+              serverId: "555:1",
+              createdAt: 1700000100,
+              state: "live",
+              match: "worktree",
+            })
+          : JSON.stringify({
+              workspace: "zmux",
+              session: "main",
+              target: "zmux/main",
+              tmuxName: "zws_zmux__main",
+              nativeId: "$22",
+              serverId: "123:456",
+              createdAt: 1700000000,
+              state: "live",
+              match: "worktree",
+            });
+      const processRunner = new FakeProcessRunner((input) =>
+        input.cwd === destination && !ensured.includes(input.cwd)
+          ? Effect.succeed(processResult({ code: ChildProcessSpawner.ExitCode(1) }))
+          : Effect.succeed(processResult({ stdout: sessionJson(input.cwd) })),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        terminalSessionMode: "zmux",
+        ensureZmuxSession: (dir) =>
+          Effect.flatMap(options.ensure(dir, destination), (result) => {
+            ensureAttempts.push(dir);
+            if (result.status === "ensured") ensured.push(dir);
+            return Effect.succeed(result);
+          }),
+        ...(options.resolveOnlyForSettledThread
+          ? { resolveOnlyForSettledThread: options.resolveOnlyForSettledThread }
+          : {}),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const source = openInput({ worktreePath: process.cwd() });
+      const sourceIdentity = { logicalTarget: "zmux/main", requestedSessionId: "$22" } as const;
+      const destinationIdentity = {
+        logicalTarget: "zmux/qa",
+        requestedSessionId: "$31",
+        requestedTmuxName: "zws_zmux__qa",
+        requestedServerId: "555:1",
+        requestedCreatedAt: 1700000100,
+      } as const;
+      return {
+        manager,
+        ptyAdapter,
+        destination,
+        ensureAttempts,
+        ensured,
+        source,
+        sourceIdentity,
+        destinationIdentity,
+      };
+    });
+
+  it.effect("follow retarget ensures a first-use destination without touching the source", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFirstUseFixture({
+        ensure: (dir) =>
+          Effect.succeed({
+            status: "ensured",
+            workspace: "zmux",
+            session: "qa",
+            target: "zmux/qa",
+          }),
+      });
+      yield* fixture.manager.open(fixture.source);
+      fixture.ptyAdapter.spawnInitialEvents.push((spawnInput) =>
+        managedReadyEvent(spawnInput, "", fixture.destinationIdentity),
+      );
+      const followed = yield* fixture.manager.open(
+        openInput({ cwd: fixture.destination, worktreePath: fixture.destination }),
+      );
+      // Ensure ran for the destination (the source open ensured its own); the
+      // attach spawned against the ensured session's strict receipt.
+      expect(fixture.ensureAttempts).toEqual([process.cwd(), fixture.destination]);
+      expect(fixture.ensured).toEqual([process.cwd(), fixture.destination]);
+      expect(followed).toMatchObject({
+        cwd: fixture.destination,
+        worktreePath: fixture.destination,
+        status: "running",
+      });
+      expect(fixture.ptyAdapter.spawnInputs[1]?.args?.slice(0, 3)).toEqual(["open", "zmux", "qa"]);
+
+      // Undo follows the same seam back; the source's zmux session still
+      // resolves even though its PTY was stopped once the thread left it.
+      fixture.ptyAdapter.spawnInitialEvents.push((spawnInput) =>
+        managedReadyEvent(spawnInput, "", fixture.sourceIdentity),
+      );
+      const undone = yield* fixture.manager.open(fixture.source);
+      expect(undone).toMatchObject({ cwd: fixture.source.cwd, status: "running" });
+      expect(fixture.ptyAdapter.spawnInputs[2]?.args?.slice(0, 3)).toEqual([
+        "open",
+        "zmux",
+        "main",
+      ]);
+    }),
+  );
+
+  it.effect("a first-use retarget receipt that mismatches the ensured identity is refused", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFirstUseFixture({
+        ensure: (dir) =>
+          Effect.succeed({
+            status: "ensured",
+            workspace: "zmux",
+            session: "qa",
+            target: "zmux/qa",
+          }),
+      });
+      yield* fixture.manager.open(fixture.source);
+      // The attach answers with the SOURCE identity: not the ensured
+      // destination's receipt. The replacement must refuse and preserve the
+      // source viewer.
+      fixture.ptyAdapter.spawnInitialEvents.push((spawnInput) =>
+        managedReadyEvent(spawnInput, "", fixture.sourceIdentity),
+      );
+      const error = yield* fixture.manager
+        .open(openInput({ cwd: fixture.destination, worktreePath: fixture.destination }))
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "invalid-protocol",
+        target: "zmux/qa",
+      });
+      // The receipt was refused before the source was reserved for
+      // replacement, so its viewer is untouched and still usable.
+      expect(fixture.ptyAdapter.processes[0]?.killSignals).toEqual([]);
+      fixture.ptyAdapter.spawnInitialEvents.push((spawnInput) =>
+        managedReadyEvent(spawnInput, "", fixture.sourceIdentity),
+      );
+      const still = yield* fixture.manager.open(
+        openInput({ cwd: process.cwd(), worktreePath: process.cwd() }),
+      );
+      expect(still).toMatchObject({ cwd: process.cwd(), status: "running" });
+    }),
+  );
+
+  it.effect("a failed destination ensure refuses the follow move and preserves the source", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFirstUseFixture({
+        // Only the destination's ensure fails; the source opens normally.
+        ensure: (dir, destination) =>
+          dir === destination
+            ? Effect.succeed({
+                status: "failed",
+                notice: { summary: "zmux workspace root needs attention", detail: "conflict" },
+              })
+            : Effect.succeed({
+                status: "ensured",
+                workspace: "zmux",
+                session: "main",
+                target: "zmux/main",
+              }),
+      });
+      yield* fixture.manager.open(fixture.source);
+      const error = yield* fixture.manager
+        .open(openInput({ cwd: fixture.destination, worktreePath: fixture.destination }))
+        .pipe(Effect.flip);
+      // The ensure attempt failed, so no session was ensured and the
+      // follow-up resolve stays missing: the follow move refuses before
+      // spawning a replacement.
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "missing-session",
+      });
+      expect(fixture.ensureAttempts).toEqual([process.cwd(), fixture.destination]);
+      expect(fixture.ensured).toEqual([process.cwd()]);
+      expect(fixture.ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(fixture.ptyAdapter.processes[0]?.killSignals).toEqual([]);
+    }),
+  );
+
+  it.effect("follow retarget into a settled thread never creates a destination session", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFirstUseFixture({
+        ensure: (dir) =>
+          Effect.succeed({
+            status: "ensured",
+            workspace: "zmux",
+            session: "qa",
+            target: "zmux/qa",
+          }),
+        resolveOnlyForSettledThread: () => Effect.succeed(true),
+      });
+      yield* fixture.manager.open(fixture.source);
+      const error = yield* fixture.manager
+        .open(openInput({ cwd: fixture.destination, worktreePath: fixture.destination }))
+        .pipe(Effect.flip);
+      // Nothing ensured anywhere: the source open was resolve-only and the
+      // settled retarget never attempted to create the destination session.
+      expect(fixture.ensureAttempts).toEqual([]);
+      expect(fixture.ensured).toEqual([]);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "missing-session",
+      });
+      expect(fixture.ptyAdapter.spawnInputs).toHaveLength(1); // the source only
+      expect(fixture.ptyAdapter.processes[0]?.killSignals).toEqual([]);
+    }),
+  );
+
   it.effect("replays post-receipt overflow losslessly after reservation", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
