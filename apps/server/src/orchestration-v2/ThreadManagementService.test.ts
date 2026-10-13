@@ -234,6 +234,7 @@ it.effect("waitForThread follows a restart continuation instead of the cut run",
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [],
                 }) as unknown as OrchestrationV2ThreadProjection,
             ),
         }),
@@ -311,6 +312,7 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
                   messages: [],
                   subagents,
                   providerThreads: [],
@@ -381,6 +383,7 @@ it.effect("waitForThread settles delegated work on a thread rolled back past its
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [rolledBack],
+              runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
               messages: [],
               subagents: [],
               providerThreads: [],
@@ -440,6 +443,7 @@ it.effect("waitForThread returns the cut run once its continuation is declined",
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status: "cancelled" }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
         }),
       ),
@@ -578,6 +582,7 @@ it.effect.each([
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [{ id: runId, status }],
+              runtimeRequests: [],
             } as unknown as OrchestrationV2ThreadProjection),
           dispatch: (command) =>
             Effect.sync(() => {

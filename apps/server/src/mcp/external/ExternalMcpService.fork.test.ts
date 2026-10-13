@@ -17,8 +17,12 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
@@ -78,6 +82,8 @@ const makeHarness = (
   settings: Partial<ServerSettingsValue> = {},
   legacySelection: ModelSelection | null = modelSelection,
   providers: ReadonlyArray<ServerProvider> = [provider],
+  runtimeRequests: ReadonlyArray<unknown> = [],
+  shell: Record<string, unknown> = {},
 ) => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   const sent: Array<ThreadManagementService.ThreadManagementSendInput> = [];
@@ -114,7 +120,7 @@ const makeHarness = (
       runs: [],
       messages: [],
       turnItems: [],
-      runtimeRequests: [],
+      runtimeRequests,
       contextTransfers: [],
     } as unknown as OrchestrationV2ThreadProjection;
   };
@@ -129,6 +135,13 @@ const makeHarness = (
                     id: threadId,
                     projectId: threads.get(threadId)!.projectId,
                     deletedAt: null,
+                    lineage: { parentThreadId: null, relationshipToParent: null },
+                    creationSource: "mcp",
+                    status: "idle",
+                    activityRunStatus: null,
+                    pendingRuntimeRequest: null,
+                    updatedAt: DateTime.makeUnsafe(0),
+                    ...shell,
                   } as never)
                 : null,
             ),
@@ -154,6 +167,13 @@ const makeHarness = (
                 delivery: "started",
               } as never);
             }),
+          waitForThread: (input) =>
+            Effect.succeed({
+              threadId: input.threadId,
+              run: { id: RunId.make("run:1"), status: "running" },
+              timedOut: false,
+              pendingRequestCount: 2,
+            } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({
           getShell: (projectId) =>
@@ -187,6 +207,90 @@ const run = <A, E>(
   );
 
 describe("ExternalMcpServiceFork", () => {
+  it.effect("a run wait carries the pending request count through", () => {
+    const harness = makeHarness();
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const waited = yield* service.waitForThread(principal(), {
+          threadId: ThreadId.make("thread:granted"),
+        });
+        assert.equal(waited.timedOut, false);
+        assert.equal(waited.pendingRequestCount, 2);
+      }),
+    );
+  });
+
+  it.effect("a work wait counts pending requests from the thread records", () => {
+    const harness = makeHarness(
+      {},
+      modelSelection,
+      [provider],
+      [
+        { id: "request:1", status: "pending" },
+        { id: "request:2", status: "resolved" },
+      ],
+    );
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const waited = yield* service.waitForThread(principal(), {
+          threadId: ThreadId.make("thread:granted"),
+          until: "work",
+        });
+        assert.equal(waited.pendingRequestCount, 1);
+      }),
+    );
+  });
+
+  it.effect("a work-wait timeout that lands on a pending request returns as needed input", () => {
+    const harness = makeHarness(
+      {},
+      modelSelection,
+      [provider],
+      [{ id: "request:1", status: "pending" }],
+      { activityRunStatus: "running" },
+    );
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const fiber = yield* service
+          .waitForThread(principal(), {
+            threadId: ThreadId.make("thread:granted"),
+            until: "work",
+            timeoutMs: 1,
+          })
+          .pipe(Effect.forkChild);
+        // The work never settles inside the window; the timeout fires first.
+        yield* TestClock.adjust(Duration.millis(1));
+        const waited = yield* Fiber.join(fiber);
+
+        assert.equal(waited.timedOut, false);
+        assert.equal(waited.pendingRequestCount, 1);
+        // Work still says what the thread is doing.
+        assert.equal(waited.work.state, "running");
+      }),
+    );
+  });
+
+  it.effect("a work-wait timeout with no pending request still reports timed out", () => {
+    const harness = makeHarness({}, modelSelection, [provider], [], {
+      activityRunStatus: "running",
+    });
+    return run(harness, (service) =>
+      Effect.gen(function* () {
+        const fiber = yield* service
+          .waitForThread(principal(), {
+            threadId: ThreadId.make("thread:granted"),
+            until: "work",
+            timeoutMs: 1,
+          })
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust(Duration.millis(1));
+        const waited = yield* Fiber.join(fiber);
+
+        assert.equal(waited.timedOut, true);
+        assert.equal(waited.pendingRequestCount, 0);
+      }),
+    );
+  });
   it.effect(
     "inherits environment effort for a migrated project and reads changes on each launch",
     () => {

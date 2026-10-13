@@ -192,7 +192,7 @@ const ThreadReadTool = Tool.make("t3_external_thread_read", {
 
 const ThreadWaitTool = Tool.make("t3_external_thread_wait", {
   description:
-    "Wait up to timeoutMs (default 60s, at most 10 minutes) for a thread run to reach a terminal state. Without runId the latest run is selected; an idle thread returns at once. A run can end while work it started still runs: the result's work says so, and until=work waits for that work too. A timeout interrupts nothing, so call again after timedOut=true.",
+    "Wait up to timeoutMs (default 60s, at most 10 minutes) for a thread run to reach a terminal state or need input. Without runId the latest run is selected; an idle thread returns at once. Both modes also return with timedOut=false and pendingRequestCount while a runtime request pends; list and answer it with t3_external_request_list/respond. A run can end while work it started still runs: the result's work says so, and until=work waits for that work too. A timeout interrupts nothing, so call again after timedOut=true.",
   parameters: ThreadWaitInput,
   success: ThreadWaitResult,
   failure: OrchestratorMcpFailure,
