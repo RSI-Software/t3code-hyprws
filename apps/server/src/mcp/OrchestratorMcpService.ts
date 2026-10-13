@@ -766,9 +766,7 @@ function threadDetail(
     relationshipToParent: projection.thread.lineage.relationshipToParent,
     runCount: projection.runs.length,
     itemCount,
-    pendingRequestCount: projection.runtimeRequests.filter(
-      (request) => request.status === "pending",
-    ).length,
+    pendingRequestCount: ThreadManagementService.pendingRequestCount(projection),
     archived: projection.thread.archivedAt !== null,
     ...threadSettlement(projection.thread),
     // From the shell, like the list, so read and list agree on snooze state.
@@ -2664,6 +2662,7 @@ const make = Effect.gen(function* () {
           runId: result.run?.id ?? null,
           status: result.run === null ? "idle" : runOutcome(result.run),
           timedOut: result.timedOut,
+          pendingRequestCount: result.pendingRequestCount,
         } satisfies OrchestratorMcpThreadWaitResult;
       }),
     interruptThread: (scope, input) =>
