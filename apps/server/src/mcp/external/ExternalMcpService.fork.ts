@@ -381,8 +381,7 @@ const make = Effect.gen(function* () {
       Effect.flatMap((shell) => workOf(shell).pipe(Effect.map((work) => ({ shell, work })))),
     );
 
-  /**
-   * Waits until nothing runs and no background work holds the thread, or a
+  /** Waits until nothing runs and no background work holds the thread, or a
    * request waits on a person. Never pins a run: background work outlives the
    * run that started it.
    */
@@ -401,12 +400,21 @@ const make = Effect.gen(function* () {
       const { shell, work } = Option.isSome(waited)
         ? waited.value
         : yield* currentWork(principal, threadId);
+      const pendingCount = yield* threadManagement
+        .getProjectThreadRecords({ projectId: shell.projectId, threadId }, ["runtimeRequests"])
+        .pipe(
+          Effect.mapError(threadManagementFailureFork),
+          Effect.map(ThreadManagementService.pendingRequestCount),
+        );
+      // A final read that sees a pending request reports needed input instead
+      // of a timeout, matching the run wait; work still says what runs.
       return {
         threadId,
         runId: shell.latestRunId,
         status: shell.activityRunStatus ?? shell.status,
-        timedOut: !isWorkSettled(work),
+        timedOut: !isWorkSettled(work) && pendingCount === 0,
         work,
+        pendingRequestCount: pendingCount,
       } satisfies ExternalMcpThreadWaitResult;
     });
 
@@ -768,6 +776,7 @@ const make = Effect.gen(function* () {
           runId: result.run?.id ?? null,
           status: result.run?.status ?? "idle",
           timedOut: result.timedOut,
+          pendingRequestCount: result.pendingRequestCount,
           work,
         } satisfies ExternalMcpThreadWaitResult;
       }),
