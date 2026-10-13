@@ -436,6 +436,7 @@ interface TerminalSessionState {
   cwd: string;
   worktreePath: string | null;
   status: TerminalSessionStatus | "suspended";
+  restarting: boolean; // fork-hook: zmux-estate/terminal-restarting-state
   pid: number | null;
   history: BoundedTerminalHistory;
   pendingHistoryControlSequence: string;
@@ -577,6 +578,14 @@ function managedAttachmentStatus(
     : "attached";
 }
 
+function publicTerminalStatus(session: TerminalSessionState): TerminalSessionStatus {
+  // A replacement in flight is not an exit: the retarget/restart window must
+  // never read as a dead session to attaching viewers, or the drawer closes
+  // the terminal mid-checkout-move.
+  if (session.status === "exited" && session.restarting) return "starting";
+  return session.status === "suspended" ? "running" : session.status;
+} // fork-hook: zmux-estate/terminal-restarting-public-status
+
 function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
   const attachmentStatus = managedAttachmentStatus(session);
   return {
@@ -585,7 +594,7 @@ function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
     ...(session.attachmentId ? { attachmentId: session.attachmentId } : {}),
     cwd: session.cwd,
     worktreePath: session.worktreePath,
-    status: session.status === "suspended" ? "running" : session.status,
+    status: publicTerminalStatus(session), // fork-hook: zmux-estate/terminal-restarting-public-status
     pid: session.pid,
     history: session.history.value() + unfinishedSequenceReplay(session),
     exitCode: session.exitCode,
@@ -608,7 +617,7 @@ function summary(session: TerminalSessionState): TerminalSummary {
     ...(session.attachmentId ? { attachmentId: session.attachmentId } : {}),
     cwd: session.cwd,
     worktreePath: session.worktreePath,
-    status: session.status === "suspended" ? "running" : session.status,
+    status: publicTerminalStatus(session), // fork-hook: zmux-estate/terminal-restarting-public-status
     pid: session.pid,
     exitCode: session.exitCode,
     exitSignal: session.exitSignal,
@@ -3429,7 +3438,21 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         session.threadId,
       ), // fork-hook: zmux-estate/retarget-spawn-env-platform
     );
-    const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+    const resolved = yield* (
+      // A first-use destination has no session to resolve; the follow move
+      // must ensure it like the open path does instead of stranding the
+      // viewer on the source. Settled threads keep the resolve-only policy,
+      // and the re-resolution keeps the strict readiness receipt.
+      options.ensureZmuxSession && !(yield* resolveOnlyForSettledThread(session.threadId))
+        ? ensureZmuxSession(targetDir, expectedMatch).pipe(
+            Effect.flatMap((ensured) =>
+              ensured.target
+                ? resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
+                : Effect.succeed(ensured),
+            ),
+          )
+        : resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
+    ); // fork-hook: zmux-estate/settled-lane-retarget-guard
     if (!resolved.candidate || !resolved.target) {
       return yield* new TerminalManagedRetargetError({
         cwd: input.cwd,
@@ -3687,6 +3710,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   ): Effect.fn.Return<void, TerminalError> {
     const resumeIdentity = eventType === "resumed" ? session.managedSessionIdentity : null;
     yield* cancelManagedSuspendFiber(session);
+    if (session.process !== null) {
+      // The replacement window opens here: mark the stop so no snapshot or
+      // summary reports the replaced viewer as exited (the drawer closes on
+      // that signal).
+      yield* modifyManagerState((state) => {
+        session.restarting = true;
+        return [undefined, state] as const;
+      });
+    } // fork-hook: zmux-estate/terminal-restarting-mark
     yield* stopProcess(session);
     if (preparedRetarget) {
       yield* managedRetargetAdoptionBarrier;
@@ -3895,6 +3927,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               session.shell = spawnResult.shell;
               session.pid = processPid;
               session.status = "running";
+              session.restarting = false; // fork-hook: zmux-estate/terminal-restarting-commit
               // onExit may replay an exit immediately; accept it before subscribing.
               session.unsubscribeData = preparedRetarget
                 ? preparedRetarget.unsubscribeData
@@ -3954,6 +3987,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cleanupProcessHandles(session);
         session.status = "error";
         session.startupError = message;
+        session.restarting = false; // fork-hook: zmux-estate/terminal-restarting-commit
         session.pid = null;
         session.process = null;
         if (eventType !== "resumed") {
@@ -4627,6 +4661,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           cwd: current.cwd,
           worktreePath: current.worktreePath,
           status: "suspended",
+          restarting: false, // fork-hook: zmux-estate/terminal-restarting-init
           pid: null,
           history,
           pendingHistoryControlSequence: "",
@@ -4697,6 +4732,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cwd: input.cwd,
         worktreePath: input.worktreePath ?? null,
         status: "starting",
+        restarting: false, // fork-hook: zmux-estate/terminal-restarting-init
         pid: null,
         history,
         pendingHistoryControlSequence: "",
