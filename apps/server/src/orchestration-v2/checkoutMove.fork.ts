@@ -35,9 +35,19 @@ const OTHER_METADATA_FIELDS = [
  */
 export const checkoutMoveMetadataFork = (
   command: OrchestrationV2ServerCommand,
-  thread: Pick<OrchestrationV2AppThread, "updatedAt">,
-): { checkoutMove?: ThreadCheckoutMove; updatedAt?: OrchestrationV2AppThread["updatedAt"] } => {
-  if (command.type !== "thread.metadata.update" || command.checkoutMove === undefined) return {};
+  thread: Pick<OrchestrationV2AppThread, "updatedAt" | "worktreePath">,
+): {
+  checkoutMove?: ThreadCheckoutMove | undefined;
+  updatedAt?: OrchestrationV2AppThread["updatedAt"];
+} => {
+  if (command.type !== "thread.metadata.update") return {};
+  if (command.checkoutMove === undefined) {
+    // A handoff outside the move service supersedes its old recovery/Undo
+    // record. Title edits and same-checkout updates keep that record intact.
+    return command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath
+      ? { checkoutMove: undefined }
+      : {};
+  }
   const progressOnly = OTHER_METADATA_FIELDS.every((field) => command[field] === undefined);
   return progressOnly
     ? { checkoutMove: command.checkoutMove, updatedAt: thread.updatedAt }
