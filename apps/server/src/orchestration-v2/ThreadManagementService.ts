@@ -158,12 +158,23 @@ export interface ThreadManagementWaitInput {
   readonly threadId: ThreadId;
   readonly runId?: RunId;
   readonly timeoutMs: number;
+  /**
+   * Return only when the run reaches a terminal status: a pending runtime
+   * request never returns this wait. Settlement waits on the run itself, so
+   * it must not stop early on input the caller will not answer.
+   */
+  readonly terminalOnly?: boolean;
 }
 
 export interface ThreadManagementWaitResult {
   readonly threadId: ThreadId;
   readonly run: OrchestrationV2Run | null;
   readonly timedOut: boolean;
+  /**
+   * Pending runtime requests on the thread. The wait also returns while this
+   * is positive, so a caller can read and answer the request.
+   */
+  readonly pendingRequestCount: number;
 }
 
 export interface ThreadManagementInterruptInput {
@@ -487,6 +498,13 @@ function latestRestartContinuation(
     current = next;
   }
   return current;
+}
+
+/** Thread-scoped, so a count beside a run-filtered read stays complete. */
+export function pendingRequestCount(
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
+): number {
+  return projection.runtimeRequests.filter((request) => request.status === "pending").length;
 }
 
 export function latestActiveRun(
@@ -859,7 +877,7 @@ const make = Effect.gen(function* () {
       const afterSequence = yield* orchestrator
         .getThreadEventSequence(input.threadId)
         .pipe(Effect.mapError(loadError));
-      const target = yield* getProjectThreadRecords(input, ["runs"]);
+      const target = yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"]);
       const selectedRun =
         input.runId === undefined
           ? latestRun(target)
@@ -871,7 +889,12 @@ const make = Effect.gen(function* () {
         });
       }
       if (selectedRun === undefined) {
-        return { threadId: input.threadId, run: null, timedOut: false };
+        return {
+          threadId: input.threadId,
+          run: null,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
       }
       // A restart cuts a run and continues it as a new run. Follow that chain,
       // so a cut run is not the answer while its continuation is pending.
@@ -892,18 +915,40 @@ const make = Effect.gen(function* () {
         });
       const initial = yield* outcome(target.runs);
       if (initial.settled) {
-        return { threadId: input.threadId, run: initial.run, timedOut: false };
+        return {
+          threadId: input.threadId,
+          run: initial.run,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
+      }
+      // A run that needs input never turns terminal on its own, so the wait
+      // also returns while a request pends and the caller answers it.
+      if (!input.terminalOnly && pendingRequestCount(target) > 0) {
+        return {
+          threadId: input.threadId,
+          run: initial.run,
+          timedOut: false,
+          pendingRequestCount: pendingRequestCount(target),
+        };
       }
 
       // A declined continuation records no event, so its effect settling wakes
       // the wait too.
       const wait = Stream.merge(
         Stream.merge(
-          orchestrator.streamStoredEventsFrom({
-            threadId: input.threadId,
-            afterSequence,
-            eventType: "run.updated",
-          }),
+          Stream.merge(
+            orchestrator.streamStoredEventsFrom({
+              threadId: input.threadId,
+              afterSequence,
+              eventType: "run.updated",
+            }),
+            orchestrator.streamStoredEventsFrom({
+              threadId: input.threadId,
+              afterSequence,
+              eventType: "runtime-request.updated",
+            }),
+          ),
           orchestrator.streamStoredEventsFrom({
             threadId: input.threadId,
             afterSequence,
@@ -923,29 +968,61 @@ const make = Effect.gen(function* () {
           : Stream.empty,
       ).pipe(
         Stream.mapEffect(() =>
-          getProjectThreadRecords(input, ["runs"]).pipe(
-            Effect.flatMap((current) => outcome(current.runs)),
+          getProjectThreadRecords(input, ["runs", "runtimeRequests"]).pipe(
+            Effect.flatMap((current) =>
+              outcome(current.runs).pipe(
+                Effect.map((result) => ({
+                  ...result,
+                  pendingRequestCount: pendingRequestCount(current),
+                })),
+              ),
+            ),
           ),
         ),
-        Stream.filter((current) => current.settled),
+        // A resolved request also wakes this stream; the re-read above decides,
+        // so the wait only returns on a settled run or, unless the caller
+        // waits for the run itself, a still-pending request.
+        Stream.filter(
+          (current) => current.settled || (!input.terminalOnly && current.pendingRequestCount > 0),
+        ),
         Stream.runHead,
         Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
       );
       const waited = Option.flatten(yield* wait);
       if (Option.isSome(waited)) {
-        return { threadId: input.threadId, run: waited.value.run, timedOut: false };
+        return {
+          threadId: input.threadId,
+          run: waited.value.run,
+          timedOut: false,
+          pendingRequestCount: waited.value.pendingRequestCount,
+        };
       }
       // The run may have reached a terminal status while the timeout was
       // winning the race; the final projection read decides what actually
-      // happened, so only a still-active run counts as timed out.
-      const final = yield* outcome((yield* getProjectThreadRecords(input, ["runs"])).runs);
-      return { threadId: input.threadId, run: final.run, timedOut: !final.settled };
+      // happened. Only a still-active run with no pending request counts as
+      // timed out; a settlement wait reports the run alone.
+      const current = yield* getProjectThreadRecords(input, ["runs", "runtimeRequests"]);
+      const final = yield* outcome(current.runs);
+      const count = pendingRequestCount(current);
+      return {
+        threadId: input.threadId,
+        run: final.run,
+        timedOut: !final.settled && (input.terminalOnly || count === 0),
+        pendingRequestCount: count,
+      };
     });
 
   const settleAfterRun: ThreadManagementServiceShape["settleAfterRun"] = Effect.fn(
     "orchestrationV2.threadManagement.settleAfterRun",
   )(function* (input) {
-    const { run } = yield* waitForThread({ ...input, timeoutMs: SETTLE_AFTER_RUN_WAIT_MS });
+    // A turn that outlives this wait leaves its thread active. Settlement
+    // waits for the run itself: a pending request must not return this wait
+    // before the run completes, or the thread would never settle.
+    const { run } = yield* waitForThread({
+      ...input,
+      timeoutMs: SETTLE_AFTER_RUN_WAIT_MS,
+      terminalOnly: true,
+    });
     if (run?.status !== "completed") return;
     yield* dispatch({
       type: "thread.settle",
