@@ -323,6 +323,22 @@ const make = Effect.gen(function* () {
       return yield* refuse("Checkout move context changed; refresh and retry")();
     }
     const identityFailed = refuse("Checkout move identity validation failed");
+    // A missing path is the common refusal (a deleted worktree): name it
+    // instead of masking it behind the generic identity failure. An exists()
+    // probe failure is treated as present so the generic message survives;
+    // every other resolution failure keeps it too.
+    const destinationExists = yield* fileSystem
+      .exists(input.requestedPath)
+      .pipe(Effect.orElseSucceed(() => true));
+    if (!destinationExists) {
+      return yield* refuse(`Checkout move destination does not exist: ${input.requestedPath}`)();
+    }
+    const sourceExists = yield* fileSystem
+      .exists(sourcePath)
+      .pipe(Effect.orElseSucceed(() => true));
+    if (!sourceExists) {
+      return yield* refuse(`Checkout move source no longer exists: ${sourcePath}`)();
+    }
     const [source, destination] = yield* Effect.all([
       resolveCheckoutPhysicalIdentity(sourcePath),
       resolveCheckoutPhysicalIdentity(input.requestedPath),
