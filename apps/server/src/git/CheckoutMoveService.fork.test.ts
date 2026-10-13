@@ -368,6 +368,45 @@ describe("CheckoutMoveServiceFork", () => {
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
 
+  it.effect("names a missing requested destination instead of masking the identity failure", () =>
+    Effect.gen(function* () {
+      const { root } = yield* makeRepository;
+      const harness = yield* makeHarness(root);
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        const missing = `${root}-missing`;
+        const detail = yield* moves
+          .request({ threadId, requestedPath: missing, expectedCheckoutRoot: root })
+          .pipe(Effect.flip, Effect.map(errorDetail));
+        expect(detail).toBe(`Checkout move destination does not exist: ${missing}`);
+        // The refusal is pure: nothing dispatched, no move recorded.
+        expect(harness.dispatched).toEqual([]);
+        expect(harness.thread().checkoutMove).toBeUndefined();
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
+  it.effect("names a deleted source worktree instead of masking the identity failure", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { root, feature } = yield* makeRepository;
+      const harness = yield* makeHarness(root);
+      harness.strand(feature, "feature");
+      yield* fileSystem.remove(feature, { recursive: true });
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        const detail = yield* moves
+          .request({ threadId, requestedPath: root, expectedCheckoutRoot: feature })
+          .pipe(Effect.flip, Effect.map(errorDetail));
+        expect(detail).toBe(`Checkout move source no longer exists: ${feature}`);
+        expect(harness.dispatched).toEqual([]);
+        // The thread keeps its recorded worktree for recovery flows.
+        expect(harness.thread().worktreePath).toBe(feature);
+        expect(harness.thread().checkoutMove).toBeUndefined();
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
   it.effect("queues a move during a run and commits it when the run settles", () =>
     Effect.gen(function* () {
       const { root, feature } = yield* makeRepository;
@@ -436,6 +475,35 @@ describe("CheckoutMoveServiceFork", () => {
           .pipe(Effect.flip, Effect.map(errorDetail));
         expect(detail).toBe("The reverse move no longer matches the effective checkout");
         expect(harness.thread().worktreePath).toBe(feature);
+      }).pipe(Effect.provide(harness.layer));
+    }).pipe(Effect.provide(VcsLayer), Effect.scoped),
+  );
+
+  it.effect("moves an idle thread away from a busy shared source checkout", () =>
+    Effect.gen(function* () {
+      const { root, feature } = yield* makeRepository;
+      const other = {
+        id: ThreadId.make("thread-2"),
+        projectId,
+        worktreePath: null,
+        activeRunId: "run-2",
+        activityRunStatus: "running",
+        status: "running",
+      } as unknown as OrchestrationV2ThreadShell;
+      const harness = yield* makeHarness(root, [other]);
+      yield* Effect.gen(function* () {
+        const moves = yield* CheckoutMoveServiceFork;
+        yield* moves.request({ threadId, requestedPath: feature, expectedCheckoutRoot: root });
+        const settled = yield* Deferred.await(harness.settled);
+        expect(settled.status).toBe("committed");
+        expect(harness.thread().worktreePath).toBe(feature);
+        expect(other.worktreePath).toBeNull();
+        expect(other.status).toBe("running");
+        expect(
+          harness.dispatched.every(
+            (command) => "threadId" in command && command.threadId === threadId,
+          ),
+        ).toBe(true);
       }).pipe(Effect.provide(harness.layer));
     }).pipe(Effect.provide(VcsLayer), Effect.scoped),
   );
@@ -613,12 +681,12 @@ describe("CheckoutMoveServiceFork", () => {
       harness.setBusy(true);
       yield* Effect.gen(function* () {
         const moves = yield* CheckoutMoveServiceFork;
-        const results = yield* Effect.all(
-          [feature, feature].map((requestedPath) =>
+        const results = yield* Effect.forEach(
+          [feature, feature],
+          (requestedPath) =>
             moves
               .request({ threadId, requestedPath, expectedCheckoutRoot: root })
               .pipe(Effect.result),
-          ),
           { concurrency: "unbounded" },
         );
         expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
