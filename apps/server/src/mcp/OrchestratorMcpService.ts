@@ -811,9 +811,7 @@ function threadDetail(
     relationshipToParent: projection.thread.lineage.relationshipToParent,
     runCount: projection.runs.length,
     itemCount,
-    pendingRequestCount: projection.runtimeRequests.filter(
-      (request) => request.status === "pending",
-    ).length,
+    pendingRequestCount: ThreadManagementService.pendingRequestCount(projection),
     archived: projection.thread.archivedAt !== null,
     ...threadSettlement(projection.thread),
     ...threadSnooze(shell, nowMs),
@@ -2981,6 +2979,7 @@ const make = Effect.gen(function* () {
         runId: result.run?.id ?? null,
         status,
         timedOut: result.timedOut,
+        pendingRequestCount: result.pendingRequestCount,
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined
           ? {}
