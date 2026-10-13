@@ -128,98 +128,94 @@ const make = Effect.gen(function* () {
     yield* withVerifiedCheckoutMove({
       sourcePath: move.source.checkoutRoot,
       destinationPath: move.destination.checkoutRoot,
-      effect: (source, destination) =>
-        Effect.gen(function* () {
-          if (
-            !sameCheckoutIdentity(source, move.source) ||
-            !sameCheckoutIdentity(destination, move.destination)
-          ) {
-            return yield* new CheckoutMoveValidationError({
-              reason: "checkout identity changed before transition",
-            });
-          }
-          const owned = yield* threads.getThreadShell(threadId);
-          if (owned === null || owned.checkoutMove?.requestId !== move.requestId) {
-            return yield* new CheckoutMoveValidationError({
-              reason: "checkout move ownership changed before transition",
-            });
-          }
-          if (owned.worktreePath !== (move.sourceThreadWorktreePath ?? null)) {
-            return yield* new CheckoutMoveValidationError({
-              reason: "thread metadata changed during move preparation",
-            });
-          }
-          const now = yield* nowIso;
-          // A run can start between the idle check and the leases; wait for it.
-          if (isThreadBusyOnCheckoutFork(owned)) {
-            yield* writeMove(owned, { ...move, status: "queued", updatedAt: now });
-            return;
-          }
-          const roots = [...new Set([source.checkoutRoot, destination.checkoutRoot])];
-          const activeThreadId = yield* activeOnCheckout(threadId, roots);
-          if (activeThreadId !== null) {
-            return yield* new CheckoutMoveValidationError({
-              reason: `checkout is active on thread ${activeThreadId}`,
-            });
-          }
-          const workspaceRoot = yield* workspaceRootOf(owned);
-          const toProjectRoot =
-            workspaceRoot !== undefined &&
-            (yield* samePath(destination.checkoutRoot, workspaceRoot));
-          // One update moves the thread; the decider detaches its provider
-          // sessions, so the next turn starts in the destination. A turn from
-          // a starter outside the client lease (queue, MCP, schedule, wake)
-          // can still begin after the idle check: the decider then refuses
-          // the commit and the move waits for that run.
-          yield* writeMove(
-            owned,
-            {
-              ...move,
-              status: "committed",
-              completedSteps: ["metadata"],
-              effectiveProvider: null,
-              updatedAt: now,
-            },
-            {
-              branch: destination.branch,
-              worktreePath: toProjectRoot ? null : destination.checkoutRoot,
-            },
-          ).pipe(
-            Effect.catch((error) =>
-              Effect.gen(function* () {
-                const latest = yield* threads.getThreadShell(threadId);
-                if (
-                  latest === null ||
-                  latest.checkoutMove?.requestId !== move.requestId ||
-                  !isThreadBusyOnCheckoutFork(latest)
-                ) {
-                  return yield* error;
-                }
-                yield* writeMove(latest, { ...move, status: "queued", updatedAt: yield* nowIso });
-              }),
-            ),
-          );
-        }),
+      effect: Effect.fn("CheckoutMoveService.effect")(function* (source, destination) {
+        if (
+          !sameCheckoutIdentity(source, move.source) ||
+          !sameCheckoutIdentity(destination, move.destination)
+        ) {
+          return yield* new CheckoutMoveValidationError({
+            reason: "checkout identity changed before transition",
+          });
+        }
+        const owned = yield* threads.getThreadShell(threadId);
+        if (owned === null || owned.checkoutMove?.requestId !== move.requestId) {
+          return yield* new CheckoutMoveValidationError({
+            reason: "checkout move ownership changed before transition",
+          });
+        }
+        if (owned.worktreePath !== (move.sourceThreadWorktreePath ?? null)) {
+          return yield* new CheckoutMoveValidationError({
+            reason: "thread metadata changed during move preparation",
+          });
+        }
+        const now = yield* nowIso;
+        // A run can start between the idle check and the leases; wait for it.
+        if (isThreadBusyOnCheckoutFork(owned)) {
+          yield* writeMove(owned, { ...move, status: "queued", updatedAt: now });
+          return;
+        }
+        // Rebinding this idle thread does not mutate the source checkout or
+        // detach any other thread's session. Only the destination must be idle.
+        const activeThreadId = yield* activeOnCheckout(threadId, [destination.checkoutRoot]);
+        if (activeThreadId !== null) {
+          return yield* new CheckoutMoveValidationError({
+            reason: `checkout is active on thread ${activeThreadId}`,
+          });
+        }
+        const workspaceRoot = yield* workspaceRootOf(owned);
+        const toProjectRoot =
+          workspaceRoot !== undefined && (yield* samePath(destination.checkoutRoot, workspaceRoot));
+        // One update moves the thread and detaches its provider sessions. A turn from a
+        // starter outside the client lease (queue, MCP, schedule, wake) can still begin after
+        // the idle check: the decider then refuses the commit and the move waits for that run.
+        yield* writeMove(
+          owned,
+          {
+            ...move,
+            status: "committed",
+            completedSteps: ["metadata"],
+            effectiveProvider: null,
+            updatedAt: now,
+          },
+          {
+            branch: destination.branch,
+            worktreePath: toProjectRoot ? null : destination.checkoutRoot,
+          },
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              const latest = yield* threads.getThreadShell(threadId);
+              if (
+                latest === null ||
+                latest.checkoutMove?.requestId !== move.requestId ||
+                !isThreadBusyOnCheckoutFork(latest)
+              ) {
+                return yield* error;
+              }
+              yield* writeMove(latest, { ...move, status: "queued", updatedAt: yield* nowIso });
+            }),
+          ),
+        );
+      }),
     });
   });
 
   /** Records a move that could not proceed, unless another request replaced it. */
-  const recordFailure = (
+  const recordFailure = Effect.fn("CheckoutMoveService.recordFailure")(function* (
     threadId: ThreadId,
     move: ThreadCheckoutMove,
     cause: Cause.Cause<unknown>,
-  ) =>
-    Effect.gen(function* () {
-      const latest = yield* threads.getThreadShell(threadId);
-      if (latest === null || latest.checkoutMove?.requestId !== move.requestId) return;
-      if (!isCheckoutMoveInFlightFork(latest.checkoutMove)) return;
-      yield* writeMove(latest, {
-        ...move,
-        status: "failed",
-        detail: failureDetail(cause) as NonNullable<ThreadCheckoutMove["detail"]>,
-        updatedAt: yield* nowIso,
-      });
+  ) {
+    const latest = yield* threads.getThreadShell(threadId);
+    if (latest === null || latest.checkoutMove?.requestId !== move.requestId) return;
+    if (!isCheckoutMoveInFlightFork(latest.checkoutMove)) return;
+    yield* writeMove(latest, {
+      ...move,
+      status: "failed",
+      detail: failureDetail(cause) as NonNullable<ThreadCheckoutMove["detail"]>,
+      updatedAt: yield* nowIso,
     });
+  });
 
   const advance = Effect.fn("CheckoutMoveServiceFork.advance")(function* (
     thread: OrchestrationV2ThreadShell,
@@ -324,6 +320,22 @@ const make = Effect.gen(function* () {
       return yield* refuse("Checkout move context changed; refresh and retry")();
     }
     const identityFailed = refuse("Checkout move identity validation failed");
+    // A missing path is the common refusal (a deleted worktree): name it
+    // instead of masking it behind the generic identity failure. An exists()
+    // probe failure is treated as present so the generic message survives;
+    // every other resolution failure keeps it too.
+    const destinationExists = yield* fileSystem
+      .exists(input.requestedPath)
+      .pipe(Effect.orElseSucceed(() => true));
+    if (!destinationExists) {
+      return yield* refuse(`Checkout move destination does not exist: ${input.requestedPath}`)();
+    }
+    const sourceExists = yield* fileSystem
+      .exists(sourcePath)
+      .pipe(Effect.orElseSucceed(() => true));
+    if (!sourceExists) {
+      return yield* refuse(`Checkout move source no longer exists: ${sourcePath}`)();
+    }
     const [source, destination] = yield* Effect.all([
       resolveCheckoutPhysicalIdentity(sourcePath),
       resolveCheckoutPhysicalIdentity(input.requestedPath),
