@@ -282,12 +282,6 @@ export function BranchToolbarBranchSelector({
         (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
       )
         return;
-      if (serverSession && worktreePath !== activeWorktreePath) {
-        void stopThreadSession({
-          environmentId,
-          input: { threadId: activeThreadId },
-        });
-      }
       if (hasServerThread) {
         if (worktreePath !== activeWorktreePath && serverThread) {
           const destinationPath = worktreePath ?? activeProject.workspaceRoot;
@@ -303,6 +297,12 @@ export function BranchToolbarBranchSelector({
             failureTitle: "Failed to move thread checkout",
           });
           return;
+        }
+        if (serverSession && worktreePath !== activeWorktreePath) {
+          void stopThreadSession({
+            environmentId,
+            input: { threadId: activeThreadId },
+          });
         }
         void (automatic ? updateEmptyThreadMetadata : updateThreadMetadata)({
           environmentId,
