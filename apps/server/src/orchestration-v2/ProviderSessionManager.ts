@@ -7,6 +7,7 @@ import {
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2ProviderTurn,
   OrchestrationV2RuntimeRequest,
   ProviderInstanceId,
   ProviderSessionId,
@@ -52,6 +53,7 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import { detachedTurnEventsFork, releasedToolEventsFork } from "./providerSessionDetach.fork.ts"; // fork-hook: upstream-fixes/session-detach-import
 import {
   providerSessionProjectId,
   withThreadProjects,
@@ -629,9 +631,22 @@ export const layerWithOptions = (
         for (const threadId of input.entry.attachedThreadIds) {
           const projection = yield* projectionStore.getThreadRecords(
             threadId,
-            ["runtimeRequests", "nodes", "turnItems"],
-            { turnItemTypes: ["approval_request", "user_input_request"] },
+            ["runtimeRequests", "nodes", "turnItems", "providerThreads"], // fork-hook: upstream-fixes/released-tool-owners
+            { turnItemTypes: ["approval_request", "user_input_request", "dynamic_tool"] }, // fork-hook: upstream-fixes/released-tool-items
           );
+          // fork-hook: upstream-fixes/released-native-tool-cleanup
+          for (const event of releasedToolEventsFork(
+            threadId,
+            projection,
+            providerSessionId,
+            input.releasedAt,
+            input.reason === "runtime_error" ? "failed" : "interrupted",
+          )) {
+            events.push({
+              ...event,
+              id: yield* idAllocator.allocate.event({ threadId, providerSessionId }),
+            });
+          }
           const releasedRequests = projection.runtimeRequests.filter(
             (request) =>
               request.status === "pending" &&
@@ -867,7 +882,14 @@ export const layerWithOptions = (
           // SQL commit failures are defects; retry every cause except interruption.
           return yield* Effect.fail(exit.cause);
         });
-        return attempt.pipe(
+        return scheduleReleaseRetry(attempt);
+      };
+
+      // Shared retry owner for deferred detach/release cleanup: one fiber set,
+      // one exponential 1s→30s policy, one 1s initial delay. A failed SQL
+      // commit is a defect, so every failure but interruption is retried.
+      const scheduleReleaseRetry = <E>(attempt: Effect.Effect<void, E, never>) =>
+        attempt.pipe(
           Effect.retry({
             schedule: Schedule.exponential("1 second").pipe(
               Schedule.modifyDelay(({ duration }) =>
@@ -878,6 +900,173 @@ export const layerWithOptions = (
           Effect.delay("1 second"),
           FiberSet.run(releaseRecordRetries),
         );
+
+      // fork-hook: upstream-fixes/detach-teardown-retry
+      // Shared native teardown: the detach verb interrupts owned running turns
+      // before ownership removal; the verb and the deferred retry both unload
+      // detached native threads under the attachment lock through these loops.
+      const ownedProviderThreadsBySession = (
+        projection: {
+          readonly providerThreads: ReadonlyArray<OrchestrationV2ProviderThread>;
+        },
+        providerSessionId: ProviderSessionId,
+      ) =>
+        new Map(
+          projection.providerThreads
+            .filter((thread) => thread.providerSessionId === providerSessionId)
+            .map((thread) => [thread.id, thread] as const),
+        );
+
+      const interruptDetachedTurns = (
+        exposedRuntime: ProviderAdapter.ProviderAdapterV2SessionRuntime,
+        providerSessionId: ProviderSessionId,
+        threadId: ThreadId,
+        providerThreads: ReadonlyMap<ProviderThreadId, OrchestrationV2ProviderThread>,
+        providerTurns: ReadonlyArray<OrchestrationV2ProviderTurn>,
+      ) =>
+        Effect.forEach(
+          providerTurns.filter(
+            (turn) => turn.status === "running" && providerThreads.has(turn.providerThreadId),
+          ),
+          (turn) =>
+            exposedRuntime
+              .interruptTurn({
+                providerThread: providerThreads.get(turn.providerThreadId)!,
+                providerTurnId: turn.id,
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("orchestration-v2.driver-session.detach-interrupt-failed", {
+                    providerSessionId,
+                    threadId,
+                    providerTurnId: turn.id,
+                    cause,
+                  }),
+                ),
+              ),
+          { concurrency: 1, discard: true },
+        );
+
+      const unloadDetachedThreads = (
+        exposedRuntime: ProviderAdapter.ProviderAdapterV2SessionRuntime,
+        providerSessionId: ProviderSessionId,
+        threadId: ThreadId,
+        providerThreads: ReadonlyArray<OrchestrationV2ProviderThread>,
+      ) => {
+        const unload = exposedRuntime.unloadThread;
+        if (unload === undefined) return Effect.void;
+        return Effect.forEach(
+          providerThreads.filter((thread) => thread.nativeThreadRef !== null),
+          (providerThread) =>
+            unload({ providerThread }).pipe(
+              // Bounded so a wedged provider cannot hold up the thread's next
+              // attach.
+              Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("orchestration-v2.driver-session.detach-unload-failed", {
+                  providerSessionId,
+                  threadId,
+                  providerThreadId: providerThread.id,
+                  cause,
+                }),
+              ),
+            ),
+          { concurrency: 1, discard: true },
+        );
+      };
+
+      // A detached thread whose request cleanup failed still owns its cutoff
+      // and entry snapshot: the retry retires only the stranded requests with
+      // the captured cutoff and never writes the shared session's stopped
+      // record, so replacement requests keep working meanwhile.
+      const retryDetachedRequestCleanup = (input: {
+        readonly requestCleanup: Parameters<typeof writeReleasedRuntimeRequestEvents>[0];
+        readonly providerSessionId: ProviderSessionId;
+      }) => {
+        // fork-hook: upstream-fixes/detach-cleanup-retry
+        const providerSessionId = input.providerSessionId;
+        const attempt = Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            sessionOpen.withLock(
+              providerSessionId,
+              writeReleasedRuntimeRequestEvents(input.requestCleanup).pipe(
+                input.requestCleanup.entry.requestEventPermit.withPermits(1),
+              ),
+            ),
+          );
+          if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) return yield* exit;
+          yield* Effect.logWarning(
+            "orchestration-v2.driver-session.detach-request-cleanup-failed",
+            { providerSessionId, cause: exit.cause },
+          );
+          // A failed SQL commit is a defect, so every failure but interruption
+          // is retried.
+          return yield* Effect.fail(exit.cause);
+        });
+        return scheduleReleaseRetry(attempt);
+      };
+
+      // fork-hook: upstream-fixes/detach-teardown-retry
+      // A thread-record failure in shared detach skips the inline teardown. The retry re-reads
+      // under the attachment lock: an earlier replacement keeps its state, a gone runtime or
+      // thread row ends it, and a read failure propagates so the shared schedule retries.
+      const retryDetachedThreadTeardown = (input: {
+        readonly providerSessionId: ProviderSessionId;
+        readonly threadId: ThreadId;
+        readonly detached: LiveSessionEntry;
+      }) => {
+        const attempt = Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            threadAttachment.withLock(
+              threadAttachmentKey(input),
+              Effect.gen(function* () {
+                const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
+                if (
+                  entry?.runtime !== input.detached.runtime ||
+                  entry.attachedThreadIds.has(input.threadId)
+                ) {
+                  return;
+                }
+                const projection = yield* projectionStore
+                  .getThreadRecords(input.threadId, ["providerThreads", "providerTurns"])
+                  .pipe(
+                    // A thread row that never existed or was purged has
+                    // nothing left to tear down.
+                    Effect.catchTags({
+                      ProjectionStoreThreadNotFoundError: () =>
+                        Effect.succeed({ providerThreads: [], providerTurns: [] }),
+                    }),
+                  );
+                const providerThreads = ownedProviderThreadsBySession(
+                  projection,
+                  input.providerSessionId,
+                );
+                if (providerThreads.size === 0) return;
+                yield* interruptDetachedTurns(
+                  input.detached.exposedRuntime,
+                  input.providerSessionId,
+                  input.threadId,
+                  providerThreads,
+                  projection.providerTurns,
+                );
+                yield* unloadDetachedThreads(
+                  input.detached.exposedRuntime,
+                  input.providerSessionId,
+                  input.threadId,
+                  [...providerThreads.values()],
+                );
+              }),
+            ),
+          );
+          if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) return yield* exit;
+          yield* Effect.logWarning("orchestration-v2.driver-session.detach-teardown-failed", {
+            providerSessionId: input.providerSessionId,
+            threadId: input.threadId,
+            cause: exit.cause,
+          });
+          return yield* Effect.fail(exit.cause);
+        });
+        return scheduleReleaseRetry(attempt);
       };
 
       const logReleaseFailure =
@@ -994,6 +1183,42 @@ export const layerWithOptions = (
                   });
                   if (input.cancelIdleFiber !== false) {
                     yield* cancelIdleFiber(entry.idleFiber);
+                  }
+                  // fork-hook: upstream-fixes/deliberate-session-release
+                  if (input.reason === "manual_shutdown") {
+                    for (const threadId of entry.attachedThreadIds) {
+                      // fork-hook: upstream-fixes/release-interrupts-fault-tolerant
+                      // A read failure must not skip the teardown below: the
+                      // runtime still closes, subscribers still learn, and
+                      // the release records still retry on their own path.
+                      yield* Effect.gen(function* () {
+                        const projection = yield* projectionStore.getThreadRecords(threadId, [
+                          "providerThreads",
+                          "providerTurns",
+                          "runs",
+                        ]);
+                        for (const event of detachedTurnEventsFork(
+                          projection,
+                          input.providerSessionId,
+                        )) {
+                          yield* publishToSubscribers(entry.eventSubscribers, {
+                            type: "event",
+                            event,
+                          });
+                        }
+                      }).pipe(
+                        Effect.catchCause((cause) =>
+                          Effect.logWarning(
+                            "orchestration-v2.provider-session-release-interrupts-failed",
+                            {
+                              providerSessionId: input.providerSessionId,
+                              threadId,
+                              cause,
+                            },
+                          ),
+                        ),
+                      );
+                    }
                   }
                   if (input.gracefulSubscribers === true) {
                     yield* endSubscribers(entry);
@@ -1952,7 +2177,11 @@ export const layerWithOptions = (
                       const current = (yield* Ref.get(sessions)).get(
                         sessionKey(entry.runtime.providerSessionId),
                       );
-                      if (current?.runtime !== entry.runtime) return;
+                      if (
+                        current?.runtime !== entry.runtime ||
+                        !current.attachedThreadIds.has(threadId)
+                      )
+                        return; // fork-hook: upstream-fixes/detached-request-gate
                       yield* providerEventIngestor
                         .ingestNormalized({
                           providerSessionId: entry.runtime.providerSessionId,
@@ -2309,93 +2538,128 @@ export const layerWithOptions = (
           function* (input) {
             const key = sessionKey(input.providerSessionId);
             const currentEntry = (yield* Ref.get(sessions)).get(key);
+            if (currentEntry === undefined) {
+              if (input.revokeMcpCredential === true) yield* clearMcpSession(input.threadId);
+              return;
+            }
+            // fork-hook: upstream-fixes/detach-last-thread-release
+            if (
+              currentEntry !== undefined &&
+              !currentEntry.supportsMultipleProviderThreads &&
+              currentEntry.attachedThreadIds.size === 1 &&
+              currentEntry.attachedThreadIds.has(input.threadId)
+            ) {
+              yield* releaseEntry({
+                providerSessionId: input.providerSessionId,
+                reason: "manual_shutdown",
+                ...(input.detail === undefined ? {} : { detail: input.detail }),
+              });
+              return;
+            }
             let detachedProviderThreads: ReadonlyArray<OrchestrationV2ProviderThread> = [];
+            // fork-hook: upstream-fixes/detach-teardown-retry
+            let deferNativeTeardown = false;
             if (currentEntry?.supportsMultipleProviderThreads === true) {
-              const projection = yield* Effect.option(
-                projectionStore.getThreadRecords(input.threadId, [
-                  "providerThreads",
-                  "providerTurns",
-                ]),
-              );
-              if (Option.isSome(projection)) {
-                const providerThreads = new Map(
-                  projection.value.providerThreads
-                    .filter((thread) => thread.providerSessionId === input.providerSessionId)
-                    .map((thread) => [thread.id, thread] as const),
+              yield* Effect.gen(function* () {
+                const projection = yield* projectionStore
+                  .getThreadRecords(input.threadId, ["providerThreads", "providerTurns"])
+                  .pipe(
+                    // A thread row that never existed has nothing to tear
+                    // down. Any other typed read failure propagates and
+                    // defers the teardown to the retry below.
+                    Effect.catchTags({
+                      ProjectionStoreThreadNotFoundError: () =>
+                        Effect.succeed({ providerThreads: [], providerTurns: [] }),
+                    }),
+                  );
+                const providerThreads = ownedProviderThreadsBySession(
+                  projection,
+                  input.providerSessionId,
                 );
                 detachedProviderThreads = [...providerThreads.values()];
-                const activeTurns = projection.value.providerTurns.filter(
-                  (turn) => turn.status === "running" && providerThreads.has(turn.providerThreadId),
+                yield* interruptDetachedTurns(
+                  currentEntry.exposedRuntime,
+                  input.providerSessionId,
+                  input.threadId,
+                  providerThreads,
+                  projection.providerTurns,
                 );
-                yield* Effect.forEach(
-                  activeTurns,
-                  (turn) =>
-                    currentEntry.exposedRuntime
-                      .interruptTurn({
-                        providerThread: providerThreads.get(turn.providerThreadId)!,
-                        providerTurnId: turn.id,
-                      })
-                      .pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.logWarning(
-                            "orchestration-v2.driver-session.detach-interrupt-failed",
-                            {
-                              providerSessionId: input.providerSessionId,
-                              threadId: input.threadId,
-                              providerTurnId: turn.id,
-                              cause,
-                            },
-                          ),
-                        ),
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.sync(() => {
+                    deferNativeTeardown = true;
+                  }).pipe(
+                    Effect.andThen(
+                      Effect.logWarning(
+                        "orchestration-v2.driver-session.detach-teardown-deferred",
+                        {
+                          providerSessionId: input.providerSessionId,
+                          threadId: input.threadId,
+                          cause,
+                        },
                       ),
-                  { concurrency: 1, discard: true },
-                );
-              }
-            }
-            const detachResult = yield* Ref.modify(sessions, (current) => {
-              const entry = current.get(key);
-              if (entry === undefined || !entry.attachedThreadIds.has(input.threadId)) {
-                return [
-                  Option.none<{
-                    readonly entry: LiveSessionEntry;
-                    readonly idleUnloadFiber: Fiber.Fiber<void, never> | null;
-                  }>(),
-                  current,
-                ] as const;
-              }
-              const attachedThreadIds = new Set(entry.attachedThreadIds);
-              attachedThreadIds.delete(input.threadId);
-              const loadedProviderThreadKeyByThread = new Map(
-                entry.loadedProviderThreadKeyByThread,
+                    ),
+                  ),
+                ),
               );
-              loadedProviderThreadKeyByThread.delete(input.threadId);
-              const mcpCredentialIdByThread =
-                input.revokeMcpCredential === true
-                  ? (() => {
-                      const pruned = new Map(entry.mcpCredentialIdByThread);
-                      pruned.delete(input.threadId);
-                      return pruned;
-                    })()
-                  : entry.mcpCredentialIdByThread;
-              const idleThreadUnloads = new Map(entry.idleThreadUnloads);
-              idleThreadUnloads.delete(input.threadId);
-              const updatedEntry = {
-                ...entry,
-                attachedThreadIds,
-                loadedProviderThreadKeyByThread,
-                mcpCredentialIdByThread,
-                idleThreadUnloads,
-              };
-              const updated = new Map(current);
-              updated.set(key, updatedEntry);
-              return [
-                Option.some({
-                  entry: updatedEntry,
-                  idleUnloadFiber: entry.idleThreadUnloads.get(input.threadId)?.fiber ?? null,
-                }),
-                updated,
-              ] as const;
-            });
+            }
+            // fork-hook: upstream-fixes/detach-request-cutoff
+            // Drain request ingestion before cutting off this attachment.
+            const [detachedAt, detachResult] = yield* Effect.zip(
+              DateTime.now,
+              Ref.modify(sessions, (current) => {
+                const entry = current.get(key);
+                if (
+                  entry?.runtime !== currentEntry.runtime ||
+                  !entry.attachedThreadIds.has(input.threadId)
+                ) {
+                  return [
+                    Option.none<{
+                      readonly entry: LiveSessionEntry;
+                      readonly idleUnloadFiber: Fiber.Fiber<void, never> | null;
+                    }>(),
+                    current,
+                  ] as const;
+                }
+                const attachedThreadIds = new Set(entry.attachedThreadIds);
+                attachedThreadIds.delete(input.threadId);
+                const loadedProviderThreadKeyByThread = new Map(
+                  entry.loadedProviderThreadKeyByThread,
+                );
+                loadedProviderThreadKeyByThread.delete(input.threadId);
+                // A plain (workspace-change) detach keeps the credential id for a
+                // re-attach; releaseEntry revokes it with the provider process. A
+                // terminal detach (archive/delete) prunes it so nothing vetoes the
+                // revocation below.
+                const mcpCredentialIdByThread =
+                  input.revokeMcpCredential === true
+                    ? (() => {
+                        const pruned = new Map(entry.mcpCredentialIdByThread);
+                        pruned.delete(input.threadId);
+                        return pruned;
+                      })()
+                    : entry.mcpCredentialIdByThread;
+                // The detach unloads the thread itself below.
+                const idleThreadUnloads = new Map(entry.idleThreadUnloads);
+                idleThreadUnloads.delete(input.threadId);
+                const updatedEntry = {
+                  ...entry,
+                  attachedThreadIds,
+                  loadedProviderThreadKeyByThread,
+                  mcpCredentialIdByThread,
+                  idleThreadUnloads,
+                };
+                const updated = new Map(current);
+                updated.set(key, updatedEntry);
+                return [
+                  Option.some({
+                    entry: updatedEntry,
+                    idleUnloadFiber: entry.idleThreadUnloads.get(input.threadId)?.fiber ?? null,
+                  }),
+                  updated,
+                ] as const;
+              }),
+            ).pipe(currentEntry.requestEventPermit.withPermits(1));
             if (Option.isSome(detachResult)) {
               yield* cancelIdleFiber(detachResult.value.idleUnloadFiber);
             }
@@ -2407,6 +2671,31 @@ export const layerWithOptions = (
             if (Option.isNone(detached)) {
               return;
             }
+            // fork-hook: upstream-fixes/detached-thread-request-cleanup
+            // The runtime teardown below must not hinge on this persistence: a
+            // failed write logs and schedules a request-only retry instead.
+            const requestCleanup = {
+              entry: { ...detached.value, attachedThreadIds: new Set([input.threadId]) },
+              reason: "manual_shutdown" as const,
+              releasedAt: detachedAt,
+            };
+            yield* writeReleasedRuntimeRequestEvents(requestCleanup).pipe(
+              detached.value.requestEventPermit.withPermits(1),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("orchestration-v2.driver-session.detach-request-cleanup-failed", {
+                  providerSessionId: input.providerSessionId,
+                  threadId: input.threadId,
+                  cause,
+                }).pipe(
+                  Effect.andThen(
+                    retryDetachedRequestCleanup({
+                      requestCleanup,
+                      providerSessionId: input.providerSessionId,
+                    }),
+                  ),
+                ),
+              ),
+            );
             if (
               detached.value.attachedThreadIds.size === 0 &&
               !detached.value.supportsMultipleProviderThreads
@@ -2420,7 +2709,19 @@ export const layerWithOptions = (
               return;
             }
             const unloadThread = detached.value.exposedRuntime.unloadThread;
-            if (detached.value.supportsMultipleProviderThreads && unloadThread !== undefined) {
+            if (detached.value.supportsMultipleProviderThreads && deferNativeTeardown) {
+              // fork-hook: upstream-fixes/detach-teardown-retry
+              // The inline lookup failed: ownership is already removed, and
+              // the retry re-reads and tears down under the attachment lock.
+              yield* retryDetachedThreadTeardown({
+                providerSessionId: input.providerSessionId,
+                threadId: input.threadId,
+                detached: detached.value,
+              });
+            } else if (
+              detached.value.supportsMultipleProviderThreads &&
+              unloadThread !== undefined
+            ) {
               // Serialize unload with attachment so attached threads stay loaded and later attaches resume after unload.
               yield* threadAttachment.withLock(
                 threadAttachmentKey(input),
@@ -2432,24 +2733,11 @@ export const layerWithOptions = (
                   ) {
                     return;
                   }
-                  yield* Effect.forEach(
-                    detachedProviderThreads.filter((thread) => thread.nativeThreadRef !== null),
-                    (providerThread) =>
-                      unloadThread({ providerThread }).pipe(
-                        Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
-                        Effect.catchCause((cause) =>
-                          Effect.logWarning(
-                            "orchestration-v2.driver-session.detach-unload-failed",
-                            {
-                              providerSessionId: input.providerSessionId,
-                              threadId: input.threadId,
-                              providerThreadId: providerThread.id,
-                              cause,
-                            },
-                          ),
-                        ),
-                      ),
-                    { concurrency: 1, discard: true },
+                  yield* unloadDetachedThreads(
+                    detached.value.exposedRuntime,
+                    input.providerSessionId,
+                    input.threadId,
+                    detachedProviderThreads,
                   );
                 }),
               );
