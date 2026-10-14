@@ -9,6 +9,7 @@ vi.mock("../../connection/onboarding", () => ({ connectPairing: {} }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.connect }));
 vi.mock("../../environments/primary", () => ({
   peekPairingTokenFromUrl: () => null,
+  takePairingTokenFromUrl: () => null,
   stripPairingTokenFromUrl: () => undefined,
   submitServerAuthCredential: () => Promise.resolve(),
 }));
