@@ -1,6 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { AuthSessionId, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  AuthSessionId,
+  EnvironmentId,
+  ProjectId,
+  OrchestratorMcpFailure,
+} from "@t3tools/contracts";
+import { toolkitRegistration } from "../McpHttpServer.ts";
+import * as McpToolAccess from "../McpToolAccess.ts";
+import * as McpInvocationContext from "../McpInvocationContext.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -61,12 +69,26 @@ const sessionsByToken: Record<string, EnvironmentAuth.AuthenticatedSession> = {
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
-const PingToolkit = Toolkit.make(Tool.make("ping", { success: Schema.String }));
+const PingToolkit = Toolkit.make(
+  Tool.make("ping", { success: Schema.String }),
+  Tool.make("write_ping", {
+    success: Schema.String,
+    failure: OrchestratorMcpFailure,
+    dependencies: [
+      McpInvocationContext.McpInvocationContext,
+      ThreadManagementService.ThreadManagementService,
+    ],
+  }),
+);
 
 /** The upstream `/mcp` server beside it, so a leaked registration would show there. */
-// oxlint-disable-next-line t3code/no-raw-mcp-registration -- deliberate raw registration: this lookalike exists to catch catalog leaks into /mcp.
-const providerMcp = McpServer.toolkit(PingToolkit).pipe(
-  Layer.provide(PingToolkit.toLayer({ ping: () => Effect.succeed("pong") })),
+const providerMcp = toolkitRegistration(
+  PingToolkit,
+  McpToolAccess.toLayer(PingToolkit, {
+    ping: McpToolAccess.reads(() => Effect.succeed("pong")),
+    write_ping: McpToolAccess.writesWithCapability(() => Effect.succeed("pong")),
+  }),
+).pipe(
   Layer.provideMerge(
     McpServer.layerHttp({
       name: "provider",
@@ -241,7 +263,10 @@ it.live("keeps its tools out of the provider-session catalog", () =>
   Effect.gen(function* () {
     const { rpc, connect } = yield* makeHarness;
     const listed = yield* rpc("/mcp", "tools/list", listTools, yield* connect("/mcp", {}));
-    expect(listed.body?.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["ping"]);
+    expect(listed.body?.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "ping",
+      "write_ping",
+    ]);
   }).pipe(Effect.scoped),
 );
 
@@ -264,12 +289,31 @@ it.live("answers each request as the principal that sent it, on a shared MCP ses
       policy,
     });
 
-    // A refusal is an MCP tool error, led by its failure code.
+    // Visibility follows the authenticated request, not the shared MCP session.
+    const readerList = yield* rpc(external, "tools/list", listTools, {
+      ...session,
+      authorization: "DPoP reader",
+    });
+    expect(
+      readerList.body?.result.tools.map((tool: { name: string }) => tool.name).toSorted(),
+    ).toEqual([
+      "t3_external_project_list",
+      "t3_external_request_list",
+      "t3_external_thread_list",
+      "t3_external_thread_read",
+      "t3_external_thread_wait",
+      "t3_external_whoami",
+    ]);
+    const writerList = yield* rpc(external, "tools/list", listTools, session);
+    expect(writerList.body?.result.tools.map((tool: { name: string }) => tool.name)).toContain(
+      "t3_external_thread_create",
+    );
+
+    // Effect rejects a hidden tool before invoking its checked handler.
     const create = { projectId: "project:granted", clientRequestId: "k" };
     const denied = yield* call("DPoP reader", "t3_external_thread_create", create);
     expect(denied.status).toBe(200);
-    expect(denied.body?.result.isError).toBe(true);
-    expect(denied.body?.result.content[0].text).toMatch(/approved for read-only access/);
+    expect(denied.body?.error.message).toBe("Tool 't3_external_thread_create' not found");
     const outside = yield* call("DPoP granted", "t3_external_thread_create", {
       ...create,
       projectId: "project:other",
