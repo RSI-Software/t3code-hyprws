@@ -27,9 +27,7 @@ describe("markdown rich editor pipeline", () => {
 
   it("keeps tight lists and task lists tight", async () => {
     const markdown = "- first\n- second\n\nParagraph.\n\n- [ ] open\n- [x] done\n";
-    expect(await roundTrip(markdown)).toBe(
-      "* first\n* second\n\nParagraph.\n\n* [ ] open\n* [x] done\n",
-    );
+    expect(await roundTrip(markdown)).toBe(markdown);
   });
 
   it("renders interactive tasks, workspace chips, and code chrome", async () => {
@@ -62,7 +60,7 @@ describe("markdown rich editor pipeline", () => {
       checkbox.checked = true;
       checkbox.dispatchEvent(new Event("change", { bubbles: true }));
     }
-    expect(editor.action(getMarkdown())).toContain("* [x] Ship it");
+    expect(editor.action(getMarkdown())).toContain("- [x] Ship it");
 
     const fileLink = root.querySelector<HTMLAnchorElement>(
       'a.t3-markdown-editor__file-link[data-file-path="README.md"]',
