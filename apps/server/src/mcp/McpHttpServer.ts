@@ -1368,7 +1368,9 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
     withToolAnalytics(
       withToolResultCapture(
         withToolSpans(
-          withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+          withToolVisibility(
+            withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+          ),
         ),
       ),
     ),
@@ -1381,6 +1383,31 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
     Layer.provide(McpServer.McpServer.layer),
     Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
   );
+
+/** Attach declaration-owned visibility, preserving existing protocol predicates. */
+const withToolVisibility = Effect.fn("McpHttpServer.withToolVisibility")(function* <A, E, R>(
+  register: Effect.Effect<A, E, R>,
+) {
+  const server = yield* McpServer.McpServer;
+  const visibility = yield* McpToolAccess.ToolVisibility;
+  return yield* register.pipe(
+    Effect.provideService(McpServer.McpServer, {
+      ...server,
+      addTool: (options) => {
+        const existing = Context.getOrUndefined(options.annotations, McpSchema.EnabledWhen);
+        return server.addTool({
+          ...options,
+          annotations: Context.add(
+            options.annotations,
+            McpSchema.EnabledWhen,
+            (profile) =>
+              (existing?.(profile) ?? true) && (visibility[options.tool.name]?.() ?? true),
+          ),
+        });
+      },
+    }),
+  );
+});
 
 const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, EX, RX>(
   register: Effect.Effect<A, E, R>,
