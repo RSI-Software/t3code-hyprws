@@ -91,11 +91,33 @@ export const GitHubIssueListEntry = Schema.Struct({
 });
 export type GitHubIssueListEntry = typeof GitHubIssueListEntry.Type;
 
+export const GitHubIssueListViewFork = Schema.Struct({
+  order: Schema.Struct({
+    sort: Schema.Literals([
+      "created",
+      "updated",
+      "comments",
+      "reactions-positive",
+      "reactions-negative",
+    ]),
+    direction: Schema.Literals(["desc", "asc"]),
+  }),
+  filters: Schema.Array(
+    Schema.Struct({
+      field: Schema.Literals(["type", "label"]),
+      operator: Schema.Literals(["is", "is-not"]),
+      values: Schema.Array(TrimmedNonEmptyString),
+    }),
+  ),
+});
+export type GitHubIssueListViewFork = typeof GitHubIssueListViewFork.Type;
+
 export const GitHubIssueListInput = Schema.Struct({
   state: GitHubIssueListState,
   projectId: Schema.optional(ProjectId),
   query: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
   limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
+  listViewFork: Schema.optional(GitHubIssueListViewFork),
 });
 export type GitHubIssueListInput = typeof GitHubIssueListInput.Type;
 
@@ -146,6 +168,7 @@ export const GitHubIssueDetail = Schema.Struct({
   commentCount: NonNegativeInt,
   // Optional for the same reason `issueType` is: an older environment omits the key.
   subIssues: Schema.optional(Schema.Array(GitHubSubIssue)),
+  parent: Schema.optional(Schema.NullOr(GitHubSubIssue)),
   closedAt: Schema.NullOr(IsoDateTime),
 });
 export type GitHubIssueDetail = typeof GitHubIssueDetail.Type;
