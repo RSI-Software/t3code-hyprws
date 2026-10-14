@@ -8,11 +8,14 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Context from "effect/Context"; // fork-hook: upstream-fixes/mcp-visibility-import
+import * as Fiber from "effect/Fiber"; // fork-hook: upstream-fixes/mcp-visibility-import
+import * as HttpServerRequest from "effect/http/HttpServerRequest"; // fork-hook: upstream-fixes/mcp-visibility-import
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Struct from "effect/Struct";
-import type * as Layer from "effect/Layer";
+import * as Layer from "effect/Layer"; // fork-hook: upstream-fixes/mcp-visibility-layer-import
 import type * as Scope from "effect/Scope";
 import type { Tool, Toolkit } from "effect/ai";
 
@@ -46,7 +49,8 @@ const refuseOutsideConstruction = (token: symbol) => {
 let declare: <P, A, E, R>(
   handle: (params: P) => Effect.Effect<A, E, R>,
   remote: RemoteCheck<P> | undefined,
-) => Declaration<(params: P) => Effect.Effect<A, E, R>>;
+  writes?: boolean,
+) => Declaration<(params: P) => Effect.Effect<A, E, R>>; // fork-hook: upstream-fixes/mcp-visibility-declare
 
 /**
  * What a call bound for a linked environment checks here before it goes: the
@@ -67,28 +71,36 @@ interface CheckedHandler extends Struct.Lambda {
 let checkedHandler: CheckedHandler;
 
 let handlersLayer: <Tools extends Record<string, Tool.Any>, EX, RX>(
-  layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>,
-) => HandlersLayer<Tools, EX, RX>;
+  layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>,
+) => HandlersLayer<Tools, EX, RX>; // fork-hook: upstream-fixes/mcp-visibility-handlers
 
 /** t3code/no-raw-mcp-registration confines Effect's unchecked registration API to McpHttpServer. */
 export class Declaration<out Handler> {
   readonly #handle: Handler;
   readonly #remote: RemoteCheck<never> | undefined;
+  readonly writes: boolean; // fork-hook: upstream-fixes/mcp-visibility-writes
   private constructor(
     token: typeof builtHere,
     handle: Handler,
     remote: RemoteCheck<never> | undefined,
+    writes: boolean, // fork-hook: upstream-fixes/mcp-visibility-constructor
   ) {
     refuseOutsideConstruction(token);
     this.#handle = handle;
     this.#remote = remote;
+    this.writes = writes; // fork-hook: upstream-fixes/mcp-visibility-writes
   }
   static {
-    declare = (handle, remote) => new Declaration(builtHere, handle, remote);
+    declare = (handle, remote, writes = true) => new Declaration(builtHere, handle, remote, writes); // fork-hook: upstream-fixes/mcp-visibility-declare
     checkedHandler = Struct.lambda<CheckedHandler>((declaration) => declaration.#handle);
     remoteCheckOf = (declaration) => declaration.#remote;
   }
 }
+
+export class ToolVisibility extends Context.Service<
+  ToolVisibility,
+  Readonly<Record<string, () => boolean>>
+>()("t3/mcp/McpToolAccess/ToolVisibility") {} // fork-hook: upstream-fixes/mcp-visibility-service
 
 const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) =>
@@ -122,10 +134,15 @@ export const reads = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>)
   declare(
     (params: P) => handle(params),
     () => Effect.void,
-  );
+    false,
+  ); // fork-hook: upstream-fixes/mcp-visibility-reads
 
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), undefined);
+  declare(
+    (params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))),
+    undefined,
+    false,
+  ); // fork-hook: upstream-fixes/mcp-visibility-reads
 
 export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare(
@@ -278,7 +295,8 @@ export const either = <P, A, E, R, A2, E2, R2>(
           message: "This action acts as the calling thread, which is here. Omit environmentId.",
         }),
       ),
-  );
+    first.writes || second.writes,
+  ); // fork-hook: upstream-fixes/mcp-visibility-either
 };
 
 const fullAccessRequired =
@@ -329,10 +347,10 @@ export type Handlers<Tools extends Record<string, Tool.Any>> = Declarations<
 >;
 
 export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, RX = never> {
-  readonly #layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>;
+  readonly #layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>; // fork-hook: upstream-fixes/mcp-visibility-handlers
   private constructor(
     token: typeof builtHere,
-    layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>,
+    layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>, // fork-hook: upstream-fixes/mcp-visibility-handlers-constructor
   ) {
     refuseOutsideConstruction(token);
     this.#layer = layer;
@@ -415,9 +433,34 @@ export const toLayer = <Tools extends Record<string, Tool.Any>, EX = never, RX =
   // Checked as soon as they are given, so a forged declaration fails here.
   const withDeclarations = (declarations: Handlers<Tools>) =>
     routed(toolkit, declarations, checkedHandlers(declarations));
+  const assemble = (declarations: Handlers<Tools>) =>
+    Layer.mergeAll(
+      toolkit.toLayer(withDeclarations(declarations)),
+      Layer.succeed(
+        ToolVisibility,
+        Object.fromEntries(
+          Object.entries(declarations as Readonly<Record<string, Declaration<unknown>>>).map(
+            ([name, declaration]) => [
+              name,
+              () => {
+                const fiber = Fiber.getCurrent();
+                const scope =
+                  fiber === undefined ||
+                  Context.getOrUndefined(fiber.context, HttpServerRequest.HttpServerRequest) ===
+                    undefined
+                    ? undefined
+                    : Context.getOrUndefined(
+                        fiber.context,
+                        McpInvocationContext.McpInvocationContext,
+                      );
+                return !declaration.writes || scope?.client?.access !== "read-only";
+              },
+            ],
+          ),
+        ),
+      ),
+    ); // fork-hook: upstream-fixes/mcp-visibility-assemble
   return handlersLayer(
-    toolkit.toLayer(
-      Effect.isEffect(build) ? Effect.flatMap(build, withDeclarations) : withDeclarations(build),
-    ),
-  );
+    Effect.isEffect(build) ? Layer.unwrap(Effect.map(build, assemble)) : assemble(build),
+  ); // fork-hook: upstream-fixes/mcp-visibility-layer
 };
