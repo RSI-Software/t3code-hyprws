@@ -73,6 +73,7 @@ const RawIssue = Schema.Struct({
   // CLIs omit them entirely, so both stay optional rather than failing a whole project's batch.
   issueType: Schema.optional(Schema.NullOr(RawIssueType)),
   subIssues: Schema.optional(Schema.NullOr(Schema.Struct({ nodes: Schema.Array(RawSubIssue) }))),
+  parent: Schema.optional(Schema.NullOr(RawSubIssue)),
   state: Schema.String,
   // A close reason in GitHub's GraphQL words; gh versions before it asked for `stateReason` omit
   // the key entirely, which an absent reason must survive.
@@ -106,6 +107,7 @@ const NormalizedIssueDetail = Schema.Struct({
   body: Schema.String,
   comments: Schema.Array(GitHubIssueComment),
   subIssues: Schema.Array(GitHubSubIssue),
+  parent: Schema.NullOr(GitHubSubIssue),
   closedAt: Schema.NullOr(IsoDateTime),
 });
 
@@ -233,6 +235,7 @@ function normalizeIssueDetail(decoded: RawGitHubIssue) {
     body: decoded.body ?? "",
     comments: (decoded.comments ?? []).map(comment),
     subIssues: (decoded.subIssues?.nodes ?? []).map(subIssue),
+    parent: decoded.parent == null ? null : subIssue(decoded.parent),
     closedAt:
       decoded.closedAt === null || decoded.closedAt === undefined
         ? null
