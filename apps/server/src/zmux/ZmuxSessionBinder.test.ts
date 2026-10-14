@@ -1,9 +1,11 @@
 import * as NodePath from "@effect/platform-node/NodePath";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import * as FileSystem from "effect/FileSystem";
+import { ChildProcessSpawner } from "effect/process";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -59,23 +61,42 @@ function makeLayer(
   settings: Parameters<typeof ServerSettings.ServerSettingsService.layerTest>[0] = {
     terminalSessionMode: "zmux",
   },
+  extraEnv: NodeJS.ProcessEnv = {},
 ) {
   return ZmuxSessionBinder.layer.pipe(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
     Layer.provide(NodePath.layer),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(FileSystem.layerNoop({ realPath: (path) => Effect.succeed(path) })),
     Layer.provide(
       Layer.succeed(HostProcess.Environment, {
         PATH: "/usr/bin",
         KEEP_ME: "yes",
         TMUX: "/tmp/tmux/default",
         TMUX_PANE: "%7",
+        ...extraEnv,
       }),
     ),
   );
 }
 
 describe("ZmuxSessionBinder", () => {
+  it.effect("never runs zmux, cleanup included, while T3CODE_ZMUX_DISABLED=1", () => {
+    const run = vi.fn(() => Effect.succeed(successfulOutput));
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      assert.deepStrictEqual(yield* binder.bind("/repo/wt"), { status: "disabled" });
+      assert.deepStrictEqual(yield* binder.prepareUnbind("/repo/wt"), { status: "disabled" });
+      assert.deepStrictEqual(
+        yield* binder.unbind({ target: "rsi/wt", nativeId: "$1", serverId: "s", createdAt: 1 }),
+        { status: "disabled" },
+      );
+      assert.equal(run.mock.calls.length, 0);
+    }).pipe(Effect.provide(makeLayer(run, undefined, { T3CODE_ZMUX_DISABLED: "1" })));
+  });
+
   it.effect("binds an existing worktree with tmux routing variables stripped", () => {
     const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
       Effect.succeed({
