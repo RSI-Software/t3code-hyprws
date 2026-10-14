@@ -1,3 +1,4 @@
+import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -732,12 +733,14 @@ function TerminalSessionViewport({
     if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
     void retargetTerminal();
   }, [attached, launchIdentity]);
-  const writeTerminal = useEffectEvent((data: string) =>
-    runTerminalWrite({
-      environmentId,
-      input: { threadId, terminalId, attachmentId, data },
-    }),
-  );
+  const writeTerminal = useEffectEvent((data: string) => {
+    return writeToRunningTerminalFork(terminalSession.status, () =>
+      runTerminalWrite({
+        environmentId,
+        input: { threadId, terminalId, attachmentId, data },
+      }),
+    );
+  }); // fork-hook: zmux-estate/failed-terminal-write
   const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
     if (writableSessionGeneration(readTerminalSession(), hasTerminalWriteAccess()) === null) {
       return;
@@ -1086,6 +1089,7 @@ function TerminalSessionViewport({
         if (!activeTerminal) return;
         activeTerminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         const result = await writeTerminal(data);
+        if (!result) return; // fork-hook: zmux-estate/ignored-terminal-shortcut
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
@@ -1180,7 +1184,7 @@ function TerminalSessionViewport({
         terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         void (async () => {
           const result = await writeTerminal(data);
-          if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+          if (!result || result._tag === "Success" || isAtomCommandInterrupted(result)) return; // fork-hook: zmux-estate/ignored-terminal-input
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
             terminal,
