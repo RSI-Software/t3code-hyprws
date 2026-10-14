@@ -34,6 +34,7 @@ import {
   type GitHubIssueSummary,
 } from "./gitHubIssueJson.ts";
 import { attachSubIssueCloseReasons } from "./subIssueCloseReasons.fork.ts";
+import { gitHubIssueSearchQueryFork, compareGitHubIssuesFork } from "./listView.fork.ts";
 
 const DEFAULT_LIMIT = 50;
 const PROJECT_CONCURRENCY = 8;
@@ -52,9 +53,9 @@ const ISSUE_ACTOR_SELECTION =
   "login ... on User { name avatarUrl } ... on Organization { name avatarUrl }";
 const ISSUE_BASE_SELECTION = `number title url author { ${ISSUE_ACTOR_SELECTION} } assignees(first: 100) { nodes { login name avatarUrl } } labels(first: 100) { nodes { name color } } issueType { name color } state stateReason createdAt updatedAt reactionGroups { content users { totalCount } }`;
 const ISSUE_SUMMARY_SELECTION = "title state stateReason";
-const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body subIssues(first: 100) { nodes { number title url state stateReason } } closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
+const ISSUE_DETAIL_SELECTION = `${ISSUE_BASE_SELECTION} body parent { number title url state stateReason } subIssues(first: 100) { nodes { number title url state stateReason } } closedAt comments(last: ${DETAIL_COMMENT_LIMIT}) { totalCount nodes { id author { ${ISSUE_ACTOR_SELECTION} } body createdAt updatedAt url } }`;
 
-const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!){search(query:$query,type:ISSUE,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
+const ISSUE_SEARCH_QUERY = `query($query:String!,$first:Int!,$type:SearchType!){search(query:$query,type:$type,first:$first){nodes{... on Issue{${ISSUE_BASE_SELECTION} comments{totalCount}}}}}`;
 const ISSUE_DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_DETAIL_SELECTION}}}}`;
 const ISSUE_SUMMARY_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){${ISSUE_SUMMARY_SELECTION}}}}`;
 const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
@@ -80,6 +81,7 @@ const GraphQlIssueRow = Schema.Struct({
   updatedAt: Schema.String,
   reactionGroups: Schema.NullOr(Schema.Array(Schema.Unknown)),
   body: Schema.optional(Schema.String),
+  parent: Schema.optional(Schema.NullOr(Schema.Unknown)),
   subIssues: Schema.optional(Schema.Struct({ nodes: Schema.Array(Schema.Unknown) })),
   closedAt: Schema.optional(Schema.NullOr(Schema.String)),
   comments: Schema.optional(
@@ -212,6 +214,7 @@ function toRawIssue(row: GraphQlIssueRowType): Record<string, unknown> {
     updatedAt: row.updatedAt,
     reactionGroups: row.reactionGroups,
     ...(row.body === undefined ? {} : { body: row.body }),
+    ...(row.parent === undefined ? {} : { parent: row.parent }),
     ...(row.subIssues === undefined ? {} : { subIssues: row.subIssues }),
     ...(row.closedAt === undefined ? {} : { closedAt: row.closedAt }),
     // A list row asks for the count alone; a detail row carries the newest window's nodes.
@@ -278,13 +281,7 @@ export const make = Effect.gen(function* () {
    * qualifier stays `OWNER/REPO`; a host-qualified one matches nothing.
    */
   const searchQueryFor = (project: GitHubProject, input: GitHubIssueListInput): string =>
-    [
-      `repo:${project.repository}`,
-      "is:issue",
-      ...(input.state === "all" ? [] : [`state:${input.state}`]),
-      ...(input.query === undefined ? [] : [input.query]),
-      "sort:updated-desc",
-    ].join(" ");
+    gitHubIssueSearchQueryFork(project.repository, input);
 
   /** One repository's search page, decoded, with each row's true comment count beside it. */
   const readSearchRows = Effect.fn("GitHubIssueService.readSearchRows")(function* (input: {
@@ -300,6 +297,9 @@ export const make = Effect.gen(function* () {
         variables: {
           query: searchQueryFor(input.project, input.listInput),
           first: Math.min(input.limit + 1, SEARCH_PAGE_MAX),
+          type: input.listInput.listViewFork?.filters.some((filter) => filter.field === "type")
+            ? "ISSUE_ADVANCED"
+            : "ISSUE",
         },
       })
       .pipe(Effect.mapError(fromApiError("list", input.project.host)));
@@ -359,8 +359,8 @@ export const make = Effect.gen(function* () {
           });
         }
       }
-      const sortedEntries = entries.toSorted(
-        (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      const sortedEntries = entries.toSorted((left, right) =>
+        compareGitHubIssuesFork(left, right, input.listViewFork?.order),
       );
       truncated ||= sortedEntries.length > limit;
       return { entries: sortedEntries.slice(0, limit), errors, truncated };
