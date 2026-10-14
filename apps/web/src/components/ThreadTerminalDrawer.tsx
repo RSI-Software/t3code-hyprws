@@ -1,4 +1,6 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
+import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
+import { copyOsc52ClipboardFork } from "../terminal/osc52Clipboard.fork"; // fork-hook: zmux-estate/osc52-clipboard-import
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -247,6 +249,7 @@ export function writeTerminalOutputUpdate(
   terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write" | "clearSelection">,
   update: TerminalOutputUpdate,
 ): void {
+  copyOsc52ClipboardFork(terminal, update); // fork-hook: zmux-estate/osc52-clipboard
   if (update.type === "reset") {
     terminal.resetAndWrite(update.data);
     terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
@@ -699,17 +702,13 @@ function TerminalSessionViewport({
   const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
     reportFailure: false,
   });
-  const launchIdentity = useMemo(
-    () =>
-      terminalCheckoutLaunchIdentity({
-        attachmentId,
-        cwd,
-        ...(worktreePath !== undefined ? { worktreePath } : {}),
-        ...(runtimeEnv ? { runtimeEnv } : {}),
-      }),
-    [attachmentId, cwd, worktreePath, runtimeEnv],
-  );
-  const launchIdentityRef = useRef(launchIdentity);
+  const launchIdentity = terminalCheckoutLaunchIdentity({
+    attachmentId,
+    cwd,
+    ...(worktreePath !== undefined ? { worktreePath } : {}),
+    ...(runtimeEnv ? { runtimeEnv } : {}),
+  }); // fork-hook: zmux-estate/checkout-launch-identity
+  const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
   const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
@@ -787,12 +786,14 @@ function TerminalSessionViewport({
     if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
     void retargetTerminal();
   }, [attached, launchIdentity]);
-  const writeTerminal = useEffectEvent((data: string) =>
-    runTerminalWrite({
-      environmentId,
-      input: { threadId, terminalId, attachmentId, data },
-    }),
-  );
+  const writeTerminal = useEffectEvent((data: string) => {
+    return writeToRunningTerminalFork(readTerminalSession().status, () =>
+      runTerminalWrite({
+        environmentId,
+        input: { threadId, terminalId, attachmentId, data },
+      }),
+    );
+  }); // fork-hook: zmux-estate/failed-terminal-write
   const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
     if (writableSessionGeneration(readTerminalSession(), hasTerminalWriteAccess()) === null) {
       return;
@@ -821,6 +822,7 @@ function TerminalSessionViewport({
         }, 0);
       }
       if (version > 0) synchronizedStatusRef.current = status;
+      terminal.input.readOnly = !hasTerminalWriteAccess() || status !== "running"; // fork-hook: zmux-estate/failed-terminal-readonly
     },
   );
   const openLinkInPreview = useEffectEvent(
@@ -831,6 +833,8 @@ function TerminalSessionViewport({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- sets the terminal input's readOnly from the operate grant and consumes a pending focus request
   useLayoutEffect(() => {
     if (terminalRef.current) terminalRef.current.input.readOnly = !canOperateTerminal;
+    if (terminalRef.current && readTerminalSession().status !== "running")
+      terminalRef.current.input.readOnly = true; // fork-hook: zmux-estate/failed-terminal-readonly
     if (canOperateTerminal && visibleRef.current)
       consumePendingTerminalFocus(threadRef, terminalId);
   }, [canOperateTerminal, terminalId, threadRef]);
@@ -1154,6 +1158,7 @@ function TerminalSessionViewport({
         if (!activeTerminal) return;
         activeTerminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         const result = await writeTerminal(data);
+        if (!result) return; // fork-hook: zmux-estate/ignored-terminal-shortcut
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
@@ -1252,7 +1257,7 @@ function TerminalSessionViewport({
         terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         void (async () => {
           const result = await writeTerminal(data);
-          if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+          if (!result || result._tag === "Success" || isAtomCommandInterrupted(result)) return; // fork-hook: zmux-estate/ignored-terminal-input
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
             terminal,
