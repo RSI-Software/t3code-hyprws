@@ -8,7 +8,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 
 import { useRightPanelStore } from "../../rightPanelStore";
 import type { GitHubIssueSurfaceFork } from "../../rightPanelStore.fork";
-import { GitHubIssueDetailPanel } from "./GitHubIssueDetailPanel";
+import { GitHubIssueDetailPanel, gitHubSubIssueRepository } from "./GitHubIssueDetailPanel";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 
@@ -48,7 +48,7 @@ export function GitHubIssueDetailSurfaceFork(props: {
         useRightPanelStore.getState().openGitHubIssue(props.activeThreadRef, {
           environmentId: surface.environmentId,
           projectId: surface.projectId,
-          repository: surface.repository,
+          repository: gitHubSubIssueRepository(child.url) ?? surface.repository,
           number: child.number,
         });
       }}
