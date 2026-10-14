@@ -6,9 +6,12 @@ import {
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, LayersIcon } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
-import { EnvironmentGitHubIssueDetailContent } from "../components/githubIssue/GitHubIssueDetailPanel";
+import {
+  EnvironmentGitHubIssueDetailContent,
+  gitHubSubIssueRepository,
+} from "../components/githubIssue/GitHubIssueDetailPanel";
 import { GitHubIssueEmptyState } from "../components/githubIssue/GitHubIssueEmptyState";
 import { resolveGitHubIssueQueryTargets } from "../components/githubIssue/GitHubIssueList.logic";
 import {
@@ -21,14 +24,11 @@ import {
 } from "../components/githubIssue/GitHubIssueListControls";
 import {
   applyGitHubIssueListView,
-  DEFAULT_GITHUB_ISSUE_ORDER,
   gitHubIssueFacets,
   gitHubIssueNarrowingIsEmpty,
   NO_GITHUB_ISSUE_NARROWING,
   toggleGitHubIssueNarrowing,
   type GitHubIssueFilterField,
-  type GitHubIssueListNarrowing,
-  type GitHubIssueOrder,
 } from "../components/githubIssue/GitHubIssueListView.logic";
 import {
   GitHubIssueListGhosts,
@@ -37,6 +37,7 @@ import {
 } from "../components/githubIssue/GitHubIssueGhosts";
 import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
 import { useGitHubIssueKeyboard } from "../components/githubIssue/useGitHubIssueKeyboard";
+import { useGitHubIssueListViewFork } from "../components/githubIssue/useGitHubIssueListView.fork";
 import {
   ALL_PROJECTS_VALUE,
   GitHubIssueProjectMenu,
@@ -187,41 +188,30 @@ export function GitHubIssuesPage({
   // Kept while projects load, so a linked project is not dropped before it can be named.
   const scopedProjectId =
     !projectsKnown || scopedProject !== undefined ? search.projectId : undefined;
+  const { order, narrowing, setOrder, setNarrowing } = useGitHubIssueListViewFork();
   const typedQuery = search.q?.trim() ?? "";
   const sentQuery = useDebouncedValue(typedQuery, 250);
-  const targets = useMemo(
-    () =>
-      supported
-        ? resolveGitHubIssueQueryTargets({
-            capableEnvironmentIds: capableEnvironments.map(
-              (environment) => environment.environmentId,
-            ),
-            windowProjects: windowProjectKeys === null ? null : githubProjects,
-            state: search.state,
-            ...(scopedProjectId
-              ? {
-                  scopedProject: {
-                    projectId: scopedProjectId,
-                    environmentId: scopedProject?.environmentId ?? search.environmentId,
-                  },
-                }
-              : {}),
-            ...(sentQuery ? { query: sentQuery } : {}),
-          })
-        : [],
-    [
-      capableEnvironments,
-      githubProjects,
-      scopedProject?.environmentId,
-      scopedProjectId,
-      search.environmentId,
-      search.state,
-      sentQuery,
-      supported,
-      windowProjectKeys,
-    ],
-  );
-  const listQuery = useGitHubIssueList(targets);
+  const targets = supported
+    ? resolveGitHubIssueQueryTargets({
+        capableEnvironmentIds: capableEnvironments.map((environment) => environment.environmentId),
+        windowProjects: windowProjectKeys === null ? null : githubProjects,
+        state: search.state,
+        ...(scopedProjectId
+          ? {
+              scopedProject: {
+                projectId: scopedProjectId,
+                environmentId: scopedProject?.environmentId ?? search.environmentId,
+              },
+            }
+          : {}),
+        ...(sentQuery ? { query: sentQuery } : {}),
+      })
+    : [];
+  const viewTargets = targets.map((target) => ({
+    ...target,
+    input: { ...target.input, listViewFork: { order, filters: narrowing } },
+  }));
+  const listQuery = useGitHubIssueList(viewTargets);
   const selectedRef = selectedGitHubIssueRef(search);
   const selectedEnvironment = environments.find(
     (environment) => environment.environmentId === selectedRef?.environmentId,
@@ -295,10 +285,6 @@ export function GitHubIssuesPage({
     });
   };
 
-  // Order and narrowing sit on the fetched list rather than the request, so they stay out of the
-  // route search and reset with the page.
-  const [order, setOrder] = useState<GitHubIssueOrder>(DEFAULT_GITHUB_ISSUE_ORDER);
-  const [narrowing, setNarrowing] = useState<GitHubIssueListNarrowing>(NO_GITHUB_ISSUE_NARROWING);
   const fetched = listQuery.data?.entries ?? NO_ENTRIES;
   const facets = gitHubIssueFacets(fetched);
   const entries = applyGitHubIssueListView(fetched, narrowing, order);
@@ -310,11 +296,8 @@ export function GitHubIssuesPage({
     onNarrowing: setNarrowing,
   };
   // Stable, so the memoized rows skip a render when only the selection or the query moved.
-  const filterBy = useCallback(
-    (field: GitHubIssueFilterField, name: string) =>
-      setNarrowing((previous) => toggleGitHubIssueNarrowing(previous, field, name)),
-    [],
-  );
+  const filterBy = (field: GitHubIssueFilterField, name: string) =>
+    setNarrowing((previous) => toggleGitHubIssueNarrowing(previous, field, name));
   const refreshing = listQuery.isPending;
   // Rows held from the last answer: while a new one travels, or kept after its refresh failed.
   // Still readable, visibly not final — but only a read in flight makes the section busy.
@@ -356,7 +339,7 @@ export function GitHubIssuesPage({
   ) : entries.length === 0 && narrowed ? (
     <GitHubIssueEmptyState
       title="No issues"
-      description={`The type and label filters hide all ${fetched.length} loaded issues.`}
+      description="No issues matched the selected type and label filters."
       action={
         <Button variant="outline" onClick={() => setNarrowing(NO_GITHUB_ISSUE_NARROWING)}>
           Clear filters
@@ -407,7 +390,7 @@ export function GitHubIssuesPage({
       </div>
       {listQuery.data?.truncated ? (
         <p className="flex justify-center py-3 text-muted-foreground text-xs">
-          Showing the newest 50 issues. Narrow the list with search or filters.
+          More issues match than are shown.
         </p>
       ) : null}
     </section>
@@ -442,7 +425,7 @@ export function GitHubIssuesPage({
         updateSearch({
           selectedEnvironmentId: selectedRef.environmentId,
           selectedProjectId: selectedRef.projectId,
-          repository: selectedRef.repository,
+          repository: gitHubSubIssueRepository(child.url) ?? selectedRef.repository,
           number: child.number,
         })
       }
