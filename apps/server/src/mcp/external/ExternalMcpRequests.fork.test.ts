@@ -648,8 +648,20 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
 
     // The HTTP middleware reloads the grant on every call.
     yield* grant({ ...principal.policy, coordinate: false });
-    const denied = yield* call("t3_external_request_respond", respond);
-    assert.match(errorText(denied), /approved for read-only access/);
+    const readOnlyTools = (yield* decodeToolList((yield* rpc("tools/list", {})).result)).tools;
+    assert.equal(
+      readOnlyTools.some((tool) => tool.name === "t3_external_request_respond"),
+      false,
+    );
+    const denied = yield* rpc("tools/call", {
+      name: "t3_external_request_respond",
+      arguments: respond,
+    });
+    assert.equal(denied.result, undefined);
+    assert.deepEqual(denied.error, {
+      code: -32602,
+      message: "Tool 't3_external_request_respond' not found",
+    });
     assert.equal((yield* call("t3_external_request_list", { threadId })).isError, false);
     yield* grant({ ...principal.policy, projectIds: [] });
     assert.match(
