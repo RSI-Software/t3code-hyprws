@@ -1,8 +1,10 @@
 import * as NodePath from "@effect/platform-node/NodePath";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import { ChildProcessSpawner } from "effect/process";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -59,6 +61,7 @@ function layer(
   settings: Parameters<typeof ServerSettings.ServerSettingsService.layerTest>[0] = {
     terminalSessionMode: "zmux",
   },
+  realRoot?: string,
 ) {
   const routed: ProcessRunner.ProcessRunner["Service"]["run"] = (input) =>
     input.command !== "git"
@@ -76,6 +79,8 @@ function layer(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: routed })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
     Layer.provide(NodePath.layer),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(FileSystem.layerNoop({ realPath: (path) => Effect.succeed(realRoot ?? path) })),
     Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "/usr/bin" })),
   );
 }
@@ -121,6 +126,77 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
       }).pipe(Effect.provide(layer(run)));
     },
   );
+  it.effect("a taken basename retries once with a deterministic root suffix", () => {
+    const workspace = "project-688d57883023";
+    let resolves = 0;
+    let ensures = 0;
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] === "session") {
+        resolves++;
+        return Effect.succeed(
+          resolves === 1
+            ? output("", 1)
+            : output(
+                JSON.stringify({
+                  ...JSON.parse(project),
+                  workspace,
+                  target: `${workspace}/main`,
+                }),
+              ),
+        );
+      }
+      ensures++;
+      return Effect.succeed(
+        ensures === 1
+          ? output(
+              JSON.stringify({
+                ...JSON.parse(ensured()),
+                status: "refused",
+                code: "repository_conflict",
+              }),
+              1,
+            )
+          : output(
+              JSON.stringify({ ...JSON.parse(ensured()), workspace, target: `${workspace}/main` }),
+            ),
+      );
+    });
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      assert.deepStrictEqual(yield* binder.ensure("/repo/project"), {
+        status: "ensured",
+        workspace,
+        session: "main",
+        target: `${workspace}/main`,
+      });
+      assert.deepStrictEqual(
+        run.mock.calls.filter(([i]) => i.args[0] === "checkout").map(([i]) => i.args[3]),
+        ["project", workspace],
+      );
+    }).pipe(Effect.provide(layer(run, "/repo/project", "main", undefined, "/canonical/project")));
+  });
+  it.effect("an existing binding keeps its workspace name", () => {
+    const workspace = "already-registered";
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(
+        output(
+          JSON.stringify({
+            ...JSON.parse(input.args[0] === "session" ? project : ensured()),
+            workspace,
+            target: `${workspace}/main`,
+          }),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      assert.equal((yield* binder.ensure("/repo/project")).status, "ensured");
+      assert.deepStrictEqual(
+        run.mock.calls.filter(([i]) => i.args[0] === "checkout").map(([i]) => i.args[3]),
+        [workspace],
+      );
+    }).pipe(Effect.provide(layer(run)));
+  });
   it.effect("linked setup shares the same atomic ensure", () => {
     const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
       Effect.succeed(
@@ -185,6 +261,7 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
           detail: "repository_conflict: workspace root belongs to another Git checkout",
         },
       });
+      assert.equal(run.mock.calls.filter(([i]) => i.args[0] === "checkout").length, 2);
       assert.equal(
         run.mock.calls.some(([i]) => i.args[0] === "workspace" || i.args[0] === "new"),
         false,
@@ -203,6 +280,7 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
       const binder = yield* Binder.ZmuxSessionBinder;
       const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
 
+      assert.equal(run.mock.calls.filter(([i]) => i.args[0] === "checkout").length, 1);
       assert.deepStrictEqual(result, {
         status: "failed",
         notice: {
