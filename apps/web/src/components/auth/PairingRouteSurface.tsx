@@ -9,6 +9,7 @@ import {
   peekPairingTokenFromUrl,
   stripPairingTokenFromUrl,
   submitServerAuthCredential,
+  takePairingTokenFromUrl,
 } from "../../environments/primary";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import { Button } from "../ui/button";
@@ -37,11 +38,9 @@ export function PairingRouteSurface({
   initialErrorMessage?: string;
   onAuthenticated: () => void;
 }) {
-  const autoPairTokenRef = useRef<string | null>(peekPairingTokenFromUrl());
-  const [credential, setCredential] = useState(() => autoPairTokenRef.current ?? "");
+  const [credential, setCredential] = useState(() => peekPairingTokenFromUrl() ?? "");
   const [errorMessage, setErrorMessage] = useState(initialErrorMessage ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const autoSubmitAttemptedRef = useRef(false);
 
   const submitCredential = useCallback(
     async (nextCredential: string) => {
@@ -76,14 +75,18 @@ export function PairingRouteSurface({
   );
 
   useEffect(() => {
-    const token = autoPairTokenRef.current;
-    if (!token || autoSubmitAttemptedRef.current) {
-      return;
-    }
+    const submitUrlToken = () => {
+      const token = takePairingTokenFromUrl();
+      if (!token) {
+        return;
+      }
+      setCredential(token);
+      void submitCredential(token);
+    };
 
-    autoSubmitAttemptedRef.current = true;
-    stripPairingTokenFromUrl();
-    void submitCredential(token);
+    window.addEventListener("hashchange", submitUrlToken);
+    submitUrlToken();
+    return () => window.removeEventListener("hashchange", submitUrlToken);
   }, [submitCredential]);
 
   return (
