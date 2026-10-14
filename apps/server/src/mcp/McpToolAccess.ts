@@ -5,9 +5,12 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Context from "effect/Context";
+import * as Fiber from "effect/Fiber";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Ref from "effect/Ref";
 import * as Struct from "effect/Struct";
-import type * as Layer from "effect/Layer";
+import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import type { Tool, Toolkit } from "effect/ai";
 
@@ -41,6 +44,7 @@ const refuseOutsideConstruction = (token: symbol) => {
 
 let declare: <P, A, E, R>(
   handle: (params: P) => Effect.Effect<A, E, R>,
+  writes?: boolean,
 ) => Declaration<(params: P) => Effect.Effect<A, E, R>>;
 
 type CheckedHandlerOf<D> = D extends Declaration<infer Handler> ? Handler : never;
@@ -52,7 +56,7 @@ interface CheckedHandler extends Struct.Lambda {
 let checkedHandler: CheckedHandler;
 
 let handlersLayer: <Tools extends Record<string, Tool.Any>, EX, RX>(
-  layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>,
+  layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>,
 ) => HandlersLayer<Tools, EX, RX>;
 
 /**
@@ -62,19 +66,31 @@ let handlersLayer: <Tools extends Record<string, Tool.Any>, EX, RX>(
  */
 export class Declaration<out Handler> {
   readonly #handle: Handler;
-  private constructor(token: typeof builtHere, handle: Handler) {
+  readonly writes: boolean;
+  private constructor(token: typeof builtHere, handle: Handler, writes: boolean) {
     refuseOutsideConstruction(token);
     this.#handle = handle;
+    this.writes = writes;
   }
   static {
-    declare = (handle) => new Declaration(builtHere, handle);
+    declare = (handle, writes = true) => new Declaration(builtHere, handle, writes);
     checkedHandler = Struct.lambda<CheckedHandler>((declaration) => declaration.#handle);
   }
 }
 
+/** The grant decision shared by invocation and request-time discovery. */
+const grantAllows = (scope: McpInvocationContext.McpInvocationScope | undefined, writes: boolean) =>
+  !writes || scope?.client?.access !== "read-only";
+
+/** Visibility runs synchronously on the tools/list and tools/call request fiber. */
+export class ToolVisibility extends Context.Service<
+  ToolVisibility,
+  Readonly<Record<string, () => boolean>>
+>()("t3/mcp/McpToolAccess/ToolVisibility") {}
+
 const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) =>
-    scope.client?.access === "read-only"
+    !grantAllows(scope, true)
       ? Effect.fail(
           new OrchestratorMcpFailure({
             code: "capability_denied",
@@ -101,10 +117,10 @@ const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
 );
 
 export const reads = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare((params: P) => handle(params));
+  declare((params: P) => handle(params), false);
 
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
-  declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))));
+  declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), false);
 
 export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) =>
@@ -225,10 +241,10 @@ export type Handlers<Tools extends Record<string, Tool.Any>> = Declarations<
 >;
 
 export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, RX = never> {
-  readonly #layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>;
+  readonly #layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>;
   private constructor(
     token: typeof builtHere,
-    layer: Layer.Layer<Tool.HandlersFor<Tools>, EX, RX>,
+    layer: Layer.Layer<Tool.HandlersFor<Tools> | ToolVisibility, EX, RX>,
   ) {
     refuseOutsideConstruction(token);
     this.#layer = layer;
@@ -249,11 +265,37 @@ const checkedHandlers = <Handlers>(declarations: Declarations<Handlers>): Handle
 export const toLayer = <Tools extends Record<string, Tool.Any>, EX = never, RX = never>(
   toolkit: Toolkit.Toolkit<Tools>,
   build: Handlers<Tools> | Effect.Effect<Handlers<Tools>, EX, RX>,
-): HandlersLayer<Tools, EX, Exclude<RX, Scope.Scope>> =>
-  handlersLayer(
-    toolkit.toLayer(
-      Effect.isEffect(build)
-        ? Effect.map(build, checkedHandlers<Toolkit.HandlersFrom<Tools>>)
-        : checkedHandlers(build),
-    ),
+): HandlersLayer<Tools, EX, Exclude<RX, Scope.Scope>> => {
+  const assemble = (declarations: Handlers<Tools>) =>
+    Layer.mergeAll(
+      toolkit.toLayer(checkedHandlers<Toolkit.HandlersFrom<Tools>>(declarations)),
+      Layer.succeed(
+        ToolVisibility,
+        Object.fromEntries(
+          Object.entries(declarations as Readonly<Record<string, Declaration<unknown>>>).map(
+            ([name, declaration]) => [
+              name,
+              () => {
+                const fiber = Fiber.getCurrent();
+                // HTTP discovery hides refused tools. Direct in-process calls retain the
+                // checked handler's structured capability_denied failure.
+                const scope =
+                  fiber === undefined ||
+                  Context.getOrUndefined(fiber.context, HttpServerRequest.HttpServerRequest) ===
+                    undefined
+                    ? undefined
+                    : Context.getOrUndefined(
+                        fiber.context,
+                        McpInvocationContext.McpInvocationContext,
+                      );
+                return grantAllows(scope, declaration.writes);
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+  return handlersLayer(
+    Effect.isEffect(build) ? Layer.unwrap(Effect.map(build, assemble)) : assemble(build),
   );
+};
