@@ -742,7 +742,7 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
   toolkit: Toolkit.Toolkit<Tools>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
 ) => {
-  const registration = McpServer.toolkit(toolkit);
+  const registration = Layer.effectDiscard(withToolVisibility(McpServer.registerToolkit(toolkit)));
   // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off - the auth middleware provides it per request.
   const registered = registration as Layer.Layer<
     never,
@@ -752,10 +752,37 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
   return registered.pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)));
 };
 
+/** Attach declaration-owned visibility, preserving existing protocol predicates. */
+const withToolVisibility = <A, E, R>(register: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const visibility = yield* McpToolAccess.ToolVisibility;
+    return yield* register.pipe(
+      Effect.provideService(McpServer.McpServer, {
+        ...server,
+        addTool: (options) => {
+          const existing = Context.getOrUndefined(options.annotations, McpSchema.EnabledWhen);
+          return server.addTool({
+            ...options,
+            annotations: Context.add(
+              options.annotations,
+              McpSchema.EnabledWhen,
+              (profile) =>
+                (existing?.(profile) ?? true) && (visibility[options.tool.name]?.() ?? true),
+            ),
+          });
+        },
+      }),
+    );
+  });
+
 const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, EX, RX>(
   register: Effect.Effect<A, E, R>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
-) => Layer.effectDiscard(register).pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)));
+) =>
+  Layer.effectDiscard(withToolVisibility(register)).pipe(
+    Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
+  );
 
 export const layerHtmlToolkit = Layer.mergeAll(
   toolkitRegistration(HtmlRenderToolkit, HtmlHandlers.layerRender),
