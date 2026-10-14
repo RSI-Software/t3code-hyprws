@@ -1453,7 +1453,12 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
       withToolResultCapture(
         withToolSpans(
           withClientInput(
-            withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+            withToolVisibility(
+              withAdvertisedSchemas(
+                toolkit,
+                McpServer.registerToolkit(decodeAsAdvertised(toolkit)),
+              ),
+            ),
           ),
         ),
       ),
@@ -1468,13 +1473,38 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
     Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
   );
 
+/** Attach declaration-owned visibility, preserving existing protocol predicates. */
+const withToolVisibility = Effect.fn("McpHttpServer.withToolVisibility")(function* <A, E, R>(
+  register: Effect.Effect<A, E, R>,
+) {
+  const server = yield* McpServer.McpServer;
+  const visibility = yield* McpToolAccess.ToolVisibility;
+  return yield* register.pipe(
+    Effect.provideService(McpServer.McpServer, {
+      ...server,
+      addTool: (options) => {
+        const existing = Context.getOrUndefined(options.annotations, McpSchema.EnabledWhen);
+        return server.addTool({
+          ...options,
+          annotations: Context.add(
+            options.annotations,
+            McpSchema.EnabledWhen,
+            (profile) =>
+              (existing?.(profile) ?? true) && (visibility[options.tool.name]?.() ?? true),
+          ),
+        });
+      },
+    }),
+  );
+});
+
 const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, EX, RX>(
   register: Effect.Effect<A, E, R>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
 ) =>
-  Layer.effectDiscard(withToolAnalytics(withToolResultCapture(withToolSpans(register)))).pipe(
-    Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)),
-  );
+  Layer.effectDiscard(
+    withToolAnalytics(withToolResultCapture(withToolSpans(withToolVisibility(register)))),
+  ).pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers))); // fork-hook: upstream-fixes/image-tool-visibility
 
 export const layerHtmlToolkit = Layer.mergeAll(
   toolkitRegistration(HtmlRenderToolkit, HtmlHandlers.layerRender),
