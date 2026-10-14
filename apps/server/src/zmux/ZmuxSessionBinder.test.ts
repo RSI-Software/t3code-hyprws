@@ -1,8 +1,10 @@
 import * as NodePath from "@effect/platform-node/NodePath";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import { ChildProcessSpawner } from "effect/process";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -64,6 +66,8 @@ function makeLayer(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
     Layer.provide(NodePath.layer),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provide(FileSystem.layerNoop({ realPath: (path) => Effect.succeed(path) })),
     Layer.provide(
       Layer.succeed(HostProcess.Environment, {
         PATH: "/usr/bin",
