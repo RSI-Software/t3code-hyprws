@@ -1,7 +1,9 @@
 import { zmuxAutoSessionsEnabled } from "@t3tools/contracts";
 import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
+import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -250,6 +252,8 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const hostEnvironment = yield* HostProcess.Environment;
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const crypto = yield* Crypto.Crypto;
   const env = stripInheritedTmuxEnv(hostEnvironment);
   const ensureSemaphore = yield* Semaphore.make(1);
 
@@ -568,19 +572,43 @@ const make = Effect.gen(function* () {
     } else {
       return project;
     }
-    const outputResult = yield* run([
-      "checkout",
-      "ensure",
-      "--workspace",
-      workspace,
-      "--root",
-      projectPath,
-      "--cwd",
-      checkoutPath,
-      "--no-switch",
-      "--json",
-      "--create-workspace",
-    ]).pipe(Effect.result);
+    const ensureWorkspace = (workspaceName: string) =>
+      run([
+        "checkout",
+        "ensure",
+        "--workspace",
+        workspaceName,
+        "--root",
+        projectPath,
+        "--cwd",
+        checkoutPath,
+        "--no-switch",
+        "--json",
+        "--create-workspace",
+      ]).pipe(Effect.result);
+    let outputResult = yield* ensureWorkspace(workspace);
+    if (
+      project.status === "not-found" &&
+      outputResult._tag === "Success" &&
+      !outputResult.success.timedOut &&
+      outputResult.success.code !== 0
+    ) {
+      const refusal = yield* decodeEnsureOutput(outputResult.success.stdout).pipe(Effect.result);
+      if (refusal._tag === "Success" && refusal.success.code === "repository_conflict") {
+        const root = yield* fileSystem.realPath(projectPath).pipe(Effect.result);
+        if (root._tag === "Failure")
+          return verificationFailure(`Cannot resolve workspace root ${projectPath}`);
+        const hash = yield* crypto
+          .digest("SHA-256", new TextEncoder().encode(root.success))
+          .pipe(Effect.result);
+        if (hash._tag === "Failure") return verificationFailure("Cannot hash workspace root");
+        const suffix = Array.from(hash.success.slice(0, 6), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        workspace = `${path.basename(projectPath)}-${suffix}`;
+        outputResult = yield* ensureWorkspace(workspace);
+      }
+    }
     if (outputResult._tag === "Failure") {
       if (isMissingZmux(outputResult.failure)) return { status: "unavailable" } as const;
       return verificationFailure(outputResult.failure.message);
