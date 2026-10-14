@@ -826,13 +826,20 @@ it.live("exposes reversible settlement through the external HTTP MCP catalog wit
       clientLabel: principal.clientLabel,
       createdAt: DateTime.formatIso(yield* DateTime.now),
     }).pipe(Effect.provideService(SqlClient.SqlClient, h.sql));
-    const deniedReplay = yield* call("t3_external_thread_settle", request(true, "http:settle"));
-    assert.equal(deniedReplay.isError, true);
-    assert.ok(
-      deniedReplay.content.some(
-        (part) => part.type === "text" && part.text.includes("approved for read-only access"),
-      ),
+    const readOnlyTools = (yield* decodeTools((yield* rpc("tools/list", {})).result)).tools;
+    assert.equal(
+      readOnlyTools.some((tool) => tool.name === "t3_external_thread_settle"),
+      false,
     );
+    const deniedReplay = yield* rpc("tools/call", {
+      name: "t3_external_thread_settle",
+      arguments: request(true, "http:settle"),
+    });
+    assert.equal(deniedReplay.result, undefined);
+    assert.deepEqual(deniedReplay.error, {
+      code: -32602,
+      message: "Tool 't3_external_thread_settle' not found",
+    });
     assert.equal((yield* readThread).settled, false);
   }).pipe(Effect.scoped),
 );
