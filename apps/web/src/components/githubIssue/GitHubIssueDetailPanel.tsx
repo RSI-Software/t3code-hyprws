@@ -332,6 +332,16 @@ export function GitHubIssueDetailContent({
         />
       </GitHubIssueSection>
 
+      {detail.parent ? (
+        <GitHubIssueSection key={`parent:${detail.url}`} title="Parent">
+          <GitHubSubIssueRow
+            child={detail.parent}
+            repository={gitHubSubIssueRepository(detail.parent.url) ?? detail.repository}
+            {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
+          />
+        </GitHubIssueSection>
+      ) : null}
+
       {subIssues.length > 0 ? (
         <GitHubIssueSection
           key={`sub-issues:${detail.url}`}
@@ -503,7 +513,7 @@ function GitHubIssueSection({
  */
 const SUB_ISSUE_REPOSITORY = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/issues\/\d+/;
 
-function gitHubSubIssueRepository(url: string): string | null {
+export function gitHubSubIssueRepository(url: string): string | null {
   return SUB_ISSUE_REPOSITORY.exec(url)?.[1] ?? null;
 }
 

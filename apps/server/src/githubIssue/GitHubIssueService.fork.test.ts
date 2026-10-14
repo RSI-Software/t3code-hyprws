@@ -141,6 +141,66 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
       ),
     );
 
+  it.effect("selects and decodes the parent without an extra read", () =>
+    Effect.gen(function* () {
+      const payload = JSON.parse(detailPayload([]));
+      payload.data.repository.issue.parent = { ...openChild, title: "Parent tracker" };
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+        Effect.succeed(JSON.stringify(payload)),
+      );
+      const detail = yield* makeDetailService(graphql);
+      assert.include(
+        graphql.mock.calls[0]?.[0].query ?? "",
+        "parent { number title url state stateReason }",
+      );
+      assert.deepStrictEqual(detail.parent, {
+        ...openChild,
+        title: "Parent tracker",
+        state: "open",
+        closeReason: null,
+      });
+      assert.lengthOf(graphql.mock.calls, 1);
+    }),
+  );
+
+  it.effect("uses advanced search for issue types and preserves an older ranked issue", () =>
+    Effect.gen(function* () {
+      const row = JSON.parse(detailPayload([])).data.repository.issue;
+      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+        Effect.succeed(
+          JSON.stringify({
+            data: {
+              search: {
+                nodes: Array.from({ length: 51 }, (_, index) => ({
+                  ...row,
+                  number: index + 1,
+                  title: `Issue ${index + 1}`,
+                  updatedAt: index === 50 ? "2025-01-01T00:00:00Z" : row.updatedAt,
+                  comments: { totalCount: index === 50 ? 100 : 0 },
+                })).toSorted((left, right) => right.comments.totalCount - left.comments.totalCount),
+              },
+            },
+          }),
+        ),
+      );
+      const service = yield* makeService([project("p1")], graphql);
+      const list = yield* service.list({
+        state: "open",
+        listViewFork: {
+          filters: [{ field: "type", operator: "is", values: ["Bug"] }],
+          order: { sort: "comments", direction: "desc" },
+        },
+      });
+      assert.strictEqual(graphql.mock.calls[0]?.[0].variables?.type, "ISSUE_ADVANCED");
+      assert.strictEqual(
+        graphql.mock.calls[0]?.[0].variables?.query,
+        'repo:acme/web is:issue state:open type:"Bug" sort:comments-desc',
+      );
+      assert.strictEqual(list.entries[0]?.number, 51);
+      assert.lengthOf(list.entries, 50);
+    }),
+  );
+
   it.effect("attaches a closed child's reason with exactly one graphql read", () =>
     Effect.gen(function* () {
       const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
