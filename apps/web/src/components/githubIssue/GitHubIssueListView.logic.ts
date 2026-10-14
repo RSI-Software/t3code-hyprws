@@ -1,19 +1,14 @@
 import type { EnvironmentGitHubIssueListEntry } from "@t3tools/client-runtime/state/github-issues";
 import type { GitHubIssueLabel, GitHubIssueType } from "@t3tools/contracts";
 
-/**
- * Ordering and narrowing applied to the list the server already returned. The server sorts by
- * update time and caps each project at fifty, so these only reorder and hide what is on screen —
- * a narrowed list can never reach past that cap.
- */
+/** GitHub search applies filters first; local narrowing also supports older servers. */
 
 /**
  * GitHub splits ordering in two: which field to sort on, then which end to start from. Borrowing
  * that split keeps the menu four rows long instead of eight, and it means "newest" and "oldest"
  * are one control rather than a pair of near-identical rows.
  *
- * `Best match` is GitHub's own and is deliberately absent: relevance is the search backend's
- * ranking, and this list re-sorts a page it has already been handed.
+ * `Best match` is deliberately absent: the selected field also orders the merged project pages.
  */
 export const GITHUB_ISSUE_SORTS = [
   { value: "created", label: "Created on" },
@@ -133,9 +128,7 @@ export function toggleGitHubIssueNarrowing(
 }
 
 /**
- * The types and labels present in this list, which is what the filter menu offers. Drawn from the
- * fetched entries rather than the repository, so the menu can never offer a choice that empties
- * the list. Each keeps its colour, so a menu row and a list row wear the same chip.
+ * The filter menu offers types and labels from the current results, keeping their colours.
  */
 export function gitHubIssueFacets(entries: ReadonlyArray<EnvironmentGitHubIssueListEntry>): {
   readonly types: ReadonlyArray<GitHubIssueType>;
