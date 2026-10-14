@@ -9,6 +9,7 @@ import {
   peekPairingTokenFromUrl,
   stripPairingTokenFromUrl,
   submitServerAuthCredential,
+  takePairingTokenFromUrl,
 } from "../../environments/primary";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import { resolveRemotePairingTarget } from "@t3tools/shared/remote";
@@ -41,11 +42,9 @@ export function PairingRouteSurface({
 }) {
   const gt = useGT();
   const messages = useMessages();
-  const [autoPairToken] = useState(peekPairingTokenFromUrl);
-  const [credential, setCredential] = useState(autoPairToken ?? "");
+  const [credential, setCredential] = useState(() => peekPairingTokenFromUrl() ?? "");
   const [errorMessage, setErrorMessage] = useState(initialErrorMessage ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const autoSubmitAttemptedRef = useRef(false);
 
   const submitCredential = async (nextCredential: string) => {
     setIsSubmitting(true);
@@ -74,19 +73,24 @@ export function PairingRouteSurface({
   };
 
   const autoSubmit = useEffectEvent((token: string) => {
+    setCredential(token);
     void submitCredential(token);
   });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- strips the pairing token from the URL and submits it once when the route carries one
   useEffect(() => {
-    if (!autoPairToken || autoSubmitAttemptedRef.current) {
-      return;
-    }
+    const submitUrlToken = () => {
+      const token = takePairingTokenFromUrl();
+      if (!token) {
+        return;
+      }
+      autoSubmit(token);
+    };
 
-    autoSubmitAttemptedRef.current = true;
-    stripPairingTokenFromUrl();
-    autoSubmit(autoPairToken);
-  }, [autoPairToken]);
+    window.addEventListener("hashchange", submitUrlToken);
+    submitUrlToken();
+    return () => window.removeEventListener("hashchange", submitUrlToken);
+  }, []);
 
   return (
     <StandalonePage>
