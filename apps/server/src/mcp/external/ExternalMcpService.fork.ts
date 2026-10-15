@@ -554,7 +554,7 @@ const make = Effect.gen(function* () {
 
   const requests = makeExternalMcpRequests({
     threadManagement,
-    newCommandId: crypto.randomUUIDv4.pipe(
+    newCommandId: crypto.randomUUIDv4().pipe(
       Effect.map((uuid) => CommandId.make(`mcp:${uuid}`)),
       Effect.orDie,
     ),
