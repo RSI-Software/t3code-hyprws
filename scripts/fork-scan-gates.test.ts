@@ -194,6 +194,15 @@ it("exempts replay additions count by count", () => {
   assert.match(warnings[0] ?? "", /1 added line/);
 });
 
+it("exempts a replay addition re-indented by an upstream restructure", () => {
+  const warnings = replayHookWarnings(
+    ["  const historical = true;", "  const introduced = true;"],
+    ["      const historical = true;"],
+  );
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /1 added line.*const introduced = true;/);
+});
+
 it("matches duplicate replay subjects by oldest-first ordinal", () => {
   const matches = matchReplayCounterparts(
     [
