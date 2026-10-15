@@ -68,7 +68,7 @@ function captureWindow(entry: RegisteredWindow): CapturedWindow {
  * window creation, so a crypto failure dies.
  */
 const makeWindowId: Effect.Effect<WindowId> = Crypto.Crypto.pipe(
-  Effect.flatMap((crypto) => crypto.randomUUIDv4),
+  Effect.flatMap((crypto) => crypto.randomUUIDv4()),
   Effect.map((uuid) => uuid as WindowId),
   Effect.provide(NodeCrypto.layer),
   Effect.orDie,
