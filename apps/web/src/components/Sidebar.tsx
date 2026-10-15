@@ -155,6 +155,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../uiStateStore"; // fork-hook: thread-ordering/sidebar-thread-group-import
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
