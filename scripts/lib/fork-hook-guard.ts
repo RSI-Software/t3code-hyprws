@@ -47,8 +47,9 @@ export interface HookGuardInput {
   // an unread tree is not evidence the line was upstream's.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
   // Added lines from this commit's unique same-subject pre-replay counterpart,
-  // keyed by path. Matching occurrences are historical insertions, not lines
-  // introduced by this replay, and are exempt count by count.
+  // keyed by path. Occurrences matching after trimming are historical
+  // insertions, not lines introduced by this replay, and are exempt count by
+  // count.
   readonly replayAddedLines?: ReadonlyMap<string, ReadonlyArray<string>> | undefined;
 }
 
@@ -94,13 +95,17 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     // that rule drops lines the fork authored, this one drops added lines
     // the upstream target already has.
     const upstream = input.upstreamLines?.get(path);
+    // Replay lines match trimmed: an upstream restructure that re-indents a
+    // fork line around it leaves the same insertion, not a new one.
     const replayCounts = new Map<string, number>();
-    for (const line of input.replayAddedLines?.get(path) ?? [])
-      replayCounts.set(line, (replayCounts.get(line) ?? 0) + 1);
+    for (const line of input.replayAddedLines?.get(path) ?? []) {
+      const key = line.trim();
+      replayCounts.set(key, (replayCounts.get(key) ?? 0) + 1);
+    }
     for (const [index, line] of change.added.entries()) {
-      const replayCount = replayCounts.get(line) ?? 0;
+      const replayCount = replayCounts.get(line.trim()) ?? 0;
       if (replayCount > 0) {
-        replayCounts.set(line, replayCount - 1);
+        replayCounts.set(line.trim(), replayCount - 1);
         continue;
       }
       if (upstream !== undefined && upstream.has(line.trim())) continue;
