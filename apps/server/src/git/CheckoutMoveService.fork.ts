@@ -89,7 +89,7 @@ const make = Effect.gen(function* () {
   >();
 
   const pending = new Set<ThreadId>();
-  const newUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const newUuid = crypto.randomUUIDv4().pipe(Effect.orDie);
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const realPath = (path: string) =>
     fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));

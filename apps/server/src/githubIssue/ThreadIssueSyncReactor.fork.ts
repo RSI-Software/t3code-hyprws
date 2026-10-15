@@ -106,7 +106,7 @@ export const make = Effect.gen(function* () {
     yield* Effect.forEach(
       read.threads,
       (threadId) =>
-        crypto.randomUUIDv4.pipe(
+        crypto.randomUUIDv4().pipe(
           Effect.flatMap((uuid) =>
             engine.dispatch({
               type: "thread.issue-link.sync",
