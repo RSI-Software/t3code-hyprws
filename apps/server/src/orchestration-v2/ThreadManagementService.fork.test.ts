@@ -69,6 +69,7 @@ const layerTest = (options: {
     Layer.provide(
       Layer.mock(Orchestrator.OrchestratorV2)({
         getThreadEventSequence: () => Effect.succeed(0),
+        restartContinuationPending: () => Effect.succeed(false),
         // Each stream keeps one event type; a type without a queue never fires.
         streamStoredEventsFrom: (input) => {
           const eventType = input?.eventType;
