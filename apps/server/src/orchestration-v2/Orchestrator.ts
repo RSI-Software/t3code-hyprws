@@ -3383,6 +3383,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         occurredAt: now,
         payload: link,
       });
+      yield* cancelEndedWatchWakes(command, thread, updatedThread, events); // fork-hook: upstream-fixes/pr-watch-sync-wake-cancel
       return;
     }
     const eventType = (() => {
@@ -3462,8 +3463,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     if (
       command.type === "thread.pull-request.unlink" ||
-      command.type === "thread.pull-request.watch" ||
-      command.type === "thread.pull-request-watch.sync"
+      command.type === "thread.pull-request.watch"
     ) {
       yield* cancelEndedWatchWakes(command, thread, updatedThread, events);
     }
