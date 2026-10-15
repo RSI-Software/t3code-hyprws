@@ -24,7 +24,7 @@ type UnlinkThreadIssueInput = ThreadIssueCommandInput<"thread.issue.unlink">;
 
 const newCommandId = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
-  return yield* crypto.randomUUIDv4.pipe(Effect.orDie, Effect.map(CommandId.make));
+  return yield* crypto.randomUUIDv4().pipe(Effect.orDie, Effect.map(CommandId.make));
 });
 
 export const linkThreadIssue = Effect.fn("EnvironmentCommands.linkThreadIssue")(function* (
