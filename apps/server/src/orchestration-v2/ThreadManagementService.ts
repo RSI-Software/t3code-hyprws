@@ -1033,8 +1033,7 @@ const make = Effect.gen(function* () {
         // so the wait only returns on a settled run or, unless the caller
         // waits for the run itself, a still-pending request.
         Stream.filter(
-          (current) =>
-            current.settled || (!input.terminalOnly && current.pendingRequestCount > 0),
+          (current) => current.settled || (!input.terminalOnly && current.pendingRequestCount > 0),
         ),
         Stream.runHead,
         Effect.timeoutOption(Duration.millis(Math.max(1, input.timeoutMs))),
