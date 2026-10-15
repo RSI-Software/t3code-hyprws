@@ -22,7 +22,7 @@ export const reconcileSetupScriptsFork = Effect.gen(function* () {
       continue;
     }
     yield* projectService.update({
-      commandId: CommandId.make(`server:setup-script-refresh:${yield* crypto.randomUUIDv4}`),
+      commandId: CommandId.make(`server:setup-script-refresh:${yield* crypto.randomUUIDv4()}`),
       projectId: project.id,
       scripts,
     });
