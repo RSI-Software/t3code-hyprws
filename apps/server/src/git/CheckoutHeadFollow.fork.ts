@@ -70,7 +70,7 @@ const make = Effect.gen(function* () {
   const watchDirectory = yield* CheckoutDirectoryWatch;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
-  const newUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const newUuid = crypto.randomUUIDv4().pipe(Effect.orDie);
   const watched = new Map<string, WatchedCheckout>();
   const markHeadChanged = (root: string, headChanged: boolean) => {
     const entry = watched.get(root);
