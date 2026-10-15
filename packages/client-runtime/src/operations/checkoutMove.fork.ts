@@ -29,7 +29,7 @@ export const requestThreadCheckoutMove: (
   const requestId =
     input.requestId ??
     (yield* Crypto.Crypto.pipe(
-      Effect.flatMap((crypto) => crypto.randomUUIDv4),
+      Effect.flatMap((crypto) => crypto.randomUUIDv4()),
       Effect.orDie,
       Effect.map(CommandId.make),
     ));
