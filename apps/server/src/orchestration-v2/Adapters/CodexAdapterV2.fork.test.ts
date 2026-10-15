@@ -136,6 +136,7 @@ describe("codexThreadRuntimeParams thread identity", () => {
         "t3-code": {
           url: "http://127.0.0.1:1/mcp",
           http_headers: { Authorization: "Bearer token" },
+          tool_timeout_sec: 65 * 60,
         },
       },
       shell_environment_policy: {
