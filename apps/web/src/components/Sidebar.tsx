@@ -108,6 +108,19 @@ import {
 } from "../keybindings";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { isMacPlatform } from "~/lib/utils";
+import { randomUUID } from "~/lib/utils"; // fork-hook: thread-ordering/group-id-import
+import { threadGroupEnvironment } from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
+import {
+  SidebarThreadGroupDropLayerFork,
+  SidebarThreadGroupHeader,
+  threadProjectOrderKey,
+} from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
+import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
+import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
+import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
+import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
+import { sidebarWorkingShelfKeysFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
+import { SortableSidebarMarker } from "./sidebar/SidebarListMarkers"; // fork-hook: thread-ordering/group-marker-import
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
