@@ -3,6 +3,13 @@ import { ModelSelection } from "./modelSelection.ts";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import prompts from "./voiceText.defaults.fork.json" with { type: "json" };
 
+export const VoiceTextHttpErrorFork = Schema.Struct({
+  error: Schema.String,
+  code: Schema.String,
+  detail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+});
+export const isVoiceTextHttpErrorFork = Schema.is(VoiceTextHttpErrorFork);
+
 /** Editable starter values; saved environment and project settings own every prompt. */
 export const VOICE_TEXT_STARTER_PROMPTS_FORK = prompts;
 const prompt = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(20_000));
