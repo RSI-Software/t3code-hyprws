@@ -1,4 +1,5 @@
 import type { ChatComposerProps } from "./ChatComposer";
+import { isFileEditorSaveShortcutFork } from "../files/fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
 import {
   type ComposerContextRecord,
   type EnvironmentId,
@@ -704,6 +705,7 @@ export function useComposerStash(input: {
         },
       });
       if (command !== "composer.stash") return;
+      if (isFileEditorSaveShortcutFork(event)) return; // fork-hook: markdown-editing/file-save-stash-guard
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();
