@@ -113,6 +113,7 @@ import {
   workspaceAssetResource,
 } from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import { useFileEditorSaveShortcutFork } from "./fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
 import {
   RichMarkdownPreviewBoundary,
   resolveRichMarkdownPreviewMode,
@@ -682,6 +683,7 @@ function EditableFileSurface({
     relativePath,
     onPendingChange,
   });
+  useFileEditorSaveShortcutFork(surfaceRef, saveCoordinator.flush); // fork-hook: markdown-editing/source-file-save
   // The editor owns the draft, so its own edits echoing back through the file
   // query keep the file identity. Only a change from elsewhere replaces it.
   const [externalFile, setExternalFile] = useState(() =>
