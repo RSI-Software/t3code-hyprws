@@ -14,6 +14,23 @@ import {
   PullRequestUnavailableError,
 } from "./pullRequest.ts";
 
+import { NonNegativeInt } from "./baseSchemas.ts";
+
+/** Activity readers observe edits without subscribing to turn-only revisions. */
+export const pullRequestActivityRpcFork = {
+  methodNames: {
+    pullRequestsSubscribeActivityRefreshesFork: "pullRequests.subscribeActivityRefreshesFork",
+  } as const,
+  rpcs: [
+    Rpc.make("pullRequests.subscribeActivityRefreshesFork", {
+      payload: Schema.Struct({}),
+      success: NonNegativeInt,
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+  ] as const,
+};
+
 const PullRequestAttachmentRpcErrorFork = Schema.Union([
   PullRequestUnavailableError,
   PullRequestOperationError,
@@ -156,6 +173,7 @@ export const checkoutMoveRpcFork = {
 /** Every fork WS RPC; the server serves them from a handler layer of their own. */
 export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
+  ...pullRequestActivityRpcFork.rpcs,
   ...githubIssuesRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
 ] as const;
