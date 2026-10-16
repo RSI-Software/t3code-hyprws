@@ -1,9 +1,13 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
+import { resolveUserDataPath } from "./DesktopUserData.ts";
 const defaultInput = {
   dirname: "/repo/apps/desktop/dist-electron",
   homeDirectory: "/Users/alice",
@@ -29,6 +33,29 @@ const makeEnvironment = (
 ) =>
   DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
 describe("DesktopEnvironment", () => {
+  it.effect("a dev profile override wins in development and is ignored when packaged", () =>
+    Effect.gen(function* () {
+      const override = { T3CODE_DEV_ELECTRON_USER_DATA: "/repo/.t3/electron" };
+      const dev = yield* makeEnvironment(
+        {},
+        { ...override, VITE_DEV_SERVER_URL: "http://localhost:5173" },
+      );
+      assert.equal(yield* resolveUserDataPath(dev), "/repo/.t3/electron");
+      const packaged = yield* makeEnvironment({ isPackaged: true }, override);
+      assert.isTrue(Option.isNone(packaged.devElectronUserData));
+      assert.equal(
+        yield* resolveUserDataPath(packaged),
+        "/Users/alice/Library/Application Support/t3code-v2",
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          NodePath.layerPosix,
+          FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
+        ),
+      ),
+    ),
+  );
   it.effect("keeps devtools on by default and lets a dev run opt out", () =>
     Effect.gen(function* () {
       const defaults = yield* makeEnvironment({}, { VITE_DEV_SERVER_URL: "http://localhost:5173" });
