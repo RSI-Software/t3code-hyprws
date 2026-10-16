@@ -7,6 +7,7 @@ import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useDesktopVoiceInputFork } from "../../voice-input/useVoiceInput.fork"; // fork-hook: voice-input/composer-import
 import { VoiceComposerFooterFork } from "../../voice-input/VoiceComposerControls.fork"; // fork-hook: voice-input/footer-import
 import { useRightPanelStore } from "~/rightPanelStore";
+import { isFileEditorSaveShortcutFork } from "../files/fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
 import { importPastedComposerText, readPastedComposerContext } from "../composerInlineTokenPaste";
 import { elementContextToPreviewAnnotation } from "../../lib/elementContext";
 import {
@@ -4741,6 +4742,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       if (command !== "composer.stash") return;
+      if (isFileEditorSaveShortcutFork(event)) return; // fork-hook: markdown-editing/file-save-stash-guard
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();
