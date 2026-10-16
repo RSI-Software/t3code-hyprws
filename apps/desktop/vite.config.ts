@@ -3,6 +3,7 @@ import { defineConfig } from "vite-plus";
 
 import { isDesktopRuntimeExternalDependency } from "../../scripts/lib/desktop-external-packages.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
+import { withDesktopPackWatchFork } from "../../scripts/lib/desktop-pack-watch.fork.ts"; // fork-hook: upstream-fixes/desktop-pack-watch-import
 
 const repoEnv = loadRepoEnv();
 
@@ -45,7 +46,8 @@ export default defineConfig({
       },
     },
   },
-  pack: [
+  pack: withDesktopPackWatchFork([
+    // fork-hook: upstream-fixes/desktop-pack-watch
     {
       format: "cjs",
       outDir: "dist-electron",
@@ -139,7 +141,7 @@ export default defineConfig({
       outExtensions: () => ({ js: ".cjs" }),
       entry: ["src/mac-permission-preload.ts"],
     },
-  ],
+  ]),
   test: {
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.
