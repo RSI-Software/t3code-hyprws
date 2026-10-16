@@ -8,6 +8,8 @@ import {
   VOICE_TEXT_STARTER_PROMPTS_FORK,
   type VoiceTextConfigFork,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
 import { useVoiceTextFork, type VoiceTextInputFork } from "./useVoiceText.fork";
 
 const mocks = vi.hoisted(() => ({
@@ -25,9 +27,23 @@ vi.mock("../state/session", () => ({
 vi.mock("@t3tools/client-runtime/rpc", () => ({
   transformVoiceTextFork: (_prepared: unknown, input: unknown) => input,
 }));
-vi.mock("./client.fork", () => ({
-  runVoiceInputRequestFork: (input: unknown, signal: AbortSignal) => mocks.request(input, signal),
+vi.mock("@t3tools/client-runtime/state/runtime", () => ({
+  executeAtomQuery: async (
+    _registry: unknown,
+    input: unknown,
+    options: { signal?: AbortSignal },
+  ) => {
+    try {
+      return AsyncResult.success(await mocks.request(input, options.signal));
+    } catch (error) {
+      return AsyncResult.failure(Cause.fail(error));
+    }
+  },
 }));
+vi.mock("../connection/runtime", () => ({
+  connectionAtomRuntime: { atom: (input: unknown) => input },
+}));
+vi.mock("../rpc/atomRegistry", () => ({ appAtomRegistry: {} }));
 vi.mock("../components/ui/button", () => ({ Button: "button" }));
 vi.mock("../components/ui/spinner", () => ({ Spinner: "span" }));
 vi.mock("../components/ui/tooltip", () => ({
@@ -51,6 +67,12 @@ function Probe() {
     actions = value;
   });
   return value.controls;
+}
+function errorText() {
+  return renderer.root
+    .findAllByType("span")
+    .map((node) => (typeof node.props.children === "string" ? node.props.children : ""))
+    .join(" ");
 }
 async function click(label: string) {
   await act(async () => {
@@ -185,13 +207,42 @@ describe("dictation text lifecycle", () => {
     expect(draft.text).toBe("react use affect");
     expect(mocks.request).toHaveBeenCalledTimes(1);
   });
-  it("preserves the transcript on cleanup failure", async () => {
-    mocks.request.mockRejectedValueOnce(new Error("model failed"));
+  it.each([
+    { detail: "This model is unavailable.", label: "Clean up draft" },
+    { detail: "Provider refused: Bearer [REDACTED] api_key=[REDACTED]", label: "Format draft" },
+  ])("preserves the draft and shows provider detail for $label", async ({ detail, label }) => {
+    mocks.request.mockRejectedValueOnce({
+      error: "Text generation failed.",
+      code: "model",
+      detail,
+    });
+    draft.text = "raw use affect";
+    const original = structuredClone(draft);
+    await click(label);
+    expect(draft).toEqual(original);
+    expect(errorText()).toContain(`${detail} Your draft was preserved.`);
+  });
+  it("keeps the current text when provider detail is absent", async () => {
+    mocks.request.mockRejectedValueOnce({ error: "Text generation failed.", code: "model" });
+    draft.text = "raw use affect";
+    await click("Clean up draft");
+    expect(draft.text).toBe("raw use affect");
+    expect(errorText()).toContain("Text processing failed. Your draft was preserved.");
+  });
+  it("preserves the transcript and shows detail on automatic cleanup failure", async () => {
+    mocks.request.mockRejectedValueOnce({
+      error: "Text generation failed.",
+      code: "model",
+      detail: "This model is unavailable.",
+    });
     await act(async () => {
       expect(await actions.processTranscript("raw use affect", new AbortController().signal)).toBe(
         "raw use affect",
       );
     });
+    expect(errorText()).toContain(
+      "This model is unavailable. The original transcript was preserved.",
+    );
   });
   it("does not submit cleanup without operate permission or for empty speech", async () => {
     mocks.canOperate = false;
