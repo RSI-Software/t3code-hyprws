@@ -1,9 +1,6 @@
-// Fork-only: GitHub issue RPC handler wiring for commit `9f92309411`
-// (feat(issues): add GitHub Issues surface scoped to project windows). The
-// upstream `ws.ts` carries only marked hook lines pointing here; the handler
-// table entries and the service-layer wiring are spread in through
-// `github-issues/ws-rpc-handlers`, `github-issues/server-service-live`, and
-// friends.
+// Fork-only: GitHub issue RPC handler wiring. The handler table entries spread into the fork WS
+// handler table in `wsRpcHandlers.fork.ts`; the service layers join upstream through
+// `github-issues/server-service-live` and friends.
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -16,8 +13,10 @@ import type {
 } from "@t3tools/contracts";
 import { GitHubIssueOperationError } from "@t3tools/contracts";
 
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
+
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import * as ThreadIssueSyncReactor from "./ThreadIssueSyncReactor.fork.ts";
 import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
@@ -25,8 +24,7 @@ import { listLinkedIssueThreadsFork } from "./linkedThreads.fork.ts";
 type GitHubIssues = typeof GitHubIssueService.GitHubIssueService.Service;
 
 /**
- * Spread into the upstream WS RPC handler table through the marked hook
- * `github-issues/ws-rpc-handlers` in `ws.ts`. Instrumentation and authorization
+ * Spread into the fork WS RPC handler table. Instrumentation and authorization
  * wrap every handler through the group's middleware (`RpcInstrumentation` and
  * `RpcScopeAuthorization`), so a handler returns its plain effect and carries no
  * observation of its own.
@@ -71,12 +69,13 @@ export const gitHubIssueRpcHandlersFork = (
 
 /**
  * The upstream-shaped service layer, composed with its own dependencies. The
- * project list and repository identities come from the server runtime; the
- * GitHub reads go through the API service the runtime already provides to the
- * pull-request providers.
+ * project list and repository identities come from the server runtime. The
+ * GitHub driver builds its request policy privately, so issue reads build their
+ * own credential and quota view.
  */
 export const gitHubIssueServiceLiveFork = GitHubIssueService.layer.pipe(
-  Layer.provide(GitHubApi.layer),
+  Layer.provide(GitHubIssueGraphQl.layer),
+  Layer.provide(GitHubRest.layerWithDependencies),
 );
 
 /**

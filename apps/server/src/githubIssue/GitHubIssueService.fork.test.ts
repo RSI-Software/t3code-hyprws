@@ -1,14 +1,19 @@
 // Fork-owned: the light read the linked-issue sync uses (RSI-Software/t3code-hyprws#1451).
 // The harness mirrors `GitHubIssueService.test.ts`, which owns the list, detail, and state tests.
 import { assert, describe, it, vi } from "@effect/vitest";
-import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import {
+  SourceControlProviderKind,
+  type OrchestrationProjectShell,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 import { SUB_ISSUE_REASONS_QUERY } from "./subIssueCloseReasons.fork.ts";
 
@@ -24,7 +29,7 @@ function project(id: string): OrchestrationProjectShell {
         remoteName: "origin",
         remoteUrl: "https://github.com/acme/web.git",
       },
-      provider: "github",
+      provider: SourceControlProviderKind.make("github"),
       displayName: "acme/web",
       owner: "acme",
       name: "web",
@@ -38,12 +43,12 @@ function project(id: string): OrchestrationProjectShell {
 
 function makeService(
   projects: ReadonlyArray<OrchestrationProjectShell>,
-  graphql: GitHubApi.GitHubApi["Service"]["graphql"],
+  graphql: GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"],
 ) {
   return GitHubIssueService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
-        Layer.mock(GitHubApi.GitHubApi)({ graphql }),
+        Layer.mock(GitHubIssueGraphQl.GitHubIssueGraphQl)({ graphql }),
         Layer.mock(ProjectService.ProjectService)({
           listShells: () => Effect.succeed(projects),
           getShell: (projectId) =>
@@ -61,7 +66,7 @@ function makeService(
 describe("GitHubIssueService summary", () => {
   it.effect("reads only the fields a linked-issue sync stores", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.succeed(
           JSON.stringify({
             data: {
@@ -134,7 +139,9 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
     state: "OPEN",
   };
 
-  const makeDetailService = (graphql: GitHubApi.GitHubApi["Service"]["graphql"]) =>
+  const makeDetailService = (
+    graphql: GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"],
+  ) =>
     makeService([project("p1")], graphql).pipe(
       Effect.flatMap((service) =>
         service.detail({ projectId: "p1" as ProjectId, repository: "acme/web", number: 42 }),
@@ -145,7 +152,7 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
     Effect.gen(function* () {
       const payload = JSON.parse(detailPayload([]));
       payload.data.repository.issue.parent = { ...openChild, title: "Parent tracker" };
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.succeed(JSON.stringify(payload)),
       );
       const detail = yield* makeDetailService(graphql);
@@ -166,7 +173,7 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
   it.effect("uses advanced search for issue types and preserves an older ranked issue", () =>
     Effect.gen(function* () {
       const row = JSON.parse(detailPayload([])).data.repository.issue;
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.succeed(
           JSON.stringify({
             data: {
@@ -203,7 +210,7 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("attaches a closed child's reason with exactly one graphql read", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         call.query.includes("subIssues(first:100)")
           ? Effect.succeed(
               JSON.stringify({
@@ -232,7 +239,7 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("skips the graphql read when no sub-issue is closed", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.succeed(detailPayload([openChild])),
       );
       const detail = yield* makeDetailService(graphql);
@@ -246,10 +253,10 @@ describe("GitHubIssueService detail sub-issue reasons", () => {
 
   it.effect("keeps the detail when the graphql read fails, reason unknown", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         call.query.includes("subIssues(first:100)")
           ? Effect.fail(
-              new GitHubApi.GitHubApiResponseError({
+              new GitHubRequestPolicy.GitHubApiResponseError({
                 host: "github.com",
                 operation: "subIssueCloseReasons",
                 status: 500,

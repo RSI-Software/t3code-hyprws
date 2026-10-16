@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import type * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import type * as GitHubRest from "./GitHubRest.ts";
 import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 
 export class GitHubAttachmentUploadError extends Schema.TaggedError<GitHubAttachmentUploadError>()(
@@ -59,7 +59,7 @@ export const uploadGitHubAttachment = (
     api,
     process,
   }: {
-    readonly api: GitHubApi.GitHubApi["Service"];
+    readonly api: Pick<GitHubRest.GitHubRest["Service"], "credential">;
     readonly process: SourceControlHost.SourceControlHost["Service"]["process"];
   },
   input: {
