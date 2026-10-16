@@ -48,15 +48,20 @@ export function withProviderSessionIdentity(
 }
 
 /**
- * Removes the session identity the server inherited from whatever launched it,
- * such as a shell inside another T3-hosted agent. Run once at server start:
- * in-process providers (the Cursor SDK) and terminals spawn from the server's
- * own environment, and would otherwise name that other thread as theirs.
+ * Removes inherited session identity and desktop launcher settings once at server
+ * start. Providers (including in-process SDKs) and terminals inherit this environment:
+ * none should name a parent thread or receive desktop placement and CDP settings.
+ * Electron keeps its own launcher environment in its separate process.
  */
-export const stripInheritedProviderSessionIdentity = Effect.gen(function* () {
+export const stripInheritedProviderEnvironment = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.projectId];
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.threadId];
+  for (const key of Object.keys(environment)) {
+    if (key.toUpperCase().startsWith("T3CODE_DESKTOP_")) {
+      delete environment[key];
+    }
+  }
 });
 
 /** Environment for a process every thread of an instance shares. */
