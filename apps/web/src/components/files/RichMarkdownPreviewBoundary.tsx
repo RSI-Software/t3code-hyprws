@@ -1,15 +1,15 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { PenLine, type IconNode } from "lucide";
 import { LoaderCircle } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, type ReactNode } from "react";
-
-import { useAtomCommand } from "~/state/use-atom-command";
-import { projectEnvironment } from "~/state/projects";
+import { lazy, Suspense, type ReactNode } from "react";
 
 import { isMarkdownPreviewFile } from "./filePreviewMode";
-import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
-  confirmProjectFileQueryData,
+  changeFileSaveSession,
+  flushFileSaveSessionFork,
+  useFileSaveSession,
+} from "./fileSaveSessions";
+import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
 } from "./projectFilesQueryState";
@@ -19,8 +19,6 @@ const MarkdownRichEditor = lazy(() =>
     default: MarkdownRichEditor,
   })),
 );
-
-const FILE_SAVE_DEBOUNCE_MS = 500;
 
 export type MarkdownPreviewFileState = "loading" | "ready" | "truncated";
 
@@ -124,30 +122,7 @@ interface RichMarkdownPreviewBoundaryProps {
 }
 
 function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
-  const writeFile = useAtomCommand(projectEnvironment.writeFile);
-  const saveCoordinator = useMemo(
-    () =>
-      new FileSaveCoordinator({
-        debounceMs: FILE_SAVE_DEBOUNCE_MS,
-        onPendingChange: (pending) => props.onPendingChange(props.relativePath, pending),
-        persist: (nextContents) =>
-          writeFile({
-            environmentId: props.environmentId,
-            input: { cwd: props.cwd, relativePath: props.relativePath, contents: nextContents },
-          }),
-        onConfirmed: (confirmedContents) => {
-          confirmProjectFileQueryData(
-            props.environmentId,
-            props.cwd,
-            props.relativePath,
-            confirmedContents,
-          );
-        },
-      }),
-    [props.cwd, props.environmentId, props.onPendingChange, props.relativePath, writeFile],
-  );
-
-  useEffect(() => () => saveCoordinator.dispose(), [saveCoordinator]);
+  useFileSaveSession(props, props.onPendingChange);
 
   return (
     <Suspense
@@ -158,6 +133,7 @@ function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
       }
     >
       <MarkdownRichEditor
+        onSave={() => flushFileSaveSessionFork(props)}
         value={props.contents}
         cwd={props.cwd}
         relativePath={props.relativePath}
@@ -173,7 +149,7 @@ function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
             currentContents,
             setOptimistic: (contents) =>
               setProjectFileQueryData(props.environmentId, props.cwd, props.relativePath, contents),
-            save: (contents) => saveCoordinator.change(contents),
+            save: (contents) => changeFileSaveSession(props, contents),
           });
         }}
       />
