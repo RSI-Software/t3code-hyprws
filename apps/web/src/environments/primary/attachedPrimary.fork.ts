@@ -47,6 +47,15 @@ export function hasAttachBridge(): boolean {
   return window.desktopBridge?.refreshAttachedPrimaryBootstrap !== undefined;
 }
 
+/**
+ * A client-only desktop's primary is a server this app attached to, not one
+ * it spawned, so installing an app update leaves that server behind. Update
+ * everything treats it as an ordinary server target instead.
+ */
+export function isAttachedPrimaryTarget(target: { readonly _tag: string }): boolean {
+  return isClientOnly() && target._tag === "PrimaryConnectionTarget";
+}
+
 /** Ask main to re-verify the attachment, or attach a server started later. */
 export function refreshAttachedPrimary(): Promise<unknown> {
   const bridge = window.desktopBridge;
@@ -119,22 +128,22 @@ export function withAttachedPrimaryRetry(client: HttpClient.HttpClient): HttpCli
           ? rejectEffect(sentBearer(request), "transport")
           : Effect.void,
       ),
-      Effect.flatMap((first) =>
-        first.status !== 401 || resolveDesktopAttachedPrimaryTarget() === null
-          ? Effect.succeed(first)
-          : Effect.promise(invalidateAttachedPrimaryBearerToken).pipe(
-              Effect.flatMap((fresh) =>
-                fresh === null
-                  ? Effect.as(rejectEffect(sentBearer(request), "unauthorized"), first)
-                  : client
-                      .execute(HttpClientRequest.bearerToken(request, fresh))
-                      .pipe(
-                        Effect.tap((second) =>
-                          second.status === 401 ? rejectEffect(fresh, "unauthorized") : Effect.void,
-                        ),
+      Effect.filterOrElse(
+        (first) => first.status !== 401 || resolveDesktopAttachedPrimaryTarget() === null,
+        (first) =>
+          Effect.promise(invalidateAttachedPrimaryBearerToken).pipe(
+            Effect.flatMap((fresh) =>
+              fresh === null
+                ? Effect.as(rejectEffect(sentBearer(request), "unauthorized"), first)
+                : client
+                    .execute(HttpClientRequest.bearerToken(request, fresh))
+                    .pipe(
+                      Effect.tap((second) =>
+                        second.status === 401 ? rejectEffect(fresh, "unauthorized") : Effect.void,
                       ),
-              ),
+                    ),
             ),
+          ),
       ),
     ),
   );
