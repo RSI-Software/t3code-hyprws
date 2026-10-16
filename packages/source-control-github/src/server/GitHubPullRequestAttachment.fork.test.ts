@@ -5,27 +5,35 @@ import { afterEach, assert, expect, it, vi } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import { HttpClient } from "effect/http";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/process";
 import * as Redacted from "effect/Redacted";
 import { VcsProcessExitError } from "@t3tools/contracts";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 import * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 import * as GitHubPullRequestApi from "@t3tools/source-control-github/server/GitHubPullRequestApi";
 import { parseGitHubAttachmentUploadOutput } from "./gitHubAttachmentUpload.fork.ts";
 
 const mockedRun = vi.fn<SourceControlHost.SourceControlHost["Service"]["process"]["run"]>();
-const mockedCredential = vi.fn<GitHubApi.GitHubApi["Service"]["credential"]>(() =>
+const mockedCredential = vi.fn<GitHubRest.GitHubRest["Service"]["credential"]>(() =>
   Effect.succeed({ token: Redacted.make("token"), fingerprint: "github.com:token" }),
 );
-const mockApi = Layer.succeed(
-  GitHubApi.GitHubApi,
-  GitHubApi.GitHubApi.of({
-    graphql: () => Effect.die("unused"),
-    rest: () => Effect.die("unused"),
-    credential: (host) => mockedCredential(host),
-  }),
+const mockApi = Layer.mergeAll(
+  Layer.succeed(
+    GitHubRest.GitHubRest,
+    GitHubRest.GitHubRest.of({
+      rest: () => Effect.die("unused"),
+      credential: (host) => mockedCredential(host),
+    }),
+  ),
+  Layer.mock(GitHubRequestPolicy.GitHubRequestPolicy)({}),
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make(() => Effect.die("unused")),
+  ),
 );
 const layer = it.layer(
   GitHubPullRequestApi.layer.pipe(
@@ -155,11 +163,11 @@ layer("GitHubPullRequestApi.layer", (it) => {
   );
   it.effect("refuses the upload when no credential is verified for the host", () =>
     Effect.gen(function* () {
-      // The refusal is GitHubApi.credential's own: a pinned page for another host, a disabled
+      // The refusal is GitHubRest.credential's own: a pinned page for another host, a disabled
       // host, or a missing token all land here, and no extension bytes ever upload.
       mockedCredential.mockReturnValue(
         Effect.fail(
-          new GitHubApi.GitHubApiAuthenticationError({
+          new GitHubRequestPolicy.GitHubApiAuthenticationError({
             host: "github.com",
             operation: "credential",
           }),
