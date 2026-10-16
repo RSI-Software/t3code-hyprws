@@ -150,6 +150,7 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
+import { pullRequestActivityRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-rpc-import
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
 import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
@@ -556,6 +557,7 @@ export const WS_METHODS = {
   pullRequestsRunAction: "pullRequests.runAction",
   pullRequestsUpdate: "pullRequests.update",
   ...pullRequestAttachmentRpcFork.methodNames, // fork-hook: upstream-fixes/pr-attachment-rpc-methods
+  ...pullRequestActivityRpcFork.methodNames, // fork-hook: upstream-fixes/pr-activity-refresh-rpc-methods
   pullRequestsComment: "pullRequests.comment",
   pullRequestsUpdateComment: "pullRequests.updateComment",
   pullRequestsSubmitReview: "pullRequests.submitReview",
@@ -1990,6 +1992,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsRunActionRpc,
   WsPullRequestsUpdateRpc,
   ...pullRequestAttachmentRpcFork.rpcs, // fork-hook: upstream-fixes/pr-attachment-rpc-group
+  ...pullRequestActivityRpcFork.rpcs, // fork-hook: upstream-fixes/pr-activity-refresh-rpc-group
   WsPullRequestsCommentRpc,
   WsPullRequestsUpdateCommentRpc,
   WsPullRequestsSubmitReviewRpc,
