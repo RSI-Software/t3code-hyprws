@@ -130,7 +130,9 @@ const makeTurnStartCheckoutLeaseFork = Effect.gen(function* () {
       if (current === null) return yield* dispatch;
       // A move waits for the thread to go idle; a new turn would starve it.
       if (isCheckoutMoveInFlightFork(current.checkoutMove)) {
-        return yield* reject(`Thread ${current.id} has a checkout move in progress.`);
+        return yield* reject(
+          `Thread "${current.title}" has a checkout move in progress. Send again when it finishes.`,
+        );
       }
       const thread = yield* checkoutMoves.recoverRemovedWorktree(current);
       const cwd = yield* threadCwd(thread).pipe(Effect.mapError(reject));
