@@ -20,6 +20,9 @@ interface FileSaveOptions {
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
 
+export function useFileSaveCoordinator(
+  options: FileSaveOptions,
+): Pick<FileSaveCoordinator, "change" | "flush">; // fork-hook: markdown-editing/file-save-contract
 export function useFileSaveCoordinator({
   environmentId,
   cwd,
@@ -81,6 +84,7 @@ function createFileSaveSession({
   const coordinatorRef = createRef<FileSaveCoordinator>();
   return {
     change: (contents: string) => coordinatorRef.current?.change(contents),
+    flush: () => coordinatorRef.current?.flush(), // fork-hook: markdown-editing/file-save-action
     setup: () => {
       const coordinator = new FileSaveCoordinator({
         debounceMs: FILE_SAVE_DEBOUNCE_MS,
