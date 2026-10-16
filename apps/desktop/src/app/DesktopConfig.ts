@@ -59,6 +59,7 @@ export const DesktopConfig = Config.all({
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
+  devElectronUserData: trimmedString("T3CODE_DEV_ELECTRON_USER_DATA"), // fork-hook: upstream-fixes/dev-electron-user-data
   devToolsEnabled: Config.Boolean("T3CODE_DESKTOP_DEVTOOLS").pipe(Config.withDefault(true)), // fork-hook: fork-meta/desktop-config-devtools
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
