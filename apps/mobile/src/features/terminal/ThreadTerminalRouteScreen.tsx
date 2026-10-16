@@ -24,7 +24,7 @@ import {
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppBar } from "../../components/ui/AppBar";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
-import type { ScreenHeaderMenuItem } from "../../components/ScreenHeader.types";
+import type { AppBarMenuItem as ScreenHeaderMenuItem } from "../../components/ui/AppBar.types"; // fork-hook: zmux-estate/terminal-checkout-dialog
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -1281,7 +1281,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
             ? { key: checkoutModeKey, mode: previousMode, resolved: true, error: null }
             : current,
         );
-        Alert.alert("Could not save terminal checkout mode", errorMessage(error));
+        Dialog.alert("Could not save terminal checkout mode", errorMessage(error)); // fork-hook: zmux-estate/terminal-checkout-dialog
         return;
       }
       if (
@@ -1305,10 +1305,10 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        Alert.alert(
+        Dialog.alert(
           "Could not follow thread checkout",
           errorMessage(squashAtomCommandFailure(result)),
-        );
+        ); // fork-hook: zmux-estate/terminal-checkout-dialog
       }
     })();
   }, [
@@ -1329,10 +1329,10 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     const action = checkoutMovePresentation?.action;
     if (!move || !action || checkoutMoveControlsLocked) return;
     if (action === "undo" && undoUnavailable) {
-      Alert.alert(
+      Dialog.alert(
         "Undo unavailable",
         "The physical checkout changed after this move. Start a new move to return.",
-      );
+      ); // fork-hook: zmux-estate/terminal-checkout-dialog
       return;
     }
     setCheckoutMoveSubmission({ baseRequestId: move.requestId });
@@ -1352,21 +1352,21 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         const error = squashAtomCommandFailure(result);
         const staleUndo = action === "undo" && isStaleCheckoutMoveRejection(errorMessage(error));
         if (staleUndo) setStaleUndoRequestId(move.requestId);
-        Alert.alert(
+        Dialog.alert(
           staleUndo
             ? "Checkout move can no longer be undone"
             : action === "undo"
               ? "Could not undo checkout move"
               : "Could not retry checkout move",
           errorMessage(error),
-        );
+        ); // fork-hook: zmux-estate/terminal-checkout-dialog
       })
       .catch((error: unknown) => {
         setCheckoutMoveSubmission(null);
-        Alert.alert(
+        Dialog.alert(
           action === "undo" ? "Could not undo checkout move" : "Could not retry checkout move",
           errorMessage(error),
-        );
+        ); // fork-hook: zmux-estate/terminal-checkout-dialog
       });
   }, [
     checkoutMoveControlsLocked,
