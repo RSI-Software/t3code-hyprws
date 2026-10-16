@@ -60,7 +60,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import { forkDesktopEntryName } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
+import { forkDesktopEntryName, forkLinuxTargets } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
 import {
   enableVoiceInputMacEntitlementsFork,
   voiceInputMacPurposeFork,
@@ -2922,6 +2922,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       },
     };
+    (buildConfig.linux as { target: string[] }).target = forkLinuxTargets(target, version); // fork-hook: distribution/linux-targets
     buildConfig.deb = {
       // FPM runs outside the staged app directory, so source paths must be absolute.
       fpm: [
