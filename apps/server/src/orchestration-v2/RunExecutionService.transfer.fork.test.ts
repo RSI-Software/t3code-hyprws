@@ -42,6 +42,7 @@ import type {
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
@@ -284,6 +285,9 @@ function twoSubscriptions(
               Effect.succeed({ nodes: [], turnItems: [], runtimeRequests: [] }),
           }),
           Layer.mock(ThreadCommandExecutor.ThreadCommandExecutor)({}),
+          Layer.mock(GitVcsDriver.GitVcsDriver)({
+            resolveBranchName: () => Effect.succeed(null),
+          }),
         ),
       ),
     );
