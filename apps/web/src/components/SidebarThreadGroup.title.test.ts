@@ -1,4 +1,7 @@
-import { EnvironmentInternalError } from "@t3tools/contracts";
+import {
+  EnvironmentInternalError,
+  THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
+} from "@t3tools/contracts";
 import { RemoteEnvironmentAuthTimeoutError } from "@t3tools/client-runtime/rpc";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
@@ -17,7 +20,7 @@ const timeout = (): TitleResult =>
     Cause.fail(
       new RemoteEnvironmentAuthTimeoutError(
         "https://environment.example.test/api/orchestration/thread-group-title",
-        60_000,
+        THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK,
       ),
     ),
   );
@@ -25,7 +28,7 @@ const timeout = (): TitleResult =>
 describe("threadGroupTitleFailureDescription", () => {
   it("names the budget a timed-out request ran out of", () => {
     expect(threadGroupTitleFailureDescription(timeout())).toBe(
-      "The text generation model did not answer within 60 seconds.",
+      "The text generation model did not answer within 185 seconds.",
     );
   });
 
@@ -108,9 +111,16 @@ function harness() {
       },
     });
   mount();
+  // The request publishes its in-flight set from `finally`, after it has handled the result.
   const settle = async (result: TitleResult) => {
+    const handled = new Promise<void>((resolve) => {
+      const unsubscribe = owner.subscribe(() => {
+        unsubscribe();
+        resolve();
+      });
+    });
     pending.shift()!(result);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await handled;
   };
   const clickRetry = () => {
     const [toast] = open.values();
@@ -159,7 +169,7 @@ describe("createThreadGroupTitleOwner", () => {
     const [toast] = h.open.values();
     expect(toast).toMatchObject({
       title: 'Failed to name "New group" (2 threads)',
-      description: "The text generation model did not answer within 60 seconds.",
+      description: "The text generation model did not answer within 185 seconds.",
       timeout: 0,
     });
     expect(h.groups().A![0]!.title).toBe("New group");
