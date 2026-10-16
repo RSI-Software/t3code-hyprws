@@ -1,6 +1,7 @@
 /// <reference lib="es2024.promise" />
 import {
   EnvironmentHttpCommonError,
+  VoiceTextHttpErrorFork,
   VOICE_INPUT_ROUTE_FORK,
   VoiceInputSettingsFork,
   VoiceInputTranscriptFork,
@@ -12,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import type { PreparedConnection } from "../connection/model.ts";
@@ -23,6 +25,7 @@ import { RemoteEnvironmentAuthUndeclaredStatusError } from "./http.ts";
 const decodeSettings = Schema.decodeUnknownEffect(VoiceInputSettingsFork);
 const decodeTranscript = Schema.decodeUnknownEffect(VoiceInputTranscriptFork);
 const decodeHttpError = Schema.decodeUnknownEffect(EnvironmentHttpCommonError);
+const decodeVoiceTextError = Schema.decodeUnknownEffect(VoiceTextHttpErrorFork);
 
 /** Uses the selected environment's cookies, bearer grant, or refreshed relay proof. */
 const requestVoiceInputFork = Effect.fn(function* <A, E>(
@@ -48,7 +51,7 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
   const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
   const method = operation === "read" || operation === "text-read" ? "GET" : "POST";
   let requestUrl = "";
-  return yield* executeAuthenticatedEnvironmentHttpRequest({
+  const response = yield* executeAuthenticatedEnvironmentHttpRequest({
     prepared,
     signer,
     remoteAuthorization,
@@ -73,31 +76,34 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
       );
       return requestUrl;
     },
-    request: ({ headers }) =>
-      Effect.gen(function* () {
-        let request = HttpClientRequest.make(method)(requestUrl).pipe(
-          HttpClientRequest.setHeaders({ ...headers }),
-        );
-        if (payload instanceof Uint8Array) {
-          request = request.pipe(HttpClientRequest.bodyUint8Array(payload, "audio/wav"));
-        } else if (payload) {
-          request = request.pipe(HttpClientRequest.bodyJsonUnsafe(payload));
-        }
-        const response = yield* http.execute(request);
-        const json = yield* response.json;
-        if (response.status < 200 || response.status >= 300) {
-          const error = yield* decodeHttpError(json).pipe(
-            Effect.catch(() =>
-              Effect.succeed(
-                new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, response.status),
-              ),
-            ),
-          );
-          return yield* Effect.fail(error);
-        }
-        return yield* decode(json);
-      }),
+    request: Effect.fn("voiceInput.request")(function* ({ headers }) {
+      let request = HttpClientRequest.make(method)(requestUrl).pipe(
+        HttpClientRequest.setHeaders({ ...headers }),
+      );
+      if (payload instanceof Uint8Array) {
+        request = request.pipe(HttpClientRequest.bodyUint8Array(payload, "audio/wav"));
+      } else if (payload) {
+        request = request.pipe(HttpClientRequest.bodyJsonUnsafe(payload));
+      }
+      const response = yield* http.execute(request);
+      const json = yield* response.json;
+      if (response.status < 200 || response.status >= 300) {
+        const authError = yield* decodeHttpError(json).pipe(Effect.option);
+        if (Option.isSome(authError)) return yield* authError.value;
+      }
+      return { status: response.status, json };
+    }),
   });
+  // Decode endpoint errors outside the auth boundary, which wraps unknown failures.
+  if (response.status < 200 || response.status >= 300) {
+    const error = yield* decodeVoiceTextError(response.json).pipe(
+      Effect.orElseSucceed(
+        () => new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, response.status),
+      ),
+    );
+    return yield* Effect.fail(error);
+  }
+  return yield* decode(response.json);
 });
 
 export const readVoiceInputSettingsFork = (prepared: PreparedConnection) =>
