@@ -1,3 +1,6 @@
+import { isVoiceTextHttpErrorFork } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import type * as Effect from "effect/Effect";
 import type { HttpClient } from "effect/http";
@@ -16,6 +19,10 @@ export async function runVoiceInputRequestFork<A, E>(
     reportDefect: false,
   });
   if (AsyncResult.isSuccess(result)) return result.value;
+  if (AsyncResult.isFailure(result)) {
+    const error = Option.getOrNull(Cause.findErrorOption(result.cause));
+    if (isVoiceTextHttpErrorFork(error)) throw error;
+  }
   throw new Error(failureMessage);
 }
 
