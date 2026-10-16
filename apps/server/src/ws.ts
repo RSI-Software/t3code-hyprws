@@ -244,10 +244,9 @@ import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
-import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
+import { wsRpcHandlersLayerFork, wsRpcTagsFork } from "./wsRpcHandlers.fork.ts"; // fork-hook: upstream-fixes/ws-rpc-handlers-import
 import { sharedCheckoutWsLayerFork } from "./git/sharedCheckoutGuard.fork.ts"; // fork-hook: zmux-estate/ws-shared-checkout-import
-import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts"; // fork-hook: zmux-estate/ws-checkout-move-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -1222,10 +1221,12 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+const ServerWsRpcHandlerGroupFork = ServerWsRpcGroup.omit(...wsRpcTagsFork); // fork-hook: upstream-fixes/ws-rpc-handler-group-omit
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
+  ServerWsRpcGroup = ServerWsRpcHandlerGroupFork, // fork-hook: upstream-fixes/ws-rpc-handler-group
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -1368,8 +1369,6 @@ export const layerWsRpc = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const sourceControlSignIn = yield* SourceControlSignIn.SourceControlSignIn;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
-      const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
-      const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork; // fork-hook: zmux-estate/ws-checkout-move-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -2631,9 +2630,6 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.pullRequestsUpdate]: (input) =>
           withPullRequestViewer(input, pullRequests.update(input)),
-        [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: (input) =>
-          pullRequests.createAttachmentUploadUrl(input),
-        [WS_METHODS.pullRequestsUploadAttachment]: (input) => pullRequests.uploadAttachment(input),
         [WS_METHODS.pullRequestsComment]: (input) =>
           withPullRequestViewer(input, pullRequests.comment(input)),
         [WS_METHODS.pullRequestsUpdateComment]: (input) =>
@@ -2670,8 +2666,6 @@ export const layerWsRpc = (
           withPullRequestViewer(input, pullRequests.labelCandidates(input)),
         [WS_METHODS.pullRequestsSetLabels]: (input) =>
           withPullRequestViewer(input, pullRequests.setLabels(input)),
-        ...gitHubIssueRpcHandlersFork(githubIssues, sql), // fork-hook: github-issues/ws-rpc-handlers
-        ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves), // fork-hook: zmux-estate/ws-checkout-move-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           sourceControlRepositories.lookupRepository(input),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>
@@ -3341,6 +3335,7 @@ export const layer = Layer.unwrap(
         }).pipe(
           Effect.provide(
             layerWsRpc(session, clientAnalyticsProps, serverBrowser).pipe(
+              Layer.merge(wsRpcHandlersLayerFork), // fork-hook: upstream-fixes/ws-rpc-handlers-layer
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),
