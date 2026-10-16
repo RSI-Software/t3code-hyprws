@@ -124,6 +124,9 @@ export function createFileSaveSessions(deps: FileSaveSessionDeps) {
   return {
     /** Holds the file's session open until the returned release runs. */
     acquire,
+    flushFork(target: FileSaveTarget): void {
+      sessions.get(fileSaveKey(target))?.coordinator.flush();
+    }, // fork-hook: markdown-editing/file-save-contract
     /** Edits for a file nobody holds open are dropped, so retired editors stay inert. */
     change(target: FileSaveTarget, contents: string): void {
       const session = sessions.get(fileSaveKey(target));
@@ -176,3 +179,7 @@ export function useFileSaveSession(
 export function changeFileSaveSession(target: FileSaveTarget, contents: string): void {
   fileSaveSessions.change(target, contents);
 }
+
+export function flushFileSaveSessionFork(target: FileSaveTarget): void {
+  fileSaveSessions.flushFork(target);
+} // fork-hook: markdown-editing/file-save-action

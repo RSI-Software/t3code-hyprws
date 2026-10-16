@@ -8,8 +8,9 @@ import {
 } from "@milkdown/core";
 import { Plugin } from "@milkdown/prose/state";
 import { $prose, replaceAll } from "@milkdown/utils";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { useFileEditorSaveShortcutFork } from "./fileEditorSaveShortcut.fork";
 import {
   markdownEditorPresentation,
   refreshMarkdownEditorPresentation,
@@ -20,6 +21,7 @@ import "./markdown-rich-editor.css";
 interface MarkdownRichEditorProps {
   readonly value: string;
   readonly onChange: (markdown: string) => void;
+  readonly onSave: () => void;
   readonly cwd: string;
   readonly relativePath: string;
   readonly onOpenFile: (relativePath: string) => void;
@@ -81,6 +83,7 @@ function useMilkdownEditor(
 export function MarkdownRichEditor({
   value,
   onChange,
+  onSave,
   cwd,
   relativePath,
   onOpenFile,
@@ -88,6 +91,7 @@ export function MarkdownRichEditor({
   wordWrap,
 }: MarkdownRichEditorProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  useFileEditorSaveShortcutFork(rootRef, onSave);
   const initialValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const lastMarkdownRef = useRef(value);
