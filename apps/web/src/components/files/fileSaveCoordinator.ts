@@ -29,6 +29,14 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     this.schedule(this.options.debounceMs);
   }
 
+  flush(): void {
+    if (this.disposed) return;
+    // Backdate so an in-flight save's follow-up runs immediately.
+    this.lastChangeAt = Date.now() - this.options.debounceMs;
+    this.clearTimer();
+    void this.persistLatest();
+  } // fork-hook: markdown-editing/file-save-flush
+
   dispose(): void {
     this.disposed = true;
     this.clearTimer();
