@@ -155,3 +155,10 @@ export const checkoutMoveRpcFork = {
   } as const,
   rpcs: [WsThreadCheckoutMoveRequestRpcFork] as const,
 };
+
+/** Every fork WS RPC; the server serves them from a handler layer of their own. */
+export const wsRpcsFork = [
+  ...pullRequestAttachmentRpcFork.rpcs,
+  ...githubIssuesRpcFork.rpcs,
+  ...checkoutMoveRpcFork.rpcs,
+] as const;
