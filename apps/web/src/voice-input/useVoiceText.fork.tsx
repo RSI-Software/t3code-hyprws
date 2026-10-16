@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 import {
   AuthOrchestrationOperateScope,
+  isVoiceTextHttpErrorFork,
   type EnvironmentId,
   type ProjectId,
   type ThreadId,
@@ -99,50 +100,68 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
         signal,
         "Text processing failed. Check the selected provider and model.",
       )
-        return;
-      const captured = current.input.readDraft();
-      const capturedScope = requestScope.current;
-      const range =
-        operation === "cleanup" && captured.selection.start !== captured.selection.end
-          ? captured.text.slice(captured.selection.start, captured.selection.end)
-          : captured.text;
-      if (!range.trim()) return;
-      const controller = new AbortController();
-      pending.current = controller;
-      setPhase(operation);
-      if (!automatic) setError(null);
-      await requestText(operation, range, controller.signal)
-        .then((result) => {
-          if (controller.signal.aborted || capturedScope !== requestScope.current) return;
-          if (!sameVoiceTextDraftFork(captured, latest.current.input.readDraft())) {
-            setError("The draft changed. The generated text was not applied.");
-            return;
-          }
-          const replacement = voiceTextReplacementFork(captured, operation, result);
-          const previousUndo = automatic ? undoRef.current : null;
-          latest.current.input.commitDraft(replacement.text, replacement.cursor);
-          rememberUndo(
-            previousUndo?.after === captured.text ? previousUndo.before : captured.text,
-            previousUndo?.after === captured.text ? previousUndo.cursor : captured.selection.end,
-            replacement.text,
-            captured.ownerKey,
+    ).text;
+  };
+  const rememberUndo = (before: string, cursor: number, after: string, ownerKey: string) => {
+    if (before === after) return;
+    undoRef.current = { before, cursor, after, ownerKey };
+    setCanUndo(true);
+  };
+  const run = async (operation: "cleanup" | "format", automatic = false) => {
+    const current = latest.current;
+    if (
+      !current.canOperate ||
+      (!current.input.enabled && !automatic) ||
+      !current.config ||
+      pending.current
+    )
+      return;
+    if (
+      (operation === "cleanup" ? current.config.cleanupMode : current.config.formattingMode) ===
+      "off"
+    )
+      return;
+    const captured = current.input.readDraft();
+    const capturedScope = requestScope.current;
+    const range =
+      operation === "cleanup" && captured.selection.start !== captured.selection.end
+        ? captured.text.slice(captured.selection.start, captured.selection.end)
+        : captured.text;
+    if (!range.trim()) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setPhase(operation);
+    if (!automatic) setError(null);
+    await requestText(operation, range, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted || capturedScope !== requestScope.current) return;
+        if (!sameVoiceTextDraftFork(captured, latest.current.input.readDraft())) {
+          setError("The draft changed. The generated text was not applied.");
+          return;
+        }
+        const replacement = voiceTextReplacementFork(captured, operation, result);
+        const previousUndo = automatic ? undoRef.current : null;
+        latest.current.input.commitDraft(replacement.text, replacement.cursor);
+        rememberUndo(
+          previousUndo?.after === captured.text ? previousUndo.before : captured.text,
+          previousUndo?.after === captured.text ? previousUndo.cursor : captured.selection.end,
+          replacement.text,
+          captured.ownerKey,
+        );
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(
+            `${isVoiceTextHttpErrorFork(cause) && cause.detail ? cause.detail : "Text processing failed."} Your draft was preserved. Retry the action or check the model in Settings.`,
           );
-        })
-        .catch(() => {
-          if (!controller.signal.aborted)
-            setError(
-              "Text processing failed. Your draft was preserved. Retry the action or check the model in Settings.",
-            );
-        })
-        .finally(() => {
-          if (pending.current === controller) {
-            pending.current = null;
-            setPhase(null);
-          }
-        });
-    },
-    [rememberUndo, requestText],
-  );
+      })
+      .finally(() => {
+        if (pending.current === controller) {
+          pending.current = null;
+          setPhase(null);
+        }
+      });
+  };
 
   const processTranscript = async (
     text: string,
@@ -174,43 +193,25 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
           `${isVoiceTextHttpErrorFork(cause) && cause.detail ? cause.detail : "Automatic cleanup failed."} The original transcript was preserved.`,
         );
         return text;
-      const controller = new AbortController();
-      pending.current = controller;
-      const abort = () => controller.abort();
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) controller.abort();
-      setPhase("cleanup");
-      setError(null);
-      return requestText("cleanup", text, controller.signal)
-        .catch((cause) => {
-          if (signal.aborted) throw cause;
-          if (controller.signal.aborted) return text;
-          setError("Automatic cleanup failed. The original transcript was preserved.");
-          return text;
-        })
-        .finally(() => {
-          signal.removeEventListener("abort", abort);
-          if (pending.current === controller) {
-            pending.current = null;
-            setPhase(null);
-          }
-        });
-    },
-    [requestText],
-  );
-  const transcriptionCommitted = useCallback(
-    (text: string) => {
-      const current = latest.current;
-      const raw = rawDraft.current;
-      rawDraft.current = null;
-      if (raw?.ownerKey === current.input.ownerKey)
-        rememberUndo(raw.text, raw.cursor, text, raw.ownerKey);
-      if (!skipAutomatic.current && current.config && autoVoiceFormattingFork(current.config, text))
-        void run("format", true);
-    },
-    [rememberUndo, run],
-  );
-  const markDraftChanged = useCallback(() => {
+      })
+      .finally(() => {
+        signal.removeEventListener("abort", abort);
+        if (pending.current === controller) {
+          pending.current = null;
+          setPhase(null);
+        }
+      });
+  };
+  const transcriptionCommitted = (text: string) => {
+    const current = latest.current;
+    const raw = rawDraft.current;
+    rawDraft.current = null;
+    if (raw?.ownerKey === current.input.ownerKey)
+      rememberUndo(raw.text, raw.cursor, text, raw.ownerKey);
+    if (!skipAutomatic.current && current.config && autoVoiceFormattingFork(current.config, text))
+      void run("format", true);
+  };
+  const markDraftChanged = () => {
     undoRef.current = null;
     setCanUndo(false);
   };
