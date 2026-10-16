@@ -425,18 +425,22 @@ const make = Effect.gen(function* () {
   );
 
   return CheckoutMoveServiceFork.of({
-    request: (input) =>
-      requests.withLock(input.threadId, request(input).pipe(Effect.provide(services))),
-    recoverRemovedWorktree: (thread) =>
-      newUuid.pipe(
-        Effect.flatMap((uuid) =>
-          recoverRemovedWorktree(thread, {
-            recoveryId: `server:worktree-checkout-recovery:${uuid}`,
-            duringRun: false,
-          }),
-        ),
-        Effect.map((recovered) => recovered.thread),
-      ),
+    request: Effect.fn("CheckoutMoveServiceFork.request")(function (input) {
+      return requests.withLock(input.threadId, request(input).pipe(Effect.provide(services)));
+    }),
+    recoverRemovedWorktree: Effect.fn("CheckoutMoveServiceFork.recoverRemovedWorktree")(
+      function (thread) {
+        return newUuid.pipe(
+          Effect.flatMap((uuid) =>
+            recoverRemovedWorktree(thread, {
+              recoveryId: `server:worktree-checkout-recovery:${uuid}`,
+              duringRun: false,
+            }),
+          ),
+          Effect.map((recovered) => recovered.thread),
+        );
+      },
+    ),
     drain: worker.drain,
   });
 });
@@ -453,7 +457,7 @@ export const checkoutMoveServiceLiveFork = checkoutMoveServiceLayerFork.pipe(
   Layer.provide(layerEventSink),
 );
 
-/** Spread into the WebSocket handler table through `zmux-estate/ws-checkout-move-handlers`. */
+/** Spread into the fork WS handler table in `wsRpcHandlers.fork.ts`. */
 export const checkoutMoveRpcHandlersFork = (checkoutMoves: CheckoutMoveServiceFork["Service"]) => ({
   "thread.checkoutMove.request": (input: ThreadCheckoutMoveRequestInput) =>
     checkoutMoves.request(input),
