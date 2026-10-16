@@ -29,6 +29,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { persistPullRequestStats } from "./pullRequestStatsPersistence.ts";
 import { persistQuery, type QueryPersistence } from "./queryPersistence.ts";
+import { createPullRequestActivityRefreshAtomFamilyFork } from "./pullRequestActivityRefresh.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-client-import
 import * as Option from "effect/Option";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
@@ -433,6 +434,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
   onAnswer: PullRequestAnswerHandlers = {},
 ) {
   const refreshes = createPullRequestRefreshAtomFamily(runtime);
+  const activityRefreshesFork = createPullRequestActivityRefreshAtomFamilyFork(runtime); // fork-hook: upstream-fixes/pr-activity-refresh-client-state
   const commandScheduler = createAtomCommandScheduler();
   const routedRequest = createPullRequestRouter();
   const serialPerEnvironment = {
@@ -446,7 +448,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       tag: WS_METHODS.pullRequestsActivity,
       execute: (input) => routedRequest(WS_METHODS.pullRequestsActivity, input),
       staleTimeMs: 60_000,
-      refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
+      refreshTrigger: ({ environmentId }) => activityRefreshesFork({ environmentId, input: {} }), // fork-hook: upstream-fixes/pr-activity-refresh-client
     }),
   );
   const detailAnswerAtoms = Atom.family((_key: string) =>
