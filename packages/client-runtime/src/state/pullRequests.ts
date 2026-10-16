@@ -24,6 +24,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { persistPullRequestStats } from "./pullRequestStatsPersistence.ts";
+import { createPullRequestActivityRefreshAtomFamilyFork } from "./pullRequestActivityRefresh.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-client-import
 import { persistQuery } from "./queryPersistence.ts";
 import * as Option from "effect/Option";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -168,6 +169,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
   >,
 ) {
   const refreshes = createPullRequestRefreshAtomFamily(runtime);
+  const activityRefreshesFork = createPullRequestActivityRefreshAtomFamilyFork(runtime); // fork-hook: upstream-fixes/pr-activity-refresh-client-state
   const commandScheduler = createAtomCommandScheduler();
   const routedRequest = createPullRequestRouter();
   const serialPerEnvironment = {
@@ -181,7 +183,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       tag: WS_METHODS.pullRequestsActivity,
       execute: (input) => routedRequest(WS_METHODS.pullRequestsActivity, input),
       staleTimeMs: 60_000,
-      refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
+      refreshTrigger: ({ environmentId }) => activityRefreshesFork({ environmentId, input: {} }), // fork-hook: upstream-fixes/pr-activity-refresh-client
     }),
   );
   const detail = writableQueryFamily(
