@@ -7,7 +7,7 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
-import { stripInheritedProviderSessionIdentity } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/server-inherited-session-identity-import
+import { stripInheritedProviderEnvironment } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/server-inherited-session-identity-import
 import { awaitLauncherLoss } from "../launcherWatch.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AutomaticPort from "./automaticPort.ts";
@@ -30,7 +30,7 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
     readonly rejectRunningServer?: boolean;
   },
 ) {
-  yield* stripInheritedProviderSessionIdentity; // fork-hook: upstream-fixes/server-inherited-session-identity
+  yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
   // Before config resolution, which claims a port and creates directories.
   const { runServer } = yield* Effect.promise(() => import("../server.ts"));
   const logLevel = yield* GlobalFlag.LogLevel;
