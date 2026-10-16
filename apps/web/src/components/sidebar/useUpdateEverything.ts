@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import { isForkServiceVersion } from "@t3tools/shared/forkVersion"; // fork-hook: distribution/update-everything-npm-gate-import
 import { Atom } from "effect/reactivity";
 import { useMemo } from "react";
 
@@ -83,7 +84,8 @@ export function useUpdateEverything(localUpdateVersion: string | null) {
   // A desktop-managed server installs from its own app's update feed, so only
   // servers that download t3 from npm wait for npm to publish the version.
   const needsNpm = behindServers.some((server) => server.selfUpdate !== "desktop-managed");
-  const published = useNpmReleasePublished(needsNpm ? targetVersion : null);
+  const fork = isForkServiceVersion(targetVersion); // fork-hook: distribution/update-everything-npm-gate-fork (fork releases install from GitHub)
+  const published = useNpmReleasePublished(needsNpm && !fork ? targetVersion : null) || fork; // fork-hook: distribution/update-everything-npm-gate
   const servers = published
     ? behindServers
     : behindServers.filter((server) => server.selfUpdate === "desktop-managed");
