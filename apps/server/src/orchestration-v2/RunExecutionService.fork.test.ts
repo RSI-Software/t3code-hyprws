@@ -206,19 +206,6 @@ describe("validated native subagent resume routing", () => {
   const rejected = [
     ["another run", subagentEvent({ runId: oldIdentity.runId })],
     ["null run", subagentEvent({ runId: null })],
-    ["wrong parent", subagentEvent({ threadId: ThreadId.make("thread:unrelated") })],
-    [
-      "wrong provider session",
-      subagentEvent({}, ProviderThreadId.make("provider-thread:unrelated")),
-    ],
-    [
-      "missing evidence",
-      {
-        type: "subagent.updated",
-        driver: ProviderDriverKind.make("claudeAgent"),
-        subagent: subagentEvent().subagent,
-      },
-    ],
     ["null child", subagentEvent({ childThreadId: null })],
     ...(["completed", "failed", "cancelled", "idle"] as const).map(
       (status) => [status, subagentEvent({ status })] as const,
@@ -230,14 +217,31 @@ describe("validated native subagent resume routing", () => {
     for (const child of childEvents()) assert.isFalse(route(child, identity, state)[0]);
   });
 
-  it("cannot use ownership of a child provider thread as parent evidence", () => {
-    const childProviderThreadId = ProviderThreadId.make("provider-thread:resumed-child:child");
-    const state = {
-      ...initial(),
-      ownedProviderThreadIds: new Set([identity.providerThreadId, childProviderThreadId]),
-    };
-    const [, after] = route(subagentEvent({}, childProviderThreadId), identity, state);
-    assert.isFalse(after.ownedThreadIds.has(childThreadId));
+  // Upstream `#20061` adopts an active provider-native child attributed to the run without
+  // parent evidence; the evidence still gates revoking the child from the run that held it.
+  const unproven = [
+    ["wrong parent", subagentEvent({ threadId: ThreadId.make("thread:unrelated") })],
+    [
+      "wrong provider session",
+      subagentEvent({}, ProviderThreadId.make("provider-thread:unrelated")),
+    ],
+    [
+      "child provider thread",
+      subagentEvent({}, ProviderThreadId.make("provider-thread:resumed-child:child")),
+    ],
+    [
+      "missing evidence",
+      {
+        type: "subagent.updated",
+        driver: ProviderDriverKind.make("claudeAgent"),
+        subagent: subagentEvent().subagent,
+      },
+    ],
+  ] satisfies ReadonlyArray<readonly [string, ProviderAdapterV2Event]>;
+  it.each(unproven)("does not revoke the holding run on %s", (_name, event) => {
+    const [, oldState] = route(event, oldIdentity, initial(oldIdentity, true));
+    assert.isTrue(oldState.ownedThreadIds.has(childThreadId));
+    for (const child of childEvents()) assert.isTrue(route(child, oldIdentity, oldState)[0]);
   });
 
   it("preserves adoption through app_thread.created for same-run launch and resume", () => {
