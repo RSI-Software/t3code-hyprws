@@ -645,17 +645,13 @@ function TerminalSessionViewport({
   const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
     reportFailure: false,
   });
-  const launchIdentity = useMemo(
-    () =>
-      terminalCheckoutLaunchIdentity({
-        attachmentId,
-        cwd,
-        ...(worktreePath !== undefined ? { worktreePath } : {}),
-        ...(runtimeEnv ? { runtimeEnv } : {}),
-      }),
-    [attachmentId, cwd, worktreePath, runtimeEnv],
-  );
-  const launchIdentityRef = useRef(launchIdentity);
+  const launchIdentity = terminalCheckoutLaunchIdentity({
+    attachmentId,
+    cwd,
+    ...(worktreePath !== undefined ? { worktreePath } : {}),
+    ...(runtimeEnv ? { runtimeEnv } : {}),
+  }); // fork-hook: zmux-estate/checkout-launch-identity
+  const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
   const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
