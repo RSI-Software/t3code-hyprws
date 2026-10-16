@@ -1,5 +1,5 @@
 import { act, useLayoutEffect } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   EnvironmentId,
@@ -8,6 +8,8 @@ import {
   VOICE_TEXT_STARTER_PROMPTS_FORK,
   type VoiceTextConfigFork,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
 import { useVoiceTextFork, type VoiceTextInputFork } from "./useVoiceText.fork";
 
 const mocks = vi.hoisted(() => ({
@@ -25,18 +27,26 @@ vi.mock("../state/session", () => ({
 vi.mock("@t3tools/client-runtime/rpc", () => ({
   transformVoiceTextFork: (_prepared: unknown, input: unknown) => input,
 }));
-vi.mock("./client.fork", () => ({
-  runVoiceInputRequestFork: (input: unknown, signal: AbortSignal) => mocks.request(input, signal),
+vi.mock("@t3tools/client-runtime/state/runtime", () => ({
+  executeAtomQuery: async (
+    _registry: unknown,
+    input: unknown,
+    options: { signal?: AbortSignal },
+  ) => {
+    try {
+      return AsyncResult.success(await mocks.request(input, options.signal));
+    } catch (error) {
+      return AsyncResult.failure(Cause.fail(error));
+    }
+  },
 }));
-vi.mock("../components/ui/button", () => ({ Button: "button" }));
-vi.mock("../components/ui/spinner", () => ({ Spinner: "span" }));
-vi.mock("../components/ui/tooltip", () => ({
-  Tooltip: "div",
-  TooltipTrigger: "span",
-  TooltipPopup: "span",
+vi.mock("../connection/runtime", () => ({
+  connectionAtomRuntime: { atom: (input: unknown) => input },
 }));
+vi.mock("../rpc/atomRegistry", () => ({ appAtomRegistry: {} }));
 
-let renderer: ReactTestRenderer;
+let root: Root;
+let container: HTMLDivElement;
 let actions: ReturnType<typeof useVoiceTextFork>;
 let draft: {
   text: string;
@@ -52,14 +62,16 @@ function Probe() {
   });
   return value.controls;
 }
+function errorText() {
+  return container.textContent ?? "";
+}
 async function click(label: string) {
-  await act(async () => {
-    await renderer.root.findByProps({ "aria-label": label }).props.onClick();
-  });
+  const button = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (!button) throw new Error(`No ${label} button.`);
+  await act(async () => button.click());
 }
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("navigator", { language: "en-US" });
   vi.spyOn(console, "error").mockImplementation(() => {});
   mocks.canOperate = true;
   mocks.config = {
@@ -88,12 +100,14 @@ beforeEach(async () => {
       draft = { ...draft, text, selection: { start: cursor, end: cursor } };
     },
   };
-  await act(() => {
-    renderer = create(<Probe />);
-  });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await act(() => root.render(<Probe />));
 });
 afterEach(async () => {
-  await act(() => renderer.unmount());
+  await act(() => root.unmount());
+  container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -124,7 +138,7 @@ describe("dictation text lifecycle", () => {
       draft.text = "typed use affect words";
       draft.revision++;
       actions.markDraftChanged();
-      renderer.update(<Probe />);
+      root.render(<Probe />);
     });
     expect(mocks.request).not.toHaveBeenCalled();
   });
@@ -185,24 +199,53 @@ describe("dictation text lifecycle", () => {
     expect(draft.text).toBe("react use affect");
     expect(mocks.request).toHaveBeenCalledTimes(1);
   });
-  it("preserves the transcript on cleanup failure", async () => {
-    mocks.request.mockRejectedValueOnce(new Error("model failed"));
+  it.each([
+    { detail: "This model is unavailable.", label: "Clean up draft" },
+    { detail: "Provider refused: Bearer [REDACTED] api_key=[REDACTED]", label: "Format draft" },
+  ])("preserves the draft and shows provider detail for $label", async ({ detail, label }) => {
+    mocks.request.mockRejectedValueOnce({
+      error: "Text generation failed.",
+      code: "model",
+      detail,
+    });
+    draft.text = "raw use affect";
+    const original = structuredClone(draft);
+    await click(label);
+    expect(draft).toEqual(original);
+    expect(errorText()).toContain(`${detail} Your draft was preserved.`);
+  });
+  it("keeps the current text when provider detail is absent", async () => {
+    mocks.request.mockRejectedValueOnce({ error: "Text generation failed.", code: "model" });
+    draft.text = "raw use affect";
+    await click("Clean up draft");
+    expect(draft.text).toBe("raw use affect");
+    expect(errorText()).toContain("Text processing failed. Your draft was preserved.");
+  });
+  it("preserves the transcript and shows detail on automatic cleanup failure", async () => {
+    mocks.request.mockRejectedValueOnce({
+      error: "Text generation failed.",
+      code: "model",
+      detail: "This model is unavailable.",
+    });
     await act(async () => {
       expect(await actions.processTranscript("raw use affect", new AbortController().signal)).toBe(
         "raw use affect",
       );
     });
+    expect(errorText()).toContain(
+      "This model is unavailable. The original transcript was preserved.",
+    );
   });
   it("does not submit cleanup without operate permission or for empty speech", async () => {
     mocks.canOperate = false;
-    await act(() => renderer.update(<Probe />));
+    await act(() => root.render(<Probe />));
     await act(async () => {
       expect(await actions.processTranscript("raw use affect", new AbortController().signal)).toBe(
         "raw use affect",
       );
     });
     mocks.canOperate = true;
-    await act(() => renderer.update(<Probe />));
+    await act(() => root.render(<Probe />));
     await act(async () => {
       expect(await actions.processTranscript(" ", new AbortController().signal)).toBe(" ");
     });
