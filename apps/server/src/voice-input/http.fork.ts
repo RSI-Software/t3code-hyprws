@@ -96,21 +96,22 @@ const failure = (error: VoiceInput.VoiceInputError) =>
     ),
   );
 
-const configureSettings = (service: VoiceInput.VoiceInput["Service"]) =>
-  Effect.gen(function* () {
-    const refusal = yield* authorize(AuthSettingsWriteScope);
-    if (refusal) return refusal;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
-      return json({ error: "Expected JSON settings." }, 415);
-    return yield* readBody(16384).pipe(
-      Effect.flatMap((bytes) => decodeSettingsJson(new TextDecoder().decode(bytes))),
-      Effect.mapError((cause) => new VoiceInput.VoiceInputError({ reason: "settings", cause })),
-      Effect.flatMap(service.configure),
-      Effect.map((settings) => json(settings)),
-      Effect.catch(failure),
-    );
-  });
+const configureSettings = Effect.fn("http.configureSettings")(function* (
+  service: VoiceInput.VoiceInput["Service"],
+) {
+  const refusal = yield* authorize(AuthSettingsWriteScope);
+  if (refusal) return refusal;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
+    return json({ error: "Expected JSON settings." }, 415);
+  return yield* readBody(16384).pipe(
+    Effect.flatMap((bytes) => decodeSettingsJson(new TextDecoder().decode(bytes))),
+    Effect.mapError((cause) => new VoiceInput.VoiceInputError({ reason: "settings", cause })),
+    Effect.flatMap(service.configure),
+    Effect.map((settings) => json(settings)),
+    Effect.catch(failure),
+  );
+});
 
 export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
   Layer.mergeAll(
@@ -208,7 +209,11 @@ const voiceTextRoutes = Layer.unwrap(
             Effect.catch((error) =>
               Effect.succeed(
                 json(
-                  { error: error.message, code: error.reason },
+                  {
+                    error: error.message,
+                    code: error.reason,
+                    ...(error.detail ? { detail: error.detail } : {}),
+                  },
                   error.reason === "model" || error.reason === "response" ? 502 : 400,
                 ),
               ),

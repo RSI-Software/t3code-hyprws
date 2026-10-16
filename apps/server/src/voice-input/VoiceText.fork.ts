@@ -20,11 +20,13 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { expandVoiceTextTemplateFork, voiceRecentMessagesFork } from "./voiceTextPrompts.fork.ts";
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { voiceTextGeneratorFork } from "@t3tools/provider-core/server/voiceTextGeneration.fork";
 
 export class VoiceTextError extends Schema.TaggedError<VoiceTextError>()("VoiceTextError", {
   reason: Schema.Literals(["settings", "project", "model", "response", "context", "disabled"]),
   cause: Schema.optionalKey(Schema.Defect()),
+  detail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
 }) {
   override get message() {
     switch (this.reason) {
@@ -131,7 +133,31 @@ const make = Effect.gen(function* () {
       cwd,
       prompt,
       modelSelection: config.modelSelection,
-    }).pipe(Effect.mapError((cause) => new VoiceTextError({ reason: "model", cause })));
+    }).pipe(
+      Effect.mapError((cause) => {
+        // OpenCode v2 and ACP failures keep the provider message on the immediate cause.
+        const providerMessage =
+          typeof cause.cause === "object" &&
+          cause.cause !== null &&
+          "message" in cause.cause &&
+          typeof cause.cause.message === "string"
+            ? cause.cause.message
+            : "";
+        const message = [
+          providerMessage.trim() ? cause.detail.replace(/\.$/, "") : cause.detail,
+          providerMessage,
+        ]
+          .filter((part) => part.trim())
+          .join(": ");
+        // Match chat failure redaction before shortening provider text for the composer.
+        const detail = makeProviderFailure({ message })
+          .message.split(/\r\n?|\n/, 1)[0]!
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 200);
+        return new VoiceTextError({ reason: "model", cause, ...(detail ? { detail } : {}) });
+      }),
+    );
     const text = result.text.trim();
     if (!text) return yield* new VoiceTextError({ reason: "response" });
     return { text };

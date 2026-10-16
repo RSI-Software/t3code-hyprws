@@ -47,7 +47,7 @@ function harness() {
   const reads: string[] = [];
   let serverModel = DEFAULT_SERVER_SETTINGS.textGenerationModelSelection;
   let result = "Corrected transcription";
-  let fails = false;
+  let failure: TextGenerationError | undefined;
   const instance: ProviderInstance = {
     instanceId: modelSelection.instanceId,
     driverKind: ProviderDriverKind.make("codex"),
@@ -70,10 +70,8 @@ function harness() {
       }),
       (input) => {
         calls.push(input);
-        return fails
-          ? Effect.fail(
-              new TextGenerationError({ operation: "generateTextFork", detail: "unavailable" }),
-            )
+        return failure !== undefined
+          ? Effect.fail(failure)
           : TextGenerationOperations.decodeJsonReply(
               input,
               "test",
@@ -153,8 +151,8 @@ function harness() {
     setResult: (value: string) => {
       result = value;
     },
-    fail: () => {
-      fails = true;
+    fail: (detail = "unavailable", cause?: unknown) => {
+      failure = new TextGenerationError({ operation: "generateTextFork", detail, cause });
     },
   };
 }
@@ -225,6 +223,33 @@ describe("dictation text generation", () => {
           .run((s) => s.transform({ projectId, operation: "format", text: "draft" }))
           .pipe(Effect.flip)).reason,
       ).toBe("model");
+    }),
+  );
+  it.effect.each([
+    {
+      detail: "OpenCode could not generate the text.",
+      cause: { type: "APIError", message: "Insufficient balance" },
+      expected: "OpenCode could not generate the text: Insufficient balance",
+    },
+    {
+      detail: "",
+      cause: {
+        type: "APIError",
+        message: `Bearer secret api_key=key-secret\t  ${"x".repeat(220)}\n    at provider (/private/token:1)`,
+      },
+      expected: `Bearer [REDACTED] api_key=[REDACTED] ${"x".repeat(220)}`.slice(0, 200),
+    },
+  ])("preserves bounded, redacted provider cause", ({ detail, cause, expected }) =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.run((s) => s.configure({ config }));
+      h.fail(detail, cause);
+      const error = yield* h
+        .run((s) => s.transform({ projectId, operation: "cleanup", text: "draft" }))
+        .pipe(Effect.flip);
+      expect(error.detail).toBe(expected);
+      expect(error.message).not.toContain("secret");
+      expect(error.cause).toMatchObject({ detail, cause });
     }),
   );
   it.effect(
