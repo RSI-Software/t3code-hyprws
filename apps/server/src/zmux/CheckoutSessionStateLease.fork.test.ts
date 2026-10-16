@@ -26,6 +26,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderEventIngestor from "../orchestration-v2/ProviderEventIngestor.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProjectEnrichment from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -62,7 +63,12 @@ const dependencies = Layer.merge(core, LegacyImporter.layer.pipe(Layer.provide(c
 const testLayer = Layer.mergeAll(
   dependencies,
   ProjectService.layer.pipe(Layer.provide(dependencies)),
-  ProviderEventIngestor.layer.pipe(Layer.provide(dependencies)),
+  ProviderEventIngestor.layer.pipe(
+    Layer.provide(dependencies),
+    Layer.provide(
+      Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveBranchName: () => Effect.succeed(null) }),
+    ),
+  ),
 );
 
 it.effect("ordinary mutations remain concurrent; pending cleanup excludes later mutations", () =>
