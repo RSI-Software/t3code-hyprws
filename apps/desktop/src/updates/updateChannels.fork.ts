@@ -21,7 +21,7 @@ export function resolveForkUpdaterChannel(channel: DesktopUpdateChannel): string
  * True for a fork nightly version (`X.Y.Z-hyprws-nightly.YYYYMMDD.N`).
  * Upstream's patterns read the train from a bare `-nightly.` identifier, so
  * without this a fork nightly defaults to `latest`, rejects every nightly the
- * updater offers, and brands itself Alpha. A fork stable (`-hyprws.N`) stays
+ * updater offers, and brands itself as stable. A fork stable (`-hyprws.N`) stays
  * `latest`. See RSI-Software/t3code-hyprws#1389.
  */
 export function isForkNightlyDesktopVersion(version: string): boolean {
