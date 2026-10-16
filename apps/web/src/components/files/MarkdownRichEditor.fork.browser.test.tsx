@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -18,6 +17,7 @@ async function renderEditor(value: string, onChange: (markdown: string) => void)
       <MarkdownRichEditor
         value={value}
         onChange={onChange}
+        onSave={() => undefined}
         cwd="/workspace"
         relativePath="README.md"
         onOpenFile={() => undefined}
