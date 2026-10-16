@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { makePullRequestRefreshesFork } from "./pullRequestRefreshes.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-import
 import {
   type AttachmentCreateUploadUrlResult,
   PullRequestOperationError,
@@ -232,6 +233,7 @@ export class PullRequestService extends Context.Service<
     readonly subscribeLinkedThreadRefreshes: Stream.Stream<number>;
     /** Wakes linked-thread readers only; other pull request reads don't depend on thread links. */
     readonly notifyLinkedThreadsChanged: Effect.Effect<void>;
+    readonly subscribeActivityRefreshesFork: Stream.Stream<number>; // fork-hook: upstream-fixes/pr-activity-refresh-service
     readonly refreshAfterTurn: (
       projectId: ProjectId,
       options?: { readonly pushed?: boolean },
@@ -756,6 +758,7 @@ export const make = Effect.gen(function* () {
   const stateChanges = yield* PubSub.sliding<ThreadPullRequestKey>(64);
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
   const linkedThreadRefreshes = yield* SubscriptionRef.make(0);
+  const pullRequestActivityRefreshesFork = yield* makePullRequestRefreshesFork; // fork-hook: upstream-fixes/pr-activity-refresh-state
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
   const requirementOf: UnavailableRequirementOf = (kind) =>
     registry.get(kind)?.unavailableRequirement;
@@ -3753,6 +3756,7 @@ export const make = Effect.gen(function* () {
     }
     if (options?.notifyReaders) {
       yield* SubscriptionRef.set(pullRequestRefreshes, ++epochCounter);
+      yield* pullRequestActivityRefreshesFork.publish(epochCounter); // fork-hook: upstream-fixes/pr-activity-refresh-invalidate
     }
   });
 
@@ -3802,6 +3806,7 @@ export const make = Effect.gen(function* () {
           ),
         );
         yield* SubscriptionRef.set(pullRequestRefreshes, listingsEpoch);
+        yield* pullRequestActivityRefreshesFork.publish(listingsEpoch); // fork-hook: upstream-fixes/pr-activity-refresh-mutation
       });
   const runActionAndInvalidate: PullRequestService["Service"]["runAction"] = Effect.fn(
     "PullRequestService.runActionAndInvalidate",
@@ -3814,6 +3819,7 @@ export const make = Effect.gen(function* () {
     bumpRefEpoch({ ...ref, repository });
     listingsEpoch = ++epochCounter;
     yield* SubscriptionRef.set(pullRequestRefreshes, listingsEpoch);
+    yield* pullRequestActivityRefreshesFork.publish(listingsEpoch); // fork-hook: upstream-fixes/pr-activity-refresh-action
     if (input.action === "merge") {
       // A successful merge action can merely enqueue the PR or enable auto-merge.
       const merged = summary?.state === "merged" ? summary : null;
@@ -3987,6 +3993,7 @@ export const make = Effect.gen(function* () {
       Stream.filter((revision) => revision > 0),
     ),
     notifyLinkedThreadsChanged,
+    subscribeActivityRefreshesFork: pullRequestActivityRefreshesFork.activity, // fork-hook: upstream-fixes/pr-activity-refresh-activity-stream
     refreshAfterTurn,
     detail: credentialCached(detail),
     checks: credentialCached((input) => Cache.get(checksCache, refCacheKey(input))),
