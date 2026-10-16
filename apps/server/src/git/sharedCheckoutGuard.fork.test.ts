@@ -211,12 +211,15 @@ describe("sharedCheckoutWsLayerFork", () => {
     const log: string[] = [];
     const moving = {
       ...shellThread("root", null, false),
+      title: "Refusal toast regression",
       checkoutMove: { status: "queued" },
     } as unknown as OrchestrationV2ThreadShell;
     return Effect.gen(function* () {
       const threads = yield* ThreadManagement.ThreadManagementService;
       const error = yield* threads.dispatch(messageDispatch("root")).pipe(Effect.flip);
-      expect(String(error.cause)).toContain("has a checkout move in progress");
+      expect(error.cause).toBe(
+        'Thread "Refusal toast regression" has a checkout move in progress. Send again when it finishes.',
+      );
       expect(log).toEqual([]);
     }).pipe(Effect.provide(makeHarness({ threads: [moving], log })));
   });
