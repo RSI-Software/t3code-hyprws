@@ -572,7 +572,7 @@ export function TerminalViewport({
       }),
     [attachmentId, cwd, worktreePath, runtimeEnv],
   );
-  const launchIdentityRef = useRef(launchIdentity);
+  const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
   const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
