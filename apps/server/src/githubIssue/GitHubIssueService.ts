@@ -26,7 +26,8 @@ import * as Schema from "effect/Schema";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import type * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import {
   decodeParsedGitHubIssueDetail,
   decodeParsedGitHubIssueList,
@@ -173,7 +174,7 @@ function authCommandForHost(host: string): string {
 }
 
 function fromApiError(operation: string, host: string) {
-  return (error: GitHubApi.GitHubApiError): GitHubIssueError => {
+  return (error: GitHubRequestPolicy.GitHubApiError): GitHubIssueError => {
     // No credential at all is the missing-binary world's "nothing to authenticate with": the
     // whole read fails rather than degrading, the way a missing `gh` once did.
     if (error._tag === "GitHubCliMissingError") {
@@ -223,7 +224,7 @@ function toRawIssue(row: GraphQlIssueRowType): Record<string, unknown> {
 }
 
 export const make = Effect.gen(function* () {
-  const api = yield* GitHubApi.GitHubApi;
+  const api = yield* GitHubIssueGraphQl.GitHubIssueGraphQl;
   const projectService = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
 
