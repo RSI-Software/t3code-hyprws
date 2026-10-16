@@ -1230,7 +1230,7 @@ export default function FilePreviewPanel({
     enabled:
       attachment === undefined &&
       relativePath !== null &&
-      (isDirectory || (!isMedia && !isPdf)) &&
+      (isFolder || (!isMedia && !isPdf)) &&
       !selectedFilePending,
     key: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
   });
