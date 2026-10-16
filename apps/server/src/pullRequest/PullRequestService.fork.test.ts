@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
@@ -170,6 +171,44 @@ function makeService(input: {
     ),
   );
 }
+it.effect(
+  "keeps activity's revision through turns but refreshes it for edits and explicit refreshes",
+  () =>
+    Effect.gen(function* () {
+      const ref = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "web", workspaceRoot: "/w", repository: ref.repository }),
+        ],
+        providers: [fakeProvider(SourceControlProviderKind.make("github"))],
+      });
+      const revision = (activity: boolean) =>
+        Stream.runHead(
+          activity ? service.subscribeActivityRefreshesFork : service.subscribeRefreshes,
+        ).pipe(Effect.map(Option.getOrThrow));
+
+      yield* service.invalidate({ reference: ref }, { notifyReaders: true });
+      let activityRevision = yield* revision(true);
+      assert.strictEqual(yield* revision(false), activityRevision);
+      for (let turn = 0; turn < 20; turn++) yield* service.refreshAfterTurn(ref.projectId);
+      assert.strictEqual(yield* revision(true), activityRevision);
+      assert.isAbove(yield* revision(false), activityRevision);
+
+      for (const edit of [
+        service.comment({ ...ref, body: "new comment" }),
+        service.runAction({ ...ref, action: "close" }),
+        service.invalidate({}, { notifyReaders: true }),
+      ]) {
+        yield* edit;
+        const next = yield* revision(true);
+        assert.isAbove(next, activityRevision);
+        activityRevision = next;
+        yield* service.refreshAfterTurn(ref.projectId);
+        assert.strictEqual(yield* revision(true), activityRevision);
+      }
+    }),
+);
+
 /** A row as a host that reads several repositories at once hands it over. */
 it.effect("uses the requested project to read another repository on the same host", () =>
   Effect.gen(function* () {
