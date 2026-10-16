@@ -43,8 +43,11 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import * as CommandOutputHub from "./CommandOutputHub.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -115,7 +118,7 @@ const layerFlakyProjectionReads = (flaky: FlakyProjectionReads) =>
         Effect.gen(function* () {
           if (yield* Ref.getAndSet(flaky.armed, false)) {
             yield* Queue.offer(flaky.failures, undefined);
-            return yield* Effect.fail(new ProjectionStore.ProjectionStoreReadError({ threadId }));
+            return yield* new ProjectionStore.ProjectionStoreReadError({ threadId });
           }
           return yield* delegate.getThreadRecords(threadId, fields, filter);
         });
@@ -211,12 +214,10 @@ const layerTest = (input: {
           startTurn: () => Effect.die("unused"),
           steerTurn: () => Effect.void,
           interruptTurn: ({ providerTurnId }) =>
-            Effect.gen(function* () {
-              yield* Ref.update(input.state, (current) => ({
-                ...current,
-                interruptedTurnIds: [...current.interruptedTurnIds, providerTurnId],
-              }));
-            }),
+            Ref.update(input.state, (current) => ({
+              ...current,
+              interruptedTurnIds: [...current.interruptedTurnIds, providerTurnId],
+            })),
           unloadThread: ({ providerThread }) =>
             Effect.gen(function* () {
               yield* Ref.update(input.state, (current) => ({
@@ -253,6 +254,13 @@ const layerTest = (input: {
         IdAllocator.layer,
         layerTestStores,
         ThreadCommandExecutor.layer,
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
+          getInstance: () => Effect.succeed(undefined),
+        }),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
+          resolveBranchName: () => Effect.succeed(null),
+        }),
       ),
     ),
   );
@@ -267,6 +275,9 @@ const layerTest = (input: {
         Layer.mergeAll(
           ProviderAdapterRegistry.layerFromAdapters([adapter]).pipe(
             Layer.provideMerge(McpProviderSessions.layer),
+          ),
+          CommandOutputHub.layer.pipe(
+            Layer.provide(Layer.merge(layerConfiguredEventSink, layerTestStores)),
           ),
           layerConfiguredEventSink,
           IdAllocator.layer,
