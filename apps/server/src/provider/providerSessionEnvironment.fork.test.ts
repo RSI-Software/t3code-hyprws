@@ -13,7 +13,7 @@ import {
   codexThreadIdentityConfig,
   providerSessionIdentity,
   providerSessionProjectId,
-  stripInheritedProviderSessionIdentity,
+  stripInheritedProviderEnvironment,
   withoutProviderSessionIdentity,
   withSessionIdentityWhenKnown,
   withThreadProjects,
@@ -48,15 +48,32 @@ describe("provider session identity helpers", () => {
   });
 });
 
-describe("stripInheritedProviderSessionIdentity", () => {
-  it.effect("drops the launcher's ids from the server's own environment", () =>
-    Effect.gen(function* () {
-      const environment: NodeJS.ProcessEnv = { ...leaked };
-      yield* stripInheritedProviderSessionIdentity.pipe(
-        Effect.provideService(HostProcess.Environment, environment),
-      );
-      expect(environment).toEqual({ PATH: "/bin" });
-    }),
+describe("stripInheritedProviderEnvironment", () => {
+  it.effect(
+    "drops inherited session ids and desktop launcher settings from the server environment",
+    () =>
+      Effect.gen(function* () {
+        const environment: NodeJS.ProcessEnv = {
+          ...leaked,
+          T3CODE_DESKTOP_AGENT_WORKSPACE: "agent-workspace",
+          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "placement",
+          T3CODE_DESKTOP_REMOTE_DEBUGGING_PORT: "9222",
+          T3CODE_DESKTOP_USER_DATA_DIR: "/desktop/data",
+          T3CODE_DESKTOP_DEVTOOLS: "0",
+          T3CODE_DESKTOP_FUTURE_FLAG: "",
+          t3code_desktop_windows_case: "1",
+          T3CODE_DESKTOP: "not-prefixed",
+          ANTHROPIC_API_KEY: "test-key",
+        };
+        yield* stripInheritedProviderEnvironment.pipe(
+          Effect.provideService(HostProcess.Environment, environment),
+        );
+        expect(environment).toEqual({
+          PATH: "/bin",
+          T3CODE_DESKTOP: "not-prefixed",
+          ANTHROPIC_API_KEY: "test-key",
+        });
+      }),
   );
 });
 
