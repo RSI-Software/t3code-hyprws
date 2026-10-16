@@ -18,6 +18,7 @@ async function renderEditor(value: string, onChange: (markdown: string) => void)
       <MarkdownRichEditor
         value={value}
         onChange={onChange}
+        onSave={() => undefined}
         cwd="/workspace"
         relativePath="README.md"
         onOpenFile={() => undefined}
