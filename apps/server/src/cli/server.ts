@@ -7,7 +7,7 @@ import { Command, GlobalFlag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import * as ServerConfig from "../config.ts";
-import { stripInheritedProviderSessionIdentity } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/server-inherited-session-identity-import
+import { stripInheritedProviderEnvironment } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/server-inherited-session-identity-import
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
@@ -22,7 +22,7 @@ const runServerCommand = (
   },
 ) =>
   Effect.gen(function* () {
-    yield* stripInheritedProviderSessionIdentity; // fork-hook: upstream-fixes/server-inherited-session-identity
+    yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
     return yield* runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
