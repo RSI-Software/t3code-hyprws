@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 import {
   AuthOrchestrationOperateScope,
+  isVoiceTextHttpErrorFork,
   type EnvironmentId,
   type ProjectId,
   type ThreadId,
@@ -151,10 +152,10 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
             captured.ownerKey,
           );
         })
-        .catch(() => {
+        .catch((cause) => {
           if (!controller.signal.aborted)
             setError(
-              "Text processing failed. Your draft was preserved. Retry the action or check the model in Settings.",
+              `${isVoiceTextHttpErrorFork(cause) && cause.detail ? cause.detail : "Text processing failed."} Your draft was preserved. Retry the action or check the model in Settings.`,
             );
         })
         .finally(() => {
@@ -191,7 +192,9 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
         .catch((cause) => {
           if (signal.aborted) throw cause;
           if (controller.signal.aborted) return text;
-          setError("Automatic cleanup failed. The original transcript was preserved.");
+          setError(
+            `${isVoiceTextHttpErrorFork(cause) && cause.detail ? cause.detail : "Automatic cleanup failed."} The original transcript was preserved.`,
+          );
           return text;
         })
         .finally(() => {
