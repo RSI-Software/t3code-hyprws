@@ -14,6 +14,7 @@ import {
 import { ServerSettingsService } from "../serverSettings.ts";
 import { TextGeneration } from "../textGeneration/TextGeneration.ts";
 import type { ProjectStoreV2 } from "./ProjectStore.ts";
+import { withThreadGroupTitleBudgetFork } from "./ThreadGroupTitles.timeout.fork.ts"; // fork-hook: thread-ordering/title-budget-import
 
 // The thread-title prompt titles whatever the user asked for, so an
 // instruction here becomes the title ("Name Sidebar Thread Group"). Each
@@ -32,12 +33,14 @@ export function generateThreadGroupTitle(
     readonly modelSelection: ModelSelection;
   },
 ) {
-  return textGeneration.generateThreadTitle({
-    cwd: input.cwd,
-    message: buildThreadGroupTitleMessage(input.memberTitles),
-    ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
-    modelSelection: input.modelSelection,
-  });
+  return textGeneration
+    .generateThreadTitle({
+      cwd: input.cwd,
+      message: buildThreadGroupTitleMessage(input.memberTitles),
+      ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
+      modelSelection: input.modelSelection,
+    })
+    .pipe(withThreadGroupTitleBudgetFork); // fork-hook: thread-ordering/title-budget
 }
 
 const failTitleGeneration = (cause: unknown) =>
