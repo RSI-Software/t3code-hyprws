@@ -719,6 +719,9 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   }
 
   const worktreePath = yield* resolveGitWorktreePath(yield* HostProcess.WorkingDirectory);
+  // Like T3CODE_HOME below, an ambient T3CODE_PORT belongs to the live install;
+  // a worktree derives its own port. `--port` still wins.
+  const port = input.port ?? (worktreePath ? undefined : yield* optionalPortConfig("T3CODE_PORT"));
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
@@ -729,7 +732,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   const { serverOffset, webOffset } = yield* resolveModePortOffsets({
     mode: input.mode,
     startOffset: offset,
-    hasExplicitServerPort: input.port !== undefined,
+    hasExplicitServerPort: port !== undefined,
     hasExplicitDevUrl: input.devUrl !== undefined,
     checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
   });
@@ -756,7 +759,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
     logWebSocketEvents: input.logWebSocketEvents,
     host: input.host,
-    port: input.port,
+    port,
     devUrl: input.devUrl,
   });
 
@@ -765,6 +768,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
       ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
       : "";
   const baseDir = env.T3CODE_HOME ?? (yield* DEFAULT_T3_HOME);
+  // Each worktree's dev Electron keeps its own profile instead of the shared one.
+  if (worktreeHome !== undefined && baseDir === worktreeHome) {
+    env.T3CODE_DEV_ELECTRON_USER_DATA ??= (yield* Path.Path).join(worktreeHome, "electron");
+  }
 
   yield* Effect.logInfo(
     `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,
@@ -879,7 +886,8 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     shell: spawnCommand.shell,
   } as const;
   const child = yield* ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-    stdin: "inherit",
+    // A background process group must not read the terminal (SIGTTIN).
+    stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
     env,
@@ -904,7 +912,24 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     input.memoryLimitGb === undefined
       ? defaultDevMemoryLimitBytes()
       : input.memoryLimitGb * 1024 ** 3;
-  const exitCode = yield* child.exitCode.pipe(
+  // `vp run` forwards no signals and its shim survives behind a node task runner, so a
+  // stopped `vp run dev*` orphans the runner's parent or grandparent; end with either so
+  // the scope tears the group down. The grandparent check reads /proc (Linux only).
+  const fs = yield* FileSystem.FileSystem;
+  const ancestry = Effect.suspend(() => {
+    const parent = process.ppid;
+    return fs.readFileString(`/proc/${parent}/stat`).pipe(
+      Effect.map((stat) => `${parent}:${stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]}`),
+      Effect.orElseSucceed(() => `${parent}`),
+    );
+  });
+  const initialAncestry = yield* ancestry;
+  const parentGone = Effect.gen(function* () {
+    while ((yield* ancestry) === initialAncestry) yield* Effect.sleep("1 second");
+    return 143;
+  });
+
+  const exitCode = yield* Effect.raceFirst(child.exitCode, parentGone).pipe(
     Effect.mapError(
       (cause) =>
         new DevRunnerProcessError({
