@@ -1,12 +1,17 @@
 import { assert, describe, it, vi } from "@effect/vitest";
-import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import {
+  SourceControlProviderKind,
+  type OrchestrationProjectShell,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import * as GitHubApi from "@t3tools/source-control-github/server/GitHubApi";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as GitHubIssueService from "./GitHubIssueService.ts";
 
@@ -32,7 +37,7 @@ function project(input: {
         remoteName: "origin",
         remoteUrl: `https://${host}/${repository}.git`,
       },
-      provider: input.provider ?? "github",
+      provider: SourceControlProviderKind.make(input.provider ?? "github"),
       displayName: repository,
       owner,
       name,
@@ -85,12 +90,12 @@ const issueIdAnswer = (id: string) =>
 
 function makeService(
   projects: ReadonlyArray<OrchestrationProjectShell>,
-  graphql: GitHubApi.GitHubApi["Service"]["graphql"],
+  graphql: GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"],
 ) {
   return GitHubIssueService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
-        Layer.mock(GitHubApi.GitHubApi)({ graphql }),
+        Layer.mock(GitHubIssueGraphQl.GitHubIssueGraphQl)({ graphql }),
         Layer.mock(ProjectService.ProjectService)({
           listShells: () => Effect.succeed(projects),
           getShell: (projectId) =>
@@ -108,7 +113,7 @@ function makeService(
 describe("GitHubIssueService", () => {
   it.effect("composes the search qualifiers while discovering only GitHub projects", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         searchAnswer([issueRow(2), issueRow(1)]),
       );
       const service = yield* makeService(
@@ -141,7 +146,9 @@ describe("GitHubIssueService", () => {
 
   it.effect("sends sort:updated-desc when no user query is present", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() => searchAnswer([]));
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
+        searchAnswer([]),
+      );
       const service = yield* makeService(
         [project({ id: "p1", title: "web", workspaceRoot: "/web" })],
         graphql,
@@ -156,7 +163,9 @@ describe("GitHubIssueService", () => {
 
   it.effect("routes Enterprise repositories to their host", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() => searchAnswer([]));
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
+        searchAnswer([]),
+      );
       const service = yield* makeService(
         [
           project({
@@ -181,7 +190,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("applies project filtering before repository de-duplication", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         searchAnswer([issueRow(7)]),
       );
       const service = yield* makeService(
@@ -199,7 +208,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("sorts mixed timezone offsets by instant and limits globally", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         Effect.succeed(
           JSON.stringify({
             data: {
@@ -232,7 +241,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("marks a per-repository overflow as truncated", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         searchAnswer([issueRow(3), issueRow(2), issueRow(1)]),
       );
       const service = yield* makeService(
@@ -247,7 +256,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("carries each row's true comment count from the search answer", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         searchAnswer([issueRow(5), { ...issueRow(6), comments: { totalCount: 12 } }]),
       );
       const service = yield* makeService(
@@ -264,10 +273,10 @@ describe("GitHubIssueService", () => {
 
   it.effect("keeps healthy rows when one host is unauthenticated", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         call.host === "ghe.acme.dev"
           ? Effect.fail(
-              new GitHubApi.GitHubApiAuthenticationError({
+              new GitHubRequestPolicy.GitHubApiAuthenticationError({
                 host: call.host,
                 operation: "listIssues",
               }),
@@ -299,9 +308,9 @@ describe("GitHubIssueService", () => {
 
   it.effect("returns project errors when every repository fails", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.fail(
-          new GitHubApi.GitHubApiAuthenticationError({
+          new GitHubRequestPolicy.GitHubApiAuthenticationError({
             host: "github.com",
             operation: "listIssues",
           }),
@@ -319,7 +328,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("degrades malformed repository output", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.succeed("not-json"),
       );
       const service = yield* makeService(
@@ -334,7 +343,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("fails the whole read when the host has no credential at all", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.fail(new GitHubCredentials.GitHubCliMissingError({ host: "github.com" })),
       );
       const service = yield* makeService(
@@ -348,7 +357,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("uses the selected project to read an issue from another repository", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         issueAnswer({
           ...issueRow(42),
           body: "Cross-repository issue",
@@ -376,7 +385,7 @@ describe("GitHubIssueService", () => {
     Effect.gen(function* () {
       // The read window is the newest 100 comments; totalCount says how many exist in full.
       const nodes = Array.from({ length: 100 }, (_, index) => commentNode(index + 2));
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         issueAnswer({
           ...issueRow(42),
           body: "Body",
@@ -403,7 +412,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("loads issue detail and normalizes comment count", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         issueAnswer({
           ...issueRow(42),
           body: "Visible issue body",
@@ -440,7 +449,7 @@ describe("GitHubIssueService", () => {
 
   it.effect("closes with a reason and reopens without one", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>((call) =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>((call) =>
         String(call.query).includes("closeIssue")
           ? Effect.succeed(JSON.stringify({ data: { closeIssue: { issue: { id: "node-1" } } } }))
           : String(call.query).includes("reopenIssue")
@@ -472,9 +481,9 @@ describe("GitHubIssueService", () => {
 
   it.effect("reports an unauthenticated close with the host to log in to", () =>
     Effect.gen(function* () {
-      const graphql = vi.fn<GitHubApi.GitHubApi["Service"]["graphql"]>(() =>
+      const graphql = vi.fn<GitHubIssueGraphQl.GitHubIssueGraphQl["Service"]["graphql"]>(() =>
         Effect.fail(
-          new GitHubApi.GitHubApiAuthenticationError({
+          new GitHubRequestPolicy.GitHubApiAuthenticationError({
             host: "ghe.acme.dev",
             operation: "closeIssueId",
           }),
