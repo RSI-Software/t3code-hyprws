@@ -35,6 +35,8 @@ export const wsRpcHandlersLayerFork = WsRpcGroupFork.toLayer(
       "pullRequests.createAttachmentUploadUrl": (input) =>
         pullRequests.createAttachmentUploadUrl(input),
       "pullRequests.uploadAttachment": (input) => pullRequests.uploadAttachment(input),
+      "pullRequests.subscribeActivityRefreshesFork": () =>
+        pullRequests.subscribeActivityRefreshesFork,
     });
   }),
 );
