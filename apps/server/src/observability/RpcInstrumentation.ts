@@ -132,6 +132,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.pullRequestsRequestReviewers]: "pull-requests",
   [WS_METHODS.pullRequestsLabelCandidates]: "pull-requests",
   [WS_METHODS.pullRequestsSetLabels]: "pull-requests",
+  [WS_METHODS.pullRequestsSubscribeActivityRefreshesFork]: "pull-requests", // fork-hook: upstream-fixes/pr-activity-refresh-rpc-aggregate
   [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
   [WS_METHODS.pullRequestsUploadAttachment]: "pull-requests", // fork-hook: upstream-fixes/pr-attachment-rpc-aggregates
   [WS_METHODS.githubIssuesList]: "github-issues", // fork-hook: github-issues/rpc-aggregates
