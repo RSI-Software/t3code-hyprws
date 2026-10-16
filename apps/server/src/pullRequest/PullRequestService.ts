@@ -19,7 +19,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as SubscriptionRef from "effect/SubscriptionRef";
+import { makePullRequestRefreshesFork } from "./pullRequestRefreshes.fork.ts"; // fork-hook: upstream-fixes/pr-activity-refresh-import
 import {
   type AttachmentCreateUploadUrlResult,
   PullRequestOperationError,
@@ -206,6 +206,7 @@ export class PullRequestService extends Context.Service<
       input: PullRequestReportStateInput,
     ) => Effect.Effect<void, PullRequestError>;
     readonly subscribeRefreshes: Stream.Stream<number>;
+    readonly subscribeActivityRefreshesFork: Stream.Stream<number>; // fork-hook: upstream-fixes/pr-activity-refresh-service
     readonly refreshAfterTurn: (projectId: ProjectId) => Effect.Effect<void>;
     readonly detail: (input: PullRequestRef) => Effect.Effect<PullRequestDetail, PullRequestError>;
     readonly preview: (
@@ -590,7 +591,7 @@ const observeRead = Effect.fnUntraced(function* <A, E, R>(read: Effect.Effect<A,
 export const make = Effect.gen(function* () {
   const mergedPullRequests = yield* PubSub.sliding<PullRequestMergeEvent>(64);
   const stateChanges = yield* PubSub.sliding<ThreadPullRequestKey>(64);
-  const pullRequestRefreshes = yield* SubscriptionRef.make(0);
+  const pullRequestRefreshes = yield* makePullRequestRefreshesFork; // fork-hook: upstream-fixes/pr-activity-refresh-state
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projects = yield* ProjectService.ProjectService;
@@ -3255,7 +3256,7 @@ export const make = Effect.gen(function* () {
       yield* Cache.invalidateAll(viewerFlights);
     }
     if (options?.notifyReaders) {
-      yield* SubscriptionRef.set(pullRequestRefreshes, ++epochCounter);
+      yield* pullRequestRefreshes.publish(++epochCounter); // fork-hook: upstream-fixes/pr-activity-refresh-invalidate
     }
   });
 
@@ -3273,7 +3274,7 @@ export const make = Effect.gen(function* () {
       projectEpochs.set(projectId, listingsEpoch);
       return readCache
         .invalidate(`project:${projectId}`)
-        .pipe(Effect.andThen(SubscriptionRef.set(pullRequestRefreshes, listingsEpoch)));
+        .pipe(Effect.andThen(pullRequestRefreshes.publish(listingsEpoch, true))); // fork-hook: upstream-fixes/pr-activity-refresh-turn
     });
 
   const invalidatedByMutation =
@@ -3293,7 +3294,7 @@ export const make = Effect.gen(function* () {
             }),
           ),
         );
-        yield* SubscriptionRef.set(pullRequestRefreshes, listingsEpoch);
+        yield* pullRequestRefreshes.publish(listingsEpoch); // fork-hook: upstream-fixes/pr-activity-refresh-mutation
       });
   const runActionAndInvalidate: PullRequestService["Service"]["runAction"] = Effect.fn(
     "PullRequestService.runActionAndInvalidate",
@@ -3305,7 +3306,7 @@ export const make = Effect.gen(function* () {
     );
     bumpRefEpoch({ ...ref, repository });
     listingsEpoch = ++epochCounter;
-    yield* SubscriptionRef.set(pullRequestRefreshes, listingsEpoch);
+    yield* pullRequestRefreshes.publish(listingsEpoch); // fork-hook: upstream-fixes/pr-activity-refresh-action
     if (input.action === "merge") {
       // A successful merge action can merely enqueue the PR or enable auto-merge.
       const confirmed = yield* summaryUncached({ ...input, repository }).pipe(
@@ -3444,9 +3445,8 @@ export const make = Effect.gen(function* () {
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
     ),
     reportState,
-    subscribeRefreshes: SubscriptionRef.changes(pullRequestRefreshes).pipe(
-      Stream.filter((revision) => revision > 0),
-    ),
+    subscribeRefreshes: pullRequestRefreshes.all, // fork-hook: upstream-fixes/pr-activity-refresh-stream
+    subscribeActivityRefreshesFork: pullRequestRefreshes.activity, // fork-hook: upstream-fixes/pr-activity-refresh-activity-stream
     refreshAfterTurn,
     detail: credentialCached(detail),
     checks: credentialCached((input) => Cache.get(checksCache, refCacheKey(input))),
