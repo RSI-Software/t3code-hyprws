@@ -456,7 +456,7 @@ export const checkoutMoveServiceLiveFork = checkoutMoveServiceLayerFork.pipe(
   Layer.provide(layerEventSink),
 );
 
-/** Spread into the WebSocket handler table through `zmux-estate/ws-checkout-move-handlers`. */
+/** Spread into the fork WS handler table in `wsRpcHandlers.fork.ts`. */
 export const checkoutMoveRpcHandlersFork = (checkoutMoves: CheckoutMoveServiceFork["Service"]) => ({
   "thread.checkoutMove.request": (input: ThreadCheckoutMoveRequestInput) =>
     checkoutMoves.request(input),
