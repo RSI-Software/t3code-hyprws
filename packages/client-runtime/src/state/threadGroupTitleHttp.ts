@@ -1,3 +1,4 @@
+import { THREAD_GROUP_TITLE_CLIENT_TIMEOUT_MS_FORK as DEFAULT_THREAD_GROUP_TITLE_TIMEOUT_MS } from "@t3tools/contracts"; // fork-hook: thread-ordering/title-budget
 import type {
   ThreadGroupTitleGenerationInput,
   ThreadGroupTitleGenerationResult,
@@ -13,8 +14,6 @@ import type { PreparedConnection } from "../connection/model.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
-
-const DEFAULT_THREAD_GROUP_TITLE_TIMEOUT_MS = 60_000;
 
 export const fetchEnvironmentThreadGroupTitle = Effect.fn(
   "clientRuntime.state.fetchEnvironmentThreadGroupTitle",
