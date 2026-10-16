@@ -119,6 +119,7 @@ import {
   workspaceAssetResource,
 } from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import { useFileEditorSaveShortcutFork } from "./fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
 import {
   RichMarkdownPreviewBoundary,
   resolveRichMarkdownPreviewMode,
@@ -687,6 +688,7 @@ function EditableFileSurface({
     relativePath,
     onPendingChange,
   });
+  useFileEditorSaveShortcutFork(surfaceRef, saveCoordinator.flush); // fork-hook: markdown-editing/source-file-save
   // Retain file identity for echoed editor changes; only external changes replace the editor's draft.
   const [externalFile, setExternalFile] = useState(() =>
     editableFileContents(environmentId, cwd, relativePath, contents),
