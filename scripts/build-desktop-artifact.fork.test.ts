@@ -32,7 +32,7 @@ it.layer(NodeServices.layer)((it) => {
       const stable = yield* linuxEntry("0.0.43-hyprws.5");
       assert.deepStrictEqual(stable, {
         appId: "com.t3tools.t3code",
-        productName: "T3 Code (Alpha)",
+        productName: "T3 Code (Beta)",
         entry: { StartupWMClass: "t3code", Name: "T3 Code (hyprws)" },
       });
 
