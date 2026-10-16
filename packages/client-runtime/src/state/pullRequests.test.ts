@@ -595,6 +595,10 @@ function session(client: WsRpcProtocolClient): RpcSession {
   return {
     client: {
       ...client,
+      // fork-hook: upstream-fixes/pr-activity-refresh-test-fixture
+      [WS_METHODS.pullRequestsSubscribeActivityRefreshesFork]:
+        client[WS_METHODS.pullRequestsSubscribeActivityRefreshesFork] ??
+        client[WS_METHODS.pullRequestsSubscribeRefreshes],
       [WS_METHODS.pullRequestsInvalidate]:
         client[WS_METHODS.pullRequestsInvalidate] ?? (() => Effect.void),
     },
