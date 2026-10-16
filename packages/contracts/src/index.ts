@@ -75,6 +75,7 @@ export { wsRpcsFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/ws-rpcs
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
+export * from "./textGeneration.fork.ts"; // fork-hook: thread-ordering/title-budget-export
 export * from "./voiceInput.fork.ts"; // fork-hook: voice-input/contracts-export
 export * from "./voiceDucking.fork.ts"; // fork-hook: voice-input/ducking-contracts
 export * from "./terminalSession.fork.ts"; // fork-hook: zmux-estate/terminal-session-export
