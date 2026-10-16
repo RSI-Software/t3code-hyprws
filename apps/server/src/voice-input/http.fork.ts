@@ -212,7 +212,11 @@ const voiceTextRoutes = Layer.unwrap(
             Effect.catch((error) =>
               Effect.succeed(
                 json(
-                  { error: error.message, code: error.reason },
+                  {
+                    error: error.message,
+                    code: error.reason,
+                    ...(error.detail ? { detail: error.detail } : {}),
+                  },
                   error.reason === "model" || error.reason === "response" ? 502 : 400,
                 ),
               ),
