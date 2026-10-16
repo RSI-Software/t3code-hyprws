@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -12,6 +12,7 @@ import { ManagedRelayDpopSigner, type ManagedRelayDpopProofInput } from "../rela
 import { layerRemoteHttpClient } from "./http.ts";
 import {
   readVoiceInputSettingsFork,
+  transformVoiceTextFork,
   transcribeVoiceInputFork,
   saveVoiceInputSettingsFork,
 } from "./voiceInput.fork.ts";
@@ -161,6 +162,37 @@ it.effect("preserves omitted API keys when saving settings", () =>
     }).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
     expect(request.method).toBe("POST");
     expect(JSON.parse(String(request.body))).not.toHaveProperty("apiKey");
+  }),
+);
+
+it.effect("keeps detail from the existing text error body", () =>
+  Effect.gen(function* () {
+    const error = yield* transformVoiceTextFork(prepared, {
+      projectId: ProjectId.make("test"),
+      operation: "cleanup",
+      text: "draft",
+    }).pipe(
+      Effect.provide(
+        layerRemoteHttpClient(() =>
+          Promise.resolve(
+            Response.json(
+              {
+                error: "Text generation failed.",
+                code: "model",
+                detail: "This model is unavailable.",
+              },
+              { status: 502 },
+            ),
+          ),
+        ),
+      ),
+      Effect.flip,
+    );
+    expect(error).toEqual({
+      error: "Text generation failed.",
+      code: "model",
+      detail: "This model is unavailable.",
+    });
   }),
 );
 
