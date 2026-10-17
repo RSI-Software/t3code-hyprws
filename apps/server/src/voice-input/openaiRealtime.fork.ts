@@ -79,6 +79,7 @@ export function openAiVoiceStreamFork(config: {
             if (event.transcript === undefined)
               return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid transcript." });
             return { type: "transcript", text: event.transcript, final: true } as const;
+          case "conversation.item.input_audio_transcription.failed":
           case "error": {
             // The provider's message names the wrong model, key, or route.
             const message = event.error?.message?.trim().slice(0, 200);

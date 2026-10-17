@@ -145,7 +145,7 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                       </SelectPopup>
                     </Select>
                   </div>
-                  {form.provider !== "local" ? (
+                  {form.provider !== "local" || form.streamingEndpoint.trim() ? (
                     <div className="grid gap-1.5">
                       <Label htmlFor="dictation-model-fork">Model</Label>
                       <Input

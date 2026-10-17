@@ -261,8 +261,11 @@ describe("external dictation service", () => {
           ).toBe(false);
           yield* s.configure({ ...local, apiKey: "original" });
           expect(
-            (yield* s.configure({ ...local, streamingEndpoint: "ws://localhost:9000/realtime" }))
-              .hasApiKey,
+            (yield* s.configure({
+              ...local,
+              streamingEndpoint: "ws://localhost:9000/realtime",
+              model: "nemo",
+            })).hasApiKey,
           ).toBe(false);
           yield* s.configure({ ...local, apiKey: "original" });
           expect((yield* s.configure({ ...local, apiKey: "" })).hasApiKey).toBe(false);
@@ -296,16 +299,19 @@ describe("external dictation service", () => {
       expect(h.stored.size).toBe(0);
     }),
   );
-  it.effect.each(["https://example.com/realtime", "wss://user:password@example.com/realtime"])(
-    "rejects unsafe streaming endpoint %s",
-    (streamingEndpoint) =>
-      Effect.gen(function* () {
-        const h = harness();
-        expect(
-          yield* h.run((s) => s.configure({ ...local, streamingEndpoint })).pipe(Effect.flip),
-        ).toMatchObject({ reason: "settings" });
-        expect(h.stored.size).toBe(0);
-      }),
+  // The last case is safe, but a stream needs a model and Local HTTP leaves it empty.
+  it.effect.each([
+    "https://example.com/realtime",
+    "wss://user:password@example.com/realtime",
+    "wss://example.com/realtime",
+  ])("rejects unsafe or modelless streaming endpoint %s", (streamingEndpoint) =>
+    Effect.gen(function* () {
+      const h = harness();
+      expect(
+        yield* h.run((s) => s.configure({ ...local, streamingEndpoint })).pipe(Effect.flip),
+      ).toMatchObject({ reason: "settings" });
+      expect(h.stored.size).toBe(0);
+    }),
   );
   it.effect.each([new Uint8Array(0), new Uint8Array(100), recording(48000)])(
     "refuses invalid recordings",

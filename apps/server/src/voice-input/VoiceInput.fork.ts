@@ -147,7 +147,7 @@ const make = Effect.gen(function* () {
     if (
       !isEndpoint(config.endpoint, ["http:", "https:"]) ||
       (streamingEndpoint && !isEndpoint(streamingEndpoint, ["ws:", "wss:"])) ||
-      (config.provider !== "local" && config.model.trim().length === 0)
+      ((config.provider !== "local" || streamingEndpoint) && config.model.trim().length === 0)
     ) {
       return yield* new VoiceInputError({ reason: "settings" });
     }

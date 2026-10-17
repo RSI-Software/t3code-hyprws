@@ -169,12 +169,14 @@ it.effect("speaks OpenAI Realtime transcription and keeps a cumulative preview",
     yield* Fiber.join(h.fiber);
   }),
 );
-it.effect("fails on an OpenAI Realtime error event", () =>
+it.effect("fails at once on OpenAI Realtime error and transcription failure events", () =>
   Effect.gen(function* () {
-    const h = yield* relay(openAiVoiceStreamFork({ model: "nemo", apiKey: "" }));
-    yield* h.upstream.send('{"type":"error","error":{"message":"bad model"}}');
-    const error = yield* Fiber.join(h.fiber).pipe(Effect.flip);
-    expect(error).toMatchObject({ detail: "Provider failed: bad model" });
+    for (const type of ["error", "conversation.item.input_audio_transcription.failed"]) {
+      const h = yield* relay(openAiVoiceStreamFork({ model: "nemo", apiKey: "" }));
+      yield* h.upstream.send(`{"type":"${type}","error":{"message":"bad model"}}`);
+      const error = yield* Fiber.join(h.fiber).pipe(Effect.flip);
+      expect(error).toMatchObject({ detail: "Provider failed: bad model" });
+    }
   }),
 );
 it("upsamples 16 kHz PCM to 24 kHz continuously across frames", () => {
