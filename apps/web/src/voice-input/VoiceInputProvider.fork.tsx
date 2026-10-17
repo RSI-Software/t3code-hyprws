@@ -14,7 +14,7 @@ import { Button } from "../components/ui/button";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { readPreparedConnection } from "../state/session";
 import { runVoiceInputRequestFork } from "./client.fork";
-import { DesktopVoiceRecorderFork, recordingToWavFork } from "./recorder.fork";
+import { DesktopVoiceRecorderFork } from "./recorder.fork";
 import { DesktopVoiceSessionFork } from "./session.fork";
 import { voiceInputUnavailableReasonFork } from "./settings.fork";
 import { prepareLiveVoiceFork } from "./realtime.fork";
@@ -37,26 +37,30 @@ function createDesktopVoiceRuntimeFork() {
         const config = await runVoiceInputRequestFork(readVoiceInputSettingsFork(prepared), signal);
         const unavailableReason = voiceInputUnavailableReasonFork(config);
         if (unavailableReason) throw new Error(unavailableReason);
-        if (config.provider === "meta") {
-          const live = await prepareLiveVoiceFork(
-            prepared,
-            signal,
-            (text) => {
+        // A failed live preview never costs the recording: Stop uploads the captured WAV instead.
+        const live = config.streamingEndpoint
+          ? await prepareLiveVoiceFork(prepared, signal, (text) => {
               if (!signal.aborted) session.previewTranscript(text, navigator.language);
-            },
-            () => {
-              void session.controller.interruptRecording("Live dictation disconnected. Try again.");
-            },
-          );
-          recorder.useLiveSession(live);
-          return { locale: navigator.language, transcribe: async () => live.result };
-        }
+            }).catch((error: unknown) => {
+              if (signal.aborted) throw error;
+              return null;
+            })
+          : null;
+        recorder.useLiveSession(live);
         return {
           locale: navigator.language,
           transcribe: async (uri, { signal }) => {
-            const wav = await recordingToWavFork(recorder.read(uri), signal);
-            return (await runVoiceInputRequestFork(transcribeVoiceInputFork(prepared, wav), signal))
-              .text;
+            if (live) {
+              const text = await live.result.catch(() => null);
+              if (text !== null) return text;
+            }
+            signal.throwIfAborted();
+            return (
+              await runVoiceInputRequestFork(
+                transcribeVoiceInputFork(prepared, recorder.read(uri)),
+                signal,
+              )
+            ).text;
           },
         };
       },
