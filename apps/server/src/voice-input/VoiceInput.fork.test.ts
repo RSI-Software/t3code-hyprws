@@ -299,16 +299,16 @@ describe("external dictation service", () => {
       expect(h.stored.size).toBe(0);
     }),
   );
-  // The last case is safe, but a stream needs a model and Local HTTP leaves it empty.
   it.effect.each([
-    "https://example.com/realtime",
-    "wss://user:password@example.com/realtime",
-    "wss://example.com/realtime",
-  ])("rejects unsafe or modelless streaming endpoint %s", (streamingEndpoint) =>
+    { streamingEndpoint: "https://example.com/realtime", model: "nemo" },
+    { streamingEndpoint: "wss://user:password@example.com/realtime", model: "nemo" },
+    // Safe, but a stream needs a model and Local HTTP leaves it empty.
+    { streamingEndpoint: "wss://example.com/realtime", model: "" },
+  ])("rejects streaming endpoint $streamingEndpoint with model '$model'", (fields) =>
     Effect.gen(function* () {
       const h = harness();
       expect(
-        yield* h.run((s) => s.configure({ ...local, streamingEndpoint })).pipe(Effect.flip),
+        yield* h.run((s) => s.configure({ ...local, ...fields })).pipe(Effect.flip),
       ).toMatchObject({ reason: "settings" });
       expect(h.stored.size).toBe(0);
     }),
