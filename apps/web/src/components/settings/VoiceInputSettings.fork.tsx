@@ -33,6 +33,7 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
           enabled: settings.enabled,
           provider: settings.provider,
           endpoint: settings.endpoint,
+          streamingEndpoint: settings.streamingEndpoint,
           model: settings.model,
         }
       : null);
@@ -55,6 +56,7 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
         enabled: saved.enabled,
         provider: saved.provider,
         endpoint: saved.endpoint,
+        streamingEndpoint: saved.streamingEndpoint,
         model: saved.model,
       });
       window.dispatchEvent(new Event(VOICE_SETTINGS_CHANGED_FORK));
@@ -67,7 +69,8 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
   const hasSavedKey =
     settings?.hasApiKey &&
     form?.provider === settings.provider &&
-    form?.endpoint === settings.endpoint;
+    form?.endpoint === settings.endpoint &&
+    form?.streamingEndpoint === settings.streamingEndpoint;
   return (
     <SettingsSection id="voice-input-fork" title="Transcription">
       {!environmentId ? (
@@ -113,6 +116,7 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                           update({
                             provider: provider.id,
                             endpoint: provider.endpoint,
+                            streamingEndpoint: provider.streamingEndpoint,
                             model: provider.model,
                             apiKey: "",
                           });
@@ -174,6 +178,25 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                     {form.provider === "local"
                       ? "Full transcription URL. Accepts WAV audio and returns text in JSON."
                       : "Full transcription URL, including the transcription path."}
+                  </p>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="dictation-streaming-endpoint-fork">
+                    Streaming endpoint (optional)
+                  </Label>
+                  <Input
+                    id="dictation-streaming-endpoint-fork"
+                    size="sm"
+                    aria-label="Dictation streaming endpoint"
+                    autoComplete="off"
+                    placeholder="wss://your-service/v1/realtime?intent=transcription"
+                    value={form.streamingEndpoint}
+                    onChange={(event) => update({ streamingEndpoint: event.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {form.provider === "meta"
+                      ? "Meta's realtime socket. Leave empty to transcribe after Stop."
+                      : "OpenAI Realtime transcription socket for a live preview. Leave empty to transcribe after Stop."}
                   </p>
                 </div>
                 <div className="grid gap-1.5">

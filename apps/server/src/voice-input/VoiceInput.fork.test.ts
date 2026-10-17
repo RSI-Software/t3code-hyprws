@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Socket from "effect/socket/Socket";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
@@ -35,8 +36,16 @@ const local: VoiceInputConfigUpdateFork = {
   enabled: true,
   provider: "local",
   endpoint: "http://127.0.0.1:8788/transcribe",
+  streamingEndpoint: "",
   model: "",
 };
+const meta = {
+  enabled: true,
+  provider: "meta",
+  endpoint: "https://api.meta.ai/v1/asr/transcribe",
+  streamingEndpoint: "wss://api.meta.ai/v1/asr/realtime",
+  model: "muse-voice-transcribe-1.0",
+} satisfies VoiceInputConfigUpdateFork;
 
 function harness(
   body: unknown = { text: " spoken words " },
@@ -78,8 +87,9 @@ function harness(
       ),
     ),
   );
-  const run = <A, E>(use: (service: VoiceInput.VoiceInput["Service"]) => Effect.Effect<A, E>) =>
-    Effect.flatMap(VoiceInput.VoiceInput, use).pipe(Effect.provide(layer));
+  const run = <A, E, R = never>(
+    use: (service: VoiceInput.VoiceInput["Service"]) => Effect.Effect<A, E, R>,
+  ) => Effect.flatMap(VoiceInput.VoiceInput, use).pipe(Effect.provide(layer));
   return { stored, requests, run };
 }
 
@@ -107,6 +117,17 @@ describe("external dictation service", () => {
       expect(JSON.stringify(settings)).not.toContain("legacy-secret");
       yield* h.run((s) => s.transcribe(recording()));
       expect(h.requests[0]?.headers.authorization).toBe("Bearer legacy-secret");
+    }),
+  );
+  it.effect("seeds Meta's live socket for settings saved before streaming URLs", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      const { streamingEndpoint: _, ...legacy } = meta;
+      h.stored.set(
+        "fork-voice-input",
+        new TextEncoder().encode(JSON.stringify({ ...legacy, apiKey: "" })),
+      );
+      expect((yield* h.run((s) => s.settings)).streamingEndpoint).toBe(meta.streamingEndpoint);
     }),
   );
   it.effect("bounds provider latency and interrupts pending requests", () =>
@@ -140,13 +161,7 @@ describe("external dictation service", () => {
       const audio = recording();
       const text = yield* h.run((s) =>
         Effect.gen(function* () {
-          yield* s.configure({
-            enabled: true,
-            provider: "meta",
-            endpoint: "https://api.meta.ai/v1/asr/transcribe",
-            model: "muse-voice-transcribe-1.0",
-            apiKey: "meta-key",
-          });
+          yield* s.configure({ ...meta, apiKey: "meta-key" });
           return yield* s.transcribe(audio);
         }),
       );
@@ -174,14 +189,7 @@ describe("external dictation service", () => {
     (body) =>
       Effect.gen(function* () {
         const h = harness(body);
-        yield* h.run((s) =>
-          s.configure({
-            enabled: true,
-            provider: "meta",
-            endpoint: "https://api.meta.ai/v1/asr/transcribe",
-            model: "muse-voice-transcribe-1.0",
-          }),
-        );
+        yield* h.run((s) => s.configure(meta));
         expect(yield* h.run((s) => s.transcribe(recording())).pipe(Effect.flip)).toMatchObject({
           reason: "response",
         });
@@ -216,27 +224,29 @@ describe("external dictation service", () => {
       expect(h.requests[0]?.body).toMatchObject({ _tag: "Uint8Array", body: audio });
     }),
   );
-  it.effect("uses the OpenAI-compatible multipart contract", () =>
-    Effect.gen(function* () {
-      const h = harness();
-      yield* h.run((s) =>
-        Effect.gen(function* () {
-          yield* s.configure({
-            ...local,
-            provider: "openai-compatible",
-            endpoint: "http://localhost:9000/v1/audio/transcriptions",
-            model: "nemo",
-          });
-          yield* s.transcribe(recording());
-        }),
-      );
-      const body = h.requests[0]?.body;
-      if (body?._tag !== "FormData") throw new Error("Expected upload");
-      expect(body.formData.get("model")).toBe("nemo");
-      expect(body.formData.get("response_format")).toBe("json");
-      expect(body.formData.get("file")).toBeInstanceOf(Blob);
-      expect(h.requests[0]?.headers.authorization).toBeUndefined();
-    }),
+  it.effect.each(["openai-compatible", "groq"] as const)(
+    "uses the OpenAI multipart contract for %s",
+    (provider) =>
+      Effect.gen(function* () {
+        const h = harness();
+        yield* h.run((s) =>
+          Effect.gen(function* () {
+            yield* s.configure({
+              ...local,
+              provider,
+              endpoint: "http://localhost:9000/v1/audio/transcriptions",
+              model: "nemo",
+            });
+            yield* s.transcribe(recording());
+          }),
+        );
+        const body = h.requests[0]?.body;
+        if (body?._tag !== "FormData") throw new Error("Expected upload");
+        expect(body.formData.get("model")).toBe("nemo");
+        expect(body.formData.get("response_format")).toBe("json");
+        expect(body.formData.get("file")).toBeInstanceOf(Blob);
+        expect(h.requests[0]?.headers.authorization).toBeUndefined();
+      }),
   );
   it.effect("retains keys only for the same destination and supports removal", () =>
     Effect.gen(function* () {
@@ -247,6 +257,11 @@ describe("external dictation service", () => {
           expect((yield* s.configure(local)).hasApiKey).toBe(true);
           expect(
             (yield* s.configure({ ...local, endpoint: "http://localhost:9000/transcribe" }))
+              .hasApiKey,
+          ).toBe(false);
+          yield* s.configure({ ...local, apiKey: "original" });
+          expect(
+            (yield* s.configure({ ...local, streamingEndpoint: "ws://localhost:9000/realtime" }))
               .hasApiKey,
           ).toBe(false);
           yield* s.configure({ ...local, apiKey: "original" });
@@ -281,6 +296,17 @@ describe("external dictation service", () => {
       expect(h.stored.size).toBe(0);
     }),
   );
+  it.effect.each(["https://example.com/realtime", "wss://user:password@example.com/realtime"])(
+    "rejects unsafe streaming endpoint %s",
+    (streamingEndpoint) =>
+      Effect.gen(function* () {
+        const h = harness();
+        expect(
+          yield* h.run((s) => s.configure({ ...local, streamingEndpoint })).pipe(Effect.flip),
+        ).toMatchObject({ reason: "settings" });
+        expect(h.stored.size).toBe(0);
+      }),
+  );
   it.effect.each([new Uint8Array(0), new Uint8Array(100), recording(48000)])(
     "refuses invalid recordings",
     (audio) =>
@@ -312,6 +338,61 @@ describe("external dictation service", () => {
       const empty = harness({ text: " " });
       yield* empty.run((s) => s.configure(local));
       expect(yield* empty.run((s) => s.transcribe(recording()))).toBe("");
+    }),
+  );
+  it.effect.each([
+    {
+      config: {
+        ...local,
+        provider: "openai-compatible",
+        streamingEndpoint: "ws://localhost:9000/v1/realtime?intent=transcription",
+        model: "nemo",
+      },
+      headers: { authorization: "Bearer stream-key" },
+      start: '"type":"session.update"',
+    },
+    { config: meta, headers: undefined, start: '"accessToken":"Bearer stream-key"' },
+  ] as const)("opens $config.provider's streaming socket with its key", ({ config, ...expected }) =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
+      const opened = Promise.withResolvers<{ url: string; options: unknown; start: unknown }>();
+      const upstream = Layer.succeed(Socket.WebSocketConstructor, (url, options) => ({
+        readyState: 1,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        close: () => {},
+        send: (start) => opened.resolve({ url, options, start }),
+      }));
+      const client = Socket.make({
+        reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
+        writer: Effect.succeed({ write: () => Effect.void, writeAll: () => Effect.void }),
+      });
+      const fiber = yield* h
+        .run((s) => s.stream(client))
+        .pipe(Effect.scoped, Effect.provide(upstream), Effect.forkChild);
+      const { url, options, start } = yield* Effect.promise(() => opened.promise);
+      yield* Fiber.interrupt(fiber);
+      expect(url).toBe(config.streamingEndpoint);
+      expect(options).toEqual(
+        expected.headers ? { protocols: undefined, headers: expected.headers } : undefined,
+      );
+      expect(start).toContain(expected.start);
+    }),
+  );
+  it.effect("keeps live preview off without a streaming endpoint", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.run((s) => s.configure(local));
+      const client = Socket.make({
+        reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
+        writer: Effect.succeed({ write: () => Effect.void, writeAll: () => Effect.void }),
+      });
+      expect(
+        yield* h
+          .run((s) => s.stream(client))
+          .pipe(Effect.scoped, Effect.provide(Socket.layerWebSocketConstructorGlobal), Effect.flip),
+      ).toMatchObject({ reason: "unsupported" });
     }),
   );
 });

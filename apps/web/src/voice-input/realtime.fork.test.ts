@@ -30,10 +30,9 @@ const fixture = () => {
   vi.stubGlobal("WebSocket", SocketFixture);
   const abort = new AbortController();
   const preview = vi.fn();
-  const error = vi.fn();
-  const pending = connectLiveVoiceFork("ws://voice.local/realtime", abort.signal, preview, error);
+  const pending = connectLiveVoiceFork("ws://voice.local/realtime", abort.signal, preview);
   const socket = SocketFixture.current;
-  return { abort, preview, error, pending, socket };
+  return { abort, preview, pending, socket };
 };
 it("replaces hypotheses and waits for endStream, final text, and clean close", async () => {
   const h = fixture();
@@ -55,7 +54,6 @@ it("replaces hypotheses and waits for endStream, final text, and clean close", a
   expect(complete).not.toHaveBeenCalled();
   h.socket.closed(1000);
   expect(await live.result).toBe("Hello world.");
-  expect(h.error).not.toHaveBeenCalled();
 });
 it.each([1000, 1011])("refuses close %i without a final transcript", async (code) => {
   const h = fixture();
@@ -64,7 +62,6 @@ it.each([1000, 1011])("refuses close %i without a final transcript", async (code
   live.finish();
   h.socket.closed(code);
   await expect(live.result).rejects.toThrow("Live dictation failed");
-  expect(h.error).toHaveBeenCalledOnce();
 });
 it("cancellation closes the socket and ignores late transcripts", async () => {
   const h = fixture();
@@ -75,7 +72,6 @@ it("cancellation closes the socket and ignores late transcripts", async () => {
   await expect(live.result).rejects.toThrow("cancelled");
   expect(h.socket.close).toHaveBeenCalledOnce();
   expect(h.preview).not.toHaveBeenCalled();
-  expect(h.error).not.toHaveBeenCalled();
 });
 it("fails bounded preparation and final waits", async () => {
   vi.useFakeTimers();
@@ -99,5 +95,4 @@ it("reports backpressure instead of queuing unbounded audio", async () => {
   live.send(new ArrayBuffer(2560));
   await expect(live.result).rejects.toThrow();
   expect(h.socket.sent).toEqual([]);
-  expect(h.error).toHaveBeenCalledOnce();
 });

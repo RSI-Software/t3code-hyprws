@@ -19,13 +19,12 @@ export function connectLiveVoiceFork(
   url: string,
   signal: AbortSignal,
   onPreview: (text: string) => void,
-  onError: () => void,
 ): Promise<LiveVoiceSessionFork> {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     const final = Promise.withResolvers<string>();
-    // Failures during recording are reported immediately, before result is awaited.
+    // A failure during recording surfaces only when the caller awaits result.
     void final.promise.catch(() => {});
     let ready = false;
     let ended = false;
@@ -43,7 +42,6 @@ export function connectLiveVoiceFork(
       cleanup();
       reject(error);
       final.reject(error);
-      if (ready && !signal.aborted) onError();
     };
     const cancel = () => fail(new DOMException("Dictation cancelled.", "AbortError"));
     const session: LiveVoiceSessionFork = {
@@ -119,7 +117,6 @@ export async function prepareLiveVoiceFork(
   prepared: PreparedConnection,
   signal: AbortSignal,
   onPreview: (text: string) => void,
-  onError: () => void,
 ) {
   const access = await runVoiceInputRequestFork(
     resolveDeviceHubAccess({ prepared, hubBasePath: VOICE_INPUT_ROUTE_FORK }),
@@ -129,6 +126,5 @@ export async function prepareLiveVoiceFork(
     withDeviceHubQuery(`${access.wsBase}/realtime`, access),
     signal,
     onPreview,
-    onError,
   );
 }
