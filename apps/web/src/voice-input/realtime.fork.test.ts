@@ -32,6 +32,7 @@ const fixture = () => {
   const preview = vi.fn();
   const pending = connectLiveVoiceFork("ws://voice.local/realtime", abort.signal, preview);
   const socket = SocketFixture.current;
+  socket.dispatchEvent(new Event("open"));
   return { abort, preview, pending, socket };
 };
 it("replaces hypotheses and waits for endStream, final text, and clean close", async () => {
@@ -73,19 +74,29 @@ it("cancellation closes the socket and ignores late transcripts", async () => {
   expect(h.socket.close).toHaveBeenCalledOnce();
   expect(h.preview).not.toHaveBeenCalled();
 });
-it("fails bounded preparation and final waits", async () => {
+it("bounds the open and, once the provider is ready, the final wait", async () => {
   vi.useFakeTimers();
-  const h = fixture();
-  const preparation = expect(h.pending).rejects.toThrow("Live dictation failed");
+  vi.stubGlobal("WebSocket", SocketFixture);
+  const unopened = connectLiveVoiceFork(
+    "ws://voice.local/realtime",
+    new AbortController().signal,
+    vi.fn(),
+  );
+  const opening = expect(unopened).rejects.toThrow("Live dictation failed");
   await vi.advanceTimersByTimeAsync(15000);
-  await preparation;
-  const next = fixture();
-  next.socket.event({ type: "ready" });
-  const live = await next.pending;
+  await opening;
+  const h = fixture();
+  const live = await h.pending;
+  live.send(new ArrayBuffer(2560));
   live.finish();
-  const result = expect(live.result).rejects.toThrow("Live dictation failed");
+  const result = vi.fn();
+  live.result.catch(result);
+  // A cold model may take minutes to become ready.
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(result).not.toHaveBeenCalled();
+  h.socket.event({ type: "ready" });
   await vi.advanceTimersByTimeAsync(60000);
-  await result;
+  expect(result).toHaveBeenCalledOnce();
 });
 it("reports backpressure instead of queuing unbounded audio", async () => {
   const h = fixture();

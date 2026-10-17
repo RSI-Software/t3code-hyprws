@@ -14,7 +14,11 @@ export interface LiveVoiceSessionFork {
   readonly result: Promise<string>;
 }
 
-/** Cumulative hypotheses replace each other; the final result waits for a clean close. */
+/**
+ * Resolves once the socket opens, so recording never waits on the provider: the server holds
+ * audio until the provider is ready. Cumulative hypotheses replace each other; the final result
+ * waits for a clean close.
+ */
 export function connectLiveVoiceFork(
   url: string,
   signal: AbortSignal,
@@ -26,11 +30,17 @@ export function connectLiveVoiceFork(
     const final = Promise.withResolvers<string>();
     // A failure during recording surfaces only when the caller awaits result.
     void final.promise.catch(() => {});
+    let open = false;
     let ready = false;
     let ended = false;
     let transcript: string | null = null;
     let settled = false;
     let timer: ReturnType<typeof setTimeout>;
+    // The final wait starts once the provider is ready and input has ended.
+    const armTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(fail, ready && ended ? 60000 : 310000);
+    };
     const cleanup = () => {
       clearTimeout(timer);
       signal.removeEventListener("abort", cancel);
@@ -65,13 +75,18 @@ export function connectLiveVoiceFork(
       finish: () => {
         if (settled || ended) return;
         ended = true;
-        clearTimeout(timer);
-        timer = setTimeout(fail, 60000);
+        if (ready) armTimer();
         socket.send('{"type":"endStream"}');
       },
     };
     timer = setTimeout(fail, 15000);
     signal.addEventListener("abort", cancel, { once: true });
+    socket.addEventListener("open", () => {
+      if (settled) return;
+      open = true;
+      armTimer();
+      resolve(session);
+    });
     socket.addEventListener("error", () => fail());
     socket.addEventListener("message", ({ data }) => {
       if (settled) return;
@@ -80,11 +95,9 @@ export function connectLiveVoiceFork(
         const event: unknown = JSON.parse(data);
         if (typeof event !== "object" || !event || !("type" in event))
           throw new Error("Invalid event.");
-        if (event.type === "ready" && !ready) {
+        if (event.type === "ready" && open && !ready) {
           ready = true;
-          clearTimeout(timer);
-          timer = setTimeout(fail, 310000);
-          resolve(session);
+          if (ended) armTimer();
         } else if (
           event.type === "transcript" &&
           ready &&

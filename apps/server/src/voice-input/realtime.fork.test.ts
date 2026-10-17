@@ -96,7 +96,7 @@ it.effect("streams PCM and cumulative revisions, then ends on the final transcri
 it.effect.each([
   { frame: new Uint8Array(1), acknowledge: true },
   { frame: new Uint8Array(6402), acknowledge: true },
-  { frame: new Uint8Array(2560), acknowledge: false },
+  { frame: new Uint8Array(1), acknowledge: false },
   { frame: '{"type":"configure","apiKey":"client-key"}', acknowledge: true },
 ])("rejects invalid input without forwarding it", ({ frame, acknowledge }) =>
   Effect.gen(function* () {
@@ -115,15 +115,18 @@ it.effect("refuses clean close without a final transcript", () =>
     expect(Exit.isFailure(yield* Fiber.await(h.fiber))).toBe(true);
   }),
 );
-it.effect("bounds handshake and final latency", () =>
+it.effect("holds audio until the provider is ready, then bounds the final wait", () =>
   Effect.gen(function* () {
-    const handshake = yield* harness;
-    yield* TestClock.adjust("10 seconds");
-    expect(Exit.isFailure(yield* Fiber.await(handshake.fiber))).toBe(true);
     const h = yield* harness;
-    yield* ready(h);
+    const audio = new Uint8Array(2560);
+    yield* h.client.send(audio);
     yield* h.client.send('{"type":"endStream"}');
-    yield* h.upstream.read;
+    // A cold model may take minutes; the final deadline has not started.
+    yield* TestClock.adjust("120 seconds");
+    expect(h.fiber.pollUnsafe()).toBeUndefined();
+    yield* ready(h);
+    expect(yield* h.upstream.read).toEqual(audio);
+    expect(yield* h.upstream.read).toBe('{"type":"endStream"}');
     yield* TestClock.adjust("60 seconds");
     expect(Exit.isFailure(yield* Fiber.await(h.fiber))).toBe(true);
   }),
