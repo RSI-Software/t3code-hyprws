@@ -45,15 +45,8 @@ it.layer(SqlitePersistence.layerMemory, { excludeTestServices: true })("legacy v
         VALUES (${imported}, ${now}, ${now}, ${now}, 0, NULL),
           (${pending}, ${now}, ${now}, NULL, 0, NULL)
       `;
-      yield* sql`
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1500)
-        INSERT INTO projection_thread_activities (
-          activity_id, thread_id, tone, kind, summary, payload_json, created_at
-        )
-        SELECT 'activity:' || i, ${imported}, 'info', 'tool.completed', '', '{}', ${now} FROM n
-      `;
 
-      assert.deepEqual(yield* purgeImportedLegacyV1Fork(sql), { events: 1001, activities: 1500 });
+      assert.deepEqual(yield* purgeImportedLegacyV1Fork(sql), { events: 1001 });
 
       const remaining = yield* sql<{ readonly event_id: string }>`
         SELECT event_id FROM orchestration_events ORDER BY event_id
@@ -62,7 +55,7 @@ it.layer(SqlitePersistence.layerMemory, { excludeTestServices: true })("legacy v
         remaining.map((row) => row.event_id),
         ["v1-pending:1", "v1-pending:2", "v1-project:1", "v2:1"],
       );
-      assert.deepEqual(yield* purgeImportedLegacyV1Fork(sql), { events: 0, activities: 0 });
+      assert.deepEqual(yield* purgeImportedLegacyV1Fork(sql), { events: 0 });
     }),
   );
 });
