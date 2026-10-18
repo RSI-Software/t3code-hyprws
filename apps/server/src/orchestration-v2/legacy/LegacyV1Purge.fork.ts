@@ -1,7 +1,6 @@
 // Fork-owned purge of V1 rows the V2 runtime never reads. Every V2 reader selects
 // only `application_event_version = 2` thread events, so a thread's V1 events are
-// dead once its transcript import finishes, and `projection_thread_activities`
-// has no reader at all. Upstream's `ProjectionMaintenance.compactEventStore` also
+// dead once its transcript import finishes. Upstream's `ProjectionMaintenance.compactEventStore` also
 // drops these events but has no production caller, and its thread-state
 // supersession would delete the fork's legacy issue markers. Retire this when
 // upstream schedules its own compaction and the markers no longer depend on events.
@@ -45,20 +44,11 @@ export const purgeImportedLegacyV1Fork = Effect.fn("purgeImportedLegacyV1Fork")(
       )
       RETURNING sequence
     `);
-    const activities = yield* drainPages(sql`
-      DELETE FROM projection_thread_activities
-      WHERE rowid IN (SELECT rowid FROM projection_thread_activities LIMIT ${PAGE_SIZE})
-      RETURNING rowid
-    `);
-    if (events + activities > 0) {
-      yield* Effect.logInfo("Purged imported legacy v1 rows", { events, activities });
-    }
-    return { events, activities };
+    if (events > 0) yield* Effect.logInfo("Purged imported legacy v1 rows", { events });
+    return { events };
   },
   // A failed purge leaves the rest for the next startup.
   Effect.catchCause((cause) =>
-    Effect.logWarning("Legacy v1 purge stopped", { cause }).pipe(
-      Effect.as({ events: 0, activities: 0 }),
-    ),
+    Effect.logWarning("Legacy v1 purge stopped", { cause }).pipe(Effect.as({ events: 0 })),
   ),
 );
