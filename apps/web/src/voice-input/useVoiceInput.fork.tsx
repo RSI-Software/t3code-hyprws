@@ -39,7 +39,7 @@ const IDLE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
 export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   const { settings } = useVoiceSettingsFork(input.environmentId);
-  const { session, recorder, snapshot } = useDesktopVoiceRuntimeFork();
+  const { session, recorder, snapshot, waiting } = useDesktopVoiceRuntimeFork();
   const controller = session.controller;
   const canOperate = useEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope);
   const latest = useRef(input);
@@ -154,6 +154,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
           state={toolbarState}
           active={presented}
           recorder={recorder}
+          waiting={waiting}
           processingPhase={textActions.phase}
           onCancel={() => (textBlocksSubmission() ? cancelText() : controller.cancel())}
           onFinish={() => void controller.stop()}

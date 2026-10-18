@@ -6,6 +6,12 @@ import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import { VOICE_INPUT_ROUTE_FORK } from "@t3tools/contracts";
 import { runVoiceInputRequestFork } from "./client.fork";
 
+export interface LiveVoiceHandlersFork {
+  readonly onPreview: (text: string) => void;
+  /** True while the provider has not acknowledged the session after a short grace period. */
+  readonly onWaiting: (waiting: boolean) => void;
+}
+
 export interface LiveVoiceSessionFork {
   readonly active: boolean;
   send(audio: ArrayBuffer): void;
@@ -22,7 +28,7 @@ export interface LiveVoiceSessionFork {
 export function connectLiveVoiceFork(
   url: string,
   signal: AbortSignal,
-  onPreview: (text: string) => void,
+  { onPreview, onWaiting }: LiveVoiceHandlersFork,
 ): Promise<LiveVoiceSessionFork> {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -36,6 +42,8 @@ export function connectLiveVoiceFork(
     let transcript: string | null = null;
     let settled = false;
     let timer: ReturnType<typeof setTimeout>;
+    // A warm provider acknowledges within milliseconds; only a slow one shows as waiting.
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
     // The final wait starts once the provider is ready and input has ended.
     const armTimer = () => {
       clearTimeout(timer);
@@ -43,6 +51,8 @@ export function connectLiveVoiceFork(
     };
     const cleanup = () => {
       clearTimeout(timer);
+      clearTimeout(waitTimer);
+      onWaiting(false);
       signal.removeEventListener("abort", cancel);
       socket.close();
     };
@@ -85,6 +95,7 @@ export function connectLiveVoiceFork(
       if (settled) return;
       open = true;
       armTimer();
+      waitTimer = setTimeout(() => onWaiting(true), 1500);
       resolve(session);
     });
     socket.addEventListener("error", () => fail());
@@ -97,6 +108,8 @@ export function connectLiveVoiceFork(
           throw new Error("Invalid event.");
         if (event.type === "ready" && open && !ready) {
           ready = true;
+          clearTimeout(waitTimer);
+          onWaiting(false);
           if (ended) armTimer();
         } else if (
           event.type === "transcript" &&
@@ -129,7 +142,7 @@ export function connectLiveVoiceFork(
 export async function prepareLiveVoiceFork(
   prepared: PreparedConnection,
   signal: AbortSignal,
-  onPreview: (text: string) => void,
+  handlers: LiveVoiceHandlersFork,
 ) {
   const access = await runVoiceInputRequestFork(
     resolveDeviceHubAccess({ prepared, hubBasePath: VOICE_INPUT_ROUTE_FORK }),
@@ -138,6 +151,6 @@ export async function prepareLiveVoiceFork(
   return connectLiveVoiceFork(
     withDeviceHubQuery(`${access.wsBase}/realtime`, access),
     signal,
-    onPreview,
+    handlers,
   );
 }

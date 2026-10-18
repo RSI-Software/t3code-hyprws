@@ -30,10 +30,14 @@ const fixture = () => {
   vi.stubGlobal("WebSocket", SocketFixture);
   const abort = new AbortController();
   const preview = vi.fn();
-  const pending = connectLiveVoiceFork("ws://voice.local/realtime", abort.signal, preview);
+  const waiting = vi.fn();
+  const pending = connectLiveVoiceFork("ws://voice.local/realtime", abort.signal, {
+    onPreview: preview,
+    onWaiting: waiting,
+  });
   const socket = SocketFixture.current;
   socket.dispatchEvent(new Event("open"));
-  return { abort, preview, pending, socket };
+  return { abort, preview, waiting, pending, socket };
 };
 it("replaces hypotheses and waits for endStream, final text, and clean close", async () => {
   const h = fixture();
@@ -74,14 +78,13 @@ it("cancellation closes the socket and ignores late transcripts", async () => {
   expect(h.socket.close).toHaveBeenCalledOnce();
   expect(h.preview).not.toHaveBeenCalled();
 });
-it("bounds the open and, once the provider is ready, the final wait", async () => {
+it("bounds the open, shows a slow provider as waiting, and bounds the final wait once ready", async () => {
   vi.useFakeTimers();
   vi.stubGlobal("WebSocket", SocketFixture);
-  const unopened = connectLiveVoiceFork(
-    "ws://voice.local/realtime",
-    new AbortController().signal,
-    vi.fn(),
-  );
+  const unopened = connectLiveVoiceFork("ws://voice.local/realtime", new AbortController().signal, {
+    onPreview: vi.fn(),
+    onWaiting: vi.fn(),
+  });
   const opening = expect(unopened).rejects.toThrow("Live dictation failed");
   await vi.advanceTimersByTimeAsync(15000);
   await opening;
@@ -94,7 +97,9 @@ it("bounds the open and, once the provider is ready, the final wait", async () =
   // A cold model may take minutes to become ready.
   await vi.advanceTimersByTimeAsync(120000);
   expect(result).not.toHaveBeenCalled();
+  expect(h.waiting.mock.calls).toEqual([[true]]);
   h.socket.event({ type: "ready" });
+  expect(h.waiting).toHaveBeenLastCalledWith(false);
   await vi.advanceTimersByTimeAsync(60000);
   expect(result).toHaveBeenCalledOnce();
 });

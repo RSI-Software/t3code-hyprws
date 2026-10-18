@@ -20,6 +20,21 @@ import { voiceInputUnavailableReasonFork } from "./settings.fork";
 import { prepareLiveVoiceFork } from "./realtime.fork";
 
 function createDesktopVoiceRuntimeFork() {
+  // Whether the live speech service is still starting, e.g. loading a cold model.
+  let waiting = false;
+  const listeners = new Set<() => void>();
+  const serviceWaiting = {
+    read: () => waiting,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const setWaiting = (next: boolean) => {
+    if (next === waiting) return;
+    waiting = next;
+    for (const listener of listeners) listener();
+  };
   const recorder = new DesktopVoiceRecorderFork((status) => {
     void session.controller.handleRecorderStatus(status);
   });
@@ -39,8 +54,11 @@ function createDesktopVoiceRuntimeFork() {
         if (unavailableReason) throw new Error(unavailableReason);
         // A failed live preview never costs the recording: Stop uploads the captured WAV instead.
         const live = config.streamingEndpoint
-          ? await prepareLiveVoiceFork(prepared, signal, (text) => {
-              if (!signal.aborted) session.previewTranscript(text, navigator.language);
+          ? await prepareLiveVoiceFork(prepared, signal, {
+              onPreview: (text) => {
+                if (!signal.aborted) session.previewTranscript(text, navigator.language);
+              },
+              onWaiting: setWaiting,
             }).catch((error: unknown) => {
               if (signal.aborted) throw error;
               return null;
@@ -66,7 +84,7 @@ function createDesktopVoiceRuntimeFork() {
       },
     }),
   });
-  return { session, recorder };
+  return { session, recorder, serviceWaiting };
 }
 
 const DesktopVoiceContextFork = createContext<ReturnType<
@@ -99,11 +117,15 @@ export function useDesktopVoiceRuntimeFork() {
   const runtime = useContext(DesktopVoiceContextFork);
   if (!runtime) throw new Error("Desktop dictation requires its window provider.");
   const snapshot = useSyncExternalStore(runtime.session.subscribe, runtime.session.getSnapshot);
-  return { ...runtime, snapshot };
+  const waiting = useSyncExternalStore(
+    runtime.serviceWaiting.subscribe,
+    runtime.serviceWaiting.read,
+  );
+  return { ...runtime, snapshot, waiting };
 }
 
 function BackgroundVoiceControlFork() {
-  const { session, snapshot } = useDesktopVoiceRuntimeFork();
+  const { session, snapshot, waiting } = useDesktopVoiceRuntimeFork();
   const { target, state, transcript, visibleOwner } = snapshot;
   const navigate = useNavigate();
   const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "dictation-transcript" });
@@ -136,7 +158,7 @@ function BackgroundVoiceControlFork() {
           className={`text-xs ${state.error ? "text-destructive" : "text-muted-foreground"}`}
           role={state.error ? "alert" : "status"}
         >
-          {state.error ?? "Transcribing…"}
+          {state.error ?? (waiting ? "Waiting for speech service…" : "Transcribing…")}
         </p>
       </div>
       {offscreen ? (
