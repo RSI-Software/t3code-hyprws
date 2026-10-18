@@ -79,10 +79,6 @@ import {
 import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
 /** `gh` files and lists block issues only under this label; the title search does the rest. */
@@ -103,10 +99,6 @@ const failureIssueTitle = (step: string, key: string): string =>
 
 export const failureMarker = (step: string, key: string): string =>
   `<!-- sync-failure:${step}:${key} -->`;
-
-// ---------------------------------------------------------------------------
-// Command runner
-// ---------------------------------------------------------------------------
 
 export interface CommandSpec {
   readonly cwd: string;
@@ -170,10 +162,6 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
     ? result.stdout.trim()
     : "unknown";
 };
-
-// ---------------------------------------------------------------------------
-// Typed report
-// ---------------------------------------------------------------------------
 
 /** How a conflict row resolved: hook re-apply, an accepted net-zero delete, regeneration, or a manual resolution. */
 export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete", "regenerate"]);
@@ -316,10 +304,6 @@ const writeReport = (root: string, report: ForkSyncReport): string => {
 export const readReport = (root: string, tag: string): ForkSyncReport =>
   Schema.decodeSync(ForkSyncReport)(JSON.parse(NodeFS.readFileSync(reportPath(root, tag), "utf8")));
 
-// ---------------------------------------------------------------------------
-// Target
-// ---------------------------------------------------------------------------
-
 /**
  * The release tags upstream published onto `upstream/main`'s first-parent lane,
  * oldest first (`--reverse`), since `positionUpstreamReleaseTags` and
@@ -357,10 +341,6 @@ export const resolveTarget = (
   if (newest === undefined) throw new Error("upstream publishes no release tags");
   return newest;
 };
-
-// ---------------------------------------------------------------------------
-// Rebase
-// ---------------------------------------------------------------------------
 
 /**
  * `maintenance.auto=false`: every `git commit` the sequencer runs would
@@ -1010,10 +990,6 @@ export const rebaseOnto = (
   return { ...outcome, recorded: mergeStops(carried, outcome.conflicts) };
 };
 
-// ---------------------------------------------------------------------------
-// Scrubbed environment
-// ---------------------------------------------------------------------------
-
 const VERIFICATION_ENV_KEYS = new Set([
   // Vite+'s `node_modules/.bin/vp` shim exports an absolute NODE_PATH into the
   // store of the checkout it belongs to; inherited, it pins module resolution
@@ -1078,10 +1054,6 @@ export const checkFailureDetail = (
   if (text.length === 0) return `no output (exit ${result.status})`;
   return `${text.split("\n").slice(-tail).join("\n")} (exit ${result.status})`;
 };
-
-// ---------------------------------------------------------------------------
-// Candidate CI
-// ---------------------------------------------------------------------------
 
 const CI_WORKFLOW = NodePath.basename(FORK_CI_WORKFLOW_PATH);
 const CI_POLL_SECONDS = 30;
@@ -1184,10 +1156,6 @@ const ciMark = (conclusion: string): string =>
 /** The jobs that kept the candidate from green. */
 const redJobs = (ci: CandidateCi): ReadonlyArray<CiJob> =>
   ci.jobs.filter((job) => job.conclusion !== "success" && job.conclusion !== "skipped");
-
-// ---------------------------------------------------------------------------
-// Issue publication
-// ---------------------------------------------------------------------------
 
 export const blockingShaOf = (conflicts: ReadonlyArray<ConflictRow>): string | null =>
   conflicts.find((row) => row.via === "manual")?.upstreamCommit ??
@@ -1621,10 +1589,6 @@ export const closeBlocks = (
   return closures;
 };
 
-// ---------------------------------------------------------------------------
-// Rendering — output only, never read back
-// ---------------------------------------------------------------------------
-
 export const renderReport = (report: ForkSyncReport): string => {
   const head = {
     applied: "✅ applied",
@@ -1691,10 +1655,6 @@ export const renderReport = (report: ForkSyncReport): string => {
   const failure = report.error === null ? [] : ["", `Error: ${report.error}`];
   return [...rows, ...conflictTable, ...ci, ...blocks, ...decision, ...failure].join("\n");
 };
-
-// ---------------------------------------------------------------------------
-// The run
-// ---------------------------------------------------------------------------
 
 export interface RunOptions {
   readonly runner?: CommandRunner;
