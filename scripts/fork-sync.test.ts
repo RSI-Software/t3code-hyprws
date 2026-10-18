@@ -37,10 +37,6 @@ import { FOLD_MESSAGES_ENV, placeFixups, sequenceEditor } from "./lib/fork-sync-
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
 const refused = (stderr: string): CommandResult => ({ status: 1, stdout: "", stderr });
 
-// ---------------------------------------------------------------------------
-// Fixture: one upstream remote, one origin remote, a fork trunk
-// ---------------------------------------------------------------------------
-
 interface Fixture {
   readonly root: string;
   readonly worktree: string;
@@ -158,10 +154,6 @@ const withFixture = (
   }
 };
 
-// ---------------------------------------------------------------------------
-// Runner stub: git is real, vp/gh are recorded, GitHub CI is faked
-// ---------------------------------------------------------------------------
-
 interface Recording {
   readonly runner: CommandRunner;
   readonly calls: ReadonlyArray<{ readonly command: string; readonly args: ReadonlyArray<string> }>;
@@ -275,10 +267,6 @@ const forkShas = (f: Fixture): { readonly fork: string; readonly upstream: strin
   fork: f.git(["rev-parse", "hyprws"], f.root),
   upstream: f.git(["rev-parse", "upstream/main"], f.root),
 });
-
-// ---------------------------------------------------------------------------
-// The blocked → resolve → rerun loop
-// ---------------------------------------------------------------------------
 
 it("stops at a conflict rerere and hooks cannot resolve, then applies after a hand resolution", () => {
   withFixture(
@@ -866,10 +854,6 @@ it("still blocks when the fork side deleted the path and upstream modified it", 
   );
 });
 
-// ---------------------------------------------------------------------------
-// Regenerable files
-// ---------------------------------------------------------------------------
-
 const LOCKFILE = "pnpm-lock.yaml";
 
 const lockfileFixture = (shared: { readonly fork: string; readonly upstream: string }) =>
@@ -1144,10 +1128,6 @@ it("refuses a target that is not a release tag on upstream", () => {
     },
   );
 });
-
-// ---------------------------------------------------------------------------
-// Blocked publication through gh
-// ---------------------------------------------------------------------------
 
 const blockedReport = (blockingSha: string): ForkSyncReport => ({
   schema: "fork.sync-report.v2",
@@ -1530,10 +1510,6 @@ it("records a refused close per issue and still closes the others", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Failure publication for a non-blocked failed run
-// ---------------------------------------------------------------------------
-
 const checkRedFixture = {
   forkContent: "fork line1\nline2\nline3\n",
   upstreamContent: "line1\nline2\nline3 upstream\n",
@@ -1729,10 +1705,6 @@ it("renders the report and the issue body as pure output of the typed report", (
   assert.match(body, /git -C \/tmp\/fork-sync\/worktree add/);
 });
 
-// ---------------------------------------------------------------------------
-// The clean run closing the block issues it filed
-// ---------------------------------------------------------------------------
-
 const appliedFixture = {
   forkContent: "fork line1\nline2\nline3\n",
   upstreamContent: "line1\nline2\nline3 upstream\n",
@@ -1846,10 +1818,6 @@ it("an already-applied run fails and records the refusal when the block close is
     assert.match(applied.output, /- ❌ block #1164 close refused/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Fold at sync: fixup! landings autosquash onto the tag (RSI-Software/t3code-hyprws#1179)
-// ---------------------------------------------------------------------------
 
 /** A fork stack carrying one owner plus its fixup; the sync must fold the pair. */
 const foldFixture = (fixupSubject = "fixup! feat(fork): owned change"): Fixture => {
