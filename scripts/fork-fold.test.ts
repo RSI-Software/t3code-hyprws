@@ -451,8 +451,6 @@ it("reads fork PR refs from a subject marker, a fork pull URL, and earlier Squas
   ]);
 });
 
-// -- Fixture repository ---------------------------------------------------------
-
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", args, {
     cwd: root,
@@ -954,7 +952,7 @@ it("proves tree equality, the delta check, and the replay scan, failing on any",
     assert.strictEqual(run(["prove", head], root, step), 2);
   }));
 
-// -- Publish: a local bare origin, so tests never push to a real remote ----------
+// Publish tests use a local bare origin, so they never push to a real remote.
 
 const remoteHyprws = (root: string): string =>
   git(root, ["rev-parse", "refs/remotes/origin/hyprws"]);
