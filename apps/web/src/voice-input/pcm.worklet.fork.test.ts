@@ -4,7 +4,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
 });
-it("emits paced little-endian PCM frames, downmixes channels, and flushes the tail", async () => {
+async function processorAt(rate: number) {
   const emitted: Array<ArrayBuffer | string> = [];
   const port = {
     onmessage: null as ((event: { data: string }) => void) | null,
@@ -15,7 +15,7 @@ it("emits paced little-endian PCM frames, downmixes channels, and flushes the ta
     postMessage: (data: ArrayBuffer | string) => emitted.push(data),
   };
   let Processor: (new () => { process(inputs: Float32Array[][]): boolean }) | undefined;
-  vi.stubGlobal("sampleRate", 16000);
+  vi.stubGlobal("sampleRate", rate);
   vi.stubGlobal(
     "AudioWorkletProcessor",
     class {
@@ -29,7 +29,10 @@ it("emits paced little-endian PCM frames, downmixes channels, and flushes the ta
     },
   );
   await import("./pcm.worklet.fork");
-  const processor = new Processor!();
+  return { processor: new Processor!(), port, emitted };
+}
+it("emits paced little-endian PCM frames, downmixes channels, and flushes the tail", async () => {
+  const { processor, port, emitted } = await processorAt(16000);
   processor.process([[new Float32Array(1280).fill(1)]]);
   expect(emitted).toEqual([]);
   port.onmessage?.({ data: "start" });
@@ -43,4 +46,11 @@ it("emits paced little-endian PCM frames, downmixes channels, and flushes the ta
   expect(emitted[2]).toBe("stopped");
   processor.process([[new Float32Array(1280).fill(1)]]);
   expect(emitted).toHaveLength(3);
+});
+it("averages device-rate audio down to 16 kHz", async () => {
+  const { processor, port, emitted } = await processorAt(48000);
+  port.onmessage?.({ data: "start" });
+  processor.process([[new Float32Array([0.5, 0.5, 0.5, -1, 0, 0.25, 1])]]);
+  port.onmessage?.({ data: "stop" });
+  expect(Array.from(new Int16Array(emitted[0] as ArrayBuffer))).toEqual([16384, -8192]);
 });
