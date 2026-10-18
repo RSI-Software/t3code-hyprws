@@ -25,11 +25,13 @@ export const VoiceInputConfigFork = Schema.Struct({
   enabled: Schema.Boolean,
   provider: VoiceInputProviderFork,
   endpoint: Schema.String.check(Schema.isMaxLength(2048)),
+  /** Live preview socket; empty uploads the whole recording after Stop. */
+  streamingEndpoint: Schema.String.check(Schema.isMaxLength(2048)),
   model: Schema.String.check(Schema.isMaxLength(200)),
 });
 export type VoiceInputConfigFork = typeof VoiceInputConfigFork.Type;
 
-/** An omitted key retains it only when the provider and endpoint are unchanged. */
+/** An omitted key retains it only when the provider and both endpoints are unchanged. */
 export const VoiceInputConfigUpdateFork = Schema.Struct({
   ...VoiceInputConfigFork.fields,
   apiKey: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8192))),
@@ -45,6 +47,7 @@ export const VoiceInputSettingsFork = Schema.Struct({
       label: Schema.String,
       available: Schema.Boolean,
       endpoint: Schema.String,
+      streamingEndpoint: Schema.String,
       model: Schema.String,
     }),
   ),

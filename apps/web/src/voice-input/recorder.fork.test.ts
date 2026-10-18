@@ -1,59 +1,96 @@
 import { afterEach, expect, it, vi } from "vite-plus/test";
-import { DesktopVoiceRecorderFork, encodeVoiceWavFork } from "./recorder.fork";
+import { DesktopVoiceRecorderFork, voiceWavFork } from "./recorder.fork";
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
-it("encodes bounded signed PCM with a mono 16 kHz WAV header", () => {
-  const wav = encodeVoiceWavFork(new Float32Array([-2, -1, -0.5, 0, 0.5, 1, 2]));
+it("wraps captured PCM chunks in a mono 16 kHz WAV header", () => {
+  const wav = voiceWavFork([new Int16Array([-32768, 0]).buffer, new Int16Array([32767]).buffer]);
   const view = new DataView(wav.buffer);
   expect(new TextDecoder().decode(wav.subarray(0, 4))).toBe("RIFF");
   expect(view.getUint32(4, true)).toBe(wav.length - 8);
   expect(view.getUint16(22, true)).toBe(1);
   expect(view.getUint32(24, true)).toBe(16_000);
   expect(view.getUint16(34, true)).toBe(16);
-  expect(view.getUint32(40, true)).toBe(14);
-  expect(Array.from({ length: 7 }, (_, i) => view.getInt16(44 + i * 2, true))).toEqual([
-    -32768, -32768, -16384, 0, 16384, 32767, 32767,
-  ]);
+  expect(view.getUint32(40, true)).toBe(6);
+  expect(Array.from(new Int16Array(wav.buffer, 44))).toEqual([-32768, 0, 32767]);
 });
 
 function microphoneFixture() {
   const track = { stop: vi.fn() };
   const stream = { getTracks: () => [track] };
   const getUserMedia = vi.fn(async () => stream);
-  class Recorder {
-    state = "inactive";
-    mimeType = "audio/webm";
-    ondataavailable: ((event: { data: Blob }) => void) | null = null;
-    onstop: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    start() {
-      this.state = "recording";
-    }
-    stop() {
-      this.state = "inactive";
-      this.ondataavailable?.({ data: new Blob(["recorded audio"]) });
-      this.onstop?.();
-    }
-  }
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-  vi.stubGlobal("MediaRecorder", Recorder);
-  return { track, getUserMedia };
+  const close = vi.fn(async () => {});
+  const sent: string[] = [];
+  const events = new EventTarget();
+  const tail = new Int16Array([1, 2, 3]).buffer;
+  const node = {
+    port: {
+      addEventListener: events.addEventListener.bind(events),
+      start: vi.fn(),
+      close: vi.fn(),
+      postMessage: (message: string) => {
+        sent.push(message);
+        if (message === "stop") {
+          events.dispatchEvent(new MessageEvent("message", { data: tail }));
+          events.dispatchEvent(new MessageEvent("message", { data: "stopped" }));
+        }
+      },
+    },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    addEventListener: vi.fn(),
+  };
+  const analyser = {
+    fftSize: 0,
+    getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0.25),
+  };
+  vi.stubGlobal(
+    "AudioContext",
+    class {
+      audioWorklet = { addModule: vi.fn(async () => {}) };
+      destination = {};
+      close = close;
+      resume = async () => {};
+      createAnalyser = () => analyser;
+      createMediaStreamSource = () => ({ connect: vi.fn() });
+    },
+  );
+  vi.stubGlobal("AudioWorkletNode", function () {
+    return node;
+  });
+  let active = true;
+  const live = {
+    get active() {
+      return active;
+    },
+    result: Promise.resolve("words"),
+    send: vi.fn(),
+    finish: vi.fn(() => {
+      active = false;
+    }),
+    cancel: vi.fn(() => {
+      active = false;
+    }),
+  };
+  return { track, getUserMedia, node, live, close, sent, tail };
 }
 
-it("releases the microphone on Stop and deletes the in-memory recording", async () => {
-  const { track } = microphoneFixture();
+it("releases the microphone on Stop, keeps the WAV, and deletes it", async () => {
+  const h = microphoneFixture();
   const status = vi.fn();
   const recorder = new DesktopVoiceRecorderFork(status);
   await recorder.prepareToRecordAsync();
   const uri = recorder.uri!;
   recorder.record({ forDuration: 300 });
   await recorder.stop();
-  expect(track.stop).toHaveBeenCalledOnce();
-  expect(await recorder.read(uri).text()).toBe("recorded audio");
+  expect(h.track.stop).toHaveBeenCalledOnce();
+  expect(h.close).toHaveBeenCalledOnce();
+  expect(h.node.port.close).toHaveBeenCalledOnce();
+  expect(recorder.read(uri)).toEqual(voiceWavFork([h.tail]));
   expect(status).toHaveBeenCalledWith({ isFinished: true, hasError: false, error: null, url: uri });
   recorder.delete(uri);
   expect(() => recorder.read(uri)).toThrow("no longer available");
@@ -71,16 +108,11 @@ it("stops automatically at the recording limit", async () => {
   expect(status).toHaveBeenCalledOnce();
 });
 
-it("releases a stream when MediaRecorder construction fails", async () => {
+it("releases a stream when capture setup fails", async () => {
   const { track } = microphoneFixture();
-  vi.stubGlobal(
-    "MediaRecorder",
-    class {
-      constructor() {
-        throw new Error("unsupported");
-      }
-    },
-  );
+  vi.stubGlobal("AudioWorkletNode", function () {
+    throw new Error("unsupported");
+  });
   const recorder = new DesktopVoiceRecorderFork(vi.fn());
   await expect(recorder.prepareToRecordAsync()).rejects.toThrow("unsupported");
   expect(track.stop).toHaveBeenCalledOnce();
@@ -147,99 +179,25 @@ it("restores ducking on the automatic recording limit", async () => {
   expect(stop).toHaveBeenCalled();
 });
 
-it("meters the active microphone and closes its audio context on Stop", async () => {
+it("meters only while recording", async () => {
   microphoneFixture();
-  const close = vi.fn(async () => {});
-  const connect = vi.fn();
-  const analyser = {
-    fftSize: 0,
-    getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0.25),
-  };
-  vi.stubGlobal(
-    "AudioContext",
-    class {
-      close = close;
-      createAnalyser = () => analyser;
-      createMediaStreamSource = () => ({ connect });
-    },
-  );
   const recorder = new DesktopVoiceRecorderFork(vi.fn());
   expect(recorder.readLevel()).toBe(0);
   await recorder.prepareToRecordAsync();
+  expect(recorder.readLevel()).toBe(0);
   recorder.record({ forDuration: 300 });
   expect(recorder.readLevel()).toBeGreaterThan(0);
   expect(recorder.readLevel()).toBeLessThan(1);
-  expect(connect).toHaveBeenCalledOnce();
   await recorder.stop();
-  expect(close).toHaveBeenCalledOnce();
   expect(recorder.readLevel()).toBe(0);
 });
 
-function liveMicrophoneFixture() {
-  const microphone = microphoneFixture();
-  const close = vi.fn(async () => {});
-  const sent: string[] = [];
-  const events = new EventTarget();
-  const tail = new ArrayBuffer(128);
-  const node = {
-    port: {
-      addEventListener: events.addEventListener.bind(events),
-      start: vi.fn(),
-      close: vi.fn(),
-      postMessage: (message: string) => {
-        sent.push(message);
-        if (message === "stop") {
-          events.dispatchEvent(new MessageEvent("message", { data: tail }));
-          events.dispatchEvent(new MessageEvent("message", { data: "stopped" }));
-        }
-      },
-    },
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    addEventListener: vi.fn(),
-  };
-  vi.stubGlobal(
-    "AudioContext",
-    class {
-      audioWorklet = { addModule: vi.fn(async () => {}) };
-      destination = {};
-      close = close;
-      resume = async () => {};
-      createAnalyser = () => ({ fftSize: 256 });
-      createMediaStreamSource = () => ({ connect: vi.fn() });
-    },
-  );
-  vi.stubGlobal("AudioWorkletNode", function () {
-    return node;
-  });
-  let active = true;
-  const live = {
-    get active() {
-      return active;
-    },
-    result: Promise.resolve("words"),
-    send: vi.fn(),
-    finish: vi.fn(() => {
-      active = false;
-    }),
-    cancel: vi.fn(() => {
-      active = false;
-    }),
-  };
-  return { ...microphone, node, live, close, sent, tail };
-}
-it("flushes live PCM before ending input and releases the microphone without cancelling the final", async () => {
-  const h = liveMicrophoneFixture();
+it("flushes live PCM before ending input and keeps the WAV for fallback", async () => {
+  const h = microphoneFixture();
   const status = vi.fn();
-  const start = vi.fn(async () => {});
-  const stop = vi.fn(async () => {
-    expect(h.track.stop).toHaveBeenCalledOnce();
-    expect(h.live.finish).toHaveBeenCalledOnce();
-  });
-  const recorder = new DesktopVoiceRecorderFork(status, () => "", { start, stop });
+  const recorder = new DesktopVoiceRecorderFork(status);
   recorder.useLiveSession(h.live);
   await recorder.prepareToRecordAsync();
-  expect(start).toHaveBeenCalledOnce();
   recorder.record({ forDuration: 300 });
   await Promise.all([recorder.stop(), recorder.stop()]);
   expect(h.sent).toEqual(["start", "stop"]);
@@ -249,26 +207,30 @@ it("flushes live PCM before ending input and releases the microphone without can
   );
   expect(h.live.finish).toHaveBeenCalledOnce();
   expect(h.live.cancel).not.toHaveBeenCalled();
-  expect(h.track.stop).toHaveBeenCalledOnce();
-  expect(h.close).toHaveBeenCalledOnce();
-  expect(h.node.port.close).toHaveBeenCalledOnce();
-  expect(stop).toHaveBeenCalledOnce();
+  expect(recorder.read(recorder.uri!)).toEqual(voiceWavFork([h.tail]));
   expect(status).toHaveBeenCalledOnce();
-  recorder.delete(recorder.uri!);
 });
-it("cancels live capture on release and can then record through the upload path", async () => {
-  const h = liveMicrophoneFixture();
-  const stop = vi.fn(async () => {});
-  const recorder = new DesktopVoiceRecorderFork(vi.fn(), () => "", { start: async () => {}, stop });
+
+it("keeps recording when the live session drops", async () => {
+  const h = microphoneFixture();
+  const recorder = new DesktopVoiceRecorderFork(vi.fn());
+  recorder.useLiveSession(h.live);
+  await recorder.prepareToRecordAsync();
+  recorder.record({ forDuration: 300 });
+  h.live.cancel();
+  await recorder.stop();
+  expect(h.live.send).not.toHaveBeenCalled();
+  expect(h.live.finish).not.toHaveBeenCalled();
+  expect(recorder.read(recorder.uri!)).toEqual(voiceWavFork([h.tail]));
+});
+
+it("cancels live capture on release", async () => {
+  const h = microphoneFixture();
+  const recorder = new DesktopVoiceRecorderFork(vi.fn());
   recorder.useLiveSession(h.live);
   await recorder.prepareToRecordAsync();
   recorder.record({ forDuration: 300 });
   recorder.release();
   expect(h.live.cancel).toHaveBeenCalledOnce();
-  expect(stop).toHaveBeenCalledOnce();
-  recorder.delete(recorder.uri!);
-  await recorder.prepareToRecordAsync();
-  recorder.record({ forDuration: 300 });
-  await recorder.stop();
-  expect(await recorder.read(recorder.uri!).text()).toBe("recorded audio");
+  expect(h.track.stop).toHaveBeenCalledOnce();
 });

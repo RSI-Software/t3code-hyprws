@@ -35,6 +35,7 @@ const settings = {
   enabled: true,
   provider: "local",
   endpoint: "http://localhost:9000/transcribe",
+  streamingEndpoint: "",
   model: "",
   hasApiKey: false,
   providers: [],
@@ -158,6 +159,7 @@ it.effect("preserves omitted API keys when saving settings", () =>
       enabled: true,
       provider: "local",
       endpoint: settings.endpoint,
+      streamingEndpoint: "",
       model: "",
     }).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
     expect(request.method).toBe("POST");
