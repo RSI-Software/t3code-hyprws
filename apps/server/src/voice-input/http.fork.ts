@@ -133,6 +133,10 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
             yield* service.stream(connected).pipe(
               Effect.catch((error) =>
                 Effect.gen(function* () {
+                  // The client falls back to batch silently, so the server log is the only trace.
+                  yield* Effect.logWarning("Dictation stream failed", {
+                    cause: error.cause ?? error,
+                  });
                   yield* writer.write(encodeStreamError({ type: "error", message: error.message }));
                   yield* writer.write(new Socket.CloseEvent(1011, "Dictation failed"));
                 }),
