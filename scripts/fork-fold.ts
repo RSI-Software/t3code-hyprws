@@ -87,8 +87,6 @@ export const systemFoldGit = (cwd: string): FoldGit => ({
     }),
 });
 
-// -- list ---------------------------------------------------------------------
-
 const commitMessageArguments = (shas: ReadonlyArray<string>) =>
   ["log", "--no-walk", "--format=%H\u001f%B\u001e", ...shas] as const;
 
@@ -146,8 +144,6 @@ export const renderList = (stack: FoldStack): string => {
   }
   return `${lines.join("\n")}\n`;
 };
-
-// -- apply --------------------------------------------------------------------
 
 const readPlan = (path: string): string => {
   try {
@@ -491,8 +487,6 @@ export const replay = (
   return { status: "applied", tip };
 };
 
-// -- prove --------------------------------------------------------------------
-
 /**
  * Per-commit member guard: a new commit's members are the old commits its `Squashes:` lines name
  * plus the old commit sharing its subject. Flags unknown `Squashes:` shas, memberless commits, paths
@@ -614,8 +608,6 @@ const prove = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newR
   return 0;
 };
 
-// -- publish ------------------------------------------------------------------
-
 /**
  * The worktree with hyprws checked out — usually the main checkout — or
  * undefined when checked out nowhere, so there is no worktree tree to dirty.
@@ -686,8 +678,6 @@ const publish = (git: FoldGit, step: ProveStep, base: string, oldRef: string, ne
   );
   return 0;
 };
-
-// -- CLI ----------------------------------------------------------------------
 
 export const run = (
   argv: ReadonlyArray<string>,
