@@ -39,10 +39,11 @@ const IDLE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
 export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
   const { settings } = useVoiceSettingsFork(input.environmentId);
-  const { session, recorder, snapshot } = useDesktopVoiceRuntimeFork();
+  const { session, recorder, snapshot, waiting } = useDesktopVoiceRuntimeFork();
   const controller = session.controller;
   const canOperate = useEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope);
   const latest = useRef(input);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the latest-input ref the external voice session callbacks read.
   useLayoutEffect(() => {
     latest.current = input;
   });
@@ -67,7 +68,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
     cancel: cancelText,
     blocksSubmission: textBlocksSubmission,
   } = textActions;
-  // oxlint-disable-next-line t3code/react-effect-budget -- attaches this composer to the external voice session as its draft owner.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches this composer to the external voice session as its draft owner.
   useLayoutEffect(
     () =>
       session.attach(
@@ -79,7 +80,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
       ),
     [session, input.ownerKey, processTranscript, transcriptionCommitted],
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to capture-phase document `keydown` DOM events for Escape cancel.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to capture-phase document `keydown` DOM events for Escape cancel.
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
       if (
@@ -143,7 +144,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
       ? { sendDisabledReason: "Finish or cancel text processing before sending." }
       : {},
     presented,
-    live: settings?.provider === "meta",
+    live: Boolean(settings?.streamingEndpoint),
     toolbar: (
       <>
         <span className="sr-only" role="status">
@@ -153,6 +154,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
           state={toolbarState}
           active={presented}
           recorder={recorder}
+          waiting={waiting}
           processingPhase={textActions.phase}
           onCancel={() => (textBlocksSubmission() ? cancelText() : controller.cancel())}
           onFinish={() => void controller.stop()}

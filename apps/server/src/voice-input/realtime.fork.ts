@@ -1,27 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
-import * as Socket from "effect/socket/Socket";
+import type * as Socket from "effect/socket/Socket";
 
-const Event = Schema.Struct({
-  type: Schema.optionalKey(Schema.String),
-  sessionId: Schema.optionalKey(Schema.String),
-  transcript: Schema.optionalKey(Schema.String),
-  final: Schema.optionalKey(Schema.Boolean),
-});
-const decode = Schema.decodeEffect(Schema.fromJsonString(Event));
-const encodeHandshake = Schema.encodeSync(
-  Schema.fromJsonString(
-    Schema.Struct({
-      authorization: Schema.Struct({ accessToken: Schema.String }),
-      audioEncoding: Schema.Literal("PCM_16KHZ"),
-      model: Schema.String,
-      mode: Schema.Literal("PUSH_TO_TALK"),
-      partialMode: Schema.Literal("CUMULATIVE"),
-      emitAudioProgress: Schema.Boolean,
-    }),
-  ),
-);
 const encodeTranscript = Schema.encodeSync(
   Schema.fromJsonString(
     Schema.Struct({
@@ -31,96 +13,82 @@ const encodeTranscript = Schema.encodeSync(
     }),
   ),
 );
-class VoiceStreamProtocolErrorFork extends Schema.TaggedError<VoiceStreamProtocolErrorFork>()(
+export class VoiceStreamProtocolErrorFork extends Schema.TaggedError<VoiceStreamProtocolErrorFork>()(
   "VoiceStreamProtocolErrorFork",
   { detail: Schema.String },
 ) {}
 
-/** The configured upload origin also owns Meta's sibling realtime endpoint. */
-export function metaRealtimeUrlFork(endpoint: string) {
-  const url = new URL(endpoint);
-  if (!url.pathname.endsWith("/transcribe")) throw new Error("Invalid Meta endpoint.");
-  url.pathname = url.pathname.replace(/\/transcribe$/, "/realtime");
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
+/** A full transcript replaces the previous preview; nothing else reaches the client. */
+export type VoiceStreamUpdateFork =
+  | { readonly type: "ready" }
+  | { readonly type: "transcript"; readonly text: string; readonly final: boolean }
+  | undefined;
+
+/** One provider's realtime wire for one session; the relay owns limits, order, and the client protocol. */
+export interface VoiceStreamAdapterFork {
+  readonly headers?: Record<string, string>;
+  /** Sent once the upstream socket opens. */
+  readonly start: ReadonlyArray<string>;
+  /** Encodes one validated 16 kHz mono PCM16 client frame. */
+  readonly audio: (pcm: Uint8Array) => string | Uint8Array;
+  /** Ends input and requests the final transcript. */
+  readonly end: ReadonlyArray<string>;
+  readonly receive: (
+    frame: string,
+  ) => Effect.Effect<VoiceStreamUpdateFork, Schema.SchemaError | VoiceStreamProtocolErrorFork>;
 }
 
-/** One push-to-talk stream; only normalized transcripts cross back to the client. */
-export const streamMetaVoiceFork = Effect.fn("VoiceInput.streamMeta")(function* (
+/**
+ * One push-to-talk stream; the session ends when the final transcript reaches the client.
+ * Audio may arrive before the provider is ready (a cold model can take minutes to load):
+ * it is held in order and forwarded once ready, so recording never waits on the provider.
+ */
+export const relayVoiceStreamFork = Effect.fn("VoiceInput.relayStream")(function* (
   client: Socket.Socket,
   upstream: Socket.Socket,
-  config: { model: string; apiKey: string },
+  adapter: VoiceStreamAdapterFork,
 ) {
   const downstreamReader = yield* client.reader;
   const downstreamWriter = yield* client.writer;
   const reader = yield* upstream.reader;
   const writer = yield* upstream.writer;
-  yield* writer.write(
-    encodeHandshake({
-      authorization: { accessToken: `Bearer ${config.apiKey}` },
-      audioEncoding: "PCM_16KHZ",
-      model: config.model,
-      mode: "PUSH_TO_TALK",
-      partialMode: "CUMULATIVE",
-      emitAudioProgress: false,
-    }),
-  );
+  for (const frame of adapter.start) yield* writer.write(frame);
   let ready = false;
   let ended = false;
-  let final = false;
+  let delivered = false;
   let bytes = 0;
+  const isReady = yield* Deferred.make<void>();
   const endInput = yield* Deferred.make<void>();
+  // Validated client input in arrival order; `null` ends input.
+  const input = yield* Queue.unbounded<Uint8Array | null>();
   const receive = Effect.gen(function* () {
     while (true) {
-      const frames = yield* ready ? reader.pull : reader.pull.pipe(Effect.timeout("10 seconds"));
-      for (const frame of frames) {
+      for (const frame of yield* reader.pull) {
         if (typeof frame !== "string" || frame.length > 65536)
           return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid event." });
-        const event = yield* decode(frame);
-        if (event.type === "error")
-          return yield* new VoiceStreamProtocolErrorFork({ detail: "Provider failed." });
-        if (!ready) {
-          if (event.type !== undefined || !event.sessionId)
-            return yield* new VoiceStreamProtocolErrorFork({ detail: "Missing acknowledgement." });
+        const update = yield* adapter.receive(frame);
+        if (update?.type === "ready" && !ready) {
           ready = true;
           yield* downstreamWriter.write('{"type":"ready"}');
-        } else if (event.type === "transcript") {
-          if (
-            event.transcript === undefined ||
-            event.final === undefined ||
-            final ||
-            (event.final && !ended)
-          ) {
+          yield* Deferred.succeed(isReady, undefined);
+        } else if (update?.type === "transcript") {
+          if (!ready || (update.final && !delivered))
             return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid transcript." });
-          }
-          final = event.final;
-          yield* downstreamWriter.write(
-            encodeTranscript({ type: "transcript", text: event.transcript, final }),
-          );
+          yield* downstreamWriter.write(encodeTranscript(update));
+          if (update.final) return;
         }
       }
     }
-  }).pipe(
-    Effect.catch((error) =>
-      Socket.isSocketError(error) &&
-      error.reason._tag === "SocketCloseError" &&
-      error.reason.code === 1000 &&
-      final
-        ? Effect.void
-        : Effect.fail(error),
-    ),
-  );
-  const send = Effect.gen(function* () {
+  });
+  const accept = Effect.gen(function* () {
     while (true) {
       for (const frame of yield* downstreamReader.pull) {
-        if (!ready || ended)
-          return yield* new VoiceStreamProtocolErrorFork({ detail: "Unexpected audio." });
+        if (ended) return yield* new VoiceStreamProtocolErrorFork({ detail: "Unexpected audio." });
         if (typeof frame === "string") {
           if (frame !== '{"type":"endStream"}')
             return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid control." });
           ended = true;
-          yield* writer.write(frame);
-          yield* Deferred.succeed(endInput, undefined);
+          yield* Queue.offer(input, null);
         } else {
           bytes += frame.byteLength;
           if (
@@ -131,15 +99,31 @@ export const streamMetaVoiceFork = Effect.fn("VoiceInput.streamMeta")(function* 
           ) {
             return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid audio." });
           }
-          yield* writer.write(frame);
+          yield* Queue.offer(input, frame);
         }
       }
     }
   });
+  const forward = Effect.gen(function* () {
+    yield* Deferred.await(isReady);
+    while (true) {
+      const frame = yield* Queue.take(input);
+      if (frame) {
+        yield* writer.write(adapter.audio(frame));
+        continue;
+      }
+      for (const control of adapter.end) yield* writer.write(control);
+      delivered = true;
+      yield* Deferred.succeed(endInput, undefined);
+      return yield* Effect.never;
+    }
+  });
+  // The final wait starts once the provider has every frame, not when the user stops.
   const finalDeadline = Deferred.await(endInput).pipe(
     Effect.andThen(Effect.never.pipe(Effect.timeout("60 seconds"))),
   );
-  yield* Effect.raceFirst(receive, Effect.raceFirst(send, finalDeadline)).pipe(
-    Effect.timeout("360 seconds"),
-  );
+  yield* Effect.raceFirst(
+    receive,
+    Effect.raceFirst(accept, Effect.raceFirst(forward, finalDeadline)),
+  ).pipe(Effect.timeout("360 seconds"));
 });
