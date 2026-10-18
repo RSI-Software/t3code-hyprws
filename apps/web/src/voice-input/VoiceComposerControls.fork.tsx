@@ -11,9 +11,11 @@ import "./voiceComposer.fork.css";
 function RecordingWaveformFork({
   recorder,
   recording,
+  waiting,
 }: {
   recorder: DesktopVoiceRecorderFork;
   recording: boolean;
+  waiting: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [barCount, setBarCount] = useState(64);
@@ -62,6 +64,9 @@ function RecordingWaveformFork({
           />
         ))}
       </div>
+      {waiting ? (
+        <span className="shrink-0 text-xs text-muted-foreground">Waiting for speech service</span>
+      ) : null}
       <span
         className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
         aria-hidden="true"
@@ -80,6 +85,7 @@ export function VoiceDictationToolbarFork({
   onCancel,
   onFinish,
   onStart,
+  waiting = false,
   processingPhase,
 }: {
   state: VoiceInputState;
@@ -88,6 +94,8 @@ export function VoiceDictationToolbarFork({
   onCancel: () => void;
   onFinish: () => void;
   onStart: () => void;
+  /** The live speech service has not acknowledged the session yet; audio is held meanwhile. */
+  waiting?: boolean;
   processingPhase?: "cleanup" | "format" | null;
 }) {
   const recording = state.phase === "recording";
@@ -99,7 +107,9 @@ export function VoiceDictationToolbarFork({
         ? "Formatting"
         : state.phase === "preparing"
           ? "Preparing"
-          : "Transcribing";
+          : waiting
+            ? "Waiting for speech service"
+            : "Transcribing";
   return (
     <div
       className="flex h-8 w-full min-w-0 items-center gap-3"
@@ -134,7 +144,11 @@ export function VoiceDictationToolbarFork({
           className="absolute inset-0 flex"
           aria-hidden={!recording}
         >
-          <RecordingWaveformFork recorder={recorder} recording={recording && active} />
+          <RecordingWaveformFork
+            recorder={recorder}
+            recording={recording && active}
+            waiting={waiting}
+          />
         </div>
         <span
           data-voice-status-face-fork="true"
