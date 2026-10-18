@@ -275,8 +275,6 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
   return lines.join("\n");
 };
 
-// -- Inventory (`--inventory`) ------------------------------------------------
-
 export const ForkInventoryCommit = Schema.Struct({
   short: Schema.String,
   domain: Schema.String,
