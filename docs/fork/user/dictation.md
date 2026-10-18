@@ -19,17 +19,23 @@ The text returns to the original draft; the background control lets you return o
 If that draft changes, use **Copy transcript** to recover the text.
 Leaving the chat while the microphone is still recording cancels dictation.
 
-**Meta Muse:** use the default endpoint and model with your Meta API key.
-Words appear while you speak; the check commits the final transcript.
 The mic stays disabled until the saved speech configuration is complete.
-**Local HTTP:** your side app receives a raw `audio/wav` POST and returns `{"text":"words"}`.
-**OpenAI-compatible / custom:** use any compatible transcription endpoint and model.
+
+- **Meta Muse:** the defaults with your Meta API key
+- **OpenAI, Groq, Mistral:** compatible presets
+- **OpenAI-compatible:** any compatible service
+- **Local HTTP:** `audio/wav` in, `{"text":"…"}` out
+
 Other listed services are unavailable until their adapters are implemented.
+
+**Live preview:** set **Streaming endpoint** to show words while you speak.
+Meta uses its realtime socket; every other service uses the OpenAI Realtime transcription protocol, such as `wss://api.openai.com/v1/realtime?intent=transcription`.
+Leave it empty to transcribe after you finish.
+If the live stream fails, finishing uploads the recording to the regular endpoint instead.
 
 Endpoints resolve from the selected environment's server: `localhost` means that server's machine.
 Audio stays in memory and is limited to five minutes.
-Meta streams audio while recording; other services upload when recording finishes.
-Keys are stored on that environment; changing the service or endpoint clears a saved key.
+Keys are stored on that environment; changing the service or either endpoint clears a saved key.
 
 ## Cleanup and formatting
 
