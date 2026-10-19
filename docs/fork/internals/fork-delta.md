@@ -387,14 +387,15 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 
 ### Shape
 
-| Item                                                                                              | Role                                               |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                  |
-| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                 |
-| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork tooling; hand-run ones get an alias       |
-| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure        |
-| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts |
-| `.github/pull_request_template.md` trailer block                                                  | Points to `FORK_DOMAINS` for the domain list       |
+| Item                                                                                              | Role                                                                       |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                        | The fork sections                                                          |
+| This document, [Fork development](./fork-development.md), [Fork sync](../operations/fork-sync.md) | Fork documentation                                                         |
+| `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork tooling; hand-run ones get an alias                               |
+| [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure                                |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts                         |
+| `.github/pull_request_template.md` trailer block                                                  | Points to `FORK_DOMAINS` for the domain list                               |
+| `.rsi-agent/workflows/*.md`                                                                       | rsi-pr-agent copies of `.macroscope/check-run-agents/`, source SHA in each |
 
 Every fork workflow checkout that runs rebased code scrubs its persisted credential first; `hyprws-upstream-sync.yml`'s scrub step is the pattern.
 
