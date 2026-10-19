@@ -120,7 +120,8 @@ export const delegatedRoundCoveredFork = (
   transfer: OrchestrationV2ContextTransfer,
   childRun: Pick<OrchestrationV2Run, "id" | "ordinal">,
 ): boolean =>
-  !isOrchestrationV2WorkActive(task.status) ||
+  // A held queued round is `idle`: not finished, still owed its own result.
+  (!isOrchestrationV2WorkActive(task.status) && task.status !== "idle") ||
   transfer.sourcePoint.runId === childRun.id ||
   (transfer.sourcePoint.runId === undefined && childRun.ordinal === 1);
 
