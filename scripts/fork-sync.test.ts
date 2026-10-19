@@ -711,6 +711,66 @@ it("resolves a marked hook seam by re-applying the hook", () => {
   );
 });
 
+it("re-applies a second commit's hook when the first commit's hook is already in the base", () => {
+  const lines = ["const l1 = 1;", "const l2 = 2;", "const l3 = 3;", "const l4 = 4;"];
+  withFixture(
+    {
+      baseContent: `${lines.join("\n")}\nconst l5 = 5;\n`,
+      forkContent: `${lines[0]}\nconst one = 1; // fork-hook: fork-meta/one\n${lines.slice(1).join("\n")}\nconst l5 = 5;\n`,
+      upstreamContent: `${lines.join("\n")}\nconst up = 0;\nconst l5 = 5;\n`,
+    },
+    (f) => {
+      const file = NodePath.join(f.root, "shared.txt");
+      const content = NodeFS.readFileSync(file, "utf8");
+      NodeFS.writeFileSync(
+        file,
+        content.replace(
+          "const l5 = 5;",
+          "const two = 2; // fork-hook: fork-meta/two\nconst l5 = 5;",
+        ),
+      );
+      f.git(["commit", "--quiet", "-am", "fork adds a second hook"], f.root);
+      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      const { runner } = exec();
+      const code = capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "applied");
+      assert.deepEqual(
+        report.conflicts.map((row) => [row.via, row.hooksReapplied]),
+        [["hook", ["fork-meta/two"]]],
+      );
+    },
+  );
+});
+
+it("refuses a commit that edits an earlier hook, even beside a new one", () => {
+  withFixture(
+    {
+      baseContent: 'import { a } from "a";\n',
+      forkContent:
+        'import { a } from "a";\nimport { forkOne } from "fork"; // fork-hook: fork-meta/one\n',
+      upstreamContent: 'import { a } from "a";\nimport { b } from "b";\n',
+    },
+    (f) => {
+      NodeFS.writeFileSync(
+        NodePath.join(f.root, "shared.txt"),
+        'import { a } from "a";\nimport { forkOne, more } from "fork"; // fork-hook: fork-meta/one\nimport { forkTwo } from "fork"; // fork-hook: fork-meta/two\n',
+      );
+      f.git(["commit", "--quiet", "-am", "fork edits the hook"], f.root);
+      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      const { runner } = exec();
+      assert.strictEqual(capture(() => run(["v1.0.0"], { runner, root: f.root })).value, 1);
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.outcome, "blocked");
+      assert.deepEqual(
+        report.conflicts.map((row) => row.via),
+        ["hook", "manual"],
+      );
+    },
+  );
+});
+
 it("refuses a marked hook beside an unmarked edit and files one keyed block", () => {
   withFixture(
     {
