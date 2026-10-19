@@ -99,8 +99,6 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     // stop. Over-refusing is safe — a human marks the line — while
     // under-refusing ships the unmarked edit this gate exists to catch.
 
-    const marked = markedLines(change.added.join("\n"));
-
     const unmarked: Array<{ readonly line: string; readonly index: number }> = [];
     // The mirror of the upstream-test filter (RSI-Software/t3code-hyprws#1207):
     // that rule drops lines the fork authored, this one drops added lines
@@ -120,7 +118,6 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
         continue;
       }
       if (upstream !== undefined && upstream.has(line.trim())) continue;
-      if (marked.has(index + 1)) continue;
       if (line.includes("fork-hook:")) continue;
       if (isFragmentScaffold(change.added, index)) continue;
       unmarked.push({ line, index });
@@ -128,12 +125,15 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     let code = unmarked.filter(
       ({ line }) => !isForkHookSuffixLine(line) && line.trim() !== "" && /[A-Za-z_$]/.test(line),
     );
-    if (code.length > 0 && change.addedAt !== undefined) {
-      const committed = input.readCommittedText?.(path);
-      if (committed !== undefined) {
-        const covered = markedLines(committed);
-        code = code.filter(({ index }) => !covered.has(change.addedAt?.[index] ?? 0));
-      }
+    if (code.length > 0) {
+      // The committed blob is authoritative: added lines alone miss a marker on an unchanged
+      // line, and an edited JSX opener whose end marker is unchanged spans every later hunk.
+      const committed = change.addedAt === undefined ? undefined : input.readCommittedText?.(path);
+      const covered = markedLines(committed ?? change.added.join("\n"));
+      code = code.filter(
+        ({ index }) =>
+          !covered.has(committed === undefined ? index + 1 : (change.addedAt?.[index] ?? 0)),
+      );
     }
     if (code.length === 0) continue;
     const sample = code.slice(0, 3).map(({ line }) => line.trim());

@@ -124,7 +124,9 @@ const retargetFor = (
     if (hunk === null || path === "") continue;
     const start = Number(hunk[1]);
     const count = Number(hunk[2] ?? 1);
-    const length = git.run(["cat-file", "-p", `${fixup}^:${path}`]).split("\n").length - 1;
+    const blob = git.run(["cat-file", "-p", `${fixup}^:${path}`]);
+    // A final line without a newline is still a line blame can name.
+    const length = blob === "" ? 0 : blob.split("\n").length - (blob.endsWith("\n") ? 1 : 0);
     const from = Math.max(1, start - FOLD_CONTEXT + (count === 0 ? 1 : 0));
     const to = Math.min(length, start + Math.max(count, 1) - 1 + FOLD_CONTEXT);
     if (from > to) continue;

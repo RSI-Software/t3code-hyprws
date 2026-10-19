@@ -100,6 +100,9 @@ export interface AuthoringGuardInput {
   // Absent on inputs built before the map existed; the guard then behaves
   // as it always has.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  readonly replayAddedLines?:
+    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
+    | undefined;
   // A commit's own blob for a path, read only when the hook guard would
   // refuse: a marker on an unchanged line still covers the lines it marks.
   readonly readCommittedText?: ((sha: string, path: string) => string | undefined) | undefined;

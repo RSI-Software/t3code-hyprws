@@ -128,6 +128,19 @@ it("matches a re-indented context and shifts the hook with it", () => {
   assert.include(result.text, "if (all) {\n  forkRun(); // fork-hook: dom/run\n  run();\n");
 });
 
+it("keeps a hook spanning a template literal verbatim under a re-indent", () => {
+  const merged = "<List>\n  <Row />\n</List>\n";
+  const hook = [
+    "    {/* fork-hook: dom/note */}",
+    "    <Note text={`",
+    "      body`} />",
+    "    {/* fork-hook-end */}",
+  ];
+  const fork = ["    <List>", ...hook, ""].join("\n");
+  const result = reapplyForkHooks(merged, fork, [{ key: "dom/note", anchor: after("    <List>") }]);
+  assert.include(result.text, `<List>\n${hook.join("\n")}\n  <Row />\n`);
+});
+
 it("refuses a hook whose marker is unreadable in the fork text", () => {
   const merged = 'import { a } from "a";\n';
   const result = reapplyForkHooks(merged, 'import { forkThing } from "fork";\n', [

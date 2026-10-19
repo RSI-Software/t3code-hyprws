@@ -20,6 +20,7 @@ import {
 } from "./fork-delta.ts";
 import {
   type AuthoringGuardCommit,
+  type AuthoringGuardInput,
   collectAuthoringWarnings,
   commitPatchArguments,
   parseCommitPatches,
@@ -329,25 +330,6 @@ export interface BaselineKeys {
   readonly replayOf: string;
   readonly warningKeys: ReadonlySet<string>;
   readonly additiveKeys: ReadonlySet<string>;
-}
-
-export interface AuthoringGuardInput {
-  readonly commits: ReadonlyArray<AuthoringGuardCommit>;
-  readonly filesBySha: ReadonlyMap<string, ReadonlyArray<string>>;
-  readonly patchesBySha: ReadonlyMap<string, CommitPatch>;
-  readonly upstreamFiles: ReadonlySet<string>;
-  readonly upstreamTestFiles: ReadonlySet<string>;
-  readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
-  // Significant target-tree lines per touched upstream file, for the hook
-  // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
-  // inputs built before the map existed; the guard then behaves as before.
-  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
-  readonly replayAddedLines?:
-    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
-    | undefined;
-  readonly upstreamTestTexts: ReadonlyMap<string, string>;
-  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
-  readonly siblingTexts: ReadonlyMap<string, string>;
 }
 
 const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/g;

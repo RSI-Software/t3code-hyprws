@@ -196,6 +196,40 @@ it("covers an edit inside a hook whose marker line it leaves unchanged", () => {
   assert.match(warnings[0] ?? "", /1 added line.*plain/);
 });
 
+it("refuses an edit after a JSX hook whose end marker it leaves unchanged", () => {
+  const patch = parseCommitPatches(
+    [
+      "abc1234",
+      "--- a/file.tsx",
+      "+++ b/file.tsx",
+      "@@ -2 +2 @@",
+      "-{/* fork-hook: example/old-name */}",
+      "+{/* fork-hook: example/new-name */}",
+      "@@ -5 +5 @@",
+      "-<Plain value={1} />",
+      "+<Plain value={2} />",
+      "",
+    ].join("\n"),
+  ).get("abc1234");
+  const committed = [
+    "<>",
+    "{/* fork-hook: example/new-name */}",
+    "<Fork />",
+    "{/* fork-hook-end */}",
+    "<Plain value={2} />",
+    "</>",
+  ].join("\n");
+  const warnings = hookGuardWarnings({
+    commit: { short: "abc1234", domain: "example" },
+    files: ["file.tsx"],
+    changedLines: patch?.changedLines ?? new Map(),
+    upstreamFiles: new Set(["file.tsx"]),
+    readCommittedText: () => committed,
+  });
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /1 added line.*Plain/);
+});
+
 it("exempts identical replay additions", () => {
   assert.deepStrictEqual(
     replayHookWarnings(["const historical = true;"], ["const historical = true;"]),
