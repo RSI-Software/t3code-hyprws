@@ -95,18 +95,16 @@ const anchorShift = (
   return 0;
 };
 
-/** Whether a later hook line starts inside a template literal, where indent is string content. */
-const crossesTemplate = (lines: ReadonlyArray<string>): boolean => {
-  let open = false;
-  for (const line of lines.slice(0, -1)) {
-    for (const [token] of line.matchAll(/\\.|`/g)) if (token === "`") open = !open;
-    if (open) return true;
-  }
-  return false;
-};
+/**
+ * Whether a later hook line may start inside a string, where indent is content. Any backtick or
+ * line continuation counts: telling a quoted backtick from a template needs a tokenizer, and a
+ * hook left verbatim only costs a format fix.
+ */
+const mayContinueLiteral = (lines: ReadonlyArray<string>): boolean =>
+  lines.length > 1 && lines.some((line) => line.includes("`") || line.endsWith("\\"));
 
 const shiftIndent = (lines: ReadonlyArray<string>, shift: number): ReadonlyArray<string> =>
-  shift === 0 || crossesTemplate(lines)
+  shift === 0 || mayContinueLiteral(lines)
     ? lines
     : lines.map((line) => {
         if (line.trim() === "") return line;
@@ -119,7 +117,7 @@ const shiftIndent = (lines: ReadonlyArray<string>, shift: number): ReadonlyArray
  * otherwise the hook's own lines re-inserted directly after its context anchor. The lines are
  * the fork tip's own bytes, shifted only when the anchor matched by trimmed text: upstream
  * re-indented the neighbourhood, and the verbatim indent would fail the format check. A hook that
- * spans a template literal stays verbatim, since shifting it would change the string.
+ * may span a string literal stays verbatim, since shifting it would change the string.
  */
 const resolveHook = (
   merged: string,
