@@ -25,7 +25,7 @@ export type ForkHookReapply =
   | { readonly status: "intact" }
   | {
       readonly status: "reinsert";
-      /** The exact marked line(s) from the fork side, verbatim. */
+      /** The marked line(s) from the fork side, shifted only when upstream re-indented the anchor. */
       readonly lines: ReadonlyArray<string>;
       /** Insert the lines before this 0-based line index of the merged text. */
       readonly at: number;
@@ -56,9 +56,9 @@ const forkHookLines = (fork: string, hook: ParsedForkHook): ReadonlyArray<string
 const anchorEnd = (
   lines: ReadonlyArray<string>,
   context: ReadonlyArray<string>,
-): { readonly at: number } | { readonly sites: number } => {
-  if (context.length === 0) return { at: -1 };
-  for (const shape of [(line: string) => line, (line: string) => line.trim()]) {
+): { readonly at: number; readonly exact: boolean } | { readonly sites: number } => {
+  if (context.length === 0) return { at: -1, exact: true };
+  for (const [index, shape] of [(line: string) => line, (line: string) => line.trim()].entries()) {
     const wanted = context.map(shape);
     const hits: Array<number> = [];
     for (let start = 0; start + context.length <= lines.length; start += 1) {
@@ -70,17 +70,54 @@ const anchorEnd = (
         }
       if (matched) hits.push(start + context.length - 1);
     }
-    if (hits.length === 1) return { at: hits[0] ?? 0 };
+    if (hits.length === 1) return { at: hits[0] ?? 0, exact: index === 0 };
     if (hits.length > 1) return { sites: hits.length };
   }
   return { sites: 0 };
 };
 
+const indentWidth = (line: string): number => line.length - line.trimStart().length;
+
+/**
+ * The columns upstream shifted the anchor by: its last non-blank context line in the fork text
+ * against the same line in the merged text, which ends at `at`.
+ */
+const anchorShift = (
+  lines: ReadonlyArray<string>,
+  context: ReadonlyArray<string>,
+  at: number,
+): number => {
+  for (let offset = context.length - 1; offset >= 0; offset -= 1) {
+    const forkLine = context[offset] ?? "";
+    if (forkLine.trim() === "") continue;
+    return indentWidth(lines[at - (context.length - 1 - offset)] ?? "") - indentWidth(forkLine);
+  }
+  return 0;
+};
+
+/**
+ * Whether a later hook line may start inside a string, where indent is content. Any backtick or
+ * line continuation counts: telling a quoted backtick from a template needs a tokenizer, and a
+ * hook left verbatim only costs a format fix.
+ */
+const mayContinueLiteral = (lines: ReadonlyArray<string>): boolean =>
+  lines.length > 1 && lines.some((line) => line.includes("`") || line.endsWith("\\"));
+
+const shiftIndent = (lines: ReadonlyArray<string>, shift: number): ReadonlyArray<string> =>
+  shift === 0 || mayContinueLiteral(lines)
+    ? lines
+    : lines.map((line) => {
+        if (line.trim() === "") return line;
+        if (shift > 0) return " ".repeat(shift) + line;
+        return line.slice(Math.min(-shift, indentWidth(line)));
+      });
+
 /**
  * Resolve one derived hook against the merged upstream text: intact when the marker survived,
- * otherwise the hook's own lines re-inserted verbatim directly after its context anchor. The
- * lines are never re-indented — they are the fork tip's own bytes, and the anchor places them in
- * the same neighbourhood they were written in.
+ * otherwise the hook's own lines re-inserted directly after its context anchor. The lines are
+ * the fork tip's own bytes, shifted only when the anchor matched by trimmed text: upstream
+ * re-indented the neighbourhood, and the verbatim indent would fail the format check. A hook that
+ * may span a string literal stays verbatim, since shifting it would change the string.
  */
 const resolveHook = (
   merged: string,
@@ -108,7 +145,8 @@ const resolveHook = (
           ? "the hook's anchor context is not in the merged text"
           : `the hook's anchor context matches ${found.sites} sites; the anchor is ambiguous`,
     };
-  return { status: "reinsert", lines: marked, at: found.at + 1 };
+  const shift = found.exact ? 0 : anchorShift(lines, anchor.context, found.at);
+  return { status: "reinsert", lines: shiftIndent(marked, shift), at: found.at + 1 };
 };
 
 /** Insert every reinsertion into the merged text without touching any existing line. */
