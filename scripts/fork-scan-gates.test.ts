@@ -162,6 +162,40 @@ const replayHookWarnings = (
       : { replayAddedLines: new Map([["file.ts", replayAddedLines]]) }),
   });
 
+it("covers an edit inside a hook whose marker line it leaves unchanged", () => {
+  const patch = parseCommitPatches(
+    [
+      "abc1234",
+      "--- a/file.ts",
+      "+++ b/file.ts",
+      "@@ -2 +2 @@",
+      "-const value = upstreamCall(",
+      "+const value = forkCall(",
+      "@@ -6 +6 @@",
+      "-const plain = 1;",
+      "+const plain = 2;",
+      "",
+    ].join("\n"),
+  ).get("abc1234");
+  const committed = [
+    'import { x } from "y";',
+    "const value = forkCall(",
+    "  first,",
+    "  second,",
+    "); // fork-hook: example/multi-line",
+    "const plain = 2;",
+  ].join("\n");
+  const warnings = hookGuardWarnings({
+    commit: { short: "abc1234", domain: "example" },
+    files: ["file.ts"],
+    changedLines: patch?.changedLines ?? new Map(),
+    upstreamFiles: new Set(["file.ts"]),
+    readCommittedText: () => committed,
+  });
+  assert.lengthOf(warnings, 1);
+  assert.match(warnings[0] ?? "", /1 added line.*plain/);
+});
+
 it("exempts identical replay additions", () => {
   assert.deepStrictEqual(
     replayHookWarnings(["const historical = true;"], ["const historical = true;"]),

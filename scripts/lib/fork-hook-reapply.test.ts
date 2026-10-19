@@ -118,12 +118,14 @@ it("refuses a context the merged text lost instead of falling back to the file e
   });
 });
 
-it("matches a re-indented context and keeps the hook's own bytes", () => {
-  const merged = "function go() {\n    run();\n}\n";
-  const fork = "  forkRun(); // fork-hook: dom/run\n";
-  const result = reapplyForkHooks(merged, fork, [{ key: "dom/run", anchor: after("  run();") }]);
+it("matches a re-indented context and shifts the hook with it", () => {
+  const merged = "if (all) {\n  run();\n}\n";
+  const fork = "    if (all) {\n      forkRun(); // fork-hook: dom/run\n";
+  const result = reapplyForkHooks(merged, fork, [
+    { key: "dom/run", anchor: after("    if (all) {") },
+  ]);
   assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
-  assert.include(result.text, "    run();\n  forkRun(); // fork-hook: dom/run\n");
+  assert.include(result.text, "if (all) {\n  forkRun(); // fork-hook: dom/run\n  run();\n");
 });
 
 it("refuses a hook whose marker is unreadable in the fork text", () => {

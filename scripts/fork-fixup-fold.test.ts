@@ -168,6 +168,7 @@ it("refuses a fixup that only folds at the tip, naming fixup and owner", () => {
     const [failure] = fixupFoldFailures(root, base, "HEAD");
     assert.ok(failure?.includes('fixup "fixup! owner edit"'), failure);
     assert.ok(failure?.includes('owner "owner edit"'), failure);
+    assert.ok(failure?.includes('name "later edit"'), failure);
     // The live checkout is untouched: the tip stands and the replay worktree is gone.
     assert.strictEqual(git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "main"]));
     assert.strictEqual(worktreeCount(root), 1);

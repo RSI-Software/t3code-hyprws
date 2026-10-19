@@ -465,6 +465,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
               upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
               upstreamLines: input.guard?.upstreamLines,
               replayAddedLines: input.guard?.replayAddedLines?.get(commit.sha),
+              readCommittedText: (path) => input.guard?.readCommittedText?.(commit.sha, path),
             }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
           }),
   };
@@ -917,6 +918,13 @@ const buildGuardInput = (
       significantTestLines,
     ),
     replayAddedLines,
+    readCommittedText: (sha, path) => {
+      try {
+        return git.run(["show", `${sha}:${path}`]);
+      } catch {
+        return undefined;
+      }
+    },
     upstreamLines: readUpstreamLines(
       git,
       range.target,

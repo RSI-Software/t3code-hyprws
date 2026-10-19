@@ -97,6 +97,55 @@ const hydrateStack = (git: SystemGit, base: string, head: string): void => {
     throw new Error(`could not fetch the stack's blobs from ${promisor}: ${fetch.stderr.trim()}`);
 };
 
+/** Git's default diff context: a fold applies only while these lines around each edit match. */
+const FOLD_CONTEXT = 3;
+
+/**
+ * The newest stack commit that shaped the lines a fixup edits or the context
+ * around them, when that is not the fixup's owner. Those lines did not exist
+ * yet at the owner, which is why the fold stopped; naming that commit instead
+ * folds. Blame stops at `base`, so upstream history is never walked.
+ */
+const retargetFor = (
+  git: SystemGit,
+  base: string,
+  fixup: string,
+  owner: string,
+  stack: ReadonlyArray<SubjectCommit>,
+): string | undefined => {
+  const order = new Map(stack.map((commit, index) => [commit.sha, index]));
+  let newest = order.get(owner) ?? -1;
+  let path = "";
+  for (const line of git
+    .run(["-c", "core.quotePath=false", "diff", "--unified=0", `${fixup}^`, fixup])
+    .split("\n")) {
+    if (line.startsWith("--- ")) path = line.startsWith("--- a/") ? line.slice(6) : "";
+    const hunk = /^@@ -(\d+)(?:,(\d+))? /.exec(line);
+    if (hunk === null || path === "") continue;
+    const start = Number(hunk[1]);
+    const count = Number(hunk[2] ?? 1);
+    const length = git.run(["cat-file", "-p", `${fixup}^:${path}`]).split("\n").length - 1;
+    const from = Math.max(1, start - FOLD_CONTEXT + (count === 0 ? 1 : 0));
+    const to = Math.min(length, start + Math.max(count, 1) - 1 + FOLD_CONTEXT);
+    if (from > to) continue;
+    const blame = git.run([
+      "blame",
+      "--porcelain",
+      "-L",
+      `${from},${to}`,
+      `${base}..${fixup}^`,
+      "--",
+      path,
+    ]);
+    for (const [, sha = ""] of blame.matchAll(/^([0-9a-f]{40}) \d+ \d+/gm)) {
+      const index = order.get(sha) ?? -1;
+      if (index > newest && !(stack[index]?.subject ?? "").startsWith(FIXUP_PREFIX)) newest = index;
+    }
+  }
+  const target = stack[newest];
+  return target === undefined || target.sha === owner ? undefined : target.sha;
+};
+
 /** Abort a mid-stop rebase, then claim the worktree and its admin entry; a leaked replay must not outlive the check. */
 const removeReplayWorktree = (git: SystemGit, worktree: string): void => {
   const rebaseMerge = new SystemGit(worktree).runResult([
@@ -154,12 +203,22 @@ export const fixupFoldFailures = (
       const stopped = replay.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
       const stoppedSha = stopped.status === 0 ? stopped.stdout.trim() : "";
       const pair = fixups.owners.find(([fixup]) => stoppedSha.startsWith(fixup));
+      let retarget: string | undefined;
+      if (pair !== undefined)
+        try {
+          retarget = retargetFor(git, base, pair[0], pair[1], subjects);
+        } catch {
+          // The hint is advisory; the refusal stands without it.
+        }
       const reason =
         pair === undefined
           ? stoppedSha === ""
             ? "the replay failed before applying a commit"
             : `the replay stopped at ${name(stoppedSha)}`
-          : `fixup "${subjectOf(pair[0])}" (${shortSha(pair[0])}) does not fold into its owner "${subjectOf(pair[1])}" (${shortSha(pair[1])}): the replay stopped applying it there`;
+          : `fixup "${subjectOf(pair[0])}" (${shortSha(pair[0])}) does not fold into its owner "${subjectOf(pair[1])}" (${shortSha(pair[1])}): the replay stopped applying it there` +
+            (retarget === undefined
+              ? ""
+              : `; name "${subjectOf(retarget)}" (${shortSha(retarget)}) instead, the newest commit that changed the lines around this edit`);
       const detail = [result.stderr.trim(), result.error?.message].filter(Boolean).join("\n");
       return [detail === "" ? reason : `${reason}\n${detail}`];
     }
