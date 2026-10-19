@@ -19,7 +19,7 @@ const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
 // renderer can load wait here instead of a single slot, so a second intent
 // cannot evict the first. Small and fixed: bursts larger than this are
 // tray-icon storms, not user intent.
-export const STARTUP_INTENT_QUEUE_CAPACITY = 8;
+const STARTUP_INTENT_QUEUE_CAPACITY = 8;
 
 export interface WindowOpeners {
   /**
