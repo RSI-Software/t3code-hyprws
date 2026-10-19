@@ -493,15 +493,31 @@ const reapplyHooks = (
     return null;
   }
   if (entries.length === 0) return null;
+  const theirsLines = theirs.split("\n");
+  const baseSplit = base.split("\n");
+  const spanText = (lines: ReadonlyArray<string>, span: { startLine: number; endLine: number }) =>
+    lines.slice(span.startLine - 1, span.endLine).join("\n");
   const marked = new Set<number>();
   for (const entry of entries)
     for (let line = entry.span.startLine; line <= entry.span.endLine; line += 1) marked.add(line);
+  // An earlier commit's hook sits in the base too; strip it only when this
+  // commit leaves it byte-identical, so an edited hook still refuses instead
+  // of re-applying as `intact` with its old text.
+  const theirsHooks = new Map(entries.map(({ key, span }) => [key, spanText(theirsLines, span)]));
+  let baseEntries: ReturnType<typeof deriveForkHooksIn> = [];
+  try {
+    baseEntries = deriveForkHooksIn(path, base);
+  } catch {}
+  const baseMarked = new Set<number>();
+  for (const { key, span } of baseEntries)
+    if (theirsHooks.get(key) === spanText(baseSplit, span))
+      for (let line = span.startLine; line <= span.endLine; line += 1) baseMarked.add(line);
   // Line arrays, not raw text: the fork blob and the base blob may differ in a
   // trailing newline while carrying the same lines.
   const shape = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
     lines.length > 0 && lines[lines.length - 1] === "" ? lines.slice(0, -1) : lines;
-  const baseLines = shape(base.split("\n"));
-  const forkLines = shape(theirs.split("\n").filter((_, index) => !marked.has(index + 1)));
+  const baseLines = shape(baseSplit.filter((_, index) => !baseMarked.has(index + 1)));
+  const forkLines = shape(theirsLines.filter((_, index) => !marked.has(index + 1)));
   const pureInsertion =
     baseLines.length === forkLines.length &&
     baseLines.every((line, index) => line === forkLines[index]);
