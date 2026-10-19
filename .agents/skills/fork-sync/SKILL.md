@@ -36,16 +36,8 @@ A moved lease or a new tag rebases again instead.
 `.t3/fork-sync/<tag>.json` is the only run authority; the printed Markdown is output.
 Post-push recovery reads this file, never a comment.
 
-| Field          | Meaning                                                    |
-| -------------- | ---------------------------------------------------------- |
-| `outcome`      | `applied`, `already-applied`, `blocked`, or `failed`       |
-| `target`       | The tag and its sha                                        |
-| `lease`        | The `origin/hyprws` sha the push is leased against         |
-| `trunk`        | Trunk before and after the run                             |
-| `conflicts[]`  | Every stop's path, fork and upstream commit, route         |
-| `ci`           | The candidate's `hyprws CI` run, conclusion, and jobs      |
-| `decision`     | A stopped run's worktree, paths, and exact resume commands |
-| `decision.tip` | A red candidate's or green dry run's tip, in the worktree  |
+Fields: [the report](../../../docs/fork/operations/fork-sync.md#the-report).
+`decision.tip` names a kept tip: a red candidate or a green dry run.
 
 Never edit a report; a rerun supersedes it.
 
@@ -106,21 +98,24 @@ In the rebase, resolve minimally: upstream's text stands, and a marked fork hook
 Upstream deleted and the fork edit is net-zero: the deletion stands.
 A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates; when one is pending, skip `git rebase --continue` and rerun.
 Never adapt inside a replayed commit: the hook guard refuses it.
-Adaptation lands at the tip, one commit per owner:
+Adaptation lands at the tip, one commit per owner, per [Reshape](../../../docs/fork/operations/fork-sync.md#unblocking-by-hand).
 
-| Change           | Commit                                                 |
-| ---------------- | ------------------------------------------------------ |
-| Owner adaptation | `fixup! <owner subject>` with the owner's trailers     |
-| No single owner  | one `upstream-fixes` commit naming the upstream change |
-| Retirement       | its own commit; a fixup body is discarded at the fold  |
+**Second block:** the same seam stops a second sync.
 
-The next sync folds each fixup into its owner; no `/fork-fold` follows a sync.
+- **Cause:** the owner is not a pure insertion
+- **Fix:** reshape it in a tip `fixup!`
+- **Shape:** [marked insertions only][hook]
+- **Next sync:** may stop once more, then folds it
+- **Sooner:** fold it now with [fork-fold][fold]
+
+[hook]: ../../../docs/fork/internals/fork-delta.md#marking-a-hook
+[fold]: ../fork-fold/SKILL.md
 
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
 3. Resolve each path by the rule above.
 4. `git add` them; `git rebase --continue`.
-5. Commit any adaptation at the tip, per the table.
+5. Commit any adaptation at the tip.
 6. Rerun `vp run fork:sync <tag>`.
 
 The worktree ran the `t3.json` setup step, so it builds and tests.
@@ -134,8 +129,6 @@ A failed run does the same with the one open failure issue.
 Each body ends with its open-since date, target count, and last five runs; a clean run closes both.
 
 ### Finished tip from elsewhere
-
-A green dry run's tip needs none of this: the real run adopts it.
 
 1. Open the kept worktree.
 2. `git rebase --abort` if one is in progress.
