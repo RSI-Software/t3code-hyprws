@@ -1,0 +1,5 @@
+# Agent job sizes for rsi-pr-agent; profiles live in its docs/k3s-runbook.md.
+jobs:
+  profile: standard
+  workflows:
+    fork-sync: heavy
