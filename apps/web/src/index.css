@@ -2384,3 +2384,12 @@ code {
     }
   }
 }
+
+/* Disposable proof for RSI-Software/rsi-pr-agent#529; never merge. */
+.proof-notice-title {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.dark .proof-notice-title {
+  color: var(--muted-foreground);
+}
