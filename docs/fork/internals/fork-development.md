@@ -102,7 +102,7 @@ Superseded-upstream first, fork-specific last:
 3. Product domains, commits contiguous
 
 A generic fix in no product domain is `upstream-fixes`.
-New commits land on top and move down at the next rebase.
+New commits land on top and stay there; sync moves only a `fixup!`, beneath its owner.
 Reorder only on a clean stack; publish with a lease.
 A squash lists its members under `Squashes:`, one `- <sha> <subject>` line each plus every PR reference the member carried, so the rebase scan reads every member as a replay counterpart.
 A refold keeps every link an earlier fold gathered, bare `(#N)` markers included, and `prove` refuses a fold that drops one.
@@ -164,9 +164,11 @@ Fork-only paths need no granularity curation.
 
 ### Fold to stay tight
 
-Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a rebase conflict is solved once.
+Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a seam conflicts once per replay, not once per commit.
 The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
 Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
+Fold commits that share one owning intent or cancel each other's upstream hunks, never only because they share a domain.
+A cancelling pair across domains cannot share a plan line: drop both hunks by hand at the fold, and `prove` checks the tree.
 A `fixup!` that only applies at the branch tip lands green and blocks the next sync; [`fork:fixup-fold`](../../../scripts/fork-fixup-fold.ts) proves each fixup folds at its owner in `fork:ci`.
 A fold is tree-equal but rewrites commit boundaries: the release delta revision changes, and a nightly may republish the same tree.
 

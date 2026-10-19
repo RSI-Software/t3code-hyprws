@@ -5,7 +5,7 @@ description: Fold the RSI-Software/t3code-hyprws ahead commits to one PR-sized i
 
 # Fork fold
 
-Keep each ahead commit one PR-sized intent, so a rebase conflict is solved once.
+Keep each ahead commit one PR-sized intent, so a seam conflicts once per replay, not once per commit.
 The agent picks the folds; `scripts/fork-fold.ts` only lists, applies, and publishes.
 
 ## Scope
@@ -63,11 +63,7 @@ Backfill a link an earlier fold lost this way.
 
 One PR-sized intent per output commit: a feature absorbs its fixes and resolutions.
 
-Fold when both hold:
-
-- **Intent:** one
-- **Domain:** the same `Fork-Domain`
-
+Fold by [owning intent or cancellation](../../../docs/fork/internals/fork-development.md#fold-to-stay-tight), never by domain alone.
 The plan refuses a mixed-domain line: across domains the ledger would lose one.
 
 ## Prove
