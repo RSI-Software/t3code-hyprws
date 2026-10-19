@@ -30,6 +30,8 @@ export interface HookGuardCommit {
 
 export interface HookGuardChange {
   readonly added: ReadonlyArray<string>;
+  // Each added line's 1-based line in the committed file, parallel to `added`.
+  readonly addedAt?: ReadonlyArray<number> | undefined;
 }
 
 export interface HookGuardInput {
@@ -46,7 +48,19 @@ export interface HookGuardInput {
   // insertions, not lines introduced by this replay, and are exempt count by
   // count.
   readonly replayAddedLines?: ReadonlyMap<string, ReadonlyArray<string>> | undefined;
+  // The commit's own text of a path. A commit that edits one line of an
+  // existing multi-line hook adds no marker, so its added lines alone cannot
+  // show the hook; the committed file's markers can.
+  readonly readCommittedText?: ((path: string) => string | undefined) | undefined;
 }
+
+/** The 1-based lines a marked hook covers in `text`. */
+const markedLines = (text: string): ReadonlySet<number> => {
+  const marked = new Set<number>();
+  for (const hook of parseForkHookMarkers(text))
+    for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  return marked;
+};
 
 /** A trimmed line that is only comment: `//`, a block opener, or a block continuation. */
 const COMMENT_LINE = /^(?:\/\/|\/\*|\*)/;
@@ -80,12 +94,7 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
     // stop. Over-refusing is safe — a human marks the line — while
     // under-refusing ships the unmarked edit this gate exists to catch.
 
-    const addedText = change.added.join("\n");
-    const hooks = parseForkHookMarkers(addedText);
-    const marked = new Set<number>();
-    for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
-
-    const unmarked: Array<string> = [];
+    const unmarked: Array<{ readonly line: string; readonly index: number }> = [];
     // The mirror of the upstream-test filter (RSI-Software/t3code-hyprws#1207):
     // that rule drops lines the fork authored, this one drops added lines
     // the upstream target already has.
@@ -104,19 +113,28 @@ export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> 
         continue;
       }
       if (upstream !== undefined && upstream.has(line.trim())) continue;
-      if (marked.has(index + 1)) continue;
       if (line.includes("fork-hook:")) continue;
       if (isFragmentScaffold(change.added, index)) continue;
-      unmarked.push(line);
+      unmarked.push({ line, index });
     }
-    const code = unmarked.filter(
-      (line) => !isForkHookSuffixLine(line) && line.trim() !== "" && /[A-Za-z_$]/.test(line),
+    let code = unmarked.filter(
+      ({ line }) => !isForkHookSuffixLine(line) && line.trim() !== "" && /[A-Za-z_$]/.test(line),
     );
+    if (code.length > 0) {
+      // The committed blob is authoritative: added lines alone miss a marker on an unchanged
+      // line, and an edited JSX opener whose end marker is unchanged spans every later hunk.
+      const committed = change.addedAt === undefined ? undefined : input.readCommittedText?.(path);
+      const covered = markedLines(committed ?? change.added.join("\n"));
+      code = code.filter(
+        ({ index }) =>
+          !covered.has(committed === undefined ? index + 1 : (change.addedAt?.[index] ?? 0)),
+      );
+    }
     if (code.length === 0) continue;
-    const sample = code.slice(0, 3).map((line) => line.trim());
+    const sample = code.slice(0, 3).map(({ line }) => line.trim());
     // A comment-only line ends a trailing marker's backward walk, so marking
     // more cannot cover it; only moving or dropping the comment can.
-    const remedy = code.every((line) => COMMENT_LINE.test(line.trim()))
+    const remedy = code.every(({ line }) => COMMENT_LINE.test(line.trim()))
       ? "a comment-only line stops the marker's walk, so move the comment inside the statement or drop it"
       : "mark a complete added statement whose opening context is also added; in a sync, adapt in a tip `fixup!` of the owner, never inside a replayed commit";
     details.push(
