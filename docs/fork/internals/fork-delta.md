@@ -84,7 +84,7 @@ Decided per commit by the levers retire, reshape, automate, or accept; no gate c
 
 **A hook is exactly one construct:** one import, one call, one `const` from a single fork call, one JSX element, one fork-named property or spread, or one re-export.
 **A hook never removes or modifies an upstream line**, not even to re-indent or substitute one.
-Hook re-apply (`reapplyHooks` in `scripts/fork-sync.ts`) accepts only a pure insertion: the fork side minus its marked spans equals the base.
+Hook re-apply (`reapplyHooks` in `scripts/fork-sync.ts`) accepts only a pure insertion: the fork side minus its marked spans equals the base minus the earlier hooks this commit leaves unchanged.
 Any other shape stops every sync that touches the file, and the hook guard misses it because it checks only added lines.
 Move the logic into a `*.fork.ts` sibling and leave one marked call; precedent `222ac20a66` for `DesktopClerk.ts`.
 
