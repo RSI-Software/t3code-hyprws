@@ -47,10 +47,14 @@ export interface CommitPatch {
   readonly removedTestLines: ReadonlyMap<string, ReadonlyArray<string>>;
   // Every added/removed content line a commit's patch carries, keyed by path,
   // so the hook guard can classify the seam without parsing diffs again.
-  readonly changedLines: ReadonlyMap<
-    string,
-    { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
-  >;
+  // `addedAt` holds each added line's 1-based line in the committed file.
+  readonly changedLines: ReadonlyMap<string, ChangedLines>;
+}
+
+export interface ChangedLines {
+  readonly added: ReadonlyArray<string>;
+  readonly addedAt: ReadonlyArray<number>;
+  readonly removed: ReadonlyArray<string>;
 }
 
 export interface AuthoringGuardCommit {
@@ -77,18 +81,19 @@ export interface AuthoringGuardInput {
   // line the fork added itself removes nothing upstream wrote, so only lines here count. An absent
   // entry refuses every removal: an unread tree is not evidence the line was the fork's.
   readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
-  // The significant lines each touched upstream file carries in the target
-  // tree, for the hook guard's mirror filter (RSI-Software/t3code-hyprws#1207):
-  // an added line the target already has is a revert, not a fork insertion.
-  // Absent on inputs built before the map existed; the guard then behaves
-  // as it always has.
+  // The significant lines each touched upstream file carries in the target tree, for the hook
+  // guard: an added line the target already has is a revert. Absent on inputs built before the map
+  // existed; the guard then behaves as it always has.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
-  // The target-tree text of each touched upstream test file, plus the
-  // head-tree (scanned-head) text of every fork sibling. Read together,
-  // they let the rule exempt a declared-superseded case structurally —
-  // by the case's own lines — instead of by whole-file line membership,
-  // which cannot tell a shared body line from an upstream one
-  // (RSI-Software/t3code-hyprws#1208).
+  readonly replayAddedLines?:
+    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
+    | undefined;
+  // A commit's own blob for a path, read only when the hook guard would
+  // refuse: a marker on an unchanged line still covers the lines it marks.
+  readonly readCommittedText?: ((sha: string, path: string) => string | undefined) | undefined;
+  // The target-tree text of each touched upstream test file plus the head-tree text of every fork
+  // sibling, so the rule exempts a declared-superseded case by its own lines, not by whole-file
+  // membership, which cannot tell a shared body line from an upstream one.
   readonly upstreamTestTexts: ReadonlyMap<string, string>;
   // Head-tree text for count-aware removal checks: duplicate upstream text
   // survives when the fork only removes its own appended copy.
@@ -152,6 +157,9 @@ export const upstreamSourceLines = (text: string): ReadonlySet<string> =>
       .filter((line) => line !== ""),
   );
 
+// `@@ -a,b +c,d @@`: `c` is the committed file's line of the hunk's first addition.
+const HUNK_TARGET_START = /^@@ -\d+(?:,\d+)? \+(\d+)/;
+
 export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch> => {
   const patches = new Map<string, CommitPatch>();
   for (const record of raw.replace(/\r\n/g, "\n").split(PATCH_RECORD_SEPARATOR)) {
@@ -163,6 +171,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const testBlockHunks: Array<TestBlockHunk> = [];
     const removedTestLines = new Map<string, Array<string>>();
     const addedLines = new Map<string, Array<string>>();
+    const addedAt = new Map<string, Array<number>>();
+    let nextAddedLine = 0;
     const removedLines = new Map<string, Array<string>>();
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
@@ -194,6 +204,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (line.startsWith("@@")) {
         flushTestBlockHunk();
+        nextAddedLine = Number(HUNK_TARGET_START.exec(line)?.[1] ?? 0);
         continue;
       }
       const added = line.startsWith("+");
@@ -206,6 +217,12 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const held = side.get(path);
       if (held === undefined) side.set(path, [content]);
       else held.push(content);
+      if (added) {
+        const positions = addedAt.get(path) ?? [];
+        positions.push(nextAddedLine);
+        addedAt.set(path, positions);
+        nextAddedLine += 1;
+      }
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const heldLines = removedTestLines.get(path) ?? [];
         heldLines.push(content.trim());
@@ -226,13 +243,11 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
     }
     flushTestBlockHunk();
-    const changedLines = new Map<
-      string,
-      { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
-    >();
+    const changedLines = new Map<string, ChangedLines>();
     for (const path of new Set([...addedLines.keys(), ...removedLines.keys()]))
       changedLines.set(path, {
         added: addedLines.get(path) ?? [],
+        addedAt: addedAt.get(path) ?? [],
         removed: removedLines.get(path) ?? [],
       });
     patches.set(sha, {

@@ -94,7 +94,7 @@ Conflict resolution is machine-owned, in this order.
 | 5   | Anything left is a `manual` row and stops the run                                                                              |
 
 Only upstream moved: upstream's text stands.
-A marked fork hook goes back in verbatim.
+A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
 There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
 
 ## Block lifecycle

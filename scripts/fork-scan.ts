@@ -18,6 +18,7 @@ import {
 } from "./fork-delta.ts";
 import {
   type AuthoringGuardCommit,
+  type AuthoringGuardInput,
   collectAuthoringWarnings,
   commitPatchArguments,
   parseCommitPatches,
@@ -327,25 +328,6 @@ export interface BaselineKeys {
   readonly additiveKeys: ReadonlySet<string>;
 }
 
-export interface AuthoringGuardInput {
-  readonly commits: ReadonlyArray<AuthoringGuardCommit>;
-  readonly filesBySha: ReadonlyMap<string, ReadonlyArray<string>>;
-  readonly patchesBySha: ReadonlyMap<string, CommitPatch>;
-  readonly upstreamFiles: ReadonlySet<string>;
-  readonly upstreamTestFiles: ReadonlySet<string>;
-  readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
-  // Significant target-tree lines per touched upstream file, for the hook
-  // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
-  // inputs built before the map existed; the guard then behaves as before.
-  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
-  readonly replayAddedLines?:
-    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
-    | undefined;
-  readonly upstreamTestTexts: ReadonlyMap<string, string>;
-  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
-  readonly siblingTexts: ReadonlyMap<string, string>;
-}
-
 const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/g;
 // A whole-word integer between spaces is a count ("gains 4 fork test
 // block(s)"). A squash sums its members' counts, so the count leaves the key
@@ -458,6 +440,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
               upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
               upstreamLines: input.guard?.upstreamLines,
               replayAddedLines: input.guard?.replayAddedLines?.get(commit.sha),
+              readCommittedText: (path) => input.guard?.readCommittedText?.(commit.sha, path),
             }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
           }),
   };
@@ -910,6 +893,13 @@ const buildGuardInput = (
       significantTestLines,
     ),
     replayAddedLines,
+    readCommittedText: (sha, path) => {
+      try {
+        return git.run(["show", `${sha}:${path}`]);
+      } catch {
+        return undefined;
+      }
+    },
     upstreamLines: readUpstreamLines(
       git,
       range.target,

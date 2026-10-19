@@ -157,17 +157,18 @@ it("refuses a fixup that only folds at the tip, naming fixup and owner", () => {
   try {
     git(root, ["init", "--quiet", "--initial-branch", "main"]);
     identity(root);
-    commit(root, "upstream base", { "file.txt": "a\ntail\n" });
+    commit(root, "upstream base", { "file.txt": "a\ntail" });
     git(root, ["update-ref", "refs/remotes/upstream/main", "main"]);
     const base = git(root, ["rev-parse", "main"]);
-    commit(root, "owner edit", { "file.txt": "b\ntail\n" });
-    commit(root, "later edit", { "file.txt": "c\ntail\n" });
-    // The fixup edit builds on the later commit's content, so it applies at
-    // the tip and nowhere near its owner: the proof must stop there.
-    commit(root, "fixup! owner edit", { "file.txt": "c!\ntail\n" });
+    commit(root, "owner edit", { "file.txt": "b\ntail" });
+    commit(root, "later edit", { "file.txt": "b\nTAIL" });
+    // The fixup's context is the later commit's unterminated final line, so it
+    // applies at the tip and nowhere near its owner: the proof must stop there.
+    commit(root, "fixup! owner edit", { "file.txt": "b!\nTAIL" });
     const [failure] = fixupFoldFailures(root, base, "HEAD");
     assert.ok(failure?.includes('fixup "fixup! owner edit"'), failure);
     assert.ok(failure?.includes('owner "owner edit"'), failure);
+    assert.ok(failure?.includes('name "later edit"'), failure);
     // The live checkout is untouched: the tip stands and the replay worktree is gone.
     assert.strictEqual(git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "main"]));
     assert.strictEqual(worktreeCount(root), 1);
