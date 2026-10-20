@@ -1,7 +1,8 @@
 import type { GitHubIssueLabel, GitHubIssueType } from "@t3tools/contracts";
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { Badge } from "../ui/badge";
 import { PullRequestLabelChip } from "../pullRequest/pullRequestPresentation";
 import { pullRequestLabelColor } from "../pullRequest/pullRequestList.logic";
 import { gitHubIssueTypeHexColor, gitHubIssueTypeLabel } from "./githubIssueChips.logic";
@@ -67,31 +68,38 @@ export function GitHubIssueChip({
   readonly children?: ReactNode;
 }) {
   const label = gitHubIssueChipName(kind, name);
-  const chip = (
+  const hex = gitHubIssueChipColor(kind, color);
+  if (onFilter !== undefined) {
+    return (
+      <Badge
+        size={size ?? "sm"}
+        variant={hex ? "label" : "secondary"}
+        className={cn("min-w-0 max-w-40 shrink justify-start", className)}
+        {...(hex ? { style: { "--label": hex } as CSSProperties } : {})}
+        render={
+          <button
+            type="button"
+            aria-label={`Filter by ${label}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFilter();
+            }}
+          />
+        }
+      >
+        <span className="truncate">{label}</span>
+        {children}
+      </Badge>
+    );
+  }
+  return (
     <PullRequestLabelChip
-      label={{ name: label, color: gitHubIssueChipColor(kind, color) }}
+      label={{ name: label, color: hex }}
       {...(size ? { size } : {})}
-      className={cn(onFilter ? "max-w-full" : className)}
+      className={cn(className)}
     >
       {children}
     </PullRequestLabelChip>
-  );
-  if (onFilter === undefined) return chip;
-  return (
-    <button
-      type="button"
-      aria-label={`Filter by ${label}`}
-      className={cn(
-        "relative inline-flex min-w-0 max-w-40 shrink cursor-pointer rounded-sm outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        className,
-      )}
-      onClick={(event: MouseEvent) => {
-        event.stopPropagation();
-        onFilter();
-      }}
-    >
-      {chip}
-    </button>
   );
 }
 
