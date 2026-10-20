@@ -3,9 +3,11 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  type TerminalSessionMode, // fork-hook: zmux-estate/session-mode-persistent-import
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { isCheckoutMoveInFlight } from "@t3tools/client-runtime/state/checkout-move"; // fork-hook: zmux-estate/checkout-move-in-flight-import
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { memo, useEffect, useState } from "react";
@@ -22,6 +24,8 @@ import { useProject, useQuietThreadShell } from "../state/entities";
 import { useEnvironmentScope } from "../state/session";
 import { useKnownTerminalSessions } from "../state/terminalSessions";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { ownTerminalAttachments } from "../terminalAttachmentIdentity"; // fork-hook: zmux-estate/known-terminal-sessions-import
+import { resolveTerminalCheckoutLaunch } from "../terminalCheckoutLaunch.fork"; // fork-hook: zmux-estate/checkout-launch-import
 import { useThreadTerminalActions } from "./terminal/useThreadTerminalActions";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 
@@ -128,8 +132,9 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     panelSurfaces.flatMap((surface) => (surface.kind === "terminal" ? surface.terminalIds : [])),
   );
   const drawerTerminalSessions =
-    knownTerminalSessions?.filter((session) => !panelTerminalIds.has(session.target.terminalId)) ??
-    [];
+    ownTerminalAttachments(knownTerminalSessions)?.filter(
+      (session) => !panelTerminalIds.has(session.target.terminalId),
+    ) ?? []; // fork-hook: zmux-estate/known-terminal-sessions
   const terminalLabelsById = new Map<string, string>();
   for (const session of drawerTerminalSessions) {
     terminalLabelsById.set(
@@ -141,14 +146,19 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
   for (const session of drawerTerminalSessions) {
     const summary = session.state.summary;
     if (!project || !summary) continue;
-    const worktreePathForLaunch =
-      launchContext !== null ? launchContext.worktreePath : summary.worktreePath;
+    const launchLocation = resolveTerminalCheckoutLaunch({
+      mode: terminalUiState.checkoutModeByTerminalId[session.target.terminalId] ?? "follow",
+      projectCwd: project.workspaceRoot,
+      selectedWorktreePath: serverThread?.worktreePath,
+      requested: launchContext,
+      current: summary,
+    }); // fork-hook: zmux-estate/checkout-launch-drawer
     terminalLaunchLocationsById.set(session.target.terminalId, {
-      cwd: launchContext?.cwd ?? summary.cwd,
-      worktreePath: worktreePathForLaunch,
+      cwd: launchLocation.cwd, // fork-hook: zmux-estate/checkout-launch-location
+      worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       runtimeEnv: projectScriptRuntimeEnv({
         project: { cwd: project.workspaceRoot },
-        worktreePath: worktreePathForLaunch,
+        worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       }),
     });
   }
@@ -163,6 +173,9 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
   const storeNewTerminal = useTerminalUiStateStore((state) => state.newTerminal);
   const storeSetActiveTerminal = useTerminalUiStateStore((state) => state.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((state) => state.closeTerminal);
+  const storeSetTerminalCheckoutMode = useTerminalUiStateStore(
+    (state) => state.setTerminalCheckoutMode,
+  ); // fork-hook: zmux-estate/checkout-mode-drawer-store
   const reconcileTerminalIds = useTerminalUiStateStore((state) => state.reconcileTerminalIds);
 
   useEffect(() => {
@@ -177,6 +190,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     reconcileTerminalIds(threadRef, serverOrderedTerminalIds);
   }, [reconcileTerminalIds, serverOrderedTerminalIds, terminalUiState.terminalIds, threadRef]);
   const [localFocusRequestId, setLocalFocusRequestId] = useState(0);
+  if (!visible && localFocusRequestId !== 0) setLocalFocusRequestId(0);
   const worktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveWorktreePath = launchContext !== null ? launchContext.worktreePath : worktreePath;
   const cwd =
@@ -195,9 +209,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     : {};
 
   const bumpFocusRequestId = () => {
-    if (!visible) {
-      return;
-    }
+    if (!visible) return;
     setLocalFocusRequestId((value) => value + 1);
   };
 
@@ -205,25 +217,32 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     storeSetTerminalHeight(threadRef, height);
   };
 
-  const launchDrawerTerminal = (place: (terminalId: string) => void) => {
+  const launchDrawerTerminal = (
+    place: (terminalId: string) => void,
+    sessionMode?: TerminalSessionMode, // fork-hook: zmux-estate/session-mode-drawer-launch
+  ) => {
     if (!cwd) return;
     const launched = terminalActions.launchTerminal({
       place,
       location: { cwd, worktreePath: effectiveWorktreePath },
+      sessionModeFork: sessionMode, // fork-hook: zmux-estate/session-mode-drawer-launch
     });
     if (!launched) return;
     bumpFocusRequestId();
     void launched.result;
-  };
+  }; // fork-hook: zmux-estate/session-mode-drawer-launch
   const splitTerminal = useStableCallback(() =>
     launchDrawerTerminal((terminalId) => storeSplitTerminal(threadRef, terminalId)),
   );
   const splitTerminalVertical = useStableCallback(() =>
     launchDrawerTerminal((terminalId) => storeSplitTerminalVertical(threadRef, terminalId)),
   );
-  const createNewTerminal = useStableCallback(() =>
-    launchDrawerTerminal((terminalId) => storeNewTerminal(threadRef, terminalId)),
-  );
+  const createNewTerminal = useStableCallback((sessionMode?: TerminalSessionMode) =>
+    launchDrawerTerminal(
+      (terminalId) => storeNewTerminal(threadRef, terminalId, sessionMode),
+      sessionMode,
+    ),
+  ); // fork-hook: zmux-estate/session-mode-drawer-create
 
   const activateTerminal = (terminalId: string) => {
     storeSetActiveTerminal(threadRef, terminalId);
@@ -272,7 +291,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           activeTerminalId={terminalUiState.activeTerminalId}
           terminalGroups={terminalUiState.terminalGroups}
           activeTerminalGroupId={terminalUiState.activeTerminalGroupId}
-          focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
+          focusRequestId={focusRequestId + localFocusRequestId}
           onSplitTerminal={splitTerminal}
           onSplitTerminalVertical={splitTerminalVertical}
           onNewTerminal={createNewTerminal}
@@ -287,6 +306,11 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           onAddTerminalContext={handleAddTerminalContext}
           terminalLabelsById={terminalLabelsById}
           terminalLaunchLocationsById={terminalLaunchLocationsById}
+          checkoutModeByTerminalId={terminalUiState.checkoutModeByTerminalId} // fork-hook: zmux-estate/checkout-mode-drawer-props
+          checkoutModeChangeDisabled={isCheckoutMoveInFlight(serverThread?.checkoutMove)} // fork-hook: zmux-estate/checkout-mode-drawer-props
+          onCheckoutModeChange={(terminalId, mode) =>
+            storeSetTerminalCheckoutMode(threadRef, terminalId, mode)
+          } // fork-hook: zmux-estate/checkout-mode-drawer-props
         />
       </div>
     </div>
@@ -303,7 +327,7 @@ export interface PersistentThreadTerminalPanelProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (sessionMode?: TerminalSessionMode) => void; // fork-hook: zmux-estate/plain-shell-panel-action
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string) => void;
   splitShortcutLabel?: string | undefined;
@@ -330,6 +354,12 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
   newShortcutLabel,
   closeShortcutLabel,
 }: PersistentThreadTerminalPanelProps) {
+  const checkoutModeByTerminalId = useTerminalUiStateStore(
+    (state) =>
+      selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef)
+        .checkoutModeByTerminalId,
+  ); // fork-hook: zmux-estate/checkout-mode-panel-state
+  const setTerminalCheckoutMode = useTerminalUiStateStore((state) => state.setTerminalCheckoutMode); // fork-hook: zmux-estate/checkout-mode-panel-store
   const serverThread = useQuietThreadShell(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const projectRef = serverThread
@@ -338,10 +368,12 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const project = useProject(projectRef);
-  const knownTerminalSessions = useKnownTerminalSessions({
-    environmentId: threadRef.environmentId,
-    threadId: threadRef.threadId,
-  });
+  const knownTerminalSessions = ownTerminalAttachments(
+    useKnownTerminalSessions({
+      environmentId: threadRef.environmentId,
+      threadId: threadRef.threadId,
+    }),
+  ); // fork-hook: zmux-estate/known-terminal-sessions
   const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const activeSummary =
     knownTerminalSessions?.find((session) => session.target.terminalId === surface.activeTerminalId)
@@ -363,20 +395,19 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
         .summary ?? null;
     terminalLabelsById.set(terminalId, resolveTerminalSessionLabel(terminalId, summary));
     if (!project) continue;
-    const terminalWorktreePath =
-      launchContext?.worktreePath ?? summary?.worktreePath ?? threadWorktreePath;
+    const launchLocation = resolveTerminalCheckoutLaunch({
+      mode: checkoutModeByTerminalId[terminalId] ?? "follow",
+      projectCwd: project.workspaceRoot,
+      selectedWorktreePath: threadWorktreePath,
+      requested: launchContext,
+      current: summary,
+    }); // fork-hook: zmux-estate/checkout-launch-panel
     terminalLaunchLocationsById.set(terminalId, {
-      cwd:
-        launchContext?.cwd ??
-        summary?.cwd ??
-        projectScriptCwd({
-          project: { cwd: project.workspaceRoot },
-          worktreePath: terminalWorktreePath,
-        }),
-      worktreePath: terminalWorktreePath,
+      cwd: launchLocation.cwd, // fork-hook: zmux-estate/checkout-launch-location
+      worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       runtimeEnv: projectScriptRuntimeEnv({
         project: { cwd: project.workspaceRoot },
-        worktreePath: terminalWorktreePath,
+        worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       }),
     });
   }
@@ -417,6 +448,11 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
       onAddTerminalContext={onAddTerminalContext}
       terminalLabelsById={terminalLabelsById}
       terminalLaunchLocationsById={terminalLaunchLocationsById}
+      checkoutModeByTerminalId={checkoutModeByTerminalId} // fork-hook: zmux-estate/checkout-mode-panel-props
+      checkoutModeChangeDisabled={isCheckoutMoveInFlight(serverThread?.checkoutMove)} // fork-hook: zmux-estate/checkout-mode-panel-props
+      onCheckoutModeChange={(terminalId, mode) =>
+        setTerminalCheckoutMode(threadRef, terminalId, mode)
+      } // fork-hook: zmux-estate/checkout-mode-panel-props
       keybindings={keybindings}
     />
   );

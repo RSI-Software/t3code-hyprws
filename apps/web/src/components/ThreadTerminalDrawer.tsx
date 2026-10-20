@@ -1,3 +1,5 @@
+import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
+import { copyOsc52ClipboardFork } from "../terminal/osc52Clipboard.fork"; // fork-hook: zmux-estate/osc52-clipboard-import
 import { useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -11,7 +13,7 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
-  Plus,
+  Pin,
   Square,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -23,12 +25,19 @@ import {
   AuthOrchestrationOperateScope,
   AuthTerminalOperateScope,
   type ContextMenuItem,
+  type KeybindingCommand,
   type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadId,
 } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import type { TerminalSessionMode } from "@t3tools/contracts"; // fork-hook: zmux-estate/session-mode-drawer-import
+import {
+  disambiguateTerminalLabels,
+  getTerminalLabel,
+  splitTerminalLabelSuffix,
+} from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -39,9 +48,15 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
+import {
+  TerminalAlternativeModeButton,
+  TerminalNewMenu,
+  useTerminalSessionModeFork,
+} from "./TerminalNewMenu.fork"; // fork-hook: zmux-estate/plain-shell-menu-import
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
@@ -61,12 +76,9 @@ import { useOpenInPreferredEditor } from "../editorPreferences";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { isTerminalUrl } from "../terminal-links";
 import {
-  isDiffToggleShortcut,
   isTerminalClearShortcut,
-  isTerminalNewShortcut,
-  isTerminalSplitShortcut,
-  isTerminalSplitVerticalShortcut,
-  isTerminalToggleShortcut,
+  resolveShortcutCommand,
+  type ShortcutEventLike,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "../keybindings";
@@ -85,9 +97,15 @@ import { previewEnvironment } from "../state/preview";
 import { readEnvironmentScope } from "../state/session";
 import { terminalEnvironment } from "../state/terminal";
 import { useEnvironmentScope } from "../state/session";
+import { terminalAttachmentId } from "../terminalAttachmentIdentity";
+import { terminalCheckoutLaunchIdentity } from "../terminalCheckoutLaunch.fork";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
+import {
+  shouldFocusTerminalOnAttachFork,
+  shouldHandleTerminalFocusRequest,
+} from "./ThreadTerminalDrawer.fork"; // fork-hook: upstream-fixes/thread-terminal-focus-import
 import {
   resolveTerminalFontPreference,
   resolveTerminalFontSizePreference,
@@ -96,6 +114,76 @@ import {
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
+const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "terminal.toggle",
+  "terminal.new",
+  "terminal.split",
+  "terminal.splitVertical",
+  "terminal.close",
+  "diff.toggle",
+  "chat.focusComposer", // fork-hook: upstream-fixes/thread-terminal-focus-command-set
+  "thread.previous",
+  "thread.next",
+  ...THREAD_JUMP_KEYBINDING_COMMANDS,
+]);
+
+export function isTerminalAttachmentDemanded(
+  surfaceVisible: boolean,
+  windowDemanded: boolean,
+): boolean {
+  return surfaceVisible && windowDemanded;
+}
+
+export function resolveTerminalWindowDemand(
+  desktopDemand: boolean | undefined,
+  documentVisibility: DocumentVisibilityState,
+): boolean {
+  return desktopDemand ?? documentVisibility === "visible";
+}
+
+function subscribeWindowDemand(onChange: () => void): () => void {
+  const bridge = window.desktopBridge;
+  if (
+    typeof bridge?.getWindowDemandState === "function" &&
+    typeof bridge.onWindowDemandStateChange === "function"
+  ) {
+    return bridge.onWindowDemandStateChange(onChange);
+  }
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+function windowDemandSnapshot(): boolean {
+  const getWindowDemandState = window.desktopBridge?.getWindowDemandState;
+  return resolveTerminalWindowDemand(
+    typeof getWindowDemandState === "function" ? getWindowDemandState() : undefined,
+    document.visibilityState,
+  );
+}
+
+function serverWindowDemandSnapshot(): boolean {
+  return true;
+}
+
+function useWindowDemand(): boolean {
+  return useSyncExternalStore(
+    subscribeWindowDemand,
+    windowDemandSnapshot,
+    serverWindowDemandSnapshot,
+  );
+}
+
+export function shouldForwardThreadTerminalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  platform?: string,
+): boolean {
+  const command = resolveShortcutCommand(event, keybindings, {
+    ...(platform === undefined ? {} : { platform }),
+    context: { terminalFocus: true, terminalOpen: true },
+  });
+  return command !== null && THREAD_TERMINAL_WINDOW_COMMANDS.has(command);
+}
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -112,11 +200,13 @@ function writeSystemMessage(terminal: GhosttyTerminalSurface, message: string): 
 }
 
 export function writeTerminalOutputUpdate(
-  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write">,
+  terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write" | "clearSelection">,
   update: TerminalOutputUpdate,
 ): void {
+  copyOsc52ClipboardFork(terminal, update); // fork-hook: zmux-estate/osc52-clipboard
   if (update.type === "reset") {
     terminal.resetAndWrite(update.data);
+    terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
   } else if (update.type === "append") {
     terminal.write(update.data);
   }
@@ -130,8 +220,17 @@ export function synchronizeTerminalOutput(
   if (session.version === 0) return cursor;
   const update = readTerminalOutputUpdate(session.output, cursor);
   writeTerminalOutputUpdate(terminal, update);
-  terminal.clearSelection();
   return update.cursor;
+}
+
+export function terminalOutputCursorForLifecycle(
+  cursor: TerminalOutputCursor,
+  previousLifecycleVersion: number,
+  currentLifecycleVersion: number,
+): TerminalOutputCursor {
+  return previousLifecycleVersion === currentLifecycleVersion
+    ? cursor
+    : INITIAL_TERMINAL_OUTPUT_CURSOR;
 }
 
 function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor {
@@ -382,6 +481,17 @@ export function shouldHandleTerminalExit(
   );
 }
 
+export function shouldRestoreTerminalFocusAfterResume(input: {
+  attached: boolean;
+  status: TerminalSessionState["status"];
+  restoreRequested: boolean;
+  focusPending: boolean;
+}): boolean {
+  return (
+    input.attached && input.status === "running" && input.restoreRequested && input.focusPending
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -400,6 +510,8 @@ interface TerminalViewportProps {
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
+  attached: boolean;
+  restoreFocusOnReattach: boolean;
 }
 
 interface TerminalLaunchLocation {
@@ -440,6 +552,8 @@ function TerminalSessionViewport({
   resizeEpoch,
   drawerHeight,
   keybindings,
+  attached,
+  restoreFocusOnReattach,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
@@ -454,6 +568,8 @@ function TerminalSessionViewport({
     (text: string) =>
       isTerminalUrl(text) || readEnvironmentScope(environmentId, AuthOrchestrationOperateScope),
   );
+  const attachmentId = terminalAttachmentId(terminalId); // fork-hook: zmux-estate/terminal-attachment-id
+  const sessionModeFork = useTerminalSessionModeFork(threadRef, terminalId); // fork-hook: zmux-estate/plain-shell-choice
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
@@ -469,10 +585,38 @@ function TerminalSessionViewport({
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
+  const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
+    reportFailure: false,
+  });
+  const launchIdentity = terminalCheckoutLaunchIdentity({
+    attachmentId,
+    cwd,
+    ...(worktreePath !== undefined ? { worktreePath } : {}),
+    ...(runtimeEnv ? { runtimeEnv } : {}),
+  }); // fork-hook: zmux-estate/checkout-launch-identity
+  const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
+  const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
+  const restoreFocusAfterAttachRef = useRef(false);
+  const wasAttachedRef = useRef(attached);
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
+  const retargetTerminal = useEffectEvent(() =>
+    runTerminalOpen({
+      environmentId,
+      input: {
+        threadId,
+        terminalId,
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { env: runtimeEnv } : {}),
+        ...(sessionModeFork ? { sessionModeFork } : {}), // fork-hook: zmux-estate/plain-shell-retarget-input
+      },
+    }),
+  );
   const handleSessionExited = useEffectEvent(() => {
     if (hasTerminalWriteAccess()) onSessionExited();
   });
@@ -480,7 +624,13 @@ function TerminalSessionViewport({
     onAddTerminalContext?.(selection);
   });
   const canAddSelectionToChat = useEffectEvent(() => onAddTerminalContext !== undefined);
-  const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const resolveTerminalPath = useEffectEvent((target: string) =>
+    resolvePathLinkTarget(target, cwd),
+  );
+  const readTerminalContextIdentity = useEffectEvent(() => ({
+    terminalId,
+    terminalLabel,
+  }));
   const terminalFontFamily = useClientSettings((settings) =>
     resolveTerminalFontPreference({
       advanced: advancedTypography,
@@ -501,26 +651,37 @@ function TerminalSessionViewport({
     terminal: {
       threadId,
       terminalId,
+      attachmentId,
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      ...(sessionModeFork ? { sessionModeFork } : {}), // fork-hook: zmux-estate/plain-shell-attach-input
       ...(providerInstanceId ? { providerInstanceId } : {}),
     },
+    enabled: attached,
   });
   const canResizeTerminal =
     canOperateTerminal && terminalSession.version > 0 && terminalSession.status === "running";
   const resizeSessionGeneration = canResizeTerminal ? terminalSession.output.generation : null;
-  const writeTerminal = useEffectEvent((data: string) =>
-    runTerminalWrite({
-      environmentId,
-      input: { threadId, terminalId, data },
-    }),
-  );
+  useEffect(() => {
+    if (launchIdentityRef.current === launchIdentity || !attached) return;
+    launchIdentityRef.current = launchIdentity;
+    if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
+    void retargetTerminal();
+  }, [attached, launchIdentity]);
+  const writeTerminal = useEffectEvent((data: string) => {
+    return writeToRunningTerminalFork(terminalSession.status, () =>
+      runTerminalWrite({
+        environmentId,
+        input: { threadId, terminalId, attachmentId, data },
+      }),
+    );
+  }); // fork-hook: zmux-estate/failed-terminal-write
   const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
     if (!canResizeTerminal || !hasTerminalWriteAccess()) return;
     return runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { threadId, terminalId, attachmentId, cols, rows },
     });
   });
   const terminalOutput = terminalSession.output;
@@ -548,26 +709,33 @@ function TerminalSessionViewport({
     },
   );
   const terminalVersion = terminalSession.version;
+  const terminalLifecycleVersion = terminalSession.lifecycleVersion;
   const previousSessionRef = useRef({
     output: terminalOutput,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   });
   const readLatestSession = useEffectEvent(() => ({
     output: terminalOutput,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   }));
   const openLinkInPreview = useEffectEvent(
     (url: string, forceBrowser: boolean, fallbackToBrowser: () => void) =>
       openTerminalLinkInPreview({ url, threadRef, openPreview, fallbackToBrowser, forceBrowser }),
   );
 
-  useLayoutEffect(() => {
-    if (terminalRef.current) terminalRef.current.input.readOnly = !canOperateTerminal;
-  }, [canOperateTerminal]);
+  useLayoutEffect(
+    function synchronizeTerminalInput() {
+      if (terminalRef.current)
+        terminalRef.current.input.readOnly = !canOperateTerminal || terminalStatus !== "running";
+    },
+    [canOperateTerminal, terminalStatus],
+  ); // fork-hook: zmux-estate/failed-terminal-readonly
 
   // Links re-read the grant on activation; only the hovered link's styling needs a nudge.
   const linkActivationScopeRef = useRef(canOpenHostEditor);
@@ -596,6 +764,8 @@ function TerminalSessionViewport({
     void terminalRef.current?.setFont(terminalFontOptions(terminalFontFamily, terminalFontSize));
   }, [terminalFontFamily, terminalFontSize]);
 
+  // Checkout retargets replace the PTY launch context, not the viewer. Keep the
+  // WASM surface alive and read changing callback data through Effect Events.
   useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
@@ -660,10 +830,12 @@ function TerminalSessionViewport({
       if (
         hasTerminalWriteAccess() &&
         visibleRef.current &&
+        shouldFocusTerminalOnAttachFork(pendingFocusRequestRef.current) &&
         mount.contains(document.activeElement)
       ) {
         terminal.focus();
-      }
+        pendingFocusRequestRef.current = false; // fork-hook: upstream-fixes/terminal-focus-attach-consume
+      } // fork-hook: upstream-fixes/terminal-focus-attach-gate
 
       const dismissSelectionAction = (supersede = false) => {
         const ownsMenu =
@@ -690,6 +862,7 @@ function TerminalSessionViewport({
           return null;
         }
         const selectionText = activeTerminal.getSelection();
+        const terminalContextIdentity = readTerminalContextIdentity();
         const selectionPosition = activeTerminal.getSelectionPosition();
         const normalizedText = selectionText.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
         if (!selectionPosition || normalizedText.length === 0) {
@@ -707,8 +880,8 @@ function TerminalSessionViewport({
           position,
           clipboardText: selectionText,
           selection: {
-            terminalId,
-            terminalLabel: readTerminalLabel(),
+            terminalId: terminalContextIdentity.terminalId,
+            terminalLabel: terminalContextIdentity.terminalLabel,
             lineStart,
             lineEnd,
             text: normalizedText,
@@ -856,7 +1029,9 @@ function TerminalSessionViewport({
         if (!hasTerminalWriteAccess()) return;
         const activeTerminal = terminalRef.current;
         if (!activeTerminal) return;
+        activeTerminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         const result = await writeTerminal(data);
+        if (!result) return; // fork-hook: zmux-estate/ignored-terminal-shortcut
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
@@ -868,17 +1043,10 @@ function TerminalSessionViewport({
 
       function handleBeforeKey(event: KeyboardEvent): boolean {
         const currentKeybindings = readKeybindings();
-        const options = { context: { terminalFocus: true, terminalOpen: true } };
         if (preventTerminalCloseShortcut(event, currentKeybindings)) {
           return false;
         }
-        if (
-          isTerminalToggleShortcut(event, currentKeybindings, options) ||
-          isTerminalSplitShortcut(event, currentKeybindings, options) ||
-          isTerminalSplitVerticalShortcut(event, currentKeybindings, options) ||
-          isTerminalNewShortcut(event, currentKeybindings, options) ||
-          isDiffToggleShortcut(event, currentKeybindings, options)
-        ) {
+        if (shouldForwardThreadTerminalShortcut(event, currentKeybindings)) {
           return false;
         }
 
@@ -939,7 +1107,7 @@ function TerminalSessionViewport({
           );
           return;
         }
-        const target = resolvePathLinkTarget(text, cwd);
+        const target = resolveTerminalPath(text);
         void (async () => {
           const result = await openTerminalPath(target);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
@@ -955,9 +1123,10 @@ function TerminalSessionViewport({
 
       function handleData(data: string): void {
         if (!hasTerminalWriteAccess()) return;
+        terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-input
         void (async () => {
           const result = await writeTerminal(data);
-          if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+          if (!result || result._tag === "Success" || isAtomCommandInterrupted(result)) return; // fork-hook: zmux-estate/ignored-terminal-input
           const error = squashAtomCommandFailure(result);
           writeSystemMessage(
             terminal,
@@ -1048,7 +1217,7 @@ function TerminalSessionViewport({
         mount.focus({ preventScroll: true });
       }
     };
-  }, [cwd, environmentId, terminalId]);
+  }, [environmentId]); // fork-hook: zmux-estate/checkout-move-mount
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1057,6 +1226,7 @@ function TerminalSessionViewport({
       error: terminalError,
       status: terminalStatus,
       version: terminalVersion,
+      lifecycleVersion: terminalLifecycleVersion,
     };
     if (!terminal) {
       previousSessionRef.current = current;
@@ -1065,25 +1235,98 @@ function TerminalSessionViewport({
 
     const previous = previousSessionRef.current;
     synchronizeTerminalStatus(terminal, current.status, current.version);
-    if (current.version === previous.version && current.output === previous.output) {
+    if (
+      current.lifecycleVersion === previous.lifecycleVersion &&
+      current.version === previous.version &&
+      current.output === previous.output
+    ) {
       return;
     }
 
-    outputCursorRef.current = synchronizeTerminalOutput(terminal, current, outputCursorRef.current);
+    if (current.version > 0) {
+      const outputUpdate = readTerminalOutputUpdate(
+        current.output,
+        terminalOutputCursorForLifecycle(
+          outputCursorRef.current,
+          previous.lifecycleVersion,
+          current.lifecycleVersion,
+        ),
+      );
+      if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
+        terminal.resetSession(outputUpdate.data);
+        terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
+      } else {
+        writeTerminalOutputUpdate(terminal, outputUpdate);
+      }
+      outputCursorRef.current = outputUpdate.cursor;
+    } // fork-hook: zmux-estate/terminal-lifecycle-output
 
     if (current.error !== null && current.error !== previous.error) {
       writeSystemMessage(terminal, current.error);
     }
 
     previousSessionRef.current = current;
-  }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
+  }, [terminalOutput, terminalError, terminalStatus, terminalVersion, terminalLifecycleVersion]);
 
-  // Each new request focuses again, even when nothing else changed.
-  const focusRequest = autoFocus && canOperateTerminal && visible ? focusRequestId : null;
   useEffect(() => {
-    if (focusRequest === null) return;
+    const wasAttached = wasAttachedRef.current;
+    wasAttachedRef.current = attached;
+    if (!attached) {
+      if (wasAttached) {
+        restoreFocusAfterAttachRef.current =
+          restoreFocusOnReattach &&
+          (containerRef.current?.contains(document.activeElement) ?? false);
+      } else if (!restoreFocusOnReattach) {
+        restoreFocusAfterAttachRef.current = false;
+      }
+      return;
+    }
+    if (!wasAttached && restoreFocusAfterAttachRef.current) {
+      pendingFocusRequestRef.current = true;
+    }
+  }, [attached, restoreFocusOnReattach]);
+
+  useEffect(() => {
+    if (
+      !shouldRestoreTerminalFocusAfterResume({
+        attached,
+        status: terminalStatus,
+        restoreRequested: restoreFocusAfterAttachRef.current,
+        focusPending: pendingFocusRequestRef.current,
+      })
+    ) {
+      return;
+    }
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    restoreFocusAfterAttachRef.current = false;
+    pendingFocusRequestRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (terminalRef.current === terminal && attached) {
+        terminal.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [attached, terminalStatus]);
+
+  useEffect(() => {
+    if (!autoFocus || !canOperateTerminal || !visible) return;
+    if (
+      !shouldHandleTerminalFocusRequest({
+        focusOnRequest: autoFocus,
+        focusRequestId,
+        handledFocusRequestId: handledFocusRequestIdRef.current,
+      })
+    ) {
+      if (!autoFocus) pendingFocusRequestRef.current = false;
+      return;
+    } // fork-hook: upstream-fixes/terminal-focus-request-gate
+    handledFocusRequestIdRef.current = focusRequestId;
+    pendingFocusRequestRef.current = terminalRef.current === null; // fork-hook: upstream-fixes/terminal-focus-request-consume
+    // Claim focus when requested, then hand it to the terminal once ready only
+    // if the user has not focused something else in the meantime.
     (terminalRef.current ?? containerRef.current)?.focus();
-  }, [focusRequest]);
+  }, [autoFocus, canOperateTerminal, focusRequestId, visible]);
 
   // The surface measures its mount, so each drawer resize or window resize refits it.
   // A hidden surface skips fitting, and showing it again fits through setVisible.
@@ -1130,7 +1373,7 @@ interface ThreadTerminalDrawerProps {
   focusRequestId: number;
   onSplitTerminal: () => void;
   onSplitTerminalVertical: () => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (sessionMode?: TerminalSessionMode) => void; // fork-hook: zmux-estate/plain-shell-drawer-action
   splitShortcutLabel?: string | undefined;
   splitVerticalShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
@@ -1142,14 +1385,17 @@ interface ThreadTerminalDrawerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalLabelsById?: ReadonlyMap<string, string>;
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
+  checkoutModeByTerminalId?: Readonly<Record<string, "follow" | "pin">>;
+  checkoutModeChangeDisabled?: boolean;
+  onCheckoutModeChange?: (terminalId: string, mode: "follow" | "pin") => void;
 }
 
 interface TerminalActionButtonProps {
   label: string;
   className: string;
   onClick: () => void;
+  disabled?: boolean | undefined;
   children: ReactNode;
-  disabled?: boolean;
 }
 
 function TerminalActionButton({
@@ -1205,6 +1451,8 @@ function TerminalSplitPanes({
   resizeEpoch,
   drawerHeight,
   keybindings,
+  attached, // fork-hook: zmux-estate/terminal-attachment-props
+  restoreFocusOnReattach, // fork-hook: zmux-estate/terminal-attachment-props
 }: {
   terminalIds: readonly string[];
   splitDirection: "horizontal" | "vertical";
@@ -1222,6 +1470,8 @@ function TerminalSplitPanes({
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
+  attached: boolean; // fork-hook: zmux-estate/terminal-attachment-props
+  restoreFocusOnReattach: boolean; // fork-hook: zmux-estate/terminal-attachment-props
 }) {
   return (
     <div
@@ -1269,11 +1519,13 @@ function TerminalSplitPanes({
                 onSessionExited={() => onCloseTerminal(terminalId)}
                 onAddTerminalContext={onAddTerminalContext}
                 focusRequestId={focusRequestId}
-                autoFocus={terminalId === activeTerminalId}
+                autoFocus={attached && terminalId === activeTerminalId} // fork-hook: zmux-estate/terminal-attachment-props
                 visible={visible}
                 resizeEpoch={resizeEpoch}
                 drawerHeight={drawerHeight}
                 keybindings={keybindings}
+                attached={attached} // fork-hook: zmux-estate/terminal-attachment-props
+                restoreFocusOnReattach={restoreFocusOnReattach} // fork-hook: zmux-estate/terminal-attachment-props
               />
             </div>
           </div>
@@ -1341,6 +1593,7 @@ function TerminalSidebarGroup({
         {terminalGroup.terminalIds.map((terminalId) => {
           const isActive = terminalId === activeTerminalId;
           const terminalLabel = terminalLabelById.get(terminalId) ?? "Terminal";
+          const { base: labelBase, suffix: labelSuffix } = splitTerminalLabelSuffix(terminalLabel);
           const closeTerminalLabel = `Close ${terminalLabel}${
             isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""
           }`;
@@ -1370,13 +1623,52 @@ function TerminalSidebarGroup({
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
                 onClick={() => onActiveTerminalChange(terminalId)}
               >
-                <span className="truncate">{terminalLabel}</span>
+                <span className="truncate">{labelBase}</span>
+                {labelSuffix ? <span className="shrink-0">{labelSuffix}</span> : null}
               </button>
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+interface TerminalCheckoutModeButtonProps {
+  layout: "floating" | "sidebar";
+  terminalId: string;
+  mode: "follow" | "pin";
+  disabled?: boolean | undefined;
+  onModeChange?: ((terminalId: string, mode: "follow" | "pin") => void) | undefined;
+}
+
+export function TerminalCheckoutModeButton({
+  layout,
+  terminalId,
+  mode,
+  disabled,
+  onModeChange,
+}: TerminalCheckoutModeButtonProps) {
+  return (
+    <TerminalActionButton
+      className={cn(
+        layout === "sidebar"
+          ? "inline-flex h-full items-center border-l border-border/70 px-1 transition-colors hover:bg-accent/70"
+          : "p-1 transition-colors hover:bg-accent",
+        mode === "pin" ? "text-warning" : "text-foreground/90", // fork-hook: zmux-estate/terminal-pin-tone
+      )}
+      onClick={() => onModeChange?.(terminalId, mode === "pin" ? "follow" : "pin")}
+      disabled={disabled}
+      label={
+        disabled
+          ? "Checkout mode is locked while the thread is moving"
+          : mode === "pin"
+            ? "Follow thread checkout"
+            : "Pin terminal checkout"
+      }
+    >
+      <Pin className="size-3.25" />
+    </TerminalActionButton>
   );
 }
 
@@ -1408,9 +1700,15 @@ export default function ThreadTerminalDrawer({
   keybindings,
   terminalLabelsById,
   terminalLaunchLocationsById,
+  checkoutModeByTerminalId,
+  checkoutModeChangeDisabled,
+  onCheckoutModeChange,
 }: ThreadTerminalDrawerProps) {
   const canOperateTerminal = useEnvironmentScope(threadRef.environmentId, AuthTerminalOperateScope);
   const isPanel = mode === "panel";
+  const windowDemanded = useWindowDemand();
+  const attachmentDemanded = isTerminalAttachmentDemanded(visible, windowDemanded);
+  const restoreFocusOnReattach = visible && !windowDemanded;
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
@@ -1435,12 +1733,12 @@ export default function ThreadTerminalDrawer({
     });
   };
   const [resizeEpoch, setResizeEpoch] = useState(0);
-  const [shownVisible, setShownVisible] = useState(visible);
-  if (shownVisible !== visible) {
-    setShownVisible(visible);
+  const [shownVisible, setShownVisible] = useState(attachmentDemanded); // fork-hook: zmux-estate/terminal-attachment-demand
+  if (shownVisible !== attachmentDemanded) {
+    setShownVisible(attachmentDemanded); // fork-hook: zmux-estate/terminal-attachment-demand
     // The window may have resized while the drawer was hidden and not listening.
-    if (visible) setWindowMaxDrawerHeight(maxDrawerHeight());
-  }
+    if (attachmentDemanded) setWindowMaxDrawerHeight(maxDrawerHeight()); // fork-hook: zmux-estate/terminal-attachment-demand
+  } // fork-hook: zmux-estate/terminal-attachment-demand-shown
   const drawerHeightRef = useRef(drawerHeight);
   const lastSyncedHeightRef = useRef({ threadId, height: controlledDrawerHeight });
   const resizeStateRef = useRef<{
@@ -1547,7 +1845,9 @@ export default function ThreadTerminalDrawer({
     for (const terminalId of normalizedTerminalIds) {
       next.set(terminalId, terminalLabelsById?.get(terminalId) ?? getTerminalLabel(terminalId));
     }
-    return next;
+    // Terminals sharing a zmux session all carry the session target as their
+    // label; suffix duplicates so the strip stays readable (#909).
+    return disambiguateTerminalLabels(next);
   })();
 
   const resolvedActiveTerminalId =
@@ -1606,10 +1906,10 @@ export default function ThreadTerminalDrawer({
     if (!canOperateTerminal || hasReachedSplitLimit) return;
     onSplitTerminalVertical();
   };
-  const onNewTerminalAction = () => {
+  const onNewTerminalAction = (sessionMode?: TerminalSessionMode) => {
     if (!canOperateTerminal) return;
-    onNewTerminal();
-  };
+    onNewTerminal(sessionMode);
+  }; // fork-hook: zmux-estate/session-mode-create-action
   const confirmCloseTerminal = (terminalId: string) => {
     if (!canOperateTerminal) return;
     const label = terminalLabelById.get(terminalId) ?? getTerminalLabel(terminalId);
@@ -1691,7 +1991,7 @@ export default function ThreadTerminalDrawer({
   };
 
   useEffect(() => {
-    if (!visible) {
+    if (!attachmentDemanded) {
       return;
     }
 
@@ -1709,7 +2009,7 @@ export default function ThreadTerminalDrawer({
     return () => {
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [visible]);
+  }, [attachmentDemanded]); // fork-hook: zmux-estate/terminal-attachment-demand-height
 
   const syncPreferredHeight = useEffectEvent(() => syncHeight(preferredDrawerHeight));
   useEffect(() => () => syncPreferredHeight(), []);
@@ -1721,7 +2021,9 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+          isPanel
+            ? "h-full flex-1"
+            : "z-45 shrink-0 border-t border-border/80 sm:focus-within:border-ring",
         )}
         style={isPanel ? undefined : { height: `${drawerHeight}px` }}
       >
@@ -1740,11 +2042,18 @@ export default function ThreadTerminalDrawer({
           <Button
             size="xs"
             variant="outline"
-            onClick={onNewTerminalAction}
+            onClick={() => onNewTerminalAction()} // fork-hook: zmux-estate/plain-shell-empty-default
             disabled={!canOperateTerminal}
           >
             {newTerminalActionLabel}
           </Button>
+          {/* fork-hook: zmux-estate/session-mode-empty-menu */}
+          <TerminalAlternativeModeButton
+            environmentId={threadRef.environmentId}
+            disabled={!canOperateTerminal}
+            onNewTerminal={onNewTerminalAction}
+          />
+          {/* fork-hook-end */}
         </div>
       </aside>
     );
@@ -1757,8 +2066,10 @@ export default function ThreadTerminalDrawer({
       data-thread-terminal-drawer
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
-        "relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+        "group/terminal-actions relative flex min-w-0 flex-col overflow-hidden bg-background",
+        isPanel
+          ? "h-full flex-1"
+          : "z-45 shrink-0 border-t border-border/80 sm:focus-within:border-ring",
       )}
       style={isPanel ? undefined : { height: `${drawerHeight}px` }}
     >
@@ -1774,8 +2085,13 @@ export default function ThreadTerminalDrawer({
       ) : null}
 
       {!hasTerminalSidebar && (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+        // Hover-gated so the idle cluster cannot cover the terminal's first
+        // row or the status line. Opacity (not visibility) keeps the buttons
+        // in Tab order, and focus-within reveals them for keyboard use; the
+        // pointer-events flip keeps the hidden cluster from swallowing clicks
+        // meant for the terminal underneath.
+        <div className="pointer-events-none absolute right-2 top-2 z-20 opacity-0 transition-opacity duration-150 group-hover/terminal-actions:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+          <div className="pointer-events-none inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs group-hover/terminal-actions:pointer-events-auto focus-within:pointer-events-auto">
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${
@@ -1802,14 +2118,22 @@ export default function ThreadTerminalDrawer({
               <SquareSplitVertical className="size-3.25" />
             </TerminalActionButton>
             <div className="h-4 w-px bg-border/80" />
-            <TerminalActionButton
+            <TerminalCheckoutModeButton
+              layout="floating"
+              terminalId={resolvedActiveTerminalId}
+              mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
+              disabled={checkoutModeChangeDisabled}
+              onModeChange={onCheckoutModeChange}
+            />
+            <div className="h-4 w-px bg-border/80" />
+            {/* fork-hook: zmux-estate/session-mode-floating-menu */}
+            <TerminalNewMenu
+              environmentId={threadRef.environmentId}
               disabled={!canOperateTerminal}
-              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
-              onClick={onNewTerminalAction}
+              onNewTerminal={onNewTerminalAction}
               label={newTerminalActionLabel}
-            >
-              <Plus className="size-3.25" />
-            </TerminalActionButton>
+            />
+            {/* fork-hook-end */}
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               disabled={!canOperateTerminal}
@@ -1848,6 +2172,8 @@ export default function ThreadTerminalDrawer({
                 visible={visible}
                 resizeEpoch={resizeEpoch}
                 drawerHeight={drawerHeight}
+                attached={attachmentDemanded}
+                restoreFocusOnReattach={restoreFocusOnReattach}
                 keybindings={keybindings}
               />
             ) : (
@@ -1869,11 +2195,13 @@ export default function ThreadTerminalDrawer({
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
                   focusRequestId={focusRequestId}
-                  autoFocus
+                  autoFocus={attachmentDemanded}
                   visible={visible}
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
                   keybindings={keybindings}
+                  attached={attachmentDemanded}
+                  restoreFocusOnReattach={restoreFocusOnReattach}
                 />
               </div>
             )}
@@ -1907,14 +2235,21 @@ export default function ThreadTerminalDrawer({
                   >
                     <SquareSplitVertical className="size-3.25" />
                   </TerminalActionButton>
-                  <TerminalActionButton
+                  <TerminalCheckoutModeButton
+                    layout="sidebar"
+                    terminalId={resolvedActiveTerminalId}
+                    mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
+                    disabled={checkoutModeChangeDisabled}
+                    onModeChange={onCheckoutModeChange}
+                  />
+                  {/* fork-hook: zmux-estate/session-mode-sidebar-menu */}
+                  <TerminalNewMenu
+                    environmentId={threadRef.environmentId}
                     disabled={!canOperateTerminal}
-                    className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
-                    onClick={onNewTerminalAction}
+                    onNewTerminal={onNewTerminalAction}
                     label={newTerminalActionLabel}
-                  >
-                    <Plus className="size-3.25" />
-                  </TerminalActionButton>
+                  />
+                  {/* fork-hook-end */}
                   <TerminalActionButton
                     disabled={!canOperateTerminal}
                     className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"

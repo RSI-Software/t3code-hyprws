@@ -1,4 +1,5 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
+import { DesktopVoiceInputProviderFork } from "../voice-input/VoiceInputProvider.fork"; // fork-hook: voice-input/window-provider-import
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -21,6 +22,7 @@ import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
+import { DesktopLocalAutoPair } from "../connection/DesktopLocalAutoPair";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -65,7 +67,11 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
+import {
+  isDesktopClientOnlyMode,
+  readOptionalPrimaryEnvironmentTarget, // fork-hook: backend-attach/route-import
+  resolveInitialServerAuthGateState,
+} from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
@@ -85,6 +91,9 @@ import {
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { useProjectChooserHostValue } from "../projectChooser.fork"; // fork-hook: workspaces/window-title-import
+import { composeFilteredWindowTitle } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
+import { usePublishWindowProjectsFork } from "../windowProjects.fork"; // fork-hook: multi-window/window-projects-import
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -96,7 +105,11 @@ export const Route = createRootRoute({
       };
     }
 
-    if (isLocalEnvironmentDisabled() || isHostedStaticApp(new URL(window.location.href))) {
+    if (
+      isLocalEnvironmentDisabled() ||
+      isHostedStaticApp(new URL(window.location.href)) ||
+      (isDesktopClientOnlyMode() && !readOptionalPrimaryEnvironmentTarget()) // fork-hook: backend-attach/route-gate
+    ) {
       return {
         authGateState: {
           status: "hosted-static",
@@ -247,12 +260,15 @@ function RootRouteView() {
           <ProjectCloneToastCoordinator />
           <PullRequestGuideRunCoordinator />
           <HostedStaticEnvironmentBootstrap />
+          <DesktopLocalAutoPair />
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
           ) : null}
           {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
           {isElectron ? <DesktopUpdateLaunchNotice /> : null}
-          {appShell}
+          {/* fork-hook: voice-input/window-provider */}
+          <DesktopVoiceInputProviderFork>{appShell}</DesktopVoiceInputProviderFork>
+          {/* fork-hook-end */}
           {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}
           <ThemeEditorHost />
@@ -361,9 +377,13 @@ function DocumentTitleSync() {
     primaryServerVersion,
   });
 
+  const filterTitleLabel = useProjectChooserHostValue()?.titleLabel ?? null; // fork-hook: workspaces/window-title
+  const windowTitle = composeFilteredWindowTitle(title, filterTitleLabel); // fork-hook: workspaces/window-title
+  usePublishWindowProjectsFork(); // fork-hook: multi-window/window-projects-publish
+
   useEffect(() => {
-    document.title = title;
-  }, [title]);
+    document.title = windowTitle; // fork-hook: workspaces/window-title
+  }, [windowTitle]); // fork-hook: workspaces/window-title
 
   return null;
 }

@@ -15,9 +15,12 @@ import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
+import { runDesktopWindowCommandFork } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-keybinding
+import { runProjectChooserCommandFork } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-keybinding
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -101,6 +104,19 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
+        if (
+          startFilteredNewThreadFork(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            true,
+          )
+        ) {
+          return;
+        } // fork-hook: workspaces/filtered-new-thread
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
@@ -124,6 +140,19 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
+        if (
+          startFilteredNewThreadFork(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            false,
+          )
+        ) {
+          return;
+        } // fork-hook: workspaces/filtered-new-thread
         if (!legacySidebarEnabled && projectGroupCount > 1) {
           openCommandPalette({ open: "new-thread-in" });
           return;
@@ -154,6 +183,20 @@ function ChatRouteGlobalShortcuts() {
         dispatchPreviewAction("toggle-panel");
         return;
       }
+
+      if (
+        runDesktopWindowCommandFork(command, event, () =>
+          resolveThreadActionProjectRef({
+            activeDraftThread,
+            activeThread: activeThread ?? undefined,
+            defaultProjectRef,
+            handleNewThread,
+          }),
+        )
+      ) {
+        return;
+      } // fork-hook: multi-window/dispatch-keybinding-run
+      if (runProjectChooserCommandFork(command, event)) return; // fork-hook: workspaces/chooser-keybinding
 
       if (
         command === "preview.refresh" ||
