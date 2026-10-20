@@ -1,16 +1,11 @@
 import { useDndContext, useDndMonitor } from "@dnd-kit/core";
-import {
-  ChevronDownIcon,
-  MoreHorizontalIcon,
-  RefreshCwIcon,
-  SquarePenIcon,
-  UnlinkIcon,
-} from "lucide-react";
+import { MoreHorizontalIcon, RefreshCwIcon, SquarePenIcon, UnlinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import type { SidebarThreadGroup } from "../uiStateStore";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
+import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { sidebarMarkerId, type SidebarListItem } from "./Sidebar.logic";
 import { SidebarRenameInput } from "./SidebarRenameInput";
@@ -85,36 +80,20 @@ export function SidebarThreadGroupHeader(props: {
           />
         </div>
       ) : (
-        <button
-          type="button"
-          aria-expanded={expanded}
+        <CollapsibleSectionHeader
+          expanded={expanded}
+          tone={dragging ? "emphasized" : "muted"}
           aria-busy={props.isGenerating || undefined}
           onClick={() => props.onCollapsedChange(expanded)}
           onDoubleClick={() => setIsEditing(true)}
-          className={cn(
-            "flex h-full w-full cursor-pointer items-center gap-2 px-1.5 text-left text-xs font-medium text-sidebar-muted-foreground/60",
-            dragging && "text-sidebar-foreground/80",
-          )}
+          // Room for the hover menu, so it never covers the label.
+          accessory={<span aria-hidden className="w-5 shrink-0" />}
         >
-          <span className="flex min-w-0 shrink gap-1">
+          <span className="flex min-w-0 gap-1">
             <span className="truncate">{props.group.title}</span>
             <span className="shrink-0">({props.memberCount})</span>
           </span>
-          {/* Zero basis: the rule fills only what the title leaves, and goes first. */}
-          <span
-            aria-hidden
-            className={cn(
-              "h-px min-w-0 flex-1 bg-sidebar-border/60",
-              dragging && "bg-sidebar-foreground/25",
-            )}
-          />
-          {/* Room for the hover menu, so it never covers the label. */}
-          <span aria-hidden className="w-5 shrink-0" />
-          <ChevronDownIcon
-            aria-hidden
-            className={cn("size-3 shrink-0 transition-transform", expanded && "rotate-180")}
-          />
-        </button>
+        </CollapsibleSectionHeader>
       )}
       {isEditing ? null : (
         <div className="absolute inset-y-0 right-6 flex items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100 has-[[data-popup-open]]:opacity-100">
