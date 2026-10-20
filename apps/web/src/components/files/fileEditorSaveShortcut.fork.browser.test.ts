@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
