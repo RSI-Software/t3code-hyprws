@@ -62,8 +62,8 @@ import {
   previewSessionCountersFork, // fork-hook: multi-window/preview-session-counters-import
   registerDesktopWindowForkTests,
 } from "./DesktopWindow.fork.suite.ts"; // fork-hook: multi-window/fork-suite-import
-import * as DesktopWindowSession from "./DesktopWindowSession.ts";
-import * as HyprlandPlacement from "./HyprlandPlacement.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
+import * as HyprlandPlacement from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import { windowIdentityKey } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-key-import
@@ -115,7 +115,7 @@ function makeFakeBrowserWindow() {
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
-    getTitle: vi.fn(() => "T3 Code"),
+    getTitle: vi.fn(() => "T3 Code"), // fork-hook: multi-window/fake-window-title
     isDestroyed: vi.fn(() => false),
     isFocused: vi.fn(() => true),
     isFullScreen: vi.fn(() => false),
@@ -166,7 +166,7 @@ function makeFakeBrowserWindow() {
     setAutoHideCursor: window.setAutoHideCursor,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
-    setTitle: window.setTitle,
+    setTitle: window.setTitle, // fork-hook: multi-window/fake-window-set-title
     showInactive: window.showInactive,
     webContentsListeners,
     webContentsOnce: webContents.once,
@@ -254,12 +254,12 @@ function layerTest(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
-  readonly previewMainWindowSets?: Electron.BrowserWindow[];
+  readonly previewMainWindowSets?: Electron.BrowserWindow[]; // fork-hook: multi-window/preview-main-window-sets
   readonly previewOwners?: string[]; // fork-hook: multi-window/window-id-preview-owners
-  readonly previewBrowserSessionRequests?: number[];
-  readonly environmentEnv?: Record<string, string | undefined>;
-  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
-  readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly previewBrowserSessionRequests?: number[]; // fork-hook: multi-window/preview-browser-session-requests
+  readonly environmentEnv?: Record<string, string | undefined>; // fork-hook: multi-window/environment-env-input
+  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[]; // fork-hook: multi-window/restore-entries-input
+  readonly workspaceMoves?: { key: string; workspace: string }[]; // fork-hook: multi-window/workspace-moves-input
   readonly placementClaims?: { key: string; title: string }[]; // fork-hook: multi-window/window-id-placement-claims
   readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
   readonly placementLifecycle?: string[];
@@ -323,22 +323,19 @@ function layerTest(input: {
         input.placementLifecycle?.push(`move:${workspace.name}`);
         input.workspaceMoves?.push({ key, workspace: workspace.name });
       }),
-  } satisfies HyprlandPlacement.HyprlandPlacement["Service"]);
-
+  } satisfies HyprlandPlacement.HyprlandPlacement["Service"]); // fork-hook: multi-window/hyprland-placement-fake
   const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
     capture: () => Effect.void,
     consume: Effect.succeed(input.restoreEntries ?? []),
-  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
-
-  const projectWindows = new Map<string, Electron.BrowserWindow>();
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]); // fork-hook: multi-window/window-session-fake
+  const projectWindows = new Map<string, Electron.BrowserWindow>(); // fork-hook: multi-window/project-windows
   const windowIds = makeTestWindowIds(); // fork-hook: multi-window/window-id-test-registry
   const getIdentityWindow = (
     identity: Parameters<ElectronWindow.ElectronWindow["Service"]["get"]>[0],
   ) =>
     identity.kind === "hub"
       ? Ref.get(input.mainWindow)
-      : Effect.sync(() => Option.fromNullishOr(projectWindows.get(windowIdentityKey(identity))));
-
+      : Effect.sync(() => Option.fromNullishOr(projectWindows.get(windowIdentityKey(identity)))); // fork-hook: multi-window/identity-window-get
   const layerElectronWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
       Effect.sync(() => {
@@ -349,7 +346,7 @@ function layerTest(input: {
         Effect.as(input.window),
       ),
     main: Ref.get(input.mainWindow),
-    get: getIdentityWindow,
+    get: getIdentityWindow, // fork-hook: multi-window/identity-window-get-prop
     getById: windowIds.getById, // fork-hook: multi-window/window-id-get-by-id
     getOrCreate: (identity, create, requestedId) =>
       // fork-hook: multi-window/window-id-get-or-create
@@ -371,7 +368,7 @@ function layerTest(input: {
             onSome: windowIds.existing, // fork-hook: multi-window/window-id-existing
           }),
         ),
-      ),
+      ), // fork-hook: multi-window/identity-window-get-or-create
     createNew: (identity, create, requestedId) =>
       windowIds.create(create, requestedId).pipe(
         Effect.tap((window) =>
@@ -388,7 +385,7 @@ function layerTest(input: {
         : Effect.sync(() => {
             projectWindows.delete(windowIdentityKey(identity));
             input.window.close();
-          }),
+          }), // fork-hook: multi-window/identity-window-close
     windowIdFor: windowIds.windowIdFor, // fork-hook: multi-window/window-id-for
     listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
     windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
@@ -421,8 +418,8 @@ function layerTest(input: {
         layerDesktopClientSettings,
         layerDesktopServerExposure,
         DesktopState.layer,
-        hyprlandPlacementLayer,
-        windowSessionLayer,
+        hyprlandPlacementLayer, // fork-hook: multi-window/hyprland-placement-layer
+        windowSessionLayer, // fork-hook: multi-window/window-session-layer
         layerElectronApp,
         Layer.succeed(ElectronMenu.ElectronMenu, {
           setApplicationMenu: () => Effect.void,
@@ -477,7 +474,7 @@ function layerTest(input: {
                   updateEmbedderZoom();
                   input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
                 }),
-            } as never),
+            } as never), // fork-hook: multi-window/preview-for-window
         }),
       ),
     ),
@@ -540,7 +537,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           return outcome;
         }),
       main: Ref.get(mainWindow),
-      get: () => Ref.get(mainWindow),
+      get: () => Ref.get(mainWindow), // fork-hook: multi-window/splash-identity-window-get
       getById: splashWindowIds.getById, // fork-hook: multi-window/window-id-splash-get-by-id
       getOrCreate: (_identity, create) =>
         Ref.get(mainWindow).pipe(
@@ -555,9 +552,9 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
               onSome: splashWindowIds.existing, // fork-hook: multi-window/window-id-splash-existing
             }),
           ),
-        ),
+        ), // fork-hook: multi-window/splash-identity-window-get-or-create
       createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
-      close: () => Ref.set(mainWindow, Option.none()),
+      close: () => Ref.set(mainWindow, Option.none()), // fork-hook: multi-window/splash-identity-window-close
       windowIdFor: splashWindowIds.windowIdFor, // fork-hook: multi-window/window-id-splash-for
       listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-splash-list
       windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-splash-by-recency
@@ -596,11 +593,11 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             stageWorkspaceRule: () => Effect.succeed(false),
             clearWorkspaceRule: () => Effect.void,
             moveToWorkspace: () => Effect.void,
-          } satisfies HyprlandPlacement.HyprlandPlacement["Service"]),
+          } satisfies HyprlandPlacement.HyprlandPlacement["Service"]), // fork-hook: multi-window/splash-hyprland-placement
           Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
             capture: () => Effect.void,
             consume: Effect.succeed([]),
-          } satisfies DesktopWindowSession.DesktopWindowSession["Service"]),
+          } satisfies DesktopWindowSession.DesktopWindowSession["Service"]), // fork-hook: multi-window/splash-window-session
           layerElectronApp,
           layerElectronMenu,
           Layer.succeed(ElectronShell.ElectronShell, {
@@ -619,7 +616,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             ...previewOwnedForwardingFork, // fork-hook: multi-window/splash-preview-owned-forwarding
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
             setMainWindow: () => Effect.void,
-            setWindow: () => Effect.void,
+            setWindow: () => Effect.void, // fork-hook: multi-window/splash-preview-set-window
             isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
             getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           }),
@@ -2064,7 +2061,6 @@ describe("DesktopWindow", () => {
   );
   registerDesktopWindowForkTests({ makeFakeBrowserWindow, layerTest }); // fork-hook: multi-window/fork-suite-register
 });
-
 export type DesktopWindowHarnessFork = {
   makeFakeBrowserWindow: typeof makeFakeBrowserWindow;
   layerTest: typeof layerTest; // fork-hook: multi-window/fork-suite-harness

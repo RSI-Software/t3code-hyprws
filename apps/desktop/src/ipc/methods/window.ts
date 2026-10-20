@@ -30,7 +30,6 @@ import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
-import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as ElectronApp from "../../electron/ElectronApp.ts";

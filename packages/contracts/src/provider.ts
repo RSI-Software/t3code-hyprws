@@ -4,7 +4,7 @@ import {
   ApprovalRequestId,
   EventId,
   IsoDateTime,
-  ProjectId,
+  ProjectId, // fork-hook: multi-window/provider-project-id-import
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -53,8 +53,7 @@ export type ProviderSession = typeof ProviderSession.Type;
 
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
-  // Owning project, handed to the spawned provider process as T3CODE_PROJECT_ID.
-  projectId: Schema.optional(ProjectId),
+  projectId: Schema.optional(ProjectId), // fork-hook: multi-window/provider-project-id
   provider: Schema.optional(ProviderDriverKind),
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),

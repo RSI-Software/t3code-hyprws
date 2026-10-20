@@ -13,7 +13,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
-import * as DesktopWindowSession from "../window/DesktopWindowSession.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 
 export const flushCallbacks = Effect.yieldNow;
@@ -120,9 +120,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     main: Effect.succeedNone,
     get: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-get
     getById: () => Effect.succeedNone, // fork-hook: multi-window/window-id-get-by-id
-    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    getOrCreate: () => Effect.die("unexpected identity window creation"), // fork-hook: multi-window/updates-harness-window-get-or-create
     createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
-    close: () => Effect.void,
+    close: () => Effect.void, // fork-hook: multi-window/updates-harness-window-close
     windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/updates-harness-window-identity
     listWindows: Effect.succeed(openWindows), // fork-hook: multi-window/window-id-list
     windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
@@ -274,12 +274,11 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         installStepsBeforeCapture.push(installSteps.length); // fork-hook: multi-window/updates-capture-order-step
       }),
     consume: Effect.succeed([]),
-  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
-
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]); // fork-hook: multi-window/updates-harness-window-session
   const layer = DesktopUpdates.layer.pipe(
     Layer.provide(layerFileSystem),
     Layer.provideMerge(layerUpdater),
-    Layer.provideMerge(windowSessionLayer),
+    Layer.provideMerge(windowSessionLayer), // fork-hook: multi-window/updates-harness-window-session-layer
     Layer.provideMerge(layerWindow),
     Layer.provideMerge(layerBackend),
     Layer.provideMerge(DesktopState.layer),
@@ -304,7 +303,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     updateRestartMarkers,
     installRecords,
     previousInstallRecord: () => previousInstallRecord,
-    capturedSessions,
+    capturedSessions, // fork-hook: multi-window/updates-harness-captured-sessions
     installStepsBeforeCapture, // fork-hook: multi-window/updates-capture-order-result
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,

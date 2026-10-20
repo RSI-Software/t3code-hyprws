@@ -75,7 +75,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
-  ExternalLinkIcon,
+  ExternalLinkIcon, // fork-hook: multi-window/palette-external-link-icon
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -783,7 +783,7 @@ function OpenCommandPaletteDialog(props: {
   const desktopBridge =
     typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
       ? window.desktopBridge
-      : null;
+      : null; // fork-hook: multi-window/palette-desktop-bridge
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -2117,8 +2117,7 @@ function OpenCommandPaletteDialog(props: {
         requestDesktopWindow(desktopBridge, { kind: "project-link", ref: contextualProjectRef }); // fork-hook: multi-window/dispatch-palette-open-project
       },
     });
-  }
-
+  } // fork-hook: multi-window/palette-open-project-window
   if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",

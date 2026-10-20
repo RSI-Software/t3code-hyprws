@@ -44,8 +44,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly processArch: string;
     readonly isPackaged: boolean;
     readonly isDevelopment: boolean;
-    // Development-only: whether new windows open detached DevTools.
-    readonly devToolsEnabled: boolean;
+    readonly devToolsEnabled: boolean; // fork-hook: multi-window/devtools-enabled
     // Development-only: isolates Electron/Clerk state and the single-instance lock.
     readonly userDataDirectoryOverride: Option.Option<string>;
     // Development-only map-time placement requested by dev:desktop:agent.
@@ -60,9 +59,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
     readonly savedEnvironmentRegistryPath: string;
-    // One-shot record of the windows open across an update relaunch. See
-    // window/DesktopWindowSession.ts.
-    readonly windowSessionPath: string;
+    readonly windowSessionPath: string; // fork-hook: multi-window/window-session-path
     readonly serverSettingsPath: string;
     readonly logDir: string;
     readonly browserArtifactsDir: string;
@@ -226,7 +223,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     processArch: input.processArch,
     isPackaged: input.isPackaged,
     isDevelopment,
-    devToolsEnabled: config.devToolsEnabled,
+    devToolsEnabled: config.devToolsEnabled, // fork-hook: multi-window/devtools-enabled
     userDataDirectoryOverride: isDevelopment ? config.userDataDirectoryOverride : Option.none(),
     devAgentPlacement,
     appVersion: input.appVersion,
@@ -239,7 +236,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
-    windowSessionPath: path.join(stateDir, "window-session.json"),
+    windowSessionPath: path.join(stateDir, "window-session.json"), // fork-hook: multi-window/window-session-path
     serverSettingsPath: path.join(stateDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),

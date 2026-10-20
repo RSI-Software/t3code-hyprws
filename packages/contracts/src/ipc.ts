@@ -16,7 +16,8 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor, type ScopedProjectRef } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import type { ScopedProjectRef } from "./environment.ts"; // fork-hook: multi-window/scoped-project-ref-import
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";

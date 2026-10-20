@@ -1,8 +1,15 @@
 import type {
+  DesktopPreviewAnnotationTheme,
+  DesktopPreviewColorScheme,
   DesktopPreviewPointerEvent,
   DesktopPreviewOpenLinkEvent,
+  DesktopPreviewRecordingArtifact,
   DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
+  DesktopPreviewScreenshotArtifact,
+  DesktopPreviewTabDefaults,
+  PreviewAnnotationSubmissionResult,
+  PreviewForwardedShortcut,
 } from "@t3tools/contracts";
 import { BrowserWindow, webContents } from "electron";
 import * as Cause from "effect/Cause";
@@ -10,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 
@@ -17,12 +25,8 @@ import type * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { IpcRequester } from "../electron/WindowTargets.fork.ts";
 import type * as DesktopIpc from "../ipc/DesktopIpc.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
-import type {
-  PreviewManager,
-  PreviewManagerError,
-  PreviewTabState,
-  PreviewWindowManager,
-} from "./Manager.ts";
+import type { PreviewManager, PreviewManagerError, PreviewTabState } from "./Manager.ts";
+import type { RecordingInputOptions } from "./RecordingInput.ts";
 
 /**
  * Fork-owned preview policy for desktop windows.
@@ -35,6 +39,83 @@ import type {
 export const APP_PREVIEW_OWNER = "app";
 export type PreviewOwner = WindowId | typeof APP_PREVIEW_OWNER;
 
+export class PreviewTabOwnershipError extends Schema.TaggedError<PreviewTabOwnershipError>()(
+  "PreviewTabOwnershipError",
+  { tabId: Schema.String, requestingWindow: Schema.String },
+) {
+  override get message(): string {
+    return `Preview tab ${this.tabId} is owned by another window.`;
+  }
+}
+
+/** The tab-scoped operations one window reaches; the app-wide rest stays on `PreviewManager`. */
+export interface PreviewWindowManager {
+  readonly reapplyZoom: () => Effect.Effect<void>;
+  readonly setForwardedShortcuts: (
+    shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
+  ) => Effect.Effect<void>;
+  readonly createTab: (
+    tabId: string,
+    defaults?: DesktopPreviewTabDefaults,
+  ) => Effect.Effect<PreviewTabState, PreviewManagerError>;
+  readonly closeTab: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly registerWebview: (
+    tabId: string,
+    webContentsId: number,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly prepareWebview: (webContents: Electron.WebContents) => Effect.Effect<void>;
+  readonly navigate: (tabId: string, url: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly goBack: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly goForward: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly refresh: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
+  readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly setColorScheme: (
+    tabId: string,
+    colorScheme: DesktopPreviewColorScheme,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly setZoomFactor: (
+    tabId: string,
+    zoomFactor: number,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly setAudioMuted: (
+    tabId: string,
+    audioMuted: boolean,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly openDevTools: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly setAnnotationTheme: (
+    theme: DesktopPreviewAnnotationTheme,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly setAnnotationSendEnabled: (
+    tabId: string,
+    enabled: boolean,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly pickElement: (
+    tabId: string,
+  ) => Effect.Effect<PreviewAnnotationSubmissionResult | null, PreviewManagerError>;
+  readonly cancelPickElement: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly captureScreenshot: (
+    tabId: string,
+  ) => Effect.Effect<DesktopPreviewScreenshotArtifact, PreviewManagerError>;
+  readonly revealArtifact: (path: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly copyArtifactToClipboard: (path: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly openPictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly closePictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly startRecording: (
+    tabId: string,
+    options?: RecordingInputOptions,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly stopRecording: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly saveRecording: (
+    tabId: string,
+    mimeType: string,
+    data: Uint8Array,
+  ) => Effect.Effect<DesktopPreviewRecordingArtifact, PreviewManagerError>;
+}
+
 type StateListener = (tabId: string, state: PreviewTabState) => Effect.Effect<void>;
 type PointerEventListener = (event: DesktopPreviewPointerEvent) => Effect.Effect<void>;
 type OpenLinkListener = (event: DesktopPreviewOpenLinkEvent) => Effect.Effect<void>;
@@ -44,20 +125,20 @@ type OwnedOpenLinkListener = (
 ) => Effect.Effect<void>;
 type RecordingFrameListener = (frame: DesktopPreviewRecordingFrame) => Effect.Effect<void>;
 type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
-type OwnedStateListener = (
+export type OwnedStateListener = (
   owner: PreviewOwner,
   tabId: string,
   state: PreviewTabState,
 ) => Effect.Effect<void>;
-type OwnedPointerEventListener = (
+export type OwnedPointerEventListener = (
   owner: PreviewOwner,
   event: DesktopPreviewPointerEvent,
 ) => Effect.Effect<void>;
-type OwnedRecordingFrameListener = (
+export type OwnedRecordingFrameListener = (
   owner: PreviewOwner,
   frame: DesktopPreviewRecordingFrame,
 ) => Effect.Effect<void>;
-type OwnedRecordingInputListener = (
+export type OwnedRecordingInputListener = (
   owner: PreviewOwner,
   input: DesktopPreviewRecordingInputEvent,
 ) => Effect.Effect<void>;

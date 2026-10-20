@@ -40,14 +40,14 @@ import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeStartupDrain, makeStartupDrainOpeners } from "./DesktopStartupDrain.fork.ts"; // fork-hook: multi-window/startup-drain-import
-import * as DesktopWindowSession from "./DesktopWindowSession.ts";
-import { HyprlandPlacement } from "./HyprlandPlacement.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
+import { HyprlandPlacement } from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import type { WindowId } from "./WindowId.fork.ts"; // fork-hook: multi-window/window-id-import
 import {
   HUB_WINDOW_IDENTITY,
   type WindowIdentity,
-  windowPreloadArguments, // fork-hook: multi-window/window-preload-arguments-import
-} from "./WindowIdentity.ts";
+  windowPreloadArguments,
+} from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
@@ -103,8 +103,6 @@ type DesktopWindowRuntimeServices =
   | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow
   | DesktopRendererHistory.DesktopRendererHistory
-  | HyprlandPlacement
-  | DesktopWindowSession.DesktopWindowSession
   | PreviewManager.PreviewManager;
 
 export type DesktopWindowError =
@@ -121,14 +119,9 @@ export class DesktopWindow extends Context.Service<
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly requestWindow: (request: WindowRequest) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/dispatch-request
-    readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>;
-    /**
-     * Loads the windows an update relaunch left behind, queued until the
-     * backend is ready. Must run before openArguments so an explicit launch
-     * intent still wins over a restore.
-     */
-    readonly restoreWindowSession: Effect.Effect<void>;
-    readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>;
+    readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/open-arguments-type
+    readonly restoreWindowSession: Effect.Effect<void>; // fork-hook: multi-window/restore-window-session-type
+    readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>; // fork-hook: multi-window/close-identity-type
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
@@ -338,9 +331,9 @@ export const make = Effect.gen(function* () {
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
-  const hyprlandPlacement = yield* HyprlandPlacement;
+  const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
   const titleClaimsFork = WindowPlacement.makeTitleClaimsFork(); // fork-hook: multi-window/claim-title-gate
-  const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false); // fork-hook: multi-window/startup-drain-latch
   const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
   // One map-time placement for dev:desktop:agent. The launcher environment survives
@@ -1247,7 +1240,7 @@ export const make = Effect.gen(function* () {
     requestWindow, // fork-hook: multi-window/dispatch-request
     restoreWindowSession: startupDrainRestore, // fork-hook: multi-window/startup-drain-stage-restore
     openArguments: startupDrainOpenArguments, // fork-hook: multi-window/startup-drain-stage-arguments
-    closeIdentity: electronWindow.close,
+    closeIdentity: electronWindow.close, // fork-hook: multi-window/close-identity
     activate: Effect.gen(function* () {
       if (yield* Ref.get(desktopState.quitting)) return;
       const forkTarget = yield* captureRevealWindow; // fork-hook: multi-window/window-targets-activate

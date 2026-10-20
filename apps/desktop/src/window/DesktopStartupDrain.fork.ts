@@ -282,6 +282,8 @@ const makeStartupDrainImpl = Effect.gen(function* () {
     return { queued: true } as const;
   });
 
+  // Loads the windows an update relaunch left behind, queued until the backend is
+  // ready. It runs before `stageArguments`, so an explicit launch intent still wins.
   const stageRestore = Effect.fn("DesktopStartupDrain.stageRestore")(function* (
     services: StartupDrainServices,
   ): Effect.fn.Return<void> {

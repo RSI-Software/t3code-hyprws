@@ -351,7 +351,7 @@ const startup = Effect.gen(function* () {
   const clerk = yield* DesktopClerk.DesktopClerk;
   const shellEnvironment = yield* DesktopShellEnvironment.DesktopShellEnvironment;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
-  const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  const desktopWindow = yield* DesktopWindow.DesktopWindow; // fork-hook: multi-window/desktop-window
   const preReadyElectronOptions = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
   const safeStorage = yield* ElectronSafeStorage.ElectronSafeStorage;
   const updates = yield* DesktopUpdates.DesktopUpdates;
@@ -424,12 +424,10 @@ const startup = Effect.gen(function* () {
 
   yield* appIdentity.configure;
   yield* lifecycle.register;
-  // Before openArguments, so an explicit launch intent still overrides the
-  // windows an update relaunch left behind.
-  yield* desktopWindow.restoreWindowSession;
+  yield* desktopWindow.restoreWindowSession; // fork-hook: multi-window/restore-window-session
   yield* desktopLaunchArguments.install((argv) => desktopWindow.openArguments(argv)); // fork-hook: multi-window/launch-arguments
   yield* clerk.configure;
-  yield* desktopWindow.openArguments(process.argv);
+  yield* desktopWindow.openArguments(process.argv); // fork-hook: multi-window/open-arguments
 
   yield* electronApp.whenReady.pipe(
     Effect.withSpan("desktop.electron.whenReady"),

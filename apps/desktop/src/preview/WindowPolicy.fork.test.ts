@@ -19,7 +19,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import * as IpcChannels from "../ipc/channels.ts";
 import { type WindowId, windowIdPreloadArgument } from "../window/WindowId.fork.ts";
 import { windowPreloadArguments } from "../window/WindowIdentity.ts";
-import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
+import type { PreviewTabState } from "./Manager.ts";
 import {
   exposePreviewCapability,
   type PreviewCapableDesktopBridge,
@@ -75,7 +75,7 @@ class TestAuthorizationError extends Data.TaggedError("PreviewIpcSenderNotAuthor
 }> {}
 
 const ownershipError = (tabId: string, requestingWindow: string) =>
-  new PreviewTabOwnershipError({ tabId, requestingWindow });
+  new WindowPolicy.PreviewTabOwnershipError({ tabId, requestingWindow });
 
 const authorizationError = (reason: "missing-sender" | "unregistered-window") =>
   new TestAuthorizationError({ reason });

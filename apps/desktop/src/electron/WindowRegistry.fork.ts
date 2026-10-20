@@ -10,11 +10,7 @@ import { IpcRequester } from "./WindowTargets.fork.ts";
 import { normalizeMainWindowBounds } from "../settings/DesktopAppSettings.ts";
 import type { CapturedWindow } from "../window/DesktopWindowSession.ts";
 import type { WindowId } from "../window/WindowId.fork.ts";
-import {
-  HUB_WINDOW_IDENTITY,
-  type WindowIdentity,
-  windowIdentityKey,
-} from "../window/WindowIdentity.ts";
+import { type WindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
 
 /**
  * Fork-owned registry of the app windows main created, keyed by `WindowId`.
@@ -156,19 +152,6 @@ export function makeWindowRegistry() {
     touchedAt.delete(windowId);
   };
 
-  /**
-   * Makes a registered window the one hub window. Only a window main created
-   * has an id its preload read, so an unregistered window is not given one.
-   */
-  const registerMain = (window: Electron.BrowserWindow) => {
-    const existing = findByWindow(window);
-    if (existing === undefined) return;
-    for (const entry of list()) {
-      if (entry.identity.kind === "hub" && entry.window !== window) remove(entry.windowId);
-    }
-    register(existing.windowId, HUB_WINDOW_IDENTITY, window);
-  };
-
   return {
     byId: (windowId: WindowId) => live(entries.get(windowId)),
     get: (identity: WindowIdentity) => Option.fromNullishOr(findByIdentity(identity)?.window),
@@ -180,7 +163,6 @@ export function makeWindowRegistry() {
     list,
     reserveId,
     register,
-    registerMain,
     remove,
   } as const;
 }
@@ -189,6 +171,7 @@ export type WindowRegistry = ReturnType<typeof makeWindowRegistry>;
 
 /** The `ElectronWindow` members the fork serves from the registry. */
 export interface WindowRegistryService {
+  readonly get: (identity: WindowIdentity) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
   readonly getById: (windowId: WindowId) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
   /**
    * Returns the window showing `identity`, or creates one. `create` receives
@@ -236,6 +219,7 @@ export const makeWindowRegistryService = (
   semaphore: Semaphore.Semaphore,
   mainWindowRef: Ref.Ref<Option.Option<Electron.BrowserWindow>>,
 ): WindowRegistryService => ({
+  get: (identity) => Effect.sync(() => registry.get(identity)),
   getById: (windowId) => Effect.sync(() => Option.fromNullishOr(registry.byId(windowId)?.window)),
   getOrCreate: (identity, create, requestedId) =>
     semaphore.withPermits(1)(

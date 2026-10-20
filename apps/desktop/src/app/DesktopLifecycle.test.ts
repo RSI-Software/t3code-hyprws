@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+import * as Option from "effect/Option"; // fork-hook: multi-window/option-import
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -66,11 +66,11 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
   return Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected window creation"),
     main: Effect.die("unexpected main window read"),
-    get: () => Effect.die("unexpected identity window read"),
+    get: () => Effect.die("unexpected identity window read"), // fork-hook: multi-window/identity-window-get
     getById: () => Effect.die("unexpected window id read"), // fork-hook: multi-window/window-id-get-by-id
-    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    getOrCreate: () => Effect.die("unexpected identity window creation"), // fork-hook: multi-window/identity-window-get-or-create
     createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
-    close: () => Effect.void,
+    close: () => Effect.void, // fork-hook: multi-window/identity-window-close
     windowIdFor: () => Effect.succeed(Option.none()), // fork-hook: multi-window/window-id-for
     listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
     windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
@@ -97,9 +97,9 @@ function layerDesktopWindow(
     ensureMain: Effect.die("unexpected window creation"),
     revealOrCreateMain: Effect.die("unexpected window creation"),
     requestWindow: () => Effect.die("unexpected window request"), // fork-hook: multi-window/dispatch-request
-    openArguments: () => Effect.void,
-    restoreWindowSession: Effect.void,
-    closeIdentity: () => Effect.void,
+    openArguments: () => Effect.void, // fork-hook: multi-window/open-arguments
+    restoreWindowSession: Effect.void, // fork-hook: multi-window/restore-window-session
+    closeIdentity: () => Effect.void, // fork-hook: multi-window/close-identity
     activate: input.activate ?? Effect.void,
     createMainIfBackendReady: Effect.void,
     showConnectingSplash: Effect.void,

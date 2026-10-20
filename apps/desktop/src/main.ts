@@ -77,8 +77,8 @@ import * as DesktopBrowserHost from "./preview/DesktopBrowserHost.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PreviewPasskeys from "./preview/Passkeys.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
-import * as DesktopWindowSession from "./window/DesktopWindowSession.ts";
-import * as HyprlandPlacement from "./window/HyprlandPlacement.ts";
+import * as DesktopWindowSession from "./window/DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
+import * as HyprlandPlacement from "./window/HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "./wsl/DesktopWslServerTree.ts";
@@ -180,17 +180,16 @@ const layerDesktopPreview = PreviewManager.layer.pipe(
   Layer.provideMerge(layerDesktopFoundation),
 );
 
-// Window-session restore sits under the window layer because DesktopUpdates
-// captures through it and DesktopWindow replays it.
 const desktopWindowSessionLayer = DesktopWindowSession.layer.pipe(
+  // Window-session restore sits under the window layer because DesktopUpdates
+  // captures through it and DesktopWindow replays it.
   Layer.provideMerge(HyprlandPlacement.layer),
   Layer.provideMerge(layerDesktopFoundation),
-);
-
+); // fork-hook: multi-window/window-session-layer
 const layerDesktopWindow = DesktopWindow.layer.pipe(
   Layer.provideMerge(layerDesktopServerExposure),
   Layer.provideMerge(layerDesktopPreview),
-  Layer.provideMerge(desktopWindowSessionLayer),
+  Layer.provideMerge(desktopWindowSessionLayer), // fork-hook: multi-window/window-session-layer-provide
 );
 
 const layerDesktopSnapShot = DesktopSnapShot.layer.pipe(

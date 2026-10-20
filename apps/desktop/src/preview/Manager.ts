@@ -66,11 +66,6 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
-import {
-  HUB_WINDOW_IDENTITY,
-  type WindowIdentity,
-  windowIdentityKey,
-} from "../window/WindowIdentity.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewWindowPolicy from "./WindowPolicy.ts";
 import {
@@ -3449,8 +3444,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
 
   const hasTab = Effect.fn("PreviewManager.hasTab")(function* (tabId: string) {
     return (yield* SynchronizedRef.get(tabsRef)).has(tabId);
-  });
-
+  }); // fork-hook: multi-window/preview-has-tab
   const destroy = Effect.fn("PreviewManager.destroy")(function* () {
     const tabs = yield* SynchronizedRef.get(tabsRef);
     yield* Effect.forEach(tabs.keys(), closeTab, { discard: true });
@@ -3477,7 +3471,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     goBack,
     goForward,
     hardReload,
-    hasTab,
+    hasTab, // fork-hook: multi-window/preview-has-tab-entry
     navigate,
     openPictureInPicture,
     openDevTools,
@@ -3512,7 +3506,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     subscribeRecordingFrames: (listener: RecordingFrameListener) =>
       subscribe(recordingFrameListenersRef, listener),
     subscribeStateChanges: (listener: Listener) => subscribe(listenersRef, listener),
-    destroy,
+    destroy, // fork-hook: multi-window/preview-destroy-entry
     zoomIn: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "in")),
     zoomOut: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "out")),
   };
@@ -3644,18 +3638,9 @@ export class PreviewAutomationDebuggerAttachedError extends Schema.TaggedError<P
   }
 }
 
-export class PreviewTabOwnershipError extends Schema.TaggedError<PreviewTabOwnershipError>()(
-  "PreviewTabOwnershipError",
-  { tabId: Schema.String, requestingWindow: Schema.String },
-) {
-  override get message(): string {
-    return `Preview tab ${this.tabId} is owned by another window.`;
-  }
-}
-
 export const PreviewManagerError = Schema.Union([
   PreviewTabNotFoundError,
-  PreviewTabOwnershipError,
+  PreviewWindowPolicy.PreviewTabOwnershipError, // fork-hook: multi-window/preview-ownership-error
   PreviewWebContentsNotFoundError,
   PreviewWebviewNotInitializedError,
   PreviewMainWindowClosedError,
@@ -3669,73 +3654,6 @@ export const PreviewManagerError = Schema.Union([
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
 
-export interface PreviewWindowManager {
-  readonly reapplyZoom: () => Effect.Effect<void>; // fork-hook: multi-window/preview-window-reapply-zoom-type
-  readonly setForwardedShortcuts: (
-    shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
-  ) => Effect.Effect<void>;
-  readonly createTab: (
-    tabId: string,
-    defaults?: DesktopPreviewTabDefaults,
-  ) => Effect.Effect<PreviewTabState, PreviewManagerError>;
-  readonly closeTab: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly registerWebview: (
-    tabId: string,
-    webContentsId: number,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly prepareWebview: (webContents: Electron.WebContents) => Effect.Effect<void>;
-  readonly navigate: (tabId: string, url: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly goBack: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly goForward: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly refresh: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
-  readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly setColorScheme: (
-    tabId: string,
-    colorScheme: DesktopPreviewColorScheme,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly setZoomFactor: (
-    tabId: string,
-    zoomFactor: number,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly setAudioMuted: (
-    tabId: string,
-    audioMuted: boolean,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly openDevTools: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly setAnnotationTheme: (
-    theme: DesktopPreviewAnnotationTheme,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly setAnnotationSendEnabled: (
-    tabId: string,
-    enabled: boolean,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly pickElement: (
-    tabId: string,
-  ) => Effect.Effect<PreviewAnnotationSubmissionResult | null, PreviewManagerError>;
-  readonly cancelPickElement: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly captureScreenshot: (
-    tabId: string,
-  ) => Effect.Effect<DesktopPreviewScreenshotArtifact, PreviewManagerError>;
-  readonly revealArtifact: (path: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly copyArtifactToClipboard: (path: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly openPictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly closePictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly startRecording: (
-    tabId: string,
-    options?: RecordingInputOptions,
-  ) => Effect.Effect<void, PreviewManagerError>;
-  readonly stopRecording: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly saveRecording: (
-    tabId: string,
-    mimeType: string,
-    data: Uint8Array,
-  ) => Effect.Effect<DesktopPreviewRecordingArtifact, PreviewManagerError>;
-}
-
 export class PreviewManager extends Context.Service<
   PreviewManager,
   {
@@ -3745,13 +3663,13 @@ export class PreviewManager extends Context.Service<
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
     ) => Effect.Effect<void>;
     readonly setWindow: (
-      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
+      owner: PreviewWindowPolicy.PreviewOwner,
       window: BrowserWindow,
-    ) => Effect.Effect<void, PreviewManagerError>;
+    ) => Effect.Effect<void, PreviewManagerError>; // fork-hook: multi-window/preview-set-window
     readonly disposeWindow: (owner: PreviewWindowPolicy.PreviewOwner) => Effect.Effect<void>; // fork-hook: multi-window/preview-owner-dispose
     readonly forWindow: (
-      owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-    ) => Effect.Effect<PreviewWindowManager>;
+      owner: PreviewWindowPolicy.PreviewOwner,
+    ) => Effect.Effect<PreviewWindowPolicy.PreviewWindowManager>; // fork-hook: multi-window/preview-for-window
     readonly getBrowserSession: (
       scope?: string,
       persistent?: boolean,
@@ -3845,11 +3763,11 @@ export class PreviewManager extends Context.Service<
       listener: RecordingFrameListener,
     ) => Effect.Effect<void, never, Scope.Scope>;
     readonly subscribeOwnedStateChanges: (
-      listener: OwnedStateListener,
-    ) => Effect.Effect<void, never, Scope.Scope>;
+      listener: PreviewWindowPolicy.OwnedStateListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-state-changes-type
     readonly subscribeOwnedPointerEvents: (
-      listener: OwnedPointerEventListener,
-    ) => Effect.Effect<void, never, Scope.Scope>;
+      listener: PreviewWindowPolicy.OwnedPointerEventListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-pointer-events-type
     readonly subscribeOwnedOpenLinks: (
       listener: (
         owner: PreviewWindowPolicy.PreviewOwner,
@@ -3857,31 +3775,13 @@ export class PreviewManager extends Context.Service<
       ) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-open-links-type
     readonly subscribeOwnedRecordingFrames: (
-      listener: OwnedRecordingFrameListener,
-    ) => Effect.Effect<void, never, Scope.Scope>;
+      listener: PreviewWindowPolicy.OwnedRecordingFrameListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-frames-type
     readonly subscribeOwnedRecordingInputs: (
-      listener: OwnedRecordingInputListener,
-    ) => Effect.Effect<void, never, Scope.Scope>;
+      listener: PreviewWindowPolicy.OwnedRecordingInputListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-inputs-type
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
-
-type OwnedStateListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  tabId: string,
-  state: PreviewTabState,
-) => Effect.Effect<void>;
-type OwnedRecordingFrameListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  frame: DesktopPreviewRecordingFrame,
-) => Effect.Effect<void>;
-type OwnedPointerEventListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  event: DesktopPreviewPointerEvent,
-) => Effect.Effect<void>;
-type OwnedRecordingInputListener = (
-  owner: PreviewWindowPolicy.PreviewOwner, // fork-hook: multi-window/preview-owner-param
-  input: DesktopPreviewRecordingInputEvent,
-) => Effect.Effect<void>;
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* PreviewManagerMake() {
@@ -3943,9 +3843,9 @@ export const make = Effect.gen(function* PreviewManagerMake() {
         environment.browserArtifactsDir,
         environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
       ),
-    (tabId, requestingWindow) => new PreviewTabOwnershipError({ tabId, requestingWindow }),
+    (tabId, requestingWindow) =>
+      new PreviewWindowPolicy.PreviewTabOwnershipError({ tabId, requestingWindow }),
   ); // fork-hook: multi-window/preview-window-ownership
-
   return PreviewManager.of({
     setMainWindow: operations.setMainWindow,
     setForwardedShortcuts: operations.setForwardedShortcuts,

@@ -383,22 +383,30 @@ describe("fork preview IPC ownership", () => {
       "fork preview handlers resolve the sender window first, so they require the ElectronWindow service the upstream case never provides",
     commit: "70240ecf8e5",
   });
-  effectIt.effect("rejects invalid webContents ids before resolving the sender window", () =>
-    Effect.map(
-      PreviewIpc.registerWebview
-        .handler({ tabId: "tab-1", webContentsId: 0 })
-        .pipe(
-          Effect.provideService(ElectronWindow.ElectronWindow, null as never),
-          Effect.provideService(PreviewManager.PreviewManager, null as never),
-          Effect.exit,
-        ),
+  effectIt.effect("rejects invalid webContents ids before reaching the sender's preview", () => {
+    const sender = { id: 1 } as Electron.WebContents;
+    const registerWebview = vi.fn(() => Effect.void);
+    fromId.mockReturnValue(sender);
+    fromWebContents.mockReturnValue({} as Electron.BrowserWindow);
+
+    return Effect.map(
+      PreviewIpc.registerWebview.handler({ tabId: "tab-1", webContentsId: 0 }, { sender }).pipe(
+        Effect.provideService(ElectronWindow.ElectronWindow, {
+          windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
+        } as never),
+        Effect.provideService(PreviewManager.PreviewManager, {
+          forWindow: () => Effect.succeed({ registerWebview } as never),
+        } as never),
+        Effect.exit,
+      ),
       (exit) => {
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isSuccess(exit)) return;
         const error = Cause.findErrorOption(exit.cause);
         expect(Option.isSome(error) && Schema.isSchemaError(error.value)).toBe(true);
+        expect(registerWebview).not.toHaveBeenCalled();
         expect(fromPartition).not.toHaveBeenCalled();
       },
-    ),
-  );
+    );
+  });
 });

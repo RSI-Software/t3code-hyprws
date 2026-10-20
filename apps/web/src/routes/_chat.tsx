@@ -20,7 +20,8 @@ import { runProjectChooserCommandFork } from "../projectChooser.fork"; // fork-h
 import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef } from "../lib/chatThreadActions"; // fork-hook: multi-window/thread-action-project-ref-import
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
