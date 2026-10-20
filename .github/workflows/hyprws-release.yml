@@ -414,6 +414,9 @@ jobs:
         run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
 
       - name: Test
+        # Upstream's release-link tests assume `GITHUB_REPOSITORY` names upstream.
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
         run: vp run --filter @t3tools/web test --testTimeout=60000
   test_scripts:
     name: Release scripts tests
