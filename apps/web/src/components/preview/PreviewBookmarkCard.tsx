@@ -2,6 +2,8 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { X } from "lucide-react";
 
 import type { BrowserBookmarkEntry, BrowserBookmarkScope } from "~/browserBookmarkStore";
+import { Button } from "~/components/ui/button";
+import { DiscoveryListRow } from "~/components/ui/discovery-list";
 
 import { PreviewFaviconIcon } from "./PreviewFaviconIcon";
 
@@ -19,29 +21,23 @@ export function PreviewBookmarkCard({ threadRef, entry, scope, onOpen, onRemove 
   const label = `${parsed.host}${path}${parsed.search}${parsed.hash}`;
   return (
     <div className="group relative flex w-full items-center">
-      <button
-        type="button"
+      <DiscoveryListRow
         onClick={onOpen}
-        className="flex w-full items-center gap-3 px-3 py-3 pr-10 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <PreviewFaviconIcon threadRef={threadRef} url={entry.url} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-medium text-foreground">
-            {entry.title ?? label}
-          </span>
-          {entry.title ? (
-            <span className="truncate text-xs text-muted-foreground">{label}</span>
-          ) : null}
-        </div>
-      </button>
-      <button
-        type="button"
-        aria-label={`Remove ${label} from ${scope} bookmarks`}
-        onClick={onRemove}
-        className="absolute right-3 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover:opacity-100"
-      >
-        <X className="size-3.5" />
-      </button>
+        icon={<PreviewFaviconIcon threadRef={threadRef} url={entry.url} />}
+        title={entry.title ?? label}
+        description={entry.title ? label : null}
+        action={<span aria-hidden="true" className="w-8 shrink-0" />}
+      />
+      <div className="absolute right-3 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        <Button
+          variant="ghost-muted"
+          size="icon-xs"
+          aria-label={`Remove ${label} from ${scope} bookmarks`}
+          onClick={onRemove}
+        >
+          <X className="size-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }

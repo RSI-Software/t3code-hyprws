@@ -66,7 +66,7 @@ export function PreviewEmptyState({
               <Folder className="size-4 shrink-0" />
               <h2 className="font-medium">Project bookmarks</h2>
             </div>
-            <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-background">
+            <DiscoveryList>
               {project.map((entry) => (
                 <PreviewBookmarkCard
                   key={entry.url}
@@ -77,7 +77,7 @@ export function PreviewEmptyState({
                   onRemove={() => onRemoveBookmark("project", entry.url)}
                 />
               ))}
-            </div>
+            </DiscoveryList>
           </div>
         ) : null}
         {global.length > 0 ? (
@@ -86,7 +86,7 @@ export function PreviewEmptyState({
               <Globe2 className="size-4 shrink-0" />
               <h2 className="font-medium">Global bookmarks</h2>
             </div>
-            <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-background">
+            <DiscoveryList>
               {global.map((entry) => (
                 <PreviewBookmarkCard
                   key={entry.url}
@@ -97,7 +97,7 @@ export function PreviewEmptyState({
                   onRemove={() => onRemoveBookmark("global", entry.url)}
                 />
               ))}
-            </div>
+            </DiscoveryList>
           </div>
         ) : null}
         {recents.length > 0 ? (
