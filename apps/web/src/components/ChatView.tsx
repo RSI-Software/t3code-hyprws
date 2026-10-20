@@ -3658,7 +3658,9 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
-    const writeResult = await terminalActions.writeToTerminal(targetTerminalId, `${command}\r`); // fork-hook: fork-meta/dev-app-preview-command
+    const keepHistory = options?.shellHistory === "preserve"; // fork-hook: fork-meta/dev-app-preview-history
+    const input = keepHistory ? `${command}\r` : projectScriptTerminalInput(command); // fork-hook: fork-meta/dev-app-preview-input
+    const writeResult = await terminalActions.writeToTerminal(targetTerminalId, input); // fork-hook: fork-meta/dev-app-preview-command
     if (!writeResult) return;
     if (!isInvocationActive()) {
       previewHandoff?.cancel();
