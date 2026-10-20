@@ -32,7 +32,9 @@ export function CollapsibleSectionHeader({
         tones[tone].label,
       )}
     >
-      <span className="shrink-0">{children}</span>
+      {/* fork-hook: thread-ordering/truncatable-section-label */}
+      <span className="min-w-0">{children}</span>
+      {/* fork-hook-end */}
       <span
         aria-hidden
         // A header with a trailing count drops its rule so it doesn't read as a leader. The New
