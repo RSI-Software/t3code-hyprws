@@ -56,6 +56,7 @@ import {
   parseScopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
+  scopedProjectKey,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import {
@@ -111,6 +112,23 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { desktopProjectWindowBridgeFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-desktop-bridge-import
+import { canOpenDesktopWindow, openThreadInNewWindow } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
+import { openProjectWindowFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-import
+import { SidebarOpenProjectWindowButtonFork } from "./Sidebar.fork"; // fork-hook: multi-window/sidebar-open-window-button-import
+import { useWindowSidebarScopeSeed } from "../windowSidebarScope.fork"; // fork-hook: multi-window/window-sidebar-scope-seed-import
+import { useWindowProjectFilter, useWindowProjectFilterChange } from "../windowProjectFilter.fork"; // fork-hook: workspaces/filter-import
+import { startFilteredNewThreadFork } from "../projectFilterScope.fork"; // fork-hook: workspaces/filtered-new-thread-import
+import {
+  ProjectChooserShowOnlyButtonFork,
+  ProjectChooserTriggerIconFork,
+  ProjectChooserUnavailableFork,
+  useSidebarProjectChooserFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-import
+import {
+  ProjectChooserModeFork,
+  ProjectChooserRowMarkFork,
+} from "./sidebar/SidebarProjectChooser.fork"; // fork-hook: workspaces/chooser-mode-import
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -124,7 +142,7 @@ import { useShortcutModifierState } from "../shortcutModifierState";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { isMacPlatform } from "~/lib/utils";
+import { isMacPlatform, randomUUID } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
@@ -136,6 +154,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { useUiStateStore } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../uiStateStore"; // fork-hook: thread-ordering/sidebar-thread-group-import
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -170,9 +189,11 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import { environmentProjects } from "../state/projects";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
+import { threadGroupEnvironment } from "../state/threadGroups";
 import { useEnvironmentQuery } from "../state/query";
 import { useThreadSearch } from "../state/queries";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
+import { useAtomCommand } from "../state/use-atom-command"; // fork-hook: upstream-fixes/thread-group-title-command
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { buildThreadRouteParams, resolveActiveThreadRouteRef } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
@@ -187,18 +208,30 @@ import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
+import { attemptResetThreadOrderFork } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
+import {
+  forkInFlight,
+  forkThreadMenuStateFork,
+  forkThreadStateTailFork, // fork-hook: thread-fork/sidebar-state-import
+  readForkProviderFork,
+  useThreadForkDispatchFork,
+} from "../hooks/useThreadActionMenu.fork"; // fork-hook: thread-fork/sidebar-import
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
-  deleteSelectedThreadEntries,
+  buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
+  buildSidebarThreadGroupLayout,
+  buildThreadGroupMembershipContextMenuItems,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
+  isSidebarThreadGroupContextMenuId, // fork-hook: upstream-fixes/split-session-permissions
   isSidebarThreadWorking,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -228,7 +261,6 @@ import {
   useThreadJumpHintVisibility,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
-  type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
@@ -254,6 +286,12 @@ import {
 import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Sidebar.snooze";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
+import { SidebarRenameInput } from "./SidebarRenameInput";
+import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
+import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
+import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
+import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
+import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -282,6 +320,7 @@ import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarT
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
+import { sidebarWorkingShelfKeysFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
 import {
   composerDraftHasUserContent,
   DraftId,
@@ -832,6 +871,15 @@ function RelativeTimeLabel(props: { timestamp: string | null }) {
     : compactSidebarTimeLabel(
         formatRelativeTimeLabel(props.timestamp, Date.parse(`${nowMinute}:00.000Z`)),
       );
+}
+
+// Thread groups are stored per project, keyed by the same scoped project key
+// the rest of the client uses for a project ref.
+function threadProjectOrderKey(thread: {
+  readonly environmentId: SidebarThreadSummary["environmentId"];
+  readonly projectId: SidebarThreadSummary["projectId"];
+}): string {
+  return scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
 }
 
 function threadTimeTimestamp(thread: SidebarThreadSummary): string {
@@ -1537,6 +1585,7 @@ type SidebarThreadRowProps = {
   dropVerb: SidebarDropVerb | null;
   dragOverPinned: boolean;
   sweepAction: SidebarSweepAction | null;
+  grouped?: boolean | undefined;
   snoozeWakeLabelText: string | null;
   wokeAt: string | null;
   isActive: boolean;
@@ -1806,28 +1855,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     window.addEventListener("dragend", clearFileDrag);
     return () => window.removeEventListener("dragend", clearFileDrag);
   }, [isFileDragOver]);
-  const renameCommittedRef = useRef(false);
-  useEffect(() => {
-    if (isRenaming) renameCommittedRef.current = false;
-  }, [isRenaming]);
-  const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    event.stopPropagation();
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      renameCommittedRef.current = true;
-      onCommitRename(threadRef, renamingTitle, thread.title);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      renameCommittedRef.current = true;
-      onCancelRename();
-    }
-  };
-  const handleRenameBlur = () => {
-    if (!renameCommittedRef.current) {
-      onCommitRename(threadRef, renamingTitle, thread.title);
-    }
-  };
   const handleSettleClick = (event: ReactMouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1959,18 +1986,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const title =
     isRenaming && canOperateThread ? (
-      <input
-        autoFocus
-        value={renamingTitle}
-        aria-label="Thread title"
-        onChange={(event) => onRenameTitleChange(event.target.value)}
-        onFocus={(event) => event.currentTarget.select()}
-        onKeyDown={handleRenameKeyDown}
-        onBlur={handleRenameBlur}
-        onClick={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
-        className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
-      />
+      <>
+        {/* fork-hook: thread-ordering/rename-input */}
+        <SidebarRenameInput
+          value={renamingTitle}
+          ariaLabel="Thread title"
+          onValueChange={onRenameTitleChange}
+          onCommit={() => onCommitRename(threadRef, renamingTitle, thread.title)}
+          onCancel={onCancelRename}
+        />
+        {/* fork-hook-end */}
+      </>
     ) : (
       <span
         aria-hidden
@@ -2252,6 +2278,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...(fileDropHandlers ?? {})}
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
+        props.grouped && "ml-2 border-l border-sidebar-border/70 pl-1.5", // fork-hook: thread-ordering/group-member-rail
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -2699,6 +2726,11 @@ export default function Sidebar() {
     projectGroupByScopeKey,
     projectScopeItems,
   } = useSidebarLookups();
+  const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
+  const setThreadGroupMembership = useUiStateStore((store) => store.setThreadGroupMembership);
+  const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
+  const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
+  const removeThreadGroup = useUiStateStore((store) => store.removeThreadGroup);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2718,12 +2750,19 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-clear
     archiveThread,
     deleteThread,
+    collectOrphanedWorktreePathsForThreads,
   } = useThreadActions();
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const generateThreadGroupTitle = useAtomCommand(threadGroupEnvironment.generateTitle, {
+    reportFailure: false,
+  });
+  const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
+  const { requestThreadGroupTitle, generatingGroupIds } = threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -2779,6 +2818,7 @@ export default function Sidebar() {
       );
     },
   });
+  const desktopBridge = desktopProjectWindowBridgeFork(); // fork-hook: multi-window/sidebar-desktop-bridge
   const newThreadContext = useHandleNewThread();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
@@ -2798,6 +2838,14 @@ export default function Sidebar() {
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
   );
+  const windowFilter = useWindowProjectFilter(projectGroups); // fork-hook: workspaces/filter
+  const projectChooser = useSidebarProjectChooserFork({
+    filter: windowFilter.filter,
+    setFilter: windowFilter.setFilter,
+    projectGroups,
+    enabled: projectGroups.length > 0, // fork-hook: workspaces/chooser
+    setMenuOpen: (open) => dispatchProjectScopeMenu({ type: "open-changed", open }),
+  }); // fork-hook: workspaces/chooser
   const projectScopeFilter = useComboboxFilter();
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const allProjectConfigsReady = useAtomValue(environmentProjects.projectConfigsReadyAtom);
@@ -2875,7 +2923,7 @@ export default function Sidebar() {
     projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
-    items: projectScopeItems,
+    items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
@@ -2884,14 +2932,8 @@ export default function Sidebar() {
     projectScopeKey === null
       ? null
       : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null);
-  const scopedProjectKeys =
-    scopedProjectGroup === null
-      ? null
-      : new Set(
-          scopedProjectGroup.memberProjectRefs.map(
-            (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-          ),
-        );
+  const scopedProjectKeys = windowFilter.projectKeys; // fork-hook: workspaces/filter-project-keys
+  useWindowProjectFilterChange(clearSelection); // fork-hook: workspaces/chooser-clear-selection
   useEffect(() => {
     const nextKey = resolveSidebarProjectScopeKey({
       groups: projectGroups,
@@ -2912,6 +2954,7 @@ export default function Sidebar() {
     projectGroupingSettings,
     setPersistedProjectScopeKey,
   ]);
+  useWindowSidebarScopeSeed(projectGroups, allProjectSnapshotsReady); // fork-hook: multi-window/window-sidebar-scope-seed
   const routeDraftIdForRows = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
     let count = 0;
@@ -2964,6 +3007,8 @@ export default function Sidebar() {
     },
   );
 
+  const handleOpenProjectWindow = openProjectWindowFork(desktopBridge, dispatchProjectScopeMenu); // fork-hook: multi-window/sidebar-open-window
+
   const {
     threads,
     workingShelfEnabled,
@@ -2998,12 +3043,57 @@ export default function Sidebar() {
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
-    projectScopeKey,
+    projectScopeKey: projectChooser.label, // fork-hook: workspaces/chooser-settled-reset
     scopedProjectKeys,
     serverConfigs,
     optimisticDrop,
     routeThreadKey,
   });
+  const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
+    threads: activeThreads,
+    groupsByProject: threadGroupsByProject,
+    getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    getProjectKey: threadProjectOrderKey,
+  }); // fork-hook: thread-ordering/group-layout
+  // Collapsed groups hide their members from every list the sidebar derives:
+  // the drop order, the sortable ids, and the rendered rows all read this.
+  const visibleActiveThreads = activeThreadGroupLayout.flatMap((item) =>
+    item.kind === "thread"
+      ? [item.thread]
+      : // A collapsed group keeps its first member in the list as the
+        // header's anchor: the row is replaced by the header, so the group
+        // holds one stable slot in the drop order either way.
+        item.group.collapsed
+        ? item.threads.slice(0, 1)
+        : item.threads,
+  ); // fork-hook: thread-ordering/visible-active-threads
+  const activeThreadGroupSpans = sidebarThreadGroupSpansFork(activeThreadGroupLayout, (thread) =>
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  ); // fork-hook: thread-ordering/group-spans-layout
+
+  const activeGroupByThreadKey = (() => {
+    const byKey = new Map<
+      string,
+      {
+        readonly projectKey: string;
+        readonly group: SidebarThreadGroup;
+        readonly threads: readonly EnvironmentThreadShell[];
+        readonly isAnchor: boolean;
+      }
+    >();
+    for (const item of activeThreadGroupLayout) {
+      if (item.kind !== "group") continue;
+      item.threads.forEach((thread, index) => {
+        byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
+          projectKey: item.projectKey,
+          group: item.group,
+          threads: item.threads,
+          isAnchor: index === 0,
+        });
+      });
+    }
+    return byKey;
+  })(); // fork-hook: thread-ordering/group-by-thread-key
 
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const threadSearchMatchByKey = new Map(
@@ -3286,6 +3376,8 @@ export default function Sidebar() {
       }
     })();
   };
+  const attemptResetOrder = attemptResetThreadOrderFork(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
+  const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/sidebar-dispatch-hook
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const result = await unsnoozeThread(threadRef);
@@ -3523,46 +3615,32 @@ export default function Sidebar() {
         event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
     });
   };
-  const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
-    const rowsOf = (
-      list: readonly EnvironmentThreadShell[],
-      section: SidebarSection,
-    ): SidebarListItem[] =>
-      list.map((thread) => {
-        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-        return { kind: "thread", key, section };
-      });
-    if (
+  const sidebarListItemsFresh = buildSidebarListItems({
+    hasNoThreads:
       pinnedThreads.length +
         activeThreads.length +
         workingThreads.length +
         snoozedThreads.length +
         settledThreads.length ===
-      0
-    ) {
-      return [];
-    }
-    const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
-    items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
-    items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
-    if (workingThreads.length > 0) {
-      items.push({ kind: "marker", marker: "working-header" });
-      items.push(...rowsOf(visibleWorkingThreads, "working"));
-    }
-    if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
-      items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
-    }
-    items.push({ kind: "marker", marker: "settled-header" });
-    const settledRows = rowsOf(renderedSettledThreads, "settled");
-    items.push({ kind: "marker", marker: "settled-placeholder" });
-    items.push(...settledRows);
-    return items;
-  })();
+      0,
+    pinnedKeys: pinnedThreads.map((thread) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+    // Active rows come from visibleActiveThreads, the same list threadByKey
+    // resolves from, so a collapsed group emits only its anchor.
+    activeKeys: visibleActiveThreads.map((thread) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+    workingKeys: sidebarWorkingShelfKeysFork(workingThreads, visibleWorkingThreads), // fork-hook: thread-ordering/working-shelf-keys
+    hasSnoozedThreads: snoozedThreads.length > 0,
+    snoozedVisibleKeys: visibleSnoozedThreads.map((thread) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+    settledKeys: renderedSettledThreads.map((thread) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+    activeGroups: activeThreadGroupSpans, // fork-hook: thread-ordering/group-span-items
+  }); // fork-hook: thread-ordering/sidebar-list-items
   // Thread shells update on every streamed event without moving rows. Keep the
   // list's identity until its order changes, so the sorting strategy, the
   // sortable context and every sortable row stay memoized meanwhile.
@@ -3604,10 +3682,24 @@ export default function Sidebar() {
   useLayoutEffect(() => {
     listMotionRef.current?.update(listMotionPass.animate);
   }, [listMotionPass]);
+  const threadGroupDragFork = useSidebarThreadGroupDragFork({
+    items: sidebarListItems,
+    spans: activeThreadGroupSpans,
+    threadByKey,
+    projectKeyOf: threadProjectOrderKey,
+    setMembership: setThreadGroupMembership,
+    requestTitle: requestThreadGroupTitle,
+  }); // fork-hook: thread-ordering/group-drag
+  const {
+    over: groupDragOverFork,
+    release: groupDragReleaseFork,
+    isValidTarget: groupSlotValidTargetFork,
+  } = threadGroupDragFork; // fork-hook: thread-ordering/group-drag-callbacks
   const handleThreadDragOver = (event: DragOverEvent) => {
     const target = event.over
       ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
       : null;
+    groupDragOverFork(event); // fork-hook: thread-ordering/group-drag-over
     setDragState((current) =>
       current === null || current.activeKey !== String(event.active.id)
         ? current
@@ -3648,6 +3740,10 @@ export default function Sidebar() {
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
+        const groupSlotValidFork = groupSlotValidTargetFork(draggedThreadKey, id); // fork-hook: thread-ordering/group-drag-valid
+        if (groupSlotValidFork !== undefined) {
+          return groupSlotValidFork;
+        } // fork-hook: thread-ordering/group-drag-valid-branch
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
         if (target === null) return false;
         return (
@@ -3684,6 +3780,7 @@ export default function Sidebar() {
         ? null
         : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
     const activeThread = threadByKey.get(activeKey);
+    groupDragReleaseFork(event, target); // fork-hook: thread-ordering/group-drag-release
     if (activeSection === undefined || target === null || activeThread === undefined) return;
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     const plan = planSidebarThreadDrop({
@@ -3888,6 +3985,20 @@ export default function Sidebar() {
       const settlingThreads = selectedThreads.filter(
         (thread) => thread.settledOverride !== "settled",
       );
+      const selectedProjectKey = selectedThreads[0]
+        ? threadProjectOrderKey(selectedThreads[0])
+        : null;
+      const createGroupMenuItem = buildCreateThreadGroupContextMenuItem({
+        count,
+        eligible:
+          selectedProjectKey !== null &&
+          selectedThreads.length === threadKeys.length &&
+          selectedThreads.every(
+            (thread) =>
+              threadProjectOrderKey(thread) === selectedProjectKey &&
+              activeThreads.includes(thread),
+          ),
+      });
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
@@ -3917,6 +4028,7 @@ export default function Sidebar() {
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
+            ...(createGroupMenuItem ? [createGroupMenuItem] : []),
             ...(unpinMenuItem
               ? [{ ...unpinMenuItem, disabled: !canOperateThreads(pinnedSelectedThreads) }]
               : []),
@@ -3969,6 +4081,34 @@ export default function Sidebar() {
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (clicked.value === "create-thread-group" && selectedProjectKey !== null) {
+        const selectedKeys = new Set(threadKeys);
+        const projectThreads = activeThreads.filter(
+          (thread) => threadProjectOrderKey(thread) === selectedProjectKey,
+        );
+        const projectThreadKeys = projectThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        const members = projectThreads.filter((thread) =>
+          selectedKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+        );
+        if (members.length < 2) return;
+        const memberKeys = members.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        const newGroup = { id: randomUUID(), title: "New group" };
+        setThreadGroupMembership(selectedProjectKey, projectThreadKeys, memberKeys, {
+          kind: "new",
+          group: newGroup,
+        });
+        void requestThreadGroupTitle({
+          projectKey: selectedProjectKey,
+          groupId: newGroup.id,
+          members,
+          expectedGroup: { title: newGroup.title, threadIds: memberKeys },
+        });
+        return;
+      }
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -4091,18 +4231,56 @@ export default function Sidebar() {
         )
       )
         return;
-      const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
-        entries: threadKeys.map((threadKey) => ({ threadKey })),
-        delete: async ({ threadKey }, deletedThreadKeys) => {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (!thread) return null;
-          return deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
-            deletedThreadKeys,
-          });
-        },
+      const deleteTargets = threadKeys.flatMap((threadKey) => {
+        const thread = threadByKeyRef.current.get(threadKey);
+        return thread
+          ? [{ threadKey, threadRef: scopeThreadRef(thread.environmentId, thread.id) }]
+          : [];
       });
-      if (firstFailure !== null) {
-        const firstError = squashAtomCommandFailure(firstFailure);
+      const orphanedWorktreePathKeys = collectOrphanedWorktreePathsForThreads(
+        deleteTargets.map(({ threadRef }) => threadRef),
+      );
+      let worktreeBatch: { decision: "delete" | "keep"; pathKeys: ReadonlySet<string> } = {
+        decision: "keep",
+        pathKeys: orphanedWorktreePathKeys,
+      };
+      if (orphanedWorktreePathKeys.size > 0) {
+        const confirmedWorktrees = await settlePromise(() =>
+          api.dialogs.confirm(
+            [
+              "Delete the worktrees too?",
+              orphanedWorktreePathKeys.size === 1
+                ? "There is 1 worktree linked only to the threads you're deleting."
+                : `There are ${orphanedWorktreePathKeys.size} worktrees linked only to the threads you're deleting.`,
+            ].join("\n"),
+            { variant: "destructive" },
+          ),
+        );
+        if (confirmedWorktrees._tag === "Failure") return;
+        worktreeBatch = {
+          decision: confirmedWorktrees.value ? "delete" : "keep",
+          pathKeys: orphanedWorktreePathKeys,
+        };
+      }
+      // Grown as deletions actually land, never seeded with the whole batch:
+      // orphaned-worktree detection must only discount threads that are
+      // really gone, or the first delete would treat still-alive batch mates
+      // as deleted and remove a worktree they still point at.
+      const deletedThreadKeys = new Set<string>();
+      let firstError: unknown = null;
+      for (const { threadKey, threadRef } of deleteTargets) {
+        const result = await deleteThread(threadRef, {
+          deletedThreadKeys,
+          worktreeBatch,
+        });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) break;
+          if (firstError === null) firstError = squashAtomCommandFailure(result);
+          continue;
+        }
+        deletedThreadKeys.add(threadKey);
+      }
+      if (firstError !== null) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -4215,40 +4393,79 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            buildThreadActionMenuItems({
-              canOperate: readEnvironmentScope(
-                threadRef.environmentId,
-                AuthOrchestrationOperateScope,
-              ),
-              branch: thread.branch ?? null,
-              projectFilter: threadProjectGroup
-                ? {
-                    label: threadProjectGroup.displayName,
-                    isActive: projectScopeKey === threadProjectGroup.projectKey,
-                  }
-                : null,
-              isPinned,
-              isSettled,
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
-              supports: {
-                settlement: supportsSettlement,
-                autoSettleOptOut: supportsAutoSettleOptOut,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
-            position,
-          ),
+        const projectKey = threadProjectOrderKey(thread);
+        const projectThreads = activeThreads.filter(
+          (candidate) => threadProjectOrderKey(candidate) === projectKey,
         );
+        const projectThreadKeys = projectThreads.map((candidate) =>
+          scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
+        );
+        const groups = projectThreadKeys.includes(threadKey)
+          ? (threadGroupsByProject[projectKey] ?? [])
+          : [];
+        const currentGroup = groups.find((group) => group.threadIds.includes(threadKey));
+        const membershipItems = buildThreadGroupMembershipContextMenuItems({
+          groups,
+          currentGroupId: currentGroup?.id ?? null,
+        });
+        const threadActionItems = buildThreadActionMenuItems({
+          canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope), // fork-hook: thread-ordering/thread-action-operate
+          branch: thread.branch ?? null,
+          projectFilter: threadProjectGroup
+            ? {
+                label: threadProjectGroup.displayName,
+                isActive: projectScopeKey === threadProjectGroup.projectKey,
+              }
+            : null,
+          isPinned,
+          isSettled,
+          autoSettleEnabled: thread.autoSettleDisabledAt == null,
+          isSnoozed,
+          canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+          isRegeneratingTitle,
+          isRunning: !threadRuntimeCanArchive(thread.runtime),
+          hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
+          fork: forkThreadMenuStateFork(
+            readForkProviderFork(threadRef, thread),
+            forkInFlight(threadKey),
+            ...forkThreadStateTailFork(thread, new Date().toISOString()), // fork-hook: thread-fork/sidebar-state
+          ),
+          openInNewWindow: canOpenDesktopWindow(), // fork-hook: multi-window/dispatch-thread-menu-state
+          supports: {
+            settlement: supportsSettlement,
+            autoSettleOptOut: supportsAutoSettleOptOut,
+            snooze: supportsSnooze,
+            pinning: supportsPinning,
+            titleRegeneration: supportsTitleRegeneration,
+          },
+          snoozePresets,
+        });
+        const archiveIndex = threadActionItems.findIndex((item) => item.id === "archive");
+        const menuItems =
+          archiveIndex < 0
+            ? [...threadActionItems, ...membershipItems]
+            : [
+                ...threadActionItems.slice(0, archiveIndex),
+                ...membershipItems,
+                ...threadActionItems.slice(archiveIndex),
+              ];
+        const clicked = await settlePromise(() => api.contextMenu.show(menuItems, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (clicked.value?.startsWith("move-to-group:")) {
+          const targetGroupId = clicked.value.slice("move-to-group:".length);
+          if (!groups.some((group) => group.id === targetGroupId)) return;
+          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], {
+            kind: "existing",
+            groupId: targetGroupId,
+          });
+          return;
+        }
+        if (clicked.value === "move-out-of-group") {
+          // Group membership is local UI state, so it stays available without the operate scope.
+          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
+          return;
+        } // fork-hook: upstream-fixes/split-session-permissions
+        if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -4329,6 +4546,12 @@ export default function Sidebar() {
             }
             return;
           }
+          case "fork":
+            return forkThreadDispatch(threadRef); // fork-hook: thread-fork/sidebar-dispatch
+          case "open-in-new-window": // fork-hook: multi-window/dispatch-thread-menu
+            return openThreadInNewWindow(threadRef, thread.projectId); // fork-hook: multi-window/dispatch-thread-menu
+          case "reset-order":
+            return attemptResetOrder(threadRef); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
@@ -4510,6 +4733,20 @@ export default function Sidebar() {
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
+    if (
+      startFilteredNewThreadFork(
+        {
+          activeDraftThread: newThreadContext.activeDraftThread,
+          activeThread: newThreadContext.activeThread ?? undefined,
+          defaultProjectRef: newThreadContext.defaultProjectRef,
+          handleNewThread: newThreadContext.handleNewThread,
+        },
+        event?.shiftKey ?? false,
+      )
+    ) {
+      if (isMobile) setOpenMobile(false);
+      return;
+    } // fork-hook: workspaces/filtered-new-thread
     if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
       if (isMobile) setOpenMobile(false);
       void startNewThreadFromContext({
@@ -4541,7 +4778,8 @@ export default function Sidebar() {
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
-                  items={projectScopeItems}
+                  multiple // fork-hook: workspaces/chooser-multiple
+                  items={projectChooser.items} // fork-hook: workspaces/chooser-items
                   filteredItems={filteredProjectScopeItems}
                   autoHighlight
                   itemToStringLabel={(item) => item.label}
@@ -4554,24 +4792,19 @@ export default function Sidebar() {
                   onItemHighlighted={(item) => {
                     highlightedProjectScopeKeyRef.current = item?.value ?? null;
                   }}
-                  value={selectedProjectScopeItem}
+                  value={projectChooser.value} // fork-hook: workspaces/chooser-value
                   onValueChange={(item) => {
                     if (suppressNextScopeChangeRef.current) {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    projectChooser.onValueChange(item); // fork-hook: workspaces/chooser-change
                   }}
                 >
                   <ComboboxTrigger
                     render={
                       <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
-                        }
+                        label={projectChooser.label} // fork-hook: workspaces/chooser-label
                       />
                     }
                   >
@@ -4580,7 +4813,7 @@ export default function Sidebar() {
                         <ProjectFavicon project={scopedProjectGroup} className="size-4" />
                       </span>
                     ) : (
-                      <ListFilterIcon className="size-4" />
+                      <ProjectChooserTriggerIconFork count={projectChooser.count} /> // fork-hook: workspaces/chooser-trigger-icon
                     )}
                   </ComboboxTrigger>
                   <ComboboxPopup
@@ -4627,12 +4860,33 @@ export default function Sidebar() {
                               if (project) handleProjectSettings(event, project);
                             }}
                           >
+                            {/* fork-hook: workspaces/chooser-row-mark */}
+                            <ProjectChooserRowMarkFork
+                              selected={projectChooser.selectedValues.has(item.value)}
+                              excluded={
+                                windowFilter.filter.mode === "exclude" && item.value !== "all"
+                              }
+                            />
+                            {/* fork-hook-end */}
                             {project ? (
                               <ProjectFavicon project={project} className="size-4 shrink-0" />
                             ) : (
                               <FolderIcon className="size-4 shrink-0" />
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                            {/* fork-hook: workspaces/chooser-mode */}
+                            {item.value === "all" ? (
+                              <ProjectChooserModeFork
+                                filter={windowFilter.filter}
+                                setFilter={windowFilter.setFilter}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
+                            {/* fork-hook: workspaces/chooser-row-unavailable */}
+                            <ProjectChooserUnavailableFork
+                              unavailable={projectChooser.unavailableValues.has(item.value)}
+                            />
+                            {/* fork-hook-end */}
                             {project && showProjectEnvironments ? (
                               <ProjectEnvironmentBadge
                                 group={project}
@@ -4640,6 +4894,23 @@ export default function Sidebar() {
                                 machineByEnvironmentId={environmentMachineById}
                               />
                             ) : null}
+                            {/* fork-hook: workspaces/chooser-row-show-only */}
+                            {project ? (
+                              <ProjectChooserShowOnlyButtonFork
+                                project={project}
+                                onShowOnly={projectChooser.showOnly}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
+                            {/* fork-hook: multi-window/sidebar-open-window-button */}
+                            {project ? (
+                              <SidebarOpenProjectWindowButtonFork
+                                desktopBridge={desktopBridge}
+                                project={project}
+                                onOpen={handleOpenProjectWindow}
+                              />
+                            ) : null}
+                            {/* fork-hook-end */}
                             {project ? (
                               <Button
                                 size="icon-xs"
@@ -4647,7 +4918,7 @@ export default function Sidebar() {
                                 tabIndex={-1}
                                 aria-hidden="true"
                                 title={`Project settings for ${project.displayName}`}
-                                className="ml-auto"
+                                className={desktopBridge ? undefined : "ml-auto"} // fork-hook: multi-window/sidebar-settings-classname
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={(event) => {
                                   void handleProjectSettings(event, project);
@@ -4767,6 +5038,7 @@ export default function Sidebar() {
                 modifiers={dndModifiers}
                 onDragStart={handleThreadDragStart}
                 onDragOver={handleThreadDragOver}
+                {...threadGroupDragFork.dndHandlers} /* fork-hook: thread-ordering/group-drag-handlers */
                 onDragEnd={handleThreadDragEnd}
               >
                 <SidebarDragLifecycle onUnmount={cancelThreadDrag} />
@@ -4788,6 +5060,7 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        groupState?: { grouped?: boolean }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -4827,6 +5100,7 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
+                            grouped={groupState?.grouped}
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -4907,9 +5181,75 @@ export default function Sidebar() {
                       ];
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
+                          const thread = threadByKey.get(item.key)!;
+                          const groupEntry =
+                            item.section === "active"
+                              ? activeGroupByThreadKey.get(item.key)
+                              : undefined;
+                          const groupKey =
+                            groupEntry === undefined
+                              ? null
+                              : `${groupEntry.projectKey}\0${groupEntry.group.id}`;
+                          // A pair losing a member falls below the two-thread
+                          // minimum, so the header and the indent leave with the
+                          // drag instead of snapping out after release.
+                          const isDissolving =
+                            groupKey !== null &&
+                            threadGroupDragFork.dissolvingGroupKey === groupKey; // fork-hook: thread-ordering/group-drag-dissolving
+                          if (groupEntry?.isAnchor) {
+                            // The anchor row itself is the collapsed group's only
+                            // slot: the header replaces it until the group opens.
+                            if (groupEntry.group.collapsed) continue;
+                          }
+                          items.push(
+                            renderThreadRow(
+                              thread,
+                              item.section,
+                              { grouped: groupEntry !== undefined && !isDissolving }, // fork-hook: thread-ordering/group-member-state
+                            ),
+                          );
                           continue;
                         }
+                        const threadGroupMarkerFork = parseSidebarThreadGroupMarker(item.marker); // fork-hook: thread-ordering/group-span-marker-parse
+                        if (threadGroupMarkerFork !== null) {
+                          const span = activeThreadGroupSpans.find(
+                            (candidate) => candidate.groupKey === threadGroupMarkerFork.groupKey,
+                          );
+                          if (span === undefined) continue;
+                          items.push(
+                            <SortableSidebarMarker
+                              key={item.marker}
+                              marker={item.marker}
+                              className="mx-0.5"
+                            >
+                              <SidebarThreadGroupHeader
+                                group={span.group}
+                                memberCount={span.threads.length}
+                                isGenerating={generatingGroupIds.has(span.groupKey)}
+                                isDissolving={
+                                  threadGroupDragFork.dissolvingGroupKey === span.groupKey
+                                }
+                                onCollapsedChange={(collapsed) =>
+                                  setThreadGroupCollapsed(span.projectKey, span.group.id, collapsed)
+                                }
+                                onRename={(title) =>
+                                  renameThreadGroup(span.projectKey, span.group.id, title)
+                                }
+                                onRegenerate={() =>
+                                  void requestThreadGroupTitle({
+                                    projectKey: span.projectKey,
+                                    groupId: span.group.id,
+                                    members: span.threads,
+                                    expectedGroup: span.group,
+                                    previousTitle: span.group.title,
+                                  })
+                                }
+                                onRemove={() => removeThreadGroup(span.projectKey, span.group.id)}
+                              />
+                            </SortableSidebarMarker>,
+                          );
+                          continue;
+                        } // fork-hook: thread-ordering/group-span-marker-render
                         switch (item.marker) {
                           case "pinned-header":
                             items.push(
@@ -5031,6 +5371,9 @@ export default function Sidebar() {
                       }
                       return items;
                     })()}
+                    {/* fork-hook: thread-ordering/group-drop-layer */}
+                    <SidebarThreadGroupDropLayerFork {...threadGroupDragFork.layerProps} />
+                    {/* fork-hook-end */}
                     {settledShelfExpanded && hiddenSettledCount > 0 ? (
                       <li className="list-none">
                         <button

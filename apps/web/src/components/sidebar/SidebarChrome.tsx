@@ -1,11 +1,19 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  CircleDotIcon, // fork-hook: github-issues/sidebar-issues-icon
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { usePullRequestsSupported } from "../../state/environments";
+import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
+import { isSidebarGitHubIssuesLocationFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
+import { gitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -163,7 +171,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
+  const isOnIssuesPage = useLocation({ select: isSidebarGitHubIssuesLocationFork }); // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
+  const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
+  const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -176,6 +187,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   };
+  const handleIssuesClick = gitHubIssuesSidebarNavigateFork({ closeMobileSidebar, navigate }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -195,7 +207,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   return (
     <SidebarMenu className="flex-row items-center">
-      {isOnUtilityPage ? (
+      {isOnUtilityPage || isOnIssuesPage ? ( // fork-hook: github-issues/sidebar-back-visible
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
@@ -216,6 +228,15 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          {/* fork-hook: github-issues/sidebar-issues-entry */}
+          {githubIssuesSupported ? (
+            <SidebarUtilityItem
+              icon={<CircleDotIcon />}
+              label="GitHub Issues"
+              onClick={handleIssuesClick}
+            />
+          ) : null}
+          {/* fork-hook-end */}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"

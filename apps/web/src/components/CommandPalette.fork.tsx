@@ -1,0 +1,250 @@
+// Fork-owned: the command-palette "Go to Issues" entry for commit `9f92309411`
+// (feat(issues): add GitHub Issues surface scoped to project windows). The
+// upstream `CommandPalette.tsx` carries only marked hook lines pointing here;
+// the capability probe, the navigation command, and the action item are built
+// in this module.
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { projectFilterProjectKeys } from "@t3tools/client-runtime/state/project-filter";
+import { CircleDotIcon, LinkIcon, ListFilterIcon, SearchIcon } from "lucide-react";
+import { useState } from "react";
+
+import { openProjectChooser, useProjectChooserHostValue } from "../projectChooser.fork";
+import { chatNewMatchesCurrentProject, scopeToProjectKeys } from "../projectFilterScope.fork";
+import type { ChatThreadActionContext } from "../lib/chatThreadActions";
+import {
+  enumerateCommandPaletteItems,
+  ITEM_ICON_CLASS,
+  type CommandPaletteActionItem,
+  type CommandPaletteGroup,
+  type CommandPaletteSubmenuItem,
+  type CommandPaletteView,
+} from "./CommandPalette.logic";
+import type { EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
+import { openLinkGitHubIssueDialog } from "./githubIssue/LinkGitHubIssueDialog";
+
+/**
+ * The palette's Issues navigation entry, or `null` when no reachable
+ * environment advertises the read-only GitHub Issues capability.
+ */
+export function buildGitHubIssuesActionItemFork(input: {
+  environments: ReadonlyArray<{
+    readonly serverConfig?: {
+      readonly environment: { readonly capabilities: { readonly githubIssues?: boolean } };
+    } | null;
+  }>;
+  navigate: (options: never) => Promise<void>;
+}): CommandPaletteActionItem | null {
+  const githubIssuesSupported = input.environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
+  );
+  if (!githubIssuesSupported) return null;
+  return {
+    kind: "action",
+    value: "action:issues",
+    searchTerms: ["issues", "github", "bugs", "go to"],
+    title: "Go to Issues",
+    icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await input.navigate({ to: "/issues", search: { state: "open" } } as never);
+    },
+  };
+}
+
+/**
+ * The palette's "Link GitHub issue to thread" entry for the active thread
+ * (RSI-Software/t3code-hyprws#1432), or `null` where its environment keeps no
+ * issue links. It carries no default keybinding.
+ */
+export function buildLinkGitHubIssueActionItemFork(
+  activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null | undefined,
+  capabilities: { readonly threadIssues?: boolean } | undefined,
+): CommandPaletteActionItem | null {
+  if (!activeThread || capabilities?.threadIssues !== true) return null;
+  const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+  return {
+    kind: "action",
+    value: "action:link-github-issue",
+    searchTerms: ["link issue to thread", "github", "attach", "track"],
+    title: "Link GitHub issue to thread",
+    icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openLinkGitHubIssueDialog(threadRef);
+    },
+  };
+}
+
+/**
+ * The palette's "Choose projects" entry (RSI-Software/t3code-hyprws#1352), or
+ * `null` where no sidebar chooser serves this window (`label` is `null`).
+ */
+export function buildProjectChooserActionItemFork(
+  label: string | null,
+): CommandPaletteActionItem | null {
+  if (label === null) return null;
+  return {
+    kind: "action",
+    value: "action:choose-projects",
+    searchTerms: ["projects", "filter", "choose", "scope", "sidebar", "select"],
+    title: "Choose projects",
+    description: label,
+    icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "projectFilter.choose",
+    run: async () => {
+      // Open once the palette has closed, so its focus return does not land after.
+      requestAnimationFrame(() => {
+        openProjectChooser();
+      });
+    },
+  };
+}
+
+// The palette under the window's project filter (RSI-Software/t3code-hyprws#1353):
+// thread search, project search, and the new-thread picker show the filter's
+// projects until the user picks "Search all projects", which lasts until the
+// palette closes. Without a chooser (no projects yet, or a route without the
+// sidebar) nothing is scoped.
+
+// The new-thread picker view `CommandPalette.tsx` pushes.
+const NEW_THREAD_IN_VIEW = "projects";
+
+export interface CommandPaletteProjectScope {
+  /** Explicit inclusion can intentionally show no projects. */
+  readonly preserveEmpty?: boolean;
+  /** The project keys the palette shows; `null` shows every project. */
+  readonly projectKeys: ReadonlySet<string> | null;
+  /** The toggle between the filter and every project; `null` when unscoped. */
+  readonly toggle: CommandPaletteActionItem | null;
+}
+
+export function useCommandPaletteProjectScopeFork(): CommandPaletteProjectScope {
+  const chooser = useProjectChooserHostValue();
+  const filter = chooser?.filter ?? null;
+  const label = chooser?.label ?? null;
+  const groups = chooser?.groups;
+  const [searchAll, setSearchAll] = useState(false);
+  const filterKeys =
+    filter === null
+      ? null
+      : projectFilterProjectKeys(
+          filter,
+          groups?.flatMap((group) => group.memberProjectRefs),
+        );
+  return (() => {
+    if (filterKeys === null || label === null) return { projectKeys: null, toggle: null };
+    const toggle: CommandPaletteActionItem = searchAll
+      ? {
+          kind: "action",
+          value: "action:search-filtered-projects",
+          searchTerms: [],
+          title: "Search only this window's projects",
+          description: label,
+          icon: <ListFilterIcon className={ITEM_ICON_CLASS} />,
+          keepOpen: true,
+          run: async () => setSearchAll(false),
+        }
+      : {
+          kind: "action",
+          value: "action:search-all-projects",
+          searchTerms: [],
+          title: "Search all projects",
+          description: label,
+          icon: <SearchIcon className={ITEM_ICON_CLASS} />,
+          keepOpen: true,
+          run: async () => setSearchAll(true),
+        };
+    return {
+      projectKeys: searchAll ? null : filterKeys,
+      toggle,
+      preserveEmpty: filter?.mode === "include",
+    };
+  })();
+}
+
+/**
+ * Whether "New thread in <current project>" may show the `chat.new` hint: the
+ * shortcut must land where the item does.
+ */
+export function useNewThreadHintFork(
+  activeDraftThread: ChatThreadActionContext["activeDraftThread"],
+  activeThread: ChatThreadActionContext["activeThread"] | null,
+  defaultProjectRef: ChatThreadActionContext["defaultProjectRef"],
+): boolean {
+  const filter = useProjectChooserHostValue()?.filter ?? null;
+  return (
+    filter === null ||
+    chatNewMatchesCurrentProject(filter, {
+      activeDraftThread,
+      activeThread: activeThread ?? undefined,
+      defaultProjectRef,
+    })
+  );
+}
+
+/** Drops the `chat.new` hint from "New thread in <current project>" when it would mislead. */
+export function dropNewThreadHintFork(
+  items: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem>,
+  showHint: boolean,
+): void {
+  if (showHint) return;
+  const index = items.findIndex((item) => item.value === "action:new-thread");
+  const item = items[index];
+  if (item === undefined || item.kind !== "action") return;
+  const { shortcutCommand: _hint, ...withoutHint } = item;
+  items[index] = withoutHint;
+}
+
+/** The palette's threads under the scope. */
+export function scopedPaletteThreadsFork<
+  Thread extends { readonly environmentId: string; readonly projectId: string },
+>(threads: ReadonlyArray<Thread>, projectKeys: ReadonlySet<string> | null) {
+  return scopeToProjectKeys(threads, projectKeys, (thread) => [
+    `${thread.environmentId}:${thread.projectId}`,
+  ]);
+}
+
+/**
+ * Explicit inclusion keeps an empty picker empty. Legacy/exclusion filters
+ * retain the existing fallback when none of their projects are available.
+ */
+export function scopePaletteProjectEntriesFork<
+  Entry extends { readonly group: { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> } },
+>(
+  entries: ReadonlyArray<Entry>,
+  projectKeys: ReadonlySet<string> | null,
+  preserveEmpty = false,
+): ReadonlyArray<Entry> {
+  const scoped = scopeToProjectKeys(entries, projectKeys, (entry) =>
+    entry.group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
+  );
+  return scoped.length === 0 && !preserveEmpty ? entries : scoped;
+}
+
+/**
+ * The new-thread picker view follows the scope after it was pushed: its items
+ * become the current picker items, keeping the pushed first item (the current
+ * project) first. Other views pass through.
+ */
+export function refreshNewThreadInViewFork(
+  groups: ReadonlyArray<CommandPaletteGroup>,
+  projectThreadItems: ReadonlyArray<CommandPaletteActionItem>,
+): ReadonlyArray<CommandPaletteGroup> {
+  const view = groups[0];
+  if (groups.length !== 1 || view?.value !== NEW_THREAD_IN_VIEW) return groups;
+  const lead = view.items[0]?.value;
+  const ordered = [
+    ...projectThreadItems.filter((item) => item.value === lead),
+    ...projectThreadItems.filter((item) => item.value !== lead),
+  ];
+  return [{ ...view, items: enumerateCommandPaletteItems(ordered) }];
+}
+
+/** Appends the scope toggle below the root list and the new-thread picker. */
+export function withProjectScopeToggleFork(
+  groups: CommandPaletteGroup[],
+  scope: CommandPaletteProjectScope,
+  currentView: CommandPaletteView | null,
+): CommandPaletteGroup[] {
+  if (scope.toggle === null) return groups;
+  if (currentView !== null && currentView.groups[0]?.value !== NEW_THREAD_IN_VIEW) return groups;
+  return [...groups, { value: "project-scope", label: "Scope", items: [scope.toggle] }];
+}

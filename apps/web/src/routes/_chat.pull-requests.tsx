@@ -102,7 +102,6 @@ import {
   type PullRequestListSort,
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
@@ -162,6 +161,8 @@ import { useDebouncedValue } from "../state/queries";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useEnvironments } from "../state/environments";
+import { useWindowListProjects } from "../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
+import { pullRequestEnvironmentQueriesFork } from "../components/pullRequest/pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import {
   pullRequestEnvironment,
   usePullRequestList,
@@ -175,6 +176,7 @@ import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 
 function getShortcutContext() {
   return {
@@ -1683,6 +1685,7 @@ function PullRequestsRouteView() {
             onAddFiles={() => undefined}
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
+            onAddIssues={() => undefined}
             onAddDevice={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
@@ -1690,15 +1693,16 @@ function PullRequestsRouteView() {
             filesAvailable={false}
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
+            issuesAvailable={false}
             deviceAvailable={false}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel
-              getShortcutContext={getShortcutContext}
-              shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               key={renderedPullRequestSurface.id}
               environmentId={panelEnvironmentId}
               onGuideShown={onGuideShown}
+              getShortcutContext={getShortcutContext}
+              shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               onSelectPullRequest={(reference) => {
                 if (rightPanelRef === null) return;
                 useRightPanelStore.getState().openPullRequest(rightPanelRef, {
@@ -1791,12 +1795,20 @@ function usePullRequestScope(search: PullRequestsSearch) {
   const projects = allProjects.filter(
     (project) => !project.isScratch && environmentIds.includes(project.environmentId),
   );
+  const windowProjects = useWindowListProjects(projects, {
+    projectId: search.projectId,
+    environmentId: search.environmentId,
+  }); // fork-hook: workspaces/list-page-window-filter
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label] as const),
   );
   const scopedProjectId = resolveProjectScope(search.projectId, projects, projectsKnown);
   const scopedProject = findScopedProject(projects, scopedEnvironmentId, scopedProjectId);
-  const scopedProjects = pullRequestFilterProjects(projects, environmentLabels, scopedProject);
+  const scopedProjects = pullRequestFilterProjects(
+    windowProjects,
+    environmentLabels,
+    scopedProject,
+  ); // fork-hook: workspaces/list-page-window-filter
 
   const selectedHost = search.selectedHost ?? search.host;
   const projectIdForRepository = (() => {
@@ -1841,21 +1853,11 @@ function usePullRequestScope(search: PullRequestsSearch) {
   }> => {
     const plain = queryEnvironmentIds.map((environmentId) => ({ environmentId }));
     if (!projectsKnown || scopedProjectId !== undefined) return plain;
-    const assignment = assignProjectsToEnvironments(
-      projects,
-      queryEnvironmentIds,
-      queryEnvironmentIds[0],
-    );
-    const totals = new Map<EnvironmentId, number>();
-    for (const project of projects) {
-      totals.set(project.environmentId, (totals.get(project.environmentId) ?? 0) + 1);
-    }
-    return queryEnvironmentIds.flatMap((environmentId) => {
-      const projectIds = assignment.get(environmentId);
-      if (projectIds === undefined) return [];
-      if (projectIds.length === (totals.get(environmentId) ?? 0)) return [{ environmentId }];
-      return [{ environmentId, projectIds }];
-    });
+    return pullRequestEnvironmentQueriesFork({
+      listed: windowProjects,
+      held: projects,
+      environmentIds: queryEnvironmentIds,
+    }); // fork-hook: workspaces/list-page-window-filter
   })();
   const assignmentKey = environmentQueries
     .map(({ environmentId, projectIds }) => `${environmentId}#${projectIds?.join("+") ?? "*"}`)
@@ -2455,6 +2457,9 @@ function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
+              {/* fork-hook: workspaces/chooser-scope-label */}
+              <ProjectChooserScopeLabelFork />
+              {/* fork-hook-end */}
               <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
                 {searchInput}
               </div>

@@ -55,6 +55,19 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
+import { buildLinkGitHubIssueActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-link-issue-import
+import { buildProjectChooserActionItemFork } from "./CommandPalette.fork"; // fork-hook: workspaces/chooser-palette
+import {
+  dropNewThreadHintFork,
+  refreshNewThreadInViewFork,
+  scopePaletteProjectEntriesFork,
+  useCommandPaletteProjectScopeFork,
+  useNewThreadHintFork,
+  withProjectScopeToggleFork,
+} from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-import
+import { scopedPaletteThreadsFork } from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-threads-import
+import { useProjectChooserLabel } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-palette
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -62,6 +75,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
+  ExternalLinkIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -95,6 +109,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
+import { requestDesktopWindow, supportsDesktopProjectWindows } from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-palette-import
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -165,7 +180,7 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { buildThreadRouteParams } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -702,6 +717,7 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
+  const projectChooserLabel = useProjectChooserLabel(); // fork-hook: workspaces/chooser-palette
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
     openIntent?.kind === "search" ? openIntent : null,
@@ -740,6 +756,10 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const { environments } = useEnvironments();
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -794,6 +814,9 @@ function OpenCommandPaletteDialog(props: {
     }
   };
   const threads = useThreadShells();
+  const paletteProjectScope = useCommandPaletteProjectScopeFork(); // fork-hook: workspaces/palette-scope
+  const scopedThreads = scopedPaletteThreadsFork(threads, paletteProjectScope.projectKeys); // fork-hook: workspaces/palette-scope
+  const newThreadHint = useNewThreadHintFork(activeDraftThread, activeThread, defaultProjectRef); // fork-hook: workspaces/palette-new-thread-hint
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     theme,
@@ -864,10 +887,14 @@ function OpenCommandPaletteDialog(props: {
     groups: projectGroups,
     preferredProjectRef: contextualProjectRef,
   });
-  const pickerProjects = projectPickerEntries.map(({ group, targetProject }) => ({
+  const pickerProjects = scopePaletteProjectEntriesFork(
+    projectPickerEntries,
+    paletteProjectScope.projectKeys,
+    paletteProjectScope.preserveEmpty,
+  ).map(({ group, targetProject }) => ({
     ...targetProject,
     displayName: group.displayName,
-  }));
+  })); // fork-hook: workspaces/palette-scope-projects
   const projectGroupByTargetKey = new Map(
     projectPickerEntries.map(({ group, targetProject }) => [
       `${targetProject.environmentId}:${targetProject.id}`,
@@ -1211,7 +1238,7 @@ function OpenCommandPaletteDialog(props: {
   })();
 
   const allThreadItems = buildThreadActionItems({
-    threads,
+    threads: scopedThreads, // fork-hook: workspaces/palette-scope-threads
     ...(activeThreadId ? { activeThreadId } : {}),
     projectTitleById,
     sortOrder: clientSettings.sidebarThreadSortOrder,
@@ -1693,6 +1720,7 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  dropNewThreadHintFork(actionItems, newThreadHint); // fork-hook: workspaces/palette-new-thread-hint
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
       kind: "action",
@@ -2039,6 +2067,19 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
+  const githubIssuesActionItem = buildGitHubIssuesActionItemFork({
+    environments,
+    navigate,
+  }); // fork-hook: github-issues/command-palette-entry
+  if (githubIssuesActionItem) actionItems.push(githubIssuesActionItem); // fork-hook: github-issues/command-palette-entry-push
+  const linkGitHubIssueActionItem = buildLinkGitHubIssueActionItemFork(
+    activeThread,
+    activeThreadServerConfig?.environment.capabilities,
+  ); // fork-hook: github-issues/command-palette-link-issue
+  if (linkGitHubIssueActionItem) actionItems.push(linkGitHubIssueActionItem); // fork-hook: github-issues/command-palette-link-issue-push
+  const projectChooserActionItem = buildProjectChooserActionItemFork(projectChooserLabel); // fork-hook: workspaces/chooser-palette
+  if (projectChooserActionItem) actionItems.push(projectChooserActionItem); // fork-hook: workspaces/chooser-palette
+
   actionItems.push({
     kind: "action",
     value: "action:settings",
@@ -2058,6 +2099,34 @@ function OpenCommandPaletteDialog(props: {
       : null) ??
     projectGroups[0] ??
     null;
+  if (desktopBridge) {
+    actionItems.push({
+      kind: "action",
+      value: "action:new-window",
+      searchTerms: ["new", "window", "desktop", "separate", "all projects"],
+      title: "New window",
+      icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "window.new",
+      run: async () => {
+        requestDesktopWindow(desktopBridge, { kind: "new-window" });
+      },
+    });
+  } // fork-hook: multi-window/dispatch-palette-new-window
+  if (desktopBridge && contextualProjectRef) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-project-window",
+      searchTerms: ["open", "project", "window", "desktop", "separate"],
+      title: "Open project window", // fork-hook: multi-window/dispatch-palette-open-project
+      description: contextualProjectGroup?.displayName,
+      icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "window.openProject", // fork-hook: multi-window/dispatch-palette-open-project
+      run: async () => {
+        requestDesktopWindow(desktopBridge, { kind: "project-link", ref: contextualProjectRef }); // fork-hook: multi-window/dispatch-palette-open-project
+      },
+    });
+  }
+
   if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",
@@ -2122,7 +2191,7 @@ function OpenCommandPaletteDialog(props: {
         ? changeThemeItem.groups
         : currentView?.groups[0]?.value === "appearance"
           ? changeAppearanceItem.groups
-          : (currentView?.groups ?? rootGroups);
+          : refreshNewThreadInViewFork(currentView?.groups ?? rootGroups, projectThreadItems); // fork-hook: workspaces/palette-scope-picker
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
@@ -2765,6 +2834,7 @@ function OpenCommandPaletteDialog(props: {
         ];
 
   let displayedGroups: CommandPaletteView["groups"] = filteredGroups;
+  displayedGroups = withProjectScopeToggleFork(filteredGroups, paletteProjectScope, currentView); // fork-hook: workspaces/palette-scope-toggle
   if (newProjectFlow !== null) {
     displayedGroups = [
       ...(newProjectMachineGroup ? [newProjectMachineGroup] : []),
