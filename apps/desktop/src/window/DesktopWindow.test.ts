@@ -456,7 +456,7 @@ function layerTest(input: {
             Effect.sync(() => {
               input.previewOwners?.push(owner); // fork-hook: multi-window/window-id-preview-owner
               input.previewMainWindowSets?.push(window);
-            }),
+            }).pipe(Effect.andThen(input.setPreviewMainWindow?.(window) ?? Effect.void)), // fork-hook: multi-window/preview-main-window-set
           prepareWebview: () => Effect.void,
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),

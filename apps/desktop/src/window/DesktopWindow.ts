@@ -412,7 +412,7 @@ export const make = Effect.gen(function* () {
     identity: WindowIdentity,
     windowId: WindowId, // fork-hook: multi-window/window-id-create-param
     dispatched?: WindowCreateRequest, // fork-hook: multi-window/dispatch-route-param
-  ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
+  ) {
     if (identity.kind === "hub") {
       yield* previewManager.getBrowserSession();
     }
@@ -607,6 +607,10 @@ export const make = Effect.gen(function* () {
     if (identity.kind === "hub") currentMainBoundsFork.track(window, flushBoundsPersist); // fork-hook: multi-window/bounds-current-main
 
     yield* previewManager.setWindow(windowId, window); // fork-hook: multi-window/window-id-preview-owner
+    if (yield* Ref.get(desktopState.quitting)) {
+      yield* electronWindow.destroyAll;
+      return Option.none();
+    }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -1035,12 +1039,29 @@ export const make = Effect.gen(function* () {
     return Option.some(window);
   });
 
+  const requireWindow = (window: Option.Option<Electron.BrowserWindow>) =>
+    Option.match(window, {
+      onNone: () => Effect.interrupt,
+      onSome: Effect.succeed,
+    });
+  const createWindowOrInterrupt = (
+    identity: WindowIdentity,
+    windowId: WindowId,
+    dispatched?: WindowCreateRequest,
+  ) => createWindow(identity, windowId, dispatched).pipe(Effect.flatMap(requireWindow)); // fork-hook: multi-window/quit-create-or-interrupt
+
   const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
     identity: WindowIdentity,
     windowId?: WindowId, // fork-hook: multi-window/window-id-ensure-param
   ) {
-    const create = (reservedId: WindowId) => createWindow(identity, reservedId); // fork-hook: multi-window/window-id-create
-    const result = yield* electronWindow.getOrCreate(identity, create, windowId); // fork-hook: multi-window/window-id-get-or-create
+    if (yield* Ref.get(desktopState.quitting)) return Option.none(); // fork-hook: multi-window/quit-ensure
+    const create = (reservedId: WindowId) =>
+      createWindow(identity, reservedId).pipe(Effect.flatMap(Effect.fromOption)); // fork-hook: multi-window/window-id-create
+    const ensured = yield* electronWindow
+      .getOrCreate(identity, create, windowId)
+      .pipe(Effect.catchNoSuchElement); // fork-hook: multi-window/window-id-get-or-create
+    if (Option.isNone(ensured)) return ensured; // fork-hook: multi-window/quit-ensure-cancelled
+    const result = ensured.value; // fork-hook: multi-window/quit-ensure-result
     if (result.created) {
       yield* logWindowInfo(
         identity.kind === "hub" ? "main window created" : "project window created",
@@ -1052,7 +1073,7 @@ export const make = Effect.gen(function* () {
         },
       );
     }
-    return result; // fork-hook: multi-window/window-id-ensure-result
+    return Option.some(result); // fork-hook: multi-window/window-id-ensure-result
   });
 
   revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
@@ -1062,17 +1083,20 @@ export const make = Effect.gen(function* () {
     // ensureIdentity is still returning, but that must not turn into a late focus.
     const suppressInitialReveal =
       identity.kind === "hub" && Option.isSome(yield* Ref.get(pendingDevAgentPlacementRef));
-    const { window } = yield* ensureIdentity(identity); // fork-hook: multi-window/window-id-reveal
+    const window = yield* ensureIdentity(identity).pipe(
+      Effect.map(Option.map((ensured) => ensured.window)),
+      Effect.flatMap(requireWindow),
+    ); // fork-hook: multi-window/window-id-reveal
     if (!suppressInitialReveal) yield* electronWindow.reveal(window);
     return window;
   });
 
   const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
-    Effect.map(({ window }) => window), // fork-hook: multi-window/window-id-create-main
+    Effect.map(Option.map(({ window }) => window)), // fork-hook: multi-window/window-id-create-main
     Effect.withSpan("desktop.window.createMain"),
   );
   const ensureMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
-    Effect.map(({ window }) => window), // fork-hook: multi-window/window-id-ensure-main
+    Effect.map(Option.map(({ window }) => window)), // fork-hook: multi-window/window-id-ensure-main
     Effect.withSpan("desktop.window.ensureMain"),
   );
   const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
@@ -1175,14 +1199,14 @@ export const make = Effect.gen(function* () {
 
   const requestWindow = WindowDispatch.makeDesktopWindowRequestFork({
     electronWindow,
-    createWindow,
+    createWindow: createWindowOrInterrupt,
     openPrimary: revealOrCreateMain,
     createPrimary: createMainIfBackendReady,
   }); // fork-hook: multi-window/dispatch-request-def
 
   const restoreWindow = WindowDispatch.makeDesktopWindowRestoreFork({
     electronWindow,
-    createWindow,
+    createWindow: createWindowOrInterrupt,
   }); // fork-hook: multi-window/restore-opener
   const drainServices = { windowSession }; // fork-hook: multi-window/startup-drain-services
   const resolveDrainOpeners = makeStartupDrainOpeners(
