@@ -32,18 +32,12 @@ describe("ssh tunnel scripts (fork)", () => {
     assert.notInclude(script, "npm exec");
     assert.notInclude(script, "t3@latest");
     assert.notInclude(script, 'exec t3 "$@"');
-    // Concurrent launches serialize on a per-version mkdir lock and recheck
-    // the completion marker after acquiring it.
+    // Concurrent launches serialize on a per-version lock and recheck the
+    // completion marker after acquiring it; upstream's tests own the lock body.
     assert.include(
       script,
       'T3_LOCK="$HOME/.t3/runtime/versions/.$T3_ARCHIVE_VERSION.install.lock"',
     );
-    // mkdir is the exclusive create; the pid follows atomically. A dead owner
-    // is reclaimed at once, a never-published owner after a short grace.
-    assert.include(script, 'while ! mkdir "$T3_LOCK" 2>/dev/null; do');
-    assert.include(script, 'mv "$T3_LOCK/pid.tmp" "$T3_LOCK/pid"');
-    assert.include(script, 'if ! kill -0 "$T3_LOCK_OWNER" 2>/dev/null; then');
-    assert.include(script, 'if [ "$T3_LOCK_UNOWNED" -ge 5 ]; then');
     assert.include(script, 'if [ "$T3_LOCK_WAITED" -ge 360 ]; then');
     assert.include(script, '"$T3_STAGING/SHA256SUMS" 30');
     assert.include(script, '"$T3_STAGING/$T3_ARCHIVE" 240');
