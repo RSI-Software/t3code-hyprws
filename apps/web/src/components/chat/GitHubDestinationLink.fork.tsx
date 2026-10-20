@@ -235,9 +235,8 @@ function GitHubDestinationLink({
           const label = destinationLabel(destination, linkTarget);
           const button = (
             <Button
-              size="icon-micro"
+              size="icon-xs"
               variant={preferred ? "ghost" : "ghost-muted"}
-              className="size-7 [&_svg]:size-3.5"
               aria-label={`${label}${preferred ? ", default" : ""}`}
               onClick={(event) => {
                 event.preventDefault();
