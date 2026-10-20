@@ -23,6 +23,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { CircleArrowUpIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode, useRef, useState } from "react";
+import { useEffect } from "react"; // fork-hook: upstream-fixes/server-update-progress-clock
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";

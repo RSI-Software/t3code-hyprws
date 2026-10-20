@@ -2370,6 +2370,7 @@ export default function ChatView(props: ChatViewProps) {
     ) {
       const updateInProgress = serverUpdateState.status === "running";
       const updateFailed = serverUpdateState.status === "failed";
+      const updateSettled = !updateInProgress; // fork-hook: upstream-fixes/server-update-completed-dismiss
       items.push({
         id: `server-version:${serverUpdateEnvironmentId}`,
         variant: updateFailed ? "error" : "default",
@@ -2399,7 +2400,7 @@ export default function ChatView(props: ChatViewProps) {
             variant="ghost"
           />
         ),
-        ...(updateFailed
+        ...(updateSettled // fork-hook: upstream-fixes/server-update-completed-dismiss
           ? {
               dismissLabel: "Dismiss update notice",
               onDismiss: () => {
