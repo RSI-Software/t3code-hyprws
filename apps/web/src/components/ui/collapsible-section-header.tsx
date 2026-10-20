@@ -33,7 +33,9 @@ export function CollapsibleSectionHeader({
         tones[tone].label,
       )}
     >
-      <span className="shrink-0">{children}</span>
+      {/* fork-hook: thread-ordering/truncatable-section-label */}
+      <span className="min-w-0">{children}</span>
+      {/* fork-hook-end */}
       <span aria-hidden className={cn("h-px min-w-2 flex-1", tones[tone].line)} />
       {accessory}
       <ChevronDownIcon
