@@ -13,7 +13,7 @@ It never merges upstream in, nor drops a commit; only a `fixup!` moves, beneath 
 Without a named tag it targets the newest stable or nightly tag; `-preview.` tags are skipped on purpose.
 It folds each `fixup! <subject>` landing into the one fork commit it names, a squash landing's trailing ` (#N)` included, and refuses a fixup naming none or several.
 It rewords only an owner that absorbs a squash-landed fixup: the fixup's PR link joins its `Squashes:` list, rendered the way fork:fold renders one.
-The rebase refuses a rebased tip that dropped any PR link.
+The rebase refuses a rebased tip that dropped any PR link, except from a commit the target carries: patch-for-patch, or superseded with every path it touched identical to the target.
 
 | Step    | Does                                                                      | Fails when                                         |
 | ------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
