@@ -20,8 +20,8 @@ const drainPages = (deletePage: Effect.Effect<ReadonlyArray<unknown>, SqlError.S
     while (true) {
       const rows = yield* deletePage;
       deleted += rows.length;
-      yield* Effect.sleep(PAGE_PAUSE);
       if (rows.length < PAGE_SIZE) return deleted;
+      yield* Effect.sleep(PAGE_PAUSE);
     }
   });
 
