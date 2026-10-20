@@ -57,13 +57,14 @@ import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 import { RightPanelTabs } from "../components/RightPanelTabs";
 import { githubIssueSurface } from "../rightPanelStore.fork";
+import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { RefreshIcon } from "../components/ui/refresh-icon";
 import { Separator } from "../components/ui/separator";
 import { SidebarInset } from "../components/ui/sidebar";
 import { Spinner } from "../components/ui/spinner";
 import { isElectron } from "../env";
-import { useIsMobile } from "../hooks/useMediaQuery";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useProjects } from "../state/entities";
@@ -257,7 +258,7 @@ export function GitHubIssuesPage({
   };
   const updateFilters = (patch: IssuesSearchPatch) => updateSearch({ ...patch, ...clearSelection });
   const closeDetail = () => updateSearch(clearSelection);
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery("max-md");
   const searchRef = useRef<HTMLDivElement | null>(null);
   const onListKeyDown = useGitHubIssueKeyboard({
     page: variant === "page",
@@ -489,13 +490,9 @@ export function GitHubIssuesPage({
       message: error.message,
     })) ?? []),
   ].map((notice) => (
-    <div
-      key={notice.key}
-      role="status"
-      className="rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-warning-foreground text-xs"
-    >
-      {notice.message}
-    </div>
+    <Alert key={notice.key} role="status" variant="warning">
+      <AlertDescription>{notice.message}</AlertDescription>
+    </Alert>
   ));
 
   if (variant === "panel") {
