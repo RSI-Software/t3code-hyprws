@@ -190,6 +190,7 @@ const pendingApproval = {
   id: "request:1",
   kind: "approval",
   status: "pending",
+  responseCapability: { type: "live", providerSessionId: "session-1" },
   createdAt: runEnd,
 };
 
