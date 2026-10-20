@@ -1,7 +1,7 @@
 ---
 # Converted from .macroscope/check-run-agents/ui-consistency.md at 04f4f64; diff it to spot drift.
 name: UI Consistency
-on: [pr-open, pr-trusted-change, pr-label, check-rerun]
+on: [pr-change, pr-label, check-rerun]
 paths:
   include:
     - "apps/web/src/**/*.tsx"
