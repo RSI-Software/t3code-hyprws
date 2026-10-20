@@ -64,7 +64,6 @@ import {
   useHasSecretProvidersEnvironment,
 } from "./useAvailableSettingsSearchItems";
 import { SquareTerminalIcon } from "lucide-react"; // fork-hook: zmux-estate/settings-icon-import
-import { MicIcon } from "lucide-react"; // fork-hook: voice-input/settings-icon-import
 import { handleSettingsSectionKeyDown } from "./settingsSectionNavigation";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 
