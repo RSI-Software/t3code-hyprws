@@ -40,7 +40,7 @@ export function ComboboxCollection(props: ComboboxPrimitive.Collection.Props) {
 export function GroupText({ className, render, ...props }: useRender.ComponentProps<"div">) {
   const defaultProps = {
     className: cn(
-      "relative inline-flex items-center whitespace-nowrap gap-2 rounded-lg border border-input bg-muted not-dark:bg-clip-padding px-2.75 text-muted-foreground text-base sm:text-sm shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-2xs before:shadow-black/6 dark:bg-input/64 dark:before:shadow-white/6 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 [&_svg]:-mx-0.5",
+      "relative inline-flex items-center whitespace-nowrap gap-1.5 rounded-md border border-input bg-muted not-dark:bg-clip-padding px-2 text-muted-foreground text-xs shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-2xs before:shadow-black/6 dark:bg-input/64 dark:before:shadow-white/6 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 [&_svg]:-mx-0.5",
       className,
     ),
     "data-slot": "group-text",
