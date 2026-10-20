@@ -16,7 +16,15 @@ import { memo, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "../ui/menu";
 import { cn } from "~/lib/utils";
 import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
 import {
@@ -120,9 +128,7 @@ export const AgentMenuContent = memo(function AgentMenuContentImpl({
   const selectedValue = getProviderOptionCurrentValue(descriptor);
   return (
     <MenuGroup>
-      <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-        {descriptor.label}
-      </div>
+      <MenuGroupLabel>{descriptor.label}</MenuGroupLabel>
       <MenuRadioGroup
         value={typeof selectedValue === "string" ? selectedValue : ""}
         onValueChange={(value) => {
