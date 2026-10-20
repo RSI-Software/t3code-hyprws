@@ -7421,3 +7421,5 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
       ),
   });
 });
+
+export { codexThreadRuntimeParams }; // fork-hook: upstream-fixes/codex-runtime-params-export

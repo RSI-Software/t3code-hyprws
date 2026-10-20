@@ -132,12 +132,10 @@ describe("codexThreadRuntimeParams thread identity", () => {
     });
     expect(config).toEqual({
       ...CodexAdapterV2.CODEX_THREAD_CONFIG,
-      mcp_servers: {
-        "t3-code": {
-          url: "http://127.0.0.1:1/mcp",
-          http_headers: { Authorization: "Bearer token" },
-          tool_timeout_sec: 65 * 60,
-        },
+      "mcp_servers.t3-code": {
+        url: "http://127.0.0.1:1/mcp",
+        http_headers: { Authorization: "Bearer token" },
+        tool_timeout_sec: 65 * 60,
       },
       shell_environment_policy: {
         set: { T3CODE_PROJECT_ID: "project-1", T3CODE_THREAD_ID: "thread-1" },
