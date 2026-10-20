@@ -16,6 +16,7 @@ import { useDesktopVoiceInputFork } from "./useVoiceInput.fork";
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   draft: "",
+  stored: [] as string[],
   listeners: new Set<() => void>(),
 }));
 const environmentId = EnvironmentId.make("test");
@@ -63,6 +64,7 @@ vi.mock("./draft.fork", () => ({
   readVoiceDraftTextFork: () => mocks.draft,
   commitVoiceDraftFork: (_target: unknown, text: string) => {
     mocks.draft = text;
+    mocks.stored.push(text);
     mocks.listeners.forEach((listener) => listener());
   },
 }));
@@ -76,6 +78,7 @@ vi.mock("./VoiceInputProvider.fork", () => ({
 
 let root: Root | undefined;
 let actions: ReturnType<typeof useDesktopVoiceInputFork>;
+let pendingAnswer: { key: string; text: string; commit: (text: string) => void } | undefined;
 function Probe() {
   const value = useDesktopVoiceInputFork({
     environmentId,
@@ -90,6 +93,7 @@ function Probe() {
       mocks.draft = text;
       actions.markDraftChanged();
     },
+    pendingAnswer,
   });
   useLayoutEffect(() => {
     actions = value;
@@ -115,46 +119,58 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   mocks.listeners.clear();
+  pendingAnswer = undefined;
 });
+
+function mountRuntime(transcript: string) {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  mocks.draft = "";
+  vi.spyOn(useComposerDraftStore, "subscribe").mockImplementation((listener) => {
+    const notify = () =>
+      listener(useComposerDraftStore.getState(), useComposerDraftStore.getState());
+    mocks.listeners.add(notify);
+    return () => mocks.listeners.delete(notify);
+  });
+  const recorded = Promise.withResolvers<void>();
+  const recorder = {
+    uri: "memory:recording",
+    prepareToRecordAsync: async () => {},
+    record: () => recorded.resolve(),
+    stop: async () => {},
+    readLevel: () => 0,
+  };
+  runtime = {
+    recorder,
+    session: new DesktopVoiceSessionFork({
+      recorder,
+      requestPermission: async () => ({ granted: true, canAskAgain: true }),
+      configureRecording: async () => {},
+      releaseRecording: async () => {},
+      deleteRecording: () => {},
+      getTranscriber: () => ({
+        prepare: async () => ({ locale: "en-US", transcribe: async () => transcript }),
+      }),
+    }),
+  };
+  return recorded.promise;
+}
+
+async function render() {
+  await act(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    root.render(<Probe />);
+  });
+}
 
 describe("automatic cleanup in the active dictation toolbar", () => {
   it.each(["button", "Escape"])(
     "cancels through %s and commits raw speech without formatting",
     async (cancelWith) => {
-      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      mocks.draft = "";
-      vi.spyOn(useComposerDraftStore, "subscribe").mockImplementation((listener) => {
-        const notify = () =>
-          listener(useComposerDraftStore.getState(), useComposerDraftStore.getState());
-        mocks.listeners.add(notify);
-        return () => mocks.listeners.delete(notify);
-      });
-      const recorded = Promise.withResolvers<void>();
+      const recorded = mountRuntime("raw use affect words");
       const cleanupStarted = Promise.withResolvers<AbortSignal>();
-      const recorder = {
-        uri: "memory:recording",
-        prepareToRecordAsync: async () => {},
-        record: () => recorded.resolve(),
-        stop: async () => {},
-        readLevel: () => 0,
-      };
-      runtime = {
-        recorder,
-        session: new DesktopVoiceSessionFork({
-          recorder,
-          requestPermission: async () => ({ granted: true, canAskAgain: true }),
-          configureRecording: async () => {},
-          releaseRecording: async () => {},
-          deleteRecording: () => {},
-          getTranscriber: () => ({
-            prepare: async () => ({
-              locale: "en-US",
-              transcribe: async () => "raw use affect words",
-            }),
-          }),
-        }),
-      };
       mocks.request.mockReset().mockImplementation(
         (_input, signal: AbortSignal) =>
           new Promise((_resolve, reject) => {
@@ -162,15 +178,10 @@ describe("automatic cleanup in the active dictation toolbar", () => {
             signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
           }),
       );
-      await act(() => {
-        host = document.createElement("div");
-        document.body.append(host);
-        root = createRoot(host);
-        root.render(<Probe />);
-      });
+      await render();
       await act(async () => {
         button("Record dictation").click();
-        await recorded.promise;
+        await recorded;
       });
       let finishing: Promise<void>;
       await act(async () => {
@@ -197,4 +208,24 @@ describe("automatic cleanup in the active dictation toolbar", () => {
       expect(runtime.session.getSnapshot().state.phase).toBe("idle");
     },
   );
+});
+
+describe("dictating a pending question answer", () => {
+  it("commits to the answer, never the hidden composer draft", async () => {
+    const recorded = mountRuntime("yes");
+    mocks.stored = [];
+    mocks.request.mockReset().mockRejectedValue(new Error("offline"));
+    const commit = vi.fn((text: string) => {
+      pendingAnswer = { key: "request:question", text, commit };
+    });
+    pendingAnswer = { key: "request:question", text: "", commit };
+    await render();
+    await act(async () => {
+      button("Record dictation").click();
+      await recorded;
+    });
+    await act(() => runtime.session.controller.stop());
+    expect(commit).toHaveBeenCalledWith("yes");
+    expect(mocks.stored).toEqual([]);
+  });
 });
