@@ -241,6 +241,20 @@ export function renderGhosttySnapshot(options: {
         runStart += 1;
         continue;
       }
+      if (isSolidPowerlineSeparator(first.text)) {
+        if (!first.invisible) {
+          context.fillStyle = cssColor(first.foreground);
+          fillSolidPowerlineSeparator(
+            context,
+            first.text,
+            padding + runStart * metrics.width,
+            top,
+            metrics,
+          );
+        }
+        runStart += 1;
+        continue;
+      }
       const runEnd = ghosttyTextRunEnd(
         row.cells,
         runStart,
