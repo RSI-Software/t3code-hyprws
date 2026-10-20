@@ -1,4 +1,4 @@
-import { Storage } from "happy-dom";
+import { MemoryStorage as Storage } from "./testStorage.fork";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
