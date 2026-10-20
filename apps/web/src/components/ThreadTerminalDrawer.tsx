@@ -1,4 +1,5 @@
 import { writeToRunningTerminalFork } from "../terminal/terminalInput.fork"; // fork-hook: zmux-estate/failed-terminal-input
+import { copyOsc52ClipboardFork } from "../terminal/osc52Clipboard.fork"; // fork-hook: zmux-estate/osc52-clipboard-import
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import {
   isAtomCommandInterrupted,
@@ -241,6 +242,7 @@ export function writeTerminalOutputUpdate(
   terminal: Pick<GhosttyTerminalSurface, "resetAndWrite" | "write" | "clearSelection">,
   update: TerminalOutputUpdate,
 ): void {
+  copyOsc52ClipboardFork(terminal, update); // fork-hook: zmux-estate/osc52-clipboard
   if (update.type === "reset") {
     terminal.resetAndWrite(update.data);
     terminal.clearSelection(); // fork-hook: zmux-estate/terminal-selection-reset
@@ -730,7 +732,7 @@ function TerminalSessionViewport({
     void retargetTerminal();
   }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) => {
-    return writeToRunningTerminalFork(terminalSession.status, () =>
+    return writeToRunningTerminalFork(readTerminalSession().status, () =>
       runTerminalWrite({
         environmentId,
         input: { threadId, terminalId, attachmentId, data },
@@ -765,6 +767,7 @@ function TerminalSessionViewport({
         }, 0);
       }
       if (version > 0) synchronizedStatusRef.current = status;
+      terminal.input.readOnly = !hasTerminalWriteAccess() || status !== "running"; // fork-hook: zmux-estate/failed-terminal-readonly
     },
   );
   const openLinkInPreview = useEffectEvent(
@@ -774,6 +777,8 @@ function TerminalSessionViewport({
 
   useLayoutEffect(() => {
     if (terminalRef.current) terminalRef.current.input.readOnly = !canOperateTerminal;
+    if (terminalRef.current && readTerminalSession().status !== "running")
+      terminalRef.current.input.readOnly = true; // fork-hook: zmux-estate/failed-terminal-readonly
     if (canOperateTerminal && visibleRef.current)
       consumePendingTerminalFocus(threadRef, terminalId);
   }, [canOperateTerminal, terminalId, threadRef]);
