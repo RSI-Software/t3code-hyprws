@@ -33,11 +33,65 @@ interface DesktopVoiceInputFork {
   enabled: boolean;
   readSelection: () => { start: number; end: number };
   commitDraft: (text: string, cursor: number) => void;
+  /**
+   * The active question's custom answer replaces the composer draft while it is shown.
+   * `null` means a question is shown that takes no custom answer, so dictation is off.
+   */
+  pendingAnswer?: { key: string; text: string; commit: (text: string) => void } | null | undefined;
+}
+
+/** Adapts the upstream pending-question state to a dictation target. */
+export function voicePendingAnswerFork(
+  requestId: string | undefined,
+  progress: {
+    activeQuestion: { id: string; allowCustomAnswer?: boolean | undefined } | null;
+    customAnswer: string;
+  } | null,
+  setAnswer: (
+    questionId: string,
+    text: string,
+    cursor: number,
+    end: number,
+    mention: false,
+  ) => void,
+): DesktopVoiceInputFork["pendingAnswer"] {
+  if (!progress) return undefined;
+  const question = progress.activeQuestion;
+  if (!requestId || !question || question.allowCustomAnswer === false) return null;
+  return {
+    key: `${requestId}:${question.id}`,
+    text: progress.customAnswer,
+    commit: (text) => setAnswer(question.id, text, text.length, text.length, false),
+  };
+}
+
+/** Text a dictation session reads and commits once it can outlive the visible editor. */
+function voiceDraftSourceFork(latest: { current: DesktopVoiceInputFork }) {
+  const { draftTarget, pendingAnswer } = latest.current;
+  if (!pendingAnswer) {
+    return {
+      read: () => readVoiceDraftTextFork(draftTarget),
+      commit: (text: string) => commitVoiceDraftFork(draftTarget, text),
+      subscribe: (onChange: () => void) => useComposerDraftStore.subscribe(onChange),
+    };
+  }
+  // Answers live in React state; a transcript for an answered or changed question is dropped.
+  const current = () =>
+    latest.current.pendingAnswer?.key === pendingAnswer.key ? latest.current.pendingAnswer : null;
+  return {
+    read: () => current()?.text ?? null,
+    commit: (text: string) => current()?.commit(text),
+    subscribe: () => () => {},
+  };
 }
 
 const IDLE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 
-export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
+export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
+  const input = {
+    ...composerInput,
+    enabled: composerInput.enabled && composerInput.pendingAnswer !== null,
+  };
   const { settings } = useVoiceSettingsFork(input.environmentId);
   const { session, recorder, snapshot, waiting } = useDesktopVoiceRuntimeFork();
   const controller = session.controller;
@@ -57,7 +111,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
     enabled: input.enabled && !voiceInputBlocksSubmission(state),
     readDraft: (): VoiceDraftSnapshot => ({
       ownerKey: input.ownerKey,
-      text: readVoiceDraftTextFork(input.draftTarget) ?? "",
+      text: voiceDraftSourceFork(latest).read() ?? "",
       selection: input.readSelection(),
       revision: revision.current,
     }),
@@ -103,6 +157,7 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
     const captured = latest.current;
     if (!captured.enabled || voiceInputBlocksSubmission(controller.currentState)) return;
     const selection = captured.readSelection();
+    const source = voiceDraftSourceFork(latest);
     void session.start({
       ownerKey: captured.ownerKey,
       environmentId: captured.environmentId,
@@ -112,11 +167,11 @@ export function useDesktopVoiceInputFork(input: DesktopVoiceInputFork) {
           ? { kind: "draft", draftId: captured.draftTarget }
           : { kind: "server", threadRef: captured.draftTarget },
       readDraft: () => {
-        const text = readVoiceDraftTextFork(captured.draftTarget);
+        const text = source.read();
         return text === null ? null : { ownerKey: captured.ownerKey, text, selection };
       },
-      commitDraft: (text) => commitVoiceDraftFork(captured.draftTarget, text),
-      subscribe: (onChange) => useComposerDraftStore.subscribe(onChange),
+      commitDraft: (text) => source.commit(text),
+      subscribe: source.subscribe,
     });
   };
   const unavailableReason =
