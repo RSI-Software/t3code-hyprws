@@ -37,12 +37,23 @@ export interface ForkSupersedesInput {
  */
 export const forkSupersedes = (_declaration: ForkSupersedesInput): void => {};
 
-// `upstream: "<path> > <title>"` — the path is the sibling's counterpart
-// with the `.fork` segment dropped, and the title is the upstream `it`/
-// `test`/`effectIt` case the fork deliberately contradicts. The call shape
-// is `forkSupersedes({ ... })` with balanced braces; a prose mention such
-// as `forkSupersedes({ upstream, reason, commit })` carries no string field
-// and matches nothing.
+// A sibling keeps its counterpart's `.browser` infix so the web browser
+// project, which includes only `*.browser.test.*`, still runs it:
+// `X.browser.test.tsx` pairs with `X.fork.browser.test.tsx`.
+const UPSTREAM_TEST_SUFFIX = /(\.browser)?\.test\.(tsx?)$/;
+const FORK_TEST_SUFFIX = /\.fork(\.browser)?\.test\.(tsx?)$/;
+
+export const isForkTestFile = (path: string): boolean => FORK_TEST_SUFFIX.test(path);
+
+export const forkTestSibling = (path: string): string =>
+  path.replace(UPSTREAM_TEST_SUFFIX, ".fork$1.test.$2");
+
+export const upstreamTestPath = (sibling: string): string =>
+  sibling.replace(FORK_TEST_SUFFIX, "$1.test.$2");
+
+// `upstream: "<path> > <title>"`: the path is the sibling's counterpart without `.fork`, the title
+// the upstream `it`/`test`/`effectIt` case contradicted. The call is `forkSupersedes({ ... })` with
+// balanced braces; a prose mention carries no string field and matches nothing.
 const DECLARATION_CALL = /forkSupersedes\s*\(\s*\{([^}]*)\}\s*\)/gs;
 const STRING_FIELD = (name: string): RegExp =>
   new RegExp(
@@ -394,19 +405,11 @@ export const assessForkSupersedes = (
       }
       superseded.push({ path: declaration.upstreamPath, title: declaration.upstreamTitle });
     }
-    // A sibling case that shares an upstream title contradicts it by
-    // definition: same name, fork-owned behaviour. Without a declaration
-    // that contradiction is unrecorded. Against the merge base, a sibling
-    // title the assessed text dropped whose body the assessed text
-    // carries under a new title is the rename shape: upstream's case was
-    // renamed in place while the sibling still carries the base title,
-    // so no shared title survives. That is undeclared too — the more
-    // damaging shape, because it mutates the upstream file
-    // (RSI-Software/t3code-hyprws#1206).
-    // The counterpart is the sibling with the `.fork` segment dropped, so
-    // a sibling contradicts only its own upstream file — never a
-    // same-titled case elsewhere.
-    const counterpart = sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
+    // A sibling case sharing an upstream title contradicts it; without a declaration that is
+    // unrecorded. So is the rename shape (upstream renamed the case in place, the sibling kept the base
+    // title), the more damaging one since it mutates the upstream file. The counterpart is the sibling
+    // minus `.fork`, so a sibling contradicts only its own upstream file.
+    const counterpart = upstreamTestPath(sibling);
     const counterpartText = upstreamTexts.get(counterpart);
     const counterpartTitles =
       counterpartText === undefined ? new Set<string>() : new Set(testCaseTitles(counterpartText));
