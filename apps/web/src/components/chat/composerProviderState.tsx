@@ -287,3 +287,6 @@ export function renderProviderTraitsMenuContent(input: TraitsRenderInput): React
 export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
   return renderTraitsControl(TraitsPicker, input);
 }
+
+export { renderProviderAgentMenuContent } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-state-agent-menu-content
+export { renderProviderAgentPicker } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-state-agent-picker

@@ -134,6 +134,7 @@ import {
   resolveExternalWebLinkHost,
   showExternalLinkContextMenu,
 } from "./chat/externalLinkContextMenu";
+import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
 import { hasSpecificPierreIconForFileName, syntheticFileNameForLanguageId } from "../pierre-icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
@@ -2587,6 +2588,7 @@ function useChatMarkdownState({
       return result;
     });
   };
+  const githubDestination = useGitHubDestinationLinkFork({ openExternalLinkInPreview }); // fork-hook: github-issues/chat-markdown-github-destination
   const openMarkdownFileInPreview = (path: string) => {
     const preparedConnection = threadRef ? readPreparedConnection(threadRef.environmentId) : null;
     if (!threadRef || !canOperatePreview || preparedConnection === null) {
@@ -2723,6 +2725,7 @@ function useChatMarkdownState({
     environmentId,
     expandMedia,
     fileLinkChip,
+    githubDestination, // fork-hook: github-issues/chat-markdown-github-destination-state
     githubMedia,
     renderContextReference,
     headingLevelOffset,
@@ -2881,6 +2884,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       canOperatePreview,
       cwd,
       environmentId,
+      githubDestination, // fork-hook: github-issues/chat-markdown-github-destination-value
       imageBaseDir,
       markdownFileLinkMetaByHref,
       threadRef,
@@ -2952,6 +2956,19 @@ const CHAT_MARKDOWN_COMPONENTS = {
       const canOpenInPreview =
         canOperatePreview && Boolean(threadRef && isPreviewAvailableFor(threadRef.environmentId));
       const linkChildren = <MarkdownLinkContext value>{children}</MarkdownLinkContext>;
+      if (githubDestination.claims(href))
+        return githubDestination.render({
+          href: href ?? "",
+          props,
+          children: linkChildren,
+          canOpenInPreview,
+          canOperateHost,
+          faviconHost,
+          openChangeRequestLink,
+          linkedThreadPullRequestFor,
+          resolveThreadPullRequest,
+          updateThreadPullRequestLink,
+        }); // fork-hook: github-issues/chat-markdown-github-destination-return
       const link = (
         <a
           {...props}

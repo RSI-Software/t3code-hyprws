@@ -41,7 +41,7 @@ import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -53,6 +53,7 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
@@ -112,6 +113,11 @@ import {
   workspaceAssetResource,
 } from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import { useFileEditorSaveShortcutFork } from "./fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
+import {
+  RichMarkdownPreviewBoundary,
+  resolveRichMarkdownPreviewMode,
+} from "./RichMarkdownPreviewBoundary"; // fork-hook: markdown-editing/rich-preview-import
 import {
   getOptimisticProjectFileQueryData,
   getProjectFileContents,
@@ -675,6 +681,7 @@ function EditableFileSurface({
     relativePath,
     onPendingChange,
   });
+  useFileEditorSaveShortcutFork(surfaceRef, saveCoordinator.flush); // fork-hook: markdown-editing/source-file-save
   // The editor owns the draft, so its own edits echoing back through the file
   // query keep the file identity. Only a change from elsewhere replaces it.
   const [externalFile, setExternalFile] = useState(() =>
@@ -1084,7 +1091,14 @@ export default function FilePreviewPanel({
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
+  const richMarkdownPreview = resolveRichMarkdownPreviewMode({
+    relativePath: previewPath,
+    fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
+    renderPreferred: renderMarkdownPreferred,
+    revealHandled,
+    readOnly: isHostFile || !canWriteFiles, // fork-hook: upstream-fixes/split-session-permissions
+  }); // fork-hook: markdown-editing/rich-preview-mode
+  const renderMarkdown = richMarkdownPreview.rendered; // fork-hook: markdown-editing/rich-preview-rendered
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
   const renderedMode = isMarkdown
@@ -1143,6 +1157,17 @@ export default function FilePreviewPanel({
     mutationId: workspaceMutationId,
     refresh: file.refresh,
     resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
+  });
+  // An edit made outside T3 Code reports no mutation, and the cached read
+  // outlives a closed tab. Arriving at the file again, by reopening it or
+  // focusing the window, re-reads it; unsaved edits stay in the optimistic file.
+  useLiveRefresh(file.refresh, {
+    enabled:
+      attachment === undefined &&
+      relativePath !== null &&
+      (isFolder || (!isMedia && !isPdf)) &&
+      !selectedFilePending,
+    key: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
   });
 
   useEffect(() => {
@@ -1248,6 +1273,7 @@ export default function FilePreviewPanel({
             <FileSurfaceAction
               label={renderedToggleLabel(renderedMode, rendered)}
               pressed={rendered}
+              {...richMarkdownPreview.toggleProps} /* fork-hook: markdown-editing/rich-preview-toggle-props */
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
@@ -1261,6 +1287,7 @@ export default function FilePreviewPanel({
               <MorphIcon
                 className="size-3.5"
                 icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+                {...richMarkdownPreview.iconProps} /* fork-hook: markdown-editing/rich-preview-icon */
               />
             </FileSurfaceAction>
           ) : null}
@@ -1395,17 +1422,34 @@ export default function FilePreviewPanel({
             </div>
           ) : relativePath && file.data ? (
             isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                key={relativePath}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                workspaceMutationId={workspaceMutationId}
-                readOnly={isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
+              <>
+                {/* fork-hook: markdown-editing/rich-preview-boundary */}
+                <RichMarkdownPreviewBoundary
+                  key={relativePath}
+                  enabled={richMarkdownPreview.richEditorEnabled}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  contents={file.data.contents}
+                  theme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
+                  onPendingChange={onPendingChange}
+                >
+                  <RenderedMarkdownSurface
+                    key={relativePath}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    threadRef={threadRef}
+                    contents={file.data.contents}
+                    workspaceMutationId={workspaceMutationId}
+                    readOnly={isHostFile || !canWriteFiles}
+                    onPendingChange={onPendingChange}
+                  />
+                </RichMarkdownPreviewBoundary>
+                {/* fork-hook-end */}
+              </>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}

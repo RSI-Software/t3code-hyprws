@@ -5,8 +5,11 @@ import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useDesktopVoiceInputFork } from "../../voice-input/useVoiceInput.fork"; // fork-hook: voice-input/composer-import
+import { VoiceComposerFooterFork } from "../../voice-input/VoiceComposerControls.fork"; // fork-hook: voice-input/footer-import
 import { useRightPanelStore } from "~/rightPanelStore";
 import { AttachmentFilePreview } from "../files/AttachmentFilePreview";
+import { isFileEditorSaveShortcutFork } from "../files/fileEditorSaveShortcut.fork"; // fork-hook: markdown-editing/file-save-import
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import {
   composerPullRequestsFromLinks,
@@ -314,9 +317,12 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker, // fork-hook: custom-agents/composer-agent-render-import
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { agentRestingBlock } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-agent-resting-block-import
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -2319,6 +2325,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderEntry?.snapshot,
     selectedModel,
   );
+  const desktopVoiceFork = useDesktopVoiceInputFork({
+    environmentId,
+    projectId: activeThread?.projectId ?? pullRequestProjectId, // fork-hook: voice-input/text-processing-project
+    threadId: routeKind === "server" ? (activeThread?.id ?? null) : null, // fork-hook: voice-input/text-processing-context
+    ownerKey: composerDraftTargetKey,
+    draftTarget: composerDraftTarget, // fork-hook: voice-input/draft-target
+    label: activeThread?.title || "New thread", // fork-hook: voice-input/draft-label
+    enabled: canOperateThread && !activePendingProgress && pendingApprovals.length === 0,
+    readSelection: () =>
+      composerEditorRef.current?.readSelectionRange() ?? {
+        start: promptRef.current.length,
+        end: promptRef.current.length,
+      }, // fork-hook: voice-input/draft-selection
+    commitDraft: (text, cursor) => {
+      const collapsedCursor = collapseExpandedComposerCursor(text, cursor);
+      onPromptChange(text, collapsedCursor, cursor, false, collectInlineContextIds(text));
+      requestAnimationFrame(() => composerEditorRef.current?.focusAt(collapsedCursor));
+    },
+  }); // fork-hook: voice-input/composer-controller
   const sendDisabledReason =
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
@@ -2881,6 +2906,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
+  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-menu-content
+  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-picker
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
@@ -3534,6 +3561,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // Typing is when the menu is about to need skills, so it re-checks a
     // snapshot that has aged past its TTL.
     refreshWorkspaceSnapshotOnTyping();
+    desktopVoiceFork.markDraftChanged(); // fork-hook: voice-input/draft-revision
     if (activePendingProgress?.activeQuestion && pendingUserInputs.length > 0) {
       if (activePendingProgress.activeQuestion.allowCustomAnswer === false) return;
       setComposerCursor(nextCursor);
@@ -3952,6 +3980,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     dispatchMode?: ComposerDispatchMode,
     submissionIntent?: ComposerSubmissionIntent,
   ) => {
+    if (desktopVoiceFork.blocksSubmission()) {
+      return;
+    } // fork-hook: voice-input/submission-guard
     if (
       noProviderAvailable ||
       isSendDisabled ||
@@ -5048,6 +5079,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
+    ...agentRestingBlock(providerAgentPicker, composerControlsCollapsed), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
@@ -5235,6 +5267,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
+            agentMenuContent={
+              hiddenRestingBlockIds.includes("agent") ? providerAgentMenuContent : undefined
+            } // fork-hook: custom-agents/composer-agent-compact-menu-prop
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
             }
@@ -5307,6 +5342,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       if (command !== "composer.stash") return;
+      if (isFileEditorSaveShortcutFork(event)) return; // fork-hook: markdown-editing/file-save-stash-guard
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();
@@ -6390,6 +6426,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }}
       className="mx-auto w-full min-w-0 max-w-(--chat-content-max-width)"
       data-chat-composer-form="true"
+      {...{
+        "data-voice-input-presented-fork": desktopVoiceFork.presented ? "true" : undefined,
+        "data-voice-input-live-fork": desktopVoiceFork.live ? "true" : undefined, // fork-hook: voice-input/live-presentation
+        "data-voice-input-compact-fork": isComposerResting ? "true" : undefined,
+      }} /* fork-hook: voice-input/presentation */
       {...threadContextDropTargetProps()}
     >
       {composerControlsCollapsed && restingControlsHost
@@ -6399,6 +6440,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-resting-controls="true"
               aria-hidden={restingControlsVisible ? undefined : true}
               inert={restingControlsVisible ? undefined : true}
+              {...(desktopVoiceFork.presented
+                ? { "data-voice-input-hidden-fork": "true", "aria-hidden": true, inert: true }
+                : {})} /* fork-hook: voice-input/resting-presentation */
               className={cn(
                 "relative flex w-max min-w-0 max-w-full items-center gap-1 font-normal text-muted-foreground/70 [&_button]:text-xs!",
                 !restingControlsVisible && "invisible",
@@ -6589,6 +6633,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <div
               ref={setComposerMenuAnchor}
               data-chat-composer-body="true"
+              {...{
+                inert:
+                  desktopVoiceFork.busy || (desktopVoiceFork.presented && isComposerResting)
+                    ? true
+                    : undefined,
+                "aria-hidden":
+                  desktopVoiceFork.presented && isComposerResting && !desktopVoiceFork.live
+                    ? true
+                    : undefined, // fork-hook: voice-input/live-editor-presentation
+              }} /* fork-hook: voice-input/editor-presentation */
               className={cn(
                 "relative px-3 pb-2 sm:px-4",
                 "pt-3.5 sm:pt-4",
@@ -7059,6 +7113,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 ) : null}
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
+                    voicePreviewFork={
+                      desktopVoiceFork.preview
+                    } /* fork-hook: voice-input/preview-editor */
                     ariaLabel="Message"
                     suggestionListId={composerSuggestionListId}
                     activeSuggestionId={
@@ -7147,6 +7204,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       promptHasText={false}
                       isSendBusy={isSendBusy}
                       sendDisabledReason={sendDisabledReason}
+                      {...desktopVoiceFork.sendProps} /* fork-hook: voice-input/mobile-send */
                       isConnecting={isConnecting}
                       isEnvironmentUnavailable={
                         environmentUnavailable !== null ||
@@ -7172,6 +7230,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {isComposerCollapsedMobile || isComposerApprovalState ? null : (
               <div
                 data-chat-composer-footer="true"
+                {...{
+                  inert: desktopVoiceFork.presented ? true : undefined,
+                  "aria-hidden": desktopVoiceFork.presented ? true : undefined,
+                }} /* fork-hook: voice-input/footer-presentation */
                 data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                 className={cn(
                   "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
@@ -7242,6 +7304,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  {/* fork-hook: voice-input/composer-controls */}
+                  {desktopVoiceFork.controls}
+                  {/* fork-hook-end */}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
@@ -7276,6 +7341,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     promptHasText={prompt.trim().length > 0}
                     isSendBusy={isSendBusy}
                     sendDisabledReason={sendDisabledReason}
+                    {...desktopVoiceFork.sendProps} /* fork-hook: voice-input/primary-send */
                     isConnecting={isConnecting}
                     isEnvironmentUnavailable={
                       environmentUnavailable !== null ||
@@ -7307,7 +7373,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
             )}
             {showInlineRestingControls ? (
-              <div className="h-8">
+              <div
+                className="h-8"
+                {...{
+                  "data-voice-input-resting-fork": "true",
+                }} /* fork-hook: voice-input/inline-resting */
+              >
                 <div
                   ref={setInlineRestingControlsHost}
                   className="absolute bottom-2 inset-x-4 min-w-0"
@@ -7327,6 +7398,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
               </div>
             ) : null}
+            {/* fork-hook: voice-input/footer */}
+            <VoiceComposerFooterFork
+              toolbar={desktopVoiceFork.toolbar}
+              compact={isComposerResting}
+              presented={desktopVoiceFork.presented}
+            />
+            {/* fork-hook-end */}
           </div>
         </ComposerSurface.Main>
       </div>
