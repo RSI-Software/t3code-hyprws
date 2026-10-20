@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import { defaultValueCtx, Editor, editorViewCtx, rootCtx } from "@milkdown/core";
 import { getMarkdown } from "@milkdown/utils";
 import { expect, it } from "vite-plus/test";
