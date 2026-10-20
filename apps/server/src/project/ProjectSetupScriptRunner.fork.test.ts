@@ -187,7 +187,7 @@ describe("fork setup outcome marker", () => {
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-default-setup",
-        data: `npm install${SETUP_OUTCOME_MARKER}\r`,
+        data: ` npm install${SETUP_OUTCOME_MARKER}\r`,
       });
     }).pipe(
       Effect.provide(
@@ -263,7 +263,7 @@ describe("fork setup outcome marker", () => {
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-setup",
-        data: `bun install${SETUP_OUTCOME_MARKER}\r`,
+        data: ` bun install${SETUP_OUTCOME_MARKER}\r`,
       });
     }).pipe(Effect.provide(testLayer(project, { open, write })));
   });
