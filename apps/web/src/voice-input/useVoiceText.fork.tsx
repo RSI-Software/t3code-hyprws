@@ -13,7 +13,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CaseSensitiveIcon, ListIcon, Undo2Icon, XIcon } from "lucide-react";
 import { readPreparedConnection, useEnvironmentScope } from "../state/session";
-import { Button } from "../components/ui/button";
+import { Button, InlineButton } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../components/ui/tooltip";
 import { useVoiceTextSettingsFork } from "./useVoiceSettings.fork";
@@ -302,14 +302,14 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
           <Tooltip>
             <TooltipTrigger
               render={
-                <button
-                  type="button"
-                  className="max-w-48 truncate text-xs text-destructive"
+                <InlineButton
+                  tone="destructive"
+                  className="max-w-48"
                   onClick={() => setError(null)}
                   aria-label={`Dismiss: ${error}`}
                 >
-                  {error}
-                </button>
+                  <span className="truncate text-xs">{error}</span>
+                </InlineButton>
               }
             />
             <TooltipPopup>{error}</TooltipPopup>
