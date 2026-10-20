@@ -2230,6 +2230,19 @@ it("refuses a rebased tip that drops a squash landing's pull request link", () =
   }, "fixup! feat(fork): owned change (#1600)");
 });
 
+it("retires the link of a fork commit upstream already carries patch-for-patch", () => {
+  withFoldFixture((f) => {
+    const oldSha = f.git(["rev-parse", "hyprws"], f.root);
+    // Upstream lands the fork's exact patches, so the rebase drops both.
+    const forkBase = f.git(["merge-base", "v1.0.0", oldSha], f.root);
+    f.git(["checkout", "--quiet", "--detach", forkBase], f.root);
+    f.git(["commit", "--quiet", "--allow-empty", "-m", "upstream change"], f.root);
+    f.git(["cherry-pick", "--quiet", `${forkBase}..${oldSha}`], f.root);
+    const target = { tag: "v1.0.1", sha: f.git(["rev-parse", "HEAD"], f.root) };
+    assert.doesNotThrow(() => refuseDroppedLinks(f.root, target, oldSha, target.sha));
+  }, "fixup! feat(fork): owned change (#1600)");
+});
+
 it("folds the fixup into its owner so the applied series never carries fix-of-fix", () => {
   withFoldFixture((f) => {
     const fold = (): void => {
