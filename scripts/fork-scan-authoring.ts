@@ -8,6 +8,8 @@
 import {
   caseSourceLines,
   enclosedSupersededTitles,
+  forkTestSibling,
+  isForkTestFile,
   supersededTitlesByPath,
 } from "./lib/fork-supersedes.ts";
 
@@ -223,7 +225,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         addedAt.set(path, positions);
         nextAddedLine += 1;
       }
-      if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
+      if (!added && TEST_FILE.test(path) && !isForkTestFile(path) && isSignificant(content)) {
         const heldLines = removedTestLines.get(path) ?? [];
         heldLines.push(content.trim());
         removedTestLines.set(path, heldLines);
@@ -262,7 +264,6 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
 };
 
 export const TEST_FILE = /\.test\.tsx?$/;
-const FORK_TEST_FILE = /\.fork\.test\.tsx?$/;
 
 /** The paths whose target-tree text the upstream-test rule measures this patch against. */
 export const upstreamTestPaths = (patch: CommitPatch): ReadonlyArray<string> => [
@@ -321,9 +322,6 @@ const declaredSupersededLines = (input: AuthoringGuardInput, path: string): Read
   return lines;
 };
 
-export const forkTestSibling = (path: string): string =>
-  path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
-
 const EMPTY_PATCH: CommitPatch = {
   removedExports: [],
   addedExports: [],
@@ -373,7 +371,7 @@ export const collectAuthoringWarnings = (
       left.localeCompare(right),
     )) {
       if (!input.upstreamTestFiles.has(path)) continue;
-      if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
+      if (!TEST_FILE.test(path) || isForkTestFile(path)) continue;
       warn(
         "upstream-test",
         `${path} gains ${count} fork test block(s); move them to ${forkTestSibling(path)}`,
@@ -387,7 +385,7 @@ export const collectAuthoringWarnings = (
       left.localeCompare(right),
     )) {
       if (!input.upstreamTestFiles.has(path)) continue;
-      if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
+      if (!TEST_FILE.test(path) || isForkTestFile(path)) continue;
       const upstreamLines = input.upstreamTestLines.get(path);
       const targetText = input.upstreamTestTexts.get(path);
       const headText = input.headTestTexts?.get(path);

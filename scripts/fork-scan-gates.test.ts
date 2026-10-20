@@ -21,8 +21,8 @@ import {
 } from "./fork-scan.ts";
 import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
+import { forkTestSibling, upstreamTestPath } from "./lib/fork-supersedes.ts";
 import {
-  forkTestSibling,
   parseCommitPatches,
   significantTestLines,
   upstreamSourceLines,
@@ -869,6 +869,15 @@ it("passes a hook-guard restore the target tree already has", () => {
 
 it("reads the sibling name and significant lines", () => {
   assert.equal(forkTestSibling("apps/web/src/thing.test.tsx"), "apps/web/src/thing.fork.test.tsx");
+  // The browser project includes only `*.browser.test.*`; the sibling must keep that suffix.
+  assert.equal(
+    forkTestSibling("apps/web/src/thing.browser.test.tsx"),
+    "apps/web/src/thing.fork.browser.test.tsx",
+  );
+  assert.equal(
+    upstreamTestPath("apps/web/src/thing.fork.browser.test.tsx"),
+    "apps/web/src/thing.browser.test.tsx",
+  );
   assert.deepStrictEqual(
     [...significantTestLines("// comment\n\nexpect(1).toBe(1);\n")],
     ["expect(1).toBe(1);"],
