@@ -51,6 +51,11 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
+import {
+  fromWireThreadEnvModeFields,
+  toWireThreadEnvModeFields,
+} from "@t3tools/shared/threadEnvMode.fork";
+import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
@@ -170,6 +175,11 @@ import {
   useSettingsSearchTargetId,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import {
+  ExternalSymlinksSettingsRowFork,
+  externalSymlinksRestoreLabelFork,
+} from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
+import { terminalRestoreDefaultsFork, terminalRestoreLabelsFork } from "./TerminalSettings.fork"; // fork-hook: zmux-estate/settings-restore-import
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
@@ -591,6 +601,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? ["Composer context"]
       : []),
+    ...terminalRestoreLabelsFork(settings), // fork-hook: zmux-estate/settings-restore-labels
     ...getChangedTypographySettingLabels(settings),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? ["Default diff file state"]
@@ -621,6 +632,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
       ? ["Response streaming"]
       : []),
+    ...(settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles
+      ? ["Show ignored files"]
+      : []),
+    ...externalSymlinksRestoreLabelFork(settings), // fork-hook: upstream-fixes/settings-restore-symlinks-label
     ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
       ? ["Provider update checks"]
       : []),
@@ -629,7 +644,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Continue threads after restarts"]
       : []),
     ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+    ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode // fork-hook: worktrunk-hooks/settings-restore-env-mode-wire
       ? ["New thread mode"]
       : []),
     ...(settings.newWorktreesStartFromOrigin !==
@@ -722,6 +737,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
+      ...terminalRestoreDefaultsFork, // fork-hook: zmux-estate/settings-restore-defaults
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
@@ -731,6 +747,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
+      showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles,
+      followExternalWorkspaceSymlinks: DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
@@ -751,6 +769,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+      defaultThreadEnvModeFork: undefined,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
@@ -2769,6 +2788,32 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+
+        <SettingsRow
+          {...searchableSetting("show-ignored-files")}
+          description="Include gitignored paths in workspace file trees. They remain hidden by default."
+          resetAction={
+            settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
+              <SettingResetButton
+                label="ignored files"
+                onClick={() =>
+                  updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showIgnoredFiles}
+              onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
+              aria-label="Show ignored files in workspace file trees"
+            />
+          }
+        />
+
+        {/* fork-hook: upstream-fixes/settings-row-mount */}
+        <ExternalSymlinksSettingsRowFork />
+        {/* fork-hook-end */}
 
         <SettingsRow
           serverScoped

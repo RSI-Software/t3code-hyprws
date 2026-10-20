@@ -22,6 +22,8 @@ import {
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthSettingsWriteScope, // fork-hook: upstream-fixes/split-settings-scope
+  AuthProvidersManageScope, // fork-hook: upstream-fixes/split-provider-scope
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthOrchestrationReadScope,
@@ -62,6 +64,7 @@ import * as Option from "effect/Option";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
+import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork"; // fork-hook: backend-attach/connections-session-scopes-import
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
@@ -2020,9 +2023,11 @@ export function ConnectionsSettings() {
   });
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const primarySessionState = usePrimarySessionState();
-  const currentSessionScopes = primarySessionState.data?.authenticated
-    ? (primarySessionState.data.permissions ?? primarySessionState.data.scopes ?? null)
-    : null;
+  const currentSessionScopes = connectionsSessionScopesFork(
+    desktopBridge,
+    AuthStandardClientScopes,
+    primarySessionState.data,
+  ); // fork-hook: backend-attach/connections-session-scopes
   const currentAuthPolicy = desktopBridge ? null : (primarySessionState.data?.auth.policy ?? null);
   const savedEnvironments = environments.filter(
     (environment) => environment.entry.target._tag !== "PrimaryConnectionTarget",

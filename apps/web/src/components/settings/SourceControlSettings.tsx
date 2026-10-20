@@ -50,6 +50,7 @@ import { SourceControlHostSettings } from "./SourceControlHostSettings";
 import { GitHubAccountSettings } from "./GitHubAccountSettings";
 import { GitHubTokenSettings } from "./GitHubTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   PolicyTooltip,
@@ -640,6 +641,7 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
+      <GitHubIssueSettingsSection />
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );
