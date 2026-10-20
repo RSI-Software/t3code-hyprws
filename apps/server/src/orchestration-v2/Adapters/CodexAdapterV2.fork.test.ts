@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { resolveCodexTurnAgent } from "../../provider/CodexAgentOptions.fork.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 
@@ -115,6 +116,13 @@ it.layer(NodeServices.layer)("Codex main-thread agent selection", (it) => {
 const threadId = "thread-1" as ThreadId;
 
 describe("codexThreadRuntimeParams thread identity", () => {
+  forkSupersedes({
+    upstream:
+      "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts > adds the session MCP server without replacing launch-argument servers",
+    reason:
+      "the fork adds the app thread identity to Codex's shell environment policy beside the session MCP server",
+    commit: "a164240e12b",
+  });
   it("adds the shell identity beside the thread's other config overrides", () => {
     const mcpSession = {
       environmentId: "environment-1" as EnvironmentId,
