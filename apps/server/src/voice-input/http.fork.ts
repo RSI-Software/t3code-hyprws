@@ -26,56 +26,52 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { "cache-control": "no-store" },
   });
-const authorize = (scope: AuthEnvironmentScope) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const auth = yield* EnvironmentAuth.EnvironmentAuth;
-    return yield* auth.authenticateHttpRequest(request).pipe(
-      Effect.map((session) =>
-        session.scopes.includes(scope)
-          ? null
-          : json({ error: "Permission required.", requiredScope: scope }, 403),
-      ),
-      Effect.catch((error) =>
-        EnvironmentAuth.isServerAuthCredentialError(error)
-          ? failEnvironmentAuthInvalid(
-              EnvironmentAuth.serverAuthCredentialReason(error),
-              EnvironmentAuth.serverAuthDpopFailureReason(error),
-            ).pipe(Effect.catch(HttpServerRespondable.toResponse))
-          : Effect.succeed(json({ error: "Authentication failed." }, 500)),
-      ),
-    );
-  });
+const authorize = Effect.fn("http.authorize")(function* (scope: AuthEnvironmentScope) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const auth = yield* EnvironmentAuth.EnvironmentAuth;
+  return yield* auth.authenticateHttpRequest(request).pipe(
+    Effect.map((session) =>
+      session.scopes.includes(scope)
+        ? null
+        : json({ error: "Permission required.", requiredScope: scope }, 403),
+    ),
+    Effect.catch((error) =>
+      EnvironmentAuth.isServerAuthCredentialError(error)
+        ? failEnvironmentAuthInvalid(
+            EnvironmentAuth.serverAuthCredentialReason(error),
+            EnvironmentAuth.serverAuthDpopFailureReason(error),
+          ).pipe(Effect.catch(HttpServerRespondable.toResponse))
+        : Effect.succeed(json({ error: "Authentication failed." }, 500)),
+    ),
+  );
+});
 
 /** Bound untrusted uploads before allocating the joined recording. */
-const readBody = (maxBytes: number) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const body = yield* Stream.runFoldEffect(
-      request.stream,
-      () => ({ size: 0, chunks: [] as Array<Uint8Array> }),
-      (body, chunk) => {
-        if (body.size + chunk.byteLength > maxBytes)
-          return Effect.fail(new VoiceInput.VoiceInputError({ reason: "audio" }));
-        body.size += chunk.byteLength;
-        body.chunks.push(chunk);
-        return Effect.succeed(body);
-      },
-    ).pipe(
-      Effect.mapError((cause) =>
-        isVoiceInputError(cause)
-          ? cause
-          : new VoiceInput.VoiceInputError({ reason: "audio", cause }),
-      ),
-    );
-    const bytes = new Uint8Array(body.size);
-    let at = 0;
-    for (const chunk of body.chunks) {
-      bytes.set(chunk, at);
-      at += chunk.byteLength;
-    }
-    return bytes;
-  });
+const readBody = Effect.fn("http.readBody")(function* (maxBytes: number) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const body = yield* Stream.runFoldEffect(
+    request.stream,
+    () => ({ size: 0, chunks: [] as Array<Uint8Array> }),
+    (body, chunk) => {
+      if (body.size + chunk.byteLength > maxBytes)
+        return Effect.fail(new VoiceInput.VoiceInputError({ reason: "audio" }));
+      body.size += chunk.byteLength;
+      body.chunks.push(chunk);
+      return Effect.succeed(body);
+    },
+  ).pipe(
+    Effect.mapError((cause) =>
+      isVoiceInputError(cause) ? cause : new VoiceInput.VoiceInputError({ reason: "audio", cause }),
+    ),
+  );
+  const bytes = new Uint8Array(body.size);
+  let at = 0;
+  for (const chunk of body.chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+});
 
 const failure = (error: VoiceInput.VoiceInputError) =>
   Effect.succeed(
