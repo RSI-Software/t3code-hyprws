@@ -57,6 +57,7 @@ import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { ProjectChooserScopeLabelFork } from "../components/ProjectChooserScopeLabel.fork"; // fork-hook: workspaces/chooser-scope-label
 import { RightPanelTabs } from "../components/RightPanelTabs";
 import { githubIssueSurface } from "../rightPanelStore.fork";
+import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { RefreshIcon } from "../components/ui/refresh-icon";
 import { Separator } from "../components/ui/separator";
@@ -489,13 +490,9 @@ export function GitHubIssuesPage({
       message: error.message,
     })) ?? []),
   ].map((notice) => (
-    <div
-      key={notice.key}
-      role="status"
-      className="rounded-lg border border-warning/30 bg-warning-surface px-3 py-2 text-warning-foreground text-xs"
-    >
-      {notice.message}
-    </div>
+    <Alert key={notice.key} role="status" variant="warning">
+      <AlertDescription>{notice.message}</AlertDescription>
+    </Alert>
   ));
 
   if (variant === "panel") {
