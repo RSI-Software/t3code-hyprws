@@ -51,7 +51,7 @@ export function GitHubIssueSearchField({
   readonly className?: string;
 }) {
   return (
-    <InputGroup className={cn("min-w-48 flex-1 **:[input]:h-9 sm:**:[input]:h-8", className)}>
+    <InputGroup className={cn("min-w-48 flex-1", className)}>
       <InputGroupAddon>
         <SearchIcon aria-hidden />
       </InputGroupAddon>
