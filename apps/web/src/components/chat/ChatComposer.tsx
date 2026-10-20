@@ -4,7 +4,10 @@ import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { useDesktopVoiceInputFork } from "../../voice-input/useVoiceInput.fork"; // fork-hook: voice-input/composer-import
+import {
+  useDesktopVoiceInputFork,
+  voicePendingAnswerFork,
+} from "../../voice-input/useVoiceInput.fork"; // fork-hook: voice-input/composer-import
 import { VoiceComposerFooterFork } from "../../voice-input/VoiceComposerControls.fork"; // fork-hook: voice-input/footer-import
 import { useRightPanelStore } from "~/rightPanelStore";
 import { importPastedComposerText, readPastedComposerContext } from "../composerInlineTokenPaste";
@@ -995,7 +998,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ownerKey: composerDraftTargetKey,
     draftTarget: composerDraftTarget, // fork-hook: voice-input/draft-target
     label: activeThread?.title || "New thread", // fork-hook: voice-input/draft-label
-    enabled: canOperateThread && !activePendingProgress && pendingApprovals.length === 0,
+    enabled: canOperateThread && pendingApprovals.length === 0, // fork-hook: voice-input/pending-answer-enabled
+    pendingAnswer: voicePendingAnswerFork(
+      pendingUserInputs[0]?.requestId,
+      activePendingProgress,
+      onChangeActivePendingUserInputCustomAnswer,
+    ), // fork-hook: voice-input/pending-answer
     readSelection: () =>
       composerEditorRef.current?.readSelectionRange() ?? {
         start: promptRef.current.length,
