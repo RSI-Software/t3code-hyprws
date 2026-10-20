@@ -5,7 +5,7 @@ import {
   type WindowScopeSeed,
 } from "@t3tools/contracts";
 import type { ProjectFilter } from "@t3tools/client-runtime/state/project-filter";
-import { Storage } from "happy-dom";
+import { MemoryStorage as Storage } from "./testStorage.fork";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { create } from "zustand";
 
