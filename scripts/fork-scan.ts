@@ -44,6 +44,9 @@ import { overlapPaths } from "./lib/fork-overlap.ts";
 import {
   assessForkSupersedes,
   collectForkSupersedes,
+  forkTestSibling,
+  isForkTestFile,
+  upstreamTestPath,
   type SituatedDeclaration,
 } from "./lib/fork-supersedes.ts";
 import {
@@ -1020,7 +1023,7 @@ const readSiblingTexts = (
 ): ReadonlyMap<string, string> => {
   const texts = new Map<string, string>();
   for (const path of [...upstreamTestTexts.keys()].toSorted()) {
-    const sibling = path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
+    const sibling = forkTestSibling(path);
     try {
       texts.set(sibling, git.run(["show", `${head}:${sibling}`]));
     } catch {
@@ -1062,7 +1065,7 @@ const readSupersedesAssessment = (
         "packages",
         "scripts",
       ]),
-    ).filter((path) => /\.fork\.test\.tsx?$/.test(path));
+    ).filter(isForkTestFile);
   } catch {
     return { supersedes: [], retireCandidates: [] };
   }
@@ -1082,7 +1085,7 @@ const readSupersedesAssessment = (
   // refuse it.
   const needed = new Set<string>();
   for (const [sibling, text] of siblingTexts) {
-    needed.add(sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1"));
+    needed.add(upstreamTestPath(sibling));
     for (const call of collectForkSupersedes(text).declarations) needed.add(call.upstreamPath);
   }
   const upstreamTexts = new Map<string, string>();
