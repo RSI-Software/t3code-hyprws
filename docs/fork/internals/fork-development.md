@@ -181,6 +181,7 @@ A fold is tree-equal but rewrites commit boundaries: the release delta revision 
 ### Fork tests live in fork-owned files
 
 Fork-authored test blocks go in `<name>.fork.test.ts`, never appended upstream.
+A browser test keeps its infix: `<name>.browser.test.tsx` pairs with `<name>.fork.browser.test.tsx`, so the browser project still runs it.
 Otherwise the replay conflicts at one seam on every upstream append.
 
 | Rule          | Detail                                                |
