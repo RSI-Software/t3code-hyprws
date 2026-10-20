@@ -10,7 +10,7 @@
 import * as NodePath from "node:path";
 
 import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { caseSourceLines, enclosedSupersededTitles } from "./fork-supersedes.ts";
+import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
 
@@ -254,12 +254,6 @@ const lostUpstreamLines = (
 
 /** Enough of the loss to recognise the case it came from, without pasting the file into a report. */
 const LOST_LINE_SAMPLE = 5;
-
-export const forkTestSibling = (path: string): string =>
-  path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
-
-export const upstreamTestPath = (sibling: string): string =>
-  sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
 
 // The significant lines one upstream case carries: the opener line naming
 // the title through the next case opener. Line-based, the way
