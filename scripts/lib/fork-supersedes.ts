@@ -41,6 +41,20 @@ export interface ForkSupersedesInput {
  */
 export const forkSupersedes = (_declaration: ForkSupersedesInput): void => {};
 
+// A sibling keeps its counterpart's `.browser` infix so the web browser
+// project, which includes only `*.browser.test.*`, still runs it:
+// `X.browser.test.tsx` pairs with `X.fork.browser.test.tsx`.
+const UPSTREAM_TEST_SUFFIX = /(\.browser)?\.test\.(tsx?)$/;
+const FORK_TEST_SUFFIX = /\.fork(\.browser)?\.test\.(tsx?)$/;
+
+export const isForkTestFile = (path: string): boolean => FORK_TEST_SUFFIX.test(path);
+
+export const forkTestSibling = (path: string): string =>
+  path.replace(UPSTREAM_TEST_SUFFIX, ".fork$1.test.$2");
+
+export const upstreamTestPath = (sibling: string): string =>
+  sibling.replace(FORK_TEST_SUFFIX, "$1.test.$2");
+
 // `upstream: "<path> > <title>"` — the path is the sibling's counterpart
 // with the `.fork` segment dropped, and the title is the upstream `it`/
 // `test`/`effectIt` case the fork deliberately contradicts. The call shape
@@ -437,7 +451,7 @@ export const assessForkSupersedes = (
     // The counterpart is the sibling with the `.fork` segment dropped, so
     // a sibling contradicts only its own upstream file — never a
     // same-titled case elsewhere.
-    const counterpart = sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1");
+    const counterpart = upstreamTestPath(sibling);
     const counterpartText = upstreamTexts.get(counterpart);
     const counterpartTitles =
       counterpartText === undefined ? new Set<string>() : new Set(testCaseTitles(counterpartText));
