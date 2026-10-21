@@ -4,6 +4,7 @@ import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import type * as Electron from "electron";
@@ -102,7 +103,7 @@ function makeLayer(
     readonly mainWindow?: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
     readonly savedBounds?: DesktopAppSettings.DesktopWindowBounds[];
     readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
-    readonly claims?: { key: string; title: string }[];
+    readonly claims?: Queue.Queue<{ key: string; title: string }>;
   } = {},
 ) {
   const windowIds = makeTestWindowIds();
@@ -160,7 +161,10 @@ function makeLayer(
         Layer.mock(DesktopServerExposure.DesktopServerExposure)({}),
         Layer.mock(HyprlandPlacement.HyprlandPlacement)({
           isAvailable: extra.claims !== undefined,
-          claim: (key, title) => Effect.sync(() => void extra.claims?.push({ key, title })),
+          claim: (key, title) =>
+            extra.claims === undefined
+              ? Effect.void
+              : Queue.offer(extra.claims, { key, title }).pipe(Effect.asVoid),
           forget: () => Effect.void,
           snapshotAddresses: Effect.succeed(new Set<string>()),
           stageWorkspaceRule: () => Effect.succeed(true),
@@ -482,7 +486,7 @@ describe("DesktopWindow (fork)", () => {
         const restored = makeWindow();
         const created = makeWindow();
         const options: Electron.BrowserWindowConstructorOptions[] = [];
-        const claims: { key: string; title: string }[] = [];
+        const claims = yield* Queue.unbounded<{ key: string; title: string }>();
         const token = windowClaimTitle(testWindowId(21));
         yield* Effect.gen(function* () {
           const desktopWindow = yield* DesktopWindow.DesktopWindow;
@@ -504,8 +508,10 @@ describe("DesktopWindow (fork)", () => {
           assert.deepEqual(created.setTitle.mock.calls, [["Renderer title"]]);
 
           restored.windowListeners.get("ready-to-show")?.();
-          yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-          assert.deepEqual(claims, [{ key: testWindowId(21), title: token }]);
+          assert.deepEqual(yield* Queue.takeN(claims, 1), [
+            { key: testWindowId(21), title: token },
+          ]);
+          assert.equal(yield* Queue.size(claims), 0);
           assert.deepEqual(restored.setTitle.mock.calls, [[token], ["Renderer title"]]);
         }).pipe(
           Effect.provide(
@@ -533,13 +539,12 @@ describe("DesktopWindow (fork)", () => {
       // Each fake window reports the title it was built with, as Electron does.
       const at = (index: number) => makeWindow(undefined, () => options[index]?.title ?? "");
       const [hub, first, second, third, later] = [at(0), at(1), at(2), at(3), at(4)];
-      const claims: { key: string; title: string }[] = [];
-      const flush = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      const claims = yield* Queue.unbounded<{ key: string; title: string }>();
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         hub.windowListeners.get("ready-to-show")?.();
-        yield* flush;
+        yield* Queue.take(claims);
         const normalTitle = options[0]?.title ?? "";
         assert.isNotEmpty(normalTitle);
 
@@ -563,12 +568,12 @@ describe("DesktopWindow (fork)", () => {
 
         for (const opened of [first, second, third])
           opened.windowListeners.get("ready-to-show")?.();
-        yield* flush;
-        assert.deepEqual(claims.slice(1), [
+        assert.deepEqual(yield* Queue.takeN(claims, 3), [
           { key: testWindowId(2), title: normalTitle },
           { key: testWindowId(3), title: windowClaimTitle(testWindowId(3)) },
           { key: testWindowId(4), title: windowClaimTitle(testWindowId(4)) },
         ]);
+        assert.equal(yield* Queue.size(claims), 0);
         // Claimed, each takes its normal title or the last one asked for.
         assert.deepEqual(second.setTitle.mock.calls, [["Renderer title"]]);
         assert.deepEqual(third.setTitle.mock.calls, [[normalTitle]]);
