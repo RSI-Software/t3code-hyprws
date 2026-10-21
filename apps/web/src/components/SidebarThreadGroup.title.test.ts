@@ -111,9 +111,16 @@ function harness() {
       },
     });
   mount();
+  // The request publishes its in-flight set from `finally`, after it has handled the result.
   const settle = async (result: TitleResult) => {
+    const handled = new Promise<void>((resolve) => {
+      const unsubscribe = owner.subscribe(() => {
+        unsubscribe();
+        resolve();
+      });
+    });
     pending.shift()!(result);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await handled;
   };
   const clickRetry = () => {
     const [toast] = open.values();
