@@ -86,11 +86,7 @@ import {
 } from "@t3tools/contracts/settings";
 import { isDesktopLocalConnectionTarget, isWslConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
-import {
-  openInNewWindowRequest,
-  requestDesktopWindow,
-  supportsDesktopProjectWindows,
-} from "../desktopWindows.fork"; // fork-hook: multi-window/dispatch-legacy-import
+import { legacyProjectWindowItemsFork } from "./LegacySidebar.fork"; // fork-hook: multi-window/dispatch-legacy-import
 import { isElectron } from "../env";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
@@ -1653,14 +1649,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         const id = `${action}:${member.physicalProjectKey}`;
         actionHandlers.set(id, () => {
           switch (action) {
-            case "open-window":
-              if (desktopBridge) {
-                requestDesktopWindow(
-                  desktopBridge,
-                  openInNewWindowRequest(scopeProjectRef(member.environmentId, member.id)),
-                );
-              } // fork-hook: multi-window/dispatch-legacy-row
-              return;
             case "rename":
               openProjectRenameDialog(member);
               return;
