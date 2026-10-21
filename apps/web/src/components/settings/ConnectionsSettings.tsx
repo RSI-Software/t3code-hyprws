@@ -9,6 +9,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  AuthStandardClientScopes, // fork-hook: backend-attach/connections-standard-scopes
   AuthAccessReadScope,
   AuthAccessWriteScope,
   AuthSettingsWriteScope, // fork-hook: upstream-fixes/split-settings-scope

@@ -10,11 +10,11 @@ import type {
 import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
-import { makeAttachedPrimaryBridge } from "./attachedPrimaryPreload.fork.ts"; // fork-hook: backend-attach/preload-import
 import { createClerkOAuthCancel } from "./clerkOAuthCancel.ts";
 import * as IpcChannels from "./ipc/channels.ts";
 import { makeVoiceDuckingBridgeFork } from "./voice-input/preload.fork.ts"; // fork-hook: voice-input/ducking-preload-import
 import { mergeLegacyLocalStorage } from "./legacyLocalStorageMerge.ts";
+import { makeAttachedPrimaryBridge } from "./attachedPrimaryPreload.fork.ts"; // fork-hook: backend-attach/preload-import
 import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";
 
 const SNAP_SHOT_EVENT_TYPES = new Set([
