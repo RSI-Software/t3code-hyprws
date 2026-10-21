@@ -472,3 +472,13 @@ export const methods = [
   saveRecording,
 ] as const;
 PreviewIpcFork.scopeMethodsToSender(methods); // fork-hook: multi-window/preview-window-requester
+
+export {
+  clearCache,
+  clearCookies,
+  closeTab,
+  createTab,
+  getPreviewConfig,
+  navigate,
+  registerWebview,
+}; // fork-hook: multi-window/preview-methods-export
