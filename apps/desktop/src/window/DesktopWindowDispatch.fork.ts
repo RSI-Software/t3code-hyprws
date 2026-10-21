@@ -1,4 +1,5 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import type * as Electron from "electron";
@@ -23,12 +24,38 @@ import type { WindowIdentity } from "./WindowIdentity.ts";
 
 const { logInfo: logWindowInfo } = makeComponentLogger("desktop-window");
 
+interface WindowCreateTarget {
+  readonly identity: WindowIdentity;
+  readonly windowId: WindowId;
+  readonly dispatched?: WindowCreateRequest | undefined;
+}
+
+/**
+ * The window `createWindow` builds. Upstream's `createWindow` takes no
+ * arguments, so its callers provide the target here instead of widening it.
+ */
+const WindowCreateTargetFork = Context.Reference<Option.Option<WindowCreateTarget>>(
+  "t3/desktop/WindowCreateTarget.fork",
+  { defaultValue: () => Option.none() },
+);
+
+export const requireWindowCreateTargetFork = Effect.gen(function* () {
+  const target = yield* WindowCreateTargetFork;
+  if (Option.isNone(target)) return yield* Effect.die("createWindow ran without a create target");
+  return target.value;
+});
+
+export const withWindowCreateTargetFork =
+  (target: WindowCreateTarget) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.provideService(effect, WindowCreateTargetFork, Option.some(target));
+
 /**
  * Whether a window is the primary one the app opened itself. A dispatched
  * window (New Window, Open in New Window) is never primary: it leaves the one
  * saved bounds slot to the primary window.
  */
-export const isPrimaryWindowFork = (
+const isPrimaryWindowFork = (
   identity: WindowIdentity,
   dispatched: WindowCreateRequest | undefined,
 ): boolean => identity.kind === "hub" && dispatched === undefined;
