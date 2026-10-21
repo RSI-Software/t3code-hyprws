@@ -1,6 +1,5 @@
-import { act, useLayoutEffect, useSyncExternalStore } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { useLayoutEffect, useSyncExternalStore } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 import * as Option from "effect/Option";
 import {
   EnvironmentId,
@@ -9,6 +8,7 @@ import {
   ThreadId,
   VOICE_TEXT_STARTER_PROMPTS_FORK,
 } from "@t3tools/contracts";
+import { act, render, type Screen } from "../../test/render";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { DesktopVoiceSessionFork } from "./session.fork";
 import { useDesktopVoiceInputFork } from "./useVoiceInput.fork";
@@ -76,7 +76,6 @@ vi.mock("./VoiceInputProvider.fork", () => ({
   })) as never,
 }));
 
-let root: Root | undefined;
 let actions: ReturnType<typeof useDesktopVoiceInputFork>;
 let pendingAnswer: { key: string; text: string; commit: (text: string) => void } | undefined;
 function Probe() {
@@ -101,37 +100,31 @@ function Probe() {
   // The composer hides the normal controls when the dictation toolbar is presented.
   return value.presented ? value.toolbar : value.controls;
 }
-let host: HTMLDivElement | undefined;
+let screen: Screen | undefined;
 function container() {
-  return host!;
+  return screen!.container;
 }
 function button(label: string) {
   const match = container().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
   if (!match) throw new Error(`No ${label} button.`);
   return match;
 }
-afterEach(async () => {
-  await act(() => root?.unmount());
-  root = undefined;
-  host?.remove();
-  host = undefined;
-  runtime?.session.dispose();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  mocks.listeners.clear();
-  pendingAnswer = undefined;
-});
-
 function mountRuntime(transcript: string) {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  mocks.draft = "";
-  vi.spyOn(useComposerDraftStore, "subscribe").mockImplementation((listener) => {
-    const notify = () =>
-      listener(useComposerDraftStore.getState(), useComposerDraftStore.getState());
-    mocks.listeners.add(notify);
-    return () => mocks.listeners.delete(notify);
+  const stack = new AsyncDisposableStack();
+  stack.defer(() => {
+    mocks.listeners.clear();
+    pendingAnswer = undefined;
   });
+  stack.use(vi.spyOn(console, "error").mockImplementation(() => {}));
+  mocks.draft = "";
+  stack.use(
+    vi.spyOn(useComposerDraftStore, "subscribe").mockImplementation((listener) => {
+      const notify = () =>
+        listener(useComposerDraftStore.getState(), useComposerDraftStore.getState());
+      mocks.listeners.add(notify);
+      return () => mocks.listeners.delete(notify);
+    }),
+  );
   const recorded = Promise.withResolvers<void>();
   const recorder = {
     uri: "memory:recording",
@@ -153,23 +146,24 @@ function mountRuntime(transcript: string) {
       }),
     }),
   };
-  return recorded.promise;
-}
-
-async function render() {
-  await act(() => {
-    host = document.createElement("div");
-    document.body.append(host);
-    root = createRoot(host);
-    root.render(<Probe />);
-  });
+  stack.defer(() => runtime.session.dispose());
+  return {
+    recorded: recorded.promise,
+    async mount() {
+      screen = stack.use(await render(<Probe />, { router: false }));
+    },
+    async [Symbol.asyncDispose]() {
+      await stack.disposeAsync();
+      screen = undefined;
+    },
+  };
 }
 
 describe("automatic cleanup in the active dictation toolbar", () => {
   it.each(["button", "Escape"])(
     "cancels through %s and commits raw speech without formatting",
     async (cancelWith) => {
-      const recorded = mountRuntime("raw use affect words");
+      await using fixture = mountRuntime("raw use affect words");
       const cleanupStarted = Promise.withResolvers<AbortSignal>();
       mocks.request.mockReset().mockImplementation(
         (_input, signal: AbortSignal) =>
@@ -178,10 +172,10 @@ describe("automatic cleanup in the active dictation toolbar", () => {
             signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
           }),
       );
-      await render();
+      await fixture.mount();
       await act(async () => {
         button("Record dictation").click();
-        await recorded;
+        await fixture.recorded;
       });
       let finishing: Promise<void>;
       await act(async () => {
@@ -194,7 +188,7 @@ describe("automatic cleanup in the active dictation toolbar", () => {
           status.textContent?.includes("Cleaning up"),
         ),
       ).toBe(true);
-      const cancelDictation = vi.spyOn(runtime.session.controller, "cancel");
+      using cancelDictation = vi.spyOn(runtime.session.controller, "cancel");
       await act(async () => {
         if (cancelWith === "button") button("Cancel text processing").click();
         else
@@ -212,17 +206,17 @@ describe("automatic cleanup in the active dictation toolbar", () => {
 
 describe("dictating a pending question answer", () => {
   it("commits to the answer, never the hidden composer draft", async () => {
-    const recorded = mountRuntime("yes");
+    await using fixture = mountRuntime("yes");
     mocks.stored = [];
     mocks.request.mockReset().mockRejectedValue(new Error("offline"));
     const commit = vi.fn((text: string) => {
       pendingAnswer = { key: "request:question", text, commit };
     });
     pendingAnswer = { key: "request:question", text: "", commit };
-    await render();
+    await fixture.mount();
     await act(async () => {
       button("Record dictation").click();
-      await recorded;
+      await fixture.recorded;
     });
     await act(() => runtime.session.controller.stop());
     expect(commit).toHaveBeenCalledWith("yes");
