@@ -176,8 +176,8 @@ it.live("admits a live granted session only with a fresh proof from its own key"
     const forged = `${client.token.slice(0, -4)}AAAA`;
     expect(yield* initialize(auth(forged, client.key.proof(forged)))).toEqual(refused);
 
-    const expiring = yield* enroll(Duration.millis(20));
-    yield* Effect.sleep("50 millis");
+    // A zero TTL expires at issue: the store refuses once `expiresAt <= now`.
+    const expiring = yield* enroll(Duration.zero);
     expect(yield* initialize(auth(expiring.token, expiring.key.proof(expiring.token)))).toEqual(
       refused,
     );
