@@ -1081,7 +1081,6 @@ export default function Sidebar() {
   );
 
   const handleOpenProjectWindow = openProjectWindowFork(desktopBridge, dispatchProjectScopeMenu); // fork-hook: multi-window/sidebar-open-window
-
   const {
     threads,
     workingShelfEnabled,
