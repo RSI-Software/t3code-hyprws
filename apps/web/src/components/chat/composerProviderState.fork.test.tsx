@@ -86,13 +86,6 @@ describe("getComposerProviderState legacy plan mode", () => {
       getComposerProviderState({ ...input, provider: PROVIDER }).modelOptionsForDispatch,
     ).toEqual(selections(["agent", "plan"]));
   });
-  forkSupersedes({
-    upstream:
-      "apps/web/src/components/chat/composerProviderState.test.tsx > drops the agent descriptor entirely when plan is the only option and plan mode is disabled",
-    reason:
-      "only OpenCode hides its plan agent with legacy plan mode off; other providers keep plan as a selectable main-thread agent",
-    commit: "cfe211a818a",
-  });
   it("drops the OpenCode agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
     const state = getComposerProviderState({
       provider: OPENCODE_PROVIDER,
