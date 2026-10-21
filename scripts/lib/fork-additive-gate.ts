@@ -9,7 +9,7 @@
 
 import * as NodePath from "node:path";
 
-import type { CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { readBlobs, type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
 import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";
@@ -43,17 +43,6 @@ const gitOut = (
   args: ReadonlyArray<string>,
 ): string | null => {
   const result = runner.run("git", args, worktree);
-  if (result.status !== 0 || result.error !== undefined) return null;
-  return result.stdout;
-};
-
-const showTree = (
-  runner: CommandRunner,
-  worktree: string,
-  tree: string,
-  path: string,
-): string | null => {
-  const result = runner.run("git", ["show", `${tree}:${path}`], worktree);
   if (result.status !== 0 || result.error !== undefined) return null;
   return result.stdout;
 };
@@ -269,25 +258,33 @@ const testFindings = (
   head = "HEAD",
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
-  for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
-    const upstreamText = showTree(runner, worktree, target, path);
+  const paths = treeNames(runner, worktree, target).filter(isTestPath);
+  const blobs = readBlobs(
+    worktree,
+    paths.flatMap((path) => [
+      `${target}:${path}`,
+      `${upstreamTarget}:${path}`,
+      `${head}:${path}`,
+      `${head}:${forkTestSibling(path)}`,
+    ]),
+  );
+  const showTree = (tree: string, path: string): string | null =>
+    blobs.get(`${tree}:${path}`) ?? null;
+  for (const path of paths) {
+    const upstreamText = showTree(target, path);
     if (upstreamText === null) continue;
-    // Lost lines and declaration counts are measured against the upstream
-    // target tree, not the since tree: a case the fork added itself (absent
-    // upstream) may leave freely — moving a legacy fork case into a
-    // `.fork.test.ts` sibling must not read as upstream loss. Only an
-    // upstream-carried declaration counts.
-    const upstreamBaseText = showTree(runner, worktree, upstreamTarget, path);
+    // Lost lines and declaration counts are measured against the upstream target tree, not the since
+    // tree: a case the fork added itself may leave freely, so moving it into a `.fork.test.ts`
+    // sibling is not upstream loss. Only an upstream-carried declaration counts.
+    const upstreamBaseText = showTree(upstreamTarget, path);
     const forkOwned = target !== upstreamTarget && upstreamBaseText === null;
-    // A null base text IS the fork-created case: trees.base is the upstream
-    // merge base, so every upstream-carried test is in it by construction.
-    // A fork-created file is exempt from the deletion, lost-line, and
-    // shrink checks below — but NOT from the .skip/.todo/.only marker
-    // check, which has no upstream-ownership premise.
+    // A null base text IS the fork-created case: trees.base is the upstream merge base, so every
+    // upstream-carried test is in it. A fork-created file skips the deletion, lost-line, and shrink
+    // checks, but NOT the .skip/.todo/.only check, which has no upstream-ownership premise.
     const upstreamCountText = target === upstreamTarget ? upstreamText : (upstreamBaseText ?? "");
     const upstreamCountModifiers = declarationModifiers(upstreamCountText);
     const upstreamPresent = countPresent(upstreamCountModifiers);
-    const headText = showTree(runner, worktree, head, path);
+    const headText = showTree(head, path);
     if (headText === null) {
       if (forkOwned) continue;
       findings.push({
@@ -309,22 +306,13 @@ const testFindings = (
     );
     const carried = lostUpstreamLines(significantLines(upstreamText), forkCopies);
     const lost = lostUpstreamLines(carried, headLines);
-    const siblingText = showTree(runner, worktree, head, forkTestSibling(path));
+    const siblingText = showTree(head, forkTestSibling(path));
     const siblingLines = new Set(significantLines(siblingText ?? ""));
     const unmoved = lost.filter((line) => !siblingLines.has(line));
-    // A live declaration supersedes rather than contradicts: the upstream
-    // case it names may lose its lines and its declarations, because the
-    // sibling carries the fork behaviour beside a record of why. Only a
-    // named case is excused — a sibling case contradicting without one
-    // stays a finding, and the scan's own supersedes findings name it.
-    // The exemption is per declaration, resolved by documentation: each
-    // declaration must sit immediately before a sibling case, and each
-    // documented case excuses exactly one declaration. Five declarations
-    // stacked before one case excuse one deletion, never five
-    // (RSI-Software/t3code-hyprws#1208).
-    // An inversion names a different title than upstream's, so the
-    // exemption keys on the declaration, never on a same-titled sibling
-    // case.
+    // A live declaration supersedes rather than contradicts, so the upstream case it names may lose its
+    // lines and declarations. Each declaration must sit immediately before a sibling case, and each
+    // documented case excuses exactly one. An inversion names a title unlike upstream's, so the
+    // exemption keys on the declaration, never on a same-titled sibling case.
     const named = enclosedSupersededTitles(siblingText ?? "", path);
     const excused =
       named.length === 0

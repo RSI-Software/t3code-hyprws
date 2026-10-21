@@ -8,6 +8,7 @@ import { assert, it } from "@effect/vitest";
 
 import {
   isTransientCommandFailure,
+  readBlobs,
   requireCommandSuccess,
   runCommand,
   runCommandTextWithRetry,
@@ -156,4 +157,21 @@ it("throws immediately on a 404 with zero retries", () => {
   // so assert the counter shows exactly one attempt.
   const counter = NodePath.join(NodePath.dirname(script), "counter");
   assert.strictEqual(NodeFS.readFileSync(counter, "utf8"), "1");
+});
+
+it("reads each blob by its own spec when a path holds a newline", () => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-command-blobs-"));
+  NodeFS.writeFileSync(NodePath.join(dir, "a"), "first");
+  NodeFS.writeFileSync(NodePath.join(dir, "a\nb"), "second");
+  NodeFS.writeFileSync(NodePath.join(dir, "b"), "third");
+  const git = (...args: ReadonlyArray<string>) => runCommand("git", args, { cwd: dir });
+  git("init", "-q");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "blobs");
+  const blobs = readBlobs(dir, ["HEAD:a", "HEAD:a\nb", "HEAD:b", "HEAD:missing"]);
+  assert.deepStrictEqual(Object.fromEntries(blobs), {
+    "HEAD:a": "first",
+    "HEAD:a\nb": "second",
+    "HEAD:b": "third",
+  });
 });
