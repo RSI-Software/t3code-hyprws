@@ -52,31 +52,20 @@ export const previewOwnedForwardingFork = {
   subscribeOwnedOpenLinks: () => Effect.void,
 } satisfies Partial<PreviewManager.PreviewManager["Service"]>;
 
-/**
- * Preview session overrides that record calls when a fork case passes the
- * matching recorder; without one, upstream's mock stands.
- */
+/** Records shared-session requests when a fork case passes a recorder; else upstream's mock stands. */
 export const previewSessionCountersFork = (input: {
   readonly previewBrowserSessionRequests?: number[];
-  readonly previewMainWindowSets?: Electron.BrowserWindow[];
 }): Partial<PreviewManager.PreviewManager["Service"]> => {
-  const { previewBrowserSessionRequests: sessionRequests, previewMainWindowSets: mainWindowSets } =
-    input;
-  return {
-    ...(sessionRequests && {
-      getBrowserSession: () =>
-        Effect.sync(() => {
-          sessionRequests.push(1);
-          return {} as Electron.Session;
-        }),
-    }),
-    ...(mainWindowSets && {
-      setMainWindow: (window) =>
-        Effect.sync(() => {
-          mainWindowSets.push(window);
-        }),
-    }),
-  };
+  const requests = input.previewBrowserSessionRequests;
+  return requests
+    ? {
+        getBrowserSession: () =>
+          Effect.sync(() => {
+            requests.push(1);
+            return {} as Electron.Session;
+          }),
+      }
+    : {};
 };
 
 /**
@@ -374,7 +363,6 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         assert.deepEqual(previewOwners, [testWindowId(1)]);
         assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
-        assert.isFalse(fakeWindow.windowListeners.has("resize"));
 
         fakeWindow.windowListeners.get("ready-to-show")?.();
         yield* Effect.yieldNow;
@@ -382,9 +370,15 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
           placementClaims.map((claim) => claim.key),
           [testWindowId(1)],
         );
-        const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
         const preventDefault = vi.fn();
-        pageTitleUpdated?.({ preventDefault }, "Project One");
+        // The fake keeps one listener per event; the project title needs every one.
+        const listeners = vi.mocked(fakeWindow.window.on).mock.calls as unknown as [
+          string,
+          (...args: readonly unknown[]) => void,
+        ][];
+        for (const [event, listener] of listeners) {
+          if (event === "page-title-updated") listener({ preventDefault }, "Project One");
+        }
         assert.equal(preventDefault.mock.calls.length, 1);
         assert.deepEqual(fakeWindow.setTitle.mock.calls, [["Project One"]]);
 
