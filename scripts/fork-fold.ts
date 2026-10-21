@@ -208,7 +208,8 @@ export const resolvePlan = (
       used.add(commit.sha);
       return [commit];
     });
-    const domains = [...new Set(members.map((member) => member.domain ?? ""))];
+    // A `fixup!` carries no trailers; it takes its owner's domain.
+    const domains = [...new Set(members.flatMap((member) => member.domain ?? []))];
     if (domains.length > 1)
       problems.push(`line ${line.line}: fold mixes Fork-Domain: ${domains.toSorted().join(", ")}`);
     return {
@@ -229,7 +230,10 @@ const TIER_RANK: Readonly<Record<string, number>> = { core: 0, qol: 1, bugfix: 2
 const tierRank = (tier: string | undefined) => TIER_RANK[tier ?? ""] ?? 3;
 
 /** The fold's trailer block: the first member's domain, the strongest tier. */
-export const foldTrailers = (members: ReadonlyArray<FoldCommit>): string => {
+export const foldTrailers = (all: ReadonlyArray<FoldCommit>): string => {
+  // A trailerless `fixup!` takes its owner's trailers; it never votes on them.
+  const tagged = all.filter((member) => member.domain !== undefined);
+  const members = tagged.length === 0 ? all : tagged;
   const tier = members
     .map((member) => member.tier)
     .toSorted((a, b) => tierRank(a) - tierRank(b))[0];
