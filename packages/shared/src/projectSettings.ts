@@ -216,6 +216,10 @@ export function resolveNewThreadEnvMode(input: {
   return isNewProjectFolder ? "local" : configured;
 }
 
+export function resolveSendEnvMode<Mode extends string>(input: {
+  readonly requestedEnvMode: Mode;
+  readonly isGitRepo: boolean;
+}): Mode | "local"; // fork-hook: worktrunk-hooks/send-env-mode-any-mode
 export function resolveSendEnvMode(input: {
   readonly requestedEnvMode: ThreadEnvMode;
   readonly isGitRepo: boolean;
