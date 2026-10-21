@@ -19,7 +19,6 @@ import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserSession from "../../preview/BrowserSession.ts";
-import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { previewManagerFixtureLayer } from "../../preview/Manager.fork-test-harness.ts";
 import { type WindowId, windowIdPreloadArgument } from "../../window/WindowId.fork.ts";
 
@@ -375,14 +374,6 @@ describe("fork preview IPC ownership", () => {
     );
   });
 
-  // Fork handlers resolve the sender's window before any preview state (commit `70240ecf8e5`).
-  forkSupersedes({
-    upstream:
-      "apps/desktop/src/ipc/methods/preview.test.ts > rejects invalid webContents ids before resolving the preview service",
-    reason:
-      "fork preview handlers resolve the sender window first, so they require the ElectronWindow service the upstream case never provides",
-    commit: "70240ecf8e5",
-  });
   effectIt.effect("rejects invalid webContents ids before reaching the sender's preview", () => {
     const sender = { id: 1 } as Electron.WebContents;
     const registerWebview = vi.fn(() => Effect.void);

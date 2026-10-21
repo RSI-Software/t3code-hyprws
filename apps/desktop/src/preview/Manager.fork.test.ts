@@ -8,7 +8,6 @@ import type * as Scope from "effect/Scope";
 import { describe, expect, vi } from "vite-plus/test";
 import type { WindowId } from "../window/WindowId.fork.ts";
 import { previewManagerFixtureLayer } from "./Manager.fork-test-harness.ts";
-import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
 import * as PreviewManager from "./Manager.ts";
 
 const { fromId, webviewSend } = vi.hoisted(() => ({
@@ -246,14 +245,6 @@ describe("fork preview manager zoom and window close", () => {
     ),
   );
 
-  // Fork restores guest zoom after the embedder's zoom lands (commit `e576b6454c8`).
-  forkSupersedes({
-    upstream:
-      "apps/desktop/src/preview/Manager.test.ts > re-applies each tab's own zoom when the app window zooms",
-    reason:
-      "fork replaces reapplyZoom with preserveGuestZooms, which restores each guest only after the app window's zoom change runs",
-    commit: "e576b6454c8",
-  });
   effectIt.effect("preserves each tab's own zoom while the app window zooms", () =>
     withManager((manager) =>
       Effect.gen(function* () {
