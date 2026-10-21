@@ -1180,14 +1180,14 @@ export interface DesktopBridge {
   isClerkOAuthPending?: () => boolean;
   onClerkOAuthPendingChange?: (listener: (pending: boolean) => void) => () => void;
   cancelClerkOAuth?: () => void;
+  getWindowFullscreenState: () => boolean;
+  onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   /**
    * Whether this Electron window currently demands live renderer resources.
    * Optional so a newer web bundle can fall back to document visibility in an older shell.
    */
   getWindowDemandState?: () => boolean;
   onWindowDemandStateChange?: (listener: (demanded: boolean) => void) => () => void;
-  getWindowFullscreenState: () => boolean;
-  onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   /** App window zoom; older desktop shells omit this method. */
   getWindowZoomFactor?: () => number;
   getUpdateState: () => Promise<DesktopUpdateState>;
