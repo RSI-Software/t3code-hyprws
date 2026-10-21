@@ -360,7 +360,7 @@ function layerTest(input: {
             onSome: windowIds.existing, // fork-hook: multi-window/window-id-existing
           }),
         ),
-      ),
+      ), // fork-hook: multi-window/identity-window-get-or-create
     createNew: (identity, create, requestedId) =>
       windowIds.create(create, requestedId).pipe(
         Effect.tap((window) =>
