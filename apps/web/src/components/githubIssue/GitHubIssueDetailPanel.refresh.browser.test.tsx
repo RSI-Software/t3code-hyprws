@@ -1,9 +1,8 @@
 import type { EnvironmentId, GitHubIssueDetail, ProjectId } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
+import { render } from "../../../test/render";
 import { GitHubIssueDetailPanel } from "./GitHubIssueDetailPanel";
 
 const state = vi.hoisted(() => ({
@@ -70,105 +69,43 @@ function makeDetail(): GitHubIssueDetail {
   } as unknown as GitHubIssueDetail;
 }
 
-function renderPanel(reference?: {
-  readonly projectId: string;
-  readonly repository: string;
-  readonly number: number;
-}) {
-  const ref = reference ?? { projectId: "project-1", repository: "acme/web", number: 42 };
-  const element = (
+function panel(number = 42) {
+  return (
     <GitHubIssueDetailPanel
       environmentId={"env-1" as EnvironmentId}
       composerTarget={null}
       onSelectSubIssue={() => {}}
-      reference={{
-        projectId: ref.projectId as ProjectId,
-        repository: ref.repository,
-        number: ref.number,
-      }}
+      reference={{ projectId: "project-1" as ProjectId, repository: "acme/web", number }}
     />
   );
-  act(() => root.render(element));
-  return root;
 }
 
-let root: Root;
-let container: HTMLDivElement;
+function renderPanel() {
+  state.refresh.mockClear();
+  state.data = makeDetail();
+  state.isPending = false;
+  return render(panel(), { router: false });
+}
 
 describe("GitHub issue side panel refresh", () => {
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    state.refresh.mockClear();
-    state.data = makeDetail();
-    state.isPending = false;
-  });
-
-  afterEach(() => {
-    act(() => root.unmount());
-    container.remove();
-    vi.unstubAllGlobals();
-  });
-
-  it("re-reads the open issue once when the panel opens, not on every render", () => {
-    renderPanel();
+  it("re-reads the open issue once when the panel opens, not on every render", async () => {
+    await using screen = await renderPanel();
     expect(state.refresh).toHaveBeenCalledTimes(1);
-    act(() => {
-      root.render(
-        <GitHubIssueDetailPanel
-          environmentId={"env-1" as EnvironmentId}
-          composerTarget={null}
-          onSelectSubIssue={() => {}}
-          reference={{
-            projectId: "project-1" as ProjectId,
-            repository: "acme/web",
-            number: 42,
-          }}
-        />,
-      );
-    });
+    await screen.rerender(panel());
     expect(state.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("re-reads once when a different issue opens under the mounted panel", () => {
-    renderPanel();
+  it("re-reads once when a different issue opens under the mounted panel", async () => {
+    await using screen = await renderPanel();
     expect(state.refresh).toHaveBeenCalledTimes(1);
-    act(() => {
-      root.render(
-        <GitHubIssueDetailPanel
-          environmentId={"env-1" as EnvironmentId}
-          composerTarget={null}
-          onSelectSubIssue={() => {}}
-          reference={{
-            projectId: "project-1" as ProjectId,
-            repository: "acme/web",
-            number: 43,
-          }}
-        />,
-      );
-    });
+    await screen.rerender(panel(43));
     expect(state.refresh).toHaveBeenCalledTimes(2);
-    act(() => {
-      root.render(
-        <GitHubIssueDetailPanel
-          environmentId={"env-1" as EnvironmentId}
-          composerTarget={null}
-          onSelectSubIssue={() => {}}
-          reference={{
-            projectId: "project-1" as ProjectId,
-            repository: "acme/web",
-            number: 43,
-          }}
-        />,
-      );
-    });
+    await screen.rerender(panel(43));
     expect(state.refresh).toHaveBeenCalledTimes(2);
   });
 
   it("re-reads on demand from the actions menu", async () => {
-    renderPanel();
+    await using _screen = await renderPanel();
     await page.getByRole("button", { name: "More issue actions" }).click();
     await page.getByRole("menuitem", { name: "Refresh" }).click();
     expect(state.refresh).toHaveBeenCalledTimes(2);
