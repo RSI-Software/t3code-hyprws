@@ -9,12 +9,6 @@ import {
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 
-import {
-  filterSidebarProjects,
-  resolveSidebarPhysicalScope,
-  setSidebarLogicalScope,
-} from "./sidebar/SidebarPhysicalScope";
-import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
