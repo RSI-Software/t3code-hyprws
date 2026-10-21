@@ -1286,7 +1286,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
 
   const handleOpenProjectWindow = openProjectWindowFork(desktopBridge, dispatchProjectScopeMenu); // fork-hook: multi-window/sidebar-open-window
-
   const {
     workingShelfEnabled,
     pinnedThreads,
