@@ -1,9 +1,9 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - the watched loop must block the real main thread.
+// @effect-diagnostics nodeBuiltinImport:off - the watched loop must block the real main thread.
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { initialState, startStackWatch, step } from "./MemoryWatch.fork.ts";
 
@@ -41,13 +41,14 @@ describe("startStackWatch", () => {
     const worker = startStackWatch({ logsDir, thresholdBytes: 0, samples: 2 });
     try {
       await new Promise((resolve) => worker.once("online", resolve));
-      const busyUntil = Date.now() + 3_000;
+      // Spins until the worker writes its stacks; checks are rare so pauses land in the spin,
+      // and the check bound turns a silent worker into a failure instead of a hung runner.
       (function stuckInSyncLoop() {
-        while (Date.now() < busyUntil);
+        for (let checks = 0; checks < 1_000 && NodeFS.readdirSync(logsDir).length === 0; checks++) {
+          for (let spin = 0; spin < 100_000_000; spin++);
+        }
       })();
-      await vi.waitFor(() => expect(NodeFS.readdirSync(logsDir)).toHaveLength(1), {
-        timeout: 5_000,
-      });
+      expect(NodeFS.readdirSync(logsDir)).toHaveLength(1);
       const [file] = NodeFS.readdirSync(logsDir);
       const stacks = JSON.parse(NodeFS.readFileSync(NodePath.join(logsDir, file!), "utf8"));
       expect(stacks).toHaveLength(2);
