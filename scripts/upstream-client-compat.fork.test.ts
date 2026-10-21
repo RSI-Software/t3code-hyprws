@@ -338,7 +338,7 @@ let upstream: Contracts;
 
 beforeAll(async () => {
   [fork, upstream] = await Promise.all([loadForkContracts(), loadUpstreamContracts()]);
-}, 60_000);
+});
 
 describe("an upstream client reading a fork server", () => {
   it("decodes every shell stream item and the shell snapshot route", () => {
