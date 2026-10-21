@@ -7,7 +7,7 @@ import type { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
  * network: without this bound, opening a project whose environment is down
  * leaves the route stuck with nothing rendered.
  */
-export const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
+const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
 
 /** Bounds a query by the timeout; an expired query settles as an interrupt, which reads as no file. */
 export const withProjectFileTimeoutFork =
