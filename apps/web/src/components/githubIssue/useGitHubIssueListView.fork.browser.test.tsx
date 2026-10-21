@@ -1,7 +1,6 @@
-import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
+import { act, render } from "../../../test/render";
 import { useGitHubIssueListViewFork } from "./useGitHubIssueListView.fork";
 
 function Controls() {
@@ -19,26 +18,21 @@ function Controls() {
   );
 }
 
-afterEach(() => localStorage.clear());
-
 describe("Issues list preferences", () => {
   it("restores order and filter rows after an unmount and remount", async () => {
-    const container = document.createElement("div");
-    let root = createRoot(container);
-    await act(async () => root.render(<Controls />));
-    await act(async () => {
-      container.querySelectorAll("button")[0]!.click();
-      container.querySelectorAll("button")[1]!.click();
+    using _storage = { [Symbol.dispose]: () => localStorage.clear() };
+    await using first = await render(<Controls />, { router: false });
+    await act(() => {
+      first.container.querySelectorAll("button")[0]!.click();
+      first.container.querySelectorAll("button")[1]!.click();
     });
     const expected = JSON.stringify({
       order: { sort: "comments", direction: "asc" },
       narrowing: [{ field: "label", operator: "is-not", values: ["ui"] }],
     });
-    expect(container.querySelector("output")?.textContent).toBe(expected);
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await act(async () => root.render(<Controls />));
-    expect(container.querySelector("output")?.textContent).toBe(expected);
-    await act(async () => root.unmount());
+    expect(first.container.querySelector("output")?.textContent).toBe(expected);
+    await first.unmount();
+    await using second = await render(<Controls />, { router: false });
+    expect(second.container.querySelector("output")?.textContent).toBe(expected);
   });
 });
