@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { systemForkCiGit } from "./fork-ci-flags.ts";
-import { SystemGit } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 import { staleDeletes } from "./fork-stale-delete.ts";
 
 const DUPLICATE = "return upstreamValue;\n";

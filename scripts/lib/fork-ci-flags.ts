@@ -10,7 +10,7 @@
 // (RSI-Software/t3code-hyprws#1148).
 
 import { UsageError } from "./fork-cli.ts";
-import { SystemGit } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 
 /** The workflow that consumes the flags. */
 export const FORK_CI_WORKFLOW_PATH = ".github/workflows/hyprws-ci.yml";

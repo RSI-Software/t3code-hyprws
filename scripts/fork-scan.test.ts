@@ -1,14 +1,12 @@
 import { assert, it } from "@effect/vitest";
 
-import { SystemGit } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 import {
   buildScanResult,
-  commitFilesArguments,
   findForkOwnedTypecheckGaps,
   LEDGER_PATH,
   matchesScanPattern,
   parseArgs,
-  parseCommitFiles,
   parseRebaseScans,
   renderScanReport,
   scanFailures,
@@ -16,8 +14,6 @@ import {
   UsageError,
   type ScanInput,
 } from "./fork-scan.ts";
-
-const RS = "";
 
 // Shaped like docs/fork/internals/fork-delta.md: domain sections with a rebase scan,
 // plus the prose sections that must not be read as domains.
@@ -127,18 +123,6 @@ it("matches a segment with * and a subtree with **", () => {
   assert.isFalse(matchesScanPattern("apps/desktop/src/ipc/**", "apps/desktop/src/preview/a.ts"));
   assert.isTrue(matchesScanPattern("**", "anything/at/all.ts"));
   assert.isFalse(matchesScanPattern("package.json", "apps/web/package.json"));
-});
-
-it("pairs each commit with the files it touches", () => {
-  const raw = `${RS}aaa\n\nfirst.ts\nsecond.ts\n${RS}bbb\n\nthird.ts\n`;
-  assert.deepStrictEqual(
-    [...parseCommitFiles(raw)],
-    [
-      ["aaa", ["first.ts", "second.ts"]],
-      ["bbb", ["third.ts"]],
-    ],
-  );
-  assert.deepStrictEqual(commitFilesArguments(["aaa"]).slice(2, 4), ["show", "--name-only"]);
 });
 
 it("fails a file both the fork and upstream changed that the scan omits", () => {

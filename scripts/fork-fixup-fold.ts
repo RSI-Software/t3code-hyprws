@@ -18,7 +18,8 @@ import * as NodePath from "node:path";
 import { FIXUP_PREFIX } from "./fork-delta.ts";
 import { resolveFixups, type SubjectCommit } from "./fork-sync.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
-import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { runCommand } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 import { FIXUP_OWNERS_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 
 const HELP = `Usage: vp run fork:fixup-fold [--base <ref>] [--head <ref>]
