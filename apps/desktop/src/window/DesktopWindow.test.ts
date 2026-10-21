@@ -313,7 +313,7 @@ function layerTest(input: {
     snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
     forget: () => Effect.void,
     publishScope: () => Effect.void, // fork-hook: multi-window/window-projects-fake
-    workspaceOf: () => Effect.succeed(Option.none()),
+    workspaceOf: () => Effect.succeedNone,
     stageWorkspaceRule: (title, workspace) =>
       Effect.sync(() => {
         input.placementLifecycle?.push(`stage:${workspace.name}`);
@@ -375,7 +375,7 @@ function layerTest(input: {
             onSome: windowIds.existing, // fork-hook: multi-window/window-id-existing
           }),
         ),
-      ),
+      ), // fork-hook: multi-window/identity-window-get-or-create
     createNew: (identity, create, requestedId) =>
       windowIds.create(create, requestedId).pipe(
         Effect.tap((window) =>
@@ -596,7 +596,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             snapshotAddresses: Effect.succeed(new Set<string>()), // fork-hook: multi-window/claim-baseline
             forget: () => Effect.void,
             publishScope: () => Effect.void, // fork-hook: multi-window/window-projects-fake
-            workspaceOf: () => Effect.succeed(Option.none()),
+            workspaceOf: () => Effect.succeedNone,
             stageWorkspaceRule: () => Effect.succeed(false),
             clearWorkspaceRule: () => Effect.void,
             moveToWorkspace: () => Effect.void,
@@ -1727,7 +1727,4 @@ describe("DesktopWindow", () => {
   );
   registerDesktopWindowForkTests({ makeFakeBrowserWindow, layerTest }); // fork-hook: multi-window/fork-suite-register
 });
-export type DesktopWindowHarnessFork = {
-  makeFakeBrowserWindow: typeof makeFakeBrowserWindow;
-  layerTest: typeof layerTest; // fork-hook: multi-window/fork-suite-harness
-}; // fork-hook: multi-window/fork-suite-harness
+export type DesktopWindowLayerTestFork = typeof layerTest; // fork-hook: multi-window/fork-suite-harness
