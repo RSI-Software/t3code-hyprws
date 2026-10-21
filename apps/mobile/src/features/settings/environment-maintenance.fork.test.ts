@@ -19,12 +19,6 @@ describe("environment release checks", () => {
         .join("")}</feed>`,
     );
 
-  forkSupersedes({
-    upstream:
-      "apps/mobile/src/features/settings/environment-maintenance.test.ts > checks stable updates as JSON without using the anonymous API quota",
-    reason: "the fork checks its own releases, not upstream's",
-    commit: "c6fd4ad1e4",
-  });
   it("checks stable updates as JSON without using the anonymous API quota", async () => {
     vi.stubGlobal(
       "fetch",

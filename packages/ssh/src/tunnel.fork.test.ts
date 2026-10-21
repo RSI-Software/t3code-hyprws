@@ -1,6 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 import { buildRemoteLaunchScript, buildRemoteT3RunnerScript } from "./tunnel.ts";
 
 const ARCHIVE = { archiveVersion: "1.2.3-preview.20260911.4" } as const;
@@ -9,12 +8,6 @@ const NODE_SCRIPT = {
 } as const;
 
 describe("ssh tunnel scripts (fork)", () => {
-  forkSupersedes({
-    upstream:
-      "packages/ssh/src/tunnel.test.ts > installs and runs the release archive without Node, npm, or npx",
-    reason: "the fork runner downloads CLI archives from the fork's releases, not upstream's",
-    commit: "92adabf85d",
-  });
   it("installs and runs the fork release archive without Node, npm, or npx", () => {
     const script = buildRemoteT3RunnerScript(ARCHIVE);
 

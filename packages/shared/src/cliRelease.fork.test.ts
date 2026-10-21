@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 import {
   cliReleaseChannelOf,
   cliReleaseDownloadBaseUrl,
@@ -9,12 +8,6 @@ import {
 } from "./cliRelease.ts";
 
 describe("cliRelease (fork)", () => {
-  forkSupersedes({
-    upstream:
-      "packages/shared/src/cliRelease.test.ts > resolves download URLs under the tagged release, honoring a mirror",
-    reason: "the fork downloads CLI archives from its own releases, not upstream's",
-    commit: "92adabf85d",
-  });
   it("resolves download URLs under the fork's tagged release, honoring a mirror", () => {
     expect(cliReleaseDownloadBaseUrl("0.0.43-hyprws.3")).toBe(
       "https://github.com/RSI-Software/t3code-hyprws/releases/download/v0.0.43-hyprws.3",
@@ -24,12 +17,6 @@ describe("cliRelease (fork)", () => {
     );
   });
 
-  forkSupersedes({
-    upstream:
-      "packages/shared/src/cliRelease.test.ts > pages through the release index at the largest page GitHub allows",
-    reason: "the fork reads its own release index, not upstream's",
-    commit: "92adabf85d",
-  });
   it("pages through the fork's release index at the largest page GitHub allows", () => {
     expect(cliReleaseIndexPageUrl(1)).toBe(
       "https://api.github.com/repos/RSI-Software/t3code-hyprws/releases?per_page=100&page=1",
