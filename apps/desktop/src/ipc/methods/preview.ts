@@ -38,10 +38,12 @@ import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts"
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
+import * as PreviewIpcFork from "./preview.fork.ts"; // fork-hook: multi-window/preview-fork-import
 
 export const installPreviewEventForwarding = Effect.fn(
   "desktop.ipc.preview.installEventForwarding",
 )(function* () {
+  if (yield* PreviewIpcFork.installOwnedEventForwarding()) return; // fork-hook: multi-window/preview-event-forwarding
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const manager = yield* PreviewManager.PreviewManager;
   yield* manager.subscribeStateChanges((tabId, state) =>
@@ -63,7 +65,7 @@ const setForwardedShortcuts = DesktopIpc.makeIpcMethod({
   payload: Schema.Array(PreviewForwardedShortcut).check(Schema.isMaxLength(MAX_KEYBINDINGS_COUNT)),
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setForwardedShortcuts")(function* (shortcuts) {
-    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
+    const manager = yield* PreviewManager.PreviewManager;
     yield* manager.setForwardedShortcuts(shortcuts);
   }),
 });
@@ -171,7 +173,7 @@ const setZoomFactor = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewSetZoomFactorInputSchema,
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.preview.setZoomFactor")(function* ({ tabId, zoomFactor }) {
-    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
+    const manager = yield* PreviewManager.PreviewManager;
     yield* manager.setZoomFactor(tabId, zoomFactor);
   }),
 });
@@ -208,8 +210,8 @@ export const startRecording = DesktopIpc.makeIpcMethod({
   payload: DesktopPreviewTabInputSchema,
   // Void encodes any value as undefined, so the tagged failure must be tried first.
   result: Schema.Union([PreviewCaptureFailure, Schema.Void]),
-  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }, event) {
-    const { windowManager: manager } = yield* previewForSender(event);
+  handler: Effect.fn("desktop.ipc.preview.startRecording")(function* ({ tabId }) {
+    const manager = yield* PreviewManager.PreviewManager;
     const store = yield* DesktopClientSettings.DesktopClientSettings;
     const settings = yield* store.get;
     const options = Option.map(settings, (value) => ({
@@ -369,7 +371,7 @@ const setAnnotationSendEnabled = DesktopIpc.makeIpcMethod({
     tabId,
     enabled,
   }) {
-    const { windowManager: manager } = yield* previewForSender(); // fork-hook: multi-window/preview-window-requester
+    const manager = yield* PreviewManager.PreviewManager;
     yield* manager.setAnnotationSendEnabled(tabId, enabled);
   }),
 });
