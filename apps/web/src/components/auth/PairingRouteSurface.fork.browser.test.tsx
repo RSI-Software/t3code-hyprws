@@ -1,7 +1,7 @@
-import { act, StrictMode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { StrictMode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 
+import { act, render } from "../../../test/render";
 import { submitServerAuthCredential } from "../../environments/primary";
 import { PairingRouteSurface } from "./PairingRouteSurface";
 
@@ -10,47 +10,30 @@ vi.mock("../../environments/primary", async (importOriginal) => ({
   submitServerAuthCredential: vi.fn().mockResolvedValue(undefined),
 }));
 
-let container: HTMLDivElement;
-let root: Root;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+async function renderPairing(url = "/pair") {
   vi.mocked(submitServerAuthCredential).mockClear();
-  window.history.replaceState({}, "", "/pair");
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(() => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
-async function renderPairing() {
+  window.history.replaceState({}, "", url);
   const onAuthenticated = vi.fn();
-  await act(() =>
-    root.render(
-      <StrictMode>
-        <PairingRouteSurface
-          auth={{
-            policy: "loopback-browser",
-            bootstrapMethods: ["one-time-token"],
-            sessionMethods: ["browser-session-cookie"],
-            sessionCookieName: "t3_session",
-          }}
-          onAuthenticated={onAuthenticated}
-        />
-      </StrictMode>,
-    ),
+  const screen = await render(
+    <StrictMode>
+      <PairingRouteSurface
+        auth={{
+          policy: "loopback-browser",
+          bootstrapMethods: ["one-time-token"],
+          sessionMethods: ["browser-session-cookie"],
+          sessionCookieName: "t3_session",
+        }}
+        onAuthenticated={onAuthenticated}
+      />
+    </StrictMode>,
+    { router: false },
   );
-  return onAuthenticated;
+  return Object.assign(screen, { onAuthenticated });
 }
 
 describe("pairing URL tokens", () => {
   it("pairs after same-tab hash navigation and removes the token from the URL", async () => {
-    const onAuthenticated = await renderPairing();
+    await using screen = await renderPairing();
     expect(submitServerAuthCredential).not.toHaveBeenCalled();
 
     await act(() => {
@@ -59,17 +42,16 @@ describe("pairing URL tokens", () => {
     });
 
     expect(submitServerAuthCredential).toHaveBeenCalledExactlyOnceWith("navigation-token");
-    expect(onAuthenticated).toHaveBeenCalledTimes(1);
+    expect(screen.onAuthenticated).toHaveBeenCalledTimes(1);
     expect(window.location.pathname).toBe("/pair");
     expect(window.location.hash).toBe("");
   });
 
   it("still pairs on first load and removes the token from the URL", async () => {
-    window.history.replaceState({}, "", "/pair#token=initial-token");
-    const onAuthenticated = await renderPairing();
+    await using screen = await renderPairing("/pair#token=initial-token");
 
     expect(submitServerAuthCredential).toHaveBeenCalledExactlyOnceWith("initial-token");
-    expect(onAuthenticated).toHaveBeenCalledTimes(1);
+    expect(screen.onAuthenticated).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe("");
   });
 });
