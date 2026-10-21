@@ -7,9 +7,7 @@ import {
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { nextTerminalAttachSeedState } from "@t3tools/client-runtime/state/terminal";
 import { AsyncResult } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import type {
   GhosttyTerminalSurface,
   GhosttyTerminalSurfaceOptions,
@@ -97,6 +95,7 @@ vi.mock(import("../state/session"), async (original) => {
   };
 });
 
+import { render } from "../../test/render";
 import { TerminalViewport } from "./ThreadTerminalDrawer";
 
 const threadRef = {
@@ -104,10 +103,8 @@ const threadRef = {
   threadId: ThreadId.make("thread"),
 };
 const session = { ...nextTerminalAttachSeedState(), status: "running" as const, version: 1 };
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
+// The mocked modules read `state`, so every test starts by resetting all of it.
+function setup() {
   state.allowed = true;
   state.listeners.clear();
   state.resize.mockReset().mockResolvedValue(AsyncResult.success(undefined));
@@ -116,17 +113,7 @@ beforeEach(() => {
   // A surface can report its initial grid while asynchronous WASM setup is
   // pending. Keep that unrelated setup pending while exercising its callback.
   state.createSurface.mockReset().mockReturnValue(new Promise(() => undefined));
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+}
 
 const splitTerminalIds = ["split-1", "split-2"];
 
@@ -162,19 +149,18 @@ function splitView(worktreePath: string | null, attached = true) {
 it.each(["shell", "zmux"] as const)(
   "retargets a remounted hidden %s split after a move and Undo",
   async (mode) => {
+    setup();
     for (const terminalId of splitTerminalIds) {
       useTerminalUiStateStore.getState().setTerminalSessionModeFork(threadRef, terminalId, mode);
     }
-    await act(async () => {
-      root.render(splitView(null));
-    });
+    await using screen = await render(splitView(null));
     state.open.mockClear();
 
     // Selecting another group unmounts these viewports. The thread moves
     // while they are absent; attach alone reuses the old server sessions.
     for (const worktreePath of ["/repo-move", null]) {
-      await act(async () => root.render(<></>));
-      await act(async () => root.render(splitView(worktreePath)));
+      await screen.rerender(<></>);
+      await screen.rerender(splitView(worktreePath));
       expect(state.open).toHaveBeenCalledTimes(2);
       for (const terminalId of splitTerminalIds) {
         expect(state.open).toHaveBeenCalledWith({
@@ -191,7 +177,7 @@ it.each(["shell", "zmux"] as const)(
         });
       }
       // Ordinary rerenders must not reopen either PTY.
-      await act(async () => root.render(splitView(worktreePath)));
+      await screen.rerender(splitView(worktreePath));
       expect(state.open).toHaveBeenCalledTimes(2);
       state.open.mockClear();
     }
@@ -199,42 +185,40 @@ it.each(["shell", "zmux"] as const)(
 );
 
 it("defers an initial retarget until shown and never retargets a read-only viewer", async () => {
-  await act(async () => {
-    root.render(splitView("/repo-move", false));
-  });
+  setup();
+  await using screen = await render(splitView("/repo-move", false));
   expect(state.open).not.toHaveBeenCalled();
-  await act(async () => root.render(splitView("/repo-move")));
+  await screen.rerender(splitView("/repo-move"));
   expect(state.open).toHaveBeenCalledTimes(2);
 
-  await act(async () => root.render(<></>));
+  await screen.rerender(<></>);
   state.open.mockClear();
   state.allowed = false;
-  await act(async () => root.render(splitView(null)));
+  await screen.rerender(splitView(null));
   expect(state.open).not.toHaveBeenCalled();
 });
 
 it("sends the attachment id with a resize that passes the target terminal grant recheck", async () => {
-  await act(async () => {
-    root.render(
-      <TerminalViewport
-        advancedTypography={false}
-        threadRef={threadRef}
-        threadId={threadRef.threadId}
-        terminalId="terminal-1"
-        terminalLabel="Terminal 1"
-        cwd="/repo"
-        onSessionExited={state.otherCommand}
-        focusRequestId={0}
-        autoFocus={false}
-        visible={true}
-        resizeEpoch={0}
-        drawerHeight={200}
-        keybindings={[]}
-        attached
-        restoreFocusOnReattach
-      />,
-    );
-  });
+  setup();
+  await using _screen = await render(
+    <TerminalViewport
+      advancedTypography={false}
+      threadRef={threadRef}
+      threadId={threadRef.threadId}
+      terminalId="terminal-1"
+      terminalLabel="Terminal 1"
+      cwd="/repo"
+      onSessionExited={state.otherCommand}
+      focusRequestId={0}
+      autoFocus={false}
+      visible={true}
+      resizeEpoch={0}
+      drawerHeight={200}
+      keybindings={[]}
+      attached
+      restoreFocusOnReattach
+    />,
+  );
   expect(state.createSurface).toHaveBeenCalledOnce();
   const onResize = state.createSurface.mock.calls[0]![1].onResize;
   if (!onResize) throw new Error("The terminal did not register its resize callback.");
