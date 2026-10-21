@@ -1,8 +1,9 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { act, StrictMode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { StrictMode } from "react";
+import { expect, it, vi } from "vite-plus/test";
+
+import { fakeTimers, render } from "../../../test/render";
 
 const state = vi.hoisted(() => {
   const state = {
@@ -32,41 +33,29 @@ vi.mock("./MarkdownRichEditor", () => ({ MarkdownRichEditor: state.ChangeSource 
 
 import { RichMarkdownPreviewBoundary } from "./RichMarkdownPreviewBoundary";
 
-let root: Root | null = null;
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  root = null;
-  state.onChange = null;
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
-
 it("autosaves while Rich stays mounted after StrictMode effect replay", async () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   writeFile.mockResolvedValue(AsyncResult.success(undefined));
   const environmentId = EnvironmentId.make("rich-save-regression");
-  await act(async () => {
-    root = createRoot(document.createElement("div"));
-    root.render(
-      <StrictMode>
-        <RichMarkdownPreviewBoundary
-          enabled
-          environmentId={environmentId}
-          cwd="/workspace"
-          relativePath="README.md"
-          contents="# Initial\n"
-          theme="dark"
-          wordWrap
-          onOpenFile={vi.fn()}
-          onPendingChange={vi.fn()}
-          children={null}
-        />
-      </StrictMode>,
-    );
-  });
+  await using _screen = await render(
+    <StrictMode>
+      <RichMarkdownPreviewBoundary
+        enabled
+        environmentId={environmentId}
+        cwd="/workspace"
+        relativePath="README.md"
+        contents="# Initial\n"
+        theme="dark"
+        wordWrap
+        onOpenFile={vi.fn()}
+        onPendingChange={vi.fn()}
+        children={null}
+      />
+    </StrictMode>,
+    { router: false },
+  );
   // The boundary lazy-loads the editor; wait for it to mount before driving it.
   await vi.waitFor(() => expect(state.onChange).not.toBeNull());
-  vi.useFakeTimers();
+  using _timers = fakeTimers();
   state.onChange!("# Edited\n");
   await vi.advanceTimersByTimeAsync(499);
   expect(writeFile).not.toHaveBeenCalled();
