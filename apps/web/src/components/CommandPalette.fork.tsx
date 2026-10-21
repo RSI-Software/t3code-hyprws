@@ -193,13 +193,49 @@ export function dropNewThreadHintFork(
   items[index] = withoutHint;
 }
 
-/** The palette's threads under the scope. */
-export function scopedPaletteThreadsFork<
-  Thread extends { readonly environmentId: string; readonly projectId: string },
->(threads: ReadonlyArray<Thread>, projectKeys: ReadonlySet<string> | null) {
-  return scopeToProjectKeys(threads, projectKeys, (thread) => [
-    `${thread.environmentId}:${thread.projectId}`,
-  ]);
+// These arrays are freshly derived for this render, never store-owned. Filtering
+// them after construction keeps the upstream palette calls as insertion-only seams.
+export function scopePaletteThreadItemsFork(
+  items: CommandPaletteActionItem[],
+  projectKeys: ReadonlySet<string> | null,
+): void {
+  if (projectKeys === null) return;
+  const scoped = scopeToProjectKeys(items, projectKeys, (item) =>
+    "projectKeyFork" in item && typeof item.projectKeyFork === "string"
+      ? [item.projectKeyFork]
+      : [],
+  );
+  items.splice(0, items.length, ...scoped);
+}
+
+export function scopePalettePickerProjectsFork<
+  Project extends { readonly environmentId: string; readonly id: string },
+>(
+  projects: Project[],
+  entries: ReadonlyArray<{
+    readonly group: { readonly memberProjectRefs: ReadonlyArray<ScopedProjectRef> };
+    readonly targetProject: { readonly environmentId: string; readonly id: string };
+  }>,
+  scope: CommandPaletteProjectScope,
+): void {
+  if (scope.projectKeys === null) return;
+  const allowed = new Set(
+    scopePaletteProjectEntriesFork(entries, scope.projectKeys, scope.preserveEmpty).map(
+      ({ targetProject }) => `${targetProject.environmentId}:${targetProject.id}`,
+    ),
+  );
+  const scoped = projects.filter((project) =>
+    allowed.has(`${project.environmentId}:${project.id}`),
+  );
+  projects.splice(0, projects.length, ...scoped);
+}
+
+export function paletteGroupsInputFork(
+  groups: ReadonlyArray<CommandPaletteGroup>,
+  projectThreadItems: ReadonlyArray<CommandPaletteActionItem>,
+) {
+  const refreshed = refreshNewThreadInViewFork(groups, projectThreadItems);
+  return refreshed === groups ? {} : { activeGroups: refreshed };
 }
 
 /**
