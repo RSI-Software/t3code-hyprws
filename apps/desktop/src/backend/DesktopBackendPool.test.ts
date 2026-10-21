@@ -72,9 +72,9 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           ensureMain: Effect.die("unexpected window ensure"),
           revealOrCreateMain: Effect.die("unexpected window reveal"),
           requestWindow: () => Effect.die("unexpected window request"), // fork-hook: multi-window/dispatch-request
-          openArguments: () => Effect.void,
-          restoreWindowSession: Effect.void,
-          closeIdentity: () => Effect.void,
+          openArguments: () => Effect.void, // fork-hook: multi-window/open-arguments
+          restoreWindowSession: Effect.void, // fork-hook: multi-window/restore-window-session
+          closeIdentity: () => Effect.void, // fork-hook: multi-window/close-identity
           activate: Effect.die("unexpected window activate"),
           createMainIfBackendReady: Effect.die("unexpected window create"),
           showConnectingSplash: Effect.void,
