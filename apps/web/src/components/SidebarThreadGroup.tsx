@@ -1,4 +1,12 @@
 import { useDndContext, useDndMonitor } from "@dnd-kit/core";
+import { scopeProjectRef, scopedProjectKey } from "@t3tools/client-runtime/environment";
+import type { SidebarThreadSummary } from "../types";
+
+export function threadProjectOrderKey(
+  thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
+): string {
+  return scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
+}
 import { MoreHorizontalIcon, RefreshCwIcon, SquarePenIcon, UnlinkIcon } from "lucide-react";
 import { useState } from "react";
 
