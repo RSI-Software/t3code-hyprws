@@ -24,7 +24,6 @@ import {
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
-  WINDOW_DEMAND_STATE_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import { PASSKEY_BRIDGE_ARGUMENT } from "../preview/GuestProtocol.ts";
@@ -53,6 +52,8 @@ import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import * as WindowDispatch from "./DesktopWindowDispatch.fork.ts"; // fork-hook: multi-window/dispatch-import
 import * as WindowPlacement from "./WindowPlacement.fork.ts"; // fork-hook: multi-window/placement-import
 import { hubFilterTitleFork } from "@t3tools/shared/windowTitle.fork"; // fork-hook: workspaces/window-title-import
+import { bindWindowDemandStateFork } from "./WindowDemandState.fork.ts"; // fork-hook: zmux-estate/window-demand-state-import
+import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 import {
   resolveLaunchRequest,
   type WindowCreateRequest,
@@ -125,9 +126,7 @@ export class DesktopWindow extends Context.Service<
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
-    // Marks the packaged/Vite renderer as loadable independently of whether
-    // this desktop process owns a backend.
-    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>;
+    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>; // fork-hook: backend-attach/renderer-ready-type
     readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
@@ -334,11 +333,13 @@ export const make = Effect.gen(function* () {
   const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
   const titleClaimsFork = WindowPlacement.makeTitleClaimsFork(); // fork-hook: multi-window/claim-title-gate
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
-  const backendReadyRef = yield* Ref.make(false); // fork-hook: multi-window/startup-drain-latch
+  const backendReadyRef = yield* Ref.make(false);
   const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
-  // One map-time placement for dev:desktop:agent. The launcher environment survives
-  // main-process watch restarts; each fresh process consumes its own copy once.
-  const pendingDevAgentPlacementRef = yield* Ref.make(environment.devAgentPlacement);
+  const pendingDevAgentPlacementRef = yield* Ref.make(
+    // One map-time placement for dev:desktop:agent. The launcher environment survives
+    // main-process watch restarts; each fresh process consumes its own copy once.
+    environment.devAgentPlacement,
+  ); // fork-hook: multi-window/dev-agent-placement
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
@@ -372,7 +373,6 @@ export const make = Effect.gen(function* () {
   const currentMainBoundsFork = WindowDispatch.makeCurrentMainBoundsFork(() =>
     Effect.runSyncWith(context)(currentMainWindow),
   ); // fork-hook: multi-window/bounds-current-main
-  flushMainWindowBounds = currentMainBoundsFork.flush; // fork-hook: multi-window/bounds-current-main
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const requestTargetWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash)); // fork-hook: multi-window/window-targets-request-target
   const captureRevealWindow = withSnapShotRevealTarget(requestTargetWindow); // fork-hook: multi-window/window-targets-capture-reveal-target
@@ -397,27 +397,21 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") syncMacosWindowButtons(window);
   });
 
-  let revealOrCreateIdentity: (
-    identity: WindowIdentity,
-  ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
-
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (
-    identity: WindowIdentity,
-    windowId: WindowId, // fork-hook: multi-window/window-id-create-param
-    dispatched?: WindowCreateRequest, // fork-hook: multi-window/dispatch-route-param
-  ) {
-    if (identity.kind === "hub") {
-      yield* previewManager.getBrowserSession();
-    }
-    const primaryFork = WindowDispatch.isPrimaryWindowFork(identity, dispatched); // fork-hook: multi-window/dispatch-primary
-    const rootUrlFork = getDesktopUrl(environment.isDevelopment); // fork-hook: multi-window/dispatch-root-url
-    const applicationUrl = WindowDispatch.dispatchedWindowUrlFork(rootUrlFork, dispatched); // fork-hook: multi-window/dispatch-url
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
+    Option.Option<Electron.BrowserWindow>,
+    DesktopWindowError
+  > {
+    const { identity, windowId, dispatched } = yield* WindowDispatch.requireWindowCreateTargetFork; // fork-hook: multi-window/create-target
+    if (yield* Ref.get(desktopState.quitting)) return Option.none();
+    if (identity.kind === "hub") yield* previewManager.getBrowserSession(); // fork-hook: multi-window/hub-preview-session
+    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const dispatchedUrlFork = WindowDispatch.dispatchedWindowUrlFork(applicationUrl, dispatched); // fork-hook: multi-window/dispatch-url
     const normalWindowTitle =
-      identity.kind === "hub" ? environment.displayName : identity.ref.projectId;
+      identity.kind === "hub" ? environment.displayName : identity.ref.projectId; // fork-hook: multi-window/placement-title
     const devAgentPlacement =
       identity.kind === "hub"
         ? yield* Ref.get(pendingDevAgentPlacementRef)
-        : Option.none<DesktopEnvironment.DesktopDevAgentPlacement>();
+        : Option.none<DesktopEnvironment.DesktopDevAgentPlacement>(); // fork-hook: multi-window/dev-agent-placement
     const mapPlacementFork = WindowPlacement.resolveMapPlacementFork({
       hyprlandAvailable: hyprlandPlacement.isAvailable,
       windowId,
@@ -435,8 +429,6 @@ export const make = Effect.gen(function* () {
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const persistedSettings = yield* desktopSettings.get;
-    // Bounds remain hub-only for the MVP. This preserves the existing settings
-    // document and prevents concurrent project windows from racing one slot.
     const persistedBounds = WindowDispatch.initialWindowBoundsFork(
       identity,
       dispatched,
@@ -473,7 +465,8 @@ export const make = Effect.gen(function* () {
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
-      title: initialWindowTitle,
+      title: environment.displayName,
+      ...WindowPlacement.titleOptionFork(initialWindowTitle), // fork-hook: multi-window/placement-title
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
@@ -502,6 +495,12 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
+    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+      identity.kind === "hub" ? null : pageTitle.trim() || null,
+    ); // fork-hook: multi-window/project-title
+    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+      hubFilterTitleFork(identity.kind, environment.displayName, pageTitle),
+    ); // fork-hook: workspaces/window-title
     const titleHoldFork =
       mapPlacementFork === null && claimTitleFork === null
         ? null
@@ -509,8 +508,7 @@ export const make = Effect.gen(function* () {
     const knownAddressesFork = runPromise(hyprlandPlacement.snapshotAddresses); // fork-hook: multi-window/claim-baseline
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
-    let boundsPersistenceEnabled =
-      identity.kind === "hub" && (persistedBounds === null || restoredPersistedBounds);
+    let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
     const readPersistableBounds = (): DesktopAppSettings.DesktopWindowBounds | null => {
       if (window.isDestroyed()) {
         return null;
@@ -594,9 +592,8 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    if (primaryFork) {
-      flushMainWindowBounds = flushBoundsPersist;
-    } // fork-hook: multi-window/dispatch-primary-flush
+    flushMainWindowBounds = flushBoundsPersist;
+    flushMainWindowBounds = currentMainBoundsFork.flush; // fork-hook: multi-window/bounds-current-main
     if (identity.kind === "hub") currentMainBoundsFork.track(window, flushBoundsPersist); // fork-hook: multi-window/bounds-current-main
 
     yield* previewManager.setWindow(windowId, window); // fork-hook: multi-window/window-id-preview-owner
@@ -682,33 +679,21 @@ export const make = Effect.gen(function* () {
           menuTemplate.push({ type: "separator" });
         }
 
-        // App action menus stay in the renderer so they keep T3's icons,
-        // hierarchy, and theme tokens; inside the app's own renderer a native
-        // menu opens only for the native actions this click actually offers.
-        // A browser guest or a sign-in popup has no renderer menu behind it, so
-        // it keeps the always-native editing roles.
-        const isAppRenderer = contents === window.webContents;
-        if (!isAppRenderer || params.isEditable || (params.selectionText?.length ?? 0) > 0) {
-          menuTemplate.push(
-            { role: "cut", enabled: params.editFlags.canCut },
-            { role: "copy", enabled: params.editFlags.canCopy },
-            { role: "paste", enabled: params.editFlags.canPaste },
-            { role: "selectAll", enabled: params.editFlags.canSelectAll },
-          );
-        }
+        menuTemplate.push(
+          { role: "cut", enabled: params.editFlags.canCut },
+          { role: "copy", enabled: params.editFlags.canCopy },
+          { role: "paste", enabled: params.editFlags.canPaste },
+          { role: "selectAll", enabled: params.editFlags.canSelectAll },
+        );
+        if (!trimAppContextMenuFork(menuTemplate, params, contents === window.webContents)) return; // fork-hook: upstream-fixes/themed-context-menu
 
-        if (menuTemplate.at(-1)?.type === "separator") {
-          menuTemplate.pop();
-        }
-        if (menuTemplate.length > 0) {
-          void runPromise(
-            electronMenu.popupTemplate({
-              window: ownerWindow,
-              template: menuTemplate,
-              ...(params.frame ? { frame: params.frame } : {}),
-            }),
-          );
-        }
+        void runPromise(
+          electronMenu.popupTemplate({
+            window: ownerWindow,
+            template: menuTemplate,
+            ...(params.frame ? { frame: params.frame } : {}),
+          }),
+        );
       });
       contents.on("did-create-window", (popup) => {
         installContextMenu(popup, popup.webContents);
@@ -788,41 +773,18 @@ export const make = Effect.gen(function* () {
       runFork(zoomWindow(window, direction));
     });
 
-    let pageTitle = ""; // fork-hook: workspaces/window-title
-    window.on("page-title-updated", (event, title) => {
+    window.on("page-title-updated", (event) => {
       event.preventDefault();
-      pageTitle = title; // fork-hook: workspaces/window-title
-      const filterTitle = hubFilterTitleFork(identity.kind, environment.displayName, title); // fork-hook: workspaces/window-title
-      if (filterTitle !== null) return void window.setTitle(filterTitle); // fork-hook: workspaces/window-title
-      window.setTitle(
-        identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
-      );
+      window.setTitle(environment.displayName);
     });
-
-    const publishWindowDemandState = () => {
-      if (window.isDestroyed()) return;
-      window.webContents.send(
-        WINDOW_DEMAND_STATE_CHANNEL,
-        window.isVisible() && !window.isMinimized(),
-      );
-    };
-    // Electron show/hide and minimize/restore are the explicit desktop
-    // visibility boundary. Focus is intentionally excluded: another visible
-    // window receiving focus does not hide this retained surface.
-    window.on("show", publishWindowDemandState);
-    window.on("hide", publishWindowDemandState);
-    window.on("minimize", publishWindowDemandState);
-    window.on("restore", publishWindowDemandState);
-
-    if (identity.kind === "hub") {
-      window.on("resize", scheduleBoundsPersist);
-      window.on("move", scheduleBoundsPersist);
-      window.on("maximize", scheduleBoundsPersist);
-      window.on("unmaximize", scheduleBoundsPersist);
-      window.on("close", () => {
-        runFork(flushBoundsPersist);
-      });
-    } // fork-hook: multi-window/bounds-hub-listeners
+    const publishWindowDemandStateFork = bindWindowDemandStateFork(window); // fork-hook: zmux-estate/window-demand-state
+    window.on("resize", scheduleBoundsPersist);
+    window.on("move", scheduleBoundsPersist);
+    window.on("maximize", scheduleBoundsPersist);
+    window.on("unmaximize", scheduleBoundsPersist);
+    window.on("close", () => {
+      runFork(flushBoundsPersist);
+    });
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -849,6 +811,8 @@ export const make = Effect.gen(function* () {
       if (window.isDestroyed()) {
         return;
       }
+      if (dispatchedUrlFork !== applicationUrl)
+        return void window.loadURL(dispatchedUrlFork).catch(() => undefined); // fork-hook: multi-window/dispatch-url
       void window.loadURL(applicationUrl).catch(() => undefined);
     };
     const scheduleDevelopmentLoadRetry = () => {
@@ -889,12 +853,8 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
-      publishWindowDemandState();
-      if (identity.kind === "hub") {
-        window.setTitle(environment.displayName);
-        const filterTitle = hubFilterTitleFork(identity.kind, environment.displayName, pageTitle); // fork-hook: workspaces/window-title
-        if (filterTitle !== null) window.setTitle(filterTitle); // fork-hook: workspaces/window-title
-      }
+      publishWindowDemandStateFork(); // fork-hook: zmux-estate/window-demand-state
+      window.setTitle(environment.displayName);
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(
@@ -986,19 +946,13 @@ export const make = Effect.gen(function* () {
               ),
             ); // fork-hook: multi-window/placement-map-effect
       if (mapFork !== null) return void runPromise(mapFork); // fork-hook: multi-window/placement-map
-
-      // Reveal the real window, then close the connecting splash (if any) so the
-      // two don't overlap and there's no blank gap between them.
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
-
-      // Normal launches reveal and focus. Agent launches above deliberately do
-      // neither, even when the Electron main process restarts under the watcher.
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
-      // The compositor maps the window a beat after it is shown, so bind it to
-      // its Hyprland client now while the title is still the one it mapped with.
       void runPromise(
+        // The compositor maps the window a beat after it is shown, so bind it to
+        // its Hyprland client now while the title is still the one it mapped with.
         WindowPlacement.claimShownFork({
           hyprlandPlacement,
           windowId,
@@ -1021,12 +975,7 @@ export const make = Effect.gen(function* () {
       void runPromise(hyprlandPlacement.forget(windowId)); // fork-hook: multi-window/window-id-forget
       titleClaimsFork.release(windowId); // fork-hook: multi-window/claim-title-closed
       currentMainBoundsFork.untrack(window); // fork-hook: multi-window/bounds-current-main
-      if (flushMainWindowBounds === flushBoundsPersist) {
-        flushMainWindowBounds = currentMainBoundsFork.flush;
-      } // fork-hook: multi-window/bounds-current-main
-      if (identity.kind === "hub") {
-        void runPromise(electronWindow.clearMain(Option.some(window)));
-      }
+      void runPromise(electronWindow.clearMain(Option.some(window)));
     });
 
     return Option.some(window);
@@ -1040,8 +989,12 @@ export const make = Effect.gen(function* () {
   const createWindowOrInterrupt = (
     identity: WindowIdentity,
     windowId: WindowId,
-    dispatched?: WindowCreateRequest,
-  ) => createWindow(identity, windowId, dispatched).pipe(Effect.flatMap(requireWindow)); // fork-hook: multi-window/quit-create-or-interrupt
+    dispatched: WindowCreateRequest,
+  ) =>
+    createWindow().pipe(
+      WindowDispatch.withWindowCreateTargetFork({ identity, windowId, dispatched }),
+      Effect.flatMap(requireWindow),
+    ); // fork-hook: multi-window/quit-create-or-interrupt
 
   const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
     identity: WindowIdentity,
@@ -1049,7 +1002,10 @@ export const make = Effect.gen(function* () {
   ) {
     if (yield* Ref.get(desktopState.quitting)) return Option.none(); // fork-hook: multi-window/quit-ensure
     const create = (reservedId: WindowId) =>
-      createWindow(identity, reservedId).pipe(Effect.flatMap(Effect.fromOption)); // fork-hook: multi-window/window-id-create
+      createWindow().pipe(
+        WindowDispatch.withWindowCreateTargetFork({ identity, windowId: reservedId }),
+        Effect.flatMap(Effect.fromOption),
+      ); // fork-hook: multi-window/window-id-create
     const ensured = yield* electronWindow
       .getOrCreate(identity, create, windowId)
       .pipe(Effect.catchNoSuchElement); // fork-hook: multi-window/window-id-get-or-create
@@ -1067,9 +1023,9 @@ export const make = Effect.gen(function* () {
       );
     }
     return Option.some(result); // fork-hook: multi-window/window-id-ensure-result
-  });
+  }); // fork-hook: multi-window/ensure-identity
 
-  revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
+  const revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
     identity: WindowIdentity,
   ) {
     // Read before creation: ready-to-show may settle and clear the ref while
@@ -1082,7 +1038,7 @@ export const make = Effect.gen(function* () {
     ); // fork-hook: multi-window/window-id-reveal
     if (!suppressInitialReveal) yield* electronWindow.reveal(window);
     return window;
-  });
+  }); // fork-hook: multi-window/reveal-or-create-identity
 
   const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
     Effect.map(Option.map(({ window }) => window)), // fork-hook: multi-window/window-id-create-main
@@ -1220,10 +1176,11 @@ export const make = Effect.gen(function* () {
         ),
   ); // fork-hook: multi-window/startup-drain-stage-arguments-def
   const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
-    // fork-hook: multi-window/startup-drain-renderer-ready
-    Effect.andThen(Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners))), // fork-hook: multi-window/startup-drain-renderer-ready-drain
-    Effect.withSpan("desktop.window.handleRendererReady"), // fork-hook: multi-window/startup-drain-renderer-ready-span
-  );
+    // The packaged or Vite renderer is loadable whether or not this desktop
+    // process owns a backend.
+    Effect.andThen(Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners))),
+    Effect.withSpan("desktop.window.handleRendererReady"),
+  ); // fork-hook: backend-attach/renderer-ready
 
   return DesktopWindow.of({
     createMain: createMain.pipe(Effect.flatMap(requireWindow)),
@@ -1263,16 +1220,19 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     showConnectingSplash,
-    handleRendererReady,
+    handleRendererReady, // fork-hook: backend-attach/renderer-ready-entry
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
-      yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
       yield* Ref.set(backendReadyRef, true);
-      yield* Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners)); // fork-hook: multi-window/startup-drain-backend-ready
+      yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      const createMainIfBackendReady = Effect.suspend(() =>
+        // The drain opens the restore and queued intents, and the main window only on a cold start.
+        startupDrain.drain(drainServices, resolveDrainOpeners),
+      ); // fork-hook: multi-window/startup-drain-backend-ready
+      yield* createMainIfBackendReady;
     }),
-    handleBackendNotReady: startupDrain.markNotReady.pipe(
-      // fork-hook: multi-window/startup-drain-not-ready
-      Effect.andThen(Ref.set(backendReadyRef, false)), // fork-hook: multi-window/startup-drain-not-ready-latch
-      Effect.withSpan("desktop.window.handleBackendNotReady"), // fork-hook: multi-window/startup-drain-not-ready-span
+    handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
+      Effect.withSpan("desktop.window.handleBackendNotReady"),
+      Effect.andThen(startupDrain.markNotReady), // fork-hook: multi-window/startup-drain-not-ready
     ),
     flushMainWindowBounds: Effect.suspend(() => flushMainWindowBounds).pipe(
       Effect.withSpan("desktop.window.flushMainWindowBounds"),
