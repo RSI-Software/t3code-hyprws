@@ -255,19 +255,21 @@ const makeAdapter = () => {
   return { adapter, started, steered, complete, holdStarts, steerReached };
 };
 
+// The stream replays the store before tailing it, and projections commit with their
+// events, so re-reading on each of the thread's events sees every state it reaches.
 const waitForProjection = (
   orchestrator: Orchestrator.OrchestratorV2Shape,
   threadId: ThreadId,
   predicate: (projection: OrchestrationV2ThreadProjection) => boolean,
 ) =>
-  Effect.gen(function* () {
-    for (let attempt = 0; attempt < 1_000; attempt += 1) {
-      const projection = yield* orchestrator.getThreadProjection(threadId);
-      if (predicate(projection)) return projection;
-      yield* Effect.sleep("5 millis");
-    }
-    return yield* Effect.die(new Error(`Timed out waiting for ${threadId}.`));
-  });
+  orchestrator.streamStoredEvents.pipe(
+    Stream.filter(({ event }) => event.threadId === threadId),
+    Stream.mapEffect(() => orchestrator.getThreadProjection(threadId)),
+    Stream.filter(predicate),
+    Stream.runHead,
+    Effect.flatMap(Effect.fromOption),
+    Effect.orDie,
+  );
 
 const hasRun = (status: string) => (projection: OrchestrationV2ThreadProjection) =>
   projection.runs.at(-1)?.status === status &&
