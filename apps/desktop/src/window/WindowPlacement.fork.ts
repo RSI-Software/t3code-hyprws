@@ -85,6 +85,32 @@ export const reserveClaimTitleFork = (input: {
     ? null
     : windowClaimTitle(input.windowId);
 
+/** The title a window is built with, as an option that overrides upstream's app name. */
+export const titleOptionFork = (
+  title: string,
+): Pick<Electron.BrowserWindowConstructorOptions, "title"> => ({ title });
+
+/**
+ * Upstream titles every window with the app name. This rewrites that one
+ * title from the window's latest page title; `resolve` returns null to keep
+ * it. Install before the title hold, which restores the `setTitle` it found,
+ * and before upstream's own `page-title-updated` listener, so the page title
+ * is current when that listener sets the title.
+ */
+export const retitleWindowFork = (
+  window: Electron.BrowserWindow,
+  appTitle: string,
+  resolve: (pageTitle: string) => string | null,
+): void => {
+  let pageTitle = "";
+  window.on("page-title-updated", (_event, title) => {
+    pageTitle = title;
+  });
+  const setTitle = window.setTitle;
+  window.setTitle = (title: string) =>
+    setTitle.call(window, title === appTitle ? (resolve(pageTitle) ?? title) : title);
+};
+
 export interface TitleHold {
   /** Shows the held title again, over anything set since the window was built. */
   readonly pin: () => void;
