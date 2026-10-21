@@ -20,6 +20,7 @@ import {
   SidebarProjectSortOrder,
 } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
+import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/settings-env-mode-import
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";

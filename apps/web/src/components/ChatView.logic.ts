@@ -79,7 +79,7 @@ import {
 } from "../lib/composerContextRecords";
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import type { ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/send-env-mode-import
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
 import type { ReviewCommentContext } from "../reviewCommentContext";
@@ -1522,7 +1522,7 @@ export function planComposerTurn(input: {
   const isFirstMessage =
     !input.sendQueuesBehindSetup && (!input.isServerThread || input.activeMessageCount === 0);
   const shouldCreateWorktree =
-    isFirstMessage && input.sendEnvMode === "worktree" && !input.worktreePath;
+    isFirstMessage && isWorktreeEnvMode(input.sendEnvMode) && !input.worktreePath; // fork-hook: worktrunk-hooks/send-prepares-worktree
   // A stale Claude session compacts before this message so the turn does not re-read the
   // old history. The message queues behind the /compact run, since steering into it is
   // rejected.
