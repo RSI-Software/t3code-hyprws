@@ -58,8 +58,6 @@ export const DesktopConfig = Config.all({
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
-  // Development runs open detached DevTools per window; set this to 0/false/off
-  // when a run (automation, grounding) wants the windows without them.
   devToolsEnabled: Config.Boolean("T3CODE_DESKTOP_DEVTOOLS").pipe(Config.withDefault(true)), // fork-hook: fork-meta/desktop-config-devtools
   userDataDirectoryOverride: trimmedString("T3CODE_DESKTOP_USER_DATA_DIR"),
   agentWorkspace: Config.Int("T3CODE_DESKTOP_AGENT_WORKSPACE").pipe(Config.option), // fork-hook: fork-meta/desktop-config-agent-workspace
