@@ -1,13 +1,12 @@
-import type { ThreadId, VcsRef } from "@t3tools/contracts";
+import { ForkThreadEnvMode, type ThreadId, type VcsRef } from "@t3tools/contracts";
 
-import { deriveLocalBranchNameFromRemoteRef, type EnvMode } from "./BranchToolbar.logic";
+import { deriveLocalBranchNameFromRemoteRef, resolveEnvModeLabel } from "./BranchToolbar.logic";
 
-/**
- * Fork: the label for the fork-only "worktrunk" mode, `null` for every
- * upstream mode so `resolveEnvModeLabel` can fall through to its own answers.
- */
-export function resolveForkEnvModeLabel(mode: EnvMode): string | null {
-  return mode === "worktrunk" ? "New worktrunk" : null;
+export const EnvModeFork = ForkThreadEnvMode;
+export type EnvModeFork = typeof EnvModeFork.Type;
+
+export function resolveEnvModeLabelFork(mode: EnvModeFork): string {
+  return mode === "worktrunk" ? "New worktrunk" : resolveEnvModeLabel(mode);
 }
 
 /** Fork: the workspace icon for the fork-only worktrunk shape. */

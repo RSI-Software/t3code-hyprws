@@ -381,11 +381,11 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
-  resolveEnvModeLabel,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
   shouldShowGitControls,
 } from "./BranchToolbar.logic";
+import { resolveEnvModeLabelFork as resolveEnvModeLabel } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import {
   getProviderStatusBannerKey,
   ProviderStatusBanner,

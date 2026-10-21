@@ -1,6 +1,6 @@
 import { FolderCogIcon } from "lucide-react";
 
-import { resolveEnvModeLabel } from "./BranchToolbar.logic";
+import { resolveEnvModeLabelFork as resolveEnvModeLabel } from "./BranchToolbar.logic.fork";
 import { MenuRadioItem } from "./ui/menu";
 import { SelectItem } from "./ui/select";
 

@@ -17,7 +17,8 @@ import {
 import { cn } from "../../lib/utils";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
-import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
+import { WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic"; // fork-hook: worktrunk-hooks/env-mode-import
+import { resolveEnvModeLabelFork as resolveEnvModeLabel } from "../BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
 import { Button, InlineButton } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
