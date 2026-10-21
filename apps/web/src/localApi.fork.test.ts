@@ -5,7 +5,6 @@ import {
   type DesktopBridge,
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
 const showContextMenuFallbackMock = vi.fn<
   <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -79,13 +78,6 @@ describe("LocalApi", () => {
     const { createLocalApi } = await import("./localApi");
     await createLocalApi().contextMenu.close();
     expect(dismissContextMenuMock).toHaveBeenCalledOnce();
-  });
-  forkSupersedes({
-    upstream:
-      "apps/web/src/localApi.test.ts > delegates host capabilities and persistence to the desktop bridge",
-    reason:
-      "desktop context menus render through the themed web renderer, never the native bridge menu",
-    commit: "ed3266856cc",
   });
   it("delegates dialogs and persistence to the desktop bridge", async () => {
     const pickFolder = vi.fn().mockResolvedValue("/tmp/project");
