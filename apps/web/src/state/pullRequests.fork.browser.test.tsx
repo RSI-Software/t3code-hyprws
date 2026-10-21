@@ -2,11 +2,11 @@ import { RegistryContext } from "@effect/atom-react";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { act, useLayoutEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { useLayoutEffect } from "react";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
+import { act, render } from "../../test/render";
 import { createMergedEnvironmentQueryFork } from "./pullRequests.fork";
 
 type Target = {
@@ -24,22 +24,6 @@ const useMergedQuery = createMergedEnvironmentQueryFork<{ state: "open" | "close
   (target) => sources.get(target.environmentId)!,
 );
 
-const registries: Array<AtomRegistry.AtomRegistry> = [];
-const roots: Array<Root> = [];
-
-beforeEach(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true));
-
-afterEach(() => {
-  act(() => {
-    for (const root of roots) root.unmount();
-  });
-  for (const registry of registries) registry.dispose();
-  roots.length = 0;
-  registries.length = 0;
-  sources.clear();
-  vi.unstubAllGlobals();
-});
-
 /** One environment reading a fixed list, driven through a real atom registry. */
 function fixture(environmentIds: ReadonlyArray<EnvironmentId>) {
   for (const environmentId of environmentIds) {
@@ -48,8 +32,10 @@ function fixture(environmentIds: ReadonlyArray<EnvironmentId>) {
       Atom.make<AsyncResult.AsyncResult<string, string>>(AsyncResult.success("open rows")),
     );
   }
+  const stack = new AsyncDisposableStack();
+  stack.defer(() => sources.clear());
   const registry = AtomRegistry.make();
-  registries.push(registry);
+  stack.defer(() => registry.dispose());
 
   let view: ReturnType<typeof useMergedQuery> | undefined;
   function Probe({ targets }: { readonly targets: ReadonlyArray<Target> }) {
@@ -64,16 +50,17 @@ function fixture(environmentIds: ReadonlyArray<EnvironmentId>) {
     view: () => view,
     set: (environmentId: EnvironmentId, result: AsyncResult.AsyncResult<string, string>) =>
       act(() => registry.set(sources.get(environmentId)!, result)),
-    render: (targets: ReadonlyArray<Target>) =>
-      act(() => {
-        const root = createRoot(document.createElement("div"));
-        roots.push(root);
-        root.render(
+    render: async (targets: ReadonlyArray<Target>) => {
+      stack.use(
+        await render(
           <RegistryContext.Provider value={registry}>
             <Probe targets={targets} />
           </RegistryContext.Provider>,
-        );
-      }),
+          { router: false },
+        ),
+      );
+    },
+    [Symbol.asyncDispose]: () => stack.disposeAsync(),
   };
 }
 
@@ -88,9 +75,9 @@ const failedRefresh = AsyncResult.failureWithPrevious(Cause.fail("host unreachab
 });
 
 describe("createMergedEnvironmentQueryFork", () => {
-  it("reads a successful environment as current rows", () => {
-    const scope = fixture([environment1]);
-    scope.render([target(environment1)]);
+  it("reads a successful environment as current rows", async () => {
+    await using scope = fixture([environment1]);
+    await scope.render([target(environment1)]);
     expect(scope.view()).toMatchObject({
       values: [[environment1, "open rows"]],
       errors: [],
@@ -99,37 +86,37 @@ describe("createMergedEnvironmentQueryFork", () => {
     });
   });
 
-  it("keeps rows a failed refresh had read and flags them stale", () => {
-    const scope = fixture([environment1]);
-    scope.render([target(environment1)]);
-    scope.set(environment1, failedRefresh);
+  it("keeps rows a failed refresh had read and flags them stale", async () => {
+    await using scope = fixture([environment1]);
+    await scope.render([target(environment1)]);
+    await scope.set(environment1, failedRefresh);
     expect(scope.view()?.values).toEqual([[environment1, "open rows"]]);
     expect(scope.view()?.errors.map((error) => error.environmentId)).toEqual([environment1]);
     expect(scope.view()?.stale).toBe(true);
   });
 
-  it("does not flag a first read that failed without listing rows", () => {
-    const scope = fixture([environment1]);
-    scope.render([target(environment1)]);
-    scope.set(environment1, AsyncResult.failure(Cause.fail("not signed in")));
+  it("does not flag a first read that failed without listing rows", async () => {
+    await using scope = fixture([environment1]);
+    await scope.render([target(environment1)]);
+    await scope.set(environment1, AsyncResult.failure(Cause.fail("not signed in")));
     expect(scope.view()?.values).toEqual([]);
     expect(scope.view()?.stale).toBe(false);
   });
 
-  it("leaves rows current when only another environment failed its first read", () => {
-    const scope = fixture([environment1, environment2]);
-    scope.render([target(environment1), target(environment2)]);
-    scope.set(environment2, AsyncResult.failure(Cause.fail("offline")));
+  it("leaves rows current when only another environment failed its first read", async () => {
+    await using scope = fixture([environment1, environment2]);
+    await scope.render([target(environment1), target(environment2)]);
+    await scope.set(environment2, AsyncResult.failure(Cause.fail("offline")));
     expect(scope.view()?.values).toEqual([[environment1, "open rows"]]);
     expect(scope.view()?.stale).toBe(false);
   });
 
-  it("clears the stale flag once a refresh answers again", () => {
-    const scope = fixture([environment1]);
-    scope.render([target(environment1)]);
-    scope.set(environment1, failedRefresh);
+  it("clears the stale flag once a refresh answers again", async () => {
+    await using scope = fixture([environment1]);
+    await scope.render([target(environment1)]);
+    await scope.set(environment1, failedRefresh);
     expect(scope.view()?.stale).toBe(true);
-    scope.set(environment1, AsyncResult.success("fresh rows"));
+    await scope.set(environment1, AsyncResult.success("fresh rows"));
     expect(scope.view()?.values).toEqual([[environment1, "fresh rows"]]);
     expect(scope.view()?.stale).toBe(false);
   });
