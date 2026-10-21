@@ -565,7 +565,24 @@ export const renderScanReport = (result: ScanResult): string => {
 
 export interface GitReader {
   readonly run: (args: ReadonlyArray<string>) => string;
+  readonly readBlobs: (specs: Iterable<string>) => ReadonlyMap<string, string>;
 }
+
+/** Each readable path's text at `tree`, in path order; an unreadable blob leaves no entry. */
+const readTexts = (
+  git: GitReader,
+  tree: string,
+  paths: Iterable<string>,
+): ReadonlyMap<string, string> => {
+  const sorted = [...new Set(paths)].toSorted();
+  const blobs = git.readBlobs(sorted.map((path) => `${tree}:${path}`));
+  const texts = new Map<string, string>();
+  for (const path of sorted) {
+    const text = blobs.get(`${tree}:${path}`);
+    if (text !== undefined) texts.set(path, text);
+  }
+  return texts;
+};
 
 const readLines = (raw: string): ReadonlyArray<string> =>
   raw
@@ -791,7 +808,7 @@ export const withFixupOwnerTrailers = (
 };
 
 export const resolveGuardedCommits = (
-  git: GitReader,
+  git: Pick<GitReader, "run">,
   options: ScanOptions,
   range: ScanRange,
   commits: ReadonlyArray<ForkCommit>,
@@ -917,7 +934,7 @@ const buildGuardInput = (
     headTestTexts:
       guardCommits.length === 0
         ? new Map<string, string>()
-        : readTestTexts(git, range.head, upstreamTestTexts.keys()),
+        : readTexts(git, range.head, upstreamTestTexts.keys()),
     siblingTexts:
       guardCommits.length === 0
         ? new Map<string, string>()
@@ -953,14 +970,9 @@ const readUpstreamLines = (
       if (!keepPath(path)) continue;
       paths.add(path);
     }
+  // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
   const lines = new Map<string, ReadonlySet<string>>();
-  for (const path of [...paths].toSorted()) {
-    try {
-      lines.set(path, readLines(git.run(["show", `${target}:${path}`])));
-    } catch {
-      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
-    }
-  }
+  for (const [path, text] of readTexts(git, target, paths)) lines.set(path, readLines(text));
   return lines;
 };
 
@@ -981,15 +993,8 @@ const readUpstreamTestTexts = (
   const paths = new Set<string>();
   for (const patch of patchesBySha.values())
     for (const path of upstreamTestPaths(patch)) if (upstreamTestFiles.has(path)) paths.add(path);
-  const texts = new Map<string, string>();
-  for (const path of [...paths].toSorted()) {
-    try {
-      texts.set(path, git.run(["show", `${target}:${path}`]));
-    } catch {
-      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
-    }
-  }
-  return texts;
+  // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+  return readTexts(git, target, paths);
 };
 
 /**
@@ -1000,38 +1005,13 @@ const readUpstreamTestTexts = (
  * gate's reader works. A sibling unreadable at the head excuses
  * nothing, because an unread tree is not evidence of a replacement case.
  */
-const readTestTexts = (
-  git: GitReader,
-  tree: string,
-  paths: Iterable<string>,
-): ReadonlyMap<string, string> => {
-  const texts = new Map<string, string>();
-  for (const path of [...paths].toSorted()) {
-    try {
-      texts.set(path, git.run(["show", `${tree}:${path}`]));
-    } catch {
-      // An unreadable head blob is not evidence that upstream text survives.
-    }
-  }
-  return texts;
-};
-
 const readSiblingTexts = (
   git: GitReader,
   head: string,
   upstreamTestTexts: ReadonlyMap<string, string>,
-): ReadonlyMap<string, string> => {
-  const texts = new Map<string, string>();
-  for (const path of [...upstreamTestTexts.keys()].toSorted()) {
-    const sibling = forkTestSibling(path);
-    try {
-      texts.set(sibling, git.run(["show", `${head}:${sibling}`]));
-    } catch {
-      // Absent at the head: no declarations to exempt.
-    }
-  }
-  return texts;
-};
+): ReadonlyMap<string, string> =>
+  // Absent at the head: no declarations to exempt.
+  readTexts(git, head, [...upstreamTestTexts.keys()].map(forkTestSibling));
 
 /**
  * The supersedes declarations of every fork sibling at the scanned
@@ -1070,14 +1050,8 @@ const readSupersedesAssessment = (
     return { supersedes: [], retireCandidates: [] };
   }
   if (siblings.length === 0) return { supersedes: [], retireCandidates: [] };
-  const siblingTexts = new Map<string, string>();
-  for (const sibling of siblings) {
-    try {
-      siblingTexts.set(sibling, git.run(["show", `${range.head}:${sibling}`]));
-    } catch {
-      // An unreadable sibling leaves no entry; its declarations stay unread.
-    }
-  }
+  // An unreadable sibling leaves no entry; its declarations stay unread.
+  const siblingTexts = readTexts(git, range.head, siblings);
   if (siblingTexts.size === 0) return { supersedes: [], retireCandidates: [] };
   // Candidate upstream texts: every counterpart plus every file a
   // declaration names. A named file outside the sibling's counterpart is
@@ -1088,28 +1062,15 @@ const readSupersedesAssessment = (
     needed.add(upstreamTestPath(sibling));
     for (const call of collectForkSupersedes(text).declarations) needed.add(call.upstreamPath);
   }
-  const upstreamTexts = new Map<string, string>();
-  for (const path of [...needed].toSorted()) {
-    try {
-      upstreamTexts.set(path, git.run(["show", `${range.target}:${path}`]));
-    } catch {
-      // Absent from the target tree: the assessment refuses the naming
-      // declaration. No entry is the signal.
-    }
-  }
+  // Absent from the target tree: the assessment refuses the naming
+  // declaration. No entry is the signal.
+  const upstreamTexts = readTexts(git, range.target, needed);
   // Merge-base texts for the same paths: the rename check compares the
   // base against the assessed tree, so an in-place upstream rename the
   // sibling still carries under the base title reads as undeclared. An
   // unreadable base blob leaves no entry; the old title-sharing rule
   // stands for that path.
-  const baseTexts = new Map<string, string>();
-  for (const path of [...needed].toSorted()) {
-    try {
-      baseTexts.set(path, git.run(["show", `${range.base}:${path}`]));
-    } catch {
-      // Absent from the base tree: no rename baseline for this path.
-    }
-  }
+  const baseTexts = readTexts(git, range.base, needed);
   const assessment = assessForkSupersedes(siblingTexts, upstreamTexts, baseTexts);
   return {
     supersedes: [
