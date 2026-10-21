@@ -89,6 +89,22 @@ it("refuses a plan line whose members differ in Fork-Domain", () => {
   );
 });
 
+it("folds a sync's trailerless fixup into its owner's domain and trailers", () => {
+  const owner = commit("aaaa1111", { domain: "fold-a", tier: "bugfix", upstreamable: "yes" });
+  const {
+    domain: _domain,
+    tier: _tier,
+    ...fixup
+  } = commit("bbbb2222", {
+    subject: "fixup! feat: aaaa1111",
+  });
+  const [block] = resolvePlan(parsePlan("aaaa\tbbbb\n"), stackOf(owner, fixup));
+  assert.strictEqual(
+    foldTrailers(block!.members),
+    "Fork-Domain: fold-a\nFork-Tier: bugfix\nFork-Upstreamable: yes",
+  );
+});
+
 it("merges trailers: first domain, strongest tier, upstreamable only when all are", () => {
   assert.strictEqual(
     foldTrailers([
