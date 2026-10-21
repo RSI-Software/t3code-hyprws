@@ -56,7 +56,6 @@ import {
   useNewThreadHintFork,
   withProjectScopeToggleFork,
 } from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-import
-import { scopedPaletteThreadsFork } from "./CommandPalette.fork"; // fork-hook: workspaces/palette-scope-threads-import
 import { useProjectChooserLabel } from "../projectChooser.fork"; // fork-hook: workspaces/chooser-palette
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -590,7 +589,6 @@ function OpenCommandPaletteDialog(props: {
   };
   const threads = useThreadShells();
   const paletteProjectScope = useCommandPaletteProjectScopeFork(); // fork-hook: workspaces/palette-scope
-  const scopedThreads = scopedPaletteThreadsFork(threads, paletteProjectScope.projectKeys); // fork-hook: workspaces/palette-scope
   const newThreadHint = useNewThreadHintFork(activeDraftThread, activeThread, defaultProjectRef); // fork-hook: workspaces/palette-new-thread-hint
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
@@ -920,7 +918,11 @@ function OpenCommandPaletteDialog(props: {
   })();
 
   const { threadItems: allThreadItems, isSearchPending: isThreadSearchPending } =
-    useCommandPaletteThreadItems({ activeThreadId, threadSearchQuery });
+    useCommandPaletteThreadItems({
+      activeThreadId,
+      threadSearchQuery,
+      projectKeysFork: paletteProjectScope.projectKeys,
+    }); // fork-hook: workspaces/palette-scope-threads
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
 
   // Stable so the item builders that capture it during render never see the
