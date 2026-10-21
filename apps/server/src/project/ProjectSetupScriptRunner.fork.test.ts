@@ -5,7 +5,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { forkSupersedes } from "../../../../scripts/lib/fork-supersedes.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import {
@@ -210,13 +209,6 @@ describe("fork setup outcome marker", () => {
     );
   });
 
-  forkSupersedes({
-    upstream:
-      "apps/server/src/project/ProjectSetupScriptRunner.test.ts > resolves setup scripts through the standalone project service",
-    reason:
-      "the fork appends a completion or failure echo to an unobserved setup command, so the terminal receives the wrapped command",
-    commit: "7fc74140d5c",
-  });
   it.effect("opens the deterministic setup terminal and writes the marked command", () => {
     const open = vi.fn(() => Effect.succeed(runningTerminal("setup-setup")));
     const write = vi.fn(() => Effect.void);
