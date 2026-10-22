@@ -5,7 +5,7 @@
 // (drawer vs right panel) so an explicit request never focuses the other
 // pane, stale requests are not replayed on thread change, and returning to a
 // thread focuses the composer through upstream's own window-focus predicate.
-import { useState } from "react";
+import { useEffect, useEffectEvent, useState, type Dispatch, type SetStateAction } from "react";
 import { shouldRefocusComposerOnWindowFocus } from "./ChatView.logic";
 
 // Returning to a thread should land in the composer, unless something that
@@ -17,6 +17,35 @@ export function shouldAutoFocusComposerOnThreadChange(
   activeElement: Parameters<typeof shouldRefocusComposerOnWindowFocus>[0],
 ): boolean {
   return shouldRefocusComposerOnWindowFocus(activeElement);
+}
+
+// An optional spread overrides the upstream prop without replacing its line.
+export function terminalFocusPropsFork(requestId: number): { focusRequestId?: number } {
+  return { focusRequestId: requestId };
+}
+
+export function requestTerminalFocusFork(
+  pane: TerminalFocusPaneFork,
+  setRequestId: Dispatch<SetStateAction<number>>,
+): void {
+  noteTerminalFocusIntentFork(pane);
+  setRequestId((value) => value + 1);
+}
+
+export function useOpenDrawerComposerFocusFork(
+  threadKey: string | null,
+  drawerOpen: boolean,
+  focusComposer: () => void,
+): void {
+  // Visibility changes belong to upstream; only navigation needs this repair.
+  const shouldFocus = useEffectEvent(
+    () => drawerOpen && shouldAutoFocusComposerOnThreadChange(document.activeElement),
+  );
+  useEffect(() => {
+    if (!threadKey || !shouldFocus()) return;
+    const frame = window.requestAnimationFrame(focusComposer);
+    return () => window.cancelAnimationFrame(frame);
+  }, [threadKey, focusComposer]);
 }
 
 export type TerminalFocusPaneFork = "drawer" | "panel";

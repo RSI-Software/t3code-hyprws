@@ -78,14 +78,14 @@ describe("reduceTerminalFocusGateFork", () => {
     ).toEqual({ threadKey: "thread-2", drawerRequestId: 0, panelRequestId: 0 });
   });
 
-  it("keeps requests while the thread is unchanged and no intent was recorded", () => {
+  it("ignores upstream visibility bumps without an explicit focus intent", () => {
     const held: TerminalFocusGateStateFork = {
       threadKey: "thread-1",
       drawerRequestId: 5,
       panelRequestId: 0,
     };
     expect(
-      reduceTerminalFocusGateFork(held, { requestId: 5, threadKey: "thread-1", intent: null }),
+      reduceTerminalFocusGateFork(held, { requestId: 6, threadKey: "thread-1", intent: null }),
     ).toBe(held);
   });
 
