@@ -50,13 +50,16 @@ describe("provider session identity helpers", () => {
 
 describe("stripInheritedProviderEnvironment", () => {
   it.effect(
-    "drops inherited session ids and desktop launcher settings from the server environment",
+    "drops inherited session ids, server runtime, and desktop launcher settings from the server environment",
     () =>
       Effect.gen(function* () {
         const environment: NodeJS.ProcessEnv = {
           ...leaked,
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "agent-workspace",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "placement",
+          T3CODE_PORT: "3773",
+          T3CODE_HOST: "127.0.0.1",
+          T3CODE_MODE: "web",
+          T3CODE_NO_BROWSER: "true",
+          T3CODE_HOME: "/home/user/.t3",
           T3CODE_DESKTOP_REMOTE_DEBUGGING_PORT: "9222",
           T3CODE_DESKTOP_USER_DATA_DIR: "/desktop/data",
           T3CODE_DESKTOP_DEVTOOLS: "0",
@@ -70,6 +73,7 @@ describe("stripInheritedProviderEnvironment", () => {
         );
         expect(environment).toEqual({
           PATH: "/bin",
+          T3CODE_HOME: "/home/user/.t3",
           T3CODE_DESKTOP: "not-prefixed",
           ANTHROPIC_API_KEY: "test-key",
         });
