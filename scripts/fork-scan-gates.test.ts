@@ -9,17 +9,15 @@ import { assert, it } from "@effect/vitest";
 
 import {
   buildScanResult,
-  matchReplayCounterparts,
   normaliseFindingDetail,
   readScan,
   renderScanReport,
-  resolveGuardedCommits,
   scanFailures,
-  squashedMembers,
-  withFixupOwnerTrailers,
   type ScanInput,
 } from "./fork-scan.ts";
-import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+
+import { SystemCommandRunner } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 import { hookGuardWarnings } from "./lib/fork-hook-guard.ts";
 import { forkTestSibling, upstreamTestPath } from "./lib/fork-supersedes.ts";
 import {
@@ -83,68 +81,6 @@ it("fails an additive files finding carried on the scan result", () => {
   const failures = scanFailures(result);
   assert.isTrue(
     failures.some((failure) => failure.startsWith("additive:files: apps/web/src/gone.ts")),
-  );
-});
-
-it("keeps every bounded replay commit for line-level guard filtering", () => {
-  const commits = [
-    {
-      sha: "same",
-      short: "same",
-      subject: "feat: same",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "changed",
-      short: "changed",
-      subject: "feat: changed",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "new",
-      short: "new",
-      subject: "feat: new",
-      domain: "example",
-      tier: "core",
-    },
-    {
-      sha: "duplicate",
-      short: "duplicate",
-      subject: "feat: duplicate",
-      domain: "example",
-      tier: "core",
-    },
-  ];
-  const patch = (line: string) =>
-    `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -0,0 +1 @@\n+${line}\n`;
-  const outputs = new Map<string, string>([
-    ["rev-list since..head", commits.map(({ sha }) => sha).join("\n")],
-    ["merge-base target origin/hyprws", "base\n"],
-    [
-      "log --reverse --format=%H%x1f%s%x1e base..origin/hyprws",
-      "old-same\u001ffeat: same\u001eold-changed\u001ffeat: changed\u001eold-duplicate-1\u001ffeat: duplicate\u001eold-duplicate-2\u001ffeat: duplicate\u001e",
-    ],
-    ["-c core.quotePath=false show --format= --unified=0 same", patch("same")],
-    ["-c core.quotePath=false show --format= --unified=0 old-same", patch("same")],
-    ["-c core.quotePath=false show --format= --unified=0 changed", patch("after")],
-    ["-c core.quotePath=false show --format= --unified=0 old-changed", patch("before")],
-  ]);
-  const git = { run: (args: ReadonlyArray<string>) => outputs.get(args.join(" ")) ?? "" };
-  const options = {
-    base: null,
-    head: "head",
-    target: "target",
-    typecheck: false,
-    since: "since",
-    replayOf: "origin/hyprws",
-  } as const;
-  const range = { base: "base", head: "head", target: "target" };
-
-  assert.deepStrictEqual(
-    resolveGuardedCommits(git, options, range, commits).map(({ sha }) => sha),
-    ["same", "changed", "new", "duplicate"],
   );
 });
 
@@ -271,134 +207,6 @@ it("exempts a replay addition re-indented by an upstream restructure", () => {
   assert.match(warnings[0] ?? "", /1 added line.*const introduced = true;/);
 });
 
-it("matches duplicate replay subjects by oldest-first ordinal", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "replayed-1", subject: "duplicate" },
-      { sha: "replayed-2", subject: "other" },
-      { sha: "replayed-3", subject: "duplicate" },
-      { sha: "replayed-surplus", subject: "duplicate" },
-    ],
-    new Map([
-      ["duplicate", ["original-1", "original-2"]],
-      ["other", ["original-other"]],
-    ]),
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["replayed-1", ["original-1"]],
-      ["replayed-2", ["original-other"]],
-      ["replayed-3", ["original-2"]],
-    ],
-  );
-});
-
-it("reads the squashed members a rewrite lists, ignoring surrounding prose", () => {
-  assert.deepStrictEqual(
-    squashedMembers(
-      "Squashes:\n\n- 9f318b69a9 fix(fork): one\n- ea63ce4dae fix(fork): two\n\nFork-Domain: distribution\n",
-    ),
-    ["9f318b69a9", "ea63ce4dae"],
-  );
-  assert.deepStrictEqual(squashedMembers("Squashes: none listed\n\nFork-Domain: x\n"), []);
-  assert.deepStrictEqual(squashedMembers("Fork-Domain: x\n"), []);
-});
-
-it("matches every squashed member by sha prefix and leaves the subject ordinal alone", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "squash", subject: "duplicate", squashes: ["aaaa111", "bbbb222"] },
-      { sha: "plain", subject: "duplicate" },
-      { sha: "unlisted", subject: "other", squashes: ["ffff999"] },
-    ],
-    new Map([
-      ["duplicate", ["aaaa1111111", "bbbb2222222"]],
-      ["other", ["cccc3333333"]],
-    ]),
-    ["aaaa1111111", "bbbb2222222", "cccc3333333"],
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["squash", ["aaaa1111111", "bbbb2222222"]],
-      ["plain", ["aaaa1111111"]],
-      ["unlisted", ["cccc3333333"]],
-    ],
-  );
-});
-
-it("adds the fixups the sync folds into an owner to its replay match", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "replayed-owner", subject: "fix: owner" },
-      { sha: "replayed-squash", subject: "fix: squash", squashes: ["aaaa111"] },
-    ],
-    new Map([
-      ["fix: owner", ["original-owner"]],
-      ["fixup! fix: owner", ["original-fixup-1", "original-fixup-2"]],
-      ["fix: squash", ["aaaa1111111"]],
-      ["fixup! fix: squash", ["original-squash-fixup"]],
-    ]),
-    ["aaaa1111111"],
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["replayed-owner", ["original-owner", "original-fixup-1", "original-fixup-2"]],
-      ["replayed-squash", ["aaaa1111111", "original-squash-fixup"]],
-    ],
-  );
-});
-
-it("reads a squash-landed fixup as the owner it names", () => {
-  const matches = matchReplayCounterparts(
-    [
-      { sha: "replayed-owner", subject: "fix: owner" },
-      { sha: "replayed-numbered", subject: "fix: numbered (#219)" },
-    ],
-    new Map([
-      ["fix: owner", ["original-owner"]],
-      ["fixup! fix: owner (#1600)", ["landed-fixup"]],
-      ["fix: numbered (#219)", ["original-numbered"]],
-      ["fixup! fix: numbered (#219)", ["direct-fixup"]],
-      ["fixup! fix: numbered (#219) (#1601)", ["landed-numbered-fixup"]],
-    ]),
-  );
-  assert.deepStrictEqual(
-    [...matches],
-    [
-      ["replayed-owner", ["original-owner", "landed-fixup"]],
-      ["replayed-numbered", ["original-numbered", "direct-fixup", "landed-numbered-fixup"]],
-    ],
-  );
-  assert.deepStrictEqual(
-    withFixupOwnerTrailers([
-      { sha: "owner", short: "owner", subject: "fix: owner", domain: "example", tier: "core" },
-      { sha: "fixup", short: "fixup", subject: "fixup! fix: owner (#1600)" },
-    ]).map(({ sha, domain, tier }) => ({ sha, domain, tier })),
-    [
-      { sha: "owner", domain: "example", tier: "core" },
-      { sha: "fixup", domain: "example", tier: "core" },
-    ],
-  );
-});
-
-it("scans a trailer-free fixup as the commit it names", () => {
-  assert.deepStrictEqual(
-    withFixupOwnerTrailers([
-      { sha: "owner", short: "owner", subject: "fix: owner", domain: "example", tier: "core" },
-      { sha: "fixup", short: "fixup", subject: "fixup! fix: owner" },
-      { sha: "orphan", short: "orphan", subject: "fixup! fix: missing" },
-    ]).map(({ sha, domain, tier }) => ({ sha, domain, tier })),
-    [
-      { sha: "owner", domain: "example", tier: "core" },
-      { sha: "fixup", domain: "example", tier: "core" },
-      { sha: "orphan", domain: undefined, tier: undefined },
-    ],
-  );
-});
-
 it("keys a finding without its sha or count, keeping path digits", () => {
   assert.strictEqual(
     normaliseFindingDetail("apps/web/src/a.test.ts gains 4 fork test block(s)"),
@@ -411,35 +219,6 @@ it("keys a finding without its sha or count, keeping path digits", () => {
   assert.strictEqual(
     normaliseFindingDetail("moved in 9f318b69a9 and 3 more"),
     "moved in <sha> and <n> more",
-  );
-});
-
-it("guards every bounded commit without --replay-of", () => {
-  const commits = [
-    {
-      sha: "abc1234",
-      short: "abc1234",
-      subject: "feat: thing",
-      domain: "example",
-      tier: "core",
-    },
-  ];
-  const git = { run: (args: ReadonlyArray<string>) => (args[0] === "rev-list" ? "abc1234\n" : "") };
-  assert.deepStrictEqual(
-    resolveGuardedCommits(
-      git,
-      {
-        base: null,
-        head: "head",
-        target: "target",
-        typecheck: false,
-        since: "since",
-        replayOf: null,
-      },
-      { base: "base", head: "head", target: "target" },
-      commits,
-    ),
-    commits,
   );
 });
 
