@@ -808,6 +808,25 @@ describe("in-thread MCP thread work", () => {
     }).pipe(inThread(harness));
   });
 
+  it.effect("a work wait that runs out during a pending continuation times out", () => {
+    const harness = makeHarness();
+    harness.projections.set(
+      owner,
+      projectionOf({ id: owner, runs: [run(owner, ownerRun, "interrupted")] }),
+    );
+    harness.pendingContinuations.add(ownerRun);
+    return Effect.gen(function* () {
+      const fiber = yield* ThreadWorkFork.waitForThreadFork(scope, {
+        threadId: owner,
+        until: "work",
+        timeoutMs: 2_000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("3 seconds");
+      const result = yield* Fiber.join(fiber);
+      assert.deepStrictEqual([result.timedOut, result.work.state], [true, "idle"]);
+    }).pipe(inThread(harness));
+  });
+
   it.effect("a work wait needs the orchestration capability", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

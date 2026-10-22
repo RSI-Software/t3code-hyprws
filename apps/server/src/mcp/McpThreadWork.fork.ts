@@ -37,10 +37,6 @@ export const NATIVE_TURN_READ_CONCURRENCY = 4;
 type McpNativeTurn = McpNativeTurnFork;
 export type McpThreadWork = McpThreadWorkFork;
 
-/** States a work wait returns on: nothing will change without a person or new work. */
-const isWorkSettled = (work: McpThreadWork) =>
-  work.state === "idle" || work.state === "awaiting_response";
-
 type WorkShell = Pick<
   OrchestrationV2ThreadShell,
   | "lineage"
@@ -179,7 +175,7 @@ export const waitForWork = Effect.fn("McpThreadWork.waitForWork")(function* (
   // A restart ends its run before the continuation run exists, so an idle
   // read asks upstream's run wait, pinned to that ended run, whether a
   // continuation is still pending. The shell's latest run skips held queues.
-  const continuationPending = (shell: OrchestrationV2ThreadShell) =>
+  const continuationPending = (shell: OrchestrationV2ThreadShell, waitMs: number) =>
     shell.latestRunId === null
       ? Effect.succeed(false)
       : threads
@@ -187,26 +183,29 @@ export const waitForWork = Effect.fn("McpThreadWork.waitForWork")(function* (
             projectId: shell.projectId,
             threadId,
             runId: shell.latestRunId,
-            timeoutMs: WORK_POLL_INTERVAL_MS,
+            timeoutMs: waitMs,
           })
           .pipe(
             Effect.map((wait) => wait.timedOut || wait.run?.id !== shell.latestRunId),
             Effect.mapError(threadManagementFailureFork),
           );
+  const settles = (read: Effect.Success<typeof current>, waitMs: number) =>
+    read.work.state === "idle"
+      ? continuationPending(read.shell, waitMs).pipe(Effect.map((pending) => !pending))
+      : Effect.succeed(read.work.state === "awaiting_response");
   const waited = yield* Effect.gen(function* () {
     while (true) {
       const read = yield* current;
-      if (read.work.state === "awaiting_response") return read;
-      if (read.work.state === "idle") {
-        if (!(yield* continuationPending(read.shell))) return read;
-        continue;
-      }
-      yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
+      if (yield* settles(read, WORK_POLL_INTERVAL_MS)) return read;
+      // An idle read already spent the interval in the continuation wait.
+      if (read.work.state !== "idle") yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
     }
   }).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)));
   // As with a run wait, the final read decides, so work that settled while
   // the timeout won the race does not count as timed out.
-  const { shell, work } = Option.isSome(waited) ? waited.value : yield* current;
+  const final = Option.isSome(waited) ? waited.value : yield* current;
+  const settled = Option.isSome(waited) || (yield* settles(final, 1));
+  const { shell, work } = final;
   const pendingCount = yield* threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId }, ["runtimeRequests"])
     .pipe(
@@ -219,7 +218,7 @@ export const waitForWork = Effect.fn("McpThreadWork.waitForWork")(function* (
     threadId,
     runId: shell.latestRunId,
     status: shell.activityRunStatus ?? shell.status,
-    timedOut: !isWorkSettled(work) && pendingCount === 0,
+    timedOut: !settled && pendingCount === 0,
     work,
     pendingRequestCount: pendingCount,
   } satisfies McpThreadWaitResult;
