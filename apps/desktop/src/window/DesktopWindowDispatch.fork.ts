@@ -2,10 +2,13 @@ import type { ScopedProjectRef } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import type * as Electron from "electron";
 
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
-import type * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as DesktopState from "../app/DesktopState.ts";
+import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as PreviewManager from "../preview/Manager.ts";
 import type { DesktopWindowBounds } from "../settings/DesktopAppSettings.ts";
 import type { WindowRestoreEntry } from "./DesktopWindowSession.ts";
 import {
@@ -38,6 +41,57 @@ const WindowCreateTargetFork = Context.Reference<Option.Option<WindowCreateTarge
   "t3/desktop/WindowCreateTarget.fork",
   { defaultValue: () => Option.none() },
 );
+
+export const makeEnsureIdentityFork = Effect.fn("desktop.window.makeEnsureIdentityFork")(function* <
+  E,
+>(createWindow: () => Effect.Effect<Option.Option<Electron.BrowserWindow>, E>) {
+  const { quitting } = yield* DesktopState.DesktopState;
+  const electronWindow = yield* ElectronWindow.ElectronWindow;
+  return Effect.fn("desktop.window.ensureIdentity")(function* (
+    identity: WindowIdentity,
+    windowId?: WindowId,
+  ) {
+    if (yield* Ref.get(quitting)) return Option.none();
+    const create = (reservedId: WindowId) =>
+      createWindow().pipe(
+        withWindowCreateTargetFork({ identity, windowId: reservedId }),
+        Effect.flatMap(Effect.fromOption),
+      );
+    const ensured = yield* electronWindow
+      .getOrCreate(identity, create, windowId)
+      .pipe(Effect.catchNoSuchElement);
+    if (Option.isNone(ensured)) return ensured;
+    const result = ensured.value;
+    if (result.created) {
+      yield* logWindowInfo(
+        identity.kind === "hub" ? "main window created" : "project window created",
+        {
+          identity: identity.kind === "hub" ? "hub" : "project",
+          ...(identity.kind === "hub"
+            ? {}
+            : { environmentId: identity.ref.environmentId, projectId: identity.ref.projectId }),
+        },
+      );
+    }
+    return Option.some(result);
+  });
+});
+
+// Preserve only this embedder's guests; other windows keep independent preview zoom.
+export const makeWindowGuestZoomsFork = Effect.gen(function* () {
+  const electronWindow = yield* ElectronWindow.ElectronWindow;
+  const previewManager = yield* PreviewManager.PreviewManager;
+  return Effect.fn("desktop.window.preserveWindowGuestZoomsFork")(function* (
+    window: Electron.BrowserWindow,
+    updateZoom: () => void,
+  ) {
+    const windowId = yield* electronWindow.windowIdFor(window);
+    const manager = Option.isSome(windowId)
+      ? yield* previewManager.forWindow(windowId.value)
+      : previewManager;
+    yield* manager.preserveGuestZooms(updateZoom);
+  });
+});
 
 export const requireWindowCreateTargetFork = Effect.gen(function* () {
   const target = yield* WindowCreateTargetFork;
