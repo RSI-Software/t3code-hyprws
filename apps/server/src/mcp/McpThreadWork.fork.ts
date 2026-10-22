@@ -148,7 +148,7 @@ export const assertWaitTarget = (input: OrchestratorMcpThreadWaitInput) =>
 
 type WorkReads = Pick<
   ThreadManagementService.ThreadManagementServiceShape,
-  "getThreadRecords" | "getProjectThreadRecords"
+  "getThreadRecords" | "getProjectThreadRecords" | "waitForThread"
 >;
 
 /** Only a provider-native subagent thread reads its nodes; every other thread has runs. */
@@ -176,10 +176,31 @@ export const waitForWork = Effect.fn("McpThreadWork.waitForWork")(function* (
   const current = loadShell(threadId).pipe(
     Effect.flatMap((shell) => workOf(threads, shell).pipe(Effect.map((work) => ({ shell, work })))),
   );
+  // A restart ends its run before the continuation run exists, so an idle
+  // read asks upstream's run wait, pinned to that ended run, whether a
+  // continuation is still pending. The shell's latest run skips held queues.
+  const continuationPending = (shell: OrchestrationV2ThreadShell) =>
+    shell.latestRunId === null
+      ? Effect.succeed(false)
+      : threads
+          .waitForThread({
+            projectId: shell.projectId,
+            threadId,
+            runId: shell.latestRunId,
+            timeoutMs: WORK_POLL_INTERVAL_MS,
+          })
+          .pipe(
+            Effect.map((wait) => wait.timedOut || wait.run?.id !== shell.latestRunId),
+            Effect.mapError(threadManagementFailureFork),
+          );
   const waited = yield* Effect.gen(function* () {
     while (true) {
       const read = yield* current;
-      if (isWorkSettled(read.work)) return read;
+      if (read.work.state === "awaiting_response") return read;
+      if (read.work.state === "idle") {
+        if (!(yield* continuationPending(read.shell))) return read;
+        continue;
+      }
       yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
     }
   }).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)));

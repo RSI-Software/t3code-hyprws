@@ -388,6 +388,8 @@ const makeHarness = () => {
     ],
   ]);
   const runWaits: Array<ThreadManagementService.ThreadManagementWaitInput> = [];
+  /** Runs a restart cut whose continuation has not started yet. */
+  const pendingContinuations = new Set<RunId>();
   const projection = (threadId: ThreadId) => projections.get(threadId)!;
   const threadManagement = Layer.mock(ThreadManagementService.ThreadManagementService)({
     getThreadShell: (threadId) =>
@@ -413,7 +415,10 @@ const makeHarness = () => {
           (input.runId === undefined
             ? runs.at(-1)
             : runs.find((candidate) => candidate.id === input.runId)) ?? null;
-        const live = run !== null && !ThreadManagementService.isTerminalRunStatus(run.status);
+        const live =
+          run !== null &&
+          (!ThreadManagementService.isTerminalRunStatus(run.status) ||
+            pendingContinuations.has(run.id));
         if (live) yield* Effect.sleep(Duration.millis(input.timeoutMs));
         return { threadId: input.threadId, run, timedOut: live, pendingRequestCount: 0 };
       }),
@@ -444,7 +449,7 @@ const makeHarness = () => {
   const withService = <A, E>(
     body: (service: ExternalMcpService.ExternalMcpServiceShape) => Effect.Effect<A, E>,
   ) => Effect.flatMap(ExternalMcpService.ExternalMcpServiceFork, body).pipe(Effect.provide(layer));
-  return { projections, runWaits, threadManagement, withService };
+  return { projections, runWaits, pendingContinuations, threadManagement, withService };
 };
 
 describe("ExternalMcpServiceFork work", () => {
@@ -515,7 +520,6 @@ describe("ExternalMcpServiceFork work", () => {
           [result.runId, result.status, result.timedOut, result.work.state],
           [ownerRun, "completed", false, "idle"],
         );
-        assert.deepStrictEqual(harness.runWaits, []);
       }),
     );
   });
@@ -764,7 +768,43 @@ describe("in-thread MCP thread work", () => {
       yield* TestClock.adjust("1 millis");
       const result = yield* Fiber.join(fiber);
       assert.deepStrictEqual([result.timedOut, result.work.state], [false, "idle"]);
-      assert.deepStrictEqual(harness.runWaits, []);
+      assert.deepStrictEqual(
+        harness.runWaits.map((wait) => wait.runId),
+        [ownerRun],
+      );
+    }).pipe(inThread(harness));
+  });
+
+  it.effect("a work wait stays open while a restart continuation is pending", () => {
+    const harness = makeHarness();
+    const continuation = RunId.make(`run:${owner}:ordinal:3`);
+    harness.projections.set(
+      owner,
+      projectionOf({ id: owner, runs: [run(owner, ownerRun, "interrupted")] }),
+    );
+    harness.pendingContinuations.add(ownerRun);
+    return Effect.gen(function* () {
+      const fiber = yield* ThreadWorkFork.waitForThreadFork(scope, {
+        threadId: owner,
+        until: "work",
+        timeoutMs: 60_000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("2 seconds");
+      assert.isUndefined(fiber.pollUnsafe());
+      harness.pendingContinuations.delete(ownerRun);
+      harness.projections.set(
+        owner,
+        projectionOf({
+          id: owner,
+          runs: [run(owner, ownerRun, "interrupted"), run(owner, continuation, "completed", 3)],
+        }),
+      );
+      yield* TestClock.adjust("1 second");
+      const result = yield* Fiber.join(fiber);
+      assert.deepStrictEqual(
+        [result.runId, result.timedOut, result.work.state],
+        [continuation, false, "idle"],
+      );
     }).pipe(inThread(harness));
   });
 
