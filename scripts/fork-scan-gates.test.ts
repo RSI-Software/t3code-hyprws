@@ -9,7 +9,6 @@ import { assert, it } from "@effect/vitest";
 
 import {
   buildScanResult,
-  normaliseFindingDetail,
   readScan,
   renderScanReport,
   scanFailures,
@@ -205,21 +204,6 @@ it("exempts a replay addition re-indented by an upstream restructure", () => {
   );
   assert.lengthOf(warnings, 1);
   assert.match(warnings[0] ?? "", /1 added line.*const introduced = true;/);
-});
-
-it("keys a finding without its sha or count, keeping path digits", () => {
-  assert.strictEqual(
-    normaliseFindingDetail("apps/web/src/a.test.ts gains 4 fork test block(s)"),
-    normaliseFindingDetail("apps/web/src/a.test.ts gains 12 fork test block(s)"),
-  );
-  assert.notStrictEqual(
-    normaliseFindingDetail("docs/02-bug.md gains 1 block"),
-    normaliseFindingDetail("docs/03-bug.md gains 1 block"),
-  );
-  assert.strictEqual(
-    normaliseFindingDetail("moved in 9f318b69a9 and 3 more"),
-    "moved in <sha> and <n> more",
-  );
 });
 
 it("fails an upstream-test addition in the since range", () => {
@@ -908,19 +892,13 @@ it("passes a declared replacement: upstream case removed, fork sibling carries i
   }
 });
 
-/**
- * Whole-series rehearsal fixture: `landed` (`replayOf`) already carries one
- * in-place upstream rewrite as legacy debt. `replay` rehearses the same
- * rewrite (a different sha, identical resulting text) plus one brand-new
- * rewrite the replay itself introduces.
- */
-const baselineFixture = (): {
+const replayFixture = (): {
   root: string;
   base: string;
   landed: string;
   replay: string;
 } => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-baseline-"));
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-scan-replay-"));
   const env = {
     ...process.env,
     GIT_AUTHOR_NAME: "fixture",
@@ -947,7 +925,6 @@ const baselineFixture = (): {
   git("commit", "-m", "upstream: base");
   const base = git("rev-parse", "HEAD");
 
-  // Legacy debt: `landed` already carries the in-place rewrite.
   git("checkout", "--quiet", "-b", "landed", base);
   write(thingPath, thingCase.replace("expect(keep).toBe(1);", "expect(keep).toBe(2);"));
   git("add", "-A");
@@ -967,7 +944,7 @@ const baselineFixture = (): {
   return { root, base, landed, replay };
 };
 
-const baselineLedger = `# Fork delta
+const replayLedger = `# Fork delta
 
 ## fork-meta
 
@@ -978,44 +955,8 @@ const baselineLedger = `# Fork delta
 | \`apps/web/src/*.test.ts\` | The seam. |
 `;
 
-it("makes only the replay-introduced rewrite fatal against a --replay-of baseline", () => {
-  const f = baselineFixture();
-  try {
-    const git = new SystemGit(f.root);
-    const commandRunner = new SystemCommandRunner();
-    const additiveRunner = { worktree: f.root, run: commandRunner.run.bind(commandRunner) };
-    const result = readScan(
-      git,
-      {
-        base: null,
-        head: f.replay,
-        target: f.base,
-        typecheck: false,
-        since: f.base,
-        replayOf: f.landed,
-      },
-      baselineLedger,
-      additiveRunner,
-    );
-    const failures = scanFailures(result);
-    assert.isTrue(
-      failures.some((failure) => failure.includes("apps/web/src/other.test.ts")),
-      `the replay-introduced rewrite must stay fatal: ${JSON.stringify(failures)}`,
-    );
-    assert.isFalse(
-      failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")),
-      `the rewrite already on ${f.landed} must be advisory, not fatal: ${JSON.stringify(failures)}`,
-    );
-    assert.lengthOf(result.historicalWarnings, 1);
-    assert.lengthOf(result.historicalAdditive, 1);
-    assert.match(renderScanReport(result), /historical: 2 finding\(s\) already on/);
-  } finally {
-    NodeFS.rmSync(f.root, { recursive: true, force: true });
-  }
-});
-
-it("keeps both findings fatal without --replay-of on the same inputs", () => {
-  const f = baselineFixture();
+it("refuses pre-existing and new findings with --replay-of", () => {
+  const f = replayFixture();
   try {
     const git = new SystemGit(f.root);
     const commandRunner = new SystemCommandRunner();
@@ -1029,9 +970,9 @@ it("keeps both findings fatal without --replay-of on the same inputs", () => {
           target: f.base,
           typecheck: false,
           since: f.base,
-          replayOf: null,
+          replayOf: f.landed,
         },
-        baselineLedger,
+        replayLedger,
         additiveRunner,
       ),
     );
