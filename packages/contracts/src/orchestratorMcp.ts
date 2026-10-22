@@ -31,6 +31,7 @@ import {
   ThreadPullRequestLinkSource,
 } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
+import { McpThreadWaitUntilFork, McpThreadWorkFork } from "./mcpThreadWork.fork.ts"; // fork-hook: device-auth/mcp-thread-work
 import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
@@ -355,6 +356,7 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   itemCount: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
@@ -430,6 +432,7 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   snoozedUntil: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadDetail = typeof OrchestratorMcpThreadDetail.Type;
 
@@ -497,6 +500,7 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
   threadId: ThreadId,
   runId: Schema.optional(RunId),
   timeoutMs: Schema.optional(Schema.Finite),
+  until: Schema.optional(McpThreadWaitUntilFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadWaitInput = typeof OrchestratorMcpThreadWaitInput.Type;
 
@@ -507,6 +511,7 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   timedOut: Schema.Boolean,
   /** Pending runtime requests on the thread; the wait also returns while this is positive. */
   pendingRequestCount: NonNegativeInt,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 

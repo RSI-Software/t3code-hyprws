@@ -1,7 +1,8 @@
-// The external work view against the shapes the UI reads: an owner whose run
-// completed with subagents still running, and provider-native subagent threads,
-// which have no runs. Shells come from the real shell projection, so the view
-// and the sidebar's "Waiting on N subagents" read the same derivation.
+// The work view on `/mcp` and `/api/mcp/external` against the shapes the UI
+// reads: an owner whose run completed with subagents still running, and
+// provider-native subagent threads, which have no runs. Shells come from the
+// real shell projection, so the view and the sidebar's "Waiting on N
+// subagents" read the same derivation.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -21,16 +22,19 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
-import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
-import { threadShellFromProjection } from "../../orchestration-v2/ProjectionStore.ts";
-import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
-import * as SqlitePersistence from "../../persistence/Sqlite.ts";
-import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
-import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
-import * as ServerSettings from "../../serverSettings.ts";
-import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
-import { nativeTurnOf, threadWork } from "./ExternalMcpWork.fork.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import { threadShellFromProjection } from "../orchestration-v2/ProjectionStore.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ExternalMcpService from "./external/ExternalMcpService.fork.ts";
+import type { McpInvocationScope } from "./McpInvocationContext.ts";
+import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
+import * as ThreadWorkFork from "./toolkits/orchestrator/threadWork.fork.ts";
+import { nativeTurnOf, threadWork } from "./McpThreadWork.fork.ts";
 
 const granted = ProjectId.make("project:granted");
 const other = ProjectId.make("project:other");
@@ -380,36 +384,35 @@ const makeHarness = () => {
   ]);
   const runWaits: Array<ThreadManagementService.ThreadManagementWaitInput> = [];
   const projection = (threadId: ThreadId) => projections.get(threadId)!;
+  const threadManagement = Layer.mock(ThreadManagementService.ThreadManagementService)({
+    getThreadShell: (threadId) =>
+      Effect.sync(() =>
+        projections.has(threadId) ? threadShellFromProjection(projection(threadId)) : null,
+      ),
+    getProjectThreadRecords: (input) => Effect.sync(() => projection(input.threadId) as never),
+    getThreadRecords: (threadId) => Effect.sync(() => projection(threadId) as never),
+    listProjectThreads: (input) =>
+      Effect.sync(() =>
+        [...projections.values()]
+          .filter((entry) => entry.thread.projectId === input.projectId)
+          .map(threadShellFromProjection),
+      ),
+    getTimelinePage: () => Effect.succeed({ items: [], totalItems: 0, hasMore: false } as never),
+    waitForThread: (input) =>
+      Effect.sync(() => {
+        runWaits.push(input);
+        return {
+          threadId: input.threadId,
+          run: projection(input.threadId).runs[0] ?? null,
+          timedOut: false,
+          pendingRequestCount: 0,
+        };
+      }),
+  });
   const layer = ExternalMcpService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(ThreadManagementService.ThreadManagementService)({
-          getThreadShell: (threadId) =>
-            Effect.sync(() =>
-              projections.has(threadId) ? threadShellFromProjection(projection(threadId)) : null,
-            ),
-          getProjectThreadRecords: (input) =>
-            Effect.sync(() => projection(input.threadId) as never),
-          getThreadRecords: (threadId) => Effect.sync(() => projection(threadId) as never),
-          listProjectThreads: (input) =>
-            Effect.sync(() =>
-              [...projections.values()]
-                .filter((entry) => entry.thread.projectId === input.projectId)
-                .map(threadShellFromProjection),
-            ),
-          getTimelinePage: () =>
-            Effect.succeed({ items: [], totalItems: 0, hasMore: false } as never),
-          waitForThread: (input) =>
-            Effect.sync(() => {
-              runWaits.push(input);
-              return {
-                threadId: input.threadId,
-                run: projection(input.threadId).runs[0] ?? null,
-                timedOut: false,
-                pendingRequestCount: 0,
-              };
-            }),
-        }),
+        threadManagement,
         Layer.mock(ProjectService.ProjectService)({
           getShell: (projectId) => Effect.succeed(Option.some(projectShell(projectId))),
           listShells: () => Effect.succeed([projectShell(granted), projectShell(other)]),
@@ -432,7 +435,7 @@ const makeHarness = () => {
   const withService = <A, E>(
     body: (service: ExternalMcpService.ExternalMcpServiceShape) => Effect.Effect<A, E>,
   ) => Effect.flatMap(ExternalMcpService.ExternalMcpServiceFork, body).pipe(Effect.provide(layer));
-  return { projections, runWaits, withService };
+  return { projections, runWaits, threadManagement, withService };
 };
 
 describe("ExternalMcpServiceFork work", () => {
@@ -639,5 +642,103 @@ describe("ExternalMcpServiceFork work", () => {
         );
       }),
     );
+  });
+});
+
+/** Upstream's in-thread service reports run status only; the fork wrappers add work. */
+const inThread = (harness: ReturnType<typeof makeHarness>) => {
+  const upstreamWaits: Array<unknown> = [];
+  const shellOf = (threadId: ThreadId) =>
+    threadShellFromProjection(harness.projections.get(threadId)!);
+  const layer = Layer.merge(
+    harness.threadManagement,
+    Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({
+      listThreads: () =>
+        Effect.sync(() => ({
+          projectId: granted,
+          currentThreadId: null,
+          threads: [owner, childIds[0]!].map((id) =>
+            OrchestratorMcpService.listItemFromShellFork(shellOf(id), 0),
+          ),
+          nextCursor: null,
+          total: 2,
+        })),
+      readThread: (_scope, input) =>
+        Effect.succeed({
+          thread: { threadId: input.threadId } as never,
+          recentRuns: [],
+          items: [],
+          nextPosition: null,
+          hasMore: false,
+        }),
+      waitForThread: (_scope, input) =>
+        Effect.sync(() => {
+          upstreamWaits.push(input);
+          return {
+            threadId: input.threadId,
+            runId: ownerRun,
+            status: "completed" as const,
+            timedOut: false,
+            pendingRequestCount: 0,
+          };
+        }),
+    }),
+  );
+  return { upstreamWaits, provide: Effect.provide(layer) };
+};
+
+const scope = {} as McpInvocationScope;
+
+describe("in-thread MCP thread work", () => {
+  it.effect("list and read add the owner's background work and the child's turn", () => {
+    const harness = makeHarness();
+    const { provide } = inThread(harness);
+    return Effect.gen(function* () {
+      const list = yield* ThreadWorkFork.listThreadsFork(scope, {});
+      assert.deepStrictEqual(
+        list.threads.map((thread) => [thread.threadId, thread.status, thread.work.state]),
+        [
+          [owner, "completed", "waiting_on_background"],
+          [childIds[0], "idle", "running"],
+        ],
+      );
+      const read = yield* ThreadWorkFork.readThreadFork(scope, { threadId: owner });
+      assert.strictEqual(read.thread.work.state, "waiting_on_background");
+    }).pipe(provide);
+  });
+
+  it.effect("a run wait keeps upstream's result and adds the work after it", () => {
+    const harness = makeHarness();
+    const { provide } = inThread(harness);
+    return Effect.gen(function* () {
+      const result = yield* ThreadWorkFork.waitForThreadFork(scope, { threadId: owner });
+      assert.deepStrictEqual(
+        [result.status, result.timedOut, result.work.state],
+        ["completed", false, "waiting_on_background"],
+      );
+    }).pipe(provide);
+  });
+
+  it.effect("a work wait outlasts the run until the subagents end", () => {
+    const harness = makeHarness();
+    const { upstreamWaits, provide } = inThread(harness);
+    return Effect.gen(function* () {
+      const fiber = yield* ThreadWorkFork.waitForThreadFork(scope, {
+        threadId: owner,
+        until: "work",
+        timeoutMs: 10_000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("1 second");
+      assert.isUndefined(fiber.pollUnsafe());
+      harness.projections.set(owner, ownerProjection("completed"));
+      yield* TestClock.adjust("1 second");
+      const result = yield* Fiber.join(fiber);
+      assert.deepStrictEqual(
+        [result.runId, result.timedOut, result.work.state],
+        [ownerRun, false, "idle"],
+      );
+      // Upstream sees a plain run wait, which authorizes the caller.
+      assert.deepStrictEqual(upstreamWaits, [{ threadId: owner, timeoutMs: 10_000 }]);
+    }).pipe(provide);
   });
 });
