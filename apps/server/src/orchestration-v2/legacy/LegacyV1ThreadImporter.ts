@@ -35,7 +35,6 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { importLegacyThreadIssuesFork } from "./LegacyV1ThreadIssues.fork.ts"; // fork-hook: github-issues/legacy-issues-import
-import { purgeImportedLegacyV1Fork } from "./LegacyV1Purge.fork.ts"; // fork-hook: upstream-fixes/legacy-v1-purge-import
 
 const IMPORT_EVENT_PREFIX = "migration:v1";
 const TRANSCRIPT_EVENT_BATCH_SIZE = 100;
@@ -809,7 +808,6 @@ const make = Effect.gen(function* () {
       importedMessageCount += result.importedMessageCount;
       yield* Effect.yieldNow;
     }
-    yield* purgeImportedLegacyV1Fork(sql); // fork-hook: upstream-fixes/legacy-v1-purge
     return { importedThreadCount, importedMessageCount };
   }).pipe(
     Effect.catchCause((cause) =>
