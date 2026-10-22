@@ -8,17 +8,15 @@ import { assert, it, vi } from "@effect/vitest";
 
 import type { FoldCommit } from "./fork-fold.ts";
 import {
-  blockedIssueBody,
+  attentionIssueBody,
   blockingShaMarker,
   checkFailureDetail,
   closeBlocks,
-  failureIssueBody,
   failureMarker,
   foldSyncMessages,
   refuseDroppedLinks,
   resolveFixups,
-  publishBlock,
-  publishFailure,
+  publishAttention,
   realRunner,
   rebaseOnto,
   readReport,
@@ -795,7 +793,7 @@ it("refuses a marked hook beside an unmarked edit and files one keyed block", ()
         /not a fully marked insertion: the base stage differs outside the marked region/,
       );
       assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
-      const body = blockedIssueBody(report);
+      const body = attentionIssueBody(report);
       assert.match(body, /shared\.txt/);
       assert.match(body, /not a fully marked insertion/);
       const worktreeContent = NodeFS.readFileSync(NodePath.join(f.worktree, "shared.txt"), "utf8");
@@ -1262,7 +1260,72 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
   error: "hyprws CI failure on candidate 1111111: Check",
 });
 
-it("files one issue per blocking sha with the governed fields", () => {
+it.each(["blocked", "failed"] as const)(
+  "adopts the newest legacy %s issue across red kinds and closes on green",
+  (kind) => {
+    const block = blockedReport("5".repeat(40));
+    const failure = failedReport("ci", "v1.0.0");
+    const seed = kind === "blocked" ? block : failure;
+    const older = kind === "blocked" ? failure : block;
+    const issues = new Map([
+      [
+        7,
+        {
+          number: 7,
+          title: (older.blocked ?? older.failure)!.title,
+          body: attentionIssueBody(older),
+        },
+      ],
+      [
+        12,
+        {
+          number: 12,
+          title: (seed.blocked ?? seed.failure)!.title,
+          body: attentionIssueBody(seed),
+        },
+      ],
+    ]);
+    const recording = exec({
+      gh: (args) => {
+        if (args[1] === "list") {
+          const phrase = args[args.indexOf("--search") + 1]!.split('"')[1]!;
+          return ok(
+            JSON.stringify([...issues.values()].filter((issue) => issue.title.includes(phrase))),
+          );
+        }
+        if (args[1] === "edit") {
+          const number = Number(args[2]);
+          issues.set(number, {
+            number,
+            title: args[args.indexOf("--title") + 1]!,
+            body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1]!, "utf8"),
+          });
+          return ok();
+        }
+        if (args[1] === "close") {
+          issues.delete(Number(args[2]));
+          return ok();
+        }
+        assert.fail("a legacy issue must be adopted, not created");
+      },
+    });
+    assert.strictEqual(publishAttention(recording.runner, "/tmp", block).blocked?.issue, 12);
+    assert.strictEqual(publishAttention(recording.runner, "/tmp", failure).failure?.issue, 12);
+    assert.deepStrictEqual([...issues.keys()], [12]);
+    assert.include(issues.get(12)!.body, "upstream 5555555");
+    assert.include(issues.get(12)!.body, "each red run rewrites this issue");
+    assert.include(issues.get(12)!.body, "across 1 target;");
+    assert.include(issues.get(12)!.body, "`v1.0.0` · ci");
+    const superseded = recording.calls.find(({ args }) => args[1] === "close");
+    assert.include(superseded!.args, "Superseded by #12.");
+    assert.deepStrictEqual(closeBlocks(recording.runner, "/tmp", "abc1234"), [
+      { issue: 12, refusal: null },
+    ]);
+    assert.strictEqual(issues.size, 0);
+  },
+);
+
+it("files one attention issue with the governed fields", () => {
   const issueBodies: string[] = [];
   const recording = exec({
     gh: (args) => {
@@ -1273,7 +1336,7 @@ it("files one issue per blocking sha with the governed fields", () => {
       return ok("[]");
     },
   });
-  const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
+  const report = publishAttention(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 42);
   assert.strictEqual(report.blocked?.publishedVia, "gh");
   const create = recording.calls.find(
@@ -1323,7 +1386,7 @@ it("edits the open issue in place when the rendered body drifts, never comments"
       );
     },
   });
-  const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
+  const report = publishAttention(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 11);
   // exactly one in-place edit, no fresh filing, and the report body never posts
   // as a comment
@@ -1361,13 +1424,13 @@ it("rewrites the one standing issue for a new target and supersedes older open o
         return ok(
           JSON.stringify([
             { number: 7, title: "legacy", body: "older failure" },
-            { number: 12, title: first.failure!.title, body: failureIssueBody(first) },
+            { number: 12, title: first.failure!.title, body: attentionIssueBody(first) },
           ]),
         );
       return ok();
     },
   });
-  const published = publishFailure(recording.runner, "/tmp", next);
+  const published = publishAttention(recording.runner, "/tmp", next);
   assert.strictEqual(published.failure?.issue, 12);
   assert.strictEqual(edits.length, 1);
   const args = edits[0]!.args;
@@ -1395,12 +1458,12 @@ it("makes no write when the live title and body already match the render", () =>
           {
             number: 11,
             title: report.blocked!.title,
-            body: blockedIssueBody(report),
+            body: attentionIssueBody(report),
           },
         ]),
       ),
   });
-  const published = publishBlock(recording.runner, "/tmp", report);
+  const published = publishAttention(recording.runner, "/tmp", report);
   assert.strictEqual(published.blocked?.issue, 11);
   assert.strictEqual(published.blocked?.publishError, null);
   // the list is the only write: no create, no edit
@@ -1419,12 +1482,12 @@ it("makes no write when a stray gh-bot attest footer and machine title suffix de
           {
             number: 11,
             title: `${report.blocked!.title} [🔔#3]`,
-            body: `${blockedIssueBody(report)}\n<!-- gh-bot:attest sha256:aaaa -->\n<!-- gh-bot:edit-attest sha256:bbbb -->\n`,
+            body: `${attentionIssueBody(report)}\n<!-- gh-bot:attest sha256:aaaa -->\n<!-- gh-bot:edit-attest sha256:bbbb -->\n`,
           },
         ]),
       ),
   });
-  const published = publishBlock(recording.runner, "/tmp", report);
+  const published = publishAttention(recording.runner, "/tmp", report);
   assert.strictEqual(published.blocked?.issue, 11);
   // the stray decorations normalise away: no create, no edit
   assert.strictEqual(
@@ -1444,7 +1507,7 @@ it("falls back to gh issue edit --type when gh rejects --type at create", () => 
       return ok();
     },
   });
-  const report = publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40)));
+  const report = publishAttention(recording.runner, "/tmp", blockedReport("5".repeat(40)));
   assert.strictEqual(report.blocked?.issue, 44);
   assert.strictEqual(report.blocked?.publishedVia, "gh");
   assert.strictEqual(report.blocked?.publishError, null);
@@ -1477,7 +1540,7 @@ it("prints the body and records the refusal when gh refuses", () => {
         : ok("[]"),
   });
   const printed = capture(() =>
-    publishBlock(recording.runner, "/tmp", blockedReport("5".repeat(40))),
+    publishAttention(recording.runner, "/tmp", blockedReport("5".repeat(40))),
   );
   assert.match(printed.value.blocked?.publishError ?? "", /cannot create issues/);
   assert.strictEqual(printed.value.blocked?.publishedVia, null);
@@ -1611,12 +1674,11 @@ it("files one governed failure issue when hyprws CI is red on the candidate", ()
       args.filter((argument, index) => args[index - 1] === "--label"),
       ["ci"],
     );
-    const list = recording.calls.find(
-      ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "list",
-    );
-    assert.strictEqual(
-      list!.args[list!.args.indexOf("--search") + 1],
-      '"hyprws sync failed" in:title',
+    assert.deepStrictEqual(
+      recording.calls
+        .filter(({ args }) => args[0] === "issue" && args[1] === "list")
+        .map(({ args }) => args[args.indexOf("--search") + 1]),
+      ['"hyprws sync blocked" in:title', '"hyprws sync failed" in:title'],
     );
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `ci` step/);
@@ -1740,11 +1802,11 @@ it("prints the body and records the refusal when the failure issue cannot publis
         ? refused("delegated agents cannot create issues")
         : ok("[]"),
   });
-  const body = failureIssueBody(failedReport("push", "v1.0.0"));
+  const body = attentionIssueBody(failedReport("push", "v1.0.0"));
   assert.match(body, /failed at the `push` step/);
   assert.include(body, failureMarker("push", "v1.0.0"));
   const printed = capture(() =>
-    publishFailure(recording.runner, "/tmp", failedReport("push", "v1.0.0")),
+    publishAttention(recording.runner, "/tmp", failedReport("push", "v1.0.0")),
   );
   assert.match(printed.value.failure?.publishError ?? "", /cannot create issues/);
   assert.strictEqual(printed.value.failure?.publishedVia, null);
@@ -1758,7 +1820,7 @@ it("renders the report and the issue body as pure output of the typed report", (
   assert.match(markdown, /Lease: origin\/hyprws at 2222222/);
   assert.match(markdown, /## Decision route/);
   assert.match(markdown, /`\/tmp\/fork-sync\/worktree`/);
-  const body = blockedIssueBody(report);
+  const body = attentionIssueBody(report);
   assert.match(body, /\| Path \| Fork commit \| Upstream commit \| Refusal \|/);
   assert.match(body, /The typed report is the authority/);
   assert.include(body, blockingShaMarker("5".repeat(40)));
@@ -1828,6 +1890,24 @@ it("fails the applied run and records the refusal when the block close is refuse
     assert.match(report.error ?? "", /no assignee/);
     assert.match(applied.output, /- ❌ block #1164 close refused: .*no assignee/);
     assert.match(applied.output, /Error: closing stale block issues failed/);
+  });
+});
+
+it("an already-applied dry run performs no issue operations", () => {
+  withFixture(alreadyAppliedFixture, (f) => {
+    const recording = exec({ gh: openBlocksPerPhrase });
+    const applied = capture(() =>
+      run(["v1.0.0", "--dry-run"], { runner: recording.runner, root: f.root }),
+    );
+    assert.strictEqual(applied.value, 0);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.outcome, "already-applied");
+    assert.strictEqual(report.dryRun, true);
+    assert.deepStrictEqual(report.closedBlocks, []);
+    assert.deepStrictEqual(
+      recording.calls.filter(({ command, args }) => command === "gh" && args[0] === "issue"),
+      [],
+    );
   });
 });
 
