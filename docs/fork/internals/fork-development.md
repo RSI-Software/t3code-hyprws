@@ -23,8 +23,6 @@ Goal: a small, durable patch stack on upstream.
 | Removal             | Keep remote, web, upstream mobile app |
 | Gratuitous rewrites | No rewrites for fork flavour          |
 
-`dev:desktop:agent` is the one tooling exception; shipped launches leave placement to Hyprland.
-
 ## Multi-surface rule
 
 `AGENTS.md` owns the surface walk. Fork-specific rules:
@@ -46,13 +44,13 @@ A fork server must stay usable from it, which simply lacks fork features.
 
 ## Testing a fork checkout
 
-`vp run dev:app` launches; [Scripts](./scripts.md#dev-app-surfaces) owns flags and state.
+`vp run dev` launches; [Scripts](./scripts.md#dev-state-directories) owns state.
+Nothing opens a browser; agents place windows through `donjor hypr`.
 
 - **Explore:** base checkout
 - **Implement:** a worktree
 - **Verify a release:** checkout pinned to the SHA
 - **One home per checkout:** stop before switching
-- **Fixture:** never reset `.t3/test-project`
 
 ## Repository model
 
