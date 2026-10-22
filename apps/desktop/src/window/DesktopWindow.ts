@@ -332,11 +332,6 @@ export const make = Effect.gen(function* () {
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false);
   const startupDrain = yield* makeStartupDrain; // fork-hook: multi-window/startup-drain-state
-  const pendingDevAgentPlacementRef = yield* Ref.make(
-    // One map-time placement for dev:desktop:agent. The launcher environment survives
-    // main-process watch restarts; each fresh process consumes its own copy once.
-    environment.devAgentPlacement,
-  ); // fork-hook: multi-window/dev-agent-placement
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
@@ -395,14 +390,9 @@ export const make = Effect.gen(function* () {
     const dispatchedUrlFork = WindowDispatch.dispatchedWindowUrlFork(applicationUrl, dispatched); // fork-hook: multi-window/dispatch-url
     const normalWindowTitle =
       identity.kind === "hub" ? environment.displayName : identity.ref.projectId; // fork-hook: multi-window/placement-title
-    const devAgentPlacement =
-      identity.kind === "hub"
-        ? yield* Ref.get(pendingDevAgentPlacementRef)
-        : Option.none<DesktopEnvironment.DesktopDevAgentPlacement>(); // fork-hook: multi-window/dev-agent-placement
     const mapPlacementFork = WindowPlacement.resolveMapPlacementFork({
       hyprlandAvailable: hyprlandPlacement.isAvailable,
       windowId,
-      devAgent: devAgentPlacement,
       restoredWorkspace: dispatched?.restored?.workspace,
     }); // fork-hook: multi-window/placement-resolve
     const claimTitleFork = WindowPlacement.reserveClaimTitleFork({
@@ -916,13 +906,7 @@ export const make = Effect.gen(function* () {
               titleHold: titleHoldFork,
               maximize: persistedSettings.mainWindowMaximized, // fork-hook: multi-window/placement-maximize
               dismissSplash: dismissConnectingSplash,
-            }).pipe(
-              Effect.ensuring(
-                Option.isSome(devAgentPlacement)
-                  ? Ref.set(pendingDevAgentPlacementRef, Option.none())
-                  : Effect.void,
-              ),
-            ); // fork-hook: multi-window/placement-map-effect
+            }); // fork-hook: multi-window/placement-map-effect
       if (mapFork !== null) return void runPromise(mapFork); // fork-hook: multi-window/placement-map
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
@@ -979,15 +963,11 @@ export const make = Effect.gen(function* () {
   const revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
     identity: WindowIdentity,
   ) {
-    // Read before creation: ready-to-show may settle and clear the ref while
-    // ensureIdentity is still returning, but that must not turn into a late focus.
-    const suppressInitialReveal =
-      identity.kind === "hub" && Option.isSome(yield* Ref.get(pendingDevAgentPlacementRef));
     const window = yield* ensureIdentity(identity).pipe(
       Effect.map(Option.map((ensured) => ensured.window)),
       Effect.flatMap(requireWindow),
     ); // fork-hook: multi-window/window-id-reveal
-    if (!suppressInitialReveal) yield* electronWindow.reveal(window);
+    yield* electronWindow.reveal(window);
     return window;
   }); // fork-hook: multi-window/reveal-or-create-identity
 
