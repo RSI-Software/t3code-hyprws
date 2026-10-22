@@ -63,15 +63,23 @@ export function withProviderSessionIdentity(
 }
 
 /**
- * Removes inherited session identity and desktop launcher settings once at server
- * start. Providers (including in-process SDKs) and terminals inherit this environment:
- * none should name a parent thread or receive desktop placement and CDP settings.
- * Electron keeps its own launcher environment in its separate process.
+ * The server's own runtime settings, which a service unit may pass as env.
+ * A dev runner a child starts would otherwise reuse the live server's port.
+ */
+const SERVER_RUNTIME_ENV = ["T3CODE_PORT", "T3CODE_HOST", "T3CODE_MODE", "T3CODE_NO_BROWSER"];
+
+/**
+ * Removes inherited session identity, server runtime settings, and desktop
+ * launcher settings once the server config is resolved. Providers (including
+ * in-process SDKs) and terminals inherit this environment: none should name a
+ * parent thread, target this server's port, or receive desktop placement and
+ * CDP settings. Electron keeps its own launcher environment in its separate process.
  */
 export const stripInheritedProviderEnvironment = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.projectId];
   delete environment[PROVIDER_SESSION_IDENTITY_ENV.threadId];
+  for (const key of SERVER_RUNTIME_ENV) delete environment[key];
   for (const key of Object.keys(environment)) {
     if (key.toUpperCase().startsWith("T3CODE_DESKTOP_")) {
       delete environment[key];
