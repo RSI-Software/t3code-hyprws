@@ -198,6 +198,7 @@ import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import {
   terminalFocusPropsFork,
+  composerFocusCommandsFork,
   shouldAutoFocusComposerOnThreadChange,
   useTerminalFocusGateFork,
   useOpenDrawerComposerFocusFork,
@@ -2745,6 +2746,15 @@ export default function ChatView(props: ChatViewProps) {
     },
     commands: {
       ...terminalShortcuts,
+      ...composerFocusCommandsFork({
+        maximized: rightPanelMaximized,
+        toggleMaximized: toggleRightPanelMaximizedStable,
+        drawerOpen: terminalUiState.terminalOpen,
+        toggleDrawer: toggleTerminalVisibilityStable,
+        setRequestId: setTerminalFocusRequestId,
+        focusComposer: focusComposerStable,
+        scheduleComposerFocus: scheduleComposerFocusStable,
+      }), // fork-hook: upstream-fixes/terminal-focus-command
       ...rightPanelShortcuts,
       ...threadLifecycleShortcuts,
       "thread.copyReference": ({ event }) => {

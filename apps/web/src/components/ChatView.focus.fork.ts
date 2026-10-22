@@ -48,6 +48,32 @@ export function useOpenDrawerComposerFocusFork(
   }, [threadKey, focusComposer]);
 }
 
+export function composerFocusCommandsFork(input: {
+  maximized: boolean;
+  toggleMaximized: () => void;
+  drawerOpen: boolean;
+  toggleDrawer: () => void;
+  setRequestId: Dispatch<SetStateAction<number>>;
+  focusComposer: () => void;
+  scheduleComposerFocus: () => void;
+}) {
+  return {
+    "terminal.focus": () => {
+      if (input.maximized) input.toggleMaximized();
+      if (!input.drawerOpen) return void input.toggleDrawer();
+      requestTerminalFocusFork("drawer", input.setRequestId);
+    },
+    "chat.focusComposer": () => {
+      if (input.maximized) {
+        input.toggleMaximized();
+        input.scheduleComposerFocus();
+        return;
+      }
+      input.focusComposer();
+    },
+  };
+}
+
 export type TerminalFocusPaneFork = "drawer" | "panel";
 
 // Set synchronously next to an upstream `setTerminalFocusRequestId` call so
