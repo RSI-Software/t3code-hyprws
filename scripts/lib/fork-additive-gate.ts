@@ -9,7 +9,8 @@
 
 import * as NodePath from "node:path";
 
-import { readBlobs, type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { readBlobs } from "./fork-git-reader.ts";
 import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";

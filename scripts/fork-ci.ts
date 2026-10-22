@@ -18,7 +18,8 @@
 // and sync workflows run separately.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
-import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { runCommand } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 
 const HELP = `Usage: vp run fork:ci
 
