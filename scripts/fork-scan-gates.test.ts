@@ -976,8 +976,14 @@ it("refuses pre-existing and new findings with --replay-of", () => {
         additiveRunner,
       ),
     );
-    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/thing.test.ts")));
-    assert.isTrue(failures.some((failure) => failure.includes("apps/web/src/other.test.ts")));
+    for (const rule of ["upstream-test:", "additive:tests:"]) {
+      for (const path of ["apps/web/src/thing.test.ts", "apps/web/src/other.test.ts"]) {
+        assert.isTrue(
+          failures.some((failure) => failure.startsWith(rule) && failure.includes(path)),
+          `${rule} ${path} must fail: ${JSON.stringify(failures)}`,
+        );
+      }
+    }
   } finally {
     NodeFS.rmSync(f.root, { recursive: true, force: true });
   }
