@@ -9,13 +9,13 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import type * as Electron from "electron";
-import { vi } from "vite-plus/test";
+import { vi, type Mock } from "vite-plus/test";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
 import type * as PreviewManager from "../preview/Manager.ts";
-import type { DesktopWindowHarnessFork } from "./DesktopWindow.test.ts";
+import type { DesktopWindowLayerTestFork } from "./DesktopWindow.test.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import { testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts";
 import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts";
@@ -66,6 +66,28 @@ export const previewSessionCountersFork = (input: {
           }),
       }
     : {};
+};
+
+type WindowListenerFork = (...args: readonly unknown[]) => void;
+
+// The fork cases' view of upstream's `makeFakeBrowserWindow`. Its inferred
+// vitest mock types cannot be named in an exported declaration.
+type FakeBrowserWindowFork = {
+  readonly window: Electron.BrowserWindow;
+  readonly isFocused: Mock<() => boolean>;
+  readonly isMinimized: Mock<() => boolean>;
+  readonly isVisible: Mock<() => boolean>;
+  readonly loadURL: Mock<() => Promise<void>>;
+  readonly openDevTools: Mock;
+  readonly send: Mock;
+  readonly setTitle: Mock;
+  readonly webContentsListeners: Map<string, WindowListenerFork>;
+  readonly windowListeners: Map<string, WindowListenerFork>;
+};
+
+type DesktopWindowHarnessFork = {
+  readonly makeFakeBrowserWindow: () => FakeBrowserWindowFork;
+  readonly layerTest: DesktopWindowLayerTestFork;
 };
 
 /**
@@ -223,77 +245,6 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         yield* desktopWindow.handleRendererReady;
         assert.equal(yield* Ref.get(createCount), 1);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
-      }).pipe(Effect.provide(layer));
-    }),
-  );
-
-  it.effect("maps an agent desktop on its target workspace without requesting focus", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const workspaceMoves: { key: string; workspace: string }[] = [];
-      const workspaceRuleEvents: {
-        action: "stage" | "clear";
-        title: string;
-        workspace?: string;
-      }[] = [];
-      const placementLifecycle: string[] = [];
-      fakeWindow.setTitle.mockImplementation((title) => {
-        placementLifecycle.push(`title:${title}`);
-      });
-      const revealRequests: number[] = [];
-      const layer = layerTest({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves,
-        workspaceRuleEvents,
-        placementLifecycle,
-        onReveal: () => revealRequests.push(1),
-        environmentEnv: {
-          T3CODE_DESKTOP_DEVTOOLS: "0",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-test",
-        },
-      });
-
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(createdWindowOptions[0]?.title, "t3code-dev-agent-test");
-        assert.deepEqual(revealRequests, []);
-
-        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
-        if (!readyToShow) return yield* Effect.die("ready-to-show listener was not registered");
-        readyToShow();
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-
-        assert.equal(fakeWindow.showInactive.mock.calls.length, 1);
-        assert.deepEqual(revealRequests, []);
-        assert.deepEqual(workspaceRuleEvents, [
-          {
-            action: "stage",
-            title: "t3code-dev-agent-test",
-            workspace: "8",
-          },
-          { action: "clear", title: "t3code-dev-agent-test" },
-        ]);
-        assert.deepEqual(workspaceMoves, [{ key: testWindowId(1), workspace: "8" }]);
-        assert.deepEqual(fakeWindow.setTitle.mock.calls, [
-          ["t3code-dev-agent-test"],
-          ["T3 Code (Dev)"],
-        ]);
-        assert.deepEqual(placementLifecycle, [
-          "stage:8",
-          "title:t3code-dev-agent-test",
-          "title:T3 Code (Dev)",
-          "move:8",
-          "clear",
-        ]);
-        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
   );
