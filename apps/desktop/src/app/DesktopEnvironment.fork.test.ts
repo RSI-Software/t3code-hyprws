@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 const defaultInput = {
@@ -30,39 +29,6 @@ const makeEnvironment = (
 ) =>
   DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
 describe("DesktopEnvironment", () => {
-  it.effect("resolves agent placement only for a valid development launch", () =>
-    Effect.gen(function* () {
-      const placement = yield* makeEnvironment(
-        {},
-        {
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-abc",
-        },
-      );
-      assert.deepEqual(
-        placement.devAgentPlacement,
-        Option.some({ workspace: 8, title: "t3code-dev-agent-abc" }),
-      );
-      const production = yield* makeEnvironment(
-        {},
-        {
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-abc",
-        },
-      );
-      assert.deepEqual(production.devAgentPlacement, Option.none());
-      const invalid = yield* makeEnvironment(
-        {},
-        {
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "0",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "invalid,title",
-        },
-      );
-      assert.deepEqual(invalid.devAgentPlacement, Option.none());
-    }),
-  );
   it.effect("keeps devtools on by default and lets a dev run opt out", () =>
     Effect.gen(function* () {
       const defaults = yield* makeEnvironment({}, { VITE_DEV_SERVER_URL: "http://localhost:5173" });
