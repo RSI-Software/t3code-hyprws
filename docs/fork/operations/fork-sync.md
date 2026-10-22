@@ -22,10 +22,10 @@ The rebase refuses a rebased tip that dropped any PR link, except from a commit 
 | rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
 | ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                               |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
-| blocked | one standing block issue, rewritten per run, through `gh`                 | `gh` refuses the write                             |
+| blocked | one attention issue for any red run, via `gh`                             | `gh` refuses the write                             |
 | report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
 
-A tag the fork already sits on reports `already applied`, after closing any open block or failure issue.
+A tag the fork already sits on reports `already applied`, after closing the open sync attention issue.
 `--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no close.
 A green dry run keeps its tip in the [sync worktree](#unblocking-by-hand); `decision.tip` names it.
 The real run on the same tag and lease adopts that tip, reuses its green run, and pushes it, with no second rebase.
@@ -97,20 +97,18 @@ Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
 There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
 
-## Block lifecycle
+## Attention issue lifecycle
 
-A blocked run writes its report first, then rewrites the one open block issue through plain `gh`, filing it only when none is open.
-The body carries the conflict table (path, fork commit, upstream commit), the resume commands, and a tail: open-since date, target count, last five runs.
+Every red run (blocked or failed) rewrites one standing sync attention issue through plain `gh`, after writing its report.
+Its title reflects the latest stop; its body carries conflict and resume details or the failure and red jobs, plus the open-since date, target count, and last five runs.
 
-| Rule     | Detail                                                                                                                                                                                               |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity | Title phrase `hyprws sync blocked` and the governed `ci` label, no sync-specific label; the newest open issue is the standing one                                                                    |
-| Standing | Each blocked run rewrites its title and body; older open block issues close as superseded                                                                                                            |
-| Close    | A clean run (applied or already-applied) closes each open block issue with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`; a refusal lands in the report and fails the run |
-| Route    | Plain `gh` only                                                                                                                                                                                      |
-| Refusal  | A refusing `gh` prints the body; the run exits non-zero                                                                                                                                              |
+The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
+Older matches close with a one-line pointer to the kept issue; only no match files a new one.
+A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
+A refused publication or close lands in the report and fails the run.
+Dry runs never publish or close issues.
 
-Never post a block to `pingdotgg/t3code`.
+Never post a sync issue to `pingdotgg/t3code`.
 
 ### Unblocking by hand
 
@@ -143,16 +141,6 @@ It carries every stop's rows between runs, so the report keeps them.
 A red candidate, a green dry run, or a refused push keeps it, so its tip and tip fixups reach the next run.
 Rerun after each stop: the report records only the stops a run saw.
 
-## Failure lifecycle
-
-A run that fails on a non-blocked step (target, fetch, rebase, ci, push, or a crash) rewrites one standing failure issue the same way a block does, through the same `gh` route.
-
-| Rule     | Detail                                                                                                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity | Title phrase `hyprws sync failed` and label `ci`; the newest open issue is the standing one                                                                              |
-| Standing | Each failed run rewrites its title and body; a dry run reports and never files                                                                                           |
-| Close    | A clean run (applied or already-applied) closes it in the same `gh issue close --comment` pass that closes block issues; a refusal lands in the report and fails the run |
-
 ## Regenerable files
 
 On a conflict, the driver resolves each path and stages the result, in table order.
@@ -178,7 +166,7 @@ gh run view <run-id> [--log-failed] -R RSI-Software/t3code-hyprws
 ```
 
 The **Sync** job summary carries the run's rendered report.
-Conflict tables live in the block issue.
+Conflict tables live in the attention issue.
 
 ## One-time repository setup
 
@@ -249,14 +237,13 @@ T3 Connect stays dark unless all four repository variables exist:
 
 ## Failure handling
 
-| Failure                     | Response                                                         |
-| --------------------------- | ---------------------------------------------------------------- |
-| **Mirror fails**            | Recreate the token. Someone wrote `main`; never force            |
-| **Trunk lease rejected**    | `decision.tip` keeps the tip; inspect, rerun; never `--force`    |
-| **A blocked issue remains** | Unblock by hand. Retirement needs a traced decision              |
-| **A failure issue remains** | Inspect the report, fix, and rerun; the next clean run closes it |
-| **Candidate CI red**        | Fix in the kept worktree, or `gh run rerun --failed` a flake     |
-| **Stable release fails**    | Fix and rerun. Never move a published tag                        |
+| Failure                     | Response                                                      |
+| --------------------------- | ------------------------------------------------------------- |
+| **Mirror fails**            | Recreate the token. Someone wrote `main`; never force         |
+| **Trunk lease rejected**    | `decision.tip` keeps the tip; inspect, rerun; never `--force` |
+| **Attention issue remains** | Resolve the reported stop; green closes it                    |
+| **Candidate CI red**        | Fix in the kept worktree, or `gh run rerun --failed` a flake  |
+| **Stable release fails**    | Fix and rerun. Never move a published tag                     |
 
 ## Version ordering caveat
 
