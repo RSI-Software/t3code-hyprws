@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
 import type * as Electron from "electron";
 
 import * as HyprlandPlacement from "./HyprlandPlacement.ts";
@@ -92,7 +91,6 @@ const place = (compositor: ReturnType<typeof makeCompositor>, outcome: ClaimOutc
     const placement = resolveMapPlacementFork({
       hyprlandAvailable: true,
       windowId,
-      devAgent: Option.none(),
       restoredWorkspace: { id: 4, name: "4" },
     });
     assert.isNotNull(placement);
@@ -165,7 +163,6 @@ describe("placeAtMapFork", () => {
       const placement = resolveMapPlacementFork({
         hyprlandAvailable: true,
         windowId,
-        devAgent: Option.none(),
         restoredWorkspace: { id: 4, name: "4" },
       });
       assert.isNotNull(placement);
