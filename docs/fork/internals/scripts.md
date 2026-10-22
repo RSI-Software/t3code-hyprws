@@ -20,23 +20,7 @@ vp run dev
 Runner flags follow the root task name: `vp run dev --home-dir /tmp/t3code-dev`.
 `--browser` auto-opens a browser and is off by default; the runner owns `T3CODE_NO_BROWSER`, so setting it yourself does nothing.
 
-## Dev app surfaces
-
-`vp run dev:app [--external|--preview|--desktop]` runs against this checkout's isolated `.t3` home.
-
-| Flag        | Use                                                                       |
-| ----------- | ------------------------------------------------------------------------- |
-| default     | External browser                                                          |
-| `--preview` | Native agents: wait for the ready URL, pass it to `preview_open`          |
-| `--desktop` | DevTools off, profile in `.t3/electron`, records CDP, takes `--workspace` |
-
-Stop the owned run before switching surfaces; later launches keep fixtures, threads, and authentication.
-Under `donjor hypr window launch`, `--desktop` inherits the assigned workspace and retains it through Electron restarts; omit `--workspace` to use that assignment.
-Dev Web refuses remote, relay, and SSH environments before starting a terminal.
-A cold build holds its preview listener for ten minutes after attachment.
-For a spent pairing link, run `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` from that checkout.
-
-### Dev state directories
+## Dev state directories
 
 | Where you run it    | State                                               |
 | ------------------- | --------------------------------------------------- |
