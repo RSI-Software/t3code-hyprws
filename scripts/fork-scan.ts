@@ -107,16 +107,6 @@ export interface ScanResult {
   // reads as superseded rather than contradictory; the additive gate consumes that reading.
   readonly supersedes: ReadonlyArray<string>;
   readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
-  // Whole-series rehearsal only (`--replay-of` with `--since == --target`):
-  // `upstream-test`/`replaced-export` warnings and `additive:*` findings
-  // whose normalised key already exists on `replayOf` against its own base —
-  // legacy debt, not something this replay introduced. Kept out of
-  // `warnings`/`additive` (and so out of `scanFailures`) but rendered
-  // separately, advisory-only. Empty and null outside that mode.
-  readonly historicalWarnings: ReadonlyArray<ScanAuthoringWarning>;
-  readonly historicalAdditive: ReadonlyArray<AdditiveFinding>;
-  readonly historicalBase: string | null;
-  readonly replayOf: string | null;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -132,8 +122,6 @@ Options:
   --since <ref>   Guard only commits in <ref>..head; the overlap report covers the whole range
   --replay-of <ref>
                   Guard only commits whose added lines differ from the same-subject commit on this ref.
-                  When --since equals --target, upstream-test/replaced-export/additive findings already
-                  present on <ref> against its own base are advisory, not fatal.
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
@@ -275,50 +263,7 @@ export interface ScanInput extends ScanRange {
   // declaration refusals plus undeclared-contradiction findings.
   readonly supersedes?: ReadonlyArray<string>;
   readonly retireCandidates?: ReadonlyArray<SituatedDeclaration>;
-  // Whole-series rehearsal baseline, computed by the runner from a second
-  // scan of replayOf against its own base. Absent outside that mode.
-  readonly baseline?: BaselineKeys | undefined;
 }
-
-export interface BaselineKeys {
-  readonly base: string;
-  readonly replayOf: string;
-  readonly warningKeys: ReadonlySet<string>;
-  readonly additiveKeys: ReadonlySet<string>;
-}
-
-const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/g;
-// A whole-word integer between spaces is a count ("gains 4 fork test
-// block(s)"). A squash sums its members' counts, so the count leaves the key
-// too; a digit inside a path sits against a non-space and survives.
-const COUNT_PATTERN = /(?<=\s)\d+(?=\s)/g;
-export const normaliseFindingDetail = (text: string): string =>
-  text.replace(SHA_PATTERN, "<sha>").replace(COUNT_PATTERN, "<n>");
-
-// One key per finding shape, sha-free and count-free so a finding rebases or
-// squashes into an identical key on both scans. `warning.detail` always
-// carries its path (the messages `fork-scan-authoring.ts` builds all open on
-// it, or name it a sentence in), so folding it into the normalised detail is
-// enough for uniqueness without a separate path field on
-// `ScanAuthoringWarning`.
-const warningKey = (warning: ScanAuthoringWarning): string =>
-  `${warning.rule}|${normaliseFindingDetail(warning.detail)}`;
-const additiveKey = (finding: AdditiveFinding): string =>
-  `${finding.check}|${finding.path}|${normaliseFindingDetail(finding.detail)}`;
-
-const partitionBaseline = <Finding>(
-  findings: ReadonlyArray<Finding>,
-  keyOf: (finding: Finding) => string,
-  baselineKeys: ReadonlySet<string> | undefined,
-): { readonly fatal: ReadonlyArray<Finding>; readonly historical: ReadonlyArray<Finding> } => {
-  if (baselineKeys === undefined) return { fatal: findings, historical: [] };
-  const fatal: Array<Finding> = [];
-  const historical: Array<Finding> = [];
-  for (const finding of findings) {
-    (baselineKeys.has(keyOf(finding)) ? historical : fatal).push(finding);
-  }
-  return { fatal, historical };
-};
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
   const touched = new Map<string, Set<string>>();
@@ -362,15 +307,6 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     for (const path of shared) overlaps.push({ path, domain, covered: covers(path) });
   }
 
-  const rawWarnings = input.guard === undefined ? [] : collectAuthoringWarnings(input.guard);
-  const rawAdditive = input.additive ?? [];
-  const warningPartition = partitionBaseline(rawWarnings, warningKey, input.baseline?.warningKeys);
-  const additivePartition = partitionBaseline(
-    rawAdditive,
-    additiveKey,
-    input.baseline?.additiveKeys,
-  );
-
   return {
     range: { base: input.base, head: input.head, target: input.target },
     domains,
@@ -378,12 +314,8 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     typecheckGaps: [],
     undeclaredDomains,
     untaggedCommits,
-    warnings: warningPartition.fatal,
-    additive: additivePartition.fatal,
-    historicalWarnings: warningPartition.historical,
-    historicalAdditive: additivePartition.historical,
-    historicalBase: input.baseline?.base ?? null,
-    replayOf: input.baseline?.replayOf ?? null,
+    warnings: input.guard === undefined ? [] : collectAuthoringWarnings(input.guard),
+    additive: input.additive ?? [],
     supersedes: input.supersedes ?? [],
     retireCandidates: input.retireCandidates ?? [],
     hookDetails:
@@ -499,18 +431,6 @@ export const renderScanReport = (result: ScanResult): string => {
     lines.push("", `Hook guard, ${result.hookDetails.length} finding(s):`);
     for (const detail of result.hookDetails) lines.push(`  HOOK  ${detail}`);
   }
-  const historicalCount = result.historicalWarnings.length + result.historicalAdditive.length;
-  if (historicalCount > 0 && result.replayOf !== null && result.historicalBase !== null) {
-    lines.push(
-      "",
-      `historical: ${historicalCount} finding(s) already on ${result.replayOf} against ${result.historicalBase}, advisory`,
-      "Advisory, already on the replay baseline:",
-    );
-    lines.push(...renderAuthoringWarnings(result.historicalWarnings).map((line) => `  ${line}`));
-    if (result.historicalAdditive.length > 0) {
-      lines.push(...renderAdditiveFindings(result.historicalAdditive).map((line) => `    ${line}`));
-    }
-  }
   if (result.untaggedCommits.length > 0) {
     lines.push(
       `skipped ${result.untaggedCommits.length} commit(s) without Fork-Domain (vp run fork:delta --check owns them): ${result.untaggedCommits.join(", ")}`,
@@ -624,45 +544,7 @@ export const readScan = (
             { head: range.head },
           ),
     ...readSupersedesAssessment(git, range),
-    baseline: resolveBaselineKeys(git, options, range, ledger, additiveRunner),
   });
-};
-
-// Whole-series rehearsal only: `--replay-of` scans every replayed commit, so
-// this second scan of `replayOf` against its own base (never live upstream —
-// `range.target` may already be pinned to a merge base by the caller) finds
-// the legacy debt the replay did not introduce. `--since != --target` means
-// the caller bounded the guard to a real commit range already, so the
-// baseline diff is a no-op there (recursing with replayOf: null never loops).
-const resolveBaselineKeys = (
-  git: GitReader,
-  options: ScanOptions,
-  range: ScanRange,
-  ledger: string,
-  additiveRunner: AdditiveRunner | undefined,
-): BaselineKeys | undefined => {
-  if (options.replayOf === null) return undefined;
-  if (options.since === null || options.since !== options.target) return undefined;
-  const historicalBase = git.run(["merge-base", range.target, options.replayOf]).trim();
-  const baselineResult = readScan(
-    git,
-    {
-      base: null,
-      head: options.replayOf,
-      target: historicalBase,
-      typecheck: false,
-      since: historicalBase,
-      replayOf: null,
-    },
-    ledger,
-    additiveRunner,
-  );
-  return {
-    base: historicalBase,
-    replayOf: options.replayOf,
-    warningKeys: new Set(baselineResult.warnings.map(warningKey)),
-    additiveKeys: new Set(baselineResult.additive.map(additiveKey)),
-  };
 };
 
 /** What `checkAdditive` needs beyond the git reads: the worktree the trees resolve in. */
