@@ -369,23 +369,17 @@ export const make = Effect.gen(function* () {
   const requestTargetWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash)); // fork-hook: multi-window/window-targets-request-target
   const captureRevealWindow = withSnapShotRevealTarget(requestTargetWindow); // fork-hook: multi-window/window-targets-capture-reveal-target
 
+  const preserveGuestZoomsFork = yield* WindowDispatch.makeWindowGuestZoomsFork; // fork-hook: multi-window/window-zoom-factory
   const zoomWindow = Effect.fn("desktop.window.zoomWindow")(function* (
     window: Electron.BrowserWindow,
     direction: MainWindowZoomDirection,
   ) {
     const webContents = window.webContents;
-    const windowId = yield* electronWindow.windowIdFor(window); // fork-hook: multi-window/window-id-zoom
-    const windowPreviewManager = Option.isSome(windowId) // fork-hook: multi-window/window-id-zoom-owner
-      ? yield* previewManager.forWindow(windowId.value) // fork-hook: multi-window/window-id-zoom-manager
-      : previewManager;
-    // Chromium pushes the new level down to embedded guests, which would zoom
-    // the previewed page along with the app UI. The preview browser keeps its
-    // own zoom, so each guest owned by this window keeps its level.
-    yield* windowPreviewManager.preserveGuestZooms(() => {
+    yield* preserveGuestZoomsFork(window, () => {
       webContents.setZoomLevel(
         direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
       );
-    });
+    }); // fork-hook: multi-window/window-id-zoom
     if (environment.platform === "darwin") syncMacosWindowButtons(window);
   });
 
@@ -975,34 +969,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap(requireWindow),
     ); // fork-hook: multi-window/quit-create-or-interrupt
 
-  const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
-    identity: WindowIdentity,
-    windowId?: WindowId, // fork-hook: multi-window/window-id-ensure-param
-  ) {
-    if (yield* Ref.get(desktopState.quitting)) return Option.none(); // fork-hook: multi-window/quit-ensure
-    const create = (reservedId: WindowId) =>
-      createWindow().pipe(
-        WindowDispatch.withWindowCreateTargetFork({ identity, windowId: reservedId }),
-        Effect.flatMap(Effect.fromOption),
-      ); // fork-hook: multi-window/window-id-create
-    const ensured = yield* electronWindow
-      .getOrCreate(identity, create, windowId)
-      .pipe(Effect.catchNoSuchElement); // fork-hook: multi-window/window-id-get-or-create
-    if (Option.isNone(ensured)) return ensured; // fork-hook: multi-window/quit-ensure-cancelled
-    const result = ensured.value; // fork-hook: multi-window/quit-ensure-result
-    if (result.created) {
-      yield* logWindowInfo(
-        identity.kind === "hub" ? "main window created" : "project window created",
-        {
-          identity: identity.kind === "hub" ? "hub" : "project",
-          ...(identity.kind === "hub"
-            ? {}
-            : { environmentId: identity.ref.environmentId, projectId: identity.ref.projectId }),
-        },
-      );
-    }
-    return Option.some(result); // fork-hook: multi-window/window-id-ensure-result
-  }); // fork-hook: multi-window/ensure-identity
+  const ensureIdentity = yield* WindowDispatch.makeEnsureIdentityFork(createWindow); // fork-hook: multi-window/ensure-identity
 
   const revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
     identity: WindowIdentity,
