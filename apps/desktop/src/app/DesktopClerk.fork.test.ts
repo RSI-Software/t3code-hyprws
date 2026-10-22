@@ -38,7 +38,6 @@ const makeDesktopClerkLayer = (
   const environment = DesktopEnvironment.DesktopEnvironment.of({
     stateDir: "/tmp/t3-state",
     isDevelopment: true,
-    userDataDirectoryOverride: Option.none(),
     appDataDirectory: "/tmp/app-data",
     platform: "darwin",
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
