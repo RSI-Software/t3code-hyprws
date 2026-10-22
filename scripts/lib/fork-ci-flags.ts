@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git helper runs before an Effect runtime exists.
 
-// The one derivation of the `fork:scan` flags the hyprws CI Check job pins a
-// head with. The workflow's `Fork ledger` and `Fork rebase scan`
-// steps call this file, and `vp run fork:ci` imports the same functions, so
-// neither side restates the derivation and a local green run means what CI's
-// green means. Before this helper the flags lived only in the workflow's
-// shell, and every author invented a weaker invocation locally
-// (RSI-Software/t3code-hyprws#1148).
+// The one derivation of the `fork:scan` flags the hyprws CI Check job pins a head with. The
+// workflow's `Fork ledger` and `Fork rebase scan` steps call this file and `vp run fork:ci` imports
+// it, so neither restates the derivation and a local green run means what CI's green means.
 
 import { UsageError } from "./fork-cli.ts";
-import { SystemGit } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 
 /** The workflow that consumes the flags. */
 export const FORK_CI_WORKFLOW_PATH = ".github/workflows/hyprws-ci.yml";
