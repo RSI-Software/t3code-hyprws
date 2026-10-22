@@ -1,7 +1,6 @@
 /**
  * Remembers which Hyprland client belongs to which desktop window. Update
- * relaunches restore a previous arrangement; dev:desktop:agent may stage one
- * explicit map-time target chosen from the invoking app's workspace.
+ * relaunches restore a previous arrangement.
  *
  * This is deliberately not monitor policy. The service never derives where a
  * window belongs and every move is silent, so the user's current workspace does
@@ -83,16 +82,15 @@ export class HyprlandPlacement extends Context.Service<
       windowId: WindowId,
     ) => Effect.Effect<Option.Option<HyprlandWorkspaceRef>>;
     /**
-     * Stages a title-scoped rule before a hidden window maps. A `transient`
-     * title (one window's claim token) only gets rules its clear removes.
+     * Stages a title-scoped rule before a hidden window maps. The title is one
+     * window's claim token, so it only gets rules its clear removes.
      */
     readonly stageWorkspaceRule: (
       title: string,
       workspace: HyprlandWorkspaceRef,
-      options?: RuleLifetime,
     ) => Effect.Effect<boolean>;
-    /** Removes the staged rules; a `transient` title loses every rule and global. */
-    readonly clearWorkspaceRule: (title: string, options?: RuleLifetime) => Effect.Effect<void>;
+    /** Removes the staged rules: the title loses every rule and global. */
+    readonly clearWorkspaceRule: (title: string) => Effect.Effect<void>;
     /** Moves a claimed window to `workspace` without switching the view. */
     readonly moveToWorkspace: (
       windowId: WindowId,
@@ -103,10 +101,6 @@ export class HyprlandPlacement extends Context.Service<
 
 export interface ClaimBaseline {
   readonly knownAddresses?: ReadonlySet<string>;
-}
-
-export interface RuleLifetime {
-  readonly transient?: boolean;
 }
 
 export const make = Effect.fn("HyprlandPlacement.make")(function* (options: {
@@ -224,18 +218,15 @@ export const make = Effect.fn("HyprlandPlacement.make")(function* (options: {
   const stageWorkspaceRule = Effect.fn("desktop.hyprland.stageWorkspaceRule")(function* (
     title: string,
     workspace: HyprlandWorkspaceRef,
-    lifetime?: RuleLifetime,
   ) {
     if (!isAvailable) return false;
     const grammar = yield* resolveWindowRuleGrammar();
     const workspacePayload = formatWorkspaceWindowRule(workspace, title, grammar);
     if (workspacePayload === null) return false;
     stagedTitles.add(title);
-    // The exact worktree title keeps the activation guard safe to retain,
-    // which also covers every Electron restart owned by the development watcher.
-    // A transient title gets it only where its clear can remove it again.
+    // The activation guard is staged only where its clear can remove it again.
     const suppressionPayload =
-      lifetime?.transient === true && formatClearSuppressionWindowRule(title, grammar) === null
+      formatClearSuppressionWindowRule(title, grammar) === null
         ? undefined
         : formatSuppressActivationWindowRule(title, grammar);
     if (suppressionPayload === null) return false;
@@ -247,14 +238,12 @@ export const make = Effect.fn("HyprlandPlacement.make")(function* (options: {
 
   const clearWorkspaceRule = Effect.fn("desktop.hyprland.clearWorkspaceRule")(function* (
     title: string,
-    lifetime?: RuleLifetime,
   ) {
     if (!isAvailable) return;
     const grammar = yield* resolveWindowRuleGrammar();
     stagedTitles.delete(title);
     const payload = formatClearWorkspaceWindowRule(title, grammar);
     if (payload !== null) yield* request(payload);
-    if (lifetime?.transient !== true) return;
     const suppression = formatClearSuppressionWindowRule(title, grammar);
     if (suppression !== null) yield* request(suppression);
   });

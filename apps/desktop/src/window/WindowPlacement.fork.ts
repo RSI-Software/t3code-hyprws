@@ -10,13 +10,11 @@
 // unless another window is still unclaimed under its normal title: windows
 // opened together could not be told apart, so the later ones map under their
 // claim title too (RSI-Software/t3code-hyprws#1380). The workspace is still
-// the user's choice: a restore replays the one captured, dev:desktop:agent
-// names one explicitly, and anything else maps wherever Hyprland puts it.
+// the user's choice: a restore replays the one captured, and anything else
+// maps wherever Hyprland puts it.
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import type * as Electron from "electron";
 
-import type { DesktopDevAgentPlacement } from "../app/DesktopEnvironment.ts";
 import type { HyprlandPlacement } from "./HyprlandPlacement.ts";
 import type { HyprlandWorkspaceRef } from "./hyprland.ts";
 import type { WindowId } from "./WindowId.fork.ts";
@@ -28,29 +26,21 @@ export interface MapPlacement {
   readonly title: string;
   /** Staged before map so the window never appears elsewhere first. */
   readonly workspace: HyprlandWorkspaceRef;
-  /** A claim token: every rule staged on it is removed once placement ends. */
-  readonly transient: boolean;
 }
 
 /**
- * How this window maps: the dev agent's explicit target, else on Hyprland a
- * restored workspace under the window's claim title, else nothing to arrange.
+ * How this window maps: on Hyprland a restored workspace under the window's
+ * claim title, else nothing to arrange.
  */
 export const resolveMapPlacementFork = (input: {
   readonly hyprlandAvailable: boolean;
   readonly windowId: WindowId;
-  readonly devAgent: Option.Option<DesktopDevAgentPlacement>;
   readonly restoredWorkspace: HyprlandWorkspaceRef | null | undefined;
 }): MapPlacement | null => {
-  if (Option.isSome(input.devAgent)) {
-    const { title, workspace } = input.devAgent.value;
-    return { title, workspace: { id: workspace, name: String(workspace) }, transient: false };
-  }
   if (!input.hyprlandAvailable || input.restoredWorkspace == null) return null;
   return {
     title: windowClaimTitle(input.windowId),
     workspace: input.restoredWorkspace,
-    transient: true,
   };
 };
 
@@ -171,9 +161,9 @@ export const placeAtMapFork = (input: {
   const { hyprlandPlacement, window, windowId, placement, titleHold } = input;
   const release = Effect.sync(titleHold.release);
   const pin = Effect.sync(titleHold.pin);
-  const { workspace, transient } = placement;
+  const { workspace } = placement;
   return Effect.gen(function* () {
-    yield* hyprlandPlacement.stageWorkspaceRule(placement.title, workspace, { transient });
+    yield* hyprlandPlacement.stageWorkspaceRule(placement.title, workspace);
     yield* pin;
     if (!window.isDestroyed()) window.showInactive();
     if (input.maximize && !window.isDestroyed()) window.maximize();
@@ -183,7 +173,7 @@ export const placeAtMapFork = (input: {
     yield* hyprlandPlacement.moveToWorkspace(windowId, workspace);
   }).pipe(
     Effect.ensuring(release),
-    Effect.ensuring(hyprlandPlacement.clearWorkspaceRule(placement.title, { transient })),
+    Effect.ensuring(hyprlandPlacement.clearWorkspaceRule(placement.title)),
     Effect.withSpan("desktop.window.placeAtMap"),
   );
 };
