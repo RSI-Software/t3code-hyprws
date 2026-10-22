@@ -38,7 +38,7 @@ type McpNativeTurn = McpNativeTurnFork;
 export type McpThreadWork = McpThreadWorkFork;
 
 /** States a work wait returns on: nothing will change without a person or new work. */
-export const isWorkSettled = (work: McpThreadWork) =>
+const isWorkSettled = (work: McpThreadWork) =>
   work.state === "idle" || work.state === "awaiting_response";
 
 type WorkShell = Pick<
@@ -58,7 +58,7 @@ type NativeTurnNode = Pick<
 >;
 
 /** Whether a thread's status lives on its runless root turn, which `nativeTurnOf` reads. */
-export const hasNativeTurn = (shell: Pick<WorkShell, "lineage" | "creationSource">) =>
+const hasNativeTurn = (shell: Pick<WorkShell, "lineage" | "creationSource">) =>
   isProviderNativeSubagentThread(shell);
 
 /**

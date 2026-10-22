@@ -37,5 +37,5 @@ export type McpThreadWorkFork = typeof McpThreadWorkFork.Type;
 
 export const McpThreadWaitUntilFork = Schema.Literals(["run", "work"]).annotate({
   description:
-    "run (default) waits for one run to end. work waits until nothing runs and no background work holds the thread, or a request waits on a person; it takes no runId.",
+    "run (default) waits for one run to end. A run can complete while subagents, monitors, or background tasks it started still run; the result's work field reports them. work waits until nothing runs and no background work holds the thread, or a request waits on a person; it takes no runId, and a held queue does not count as running.",
 });

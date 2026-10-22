@@ -1,9 +1,9 @@
 // Fork-owned work view on the in-thread `/mcp` thread tools
 // (RSI-Software/t3code-hyprws device-auth domain). Upstream's list, read, and
 // wait report run status only, so a thread whose run ended with subagents,
-// monitors, or delegated children still running reads as done. Each wrapper
-// calls the upstream service first, which keeps its authorization and output,
-// then adds the work `/api/mcp/external` reports.
+// monitors, or delegated children still running reads as done. List, read, and
+// a run wait call the upstream service first, which keeps its authorization and
+// output, then add the work `/api/mcp/external` reports.
 import {
   type OrchestrationV2ThreadShell,
   OrchestratorMcpFailure,
@@ -12,7 +12,6 @@ import {
   type OrchestratorMcpThreadWaitInput,
   type ThreadId,
 } from "@t3tools/contracts";
-import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -29,23 +28,20 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import type { OrchestratorToolkit } from "./tools.ts";
 
-// The budget upstream's run wait clamps to; a work wait spends what it leaves.
-const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
-const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
-
 const loadShell = (
   threads: ThreadManagementService.ThreadManagementServiceShape,
   threadId: ThreadId,
 ) =>
   threads.getThreadShell(threadId).pipe(
     Effect.mapError(OrchestratorMcpService.threadManagementFailureFork),
-    Effect.filterOrFail(
+    Effect.filterOrElse(
       (shell): shell is OrchestrationV2ThreadShell => shell !== null && shell.deletedAt === null,
       () =>
-        new OrchestratorMcpFailure({
-          code: "thread_not_found",
-          message: `Thread ${threadId} was not found.`,
-        }),
+        OrchestratorMcpService.threadNotFound(
+          threads,
+          threadId,
+          `Thread ${threadId} was not found.`,
+        ),
     ),
   );
 
@@ -89,32 +85,37 @@ export const readThreadFork = Effect.fn("OrchestratorMcpThreadWork.readThread")(
 });
 
 /**
- * A work wait first waits on the latest run, which authorizes the caller and
- * covers the common case, then polls background work with the budget left.
+ * A work wait skips upstream's run wait: that pins the latest run, and a held
+ * queued run never ends on its own, so it would spend the whole budget. Reads
+ * on `/mcp` need only the orchestration capability and a live target, which
+ * the capability check and `loadShell` enforce here.
  */
 export const waitForThreadFork = Effect.fn("OrchestratorMcpThreadWork.waitForThread")(function* (
   scope: McpInvocationContext.McpInvocationScope,
   input: OrchestratorMcpThreadWaitInput,
 ) {
   yield* assertWaitTarget(input);
-  const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const { until, ...runWait } = input;
-  const budgetMs = Math.min(
-    MAX_WAIT_TIMEOUT_MS,
-    Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
-  );
-  const startedMs = yield* Clock.currentTimeMillis;
-  const result = yield* service.waitForThread(scope, runWait);
-  if (until === "work" && !result.timedOut && result.pendingRequestCount === 0) {
-    const elapsedMs = (yield* Clock.currentTimeMillis) - startedMs;
+  if (until === "work") {
+    if (!scope.capabilities.has("orchestration")) {
+      return yield* new OrchestratorMcpFailure({
+        code: "capability_denied",
+        message: "This MCP credential does not grant orchestration capabilities.",
+      });
+    }
     return yield* waitForWork(
       threads,
       (threadId) => loadShell(threads, threadId),
       input.threadId,
-      Math.max(1, budgetMs - elapsedMs),
+      Math.min(
+        OrchestratorMcpService.maxWaitTimeoutMsFork,
+        Math.max(1, input.timeoutMs ?? OrchestratorMcpService.defaultWaitTimeoutMsFork),
+      ),
     );
   }
+  const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+  const result = yield* service.waitForThread(scope, runWait);
   // The run's outcome stands; work reports what still runs after it.
   const work = yield* workOf(threads, yield* loadShell(threads, input.threadId));
   return { ...result, work } satisfies McpThreadWaitResult;
