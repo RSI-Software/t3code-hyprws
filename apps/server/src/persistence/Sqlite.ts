@@ -6,7 +6,6 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { repairStaleForkMigrationRow, ensureForkSchema } from "./ForkSchema.ts"; // fork-hook: zmux-estate/fork-schema
-import { relaxWalSyncFork } from "./SqliteSynchronous.fork.ts"; // fork-hook: upstream-fixes/sqlite-synchronous
 import { runMigrations } from "./Migrations.ts";
 import { initializeV2Database } from "./initializeV2Database.ts";
 import * as ServerConfig from "../config.ts";
@@ -32,7 +31,6 @@ const layerSetup = Layer.effectDiscard(
     yield* sql`PRAGMA checkpoint_fullfsync = ON;`;
     // PASSIVE checkpoints retain peak WAL size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
-    yield* relaxWalSyncFork; // fork-hook: upstream-fixes/sqlite-synchronous
     yield* repairStaleForkMigrationRow(); // fork-hook: zmux-estate/fork-schema
     yield* runMigrations();
     yield* ensureForkSchema(); // fork-hook: zmux-estate/fork-schema
