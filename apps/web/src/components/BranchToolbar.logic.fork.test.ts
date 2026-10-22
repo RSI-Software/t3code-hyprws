@@ -4,16 +4,19 @@ import * as Schema from "effect/Schema";
 import {
   EnvMode,
   resolveEffectiveEnvMode,
-  resolveEnvModeLabel,
   resolveBranchWorkspaceCwd,
   resolveLockedWorkspaceLabel,
   shouldShowGitControls,
 } from "./BranchToolbar.logic";
 import {
+  EnvModeFork,
+  resolveEnvModeLabelFork as resolveEnvModeLabel,
   applyUnusableWorktreeRebindFork,
-  resolveForkEnvModeLabel,
   resolveUnusableWorktreeRebindFork,
 } from "./BranchToolbar.logic.fork";
+
+const isEnvMode = Schema.is(EnvMode);
+const isEnvModeFork = Schema.is(EnvModeFork);
 
 describe("resolveLockedWorkspaceLabel", () => {
   it("names a worktrunk worktree", () => {
@@ -43,17 +46,18 @@ describe("resolveEffectiveEnvMode", () => {
 
 describe("fork env mode label and schema", () => {
   it("resolves the worktrunk label through the fork resolver", () => {
-    expect(resolveForkEnvModeLabel("worktrunk")).toBe("New worktrunk");
-    expect(resolveForkEnvModeLabel("worktree")).toBeNull();
-    expect(resolveForkEnvModeLabel("local")).toBeNull();
+    expect(resolveEnvModeLabel("worktree")).toBe("New worktree");
+    expect(resolveEnvModeLabel("local")).toBe("Current checkout");
     expect(resolveEnvModeLabel("worktrunk")).toBe("New worktrunk");
   });
 
-  it("keeps EnvMode on the fork enum schema, worktrunk included", () => {
-    expect(Schema.is(EnvMode)("worktrunk")).toBe(true);
-    expect(Schema.is(EnvMode)("local")).toBe(true);
-    expect(Schema.is(EnvMode)("worktree")).toBe(true);
-    expect(Schema.is(EnvMode)("new-worktrunk")).toBe(false);
+  it("extends the fork schema without replacing upstream EnvMode", () => {
+    expect(isEnvMode("worktrunk")).toBe(false);
+    for (const mode of EnvMode.literals) {
+      expect(isEnvModeFork(mode)).toBe(true);
+    }
+    expect(isEnvModeFork("worktrunk")).toBe(true);
+    expect(isEnvModeFork("new-worktrunk")).toBe(false);
   });
 });
 describe("shouldShowGitControls", () => {

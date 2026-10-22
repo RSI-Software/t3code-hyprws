@@ -3,14 +3,13 @@ import { ComposerContextLabel } from "./ComposerContextLabel";
 import { FolderGit2Icon, FolderGitIcon, FolderIcon } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent } from "react";
 import { FolderCogIcon } from "lucide-react"; // fork-hook: worktrunk-hooks/env-mode-selector-cog-import
+import {
+  type EnvModeFork as EnvMode,
+  resolveEnvModeLabelFork as resolveEnvModeLabel,
+} from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-import
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktree-mode-import
 
-import {
-  resolveCurrentWorkspaceLabel,
-  resolveEnvModeLabel,
-  resolveLockedWorkspaceLabel,
-  type EnvMode,
-} from "./BranchToolbar.logic";
+import { resolveCurrentWorkspaceLabel, resolveLockedWorkspaceLabel } from "./BranchToolbar.logic"; // fork-hook: worktrunk-hooks/env-mode-import
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { BranchToolbarWorktrunkSelectItem } from "./BranchToolbarEnvModeSelector.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-item-import

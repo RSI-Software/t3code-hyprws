@@ -12,7 +12,7 @@ import {
   toWireThreadEnvModeOverrideFields,
 } from "@t3tools/shared/threadEnvMode.fork";
 
-import { resolveEnvModeLabel } from "../BranchToolbar.logic";
+import { resolveEnvModeLabelFork as resolveEnvModeLabel } from "../BranchToolbar.logic.fork";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import type { ScopedSettingsPatch } from "./scopedSettings";
 import { SettingResetButton } from "./settingsLayout";

@@ -24,6 +24,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import type { EnvModeFork as EnvMode } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-type-import
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   useDeferredValue,
@@ -58,7 +59,6 @@ import { useUnusableWorktreeRebindFork } from "./BranchToolbarBranchSelector.for
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
-  type EnvMode,
   resolveBranchWorkspaceCwd,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,

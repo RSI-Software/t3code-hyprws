@@ -5,6 +5,10 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  type EnvModeFork as EnvMode,
+  resolveEnvModeLabelFork as resolveEnvModeLabel,
+} from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-import
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   ChevronDownIcon,
@@ -31,11 +35,9 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useThreadShellsForProjectRefs } from "../state/entities";
 import {
   ADD_TO_MACHINE_LABEL_CLASS,
-  type EnvMode,
   type EnvironmentOption,
   resolveContextStripLabelsCompact,
   resolveCurrentWorkspaceLabel,
-  resolveEnvModeLabel,
   resolveLockedWorkspaceLabel,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
