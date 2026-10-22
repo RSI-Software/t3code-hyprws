@@ -171,8 +171,6 @@ export function VoiceTextSettingsFork({
                     models={selectedEntry.models}
                     model={form.modelSelection.model}
                     modelOptions={form.modelSelection.options}
-                    prompt=""
-                    onPromptChange={() => {}}
                     allowPromptInjectedEffort={false}
                     planModeEnabled={false}
                     onModelOptionsChange={(options) =>
