@@ -69,7 +69,6 @@ const layerDesktopClerk = (
   const environment = DesktopEnvironment.DesktopEnvironment.of({
     stateDir,
     isDevelopment,
-    userDataDirectoryOverride: Option.none(),
     appDataDirectory: "/tmp/app-data",
     platform,
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
