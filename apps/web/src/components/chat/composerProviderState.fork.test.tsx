@@ -117,8 +117,8 @@ describe("provider traits render guards", () => {
       model: MODEL,
       models,
       modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
       planModeEnabled: false,
     };
     expect(renderProviderAgentPicker(args)).not.toBeNull();
@@ -141,8 +141,8 @@ describe("provider traits render guards", () => {
         ]),
       ]),
       modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
       planModeEnabled: false,
     };
     for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
