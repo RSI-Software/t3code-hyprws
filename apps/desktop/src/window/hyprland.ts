@@ -1,13 +1,7 @@
 /**
- * Minimal Hyprland IPC client.
- *
- * Hyprland still owns workspace policy. This module preserves an update
- * relaunch arrangement and applies an explicit dev-launch workspace supplied by
- * the invoking app. It never derives a workspace from monitor policy itself.
- *
- * Speaks the compositor's socket directly instead of shelling out to
- * `hyprctl`, because that is all `hyprctl` does and a child process per query
- * is not worth it during shutdown.
+ * Minimal Hyprland IPC client; Hyprland still owns workspace policy. Speaks the
+ * compositor socket directly rather than spawning `hyprctl`, since a child
+ * process per query is not worth it during shutdown.
  */
 import * as NodeNet from "node:net";
 
