@@ -30,12 +30,12 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
     readonly rejectRunningServer?: boolean;
   },
 ) {
-  yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
   // Before config resolution, which claims a port and creates directories.
   const { runServer } = yield* Effect.promise(() => import("../server.ts"));
   const logLevel = yield* GlobalFlag.LogLevel;
   const selectAutomaticPort = yield* AutomaticPort.make.pipe(Effect.provide(ProcessRunner.layer));
   const config = yield* resolveServerConfig(flags, logLevel, { ...options, selectAutomaticPort });
+  yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
   const run = runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
   if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
   yield* Effect.sync(() => {
