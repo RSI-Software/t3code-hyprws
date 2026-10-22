@@ -81,21 +81,17 @@ import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
 const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
-/** `gh` files and lists block issues only under this label; the title search does the rest. */
+/** The attention issue keeps the governed label and outcome-shaped legacy titles. */
 const BLOCK_LABEL = "ci";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v2";
 
-const blockIssueTitle = (tag: string, blockingShortSha: string): string =>
-  `hyprws sync blocked at ${tag} (upstream ${blockingShortSha})`;
+const syncIssueTitle = (outcome: "blocked" | "failed", step: string, key: string): string =>
+  `hyprws sync ${outcome} at ${step} (${outcome === "blocked" ? "upstream " : ""}${key.length === 40 ? key.slice(0, 7) : key})`;
 
 const blockingShaMarker = (sha: string): string => `<!-- blocking-sha:${sha} -->`;
 export { blockingShaMarker };
-
-/** A failed run's identity: the failing step plus the target tag or trunk sha. */
-const failureIssueTitle = (step: string, key: string): string =>
-  `hyprws sync failed at ${step} (${key.length === 40 ? key.slice(0, 7) : key})`;
 
 export const failureMarker = (step: string, key: string): string =>
   `<!-- sync-failure:${step}:${key} -->`;
@@ -1205,22 +1201,19 @@ const standingRunsOf = (body: string): ReadonlyArray<StandingRun> => {
 /**
  * The tail of a standing sync issue: when it opened, how many targets hit it,
  * and the last few runs. Every blocked or failed run rewrites the one open
- * issue of its kind, so this carries forward from the body it replaces; a
+ * attention issue, so this carries forward from the body it replaces; a
  * rerun on the same target and detail changes nothing here.
  */
-const standingSection = (
-  previous: string | undefined,
-  run: StandingRun,
-  kind: "blocked" | "failed",
-): ReadonlyArray<string> => {
+const standingSection = (previous: string | undefined, run: StandingRun): ReadonlyArray<string> => {
   const earlier = previous === undefined ? [] : standingRunsOf(previous);
   const marker = previous === undefined ? null : STANDING_PATTERN.exec(previous);
-  const repeat = earlier[0]?.subject === run.subject && earlier[0]?.detail === run.detail;
+  const sameTarget = earlier[0]?.subject === run.subject;
+  const repeat = sameTarget && earlier[0]?.detail === run.detail;
   const runs = repeat ? earlier : [run, ...earlier].slice(0, RECENT_RUNS);
-  const targets = (marker === null ? earlier.length : Number(marker[2])) + (repeat ? 0 : 1);
+  const targets = (marker === null ? earlier.length : Number(marker[2])) + (sameTarget ? 0 : 1);
   const since = marker?.[1] ?? earlier.at(-1)?.date ?? run.date;
   return [
-    `Open since ${since} across ${targets} target${targets === 1 ? "" : "s"}; each ${kind} run rewrites this issue and a clean run closes it.`,
+    `Open since ${since} across ${targets} target${targets === 1 ? "" : "s"}; each red run rewrites this issue and a clean run closes it.`,
     "",
     RECENT_RUNS_HEADING,
     "",
@@ -1230,7 +1223,46 @@ const standingSection = (
   ];
 };
 
-export const blockedIssueBody = (report: ForkSyncReport, previous?: string): string => {
+export const attentionIssueBody = (report: ForkSyncReport, previous?: string): string => {
+  if (report.failure !== null) {
+    const failure = report.failure;
+    const command =
+      report.target.tag === "" ? "vp run fork:sync" : `vp run fork:sync ${report.target.tag}`;
+    const subject =
+      report.target.tag !== ""
+        ? report.target.tag
+        : report.trunk.before === ""
+          ? "the trunk"
+          : report.trunk.before.slice(0, 7);
+    return [
+      `Origin: hyprws sync run onto ${subject}; \`${command}\`.`,
+      "",
+      `A sync run failed at the \`${failure.step}\` step:`,
+      "",
+      "```",
+      report.error ?? "unknown error",
+      "```",
+      ...(report.ci === null || redJobs(report.ci).length === 0
+        ? []
+        : [
+            "",
+            "| Job | Conclusion |",
+            "| --- | --- |",
+            ...redJobs(report.ci).map((job) => `| [${job.name}](${job.url}) | ${job.conclusion} |`),
+          ]),
+      ...(report.target.tag === ""
+        ? []
+        : ["", `Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`]),
+      "",
+      ...standingSection(previous, {
+        date: report.startedAt.slice(0, 10),
+        subject: subject,
+        detail: failure.step,
+      }),
+      "",
+      failureMarker(failure.step, failure.key),
+    ].join("\n");
+  }
   const cell = (value: string): string =>
     `\`${value.replaceAll("\\", "\\\\").replaceAll("|", "\\|")}\``;
   const blocked = report.blocked!;
@@ -1260,15 +1292,11 @@ export const blockedIssueBody = (report: ForkSyncReport, previous?: string): str
     "",
     `Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`,
     "",
-    ...standingSection(
-      previous,
-      {
-        date: report.startedAt.slice(0, 10),
-        subject: report.target.tag,
-        detail: `upstream ${blocked.blockingSha.slice(0, 7)}`,
-      },
-      "blocked",
-    ),
+    ...standingSection(previous, {
+      date: report.startedAt.slice(0, 10),
+      subject: report.target.tag,
+      detail: `upstream ${blocked.blockingSha.slice(0, 7)}`,
+    }),
     "",
     blockingShaMarker(blocked.blockingSha),
   ].join("\n");
@@ -1418,25 +1446,24 @@ const normalisedBody = (body: string): string =>
     .trim();
 
 /**
- * Upsert the one standing open issue of a kind: the newest open issue under
- * the title phrase gets its title and body rewritten in place, rendered from
- * its previous body so the recent-runs tail carries forward. A body whose
- * normalised form already matches makes no write; only a kind with no open
- * issue files a fresh one. Older open issues of the same kind close as
- * superseded, so a new target never leaves a second issue open. The report
- * body is never posted as a comment; the typed report stays the authority.
+ * Adopt the newest open issue of either legacy kind as the one attention
+ * issue. Carry its recent runs forward and close surplus issues with a pointer.
+ * The typed report stays authoritative; an unchanged body makes no write.
  */
 const upsertStandingIssue = (
   runner: CommandRunner,
   root: string,
-  titlePhrase: string,
   title: string,
   render: (previous?: string) => string,
 ): { readonly issue: number | null; readonly publishedVia: "gh" } => {
   const github = githubClient(runner, root);
-  const [standing, ...superseded] = [...github.list(titlePhrase)].sort(
-    (left, right) => right.number - left.number,
-  );
+  const [standing, ...superseded] = [
+    ...new Map(
+      [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE]
+        .flatMap((phrase) => github.list(phrase))
+        .map((issue) => [issue.number, issue]),
+    ).values(),
+  ].sort((left, right) => right.number - left.number);
   if (standing === undefined)
     return withBodyFile(render(), (bodyPath) => ({
       issue: github.create(title, bodyPath),
@@ -1451,41 +1478,28 @@ const upsertStandingIssue = (
   return { issue: standing.number, publishedVia: "gh" };
 };
 
-/**
- * Upsert the one open block issue. A `gh` that refuses is the raw observation
- * printed with the body, and the run exits non-zero with
- * `blocked.publishError` set on the report.
- */
-export const publishBlock = (
+/** Publish the latest red run into the shared standing attention issue. */
+export const publishAttention = (
   runner: CommandRunner,
   root: string,
   report: ForkSyncReport,
 ): ForkSyncReport => {
-  const blocked = report.blocked!;
-  const body = blockedIssueBody(report);
+  const key = report.blocked !== null ? "blocked" : "failure";
+  const stop = report[key]!;
   try {
-    const { issue, publishedVia } = upsertStandingIssue(
-      runner,
-      root,
-      BLOCK_TITLE_PHRASE,
-      blocked.title,
-      (previous) => blockedIssueBody(report, previous),
+    const { issue, publishedVia } = upsertStandingIssue(runner, root, stop.title, (previous) =>
+      attentionIssueBody(report, previous),
     );
     return {
       ...report,
-      blocked: {
-        ...blocked,
-        ...(issue === null ? {} : { issue }),
-        publishError: null,
-        publishedVia,
-      },
+      [key]: { ...stop, ...(issue === null ? {} : { issue }), publishError: null, publishedVia },
     };
   } catch (error) {
-    process.stdout.write(`${body}\n`);
+    process.stdout.write(`${attentionIssueBody(report)}\n`);
     return {
       ...report,
-      blocked: {
-        ...blocked,
+      [key]: {
+        ...stop,
         publishError: error instanceof Error ? error.message : String(error),
         publishedVia: null,
       },
@@ -1502,86 +1516,6 @@ const blockCloseComment = (newSha: string): string => `Resolved by ${HYPRWS_BRAN
  * and closes in one call. Each issue reports its own refusal; one refusal
  * never stops the other closes.
  */
-export const failureIssueBody = (report: ForkSyncReport, previous?: string): string => {
-  const failure = report.failure!;
-  const command =
-    report.target.tag === "" ? "vp run fork:sync" : `vp run fork:sync ${report.target.tag}`;
-  const subject =
-    report.target.tag !== ""
-      ? report.target.tag
-      : report.trunk.before === ""
-        ? "the trunk"
-        : report.trunk.before.slice(0, 7);
-  return [
-    `Origin: hyprws sync run onto ${subject}; \`${command}\`.`,
-    "",
-    `A sync run failed at the \`${failure.step}\` step:`,
-    "",
-    "```",
-    report.error ?? "unknown error",
-    "```",
-    ...(report.ci === null || redJobs(report.ci).length === 0
-      ? []
-      : [
-          "",
-          "| Job | Conclusion |",
-          "| --- | --- |",
-          ...redJobs(report.ci).map((job) => `| [${job.name}](${job.url}) | ${job.conclusion} |`),
-        ]),
-    ...(report.target.tag === ""
-      ? []
-      : ["", `Report: \`${SYNC_DIR}/${report.target.tag}.json\` (schema \`${REPORT_SCHEMA}\`).`]),
-    "",
-    ...standingSection(
-      previous,
-      { date: report.startedAt.slice(0, 10), subject: subject, detail: failure.step },
-      "failed",
-    ),
-    "",
-    failureMarker(failure.step, failure.key),
-  ].join("\n");
-};
-
-/**
- * Upsert the one open failure issue exactly as `publishBlock` does for a
- * block. A refusal prints the body and sets `failure.publishError`.
- */
-export const publishFailure = (
-  runner: CommandRunner,
-  root: string,
-  report: ForkSyncReport,
-): ForkSyncReport => {
-  const failure = report.failure!;
-  const body = failureIssueBody(report);
-  try {
-    const { issue, publishedVia } = upsertStandingIssue(
-      runner,
-      root,
-      FAILURE_TITLE_PHRASE,
-      failure.title,
-      (previous) => failureIssueBody(report, previous),
-    );
-    return {
-      ...report,
-      failure: {
-        ...failure,
-        ...(issue === null ? {} : { issue }),
-        publishError: null,
-        publishedVia,
-      },
-    };
-  } catch (error) {
-    process.stdout.write(`${body}\n`);
-    return {
-      ...report,
-      failure: {
-        ...failure,
-        publishError: error instanceof Error ? error.message : String(error),
-        publishedVia: null,
-      },
-    };
-  }
-};
 export const closeBlocks = (
   runner: CommandRunner,
   root: string,
@@ -1751,7 +1685,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const fail = (partial: Partial<ForkSyncReport>): number => {
       const failure: ForkSyncReport["failure"] = {
         issue: null,
-        title: failureIssueTitle(step, target.tag),
+        title: syncIssueTitle("failed", step, target.tag),
         step,
         key: target.tag,
         publishError: null,
@@ -1761,7 +1695,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       writeReport(root, failed);
       process.stdout.write(`${renderReport(failed)}\n`);
       if (dryRun) return 1;
-      const published = publishFailure(runner, root, failed);
+      const published = publishAttention(runner, root, failed);
       const path = writeReport(root, published);
       process.stdout.write(
         published.failure?.publishError !== null && published.failure?.publishError !== undefined
@@ -1780,6 +1714,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const closeStaleBlocks = (
       resolvedSha: string,
     ): { readonly closed: ReadonlyArray<BlockClosure>; readonly error: string | null } => {
+      if (dryRun) return { closed: [], error: null };
       let closed: ReadonlyArray<BlockClosure> = [];
       let failure: string | null = null;
       try {
@@ -1844,7 +1779,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         },
         blocked: {
           issue: null,
-          title: blockIssueTitle(target.tag, blockingSha.slice(0, 7)),
+          title: syncIssueTitle("blocked", target.tag, blockingSha),
           blockingSha,
           publishError: null,
           publishedVia: null,
@@ -1854,10 +1789,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       writeReport(root, blockedReport);
       process.stdout.write(`${renderReport(blockedReport)}\n`);
       if (dryRun) {
-        process.stdout.write(`${blockedIssueBody(blockedReport)}\n`);
+        process.stdout.write(`${attentionIssueBody(blockedReport)}\n`);
         return 1;
       }
-      const published = publishBlock(runner, root, blockedReport);
+      const published = publishAttention(runner, root, blockedReport);
       const path = writeReport(root, published);
       process.stdout.write(
         published.blocked?.publishError !== null && published.blocked?.publishError !== undefined
@@ -1990,7 +1925,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         blocked: null,
         failure: {
           issue: null,
-          title: failureIssueTitle(step, key),
+          title: syncIssueTitle("failed", step, key),
           step,
           key,
           publishError: null,
@@ -2004,8 +1939,8 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         return finish(report);
       }
       if (tag === "") {
-        // No tag keys a report; the failure issue carries the run instead.
-        const published = publishFailure(runner, root, report);
+        // No tag keys a report; the attention issue carries the run instead.
+        const published = publishAttention(runner, root, report);
         if (
           published.failure?.publishError !== null &&
           published.failure?.publishError !== undefined
@@ -2015,7 +1950,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       }
       writeReport(root, report);
       process.stdout.write(`${renderReport(report)}\n`);
-      const published = publishFailure(runner, root, report);
+      const published = publishAttention(runner, root, report);
       const path = writeReport(root, published);
       process.stdout.write(
         published.failure?.publishError !== null && published.failure?.publishError !== undefined
