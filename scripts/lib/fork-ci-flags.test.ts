@@ -15,7 +15,7 @@ import {
   systemForkCiGit,
   type ForkCiGit,
 } from "./fork-ci-flags.ts";
-import { SystemGit } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 
 const HEAD = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
 const BASE = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
