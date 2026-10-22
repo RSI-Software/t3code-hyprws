@@ -29,9 +29,9 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
     readonly rejectRunningServer?: boolean;
   },
 ) {
-  yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveServerConfig(flags, logLevel, options);
+  yield* stripInheritedProviderEnvironment; // fork-hook: upstream-fixes/server-inherited-session-identity
   const run = runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
   if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
   yield* Effect.sync(() => {
