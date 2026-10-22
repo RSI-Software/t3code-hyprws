@@ -44,7 +44,6 @@ import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 import { useTerminalPanelActionsFork } from "./useChatTerminalActions.fork"; // fork-hook: zmux-estate/session-mode-panel-import
-import { useDevAppPreviewFork } from "./useDevAppPreview.fork"; // fork-hook: fork-meta/dev-app-preview-import
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
@@ -99,13 +98,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     setThreadError,
   } = input;
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
-  const devAppPreviewFork = useDevAppPreviewFork({
-    threadRef: activeThreadRef,
-    openPreview,
-    onError: (message) => {
-      if (activeThreadId) setThreadError(activeThreadId, message);
-    },
-  }); // fork-hook: fork-meta/dev-app-preview-scope
 
   const hasTerminalWriteAccess = () =>
     readEnvironmentScope(environmentId, AuthTerminalOperateScope);
@@ -218,8 +210,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     },
   ) => {
     if (!hasTerminalWriteAccess() || !activeThreadId || !activeProject || !activeThread) return;
-    const devAppInvocationFork = devAppPreviewFork.begin(script.command); // fork-hook: fork-meta/dev-app-preview-invocation
-    if (!devAppInvocationFork) return; // fork-hook: fork-meta/dev-app-preview-block
     if (options?.rememberAsLastInvoked !== false) {
       setLastInvokedScriptByProjectId((current) => {
         if (current[activeProject.id] === script.id) return current;
@@ -267,12 +257,10 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
         : { terminalId: reusableTerminalId }),
       location: { cwd: targetCwd, worktreePath: targetWorktreePath },
       ...(options?.env ? { extraEnv: options.env } : {}),
-      ...devAppPreviewFork.launchEnvironment(options?.env, activeProject.id), // fork-hook: fork-meta/dev-app-project-env
     });
     if (!launched) return;
     const targetTerminalId = launched.terminalId;
     const openResult = await launched.result;
-    if (!devAppInvocationFork.isActive()) return; // fork-hook: fork-meta/dev-app-preview-launch-active
     if (openResult._tag === "Failure") {
       if (!isAtomCommandInterrupted(openResult)) {
         const error = squashAtomCommandFailure(openResult);
@@ -284,15 +272,6 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       return;
     }
 
-    const devAppWrittenFork = await devAppPreviewFork.write(
-      script.command,
-      targetTerminalId,
-      devAppInvocationFork,
-      terminalActions.writeToTerminal,
-      options?.shellHistory === "preserve",
-      script,
-    ); // fork-hook: fork-meta/dev-app-preview-write
-    if (devAppWrittenFork) return; // fork-hook: fork-meta/dev-app-preview-written
     const writeResult = await terminalActions.writeToTerminal(
       targetTerminalId,
       options?.shellHistory === "preserve"
