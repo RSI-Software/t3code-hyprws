@@ -22,7 +22,7 @@ import {
   run,
   systemFoldGit,
 } from "./fork-fold.ts";
-import { squashedMembers } from "./fork-scan.ts";
+import { squashedMembers } from "./fork-git-reader.ts";
 import { runCommand } from "./lib/fork-command.ts";
 import { parseForkTrailers } from "./lib/fork-trailers.ts";
 

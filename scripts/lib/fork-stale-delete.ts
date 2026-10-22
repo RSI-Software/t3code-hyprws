@@ -5,7 +5,7 @@
 // commit restores leaves the tip equal to upstream yet conflicts on replay.
 
 import { parseArgs } from "./fork-cli.ts";
-import { SystemGit } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 import { systemForkCiGit, type ForkCiGit } from "./fork-ci-flags.ts";
 
 const significant = (line: string): boolean => line.length >= 8 && /[\p{L}\p{N}]/u.test(line);

@@ -1,15 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Additive gate (a fork:scan stage): the finished fork tree must be a pure
-// addition on top of its upstream base. Checks 1-3 of the old four-check walk
-// (RSI-Software/t3code-hyprws#1190): every upstream file still exists, every
-// upstream migration keeps its name with no shared number, and every upstream
-// test file exists, keeps every significant line, is not shrunk, and gains no
-// `.skip`/`.todo`/`.only`. Read-only: git reads only, no repairs, no writers.
+// Additive gate (a fork:scan stage): the fork tree must be a pure addition on its upstream base.
+// Every upstream file still exists, every upstream migration keeps its name with no shared number,
+// and every upstream test file keeps every significant line, is not shrunk, and gains no
+// `.skip`/`.todo`/`.only`. Read-only: git reads only.
 
 import * as NodePath from "node:path";
 
-import { readBlobs, type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { readBlobs } from "./fork-git-reader.ts";
 import { caseSourceLines, enclosedSupersededTitles, forkTestSibling } from "./fork-supersedes.ts";
 
 export type AdditiveCheck = "files" | "migrations" | "tests";

@@ -1,24 +1,14 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
 
-// The local pre-pull-request battery: what the fork's pull-request CI runs on
-// a branch, in one command. The delta trailer check runs first with the same
-// flags the workflow's Fork ledger step uses (`--check --head <head>`), the
-// rebase scan consumes the exact flags CI pins, derived by
-// scripts/lib/fork-ci-flags.ts — the same helper the workflow calls — the
-// read-only `vp check` runs in the exact form of the workflow's Check step
-// (never `--fix`, which reformats files outside branch scope on this trunk),
-// and the scripts workspace suite runs whole, the way the Test Scripts job
-// does, so a local green run cannot be greener than CI
-// (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
-// the Fork stale-delete check, the Fork fixup fold check, the Fork rebase
-// scan, the `vp check` step, and the Test Scripts job of hyprws-ci.yml. The
-// advisory Body job's squash-body check needs the pull-request body, and
-// knip, typecheck, the desktop build, the product test jobs, and the release
-// and sync workflows run separately.
+// The local pre-pull-request battery: the Fork ledger delta, stale-delete, and fixup fold checks,
+// the rebase scan (flags from scripts/lib/fork-ci-flags.ts), read-only `vp check` (never `--fix`),
+// and the whole scripts suite, each as hyprws-ci.yml runs it, so local green is never greener than
+// CI. The Body job, knip, typecheck, builds, product tests, and other workflows run separately.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
-import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { runCommand } from "./lib/fork-command.ts";
+import { SystemGit } from "./lib/fork-git-reader.ts";
 
 const HELP = `Usage: vp run fork:ci
 
