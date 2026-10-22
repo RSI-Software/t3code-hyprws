@@ -124,9 +124,10 @@ The rerun adopts the kept worktree and checks its HEAD.
 A resolved rebase still in progress continues; an unresolved one blocks again.
 A new tag or a moved lease recreates the worktree.
 
-A blocked run rewrites the one open block issue (label `ci`), filing it only when none is open.
-A failed run does the same with the one open failure issue.
-Each body ends with its open-since date, target count, and last five runs; a clean run closes both.
+Every blocked or failed run rewrites one standing sync attention issue (label `ci`).
+The newest open issue of either legacy title (`hyprws sync blocked` or `hyprws sync failed`) is adopted; surplus issues close with a pointer to it.
+Only no match files a new issue.
+The body keeps its open-since date, target count, and last five runs; a clean run closes it.
 
 ### Finished tip from elsewhere
 
