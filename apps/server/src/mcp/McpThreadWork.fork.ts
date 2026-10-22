@@ -197,8 +197,7 @@ export const waitForWork = Effect.fn("McpThreadWork.waitForWork")(function* (
     while (true) {
       const read = yield* current;
       if (yield* settles(read, WORK_POLL_INTERVAL_MS)) return read;
-      // An idle read already spent the interval in the continuation wait.
-      if (read.work.state !== "idle") yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
+      yield* Effect.sleep(Duration.millis(WORK_POLL_INTERVAL_MS));
     }
   }).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)));
   // As with a run wait, the final read decides, so work that settled while
