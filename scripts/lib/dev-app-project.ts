@@ -3,12 +3,8 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import {
-  commandText,
-  type CwdCommandRunner,
-  SystemCommandRunner,
-  SystemGit,
-} from "./fork-command.ts";
+import { commandText, type CwdCommandRunner, SystemCommandRunner } from "./fork-command.ts";
+import { SystemGit } from "./fork-git-reader.ts";
 import { withoutInheritedDevRunnerEnv } from "./dev-desktop-agent.ts";
 
 export const DEV_APP_PROJECT_RELATIVE_PATH = NodePath.join(".t3", "test-project");
