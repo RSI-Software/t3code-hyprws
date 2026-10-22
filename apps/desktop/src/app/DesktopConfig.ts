@@ -60,9 +60,6 @@ export const DesktopConfig = Config.all({
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
   devToolsEnabled: Config.Boolean("T3CODE_DESKTOP_DEVTOOLS").pipe(Config.withDefault(true)), // fork-hook: fork-meta/desktop-config-devtools
-  userDataDirectoryOverride: trimmedString("T3CODE_DESKTOP_USER_DATA_DIR"),
-  agentWorkspace: Config.Int("T3CODE_DESKTOP_AGENT_WORKSPACE").pipe(Config.option), // fork-hook: fork-meta/desktop-config-agent-workspace
-  agentPlacementTitle: trimmedString("T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"),
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
   ),
