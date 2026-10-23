@@ -12,7 +12,6 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import { readThreadShells } from "../state/entities";
 import { useUiStateStore, type SidebarThreadGroup } from "../uiStateStore";
-import { sidebarThreadGroupKey } from "./SidebarThreadGroup.markers";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 type GroupSnapshot = Pick<SidebarThreadGroup, "title" | "threadIds">;
@@ -24,9 +23,10 @@ interface TitleThread {
 }
 
 export interface ThreadGroupTitleRequest<T> {
-  readonly projectKey: string;
   readonly groupId: string;
+  /** Every member but the parent, which leads the title request. */
   readonly members: readonly T[];
+  readonly parent?: T | undefined;
   readonly expectedGroup: GroupSnapshot;
   readonly previousTitle?: string | undefined;
 }
@@ -37,19 +37,15 @@ export interface ThreadGroupTitleDeps<T extends TitleThread> {
     readonly input: {
       readonly projectId: T["projectId"];
       readonly memberTitles: readonly string[];
+      readonly parentTitle?: string;
       readonly previousTitle?: string;
     };
   }) => Promise<AtomCommandResult<{ readonly title: string }, unknown>>;
   /** Every group and thread, not only the ones the sidebar scope shows. */
-  readonly readGroups: () => Readonly<Record<string, readonly SidebarThreadGroup[]>>;
+  readonly readGroups: () => readonly SidebarThreadGroup[];
   readonly readThreads: () => readonly T[];
   readonly keyOf: (thread: T) => string;
-  readonly renameIfCurrent: (
-    projectKey: string,
-    groupId: string,
-    expected: GroupSnapshot,
-    title: string,
-  ) => void;
+  readonly renameIfCurrent: (groupId: string, expected: GroupSnapshot, title: string) => void;
   readonly toasts: {
     readonly add: (
       options: ReturnType<typeof stackedThreadToast> & { readonly onClose: () => void },
@@ -94,15 +90,13 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
     string,
     {
       readonly toastId: string;
-      readonly projectKey: string;
       readonly groupId: string;
       readonly expected: GroupSnapshot;
       readonly regenerate: boolean;
     }
   >();
 
-  const currentGroup = (projectKey: string, groupId: string) =>
-    deps.readGroups()[projectKey]?.find((group) => group.id === groupId);
+  const currentGroup = (groupId: string) => deps.readGroups().find((group) => group.id === groupId);
   const setInFlight = (groupKey: string, running: boolean) => {
     if (running) inFlight.add(groupKey);
     else inFlight.delete(groupKey);
@@ -115,36 +109,37 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
     deps.toasts.close(failure.toastId);
   };
 
-  const retry = (groupKey: string) => {
-    const failure = failures.get(groupKey);
-    clearFailure(groupKey);
-    const group = failure && currentGroup(failure.projectKey, failure.groupId);
-    if (failure === undefined || group === undefined) return;
+  /** Names the group's full membership, not just the members a filter shows. */
+  const requestFromStore = (groupId: string, regenerate: boolean) => {
+    const group = currentGroup(groupId);
+    if (group === undefined) return;
     const byKey = new Map(deps.readThreads().map((thread) => [deps.keyOf(thread), thread]));
-    const members = group.threadIds.flatMap((threadId) => byKey.get(threadId) ?? []);
+    const parent = group.parentThreadId === undefined ? undefined : byKey.get(group.parentThreadId);
+    const members = group.threadIds.flatMap((threadId) =>
+      threadId === group.parentThreadId ? [] : (byKey.get(threadId) ?? []),
+    );
     void request({
-      projectKey: failure.projectKey,
-      groupId: failure.groupId,
+      groupId,
       members,
+      parent,
       expectedGroup: { title: group.title, threadIds: [...group.threadIds] },
       // A regenerate asks for a title unlike the one the group has now.
-      ...(failure.regenerate ? { previousTitle: group.title } : {}),
+      ...(regenerate ? { previousTitle: group.title } : {}),
     });
   };
 
+  const retry = (groupKey: string) => {
+    const failure = failures.get(groupKey);
+    clearFailure(groupKey);
+    if (failure !== undefined) requestFromStore(failure.groupId, failure.regenerate);
+  };
+
   const request = async (input: ThreadGroupTitleRequest<T>): Promise<void> => {
-    const first = input.members[0];
-    if (
-      !first ||
-      input.members.length < 2 ||
-      input.members.some(
-        (thread) =>
-          thread.environmentId !== first.environmentId || thread.projectId !== first.projectId,
-      )
-    ) {
-      return;
-    }
-    const groupKey = sidebarThreadGroupKey(input.projectKey, input.groupId);
+    // Members may span projects and environments; the parent's or else the
+    // first member's environment names the group, and only titles reach the model.
+    const first = input.parent ?? input.members[0];
+    if (!first || input.members.length + (input.parent ? 1 : 0) < 2) return;
+    const groupKey = input.groupId;
     if (inFlight.has(groupKey)) return;
     clearFailure(groupKey);
     setInFlight(groupKey, true);
@@ -154,20 +149,16 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
         input: {
           projectId: first.projectId,
           memberTitles: input.members.map((thread) => thread.title),
+          ...(input.parent === undefined ? {} : { parentTitle: input.parent.title }),
           ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
         },
       });
       if (result._tag === "Success") {
-        deps.renameIfCurrent(
-          input.projectKey,
-          input.groupId,
-          input.expectedGroup,
-          result.value.title,
-        );
+        deps.renameIfCurrent(input.groupId, input.expectedGroup, result.value.title);
         return;
       }
       const description = threadGroupTitleFailureDescription(result);
-      const group = currentGroup(input.projectKey, input.groupId);
+      const group = currentGroup(input.groupId);
       // A group changed since the request no longer wants this title.
       if (description === null || !group || !sameGroup(group, input.expectedGroup)) return;
       const toastId = deps.toasts.add({
@@ -184,7 +175,6 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
       });
       failures.set(groupKey, {
         toastId,
-        projectKey: input.projectKey,
         groupId: input.groupId,
         expected: { title: group.title, threadIds: [...group.threadIds] },
         regenerate: input.previousTitle !== undefined,
@@ -197,12 +187,17 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
   /** Close each failure toast whose group was renamed, regrouped, or removed. */
   const pruneStale = () => {
     for (const [groupKey, failure] of failures) {
-      const group = currentGroup(failure.projectKey, failure.groupId);
+      const group = currentGroup(failure.groupId);
       if (!group || !sameGroup(group, failure.expected)) clearFailure(groupKey);
     }
   };
 
-  return { request, retry, pruneStale };
+  return {
+    request,
+    retry,
+    pruneStale,
+    regenerate: (groupId: string) => requestFromStore(groupId, true),
+  };
 }
 
 type SidebarBinding<T extends TitleThread> = Pick<ThreadGroupTitleDeps<T>, "generate">;
@@ -231,6 +226,7 @@ export function createThreadGroupTitleOwner<T extends TitleThread>(
   });
   return {
     request: controller.request,
+    regenerate: controller.regenerate,
     pruneStale: controller.pruneStale,
     bind: (next: SidebarBinding<T>) => {
       binding = next;
@@ -248,7 +244,7 @@ let appOwner: ReturnType<typeof createThreadGroupTitleOwner<EnvironmentThreadShe
 function appThreadGroupTitles() {
   if (appOwner !== null) return appOwner;
   appOwner = createThreadGroupTitleOwner<EnvironmentThreadShell>({
-    readGroups: () => useUiStateStore.getState().threadGroupsByProject,
+    readGroups: () => useUiStateStore.getState().threadGroups,
     readThreads: readThreadShells,
     keyOf: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     renameIfCurrent: (...args) => useUiStateStore.getState().renameThreadGroupIfCurrent(...args),
@@ -266,7 +262,12 @@ export function useThreadGroupTitlesFork(
   generate: ThreadGroupTitleDeps<EnvironmentThreadShell>["generate"],
 ) {
   const owner = appThreadGroupTitles();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- binds the title generator into the app-wide external title-request owner.
   useEffect(() => owner.bind({ generate }), [owner, generate]);
   const generatingGroupIds = useSyncExternalStore(owner.subscribe, owner.generating);
-  return { requestThreadGroupTitle: owner.request, generatingGroupIds };
+  return {
+    requestThreadGroupTitle: owner.request,
+    regenerateThreadGroupTitle: owner.regenerate,
+    generatingGroupIds,
+  };
 }
