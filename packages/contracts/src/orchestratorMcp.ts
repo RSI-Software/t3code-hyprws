@@ -35,6 +35,7 @@ import {
 import { secretRequestPageUrl } from "./secretRequest.ts";
 import { hasOnlyPairedSurrogates } from "./threadMetadataMcp.ts";
 import { LastThreadTitleRegeneration, ThreadTitleRegeneration } from "./threadTitle.ts";
+import { McpThreadWaitUntilFork, McpThreadWorkFork } from "./mcpThreadWork.fork.ts"; // fork-hook: device-auth/mcp-thread-work
 import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
@@ -409,6 +410,7 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   itemCount: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
@@ -491,6 +493,7 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestratorMcpThreadBackgroundTask)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadDetail = typeof OrchestratorMcpThreadDetail.Type;
 
@@ -570,6 +573,7 @@ export const OrchestratorMcpThreadWaitInput = Schema.Struct({
   threadId: ThreadId,
   runId: Schema.optional(RunId),
   timeoutMs: Schema.optional(Schema.Finite),
+  until: Schema.optional(McpThreadWaitUntilFork), // fork-hook: device-auth/mcp-thread-work
   untilDelegatedWorkSettled: Schema.optional(
     Schema.Boolean.annotate({
       description:
@@ -589,6 +593,7 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   resultRun: Schema.optional(Schema.Struct({ runId: RunId, status: OrchestrationV2RunStatus })),
   /** Pending runtime requests on the thread; the wait also returns while this is positive. */
   pendingRequestCount: NonNegativeInt,
+  work: Schema.optional(McpThreadWorkFork), // fork-hook: device-auth/mcp-thread-work
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
