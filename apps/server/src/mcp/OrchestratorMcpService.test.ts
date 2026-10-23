@@ -692,6 +692,7 @@ describe("OrchestratorMcpService", () => {
               threadId: childThreadId,
               run: childRun() as unknown as OrchestrationV2ThreadProjection["runs"][number],
               timedOut: !finished || firstRun,
+              pendingRequestCount: 0,
             }),
           dispatch: () => Effect.succeed({} as never),
         }),
@@ -5256,6 +5257,7 @@ describe("OrchestratorMcpService thread lookup", () => {
           runId: null,
           status: "idle",
           timedOut: false,
+          pendingRequestCount: 0,
         });
       }).pipe(
         Effect.provide(
