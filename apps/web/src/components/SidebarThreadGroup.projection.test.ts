@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildSidebarListItems, sidebarMarkerId } from "./Sidebar.logic";
-import {
-  sidebarThreadGroupHeaderMarker,
-  sidebarThreadGroupKey,
-} from "./SidebarThreadGroup.markers";
+import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers";
 import {
   isSidebarThreadGroupSlotValidFork,
   projectSidebarThreadGroupDepthFork,
@@ -13,45 +10,40 @@ import {
   sidebarThreadGroupTreeFork,
 } from "./SidebarThreadGroup.projection";
 
-const OPEN_KEY = sidebarThreadGroupKey("project-a", "open");
-const SHUT_KEY = sidebarThreadGroupKey("project-a", "shut");
+const OPEN_KEY = "open";
+const SHUT_KEY = "shut";
+const LED_KEY = "led";
 const OPEN_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(OPEN_KEY));
 const SHUT_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(SHUT_KEY));
+const LED_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(LED_KEY));
 const open = { id: "open", title: "Open", threadIds: ["m1", "m2"], collapsed: false };
 const shut = { id: "shut", title: "Shut", threadIds: ["c1", "c2"], collapsed: true };
+const led = {
+  id: "led",
+  title: "Led",
+  threadIds: ["l1", "l2"],
+  parentThreadId: "l1",
+  collapsed: true,
+};
+const spans = [
+  { groupKey: OPEN_KEY, group: open, threads: [], visibleKeys: ["m1", "m2"], parentKey: null },
+  { groupKey: SHUT_KEY, group: shut, threads: [], visibleKeys: ["c1"], parentKey: null },
+  { groupKey: LED_KEY, group: led, threads: [], visibleKeys: ["l1"], parentKey: "l1" },
+];
 
 // Pinned p1; active: the open group (m1, m2), plain o1 and o2, the collapsed
-// group whose hidden anchor is c1, and x1 from another project.
+// group whose hidden anchor is c1, x1, and the collapsed group led by l1.
 const tree = sidebarThreadGroupTreeFork({
   items: buildSidebarListItems({
     hasNoThreads: false,
     pinnedKeys: ["p1"],
-    activeKeys: ["m1", "m2", "o1", "o2", "c1", "x1"],
+    activeKeys: ["m1", "m2", "o1", "o2", "c1", "x1", "l1"],
     hasSnoozedThreads: false,
     snoozedVisibleKeys: [],
     settledKeys: [],
-    activeGroups: [
-      {
-        groupKey: OPEN_KEY,
-        projectKey: "project-a",
-        group: open,
-        threads: [],
-        visibleKeys: ["m1", "m2"],
-      },
-      {
-        groupKey: SHUT_KEY,
-        projectKey: "project-a",
-        group: shut,
-        threads: [],
-        visibleKeys: ["c1"],
-      },
-    ],
+    activeGroups: spans,
   }),
-  spans: [
-    { groupKey: OPEN_KEY, projectKey: "project-a", group: open, visibleKeys: ["m1", "m2"] },
-    { groupKey: SHUT_KEY, projectKey: "project-a", group: shut, visibleKeys: ["c1"] },
-  ],
-  projectKeyOf: (key) => (key === "x1" ? "project-b" : "project-a"),
+  spans,
 });
 
 const newGroup = () => ({ id: "new", title: "New group" });
@@ -71,7 +63,6 @@ describe("thread group depth projection", () => {
     const nested = drop("o2", "o2", 1);
     expect(nested.projection).toMatchObject({ depth: 1, parent: { kind: "thread", key: "o1" } });
     expect(nested.drop).toEqual({
-      projectKey: "project-a",
       threadIds: ["o1", "o2"],
       target: { kind: "new", group: newGroup() },
     });
@@ -90,7 +81,6 @@ describe("thread group depth projection", () => {
     const left = drop("m2", "m2", -1);
     expect(left.projection.depth).toBe(0);
     expect(left.drop).toEqual({
-      projectKey: "project-a",
       threadIds: ["m2"],
       target: { kind: "none" },
     });
@@ -107,14 +97,37 @@ describe("thread group depth projection", () => {
     expect(isSidebarThreadGroupSlotValidFork(tree, "p1", "o2")).toBeUndefined();
   });
 
-  it("refuses a slot inside another project's group", () => {
-    expect(drop("x1", "m2", 1).projection.refused).toBe(true);
-    expect(isSidebarThreadGroupSlotValidFork(tree, "x1", "m2")).toBe(false);
-    expect(isSidebarThreadGroupSlotValidFork(tree, "o1", "m2")).toBe(true);
+  it("lets any active thread join a group between its members", () => {
+    expect(drop("x1", "m2", 0).drop?.target).toEqual({ kind: "existing", groupId: "open" });
+    expect(isSidebarThreadGroupSlotValidFork(tree, "x1", "m2")).toBe(true);
   });
 
   it("skips a collapsed group's hidden anchor when bounding the depth", () => {
     expect(drop("o1", SHUT_HEADER, 0).drop).toBeNull();
     expect(drop("o1", SHUT_HEADER, 1).drop?.target).toEqual({ kind: "existing", groupId: "shut" });
+  });
+
+  it("makes a thread the parent flush under a group's header", () => {
+    const top = drop("o1", "m1", 0);
+    expect(top.projection).toMatchObject({ depth: 0, asParent: true });
+    expect(top.drop?.target).toEqual({ kind: "existing", groupId: "open", asParent: true });
+    expect(drop("o1", "m1", 1).drop?.target).toEqual({ kind: "existing", groupId: "open" });
+    // A member taking the lead keeps the pair whole.
+    expect(drop("m2", "m1", -1)).toMatchObject({
+      drop: { threadIds: ["m2"], target: { kind: "existing", groupId: "open", asParent: true } },
+      dissolving: null,
+    });
+  });
+
+  it("keeps a collapsed group's parent in view, and steps it down as a child", () => {
+    expect(drop("x1", LED_HEADER, 0).projection.asParent).toBe(true);
+    expect(drop("x1", "l1", 1).drop?.target).toEqual({ kind: "existing", groupId: "led" });
+    expect(drop("l1", "l1", 0).drop).toBeNull();
+    expect(drop("l1", "l1", 1).drop?.target).toEqual({ kind: "existing", groupId: "led" });
+    expect(drop("l1", "l1", 1).dissolving).toBeNull();
+    expect(drop("l1", "x1", 0)).toMatchObject({
+      drop: { target: { kind: "none" } },
+      dissolving: LED_KEY,
+    });
   });
 });

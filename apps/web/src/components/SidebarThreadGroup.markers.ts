@@ -11,19 +11,16 @@ const HEADER_PREFIX = "thread-group\0";
 
 export type SidebarThreadGroupMarker = `${typeof HEADER_PREFIX}${string}`;
 
-/** One group as the list renders it; `groupKey` is `projectKey\0groupId`. */
+/** One group as the list renders it; `groupKey` is the group's id. */
 export interface SidebarThreadGroupSpan<T = unknown> {
   readonly groupKey: string;
-  readonly projectKey: string;
   readonly group: SidebarThreadGroup;
   /** Every member the active section shows, in list order. */
   readonly threads: readonly T[];
   /** The keys the list emits: every member, or only the anchor when collapsed. */
   readonly visibleKeys: readonly string[];
-}
-
-export function sidebarThreadGroupKey(projectKey: string, groupId: string): string {
-  return `${projectKey}\0${groupId}`;
+  /** The visible parent's key, always the anchor; null without one. */
+  readonly parentKey: string | null;
 }
 
 export function sidebarThreadGroupHeaderMarker(groupKey: string): SidebarThreadGroupMarker {
