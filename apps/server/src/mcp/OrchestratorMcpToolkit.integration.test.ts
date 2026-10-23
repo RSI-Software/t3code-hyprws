@@ -678,6 +678,8 @@ describe("orchestrator MCP toolkit", () => {
             runId: queuedFollowup.runId,
             status: "completed",
             timedOut: false,
+            pendingRequestCount: 0, // fork-hook: device-auth/thread-wait-request-count-test
+            work: expect.objectContaining({ state: "idle" }), // fork-hook: device-auth/mcp-thread-work-test
           };
           expect(wait.structuredContent).toEqual(expectedWait);
           expect(messageReads).toEqual([]);
