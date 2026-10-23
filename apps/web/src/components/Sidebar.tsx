@@ -103,8 +103,8 @@ import { randomUUID } from "~/lib/utils"; // fork-hook: thread-ordering/group-id
 import { threadGroupEnvironment } from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
 import {
   SidebarThreadGroupDropLayerFork,
+  SidebarThreadGroupFoldFork,
   SidebarThreadGroupHeader,
-  threadProjectOrderKey,
 } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
@@ -799,10 +799,11 @@ export default function Sidebar() {
     projectGroupByScopeKey,
     projectScopeItems,
   } = useSidebarLookups();
-  const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
+  const threadGroups = useUiStateStore((store) => store.threadGroups); // fork-hook: thread-ordering/group-state
   const setThreadGroupMembership = useUiStateStore((store) => store.setThreadGroupMembership);
   const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
   const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
+  const setThreadGroupParent = useUiStateStore((store) => store.setThreadGroupParent); // fork-hook: thread-ordering/group-state
   const removeThreadGroup = useUiStateStore((store) => store.removeThreadGroup);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -835,7 +836,8 @@ export default function Sidebar() {
     reportFailure: false,
   });
   const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
-  const { requestThreadGroupTitle, generatingGroupIds } = threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
+  const { requestThreadGroupTitle, regenerateThreadGroupTitle, generatingGroupIds } =
+    threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -1124,9 +1126,8 @@ export default function Sidebar() {
   });
   const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
     threads: activeThreads,
-    groupsByProject: threadGroupsByProject,
+    groups: threadGroups,
     getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-    getProjectKey: threadProjectOrderKey,
   }); // fork-hook: thread-ordering/group-layout
   // Collapsed groups hide their members from every list the sidebar derives:
   // the drop order, the sortable ids, and the rendered rows all read this.
@@ -1148,20 +1149,20 @@ export default function Sidebar() {
     const byKey = new Map<
       string,
       {
-        readonly projectKey: string;
         readonly group: SidebarThreadGroup;
         readonly threads: readonly EnvironmentThreadShell[];
         readonly isAnchor: boolean;
+        readonly isParent: boolean;
       }
     >();
     for (const item of activeThreadGroupLayout) {
       if (item.kind !== "group") continue;
       item.threads.forEach((thread, index) => {
         byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
-          projectKey: item.projectKey,
           group: item.group,
           threads: item.threads,
           isAnchor: index === 0,
+          isParent: index === 0 && item.hasParent,
         });
       });
     }
@@ -1759,7 +1760,6 @@ export default function Sidebar() {
     items: sidebarListItems,
     spans: activeThreadGroupSpans,
     threadByKey,
-    projectKeyOf: threadProjectOrderKey,
     setMembership: setThreadGroupMembership,
     requestTitle: requestThreadGroupTitle,
   }); // fork-hook: thread-ordering/group-drag
@@ -2058,19 +2058,11 @@ export default function Sidebar() {
       const settlingThreads = selectedThreads.filter(
         (thread) => thread.settledOverride !== "settled",
       );
-      const selectedProjectKey = selectedThreads[0]
-        ? threadProjectOrderKey(selectedThreads[0])
-        : null;
       const createGroupMenuItem = buildCreateThreadGroupContextMenuItem({
         count,
         eligible:
-          selectedProjectKey !== null &&
           selectedThreads.length === threadKeys.length &&
-          selectedThreads.every(
-            (thread) =>
-              threadProjectOrderKey(thread) === selectedProjectKey &&
-              activeThreads.includes(thread),
-          ),
+          selectedThreads.every((thread) => activeThreads.includes(thread)), // fork-hook: thread-ordering/group-create-eligible
       });
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
@@ -2154,34 +2146,31 @@ export default function Sidebar() {
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
-      if (clicked.value === "create-thread-group" && selectedProjectKey !== null) {
+      if (clicked.value === "create-thread-group") {
         const selectedKeys = new Set(threadKeys);
-        const projectThreads = activeThreads.filter(
-          (thread) => threadProjectOrderKey(thread) === selectedProjectKey,
-        );
-        const projectThreadKeys = projectThreads.map((thread) =>
+        const activeThreadKeys = activeThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
-        const members = projectThreads.filter((thread) =>
+        const members = activeThreads.filter((thread) =>
           selectedKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
         );
         if (members.length < 2) return;
         const memberKeys = members.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
+        clearSelection();
         const newGroup = { id: randomUUID(), title: "New group" };
-        setThreadGroupMembership(selectedProjectKey, projectThreadKeys, memberKeys, {
+        setThreadGroupMembership(activeThreadKeys, memberKeys, {
           kind: "new",
           group: newGroup,
         });
         void requestThreadGroupTitle({
-          projectKey: selectedProjectKey,
           groupId: newGroup.id,
           members,
           expectedGroup: { title: newGroup.title, threadIds: memberKeys },
         });
         return;
-      }
+      } // fork-hook: thread-ordering/group-create
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -2466,20 +2455,15 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const projectKey = threadProjectOrderKey(thread);
-        const projectThreads = activeThreads.filter(
-          (candidate) => threadProjectOrderKey(candidate) === projectKey,
-        );
-        const projectThreadKeys = projectThreads.map((candidate) =>
+        const activeThreadKeys = activeThreads.map((candidate) =>
           scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
-        );
-        const groups = projectThreadKeys.includes(threadKey)
-          ? (threadGroupsByProject[projectKey] ?? [])
-          : [];
+        ); // fork-hook: thread-ordering/group-menu-state
+        const groups = activeThreadKeys.includes(threadKey) ? threadGroups : []; // fork-hook: thread-ordering/group-menu-state
         const currentGroup = groups.find((group) => group.threadIds.includes(threadKey));
         const membershipItems = buildThreadGroupMembershipContextMenuItems({
           groups,
           currentGroupId: currentGroup?.id ?? null,
+          isGroupParent: currentGroup?.parentThreadId === threadKey, // fork-hook: thread-ordering/group-menu-state
         });
         const threadActionItems = buildThreadActionMenuItems({
           canOperate: readEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope), // fork-hook: thread-ordering/thread-action-operate
@@ -2527,15 +2511,23 @@ export default function Sidebar() {
         if (clicked.value?.startsWith("move-to-group:")) {
           const targetGroupId = clicked.value.slice("move-to-group:".length);
           if (!groups.some((group) => group.id === targetGroupId)) return;
-          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], {
+          setThreadGroupMembership(activeThreadKeys, [threadKey], {
             kind: "existing",
             groupId: targetGroupId,
-          });
+          }); // fork-hook: thread-ordering/group-menu-action
           return;
         }
         if (clicked.value === "move-out-of-group") {
           // Group membership is local UI state, so it stays available without the operate scope.
-          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
+          setThreadGroupMembership(activeThreadKeys, [threadKey], { kind: "none" }); // fork-hook: thread-ordering/group-menu-action
+          return;
+        }
+        if (currentGroup && clicked.value === "set-group-parent") {
+          setThreadGroupParent(currentGroup.id, threadKey);
+          return;
+        } // fork-hook: thread-ordering/group-menu-action
+        if (currentGroup && clicked.value === "clear-group-parent") {
+          setThreadGroupParent(currentGroup.id, null);
           return;
         } // fork-hook: upstream-fixes/split-session-permissions
         if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
@@ -3133,7 +3125,7 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                        groupState?: { grouped?: boolean }, // fork-hook: thread-ordering/group-row-state
+                        groupState?: { grouped?: boolean; fold?: ReactNode }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3174,6 +3166,7 @@ export default function Sidebar() {
                             }
                             isPinned={thread.pinnedAt != null}
                             grouped={groupState?.grouped}
+                            groupFoldFork={groupState?.fold} // fork-hook: thread-ordering/group-fold
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3260,10 +3253,7 @@ export default function Sidebar() {
                             item.section === "active"
                               ? activeGroupByThreadKey.get(item.key)
                               : undefined;
-                          const groupKey =
-                            groupEntry === undefined
-                              ? null
-                              : `${groupEntry.projectKey}\0${groupEntry.group.id}`;
+                          const groupKey = groupEntry?.group.id ?? null; // fork-hook: thread-ordering/group-drag-dissolving
                           // A pair losing a member falls below the two-thread
                           // minimum, so the header and the indent leave with the
                           // drag instead of snapping out after release.
@@ -3273,13 +3263,26 @@ export default function Sidebar() {
                           if (groupEntry?.isAnchor) {
                             // The anchor row itself is the collapsed group's only
                             // slot: the header replaces it until the group opens.
-                            if (groupEntry.group.collapsed) continue;
+                            if (groupEntry.group.collapsed && !groupEntry.isParent) continue; // fork-hook: thread-ordering/group-parent-fold
                           }
                           items.push(
                             renderThreadRow(
                               thread,
                               item.section,
-                              { grouped: groupEntry !== undefined && !isDissolving }, // fork-hook: thread-ordering/group-member-state
+                              {
+                                // A parent leads flush; only its children indent.
+                                grouped:
+                                  groupEntry !== undefined && !isDissolving && !groupEntry.isParent,
+                                fold:
+                                  groupEntry?.isParent && groupEntry.group.collapsed ? (
+                                    <SidebarThreadGroupFoldFork
+                                      threads={groupEntry.threads.slice(1)}
+                                      onExpand={() =>
+                                        setThreadGroupCollapsed(groupEntry.group.id, false)
+                                      }
+                                    />
+                                  ) : undefined,
+                              }, // fork-hook: thread-ordering/group-member-state
                             ),
                           );
                           continue;
@@ -3304,21 +3307,11 @@ export default function Sidebar() {
                                   threadGroupDragFork.dissolvingGroupKey === span.groupKey
                                 }
                                 onCollapsedChange={(collapsed) =>
-                                  setThreadGroupCollapsed(span.projectKey, span.group.id, collapsed)
+                                  setThreadGroupCollapsed(span.group.id, collapsed)
                                 }
-                                onRename={(title) =>
-                                  renameThreadGroup(span.projectKey, span.group.id, title)
-                                }
-                                onRegenerate={() =>
-                                  void requestThreadGroupTitle({
-                                    projectKey: span.projectKey,
-                                    groupId: span.group.id,
-                                    members: span.threads,
-                                    expectedGroup: span.group,
-                                    previousTitle: span.group.title,
-                                  })
-                                }
-                                onRemove={() => removeThreadGroup(span.projectKey, span.group.id)}
+                                onRename={(title) => renameThreadGroup(span.group.id, title)}
+                                onRegenerate={() => regenerateThreadGroupTitle(span.group.id)}
+                                onRemove={() => removeThreadGroup(span.group.id)}
                               />
                             </SortableSidebarMarker>,
                           );
