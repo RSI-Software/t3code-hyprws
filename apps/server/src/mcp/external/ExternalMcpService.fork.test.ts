@@ -139,6 +139,7 @@ const makeHarness = (
                     creationSource: "mcp",
                     status: "idle",
                     activityRunStatus: null,
+                    latestRunId: null,
                     pendingRuntimeRequest: null,
                     updatedAt: DateTime.makeUnsafe(0),
                     ...shell,
