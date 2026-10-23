@@ -35,8 +35,9 @@
 //
 // The trunk moves only to a sha hyprws CI already passed: the driver pushes
 // the rebased tip to the candidate branch, waits for the CI run on that exact
-// sha, and lease-pushes the same sha. CI is the one check authority; the
-// driver never restates it locally.
+// sha, and lease-pushes the same sha. CI is the one check authority: the
+// local `vp run fork:ci` before a candidate push only refuses what CI would
+// refuse sooner, and a green preflight never stands in for the run.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -87,8 +88,9 @@ const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v2";
 
+/** Stable per step and target, so a rerun refreshes the issue without renaming it. */
 const syncIssueTitle = (outcome: "blocked" | "failed", step: string, key: string): string =>
-  `hyprws sync ${outcome} at ${step} (${outcome === "blocked" ? "upstream " : ""}${key.length === 40 ? key.slice(0, 7) : key})`;
+  `hyprws sync ${outcome} at ${step} (${key.length === 40 ? key.slice(0, 7) : key})`;
 
 const blockingShaMarker = (sha: string): string => `<!-- blocking-sha:${sha} -->`;
 export { blockingShaMarker };
@@ -215,7 +217,10 @@ export interface CiJob extends Schema.Schema.Type<typeof CiJob> {}
 export const CandidateCi = Schema.Struct({
   /** The run's URL; `""` when no run started. */
   run: Schema.String,
-  /** GitHub's run conclusion, or `never started` / `timed out` when the wait gave up. */
+  /**
+   * GitHub's run conclusion (`failure` as soon as one job fails), `never started` / `timed out`
+   * when the wait gave up, or `skipped: local fork:ci failed …` when the preflight refused the push.
+   */
   conclusion: Schema.String,
   jobs: Schema.Array(CiJob),
 });
@@ -367,6 +372,10 @@ const WorktreeState = Schema.Struct({
   lease: Schema.String,
   /** Every stop's rows so far, so the run that finishes the rebase reports them all. */
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
+  /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
+  rebased: Schema.optionalKey(Schema.String),
+  /** Tip commits from a dropped worktree, cherry-picked once this rebase finishes. */
+  carry: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -378,17 +387,21 @@ const writeWorktreeState = (root: string, state: WorktreeState): void =>
   NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
 
 /** The kept worktree's state when it was built for `expected`'s tag, target, and lease. */
+const readWorktreeState = (root: string): WorktreeState | null => {
+  try {
+    return decodeWorktreeState(JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8")));
+  } catch {
+    return null;
+  }
+};
+
 const keptWorktreeState = (
   runner: CommandRunner,
   root: string,
   expected: WorktreeState,
 ): WorktreeState | null => {
-  let state: WorktreeState;
-  try {
-    state = decodeWorktreeState(JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8")));
-  } catch {
-    return null;
-  }
+  const state = readWorktreeState(root);
+  if (state === null) return null;
   return state.tag === expected.tag &&
     state.targetSha === expected.targetSha &&
     state.lease === expected.lease &&
@@ -436,6 +449,28 @@ const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string)
     },
     stream: true,
   });
+};
+
+/**
+ * The tip commits a worktree about to be dropped holds above its finished
+ * rebase, oldest first, plus any it was still carrying. A moved lease or a new
+ * tag rebases from scratch, and these are the fixups a red candidate needed.
+ * Unreachable once the worktree goes, they outlive any gc prune window a sync spans.
+ */
+const tipCommits = (runner: CommandRunner, root: string): ReadonlyArray<string> => {
+  const state = readWorktreeState(root);
+  if (state === null) return [];
+  const worktree = worktreePath(root);
+  const carried = state.carry ?? [];
+  if (
+    state.rebased === undefined ||
+    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !== 0
+  )
+    return carried;
+  return [
+    ...carried,
+    ...lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`])),
+  ];
 };
 
 /** Drop the sync worktree and its state once nothing is left to carry. */
@@ -634,8 +669,6 @@ export type RebaseOutcome =
   | {
       readonly status: "blocked";
       readonly conflicts: ReadonlyArray<ConflictRow>;
-      /** Generated paths left unmerged; the rerun regenerates them once the manual paths resolve. */
-      readonly regenerating: ReadonlyArray<string>;
     };
 
 export interface SubjectCommit {
@@ -933,8 +966,7 @@ const replayOnto = (
         hooksReapplied: [...applied.reinserted],
       });
     }
-    if (manual.length > 0)
-      return { status: "blocked", conflicts, regenerating: [...regenerable.keys()] };
+    if (manual.length > 0) return { status: "blocked", conflicts };
     for (const route of REGENERATION_ROUTES) {
       const touch = regenerable.get(route.path);
       if (touch === undefined) continue;
@@ -963,7 +995,7 @@ const replayOnto = (
         refuseReason: `${resolverText(route)} failed: ${failure}`,
       });
     }
-    if (manual.length > 0) return { status: "blocked", conflicts, regenerating: [] };
+    if (manual.length > 0) return { status: "blocked", conflicts };
     status = runner.run("git", [...REBASE_CONFIG, "rebase", "--continue"], {
       cwd: worktree,
       env: editorEnv,
@@ -1001,11 +1033,12 @@ export const rebaseOnto = (
   let state = keptWorktreeState(runner, root, expected);
   const adopted = state !== null;
   if (state === null) {
+    const carry = tipCommits(runner, root);
     dropWorktree(runner, root);
     git(runner, root, ["worktree", "prune"]);
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
     runWorktreeSetup(runner, root, worktree);
-    state = expected;
+    state = carry.length === 0 ? expected : { ...expected, carry };
     writeWorktreeState(root, state);
   }
   const carried = state.conflicts ?? [];
@@ -1014,9 +1047,25 @@ export const rebaseOnto = (
   try {
     outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts);
   } finally {
-    writeWorktreeState(root, { ...state, conflicts: mergeStops(carried, conflicts) });
+    state = { ...state, conflicts: mergeStops(carried, conflicts) };
+    writeWorktreeState(root, state);
   }
-  return { ...outcome, recorded: mergeStops(carried, outcome.conflicts) };
+  const recorded = mergeStops(carried, outcome.conflicts);
+  if (outcome.status === "blocked") return { ...outcome, recorded };
+  // Only the run that finishes the rebase records it: an adopted finished
+  // worktree's HEAD already holds tip work above it.
+  const { carry = [], ...rest } = { ...state, rebased: state.rebased ?? outcome.newSha };
+  writeWorktreeState(root, rest);
+  if (carry.length === 0) return { ...outcome, recorded };
+  process.stdout.write(`sync: carrying ${carry.length} tip commit(s) onto the new rebase\n`);
+  const picked = runner.run("git", [...REBASE_CONFIG, "cherry-pick", ...carry], { cwd: worktree });
+  if (picked.status !== 0 || picked.error !== undefined) {
+    gitAllow(runner, worktree, ["cherry-pick", "--abort"]);
+    throw new Error(
+      `the tip commits carried from the dropped sync worktree do not apply to the new rebase; carry them by hand, then rerun:\n  git -C ${worktree} cherry-pick ${carry.join(" ")}`,
+    );
+  }
+  return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
 };
 
 const VERIFICATION_ENV_KEYS = new Set([
@@ -1130,16 +1179,45 @@ const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | 
     ) as ReadonlyArray<CiRun>
   )[0] ?? null;
 
+/** The run's finished jobs; a job still running has no verdict to report. */
+const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): ReadonlyArray<CiJob> =>
+  (
+    JSON.parse(
+      runRequire(
+        runner,
+        "gh",
+        ["run", "view", String(run.databaseId), "--repo", FORK_REPOSITORY, "--json", "jobs"],
+        { cwd: root, timeout: CI_READ_TIMEOUT_MS },
+      ),
+    ) as { readonly jobs: ReadonlyArray<CiJob & { readonly status: string }> }
+  ).jobs
+    .filter((job) => job.status === "completed")
+    .map(({ name, conclusion, url }) => ({ name, conclusion, url }));
+
 /**
  * hyprws CI's verdict on `sha`. A sha with a run already — a dry run's proven
- * tip, or a red run rerun by hand — reuses it; any other sha is force-pushed
- * to the candidate branch first. The driver then polls until the run
- * completes, and a run that never starts or never finishes is not green.
+ * tip, or a red run rerun by hand — reuses it. Any other sha runs the local
+ * `vp run fork:ci` in the sync worktree first, so a lint, ledger, fold, or
+ * scan refusal costs minutes instead of a CI round, and is then force-pushed
+ * to the candidate branch. The driver polls until the run completes or a job
+ * fails, and a run that never starts or never finishes is not green.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
-  const started = performance.now();
   let latest = latestCiRun(runner, root, sha);
   if (latest === null) {
+    const worktree = worktreePath(root);
+    process.stdout.write(`sync: running vp run fork:ci on ${sha.slice(0, 7)} before the push\n`);
+    const local = runner.run("vp", ["run", "fork:ci"], {
+      cwd: worktree,
+      env: verificationEnv(worktree),
+      stream: true,
+    });
+    if (local.status !== 0 || local.error !== undefined)
+      return {
+        run: "",
+        conclusion: `skipped: local fork:ci failed (exit ${local.status})`,
+        jobs: [],
+      };
     const ref = `refs/heads/${SYNC_CANDIDATE_BRANCH}`;
     // A retry after a push that started no run would push an unchanged ref,
     // which GitHub records as no event; recreate the branch so it fires one.
@@ -1148,7 +1226,18 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
     process.stdout.write(`sync: pushing ${sha.slice(0, 7)} to ${SYNC_CANDIDATE_BRANCH}\n`);
     git(runner, root, ["push", "--force", "origin", `${sha}:${ref}`]);
   }
-  for (let waited = 0; latest?.status !== "completed"; waited += CI_POLL_SECONDS) {
+  const started = performance.now();
+  for (let waited = 0; ; waited += CI_POLL_SECONDS) {
+    if (latest !== null) {
+      const jobs = finishedJobs(runner, root, latest);
+      // One failed job already decides the verdict; the rest only delay the fix.
+      if (latest.status === "completed" || jobs.some((job) => job.conclusion === "failure"))
+        return {
+          run: latest.url,
+          conclusion: latest.status === "completed" ? latest.conclusion : "failure",
+          jobs,
+        };
+    }
     // Wall time counts slow GitHub reads; the sleep count bounds a faked sleep.
     const elapsed = Math.max(waited, (performance.now() - started) / 1000);
     if (elapsed >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
@@ -1164,19 +1253,6 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
     runner.run("sleep", [String(CI_POLL_SECONDS)], { cwd: root });
     latest = latestCiRun(runner, root, sha);
   }
-  const { jobs } = JSON.parse(
-    runRequire(
-      runner,
-      "gh",
-      ["run", "view", String(latest.databaseId), "--repo", FORK_REPOSITORY, "--json", "jobs"],
-      { cwd: root, timeout: CI_READ_TIMEOUT_MS },
-    ),
-  ) as { readonly jobs: ReadonlyArray<CiJob> };
-  return {
-    run: latest.url,
-    conclusion: latest.conclusion,
-    jobs: jobs.map(({ name, conclusion, url }) => ({ name, conclusion, url })),
-  };
 };
 
 const ciMark = (conclusion: string): string =>
@@ -1785,19 +1861,16 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         decision: {
           worktree,
           paths: manualPaths,
+          // The rerun continues the rebase itself, so every later stop still
+          // gets rerere, hook re-apply, and regeneration before a human sees it.
           resume: [
             `git -C ${worktree} add -- ${manualPaths.map((path) => `"${path}"`).join(" ")}`,
-            // A generated path still unmerged refuses `rebase --continue`; the
-            // rerun regenerates it and continues.
-            rebase.regenerating.length === 0
-              ? `git -C ${worktree} rebase --continue`
-              : `# the rerun regenerates ${rebase.regenerating.join(", ")} and continues`,
             `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
           ].join("\n"),
         },
         blocked: {
           issue: null,
-          title: syncIssueTitle("blocked", target.tag, blockingSha),
+          title: syncIssueTitle("blocked", "rebase", target.tag),
           blockingSha,
           publishError: null,
           publishedVia: null,
@@ -1836,7 +1909,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           tip: newSha,
           paths: [],
           resume: [
-            `# fix the red job in ${worktree} and commit there; a flake reruns in place:`,
+            `# fix the red job in ${worktree} and commit there; a flake reruns in place once the run completes:`,
             ...(ci.run === ""
               ? []
               : [
@@ -1880,8 +1953,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     ]);
     if (pushed.status !== 0 || pushed.error !== undefined) {
       // The worktree stays: a rerun on the same lease adopts the green tip, and
-      // a moved lease rebases again, so the report names the tip and any tip
-      // fixups to carry over before the rerun drops it.
+      // a moved lease rebases again and carries the tip commits over.
       const worktree = worktreePath(root);
       return fail({
         conflicts: [...rebase.recorded],
@@ -1890,10 +1962,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           worktree,
           tip: newSha,
           paths: [],
-          resume: [
-            `# inspect origin/${HYPRWS_BRANCH}; carry any tip fixups from ${newSha.slice(0, 10)}`,
-            `vp run fork:sync ${target.tag}`,
-          ].join("\n"),
+          resume: `vp run fork:sync ${target.tag}`,
         },
         error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
       });
