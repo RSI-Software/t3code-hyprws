@@ -5,7 +5,6 @@ import {
 } from "./Sidebar.logic";
 import {
   parseSidebarThreadGroupMarker,
-  sidebarThreadGroupKey,
   type SidebarThreadGroupSpan,
 } from "./SidebarThreadGroup.markers";
 
@@ -22,13 +21,14 @@ export function sidebarThreadGroupSpansFork<T>(
   return layout.flatMap((item): SidebarThreadGroupSpan<T>[] => {
     if (item.kind !== "group") return [];
     const visible = item.group.collapsed ? item.threads.slice(0, 1) : item.threads;
+    const visibleKeys = visible.map(getKey);
     return [
       {
-        groupKey: sidebarThreadGroupKey(item.projectKey, item.group.id),
-        projectKey: item.projectKey,
+        groupKey: item.group.id,
         group: item.group,
         threads: item.threads,
-        visibleKeys: visible.map(getKey),
+        visibleKeys,
+        parentKey: item.hasParent ? visibleKeys[0]! : null,
       },
     ];
   });

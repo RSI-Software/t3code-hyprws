@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createSidebarCollisionDetection } from "./Sidebar.drag.ts";
+import { createSidebarCollisionDetection, createSidebarSortingStrategy } from "./Sidebar.drag.ts";
 import {
   sidebarListItemId,
   sidebarMarkerId,
   type SidebarListItem,
   type SidebarSection,
 } from "./Sidebar.logic.ts";
-import {
-  sidebarThreadGroupHeaderMarker,
-  sidebarThreadGroupKey,
-} from "./SidebarThreadGroup.markers.ts";
+import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers.ts";
 
 const thread = (key: string, section: SidebarSection): SidebarListItem => ({
   kind: "thread",
@@ -27,7 +24,7 @@ const rect = (top: number, height: number) => ({
   width: 260,
 });
 
-const HEADER_MARKER = sidebarThreadGroupHeaderMarker(sidebarThreadGroupKey("project", "group"));
+const HEADER_MARKER = sidebarThreadGroupHeaderMarker("group");
 const HEADER_ID = sidebarMarkerId(HEADER_MARKER);
 
 /** The divider row renders whether or not Pins holds anything, and its label
@@ -116,5 +113,34 @@ describe("createSidebarCollisionDetection group headers", () => {
       ),
     };
     expect(detector(withoutHeader)[0]?.id).toBe("member");
+  });
+});
+
+describe("createSidebarSortingStrategy folded group parent", () => {
+  it("opens a gap the height of a taller lifted card", () => {
+    // A collapsed group's parent carries its fold strip, so it outgrows a card.
+    const items: SidebarListItem[] = [
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      thread("above", "active"),
+      thread("parent", "active"),
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+    ];
+    const rects = [
+      rect(100, 0),
+      rect(101, 0),
+      rect(102, 82),
+      rect(185, 110),
+      rect(296, 32),
+      rect(329, 0),
+    ];
+    const strategy = createSidebarSortingStrategy({
+      items,
+      settledOrder: [],
+      settledExpanded: false,
+    });
+    const args = { activeIndex: 3, overIndex: 2, activeNodeRect: rects[3]!, rects };
+    expect(strategy({ ...args, index: 2 })?.y).toBe(111);
   });
 });
