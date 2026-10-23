@@ -10,17 +10,13 @@ import {
   OrchestratorMcpInteractionMode,
   OrchestratorMcpRuntimeMode,
   OrchestratorMcpTarget,
-  OrchestratorMcpThreadDetail,
   OrchestratorMcpThreadInterruptInput,
   OrchestratorMcpThreadInterruptResult,
   OrchestratorMcpThreadListInput,
-  OrchestratorMcpThreadListItem,
   OrchestratorMcpThreadReadInput,
-  OrchestratorMcpThreadReadResult,
   OrchestratorMcpThreadSendInput,
   OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitInput,
-  OrchestratorMcpThreadWaitResult,
   ProjectId,
   ProviderUserInputAnswers,
   RuntimeRequestId,
@@ -37,7 +33,11 @@ import {
   ExternalMcpRequestListResult,
   ExternalMcpRequestRespondResult,
 } from "../../external/ExternalMcpRequests.fork.ts";
-import { ExternalMcpThreadWork } from "../../external/ExternalMcpWork.fork.ts";
+import {
+  McpThreadListItem,
+  McpThreadReadResult,
+  McpThreadWaitResult,
+} from "../../McpThreadWork.fork.ts";
 import {
   ExternalMcpPrincipalFork,
   ExternalMcpServiceFork,
@@ -77,31 +77,9 @@ const ThreadListInput = Schema.Struct({
 
 const ThreadListResult = Schema.Struct({
   projectId: ProjectId,
-  threads: Schema.Array(
-    Schema.Struct({ ...OrchestratorMcpThreadListItem.fields, work: ExternalMcpThreadWork }),
-  ),
+  threads: Schema.Array(McpThreadListItem),
   nextCursor: Schema.NullOr(Schema.Number),
   total: Schema.Number,
-});
-
-const ThreadReadResult = Schema.Struct({
-  ...OrchestratorMcpThreadReadResult.fields,
-  thread: Schema.Struct({ ...OrchestratorMcpThreadDetail.fields, work: ExternalMcpThreadWork }),
-});
-
-const ThreadWaitInput = Schema.Struct({
-  ...OrchestratorMcpThreadWaitInput.fields,
-  until: Schema.optional(
-    Schema.Literals(["run", "work"]).annotate({
-      description:
-        "run (default) waits for one run to end. work waits until nothing runs and no background work holds the thread, or a request waits on a person; it takes no runId.",
-    }),
-  ),
-});
-
-const ThreadWaitResult = Schema.Struct({
-  ...OrchestratorMcpThreadWaitResult.fields,
-  work: ExternalMcpThreadWork,
 });
 
 const ThreadCreateInput = Schema.Struct({
@@ -181,7 +159,7 @@ const ThreadReadTool = Tool.make("t3_external_thread_read", {
   description:
     "Read a thread's durable state and a paginated timeline. thread.status is run status; thread.work adds background work and a provider-native subagent's turn. The messages view returns user and assistant messages and proposed plans; activity returns every summarized item. Continue with afterPosition=nextPosition, and recover long text with itemId and textOffset=nextTextOffset.",
   parameters: OrchestratorMcpThreadReadInput,
-  success: ThreadReadResult,
+  success: McpThreadReadResult,
   failure: OrchestratorMcpFailure,
   dependencies,
 })
@@ -193,8 +171,8 @@ const ThreadReadTool = Tool.make("t3_external_thread_read", {
 const ThreadWaitTool = Tool.make("t3_external_thread_wait", {
   description:
     "Wait up to timeoutMs (default 60s, at most 10 minutes) for a thread run to reach a terminal state or need input. Without runId the latest run is selected; an idle thread returns at once. Both modes also return with timedOut=false and pendingRequestCount while a runtime request pends; list and answer it with t3_external_request_list/respond. A run can end while work it started still runs: the result's work says so, and until=work waits for that work too. A timeout interrupts nothing, so call again after timedOut=true.",
-  parameters: ThreadWaitInput,
-  success: ThreadWaitResult,
+  parameters: OrchestratorMcpThreadWaitInput,
+  success: McpThreadWaitResult,
   failure: OrchestratorMcpFailure,
   dependencies,
 })
