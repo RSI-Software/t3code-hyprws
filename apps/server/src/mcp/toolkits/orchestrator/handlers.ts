@@ -7,6 +7,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
+import { threadWorkHandlersFork } from "./threadWork.fork.ts"; // fork-hook: device-auth/mcp-thread-work
 
 const handlers = {
   orchestrator_capabilities: McpToolAccess.reads((input) =>
@@ -150,5 +151,6 @@ const handlers = {
       }),
   ),
 } satisfies McpToolAccess.Handlers<typeof OrchestratorToolkit.tools>;
+Object.assign(handlers, threadWorkHandlersFork); // fork-hook: device-auth/mcp-thread-work
 
 export const layer = McpToolAccess.toLayer(OrchestratorToolkit, handlers);
