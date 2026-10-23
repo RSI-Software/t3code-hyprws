@@ -455,8 +455,8 @@ The client then calls `/api/mcp/external`, a second MCP server with its own `t3_
 | WebSocket   | `/api/auth/websocket-ticket` needs only authentication; each socket RPC refuses it                      |
 | Policy      | `auth_external_mcp_grants`, keyed by session                                                            |
 | Reads       | Projects, threads, timelines, waits in granted projects                                                 |
-| Work        | Reads add `work`: background work and native subagent turns that run status misses                      |
-| Work wait   | `until=work` waits for that work; a pinned `runId` wait keeps its run outcome                           |
+| Work        | Reads add `work`: background work and native subagent turns that run status misses; `/mcp` reads too    |
+| Work wait   | `until=work` waits for that work on both servers; a pinned `runId` wait keeps its run outcome           |
 | Mutations   | Create, send, interrupt, settle/unsettle, answer; `--mcp-coordinate` only                               |
 | Requests    | Pending questions and approvals by request ID; approvals stay owner-only                                |
 | Ceilings    | Runtime and interaction modes; defaults `approval-required` and `plan`                                  |
@@ -484,6 +484,8 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 | `apps/server/src/auth/ExternalMcpGrant.fork.ts`, `apps/server/src/mcp/external/`, `apps/server/src/mcp/toolkits/external/`                        | Fork-owned MCP policy, server, tools                                        |
 | `apps/server/src/mcp/OrchestratorMcpService.ts`, `apps/server/src/mcp/McpHttpServer.ts`                                                           | Reused thread helpers and response normalizer                               |
 | `packages/shared/src/orchestrationV2PendingBackgroundWork.ts`, `packages/contracts/src/orchestrationV2.ts`                                        | Background roster and native subagent test read by `work`                   |
+| `apps/server/src/mcp/McpThreadWork.fork.ts`, `packages/contracts/src/mcpThreadWork.fork.ts`, `packages/contracts/src/orchestratorMcp.ts`          | Shared `work` view and `/mcp` contract hooks                                |
+| `apps/server/src/mcp/toolkits/orchestrator/handlers.ts`, `apps/server/src/mcp/toolkits/orchestrator/threadWork.fork.ts`                           | `/mcp` thread read handler hook                                             |
 | `apps/server/src/orchestration-v2/ThreadManagementService.ts`, `apps/server/src/orchestration-v2/steerTarget.fork.ts`                             | `steerTarget` send pin hooks                                                |
 | `apps/server/src/orchestration-v2/Orchestrator.ts`, `packages/contracts/src/orchestrationV2.ts`, `packages/contracts/src/externalMcpSend.fork.ts` | `steerAttemptId` and send/settlement/answer `expectedModes` dispatch checks |
 | `apps/server/src/orchestration-v2/externalSettlement.fork.ts`, `packages/contracts/src/externalMcpSettlement.fork.ts`                             | Settlement commit guard and acknowledgement                                 |
