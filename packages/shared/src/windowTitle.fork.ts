@@ -1,9 +1,9 @@
 // The window title names the window's project filter
 // (RSI-Software/t3code-hyprws#1353), presentation only. The renderer composes
-// `<app> — <filter>`; the desktop hub window keeps its own app name and takes
+// `<app> | <filter>`; the desktop hub window keeps its own app name and takes
 // only the filter part, so the web and desktop names never mix.
 
-const FILTER_SEPARATOR = " — ";
+const FILTER_SEPARATOR = " | ";
 
 /** `base` with the filter label appended; `base` alone for all projects. */
 export function composeFilteredWindowTitle(base: string, filterLabel: string | null): string {
