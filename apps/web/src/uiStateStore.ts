@@ -23,6 +23,7 @@ export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
   threadOrderByProject?: Record<string, string[]>;
+  threadGroups?: SidebarThreadGroup[]; // fork-hook: thread-ordering/group-state
   threadGroupsByProject?: Record<string, SidebarThreadGroup[]>;
   threadLastVisitedAtById?: Record<string, string>;
   collapsedProjectCwds?: string[];
@@ -41,7 +42,9 @@ export interface SidebarThreadGroup {
   title: string;
   threadIds: string[];
   collapsed: boolean;
-}
+  /** A member shown first, with the rest indented under it. Visual only. */
+  parentThreadId?: string;
+} // fork-hook: thread-ordering/group-type
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
@@ -51,7 +54,7 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadOrderByProject: Record<string, string[]>;
-  threadGroupsByProject: Record<string, SidebarThreadGroup[]>;
+  threadGroups: SidebarThreadGroup[]; // fork-hook: thread-ordering/group-state
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
@@ -72,7 +75,7 @@ const initialState: UiState = {
   projectOrder: [],
   sidebarProjectScopeKeys: [],
   threadOrderByProject: {},
-  threadGroupsByProject: {},
+  threadGroups: [], // fork-hook: thread-ordering/group-state
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -126,42 +129,40 @@ function sanitizeStringArrayRecord(value: unknown): Record<string, string[]> {
   );
 }
 
-function sanitizeThreadGroupRecord(value: unknown): Record<string, SidebarThreadGroup[]> {
-  if (!value || typeof value !== "object") return {};
-  const result: Record<string, SidebarThreadGroup[]> = {};
-  for (const [projectKey, groups] of Object.entries(value)) {
-    if (!projectKey || !Array.isArray(groups)) continue;
-    const usedThreadIds = new Set<string>();
-    const usedGroupIds = new Set<string>();
-    const sanitized = groups.flatMap((group): SidebarThreadGroup[] => {
-      if (!group || typeof group !== "object") return [];
-      const candidate = group as Partial<SidebarThreadGroup>;
-      if (typeof candidate.id !== "string" || !candidate.id) return [];
-      if (usedGroupIds.has(candidate.id)) return [];
-      if (typeof candidate.title !== "string" || !candidate.title.trim()) return [];
-      const threadIds = sanitizeStringArray(candidate.threadIds).filter((id) => {
-        if (usedThreadIds.has(id)) return false;
-        usedThreadIds.add(id);
-        return true;
-      });
-      if (threadIds.length < 2) {
-        for (const id of threadIds) usedThreadIds.delete(id);
-        return [];
-      }
-      usedGroupIds.add(candidate.id);
-      return [
-        {
-          id: candidate.id,
-          title: candidate.title.trim(),
-          threadIds,
-          collapsed: candidate.collapsed === true,
-        },
-      ];
+function sanitizeThreadGroups(value: unknown): SidebarThreadGroup[] {
+  if (!Array.isArray(value)) return [];
+  const usedThreadIds = new Set<string>();
+  const usedGroupIds = new Set<string>();
+  return value.flatMap((group): SidebarThreadGroup[] => {
+    if (!group || typeof group !== "object") return [];
+    const candidate = group as Partial<SidebarThreadGroup>;
+    if (typeof candidate.id !== "string" || !candidate.id) return [];
+    if (usedGroupIds.has(candidate.id)) return [];
+    if (typeof candidate.title !== "string" || !candidate.title.trim()) return [];
+    const threadIds = sanitizeStringArray(candidate.threadIds).filter((id) => {
+      if (usedThreadIds.has(id)) return false;
+      usedThreadIds.add(id);
+      return true;
     });
-    if (sanitized.length > 0) result[projectKey] = sanitized;
-  }
-  return result;
-}
+    if (threadIds.length < 2) {
+      for (const id of threadIds) usedThreadIds.delete(id);
+      return [];
+    }
+    usedGroupIds.add(candidate.id);
+    return [
+      {
+        id: candidate.id,
+        title: candidate.title.trim(),
+        threadIds,
+        collapsed: candidate.collapsed === true,
+        ...(typeof candidate.parentThreadId === "string" &&
+        threadIds.includes(candidate.parentThreadId)
+          ? { parentThreadId: candidate.parentThreadId }
+          : {}),
+      },
+    ];
+  });
+} // fork-hook: thread-ordering/group-sanitize
 
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object") {
@@ -210,7 +211,12 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectExpandedById,
     projectOrder,
     threadOrderByProject: sanitizeStringArrayRecord(parsed.threadOrderByProject),
-    threadGroupsByProject: sanitizeThreadGroupRecord(parsed.threadGroupsByProject),
+    threadGroups: sanitizeThreadGroups(
+      parsed.threadGroups ??
+        (parsed.threadGroupsByProject && typeof parsed.threadGroupsByProject === "object"
+          ? Object.values(parsed.threadGroupsByProject).flat()
+          : undefined),
+    ), // fork-hook: thread-ordering/group-parse
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
@@ -297,9 +303,7 @@ export function persistState(state: UiState): void {
         ...(Object.keys(state.threadOrderByProject).length > 0
           ? { threadOrderByProject: state.threadOrderByProject }
           : {}),
-        ...(Object.keys(state.threadGroupsByProject).length > 0
-          ? { threadGroupsByProject: state.threadGroupsByProject }
-          : {}),
+        ...(state.threadGroups.length > 0 ? { threadGroups: state.threadGroups } : {}), // fork-hook: thread-ordering/group-persist
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
@@ -548,13 +552,28 @@ function orderedGroupThreadIds(threadIds: readonly string[], order: readonly str
 }
 
 export type SidebarThreadGroupMembershipTarget =
-  | { readonly kind: "existing"; readonly groupId: string }
+  | {
+      readonly kind: "existing";
+      readonly groupId: string;
+      /** The one joining thread becomes the group's parent. */
+      readonly asParent?: boolean;
+    } // fork-hook: thread-ordering/group-target
   | { readonly kind: "new"; readonly group: Pick<SidebarThreadGroup, "id" | "title"> }
   | { readonly kind: "none" };
 
+function sameThreadGroup(left: SidebarThreadGroup, right: SidebarThreadGroup | undefined): boolean {
+  return (
+    right?.id === left.id &&
+    right.title === left.title &&
+    right.collapsed === left.collapsed &&
+    right.parentThreadId === left.parentThreadId &&
+    right.threadIds.length === left.threadIds.length &&
+    right.threadIds.every((threadId, index) => left.threadIds[index] === threadId)
+  );
+} // fork-hook: thread-ordering/group-equal
+
 export function setThreadGroupMembership(
   state: UiState,
-  projectKey: string,
   currentThreadOrder: readonly string[],
   threadIds: readonly string[],
   target: SidebarThreadGroupMembershipTarget,
@@ -564,15 +583,20 @@ export function setThreadGroupMembership(
     return state;
   }
 
-  const currentGroups = state.threadGroupsByProject[projectKey] ?? [];
+  const currentGroups = state.threadGroups;
   if (target.kind === "existing" && !currentGroups.some((group) => group.id === target.groupId)) {
     return state;
   }
   const movingIds = new Set(orderedThreadIds);
-  let groups = currentGroups.map((group) => ({
-    ...group,
-    threadIds: group.threadIds.filter((threadId) => !movingIds.has(threadId)),
-  }));
+  let groups = currentGroups.map((group): SidebarThreadGroup => {
+    const { parentThreadId, ...rest } = group;
+    return {
+      ...rest,
+      threadIds: group.threadIds.filter((threadId) => !movingIds.has(threadId)),
+      // A parent that leaves its group stops leading it.
+      ...(parentThreadId === undefined || movingIds.has(parentThreadId) ? {} : { parentThreadId }),
+    };
+  });
 
   if (target.kind === "existing") {
     groups = groups.map((group) =>
@@ -584,6 +608,7 @@ export function setThreadGroupMembership(
               [...group.threadIds, ...orderedThreadIds],
               currentThreadOrder,
             ),
+            ...(target.asParent ? { parentThreadId: orderedThreadIds[0]! } : {}),
           }
         : group,
     );
@@ -598,62 +623,43 @@ export function setThreadGroupMembership(
   groups = groups.filter((group) => group.threadIds.length >= 2);
   if (
     groups.length === currentGroups.length &&
-    groups.every((group, index) => {
-      const current = currentGroups[index];
-      return (
-        current?.id === group.id &&
-        current.title === group.title &&
-        current.collapsed === group.collapsed &&
-        current.threadIds.length === group.threadIds.length &&
-        current.threadIds.every(
-          (threadId, threadIndex) => group.threadIds[threadIndex] === threadId,
-        )
-      );
-    })
+    groups.every((group, index) => sameThreadGroup(group, currentGroups[index]))
   ) {
     return state;
   }
 
-  return {
-    ...state,
-    threadGroupsByProject: {
-      ...state.threadGroupsByProject,
-      [projectKey]: groups,
-    },
-  };
-}
+  return { ...state, threadGroups: groups };
+} // fork-hook: thread-ordering/group-membership
 
-export function renameThreadGroup(
+function updateThreadGroup(
   state: UiState,
-  projectKey: string,
   groupId: string,
-  title: string,
+  update: (group: SidebarThreadGroup) => SidebarThreadGroup,
 ): UiState {
+  let changed = false;
+  const threadGroups = state.threadGroups.map((group) => {
+    if (group.id !== groupId) return group;
+    const next = update(group);
+    if (sameThreadGroup(next, group)) return group;
+    changed = true;
+    return next;
+  });
+  return changed ? { ...state, threadGroups } : state;
+} // fork-hook: thread-ordering/group-update
+
+export function renameThreadGroup(state: UiState, groupId: string, title: string): UiState {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return state;
-  const groups = state.threadGroupsByProject[projectKey] ?? [];
-  if (!groups.some((group) => group.id === groupId && group.title !== trimmedTitle)) return state;
-  return {
-    ...state,
-    threadGroupsByProject: {
-      ...state.threadGroupsByProject,
-      [projectKey]: groups.map((group) =>
-        group.id === groupId ? { ...group, title: trimmedTitle } : group,
-      ),
-    },
-  };
-}
+  return updateThreadGroup(state, groupId, (group) => ({ ...group, title: trimmedTitle }));
+} // fork-hook: thread-ordering/group-rename
 
 export function renameThreadGroupIfCurrent(
   state: UiState,
-  projectKey: string,
   groupId: string,
   expected: Pick<SidebarThreadGroup, "title" | "threadIds">,
   title: string,
 ): UiState {
-  const group = (state.threadGroupsByProject[projectKey] ?? []).find(
-    (candidate) => candidate.id === groupId,
-  );
+  const group = state.threadGroups.find((candidate) => candidate.id === groupId);
   if (
     !group ||
     group.title !== expected.title ||
@@ -662,35 +668,30 @@ export function renameThreadGroupIfCurrent(
   ) {
     return state;
   }
-  return renameThreadGroup(state, projectKey, groupId, title);
-}
+  return renameThreadGroup(state, groupId, title);
+} // fork-hook: thread-ordering/group-rename-if-current
 
-function setThreadGroupCollapsed(
+function setThreadGroupCollapsed(state: UiState, groupId: string, collapsed: boolean): UiState {
+  return updateThreadGroup(state, groupId, (group) => ({ ...group, collapsed }));
+} // fork-hook: thread-ordering/group-collapse
+
+export function setThreadGroupParent(
   state: UiState,
-  projectKey: string,
   groupId: string,
-  collapsed: boolean,
+  parentThreadId: string | null,
 ): UiState {
-  const groups = state.threadGroupsByProject[projectKey] ?? [];
-  if (!groups.some((group) => group.id === groupId && group.collapsed !== collapsed)) return state;
-  return {
-    ...state,
-    threadGroupsByProject: {
-      ...state.threadGroupsByProject,
-      [projectKey]: groups.map((group) => (group.id === groupId ? { ...group, collapsed } : group)),
-    },
-  };
-}
+  return updateThreadGroup(state, groupId, (group) => {
+    const { parentThreadId: _previous, ...rest } = group;
+    return parentThreadId !== null && group.threadIds.includes(parentThreadId)
+      ? { ...rest, parentThreadId }
+      : rest;
+  });
+} // fork-hook: thread-ordering/group-parent
 
-function removeThreadGroup(state: UiState, projectKey: string, groupId: string): UiState {
-  const groups = state.threadGroupsByProject[projectKey] ?? [];
-  const nextGroups = groups.filter((group) => group.id !== groupId);
-  if (nextGroups.length === groups.length) return state;
-  return {
-    ...state,
-    threadGroupsByProject: { ...state.threadGroupsByProject, [projectKey]: nextGroups },
-  };
-}
+function removeThreadGroup(state: UiState, groupId: string): UiState {
+  const threadGroups = state.threadGroups.filter((group) => group.id !== groupId);
+  return threadGroups.length === state.threadGroups.length ? state : { ...state, threadGroups };
+} // fork-hook: thread-ordering/group-remove
 
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
@@ -712,20 +713,19 @@ interface UiStateStore extends UiState {
     targetThreadId: string,
   ) => void;
   setThreadGroupMembership: (
-    projectKey: string,
     currentThreadOrder: readonly string[],
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
-  ) => void;
-  renameThreadGroup: (projectKey: string, groupId: string, title: string) => void;
+  ) => void; // fork-hook: thread-ordering/group-actions
+  renameThreadGroup: (groupId: string, title: string) => void; // fork-hook: thread-ordering/group-actions
   renameThreadGroupIfCurrent: (
-    projectKey: string,
     groupId: string,
     expected: Pick<SidebarThreadGroup, "title" | "threadIds">,
     title: string,
-  ) => void;
-  setThreadGroupCollapsed: (projectKey: string, groupId: string, collapsed: boolean) => void;
-  removeThreadGroup: (projectKey: string, groupId: string) => void;
+  ) => void; // fork-hook: thread-ordering/group-actions
+  setThreadGroupCollapsed: (groupId: string, collapsed: boolean) => void; // fork-hook: thread-ordering/group-actions
+  setThreadGroupParent: (groupId: string, parentThreadId: string | null) => void; // fork-hook: thread-ordering/group-actions
+  removeThreadGroup: (groupId: string) => void; // fork-hook: thread-ordering/group-actions
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -751,18 +751,16 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjectThreads(state, projectKey, currentThreadOrder, draggedThreadId, targetThreadId),
     ),
-  setThreadGroupMembership: (projectKey, currentThreadOrder, threadIds, target) =>
-    set((state) =>
-      setThreadGroupMembership(state, projectKey, currentThreadOrder, threadIds, target),
-    ),
-  renameThreadGroup: (projectKey, groupId, title) =>
-    set((state) => renameThreadGroup(state, projectKey, groupId, title)),
-  renameThreadGroupIfCurrent: (projectKey, groupId, expected, title) =>
-    set((state) => renameThreadGroupIfCurrent(state, projectKey, groupId, expected, title)),
-  setThreadGroupCollapsed: (projectKey, groupId, collapsed) =>
-    set((state) => setThreadGroupCollapsed(state, projectKey, groupId, collapsed)),
-  removeThreadGroup: (projectKey, groupId) =>
-    set((state) => removeThreadGroup(state, projectKey, groupId)),
+  setThreadGroupMembership: (currentThreadOrder, threadIds, target) =>
+    set((state) => setThreadGroupMembership(state, currentThreadOrder, threadIds, target)), // fork-hook: thread-ordering/group-actions
+  renameThreadGroup: (groupId, title) => set((state) => renameThreadGroup(state, groupId, title)), // fork-hook: thread-ordering/group-actions
+  renameThreadGroupIfCurrent: (groupId, expected, title) =>
+    set((state) => renameThreadGroupIfCurrent(state, groupId, expected, title)), // fork-hook: thread-ordering/group-actions
+  setThreadGroupCollapsed: (groupId, collapsed) =>
+    set((state) => setThreadGroupCollapsed(state, groupId, collapsed)), // fork-hook: thread-ordering/group-actions
+  setThreadGroupParent: (groupId, parentThreadId) =>
+    set((state) => setThreadGroupParent(state, groupId, parentThreadId)), // fork-hook: thread-ordering/group-actions
+  removeThreadGroup: (groupId) => set((state) => removeThreadGroup(state, groupId)), // fork-hook: thread-ordering/group-actions
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
