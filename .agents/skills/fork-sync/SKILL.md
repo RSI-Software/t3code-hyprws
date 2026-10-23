@@ -124,6 +124,7 @@ Adaptation the candidate needs surfaces as a `ci` failure; commit it at the tip,
 Watch the run's output live; candidate CI can take most of an hour.
 The worktree ran the `t3.json` setup step, so it builds and tests.
 A new tag or a moved lease recreates the worktree and carries its tip commits.
+A carried commit that conflicts stops like a rebase seam: resolve, `git add`, rerun.
 
 Every blocked or failed run rewrites one standing sync attention issue (label `ci`).
 The newest open issue of either legacy title (`hyprws sync blocked` or `hyprws sync failed`) is adopted; surplus issues close with a pointer to it.

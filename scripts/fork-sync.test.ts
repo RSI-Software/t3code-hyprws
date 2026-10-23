@@ -323,7 +323,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
   );
 });
 
-it("runs the repo's worktree setup once, so the first stop already has its dependencies", () => {
+it("runs the repo's worktree setup before the first stop and again before the local gate", () => {
   withFixture(
     {
       forkContent: "line1\nline2 fork\nline3\n",
@@ -347,15 +347,16 @@ it("runs the repo's worktree setup once, so the first stop already has its depen
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // the adopted rerun never repeats the setup
+      // the rebase may move the lockfile, so the gate reinstalls first
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
       );
       assert.strictEqual(applied.value, 0);
-      assert.strictEqual(
-        second.calls.some(({ command }) => command === "sh"),
-        false,
+      const commands = second.calls.map(({ command }) => command);
+      assert.deepEqual(
+        commands.filter((command) => command === "sh" || command === "vp"),
+        ["sh", "vp"],
       );
     },
   );
@@ -572,6 +573,66 @@ it("recreates the kept worktree when the lease moves or the tag changes, carryin
       assert.strictEqual(has("trunk.txt"), true);
       assert.strictEqual(has("one.txt"), true);
       assert.strictEqual(has("two.txt"), true);
+    },
+  );
+});
+
+it("keeps a carried tip commit that stops on a conflict until the rerun finishes it", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      const clash = (cwd: string, content: string): void => {
+        NodeFS.writeFileSync(NodePath.join(cwd, "clash.txt"), content);
+        f.git(["add", "clash.txt"], cwd);
+      };
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      clash(f.worktree, "tip\n");
+      f.git(["commit", "--quiet", "-m", "tip clash"], f.worktree);
+      clash(f.root, "trunk\n");
+      f.git(["commit", "--quiet", "-m", "trunk clash"], f.root);
+      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.match(readReport(f.root, "v1.0.0").error ?? "", /stops on a conflict/);
+
+      clash(f.worktree, "resolved\n");
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "failed");
+      assert.strictEqual(f.git(["log", "-1", "--format=%s"], f.worktree), "tip clash");
+      assert.strictEqual(f.git(["for-each-ref", "refs/fork-sync/carry/"], f.root), "");
+    },
+  );
+});
+
+it("keeps the carry when the recreated worktree's setup fails", () => {
+  const marker = NodePath.join(NodeOS.tmpdir(), `fork-sync-setup-fails-${process.pid}`);
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+      setup: `test ! -e ${marker}`,
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "one.txt"), "tip fix\n");
+      f.git(["add", "one.txt"], f.worktree);
+      f.git(["commit", "--quiet", "-m", "tip one"], f.worktree);
+
+      NodeFS.writeFileSync(marker, "");
+      try {
+        capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      } finally {
+        NodeFS.rmSync(marker, { force: true });
+      }
+      assert.strictEqual(readReport(f.root, "v1.0.1-nightly.20260901.1").outcome, "failed");
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "one.txt")), true);
     },
   );
 });
@@ -2520,20 +2581,22 @@ it("runs the worktree setup in a scrubbed environment", () => {
         },
       };
       capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root }));
-      assert.strictEqual(seen.length, 1);
-      const env = seen[0] ?? {};
-      assert.deepStrictEqual(
-        Object.keys(env).filter(
-          (key) =>
-            (key.startsWith("T3") &&
-              key !== "T3CODE_PROJECT_ROOT" &&
-              key !== "T3CODE_WORKTREE_PATH") ||
-            key === "GH_REPO" ||
-            key === "GH_HOST",
-        ),
-        [],
-      );
-      assert.strictEqual(env.GH_TOKEN, "kept");
+      // once before the rebase, once before the local gate
+      assert.strictEqual(seen.length, 2);
+      for (const env of seen) {
+        assert.deepStrictEqual(
+          Object.keys(env ?? {}).filter(
+            (key) =>
+              (key.startsWith("T3") &&
+                key !== "T3CODE_PROJECT_ROOT" &&
+                key !== "T3CODE_WORKTREE_PATH") ||
+              key === "GH_REPO" ||
+              key === "GH_HOST",
+          ),
+          [],
+        );
+        assert.strictEqual(env?.GH_TOKEN, "kept");
+      }
     });
   } finally {
     for (const [key, value] of Object.entries(inherited)) {

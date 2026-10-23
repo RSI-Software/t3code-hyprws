@@ -374,8 +374,6 @@ const WorktreeState = Schema.Struct({
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
   /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
   rebased: Schema.optionalKey(Schema.String),
-  /** Tip commits from a dropped worktree, cherry-picked once this rebase finishes. */
-  carry: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -452,28 +450,79 @@ const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string)
 };
 
 /**
- * The tip commits a worktree about to be dropped holds above its finished
- * rebase, oldest first, plus any it was still carrying. A moved lease or a new
- * tag rebases from scratch, and these are the fixups a red candidate needed.
- * Unreachable once the worktree goes, they outlive any gc prune window a sync spans.
+ * Tip commits a dropped worktree held, oldest first, waiting to apply to the
+ * new rebase. Refs keep them reachable and recorded through a failed setup, a
+ * conflicting pick, or a killed run; they go only once the carry lands.
  */
-const tipCommits = (runner: CommandRunner, root: string): ReadonlyArray<string> => {
-  const state = readWorktreeState(root);
-  if (state === null) return [];
-  const worktree = worktreePath(root);
-  const carried = state.carry ?? [];
-  if (
-    state.rebased === undefined ||
-    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !== 0
-  )
-    return carried;
-  return [
-    ...carried,
-    ...lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`])),
-  ];
+const CARRY_REFS = "refs/fork-sync/carry/";
+
+const carriedCommits = (runner: CommandRunner, root: string): ReadonlyArray<string> =>
+  lines(
+    git(runner, root, ["for-each-ref", "--sort=refname", "--format=%(objectname)", CARRY_REFS]),
+  );
+
+const writeCarry = (runner: CommandRunner, root: string, commits: ReadonlyArray<string>): void => {
+  for (const ref of lines(git(runner, root, ["for-each-ref", "--format=%(refname)", CARRY_REFS])))
+    git(runner, root, ["update-ref", "-d", ref]);
+  commits.forEach((commit, index) =>
+    git(runner, root, ["update-ref", `${CARRY_REFS}${String(index).padStart(4, "0")}`, commit]),
+  );
 };
 
-/** Drop the sync worktree and its state once nothing is left to carry. */
+/**
+ * Before a moved lease or a new tag drops the worktree to rebase from scratch,
+ * add the tip commits it holds above its finished rebase (the fixups a red
+ * candidate needed) to the carry.
+ */
+const saveTipCommits = (runner: CommandRunner, root: string): void => {
+  const state = readWorktreeState(root);
+  const worktree = worktreePath(root);
+  if (
+    state?.rebased === undefined ||
+    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !== 0
+  )
+    return;
+  const tip = lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`]));
+  if (tip.length > 0) writeCarry(runner, root, [...carriedCommits(runner, root), ...tip]);
+};
+
+const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
+  gitResult(runner, worktree, ["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).status === 0 ||
+  NodeFS.existsSync(
+    git(runner, worktree, ["rev-parse", "--path-format=absolute", "--git-path", "sequencer"]),
+  );
+
+/**
+ * Apply the carry above the finished rebase. A stopped pick stays for the
+ * operator to resolve and `git add`; the rerun continues it. A HEAD already
+ * above the rebase with no pick running means the carry landed by hand.
+ */
+const applyCarry = (
+  runner: CommandRunner,
+  root: string,
+  worktree: string,
+  rebased: string,
+): void => {
+  const carry = carriedCommits(runner, root);
+  if (carry.length === 0) return;
+  const env = { ...process.env, GIT_EDITOR: "true" };
+  let args: ReadonlyArray<string> | null = null;
+  if (pickInProgress(runner, worktree)) args = ["cherry-pick", "--continue"];
+  else if (git(runner, worktree, ["rev-parse", "HEAD"]) === rebased) {
+    process.stdout.write(`sync: carrying ${carry.length} tip commit(s) onto the new rebase\n`);
+    args = ["cherry-pick", ...carry];
+  }
+  if (args !== null) {
+    const picked = runner.run("git", [...REBASE_CONFIG, ...args], { cwd: worktree, env });
+    if (picked.status !== 0 || picked.error !== undefined)
+      throw new Error(
+        `a tip commit carried from the dropped sync worktree stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
+      );
+  }
+  writeCarry(runner, root, []);
+};
+
+/** Drop the sync worktree and its state; the carry refs outlive it. */
 const dropWorktree = (runner: CommandRunner, root: string): void => {
   gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
@@ -1033,12 +1082,12 @@ export const rebaseOnto = (
   let state = keptWorktreeState(runner, root, expected);
   const adopted = state !== null;
   if (state === null) {
-    const carry = tipCommits(runner, root);
+    saveTipCommits(runner, root);
     dropWorktree(runner, root);
     git(runner, root, ["worktree", "prune"]);
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
     runWorktreeSetup(runner, root, worktree);
-    state = carry.length === 0 ? expected : { ...expected, carry };
+    state = expected;
     writeWorktreeState(root, state);
   }
   const carried = state.conflicts ?? [];
@@ -1054,17 +1103,9 @@ export const rebaseOnto = (
   if (outcome.status === "blocked") return { ...outcome, recorded };
   // Only the run that finishes the rebase records it: an adopted finished
   // worktree's HEAD already holds tip work above it.
-  const { carry = [], ...rest } = { ...state, rebased: state.rebased ?? outcome.newSha };
-  writeWorktreeState(root, rest);
-  if (carry.length === 0) return { ...outcome, recorded };
-  process.stdout.write(`sync: carrying ${carry.length} tip commit(s) onto the new rebase\n`);
-  const picked = runner.run("git", [...REBASE_CONFIG, "cherry-pick", ...carry], { cwd: worktree });
-  if (picked.status !== 0 || picked.error !== undefined) {
-    gitAllow(runner, worktree, ["cherry-pick", "--abort"]);
-    throw new Error(
-      `the tip commits carried from the dropped sync worktree do not apply to the new rebase; carry them by hand, then rerun:\n  git -C ${worktree} cherry-pick ${carry.join(" ")}`,
-    );
-  }
+  const rebased = state.rebased ?? outcome.newSha;
+  writeWorktreeState(root, { ...state, rebased });
+  applyCarry(runner, root, worktree, rebased);
   return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
 };
 
@@ -1206,6 +1247,8 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
   let latest = latestCiRun(runner, root, sha);
   if (latest === null) {
     const worktree = worktreePath(root);
+    // The rebase may have moved the lockfile past what setup installed before it.
+    runWorktreeSetup(runner, root, worktree);
     process.stdout.write(`sync: running vp run fork:ci on ${sha.slice(0, 7)} before the push\n`);
     const local = runner.run("vp", ["run", "fork:ci"], {
       cwd: worktree,
