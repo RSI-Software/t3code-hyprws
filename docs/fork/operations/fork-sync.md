@@ -138,7 +138,7 @@ Commit it at the tip of the kept sync worktree; a rerun on the same tag and leas
 The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there, naming the owner when the fixup names the wrong one.
 Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
-**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed; setup reruns before the local gate, since the rebase can move the lockfile.
+**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
 It carries every stop's rows between runs, so the report keeps them.
 A red candidate, a green dry run, or a refused push keeps it, so its tip and tip fixups reach the next run.
 A new tag or moved lease rebases from scratch, then cherry-picks the old tip commits onto it.

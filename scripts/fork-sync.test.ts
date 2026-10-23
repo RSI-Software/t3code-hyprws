@@ -220,6 +220,7 @@ const exec = (
           cwd: spec.cwd,
           ...(spec.env === undefined ? {} : { env: spec.env }),
           ...(spec.stream === undefined ? {} : { stream: spec.stream }),
+          ...(spec.input === undefined ? {} : { input: spec.input }),
         });
         // Like GitHub, only a push that moves the candidate ref starts a run.
         const candidate = command === "git" ? CANDIDATE_PUSH.exec(args.at(-1) ?? "") : null;
@@ -323,7 +324,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
   );
 });
 
-it("runs the repo's worktree setup before the first stop and again before the local gate", () => {
+it("runs the repo's worktree setup once, so the first stop already has its dependencies", () => {
   withFixture(
     {
       forkContent: "line1\nline2 fork\nline3\n",
@@ -347,16 +348,18 @@ it("runs the repo's worktree setup before the first stop and again before the lo
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // the rebase may move the lockfile, so the gate reinstalls first
+      // the adopted rerun skips setup, which refuses an unpublished HEAD,
+      // and installs the rebased lockfile before the local gate
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
       );
       assert.strictEqual(applied.value, 0);
-      const commands = second.calls.map(({ command }) => command);
       assert.deepEqual(
-        commands.filter((command) => command === "sh" || command === "vp"),
-        ["sh", "vp"],
+        second.calls
+          .filter(({ command }) => command === "sh" || command === "vp")
+          .map(({ command, args }) => [command, ...args].slice(0, 3).join(" ")),
+        ["vp i --frozen-lockfile", "vp run fork:ci"],
       );
     },
   );
@@ -577,7 +580,7 @@ it("recreates the kept worktree when the lease moves or the tag changes, carryin
   );
 });
 
-it("keeps a carried tip commit that stops on a conflict until the rerun finishes it", () => {
+it("keeps a carry that stops on a conflict, once, until the rerun finishes it", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
@@ -585,25 +588,41 @@ it("keeps a carried tip commit that stops on a conflict until the rerun finishes
     },
     (f) => {
       const { red } = redThenGreen();
-      const clash = (cwd: string, content: string): void => {
-        NodeFS.writeFileSync(NodePath.join(cwd, "clash.txt"), content);
-        f.git(["add", "clash.txt"], cwd);
+      const commit = (cwd: string, name: string, content: string, subject: string): void => {
+        NodeFS.writeFileSync(NodePath.join(cwd, name), content);
+        f.git(["add", name], cwd);
+        f.git(["commit", "--quiet", "-m", subject], cwd);
       };
+      const moveTrunk = (name: string, content: string): void => {
+        commit(f.root, name, content, `trunk ${name}`);
+        f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      };
+      const carried = (): number =>
+        f.git(["for-each-ref", "refs/fork-sync/carry/"], f.root).split("\n").filter(Boolean).length;
       capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
-      clash(f.worktree, "tip\n");
-      f.git(["commit", "--quiet", "-m", "tip clash"], f.worktree);
-      clash(f.root, "trunk\n");
-      f.git(["commit", "--quiet", "-m", "trunk clash"], f.root);
-      f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      commit(f.worktree, "one.txt", "tip\n", "tip one");
+      commit(f.worktree, "clash.txt", "tip\n", "tip clash");
+      moveTrunk("clash.txt", "trunk\n");
 
+      // `tip one` applies, `tip clash` stops
       capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
       assert.match(readReport(f.root, "v1.0.0").error ?? "", /stops on a conflict/);
 
-      clash(f.worktree, "resolved\n");
+      // a lease move mid-pick recreates without carrying the picked copy twice
+      moveTrunk("other.txt", "moved\n");
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(carried(), 2);
+
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "clash.txt"), "resolved\n");
+      f.git(["add", "clash.txt"], f.worktree);
       capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
       assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "failed");
-      assert.strictEqual(f.git(["log", "-1", "--format=%s"], f.worktree), "tip clash");
-      assert.strictEqual(f.git(["for-each-ref", "refs/fork-sync/carry/"], f.root), "");
+      assert.deepEqual(f.git(["log", "-3", "--format=%s"], f.worktree).split("\n"), [
+        "tip clash",
+        "tip one",
+        "trunk other.txt",
+      ]);
+      assert.strictEqual(carried(), 0);
     },
   );
 });
@@ -718,9 +737,10 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
               ? `sleep ${args[0]}`
               : `${command} ${args[1]}`,
         );
-      // the local battery gates the candidate push; each poll reads the jobs
+      // the local battery, on the rebased lockfile, gates the candidate push; each poll reads the jobs
       assert.deepStrictEqual(steps, [
         "gh list",
+        "vp --frozen-lockfile",
         "vp fork:ci",
         `${tip}:refs/heads/sync/candidate`,
         "sleep 30",
@@ -2581,22 +2601,20 @@ it("runs the worktree setup in a scrubbed environment", () => {
         },
       };
       capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root }));
-      // once before the rebase, once before the local gate
-      assert.strictEqual(seen.length, 2);
-      for (const env of seen) {
-        assert.deepStrictEqual(
-          Object.keys(env ?? {}).filter(
-            (key) =>
-              (key.startsWith("T3") &&
-                key !== "T3CODE_PROJECT_ROOT" &&
-                key !== "T3CODE_WORKTREE_PATH") ||
-              key === "GH_REPO" ||
-              key === "GH_HOST",
-          ),
-          [],
-        );
-        assert.strictEqual(env?.GH_TOKEN, "kept");
-      }
+      assert.strictEqual(seen.length, 1);
+      const env = seen[0] ?? {};
+      assert.deepStrictEqual(
+        Object.keys(env).filter(
+          (key) =>
+            (key.startsWith("T3") &&
+              key !== "T3CODE_PROJECT_ROOT" &&
+              key !== "T3CODE_WORKTREE_PATH") ||
+            key === "GH_REPO" ||
+            key === "GH_HOST",
+        ),
+        [],
+      );
+      assert.strictEqual(env.GH_TOKEN, "kept");
     });
   } finally {
     for (const [key, value] of Object.entries(inherited)) {

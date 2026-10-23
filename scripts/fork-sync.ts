@@ -103,6 +103,7 @@ export interface CommandSpec {
   readonly env?: NodeJS.ProcessEnv;
   readonly stream?: boolean;
   readonly timeout?: number;
+  readonly input?: string;
 }
 
 export interface CommandRunner {
@@ -117,6 +118,7 @@ export const realRunner: CommandRunner = {
       ...(spec.env === undefined ? {} : { env: spec.env }),
       ...(spec.stream === undefined ? {} : { stream: spec.stream }),
       ...(spec.timeout === undefined ? {} : { timeout: spec.timeout }),
+      ...(spec.input === undefined ? {} : { input: spec.input }),
     }),
 };
 
@@ -461,29 +463,36 @@ const carriedCommits = (runner: CommandRunner, root: string): ReadonlyArray<stri
     git(runner, root, ["for-each-ref", "--sort=refname", "--format=%(objectname)", CARRY_REFS]),
   );
 
+/** Replace the carry in one ref transaction, so no crash leaves part of it. */
 const writeCarry = (runner: CommandRunner, root: string, commits: ReadonlyArray<string>): void => {
-  for (const ref of lines(git(runner, root, ["for-each-ref", "--format=%(refname)", CARRY_REFS])))
-    git(runner, root, ["update-ref", "-d", ref]);
-  commits.forEach((commit, index) =>
-    git(runner, root, ["update-ref", `${CARRY_REFS}${String(index).padStart(4, "0")}`, commit]),
-  );
+  const refs = commits.map((_, index) => `${CARRY_REFS}${String(index).padStart(4, "0")}`);
+  const stale = lines(
+    git(runner, root, ["for-each-ref", "--format=%(refname)", CARRY_REFS]),
+  ).filter((ref) => !refs.includes(ref));
+  const input = [
+    ...stale.map((ref) => `delete ${ref}\n`),
+    ...refs.map((ref, index) => `update ${ref} ${commits[index]}\n`),
+  ].join("");
+  if (input !== "") runRequire(runner, "git", ["update-ref", "--stdin"], { cwd: root, input });
 };
 
 /**
  * Before a moved lease or a new tag drops the worktree to rebase from scratch,
- * add the tip commits it holds above its finished rebase (the fixups a red
- * candidate needed) to the carry.
+ * the tip commits above its finished rebase (the fixups a red candidate
+ * needed) become the carry. They already hold any earlier carry that landed;
+ * one still picking, or not yet started, stays as it is.
  */
 const saveTipCommits = (runner: CommandRunner, root: string): void => {
   const state = readWorktreeState(root);
   const worktree = worktreePath(root);
   if (
     state?.rebased === undefined ||
+    pickInProgress(runner, worktree) ||
     gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !== 0
   )
     return;
   const tip = lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`]));
-  if (tip.length > 0) writeCarry(runner, root, [...carriedCommits(runner, root), ...tip]);
+  if (tip.length > 0) writeCarry(runner, root, tip);
 };
 
 const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
@@ -1247,8 +1256,19 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
   let latest = latestCiRun(runner, root, sha);
   if (latest === null) {
     const worktree = worktreePath(root);
-    // The rebase may have moved the lockfile past what setup installed before it.
-    runWorktreeSetup(runner, root, worktree);
+    // The rebase may have moved the lockfile past what setup installed before
+    // it. Setup itself refuses an unpublished HEAD, so install directly.
+    const install = runner.run("vp", ["i", "--frozen-lockfile", "--", "--yes"], {
+      cwd: worktree,
+      env: verificationEnv(worktree),
+      stream: true,
+    });
+    if (install.status !== 0 || install.error !== undefined)
+      return {
+        run: "",
+        conclusion: `skipped: install for the local fork:ci failed (exit ${install.status})`,
+        jobs: [],
+      };
     process.stdout.write(`sync: running vp run fork:ci on ${sha.slice(0, 7)} before the push\n`);
     const local = runner.run("vp", ["run", "fork:ci"], {
       cwd: worktree,
