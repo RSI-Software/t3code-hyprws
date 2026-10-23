@@ -509,6 +509,7 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 
 type SidebarThreadRowProps = {
   grouped?: boolean | undefined; // fork-hook: thread-ordering/group-member-prop
+  groupFoldFork?: ReactNode; // fork-hook: thread-ordering/group-fold-prop
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
   variantAction: SidebarSweepAction;
@@ -1491,6 +1492,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+      {props.groupFoldFork /* fork-hook: thread-ordering/group-fold */}
     </li>
   );
 });

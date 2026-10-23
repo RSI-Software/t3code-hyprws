@@ -106,8 +106,11 @@ their default order until the server is updated.
 While dragging an active thread, move it one step right to nest it under the row above.
 Under a group, it joins that group; under a plain thread, the two start a new group.
 Move a group member left to take it out; a group disappears when fewer than two threads remain.
+Drop a thread flush left directly under a group's header to make it the group's parent: it sits unindented, with the other members indented under it.
+Move the parent right to make it an ordinary member again; **Set as group parent** in a member's menu does the same as the drop.
 The group a drop would join is outlined, and a shadow shows where the thread lands.
-Pinned threads stay out of groups, and a group holds threads from one project.
+Pinned threads stay out of groups; a group can hold threads from any project.
+Collapsing a group with a parent keeps the parent visible and folds the rest into a strip showing their count and status; click it to expand.
 Groups can be collapsed, renamed, regenerated, or dissolved from their header.
 Generated group names use the same title-generation setting as thread titles.
 Group names, membership, collapsed state, and order are stored on that browser or desktop installation.
