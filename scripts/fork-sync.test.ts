@@ -656,6 +656,23 @@ it("keeps the carry when the recreated worktree's setup fails", () => {
   );
 });
 
+it("recreates when a killed removal left the worktree state behind", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      f.git(["worktree", "remove", "--force", f.worktree], f.root);
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.1-nightly.20260901.1").ci?.conclusion, "failure");
+    },
+  );
+});
+
 it("refuses to adopt a kept HEAD without the target and keeps the carrier", () => {
   withFixture(
     {

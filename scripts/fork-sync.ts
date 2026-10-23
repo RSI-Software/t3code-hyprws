@@ -485,10 +485,13 @@ const writeCarry = (runner: CommandRunner, root: string, commits: ReadonlyArray<
 const saveTipCommits = (runner: CommandRunner, root: string): void => {
   const state = readWorktreeState(root);
   const worktree = worktreePath(root);
+  // The ancestry check runs first: it also fails, without throwing, on a
+  // worktree an earlier removal already took.
   if (
     state?.rebased === undefined ||
-    pickInProgress(runner, worktree) ||
-    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !== 0
+    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !==
+      0 ||
+    pickInProgress(runner, worktree)
   )
     return;
   const tip = lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`]));
@@ -531,10 +534,13 @@ const applyCarry = (
   writeCarry(runner, root, []);
 };
 
-/** Drop the sync worktree and its state; the carry refs outlive it. */
+/**
+ * Drop the sync worktree and its state; the carry refs outlive it. The state
+ * goes first, so a killed removal never leaves state naming a missing worktree.
+ */
 const dropWorktree = (runner: CommandRunner, root: string): void => {
-  gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
+  gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
 };
 
 const stageContent = (
