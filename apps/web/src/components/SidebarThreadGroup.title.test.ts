@@ -68,11 +68,15 @@ const thread = (key: string, projectId = "p-a"): Thread => ({
 /** The app owner over an in-memory store; each sidebar mount binds its own command. */
 function harness() {
   let threads = [thread("a1"), thread("a2"), thread("b1", "p-b"), thread("b2", "p-b")];
-  let groups: Record<string, SidebarThreadGroup[]> = {
-    A: [{ id: "g", title: "New group", threadIds: ["a1", "a2"], collapsed: false }],
-    B: [{ id: "h", title: "Other", threadIds: ["b1", "b2"], collapsed: false }],
-  };
-  const calls: { readonly memberTitles: readonly string[]; readonly previousTitle?: string }[] = [];
+  let groups: SidebarThreadGroup[] = [
+    { id: "g", title: "New group", threadIds: ["a1", "a2"], collapsed: false },
+    { id: "h", title: "Other", threadIds: ["b1", "b2"], collapsed: false },
+  ];
+  const calls: {
+    readonly projectId: string;
+    readonly memberTitles: readonly string[];
+    readonly previousTitle?: string;
+  }[] = [];
   const pending: ((result: TitleResult) => void)[] = [];
   const open = new Map<string, ToastOptions>();
   const generating: ReadonlySet<string>[] = [];
@@ -81,13 +85,8 @@ function harness() {
     readGroups: () => groups,
     readThreads: () => threads,
     keyOf: (candidate) => candidate.key,
-    renameIfCurrent: (projectKey, groupId, _expected, title) => {
-      groups = {
-        ...groups,
-        [projectKey]: groups[projectKey]!.map((group) =>
-          group.id === groupId ? { ...group, title } : group,
-        ),
-      };
+    renameIfCurrent: (groupId, _expected, title) => {
+      groups = groups.map((group) => (group.id === groupId ? { ...group, title } : group));
     },
     toasts: {
       add: (options) => {
@@ -126,20 +125,17 @@ function harness() {
     const [toast] = open.values();
     (toast!.actionProps!.onClick as () => void)();
   };
-  const update = (projectKey: string, next: Partial<SidebarThreadGroup> | null) => {
-    groups = {
-      ...groups,
-      [projectKey]:
-        next === null ? [] : groups[projectKey]!.map((group) => ({ ...group, ...next })),
-    };
+  const update = (groupId: string, next: Partial<SidebarThreadGroup> | null) => {
+    groups = groups.flatMap((group) =>
+      group.id !== groupId ? [group] : next === null ? [] : [{ ...group, ...next }],
+    );
     owner.pruneStale();
   };
   const requestA = (previousTitle?: string) =>
     owner.request({
-      projectKey: "A",
       groupId: "g",
       members: threads.slice(0, 2),
-      expectedGroup: groups.A![0]!,
+      expectedGroup: groups[0]!,
       ...(previousTitle === undefined ? {} : { previousTitle }),
     });
   const retitle = (key: string, title: string) => {
@@ -158,6 +154,8 @@ function harness() {
     update,
     requestA,
     groups: () => groups,
+    threads: () => threads,
+    owner,
   };
 }
 
@@ -172,7 +170,7 @@ describe("createThreadGroupTitleOwner", () => {
       description: "The text generation model did not answer within 185 seconds.",
       timeout: 0,
     });
-    expect(h.groups().A![0]!.title).toBe("New group");
+    expect(h.groups()[0]!.title).toBe("New group");
   });
 
   it("stays silent for a cancellation", async () => {
@@ -192,7 +190,7 @@ describe("createThreadGroupTitleOwner", () => {
     expect(h.calls).toHaveLength(2);
     expect(h.calls[1]!.memberTitles).toEqual(["Thread a1", "Thread a2"]);
     await h.settle(AsyncResult.success({ title: "Named" }));
-    expect(h.groups().A![0]!.title).toBe("Named");
+    expect(h.groups()[0]!.title).toBe("Named");
   });
 
   it("retries a regenerate against the current title", async () => {
@@ -208,7 +206,7 @@ describe("createThreadGroupTitleOwner", () => {
     void h.requestA();
     void h.requestA("New group");
     expect(h.calls).toHaveLength(1);
-    expect(h.generating.at(-1)).toEqual(new Set(["A\0g"]));
+    expect(h.generating.at(-1)).toEqual(new Set(["g"]));
     await h.settle(timeout());
     expect(h.generating.at(-1)).toEqual(new Set());
   });
@@ -226,7 +224,7 @@ describe("createThreadGroupTitleOwner", () => {
   it("drops a failure for a group that changed while it ran", async () => {
     const h = harness();
     void h.requestA();
-    h.update("A", { title: "Mine" });
+    h.update("g", { title: "Mine" });
     await h.settle(timeout());
     expect(h.open.size).toBe(0);
   });
@@ -241,7 +239,7 @@ describe("createThreadGroupTitleOwner", () => {
       void h.requestA();
       await h.settle(timeout());
       expect(h.open.size).toBe(1);
-      h.update("A", change);
+      h.update("g", change);
       expect(h.open.size).toBe(0);
     }
   });
@@ -255,10 +253,20 @@ describe("createThreadGroupTitleOwner", () => {
     h.clickRetry();
     void h.requestA("New group");
     expect(h.calls).toHaveLength(2);
-    expect(h.generating.at(-1)).toEqual(new Set(["A\0g"]));
+    expect(h.generating.at(-1)).toEqual(new Set(["g"]));
     await h.settle(timeout());
-    h.update("A", null);
+    h.update("g", null);
     expect(h.open.size).toBe(0);
+  });
+
+  it("names a group spanning projects from its first member's project", () => {
+    const h = harness();
+    void h.owner.request({
+      groupId: "x",
+      members: [h.threads()[2]!, h.threads()[0]!],
+      expectedGroup: { title: "New group", threadIds: ["b1", "a1"] },
+    });
+    expect(h.calls[0]).toEqual({ projectId: "p-b", memberTitles: ["Thread b1", "Thread a1"] });
   });
 
   it("retries with thread titles edited while the sidebar was away", async () => {
