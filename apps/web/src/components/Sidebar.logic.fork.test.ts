@@ -10,31 +10,28 @@ describe("sidebar thread groups", () => {
   const threads = [
     { id: "thread-a", projectKey: "project-a" },
     { id: "thread-b", projectKey: "project-a" },
-    { id: "thread-c", projectKey: "project-a" },
+    { id: "thread-c", projectKey: "project-b" },
   ];
 
-  it("renders each visible group once at its first member", () => {
+  it("renders each visible group once at its first member, across projects", () => {
     expect(
       buildSidebarThreadGroupLayout({
         threads,
-        groupsByProject: {
-          "project-a": [
-            {
-              id: "group-1",
-              title: "Related work",
-              threadIds: ["thread-b", "thread-c"],
-              collapsed: false,
-            },
-          ],
-        },
+        groups: [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: false,
+          },
+        ],
         getId: (thread) => thread.id,
-        getProjectKey: (thread) => thread.projectKey,
       }),
     ).toEqual([
       { kind: "thread", thread: threads[0] },
       {
         kind: "group",
-        projectKey: "project-a",
+        hasParent: false,
         group: {
           id: "group-1",
           title: "Related work",
@@ -52,23 +49,20 @@ describe("sidebar thread groups", () => {
     expect(
       buildSidebarThreadGroupLayout({
         threads: automaticThreads,
-        groupsByProject: {
-          "project-a": [
-            {
-              id: "group-1",
-              title: "Related work",
-              threadIds: ["thread-b", "thread-c"],
-              collapsed: false,
-            },
-          ],
-        },
+        groups: [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: false,
+          },
+        ],
         getId: (thread) => thread.id,
-        getProjectKey: (thread) => thread.projectKey,
       }),
     ).toEqual([
       {
         kind: "group",
-        projectKey: "project-a",
+        hasParent: false,
         group: {
           id: "group-1",
           title: "Related work",
@@ -79,6 +73,31 @@ describe("sidebar thread groups", () => {
       },
       { kind: "thread", thread: threads[0] },
     ]);
+  });
+
+  it("leads a group with its parent wherever the parent sorts", () => {
+    const groups = [
+      {
+        id: "group-1",
+        title: "Related work",
+        threadIds: ["thread-a", "thread-b", "thread-c"],
+        collapsed: false,
+        parentThreadId: "thread-c",
+      },
+    ];
+    const layout = buildSidebarThreadGroupLayout({ threads, groups, getId: (thread) => thread.id });
+    expect(layout).toHaveLength(1);
+    expect(layout[0]).toMatchObject({
+      hasParent: true,
+      threads: [threads[2], threads[0], threads[1]],
+    });
+    // A filtered-out parent leads nothing, so no row indents as its child.
+    const filtered = buildSidebarThreadGroupLayout({
+      threads: threads.slice(0, 2),
+      groups,
+      getId: (thread) => thread.id,
+    });
+    expect(filtered[0]).toMatchObject({ hasParent: false });
   });
 
   it("offers group creation only for an eligible multi-selection", () => {
@@ -99,6 +118,7 @@ describe("sidebar thread groups", () => {
           { id: "group-2", title: "Destination" },
         ],
         currentGroupId: "group-1",
+        isGroupParent: false,
       }),
     ).toEqual([
       {
@@ -114,6 +134,7 @@ describe("sidebar thread groups", () => {
         icon: "folder",
         separatorBefore: false,
       },
+      { id: "set-group-parent", label: "Set as group parent" },
     ]);
   });
 });
@@ -140,18 +161,15 @@ describe("buildSidebarListItems", () => {
   it("emits only a collapsed group's anchor as an active row", () => {
     const layout = buildSidebarThreadGroupLayout({
       threads: groupThreads,
-      groupsByProject: {
-        "project-a": [
-          {
-            id: "group-1",
-            title: "Related work",
-            threadIds: ["thread-b", "thread-c"],
-            collapsed: true,
-          },
-        ],
-      },
+      groups: [
+        {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["thread-b", "thread-c"],
+          collapsed: true,
+        },
+      ],
       getId: (thread) => thread.id,
-      getProjectKey: (thread) => thread.projectKey,
     });
     const keys = visibleKeys(layout);
     expect(keys).toEqual(["thread-a", "thread-b"]);
@@ -180,18 +198,15 @@ describe("buildSidebarListItems", () => {
   it("keeps an expanded group's rows contiguous in layout order", () => {
     const layout = buildSidebarThreadGroupLayout({
       threads: groupThreads,
-      groupsByProject: {
-        "project-a": [
-          {
-            id: "group-1",
-            title: "Related work",
-            threadIds: ["thread-b", "thread-c"],
-            collapsed: false,
-          },
-        ],
-      },
+      groups: [
+        {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["thread-b", "thread-c"],
+          collapsed: false,
+        },
+      ],
       getId: (thread) => thread.id,
-      getProjectKey: (thread) => thread.projectKey,
     });
 
     expect(

@@ -610,9 +610,11 @@ Upstream reveals ignored workspace paths on demand and safely reads explicitly t
 | Grouping     | Sortable-tree depth: a sideways step nests under the row above, joining its group or starting one      |
 | Storage      | Membership, names, and collapsed state are client-local over `activeOrderKey`                          |
 | Removal      | A member stepped back to depth 0 leaves, and a one-member group dissolves                              |
-| Collapsed    | A collapsed group holds one slot: its header replaces the anchor row                                   |
+| Parent drop  | Depth 0 directly under a header makes that row the parent; stepping the parent right demotes it        |
+| Collapsed    | The header replaces the anchor row; with a parent, the parent stays and children fold into a strip     |
 | Names        | Server thread-title generation names groups; headers rename inline and dissolve                        |
-| Scope        | Active, unpinned threads in the same physical project only                                             |
+| Scope        | Active, unpinned threads from any project or environment                                               |
+| Parent       | An optional member renders flush under the header, the rest one indent deeper; visual only             |
 | Order marker | A marker below the project filter returns to automatic order; unbuilt (RSI-Software/t3code-hyprws#907) |
 
 The fork's own manual ordering retired at `v0.0.41-nightly.20260908.1414`; what remains is grouping plus the order-mode control.
