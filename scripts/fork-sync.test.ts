@@ -220,6 +220,7 @@ const exec = (
           cwd: spec.cwd,
           ...(spec.env === undefined ? {} : { env: spec.env }),
           ...(spec.stream === undefined ? {} : { stream: spec.stream }),
+          ...(spec.input === undefined ? {} : { input: spec.input }),
         });
         // Like GitHub, only a push that moves the candidate ref starts a run.
         const candidate = command === "git" ? CANDIDATE_PUSH.exec(args.at(-1) ?? "") : null;
@@ -291,7 +292,7 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
       assert.strictEqual(row.forkCommit, shas.fork);
       assert.strictEqual(row.upstreamCommit, shas.upstream);
       assert.deepEqual(blocked.decision.paths, ["shared.txt"]);
-      assert.match(blocked.decision.resume, /rebase --continue/);
+      assert.notMatch(blocked.decision.resume, /rebase --continue/);
       assert.match(first.output, /\| Path \| Fork commit \| Upstream commit \|/);
 
       // the report is the authority; the worktree it names holds the stop
@@ -303,9 +304,8 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
         "line1\nline2 resolved\nline3\n",
       );
       f.git(["add", "shared.txt"], f.worktree);
-      f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // rerun: adopts the finished worktree; the dry run reaches applied
+      // rerun: adopts the kept rebase and continues it; the dry run reaches applied
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
@@ -348,15 +348,18 @@ it("runs the repo's worktree setup once, so the first stop already has its depen
       f.git(["add", "shared.txt"], f.worktree);
       f.git(["-c", "core.editor=true", "rebase", "--continue"], f.worktree);
 
-      // the adopted rerun never repeats the setup
+      // the adopted rerun skips setup, which refuses an unpublished HEAD,
+      // and installs the rebased lockfile before the local gate
       const second = exec();
       const applied = capture(() =>
         run(["v1.0.0", "--dry-run"], { runner: second.runner, root: f.root }),
       );
       assert.strictEqual(applied.value, 0);
-      assert.strictEqual(
-        second.calls.some(({ command }) => command === "sh"),
-        false,
+      assert.deepEqual(
+        second.calls
+          .filter(({ command }) => command === "sh" || command === "vp")
+          .map(({ command, args }) => [command, ...args].slice(0, 3).join(" ")),
+        ["vp i --frozen-lockfile", "vp run fork:ci"],
       );
     },
   );
@@ -390,8 +393,10 @@ it("leaves the trunk alone and names the red jobs when hyprws CI is red on the c
     },
     (f) => {
       const shas = forkShas(f);
-      const recording = exec({ ci: { conclusion: "failure" } });
+      // the run is still in progress: the first failed job already ends the wait
+      const recording = exec({ ci: { conclusion: "failure", pending: 3 } });
       const printed = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 1);
       assert.strictEqual(printed.value, 1);
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "failed");
@@ -422,6 +427,30 @@ it("leaves the trunk alone and names the red jobs when hyprws CI is red on the c
       assert.strictEqual(f.git(["rev-parse", "origin/sync/candidate"], f.root), tip);
       assert.strictEqual(recording.calls.some(isLeasePush), false);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
+    },
+  );
+});
+
+it("refuses the candidate push when the local fork:ci battery is red", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const recording = exec({ vp: (args) => (args[1] === "fork:ci" ? refused("lint") : ok()) });
+      capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+      const report = readReport(f.root, "v1.0.0");
+      assert.strictEqual(report.failure?.step, "ci");
+      assert.deepStrictEqual(report.ci, {
+        run: "",
+        conclusion: "skipped: local fork:ci failed (exit 1)",
+        jobs: [],
+      });
+      assert.strictEqual(
+        recording.calls.some(({ args }) => args.some((arg) => CANDIDATE_PUSH.test(arg))),
+        false,
+      );
     },
   );
 });
@@ -515,7 +544,7 @@ it("keeps a green dry run's tip and the real run publishes exactly that tip", ()
   );
 });
 
-it("recreates the kept worktree when the lease moves or the tag changes", () => {
+it("recreates the kept worktree when the lease moves or the tag changes, carrying its tip commits", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
@@ -524,28 +553,122 @@ it("recreates the kept worktree when the lease moves or the tag changes", () => 
     },
     (f) => {
       const { red } = redThenGreen();
-      const extra = (): void => {
-        NodeFS.writeFileSync(NodePath.join(f.worktree, "extra.txt"), "stale\n");
-        f.git(["add", "extra.txt"], f.worktree);
-        f.git(["commit", "--quiet", "-m", "stale extra"], f.worktree);
+      const tipFix = (name: string): void => {
+        NodeFS.writeFileSync(NodePath.join(f.worktree, name), "tip fix\n");
+        f.git(["add", name], f.worktree);
+        f.git(["commit", "--quiet", "-m", `tip ${name}`], f.worktree);
       };
-      const hasExtra = (): boolean => NodeFS.existsSync(NodePath.join(f.worktree, "extra.txt"));
+      const has = (name: string): boolean => NodeFS.existsSync(NodePath.join(f.worktree, name));
 
-      // new tag: the v1.0.0 carrier is not adopted for the nightly
+      // new tag: the nightly rebases from scratch and carries the tip fix
       capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
-      extra();
+      tipFix("one.txt");
       capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
-      assert.strictEqual(hasExtra(), false);
+      assert.strictEqual(has("one.txt"), true);
 
-      // moved lease: a new trunk commit on origin discards the carrier
-      extra();
+      // moved lease: the new trunk commit arrives, and both tip fixes ride along
+      tipFix("two.txt");
       NodeFS.writeFileSync(NodePath.join(f.root, "trunk.txt"), "moved\n");
       f.git(["add", "trunk.txt"], f.root);
       f.git(["commit", "--quiet", "-m", "trunk moves"], f.root);
       f.git(["push", "--quiet", "origin", "hyprws"], f.root);
       capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
-      assert.strictEqual(hasExtra(), false);
-      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "trunk.txt")), true);
+      assert.strictEqual(has("trunk.txt"), true);
+      assert.strictEqual(has("one.txt"), true);
+      assert.strictEqual(has("two.txt"), true);
+    },
+  );
+});
+
+it("keeps a carry that stops on a conflict, once, until the rerun finishes it", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      const commit = (cwd: string, name: string, content: string, subject: string): void => {
+        NodeFS.writeFileSync(NodePath.join(cwd, name), content);
+        f.git(["add", name], cwd);
+        f.git(["commit", "--quiet", "-m", subject], cwd);
+      };
+      const moveTrunk = (name: string, content: string): void => {
+        commit(f.root, name, content, `trunk ${name}`);
+        f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+      };
+      const carried = (): number =>
+        f.git(["for-each-ref", "refs/fork-sync/carry/"], f.root).split("\n").filter(Boolean).length;
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      commit(f.worktree, "one.txt", "tip\n", "tip one");
+      commit(f.worktree, "clash.txt", "tip\n", "tip clash");
+      moveTrunk("clash.txt", "trunk\n");
+
+      // `tip one` applies, `tip clash` stops
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.match(readReport(f.root, "v1.0.0").error ?? "", /stops on a conflict/);
+
+      // a lease move mid-pick recreates without carrying the picked copy twice
+      moveTrunk("other.txt", "moved\n");
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(carried(), 2);
+
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "clash.txt"), "resolved\n");
+      f.git(["add", "clash.txt"], f.worktree);
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "failed");
+      assert.deepEqual(f.git(["log", "-3", "--format=%s"], f.worktree).split("\n"), [
+        "tip clash",
+        "tip one",
+        "trunk other.txt",
+      ]);
+      assert.strictEqual(carried(), 0);
+    },
+  );
+});
+
+it("keeps the carry when the recreated worktree's setup fails", () => {
+  const marker = NodePath.join(NodeOS.tmpdir(), `fork-sync-setup-fails-${process.pid}`);
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+      setup: `test ! -e ${marker}`,
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "one.txt"), "tip fix\n");
+      f.git(["add", "one.txt"], f.worktree);
+      f.git(["commit", "--quiet", "-m", "tip one"], f.worktree);
+
+      NodeFS.writeFileSync(marker, "");
+      try {
+        capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      } finally {
+        NodeFS.rmSync(marker, { force: true });
+      }
+      assert.strictEqual(readReport(f.root, "v1.0.1-nightly.20260901.1").outcome, "failed");
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "one.txt")), true);
+    },
+  );
+});
+
+it("recreates when a killed removal left the worktree state behind", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+      nightlyTag: true,
+    },
+    (f) => {
+      const { red } = redThenGreen();
+      capture(() => run(["v1.0.0"], { runner: red.runner, root: f.root }));
+      f.git(["worktree", "remove", "--force", f.worktree], f.root);
+      capture(() => run(["v1.0.1-nightly.20260901.1"], { runner: red.runner, root: f.root }));
+      assert.strictEqual(readReport(f.root, "v1.0.1-nightly.20260901.1").ci?.conclusion, "failure");
     },
   );
 });
@@ -620,6 +743,7 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
         .filter(
           ({ command, args }) =>
             command === "sleep" ||
+            command === "vp" ||
             (command === "git" && args[0] === "push") ||
             (command === "gh" && args[0] === "run"),
         )
@@ -628,15 +752,20 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
             ? args.at(-1)!
             : command === "sleep"
               ? `sleep ${args[0]}`
-              : `gh ${args[1]}`,
+              : `${command} ${args[1]}`,
         );
+      // the local battery, on the rebased lockfile, gates the candidate push; each poll reads the jobs
       assert.deepStrictEqual(steps, [
         "gh list",
+        "vp --frozen-lockfile",
+        "vp fork:ci",
         `${tip}:refs/heads/sync/candidate`,
         "sleep 30",
         "gh list",
+        "gh view",
         "sleep 30",
         "gh list",
+        "gh view",
         "sleep 30",
         "gh list",
         "gh view",
@@ -995,7 +1124,6 @@ it("holds a generated path until the stop's manual paths resolve, then regenerat
       const blocked = readReport(f.root, "v2.0.0");
       assert.deepStrictEqual(blocked.decision.paths, ["shared.txt"]);
       assert.notMatch(blocked.decision.resume, /rebase --continue/);
-      assert.match(blocked.decision.resume, /the rerun regenerates pnpm-lock\.yaml/);
       assert.deepStrictEqual(seen, []);
 
       NodeFS.writeFileSync(NodePath.join(f.worktree, "shared.txt"), "line1\nline2 both\nline3\n");
@@ -1218,7 +1346,7 @@ const blockedReport = (blockingSha: string): ForkSyncReport => ({
   },
   blocked: {
     issue: null,
-    title: `hyprws sync blocked at v1.0.0 (upstream ${blockingSha.slice(0, 7)})`,
+    title: "hyprws sync blocked at rebase (v1.0.0)",
     blockingSha,
     publishError: null,
     publishedVia: null,
@@ -1345,7 +1473,7 @@ it("files one attention issue with the governed fields", () => {
   assert.notStrictEqual(create, undefined);
   const args = create!.args;
   const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
-  assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
+  assert.strictEqual(value("--title"), "hyprws sync blocked at rebase (v1.0.0)");
   assert.strictEqual(value("--type"), "Notification 🔔");
   assert.deepStrictEqual(
     args.filter((argument, index) => args[index - 1] === "--label"),
@@ -1395,7 +1523,7 @@ it("edits the open issue in place when the rendered body drifts, never comments"
   assert.deepStrictEqual(args.slice(0, 2), ["issue", "edit"]);
   assert.strictEqual(args[2], "11");
   const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
-  assert.strictEqual(value("--title"), "hyprws sync blocked at v1.0.0 (upstream 5555555)");
+  assert.strictEqual(value("--title"), "hyprws sync blocked at rebase (v1.0.0)");
   assert.include(edits[0]!.body, blockingShaMarker("5".repeat(40)));
   assert.strictEqual(
     recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "comment"),
@@ -2460,8 +2588,8 @@ it("gives up on a never-started candidate by wall time when GitHub reads are slo
       };
       capture(() => run(["v1.0.0"], { runner, root: f.root }));
       assert.strictEqual(readReport(f.root, "v1.0.0").ci?.conclusion, "never started");
-      // five minutes of minute-long reads, not ten thirty-second sleeps
-      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 4);
+      // five minutes of minute-long reads after the push, not ten thirty-second sleeps
+      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 5);
       // and no single read may hang past a minute
       assert.isTrue(timeouts.length > 0);
       assert.isTrue(timeouts.every((timeout) => timeout === 60_000));
