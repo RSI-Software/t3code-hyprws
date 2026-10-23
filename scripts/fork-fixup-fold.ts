@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request check runs before an Effect runtime exists.
 
-// The sync folds every `fixup! <owner subject>` into the commit it names
-// during its rebase, so a fixup that only applies at the branch tip lands
-// green in pull-request CI and then blocks the next sync
-// (RSI-Software/t3code-hyprws#1554). This check proves the folds before
-// landing: it replays the trunk-plus-branch stack from the upstream base with
-// the sync's own fixup placement (`resolveFixups` and the sequence editor),
-// in a throwaway worktree, and requires a stop-free replay whose tree equals
-// the unfolded tip. Rerere stays off: a recorded resolution would mask a stop
-// the replay must report. A stack without fixups skips the worktree entirely.
+// The sync folds each `fixup!` into its owner, so a fixup that only applies at the tip passes PR CI
+// and then blocks the next sync. This proves the folds first: it replays the stack with the sync's
+// own fixup placement in a throwaway repo and needs a stop-free replay equal to the unfolded tip.
+// Rerere stays off, since a recorded resolution would mask a stop; no fixups skips the replay.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -28,7 +23,7 @@ Proves every fixup! commit in <base>..<head> folds into the commit it names.
 The sync rebase folds each fixup into its owner, so a fixup that only applies
 at the branch tip lands green in pull-request CI and then blocks the next
 sync (RSI-Software/t3code-hyprws#1554). The replay runs the stack from
-<base> in a throwaway worktree with the sync's own fixup placement and
+<base> in a throwaway repository with the sync's own fixup placement and
 requires no stops and a tree equal to the unfolded tip. A stack without
 fixups skips the replay.
 `;
@@ -43,6 +38,8 @@ const REPLAY_CONFIG = [
   "rerere.enabled=false",
   "-c",
   "maintenance.auto=false",
+  "-c",
+  "commit.gpgsign=false",
 ];
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
@@ -58,11 +55,9 @@ const stackSubjects = (git: SystemGit, base: string, head: string): ReadonlyArra
     });
 
 /**
- * Fetch, in one batch, every blob the replay reads (the base tree and the
- * stack's commits) that a partial clone lacks. CI checks out `blob:none`, and
- * lazy fetches mid-replay are unsafe: git 2.55 batched a blob the replay had
- * just written into one, and GitHub refused it ("not our ref"). The replay
- * then runs with lazy fetches off, so a missed blob fails loudly.
+ * Fetch in one batch every blob the replay reads that a partial clone lacks. CI checks out
+ * `blob:none` and the scratch repo has no promisor remote: a blob another fetched ref holds reads
+ * as remote-only, so git fetches instead of writing it, and that lazy fetch is refused.
  */
 const hydrateStack = (git: SystemGit, base: string, head: string): void => {
   const promisor = /^remote\.(.+)\.promisor true$/m.exec(
@@ -149,25 +144,26 @@ const retargetFor = (
   return target === undefined || target.sha === owner ? undefined : target.sha;
 };
 
-/** Abort a mid-stop rebase, then claim the worktree and its admin entry; a leaked replay must not outlive the check. */
-const removeReplayWorktree = (git: SystemGit, worktree: string): void => {
-  const rebaseMerge = new SystemGit(worktree).runResult([
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-path",
-    "rebase-merge",
-  ]);
-  if (rebaseMerge.status === 0 && NodeFS.existsSync(rebaseMerge.stdout.trim()))
-    new SystemGit(worktree).runResult(["rebase", "--abort"]);
-  git.runResult(["worktree", "remove", "--force", worktree]);
-  NodeFS.rmSync(worktree, { recursive: true, force: true });
-  git.runResult(["worktree", "prune"]);
+/**
+ * A scratch repository that borrows `root`'s objects through alternates and
+ * writes its own. Without a promisor remote, a blob it lacks fails loudly
+ * instead of fetching.
+ */
+const scratchRepository = (git: SystemGit): string => {
+  const repo = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fixup-fold-"));
+  const objects = git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim();
+  new SystemGit(repo).run(["init", "--quiet"]);
+  NodeFS.writeFileSync(
+    NodePath.join(repo, ".git", "objects", "info", "alternates"),
+    `${NodePath.join(objects, "objects")}\n`,
+  );
+  return repo;
 };
 
 /**
  * Every reason the fixups in `base..head` do not fold at their owners, or an
  * empty array when the stack carries no fixup or every fold replays cleanly.
- * The replay runs in a throwaway worktree under the system temp dir, removed
+ * The replay runs in a scratch repository under the system temp dir, removed
  * again before this returns.
  */
 export const fixupFoldFailures = (
@@ -185,23 +181,28 @@ export const fixupFoldFailures = (
   const subjectOf = (sha: string): string => nameOf.get(sha) ?? "unknown";
   const name = (sha: string): string => `${subjectOf(sha)} (${shortSha(sha)})`;
   hydrateStack(git, base, head);
-  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fixup-fold-"));
+  const repo = scratchRepository(git);
   try {
-    git.run(["worktree", "add", "--quiet", "--detach", worktree, head]);
-    const replay = new SystemGit(worktree);
-    const result = runCommand("git", [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", base], {
-      cwd: worktree,
-      env: {
-        ...process.env,
-        GIT_NO_LAZY_FETCH: "1",
-        // Only the discarded replay commits need an identity; preserve the original authors.
-        GIT_COMMITTER_NAME: "Fork Fixup Fold",
-        GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
-        GIT_EDITOR: "true",
-        GIT_SEQUENCE_EDITOR: sequenceEditor(),
-        [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
+    const resolve = (ref: string): string =>
+      git.run(["rev-parse", "--verify", `${ref}^{commit}`]).trim();
+    const replay = new SystemGit(repo);
+    replay.run(["checkout", "--quiet", "--detach", resolve(head)]);
+    const result = runCommand(
+      "git",
+      [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", resolve(base)],
+      {
+        cwd: repo,
+        env: {
+          ...process.env,
+          // Only the discarded replay commits need an identity; preserve the original authors.
+          GIT_COMMITTER_NAME: "Fork Fixup Fold",
+          GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
+          GIT_EDITOR: "true",
+          GIT_SEQUENCE_EDITOR: sequenceEditor(),
+          [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
+        },
       },
-    });
+    );
     if (result.status !== 0) {
       const stopped = replay.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
       const stoppedSha = stopped.status === 0 ? stopped.stdout.trim() : "";
@@ -233,7 +234,7 @@ export const fixupFoldFailures = (
       ];
     return [];
   } finally {
-    removeReplayWorktree(git, worktree);
+    NodeFS.rmSync(repo, { recursive: true, force: true });
   }
 };
 

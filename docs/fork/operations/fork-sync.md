@@ -36,15 +36,17 @@ The release gate needs the current `origin/hyprws` tip with a green `hyprws CI` 
 
 A sync pushes the trunk directly, so no pull request runs `hyprws CI` before the push; the candidate branch does.
 
-| Rule   | Contract                                                  |
-| ------ | --------------------------------------------------------- |
-| Branch | `sync/candidate`, force-pushed with the tip; unprotected  |
-| Run    | the full `hyprws CI` push run on that sha                 |
-| Reuse  | a sha that already has a run reuses it; no second push    |
-| Wait   | gives up if no run starts in 5 minutes or ends in an hour |
-| Push   | only the sha the run passed, under the lease              |
-| Red    | `hyprws` stays put; `ci.jobs` names each red job          |
-| Scope  | `fork:ci` scans from the new base and skips stale-delete  |
+| Rule   | Contract                                                 |
+| ------ | -------------------------------------------------------- |
+| Branch | `sync/candidate`, force-pushed with the tip; unprotected |
+| Run    | the full `hyprws CI` push run on that sha                |
+| Reuse  | a sha that already has a run reuses it; no second push   |
+| Gate   | a new sha passes local `vp run fork:ci` before its push  |
+| Wait   | returns at the first failed job                          |
+| Limit  | no run in 5 minutes, or none ending in an hour, is red   |
+| Push   | only the sha the run passed, under the lease             |
+| Red    | `hyprws` stays put; `ci.jobs` names each red job         |
+| Scope  | `fork:ci` scans from the new base and skips stale-delete |
 
 A candidate replays every fork commit, so stale-delete has nothing new to judge.
 
@@ -100,7 +102,7 @@ There is no "upstream superseded this" rule: retirement is a traced verdict writ
 ## Attention issue lifecycle
 
 Every red run (blocked or failed) rewrites one standing sync attention issue through plain `gh`, after writing its report.
-Its title reflects the latest stop; its body carries conflict and resume details or the failure and red jobs, plus the open-since date, target count, and last five runs.
+Its title names the step and target, so reruns never rename it; its body carries conflict and resume details or the failure and red jobs, plus the open-since date, target count, and last five runs.
 
 The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
 Older matches close with a one-line pointer to the kept issue; only no match files a new one.
@@ -116,10 +118,9 @@ Never post a sync issue to `pingdotgg/t3code`.
 2. Open that worktree.
 3. Resolve per [the rule](#automatic-resolution).
 4. `git add` the resolved paths.
-5. `git rebase --continue` once.
-6. Rerun `vp run fork:sync <tag>`.
+5. Rerun `vp run fork:sync <tag>`.
 
-A pending regenerable file refuses step 5; skip it, and the rerun regenerates the file and continues.
+Never continue the rebase by hand: the rerun continues it, so each later stop still gets every [automatic resolution](#automatic-resolution).
 
 Rerere replays content resolutions but records nothing for a delete/modify: the fix is a driver rule or a pre-adopt commit on `hyprws` (precedent `72666ffe19`, RSI-Software/t3code-hyprws#1227).
 
@@ -130,15 +131,19 @@ Commit it at the tip of the kept sync worktree; a rerun on the same tag and leas
 | Change           | Commit                                                   |
 | ---------------- | -------------------------------------------------------- |
 | Owner adaptation | `fixup! <owner subject>` with the owner's trailers       |
+| Owner            | the newest fork commit touching those lines              |
 | No single owner  | one standalone `upstream-fixes` commit naming the change |
 | Retirement       | its own commit, never inside a fixup body                |
 
-The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there.
+The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there, naming the owner when the fixup names the wrong one.
 Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
-**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed.
+**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
 It carries every stop's rows between runs, so the report keeps them.
 A red candidate, a green dry run, or a refused push keeps it, so its tip and tip fixups reach the next run.
+A new tag or moved lease rebases from scratch, then cherry-picks the old tip commits onto it.
+`refs/fork-sync/carry/*` holds them until they land, so a failed setup or killed run loses none.
+A conflicting pick stays stopped in the worktree: resolve, `git add`, rerun.
 Rerun after each stop: the report records only the stops a run saw.
 
 ## Regenerable files
@@ -237,13 +242,13 @@ T3 Connect stays dark unless all four repository variables exist:
 
 ## Failure handling
 
-| Failure                     | Response                                                      |
-| --------------------------- | ------------------------------------------------------------- |
-| **Mirror fails**            | Recreate the token. Someone wrote `main`; never force         |
-| **Trunk lease rejected**    | `decision.tip` keeps the tip; inspect, rerun; never `--force` |
-| **Attention issue remains** | Resolve the reported stop; green closes it                    |
-| **Candidate CI red**        | Fix in the kept worktree, or `gh run rerun --failed` a flake  |
-| **Stable release fails**    | Fix and rerun. Never move a published tag                     |
+| Failure                     | Response                                                     |
+| --------------------------- | ------------------------------------------------------------ |
+| **Mirror fails**            | Recreate the token. Someone wrote `main`; never force        |
+| **Trunk lease rejected**    | Rerun; tip commits carry over; never `--force`               |
+| **Attention issue remains** | Resolve the reported stop; green closes it                   |
+| **Candidate CI red**        | Fix in the kept worktree, or `gh run rerun --failed` a flake |
+| **Stable release fails**    | Fix and rerun. Never move a published tag                    |
 
 ## Version ordering caveat
 
