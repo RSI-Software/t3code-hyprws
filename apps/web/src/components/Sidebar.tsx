@@ -115,8 +115,8 @@ import { randomUUID } from "~/lib/utils"; // fork-hook: thread-ordering/group-id
 import { threadGroupEnvironment } from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
 import {
   SidebarThreadGroupDropLayerFork,
+  SidebarThreadGroupFoldFork,
   SidebarThreadGroupHeader,
-  threadProjectOrderKey,
 } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
@@ -919,7 +919,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectScopeItems,
   } = useSidebarLookups();
   const delegatedUnderParent = useDelegatedUnderParent();
-  const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
+  const threadGroups = useUiStateStore((store) => store.threadGroups); // fork-hook: thread-ordering/group-state
+  const setThreadGroupParent = useUiStateStore((store) => store.setThreadGroupParent); // fork-hook: thread-ordering/group-state
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -949,7 +950,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reportFailure: false,
   });
   const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
-  const { requestThreadGroupTitle, generatingGroupIds } = threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
+  const { requestThreadGroupTitle, regenerateThreadGroupTitle, generatingGroupIds } =
+    threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -1335,9 +1337,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
     threads: activeThreads,
-    groupsByProject: threadGroupsByProject,
+    groups: threadGroups,
     getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-    getProjectKey: threadProjectOrderKey,
   }); // fork-hook: thread-ordering/group-layout
   const visibleActiveThreads = activeThreadGroupLayout.flatMap((item) =>
     item.kind === "thread"
@@ -1357,20 +1358,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const byKey = new Map<
       string,
       {
-        readonly projectKey: string;
         readonly group: SidebarThreadGroup;
         readonly threads: readonly EnvironmentThreadShell[];
         readonly isAnchor: boolean;
+        readonly isParent: boolean;
       }
     >();
     for (const item of activeThreadGroupLayout) {
       if (item.kind !== "group") continue;
       item.threads.forEach((thread, index) => {
         byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
-          projectKey: item.projectKey,
           group: item.group,
           threads: item.threads,
           isAnchor: index === 0,
+          isParent: index === 0 && item.hasParent,
         });
       });
     }
@@ -2023,7 +2024,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     items: sidebarListItems,
     spans: activeThreadGroupSpans,
     threadByKey,
-    projectKeyOf: threadProjectOrderKey,
     setMembership: setThreadGroupMembership,
     requestTitle: requestThreadGroupTitle,
   }); // fork-hook: thread-ordering/group-drag
@@ -2686,6 +2686,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const activeThreadKeys = activeThreads.map((candidate) =>
+          scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
+        ); // fork-hook: thread-ordering/group-menu-state
+        const groups = activeThreadKeys.includes(threadKey) ? threadGroups : []; // fork-hook: thread-ordering/group-menu-state
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2733,7 +2737,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (clicked.value === "move-out-of-group") {
           // Group membership is local UI state, so it stays available without the operate scope.
-          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
+          setThreadGroupMembership(activeThreadKeys, [threadKey], { kind: "none" }); // fork-hook: thread-ordering/group-menu-action
+          return;
+        }
+        if (currentGroup && clicked.value === "set-group-parent") {
+          setThreadGroupParent(currentGroup.id, threadKey);
+          return;
+        } // fork-hook: thread-ordering/group-menu-action
+        if (currentGroup && clicked.value === "clear-group-parent") {
+          setThreadGroupParent(currentGroup.id, null);
           return;
         } // fork-hook: upstream-fixes/split-session-permissions
         if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
@@ -3393,7 +3405,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         section: SidebarSection,
                         // The tree row of the project folder this row sits in.
                         folderRow?: string,
-                        groupState?: { grouped?: boolean }, // fork-hook: thread-ordering/group-row-state
+                        groupState?: { grouped?: boolean; fold?: ReactNode }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3439,6 +3451,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             snoozeSupported={serverConfigs.has(thread.environmentId)}
                             pinningSupported={serverConfigs.has(thread.environmentId)}
                             isPinned={thread.pinnedAt != null}
+                            groupFoldFork={groupState?.fold} // fork-hook: thread-ordering/group-fold
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3573,21 +3586,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   threadGroupDragFork.dissolvingGroupKey === span.groupKey
                                 }
                                 onCollapsedChange={(collapsed) =>
-                                  setThreadGroupCollapsed(span.projectKey, span.group.id, collapsed)
+                                  setThreadGroupCollapsed(span.group.id, collapsed)
                                 }
-                                onRename={(title) =>
-                                  renameThreadGroup(span.projectKey, span.group.id, title)
-                                }
-                                onRegenerate={() =>
-                                  void requestThreadGroupTitle({
-                                    projectKey: span.projectKey,
-                                    groupId: span.group.id,
-                                    members: span.threads,
-                                    expectedGroup: span.group,
-                                    previousTitle: span.group.title,
-                                  })
-                                }
-                                onRemove={() => removeThreadGroup(span.projectKey, span.group.id)}
+                                onRename={(title) => renameThreadGroup(span.group.id, title)}
+                                onRegenerate={() => regenerateThreadGroupTitle(span.group.id)}
+                                onRemove={() => removeThreadGroup(span.group.id)}
                               />
                             </SortableSidebarMarker>,
                           );
