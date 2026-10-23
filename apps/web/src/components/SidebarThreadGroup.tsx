@@ -1,21 +1,29 @@
 import { useDndContext, useDndMonitor } from "@dnd-kit/core";
-import { scopeProjectRef, scopedProjectKey } from "@t3tools/client-runtime/environment";
-import type { SidebarThreadSummary } from "../types";
-
-export function threadProjectOrderKey(
-  thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
-): string {
-  return scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId));
-}
-import { MoreHorizontalIcon, RefreshCwIcon, SquarePenIcon, UnlinkIcon } from "lucide-react";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  ChevronRightIcon,
+  MoreHorizontalIcon,
+  RefreshCwIcon,
+  SquarePenIcon,
+  UnlinkIcon,
+} from "lucide-react";
 import { useState } from "react";
 
-import type { SidebarThreadGroup } from "../uiStateStore";
+import { useUiStateStore, type SidebarThreadGroup } from "../uiStateStore";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { sidebarMarkerId, type SidebarListItem } from "./Sidebar.logic";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  hasUnseenCompletion,
+  resolveSidebarThreadStatus,
+  resolveThreadLastVisitedAt,
+  sidebarMarkerId,
+  type SidebarListItem,
+  type SidebarThreadStatus,
+} from "./Sidebar.logic";
 import { SidebarRenameInput } from "./SidebarRenameInput";
 import {
   sidebarThreadGroupHeaderMarker,
@@ -131,6 +139,69 @@ export function SidebarThreadGroupHeader(props: {
         </div>
       )}
     </div>
+  );
+}
+
+const FOLD_DOT: Record<SidebarThreadStatus | "done", { label: string; className: string }> = {
+  approval: { label: "Approval", className: "bg-warning" },
+  input: { label: "Input", className: "bg-indigo-500" },
+  working: { label: "Working", className: "bg-info" },
+  waiting: { label: "Waiting", className: "bg-muted-foreground/60" },
+  failed: { label: "Failed", className: "bg-error" },
+  limited: { label: "Limited", className: "bg-warning" },
+  done: { label: "Done", className: "bg-success" },
+  ready: { label: "Read", className: "border border-muted-foreground/50" },
+};
+
+// A collapsed group keeps its parent row; the children fold into this strip
+// under it, one dot per child in the row's own status colours, so a finished
+// or blocked child still shows without opening the group.
+export function SidebarThreadGroupFoldFork(props: {
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly onExpand: () => void;
+}) {
+  const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const dots = props.threads.map((thread) => {
+    const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localVisits[key]);
+    const status = resolveSidebarThreadStatus(thread);
+    const kind =
+      status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt }) ? "done" : status;
+    return { key, title: thread.title, ...FOLD_DOT[kind] };
+  });
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            data-testid="sidebar-thread-group-fold"
+            aria-label={`Show ${dots.length} child threads`}
+            onClick={props.onExpand}
+            className="mt-0.5 ml-2 flex h-6 w-[calc(100%-0.5rem)] cursor-pointer items-center gap-1.5 rounded-r-md border-l border-sidebar-border/70 pl-2.5 text-secondary-label text-xs hover:bg-sidebar-row-hover"
+          />
+        }
+      >
+        <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
+        <span className="shrink-0 tabular-nums">
+          {dots.length} {dots.length === 1 ? "thread" : "threads"}
+        </span>
+        <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+          {dots.map((dot) => (
+            <span key={dot.key} className={cn("size-2 shrink-0 rounded-full", dot.className)} />
+          ))}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="right">
+        {dots.map((dot) => (
+          <div key={dot.key} className="flex items-center gap-1.5">
+            <span className={cn("size-2 shrink-0 rounded-full", dot.className)} />
+            <span className="truncate">{dot.title}</span>
+            <span className="text-muted-foreground">{dot.label}</span>
+          </div>
+        ))}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
