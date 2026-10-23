@@ -2969,4 +2969,6 @@ export {
   threadRun as threadRunFork,
   timelineItem as timelineItemFork,
   threadManagementFailure as threadManagementFailureFork,
+  DEFAULT_WAIT_TIMEOUT_MS as defaultWaitTimeoutMsFork,
+  MAX_WAIT_TIMEOUT_MS as maxWaitTimeoutMsFork,
 }; // fork-hook: device-auth/mcp-external-helpers
