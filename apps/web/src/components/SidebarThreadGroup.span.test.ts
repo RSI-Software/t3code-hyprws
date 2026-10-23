@@ -3,13 +3,10 @@ import type { SortingStrategy } from "@dnd-kit/sortable";
 
 import { createSidebarSortingStrategy } from "./Sidebar.drag";
 import { buildSidebarListItems, sidebarListItemId, sidebarMarkerId } from "./Sidebar.logic";
-import {
-  sidebarThreadGroupHeaderMarker,
-  sidebarThreadGroupKey,
-} from "./SidebarThreadGroup.markers";
+import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers";
 import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 
-const GROUP_KEY = sidebarThreadGroupKey("project-a", "group-1");
+const GROUP_KEY = "group-1";
 const HEADER_MARKER = sidebarThreadGroupHeaderMarker(GROUP_KEY);
 const HEADER = sidebarMarkerId(HEADER_MARKER);
 const group = { id: "group-1", title: "Related", threadIds: ["m1", "m2"], collapsed: false };
@@ -26,10 +23,10 @@ function listWithTopGroup() {
     activeGroups: [
       {
         groupKey: GROUP_KEY,
-        projectKey: "project-a",
         group,
         threads: [],
         visibleKeys: ["m1", "m2"],
+        parentKey: null,
       },
     ],
   });
