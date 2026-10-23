@@ -31,29 +31,19 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   readonly items: readonly SidebarListItem[];
   readonly spans: readonly SidebarThreadGroupSpan<T>[];
   readonly threadByKey: ReadonlyMap<string, T>;
-  readonly projectKeyOf: (thread: T) => string;
   readonly setMembership: (
-    projectKey: string,
     order: readonly string[],
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
   ) => void;
   readonly requestTitle: (request: {
-    readonly projectKey: string;
     readonly groupId: string;
     readonly members: readonly T[];
     readonly expectedGroup: Pick<SidebarThreadGroup, "title" | "threadIds">;
   }) => unknown;
 }) {
-  const { items, spans, threadByKey, projectKeyOf, setMembership, requestTitle } = input;
-  const tree = sidebarThreadGroupTreeFork({
-    items,
-    spans,
-    projectKeyOf: (key) => {
-      const thread = threadByKey.get(key);
-      return thread === undefined ? null : projectKeyOf(thread);
-    },
-  });
+  const { items, spans, threadByKey, setMembership, requestTitle } = input;
+  const tree = sidebarThreadGroupTreeFork({ items, spans });
   const [drag, setDrag] = useState<GroupDrag | null>(null);
   const dragRef = useRef<GroupDrag | null>(null);
   const updateDrag = (next: (current: GroupDrag | null) => GroupDrag | null) => {
@@ -117,11 +107,10 @@ export function useSidebarThreadGroupDragFork<T>(input: {
       title: "New group",
     }));
     if (drop === null) return;
-    setMembership(drop.projectKey, target.activeOrder, drop.threadIds, drop.target);
+    setMembership(target.activeOrder, drop.threadIds, drop.target);
     if (drop.target.kind !== "new") return;
     const members = drop.threadIds.flatMap((key) => threadByKey.get(key) ?? []);
     void requestTitle({
-      projectKey: drop.projectKey,
       groupId: drop.target.group.id,
       members,
       expectedGroup: { title: drop.target.group.title, threadIds: [...drop.threadIds] },
