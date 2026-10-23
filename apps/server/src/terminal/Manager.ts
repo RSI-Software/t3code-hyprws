@@ -371,8 +371,8 @@ const mismatchedZmuxSessionNotice = (
 ): string | null => {
   if (actualMatch === expectedMatch) return null;
   return expectedMatch === "worktree"
-    ? `zmux: ${targetDir} resolves the workspace main session, not a worktree — plain shell`
-    : `zmux: ${targetDir} resolves a worktree session, not the workspace main session — plain shell`;
+    ? `zmux: ${targetDir} resolves the workspace main session, not a worktree (plain shell)` // fork-hook: zmux-estate/session-mismatch-notice
+    : `zmux: ${targetDir} resolves a worktree session, not the workspace main session (plain shell)`; // fork-hook: zmux-estate/session-mismatch-notice
 };
 
 interface ManagedSessionIdentity {
