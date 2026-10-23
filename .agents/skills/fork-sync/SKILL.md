@@ -72,9 +72,11 @@ Resolve each seam by verdict, then follow Unblock.
 
 `hyprws CI` is not green on the candidate; the worktree keeps the tip.
 
+- **Local gate**: `fork:ci` red; nothing pushed
 - **Red job**: `ci.jobs` names it
+- **Wait**: ends at the first failed job
 - **Real failure**: fix in the kept worktree
-- **Flake**: `gh run rerun` from `decision.resume`
+- **Flake**: `gh run rerun` after the run ends
 - **Never started**: check the mirror token
 - **Rerun**: the same command
 - **Never**: weaken a check
@@ -82,12 +84,10 @@ Resolve each seam by verdict, then follow Unblock.
 ### Lease refusal
 
 The expected-old lease lost; someone landed first.
-The worktree keeps the green tip; `decision.tip` names it.
 
-- **Inspect**: the trunk
-- **Carry**: tip fixups from `decision.tip`
-- **Moved lease**: the rerun rebases again
-- **Rerun**: never `--force`
+- **Rerun**: it rebases the new trunk
+- **Carry**: automatic; tip commits cherry-pick
+- **Never**: `--force`
 
 ## Unblock
 
@@ -96,9 +96,11 @@ Only a `manual` row stops the run.
 
 In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.
 Upstream deleted and the fork edit is net-zero: the deletion stands.
-A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates; when one is pending, skip `git rebase --continue` and rerun.
+A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates on the rerun.
 Never adapt inside a replayed commit: the hook guard refuses it.
 Adaptation lands at the tip, one commit per owner, per [Reshape](../../../docs/fork/operations/fork-sync.md#unblocking-by-hand).
+The owner is the newest fork commit touching those lines; `fork:fixup-fold` names it.
+A fixup that edits an unmarked fork line marks it.
 
 **Second block:** the same seam stops a second sync.
 
@@ -114,15 +116,15 @@ Adaptation lands at the tip, one commit per owner, per [Reshape](../../../docs/f
 1. Read `decision`: worktree, paths, resume commands.
 2. Open that worktree.
 3. Resolve each path by the rule above.
-4. `git add` them; `git rebase --continue`.
-5. Commit any adaptation at the tip.
-6. Rerun `vp run fork:sync <tag>`.
+4. `git add` them.
+5. Rerun `vp run fork:sync <tag>`.
 
+Never `git rebase --continue` or script a resolver: the rerun continues the rebase with every automatic resolver, and the report keeps only stops a run saw.
+Adaptation the candidate needs surfaces as a `ci` failure; commit it at the tip, then rerun.
+Watch the run's output live; candidate CI can take most of an hour.
 The worktree ran the `t3.json` setup step, so it builds and tests.
-If `rebase --continue` stops again, rerun first: the report keeps only stops a run saw.
-The rerun adopts the kept worktree and checks its HEAD.
-A resolved rebase still in progress continues; an unresolved one blocks again.
-A new tag or a moved lease recreates the worktree.
+A new tag or a moved lease recreates the worktree and carries its tip commits.
+A carried commit that conflicts stops like a rebase seam: resolve, `git add`, rerun.
 
 Every blocked or failed run rewrites one standing sync attention issue (label `ci`).
 The newest open issue of either legacy title (`hyprws sync blocked` or `hyprws sync failed`) is adopted; surplus issues close with a pointer to it.

@@ -25,11 +25,6 @@ const commit = (root: string, subject: string, files: Record<string, string>): v
   git(root, ["commit", "--quiet", "--allow-empty", "-m", subject]);
 };
 
-const worktreeCount = (root: string): number =>
-  git(root, ["worktree", "list", "--porcelain"])
-    .split("\n")
-    .filter((line) => line.startsWith("worktree ")).length;
-
 it("passes a stack whose fixups fold at their owners, squash suffix included", () => {
   const root = NodeFS.mkdtempSync(NodeOS.tmpdir() + "/fork-fixup-fold-");
   try {
@@ -42,8 +37,6 @@ it("passes a stack whose fixups fold at their owners, squash suffix included", (
     commit(root, "later edit", { "file.txt": "ONE\ntwo\nTHREE\n" });
     commit(root, "fixup! owner edit (#2)", { "file.txt": "ONE!\ntwo\nTHREE\n" });
     assert.deepStrictEqual(fixupFoldFailures(root, base, "HEAD"), []);
-    // The throwaway replay worktree is gone again.
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -66,7 +59,6 @@ it("folds without configured Git identity and leaves the live repository unchang
     assert.strictEqual(git(root, ["rev-parse", "HEAD"]), tip);
     assert.strictEqual(git(root, ["config", "user.name"]), "");
     assert.strictEqual(git(root, ["config", "user.email"]), "");
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -86,10 +78,9 @@ it("hydrates a blob:none clone up front, so the replay never lazy-fetches", () =
     commit(origin, "fixup! owner edit", { "file.txt": "ONE!\ntwo\n" });
     git(root, ["clone", "--quiet", "--filter=blob:none", "--no-checkout", `file://${origin}`, "."]);
     identity(root);
-    // The replay runs with lazy fetches off: every blob it reads, the base
-    // tree's included, must already be local.
+    // The replay repository has no promisor remote: every blob it reads, the
+    // base tree's included, must already be local.
     assert.deepStrictEqual(fixupFoldFailures(root, base, "origin/main"), []);
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     NodeFS.rmSync(origin, { recursive: true, force: true });
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -112,12 +103,15 @@ it("reports Git's error when the replay fails before applying a commit", () => {
       "#!/bin/sh\necho 'fixture refuses replay' >&2\nexit 1\n",
       { mode: 0o755 },
     );
-    git(root, ["config", "core.hooksPath", hooks]);
+    // The replay repository reads no live repository config, so the hook arrives through the environment.
+    vi.stubEnv("GIT_CONFIG_COUNT", "1");
+    vi.stubEnv("GIT_CONFIG_KEY_0", "core.hooksPath");
+    vi.stubEnv("GIT_CONFIG_VALUE_0", hooks);
     const [failure] = fixupFoldFailures(root, base, "HEAD");
     assert.ok(failure?.includes("the replay failed before applying a commit"), failure);
     assert.ok(failure?.includes("fixture refuses replay"), failure);
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
+    vi.unstubAllEnvs();
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -145,7 +139,6 @@ it("keeps both Git stderr and a subprocess timeout error", () => {
     const [failure] = fixupFoldFailures(root, base, "HEAD");
     assert.ok(failure?.includes("replay progress"), failure);
     assert.ok(failure?.includes("spawnSync git ETIMEDOUT"), failure);
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     vi.restoreAllMocks();
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -169,9 +162,8 @@ it("refuses a fixup that only folds at the tip, naming fixup and owner", () => {
     assert.ok(failure?.includes('fixup "fixup! owner edit"'), failure);
     assert.ok(failure?.includes('owner "owner edit"'), failure);
     assert.ok(failure?.includes('name "later edit"'), failure);
-    // The live checkout is untouched: the tip stands and the replay worktree is gone.
+    // The live checkout is untouched: the tip stands.
     assert.strictEqual(git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "main"]));
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -204,7 +196,6 @@ it("skips the replay when the stack has no fixups", () => {
     const base = git(root, ["rev-parse", "main"]);
     commit(root, "plain fork commit", { "file.txt": "b\n" });
     assert.deepStrictEqual(fixupFoldFailures(root, base, "HEAD"), []);
-    assert.strictEqual(worktreeCount(root), 1);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
