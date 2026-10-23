@@ -606,6 +606,7 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
 
 type SidebarThreadRowProps = {
   grouped?: boolean | undefined; // fork-hook: thread-ordering/group-member-prop
+  groupFoldFork?: ReactNode; // fork-hook: thread-ordering/group-fold-prop
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's environment and PR line under it.
@@ -1767,6 +1768,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {metaLine}
         </div>
       </ThreadHoverCardTrigger>
+      {props.groupFoldFork /* fork-hook: thread-ordering/group-fold */}
     </li>
   );
 });
