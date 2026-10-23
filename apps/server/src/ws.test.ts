@@ -126,6 +126,7 @@ import {
   WS_RPC_SERVER_OPTIONS,
   withLateEditorConfig,
 } from "./ws.ts";
+import { layerUnusedWsRpcServicesFork } from "./wsRpcHandlers.fork-test-harness.ts"; // fork-hook: upstream-fixes/ws-rpc-test-services-import
 
 const snapshotConfig = (fields: Partial<ServerConfig>) =>
   ({ availableEditors: [], settings: {}, ...fields }) as unknown as ServerConfig;
@@ -466,6 +467,7 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
 const layerUnusedConfigRpcServices = Layer.mergeAll(
+  layerUnusedWsRpcServicesFork, // fork-hook: upstream-fixes/ws-rpc-test-services
   Layer.mock(DocumentText.DocumentText)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(WorkspacePaths.WorkspacePaths)({}),
