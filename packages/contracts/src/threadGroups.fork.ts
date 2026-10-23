@@ -1,0 +1,306 @@
+// Fork-owned sidebar thread groups (thread-ordering). A group belongs to one environment and
+// lives in the server's `fork_thread_groups` table, outside the event-sourced thread payload,
+// since it spans threads. Only the fork RPCs and MCP tools carry groups, so the upstream app
+// never decodes one.
+import * as Schema from "effect/Schema";
+
+import { ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+
+export const ThreadGroupIdFork = TrimmedNonEmptyString;
+export type ThreadGroupIdFork = typeof ThreadGroupIdFork.Type;
+
+export const ThreadGroupFork = Schema.Struct({
+  id: ThreadGroupIdFork,
+  title: TrimmedNonEmptyString,
+  /** At least two; a thread belongs to at most one group. */
+  threadIds: Schema.Array(ThreadId),
+  /** The member that leads the group: shown first, with the rest under it. */
+  parentThreadId: ThreadId,
+});
+export type ThreadGroupFork = typeof ThreadGroupFork.Type;
+
+export const ThreadGroupsSnapshotFork = Schema.Struct({
+  /** Names one server run; `revision` restarts with it. */
+  epoch: Schema.String,
+  /** Rises with each committed change, so a client can drop a reply older than its snapshot. */
+  revision: Schema.Number,
+  groups: Schema.Array(ThreadGroupFork),
+});
+export type ThreadGroupsSnapshotFork = typeof ThreadGroupsSnapshotFork.Type;
+
+export const ThreadGroupMembershipTargetFork = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("existing"),
+    groupId: ThreadGroupIdFork,
+    /** The first joining thread becomes the group's parent. */
+    asParent: Schema.optionalKey(Schema.Boolean),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("new"),
+    /** Client-chosen so an optimistic update can name the group; generated when absent. */
+    groupId: Schema.optionalKey(ThreadGroupIdFork),
+    title: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({ type: Schema.Literal("none") }),
+]);
+export type ThreadGroupMembershipTargetFork = typeof ThreadGroupMembershipTargetFork.Type;
+
+/** The changes an agent or a user makes; `import` stays a client-only mutation. */
+export const ThreadGroupEditFork = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("set-membership"),
+    threadIds: Schema.NonEmptyArray(ThreadId),
+    target: ThreadGroupMembershipTargetFork,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("rename"),
+    groupId: ThreadGroupIdFork,
+    title: TrimmedNonEmptyString,
+    /** Rename only while the group still has this title and these members. */
+    expected: Schema.optionalKey(
+      Schema.Struct({ title: Schema.String, threadIds: Schema.Array(ThreadId) }),
+    ),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set-parent"),
+    groupId: ThreadGroupIdFork,
+    parentThreadId: ThreadId,
+  }),
+  Schema.Struct({ type: Schema.Literal("remove"), groupId: ThreadGroupIdFork }),
+]);
+export type ThreadGroupEditFork = typeof ThreadGroupEditFork.Type;
+
+export const ThreadGroupMutationFork = Schema.Union([
+  ...ThreadGroupEditFork.members,
+  /** Adopts groups a client kept locally; skips known ids and already grouped threads. */
+  Schema.Struct({ type: Schema.Literal("import"), groups: Schema.Array(ThreadGroupFork) }),
+]);
+export type ThreadGroupMutationFork = typeof ThreadGroupMutationFork.Type;
+
+/** Where an agent-launched thread lands in the sidebar. */
+export const ThreadLaunchGroupFork = Schema.Union([
+  Schema.Literals(["caller", "none"]),
+  Schema.Struct({ groupId: ThreadGroupIdFork }),
+]).annotate({
+  description:
+    'Sidebar group for the new thread. "caller" (default) joins the calling thread\'s group when it has one; {groupId} joins that group from t3_thread_group_list; "none" leaves it ungrouped.',
+});
+export type ThreadLaunchGroupFork = typeof ThreadLaunchGroupFork.Type;
+
+/** The groups as an agent reads them: members named, deleted threads left out. */
+export const ThreadGroupsDescribedFork = Schema.Struct({
+  groups: Schema.Array(
+    Schema.Struct({
+      id: ThreadGroupIdFork,
+      title: Schema.String,
+      parentThreadId: ThreadId,
+      threads: Schema.Array(Schema.Struct({ threadId: ThreadId, title: Schema.String })),
+    }),
+  ),
+  callerGroupId: Schema.NullOr(ThreadGroupIdFork).annotate({
+    description: "The group of the calling thread, or null when it has none.",
+  }),
+});
+export type ThreadGroupsDescribedFork = typeof ThreadGroupsDescribedFork.Type;
+
+export class ThreadGroupUnknownGroupErrorFork extends Schema.TaggedError<ThreadGroupUnknownGroupErrorFork>()(
+  "ThreadGroupUnknownGroupErrorFork",
+  { groupId: ThreadGroupIdFork },
+) {
+  override get message(): string {
+    return `Unknown thread group ${this.groupId}.`;
+  }
+}
+
+export class ThreadGroupUnknownThreadErrorFork extends Schema.TaggedError<ThreadGroupUnknownThreadErrorFork>()(
+  "ThreadGroupUnknownThreadErrorFork",
+  { threadId: ThreadId },
+) {
+  override get message(): string {
+    return `Unknown thread ${this.threadId}.`;
+  }
+}
+
+export class ThreadGroupExistsErrorFork extends Schema.TaggedError<ThreadGroupExistsErrorFork>()(
+  "ThreadGroupExistsErrorFork",
+  { groupId: ThreadGroupIdFork },
+) {
+  override get message(): string {
+    return `Thread group ${this.groupId} already exists.`;
+  }
+}
+
+export class ThreadGroupTooFewThreadsErrorFork extends Schema.TaggedError<ThreadGroupTooFewThreadsErrorFork>()(
+  "ThreadGroupTooFewThreadsErrorFork",
+  {},
+) {
+  override get message(): string {
+    return "A new thread group needs at least two threads.";
+  }
+}
+
+export class ThreadGroupParentNotMemberErrorFork extends Schema.TaggedError<ThreadGroupParentNotMemberErrorFork>()(
+  "ThreadGroupParentNotMemberErrorFork",
+  { groupId: ThreadGroupIdFork, threadId: ThreadId },
+) {
+  override get message(): string {
+    return `Thread ${this.threadId} is not in group ${this.groupId}.`;
+  }
+}
+
+export const ThreadGroupErrorFork = Schema.Union([
+  ThreadGroupUnknownGroupErrorFork,
+  ThreadGroupUnknownThreadErrorFork,
+  ThreadGroupExistsErrorFork,
+  ThreadGroupTooFewThreadsErrorFork,
+  ThreadGroupParentNotMemberErrorFork,
+]);
+export type ThreadGroupErrorFork = typeof ThreadGroupErrorFork.Type;
+export const isThreadGroupErrorFork = Schema.is(ThreadGroupErrorFork);
+
+export type ThreadGroupMutationResultFork =
+  | { readonly groups: ReadonlyArray<ThreadGroupFork> }
+  | { readonly error: ThreadGroupErrorFork };
+
+/** Moves the threads out of every group, then into the target. Groups under two members
+    dissolve; a new group's first thread leads it. */
+function setMembership(
+  groups: ReadonlyArray<ThreadGroupFork>,
+  threadIds: ReadonlyArray<ThreadId>,
+  target: ThreadGroupMembershipTargetFork,
+  newGroupId: () => string,
+): ThreadGroupMutationResultFork {
+  const moving = [...new Set(threadIds)];
+  const movingIds = new Set(moving);
+  if (target.type === "existing" && !groups.some((group) => group.id === target.groupId)) {
+    return {
+      error: new ThreadGroupUnknownGroupErrorFork({ groupId: target.groupId }),
+    };
+  }
+  if (target.type === "new" && moving.length < 2) {
+    return { error: new ThreadGroupTooFewThreadsErrorFork() };
+  }
+  if (
+    target.type === "new" &&
+    target.groupId !== undefined &&
+    groups.some((group) => group.id === target.groupId)
+  ) {
+    return { error: new ThreadGroupExistsErrorFork({ groupId: target.groupId }) };
+  }
+  const next = groups.flatMap((group): ThreadGroupFork[] => {
+    const kept = group.threadIds.filter((threadId) => !movingIds.has(threadId));
+    // A parent that leaves hands the group to the first remaining member.
+    const keptParent = kept.includes(group.parentThreadId) ? group.parentThreadId : kept[0];
+    if (target.type === "existing" && group.id === target.groupId) {
+      const parentThreadId = target.asParent ? moving[0]! : (keptParent ?? group.parentThreadId);
+      return [{ ...group, threadIds: [...kept, ...moving], parentThreadId }];
+    }
+    return keptParent === undefined
+      ? []
+      : [{ ...group, threadIds: kept, parentThreadId: keptParent }];
+  });
+  if (target.type === "new") {
+    next.push({
+      id: target.groupId ?? newGroupId(),
+      title: target.title,
+      threadIds: moving,
+      parentThreadId: moving[0]!,
+    });
+  }
+  return { groups: next.filter((group) => group.threadIds.length >= 2) };
+}
+
+function importGroups(
+  groups: ReadonlyArray<ThreadGroupFork>,
+  incoming: ReadonlyArray<ThreadGroupFork>,
+): ReadonlyArray<ThreadGroupFork> {
+  const groupIds = new Set(groups.map((group) => group.id));
+  const grouped = new Set(groups.flatMap((group) => group.threadIds));
+  const next = [...groups];
+  for (const candidate of incoming) {
+    if (groupIds.has(candidate.id)) continue;
+    const threadIds = [...new Set(candidate.threadIds)].filter((id) => !grouped.has(id));
+    if (threadIds.length < 2) continue;
+    for (const id of threadIds) grouped.add(id);
+    groupIds.add(candidate.id);
+    next.push({
+      ...candidate,
+      threadIds,
+      parentThreadId: threadIds.includes(candidate.parentThreadId)
+        ? candidate.parentThreadId
+        : threadIds[0]!,
+    });
+  }
+  return next;
+}
+
+/**
+ * The one implementation of group semantics: the server applies it under its
+ * write lock and clients apply it optimistically. Callers validate that the
+ * named threads exist; a rename whose `expected` no longer matches is a no-op.
+ */
+export function applyThreadGroupMutationFork(
+  groups: ReadonlyArray<ThreadGroupFork>,
+  mutation: ThreadGroupMutationFork,
+  newGroupId: () => string,
+): ThreadGroupMutationResultFork {
+  switch (mutation.type) {
+    case "set-membership":
+      return setMembership(groups, mutation.threadIds, mutation.target, newGroupId);
+    case "import":
+      return { groups: importGroups(groups, mutation.groups) };
+    case "remove":
+      return { groups: groups.filter((group) => group.id !== mutation.groupId) };
+  }
+  const group = groups.find((candidate) => candidate.id === mutation.groupId);
+  if (group === undefined) {
+    return {
+      error: new ThreadGroupUnknownGroupErrorFork({ groupId: mutation.groupId }),
+    };
+  }
+  let next: ThreadGroupFork = group;
+  if (mutation.type === "rename") {
+    const { expected } = mutation;
+    const stale =
+      expected !== undefined &&
+      (group.title !== expected.title ||
+        group.threadIds.length !== expected.threadIds.length ||
+        expected.threadIds.some((threadId) => !group.threadIds.includes(threadId)));
+    if (!stale) next = { ...group, title: mutation.title };
+  } else {
+    if (group.threadIds.includes(mutation.parentThreadId)) {
+      next = { ...group, parentThreadId: mutation.parentThreadId };
+    } else {
+      return {
+        error: new ThreadGroupParentNotMemberErrorFork({
+          groupId: group.id,
+          threadId: mutation.parentThreadId,
+        }),
+      };
+    }
+  }
+  return { groups: groups.map((candidate) => (candidate.id === group.id ? next : candidate)) };
+}
+
+export const ThreadGroupTitleGenerationInput = Schema.Struct({
+  projectId: ProjectId,
+  /** Every member but the parent, which `parentTitle` carries. */
+  memberTitles: Schema.Array(TrimmedNonEmptyString).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(50),
+  ),
+  parentTitle: Schema.optional(TrimmedNonEmptyString),
+  previousTitle: Schema.optional(TrimmedNonEmptyString),
+}).check(
+  Schema.makeFilter((input) =>
+    input.memberTitles.length + (input.parentTitle === undefined ? 0 : 1) >= 2
+      ? true
+      : "A thread group title needs at least two threads.",
+  ),
+);
+export type ThreadGroupTitleGenerationInput = typeof ThreadGroupTitleGenerationInput.Type;
+
+export const ThreadGroupTitleGenerationResult = Schema.Struct({
+  title: TrimmedNonEmptyString,
+});
+export type ThreadGroupTitleGenerationResult = typeof ThreadGroupTitleGenerationResult.Type;
