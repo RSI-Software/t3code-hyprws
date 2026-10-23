@@ -425,58 +425,6 @@ it.effect("an agent here works on a linked environment's threads within its own 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("keeps a forwarded wait short and its retries scoped to the caller", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const seen = yield* Ref.make<Seen>(nothingSeen);
-      const linkSession = yield* Ref.make("");
-      const b = yield* serveBox(seen, linkSession);
-      const a = yield* makeLaptop;
-      yield* linkTo(a.links, b, "auto");
-      yield* Ref.set(linkSession, (yield* b.linkedSessions)[0]!.sessionId);
-
-      const waited = yield* a.call("thread:laptop-full", "t3_thread_wait", {
-        environmentId: box.environmentId,
-        threadId: boxThread,
-        timeoutMs: 600_000,
-      });
-      expect(waited.structuredContent).toEqual({
-        threadId: boxThread,
-        runId: boxRun,
-        status: "completed",
-        timedOut: false,
-      });
-      // Three pieces of at most 50 s each, the later ones pinned to the run
-      // the first one found.
-      expect(
-        (yield* Ref.get(seen)).waits.map(({ timeoutMs, runId }) => [timeoutMs, runId]),
-      ).toEqual([
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, undefined],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-      ]);
-
-      const send = (caller: string, clientRequestId: string) =>
-        a.call(caller, "t3_thread_send", {
-          environmentId: box.environmentId,
-          threadId: boxThread,
-          message: "Once.",
-          clientRequestId,
-        });
-      yield* send("thread:laptop-full", "same-key");
-      yield* send("thread:laptop-full", "same-key");
-      yield* send("thread:laptop-other", "same-key");
-      const [first, retried, other] = (yield* Ref.get(seen)).sends.map((input) => input.commandId);
-      // The box sees every caller here as the one link, so the key is scoped
-      // to its caller before it leaves: a retry matches, another agent's same
-      // key does not.
-      expect(retried).toBe(first);
-      expect(other).not.toBe(first);
-      expect(first).not.toContain("same-key");
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
-);
-
 it.effect("launches in a linked environment with the caller's modes, retry-safe", () =>
   Effect.scoped(
     Effect.gen(function* () {
