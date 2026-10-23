@@ -206,7 +206,7 @@ export function GitHubIssueDetailContent({
       type: "success",
       title: seeded ? "Issue ready in a thread" : "Thread opened",
       description: seeded
-        ? "The task is in the composer — read it over, then send."
+        ? "The task is in the composer. Read it over, then send."
         : "The existing composer was left unchanged.",
     });
   };
