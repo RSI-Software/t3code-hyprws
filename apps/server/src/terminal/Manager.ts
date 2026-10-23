@@ -1852,7 +1852,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         tmuxName: null,
         serverId: null,
         createdAt: null,
-        notice: `zmux: command unavailable for ${targetDir} — plain shell`,
+        notice: `zmux: command unavailable for ${targetDir} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
         failureReason: "command-unavailable",
       } satisfies ZmuxLaunchResolution;
     }
@@ -1864,7 +1864,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         tmuxName: null,
         serverId: null,
         createdAt: null,
-        notice: `zmux: session resolution timed out for ${targetDir} — plain shell`,
+        notice: `zmux: session resolution timed out for ${targetDir} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
         failureReason: "resolve-timeout",
       } satisfies ZmuxLaunchResolution;
     }
@@ -1876,7 +1876,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         tmuxName: null,
         serverId: null,
         createdAt: null,
-        notice: `zmux: no managed session for ${targetDir} — plain shell`,
+        notice: `zmux: no managed session for ${targetDir} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
         failureReason: "missing-session",
       } satisfies ZmuxLaunchResolution;
     }
@@ -1890,7 +1890,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         tmuxName: null,
         serverId: null,
         createdAt: null,
-        notice: `zmux: invalid session response for ${targetDir} — plain shell`,
+        notice: `zmux: invalid session response for ${targetDir} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
         failureReason: "invalid-protocol",
       } satisfies ZmuxLaunchResolution;
     }
@@ -1902,7 +1902,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         tmuxName: null,
         serverId: null,
         createdAt: null,
-        notice: `zmux: no managed session for ${targetDir} — plain shell`,
+        notice: `zmux: no managed session for ${targetDir} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
         failureReason: "missing-session",
       } satisfies ZmuxLaunchResolution;
     }
@@ -3292,7 +3292,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             } else if (managedTarget) {
               yield* appendSessionNotice(
                 session,
-                `zmux: attach failed for ${managedTarget} — plain shell`,
+                `zmux: attach failed for ${managedTarget} (plain shell)`, // fork-hook: zmux-estate/plain-shell-notice
               );
             }
 
