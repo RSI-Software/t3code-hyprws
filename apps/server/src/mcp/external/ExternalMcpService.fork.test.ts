@@ -21,7 +21,6 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -139,6 +138,7 @@ const makeHarness = (
                     creationSource: "mcp",
                     status: "idle",
                     activityRunStatus: null,
+                    latestRunId: null,
                     pendingRuntimeRequest: null,
                     updatedAt: DateTime.makeUnsafe(0),
                     ...shell,
@@ -176,8 +176,7 @@ const makeHarness = (
             } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({
-          getShell: (projectId) =>
-            Effect.succeed(Option.some(projectShell(projectId, legacySelection))),
+          getShell: (projectId) => Effect.succeedSome(projectShell(projectId, legacySelection)),
           listShells: () => Effect.succeed([projectShell(granted), projectShell(other)]),
         }),
         Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed(providers) }),
