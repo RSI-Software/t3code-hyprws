@@ -460,47 +460,40 @@ export type SidebarThreadGroupLayoutItem<T> =
   | { readonly kind: "thread"; readonly thread: T }
   | {
       readonly kind: "group";
-      readonly projectKey: string;
       readonly group: SidebarThreadGroup;
+      /** Visible members in list order, the group's parent first. */
       readonly threads: readonly T[];
-    };
+      /** The parent is among the visible members; a filtered-out one leads nothing. */
+      readonly hasParent: boolean;
+    }; // fork-hook: thread-ordering/group-layout-item
 
 export function buildSidebarThreadGroupLayout<T>(input: {
   readonly threads: readonly T[];
-  readonly groupsByProject: Readonly<Record<string, readonly SidebarThreadGroup[]>>;
+  readonly groups: readonly SidebarThreadGroup[];
   readonly getId: (thread: T) => string;
-  readonly getProjectKey: (thread: T) => string;
 }): SidebarThreadGroupLayoutItem<T>[] {
-  const visibleById = new Map(input.threads.map((thread) => [input.getId(thread), thread]));
   const groupByThreadId = new Map<
     string,
-    { readonly projectKey: string; readonly group: SidebarThreadGroup; readonly threads: T[] }
+    { readonly group: SidebarThreadGroup; readonly threads: T[]; readonly hasParent: boolean }
   >();
-  for (const [projectKey, groups] of Object.entries(input.groupsByProject)) {
-    for (const group of groups) {
-      const threads = input.threads.filter(
-        (thread) =>
-          input.getProjectKey(thread) === projectKey &&
-          group.threadIds.includes(input.getId(thread)),
-      );
-      if (threads.length < 2) continue;
-      const entry = { projectKey, group, threads };
-      for (const threadId of group.threadIds) {
-        if (visibleById.has(threadId)) groupByThreadId.set(threadId, entry);
-      }
-    }
+  for (const group of input.groups) {
+    const threads = input.threads.filter((thread) => group.threadIds.includes(input.getId(thread)));
+    if (threads.length < 2) continue;
+    const parentIndex = threads.findIndex((thread) => input.getId(thread) === group.parentThreadId);
+    if (parentIndex > 0) threads.unshift(...threads.splice(parentIndex, 1));
+    const entry = { group, threads, hasParent: parentIndex >= 0 };
+    for (const thread of threads) groupByThreadId.set(input.getId(thread), entry);
   }
 
   const emittedGroups = new Set<string>();
   return input.threads.flatMap((thread): SidebarThreadGroupLayoutItem<T>[] => {
     const entry = groupByThreadId.get(input.getId(thread));
     if (!entry) return [{ kind: "thread", thread }];
-    const groupKey = `${entry.projectKey}\0${entry.group.id}`;
-    if (emittedGroups.has(groupKey)) return [];
-    emittedGroups.add(groupKey);
+    if (emittedGroups.has(entry.group.id)) return [];
+    emittedGroups.add(entry.group.id);
     return [{ kind: "group", ...entry }];
   });
-}
+} // fork-hook: thread-ordering/group-layout
 
 export function applySidebarThreadDrop<
   T extends Pick<
@@ -719,7 +712,9 @@ export type SidebarThreadGroupContextMenuId =
   | "create-thread-group"
   | "move-to-group"
   | `move-to-group:${string}`
-  | "move-out-of-group";
+  | "move-out-of-group"
+  | "set-group-parent"
+  | "clear-group-parent"; // fork-hook: thread-ordering/group-menu-id
 
 export function isSidebarThreadGroupContextMenuId(
   id: string,
@@ -728,6 +723,8 @@ export function isSidebarThreadGroupContextMenuId(
     id === "create-thread-group" ||
     id === "move-to-group" ||
     id === "move-out-of-group" ||
+    id === "set-group-parent" ||
+    id === "clear-group-parent" ||
     id.startsWith("move-to-group:")
   );
 } // fork-hook: upstream-fixes/split-session-permissions
@@ -747,6 +744,7 @@ export function buildCreateThreadGroupContextMenuItem(input: {
 export function buildThreadGroupMembershipContextMenuItems(input: {
   readonly groups: readonly Pick<SidebarThreadGroup, "id" | "title">[];
   readonly currentGroupId: string | null;
+  readonly isGroupParent: boolean;
 }): readonly ContextMenuItem<SidebarThreadGroupContextMenuId>[] {
   const availableGroups = input.groups.filter((group) => group.id !== input.currentGroupId);
   return [
@@ -774,9 +772,12 @@ export function buildThreadGroupMembershipContextMenuItems(input: {
             icon: "folder",
             separatorBefore: availableGroups.length === 0,
           },
+          input.isGroupParent
+            ? { id: "clear-group-parent" as const, label: "Clear group parent" }
+            : { id: "set-group-parent" as const, label: "Set as group parent" },
         ]),
   ];
-}
+} // fork-hook: thread-ordering/group-menu-items
 
 export interface ThreadStatusPill {
   label:
