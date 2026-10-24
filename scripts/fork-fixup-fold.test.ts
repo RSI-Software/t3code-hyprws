@@ -37,6 +37,13 @@ it("passes a stack whose fixups fold at their owners, squash suffix included", (
     commit(root, "later edit", { "file.txt": "ONE\ntwo\nTHREE\n" });
     commit(root, "fixup! owner edit (#2)", { "file.txt": "ONE!\ntwo\nTHREE\n" });
     assert.deepStrictEqual(fixupFoldFailures(root, base, "HEAD"), []);
+    // Upstream moved past the stack's base: the default base still replays from the merge base.
+    const tip = git(root, ["rev-parse", "HEAD"]);
+    git(root, ["checkout", "--quiet", "--detach", base]);
+    commit(root, "upstream later", { "file.txt": "uno\ntwo\nthree\n" });
+    git(root, ["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+    git(root, ["checkout", "--quiet", "--detach", tip]);
+    assert.deepStrictEqual(fixupFoldFailures(root, "upstream/main", "HEAD"), []);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }

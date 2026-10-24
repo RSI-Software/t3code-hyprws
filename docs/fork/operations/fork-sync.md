@@ -23,7 +23,7 @@ The rebase refuses a rebased tip that dropped any PR link, except from a commit 
 | ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                               |
 | push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
 | blocked | one attention issue for any red run, via `gh`                             | `gh` refuses the write                             |
-| report  | `.t3/fork-sync/<tag>.json`, typed, written before any post                |                                                    |
+| report  | the main checkout's `.t3/fork-sync/<tag>.json`, typed, before any post    |                                                    |
 
 A tag the fork already sits on reports `already applied`, after closing the open sync attention issue.
 `--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no close.
@@ -54,8 +54,9 @@ A candidate replays every fork commit, so stale-delete has nothing new to judge.
 
 ## Local trunk
 
-A run publishes the rebased stack by force push to `origin/hyprws` under a lease; local clones see the rewrite only after `git fetch origin hyprws`.
-The local `hyprws` cannot follow a rewrite: `git pull --ff-only` refuses and leaves the stale branch in place.
+A run publishes the rebased stack by force push to `origin/hyprws` under a lease.
+After the push, local `hyprws` moves to the new tip when it still sits at the lease and its checkout has no tracked changes (`git reset --keep`).
+Otherwise the run prints why it kept the branch; `git pull --ff-only` cannot follow a rewrite.
 Reset it in the canonical checkout, then rerun whatever refused:
 
 ```bash
@@ -138,7 +139,9 @@ Commit it at the tip of the kept sync worktree; a rerun on the same tag and leas
 The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it folds there, naming the owner when the fixup names the wrong one.
 Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
-**Kept sync worktree.** Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
+**Kept sync worktree.** Lives in the main checkout's `.t3/fork-sync`, whichever checkout runs the sync.
+`vp run fork:sync` first waits for the invoking checkout's own setup, so a fresh lane never races its install.
+Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
 It carries every stop's rows between runs, so the report keeps them.
 A red candidate, a green dry run, or a refused push keeps it, so its tip and tip fixups reach the next run.
 A new tag or moved lease rebases from scratch, then cherry-picks the old tip commits onto it.
