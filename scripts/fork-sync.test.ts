@@ -774,6 +774,9 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
       const lease = recording.calls.find(isLeasePush);
       assert.include(lease!.args, `${tip}:hyprws`);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      // The clean local trunk follows, checkout included.
+      assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), tip);
+      assert.strictEqual(f.git(["status", "--porcelain", "--untracked-files=no"], f.root), "");
     },
   );
 });
@@ -806,12 +809,20 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
       assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
 
-      const code = capture(() => run(["v1.0.0"], { runner: exec().runner, root: f.root })).value;
+      // A dirty trunk checkout keeps local hyprws where it was and says so. The
+      // rerun starts inside the kept worktree it then drops.
+      NodeFS.writeFileSync(NodePath.join(f.root, "shared.txt"), "local edit\n");
+      const { output, value: code } = capture(() =>
+        run(["v1.0.0"], { runner: exec().runner, root: f.worktree }),
+      );
       assert.strictEqual(code, 0);
       const pushed = readReport(f.root, "v1.0.0");
       assert.strictEqual(pushed.outcome, "applied");
       assert.strictEqual(pushed.trunk.after, tip);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), shas.fork);
+      assert.match(output, /local hyprws kept at .*: its checkout .* has local changes/);
+      assert.isFalse(NodeFS.existsSync(f.worktree));
     },
   );
 });
