@@ -299,16 +299,51 @@ export interface ForkSyncReport extends Schema.Schema.Type<typeof ForkSyncReport
 const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "" });
 
 /**
- * Sync state (reports, the kept worktree, its state file) lives in the main
- * checkout whichever checkout runs the sync, so a rerun from another lane
- * adopts the same worktree and reads the same reports.
+ * The main checkout of the repository `cwd` belongs to. Sync state (reports,
+ * the kept worktree, its state file) lives there whichever checkout runs the
+ * sync, so a rerun from another lane, or from inside the kept worktree it may
+ * drop, adopts the same state.
  */
-const syncDir = (root: string): string => {
-  const common = runCommand("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: root,
-  });
-  const main = common.status === 0 ? NodePath.dirname(common.stdout.trim()) : root;
-  return NodePath.join(main, SYNC_DIR);
+const mainCheckout = (runner: CommandRunner, cwd: string): string => {
+  const common = gitResult(runner, cwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  return common.status === 0 ? NodePath.dirname(common.stdout.trim()) : cwd;
+};
+
+const syncDir = (root: string): string => NodePath.join(root, SYNC_DIR);
+
+/**
+ * One sync at a time per repository, since every lane shares the kept worktree.
+ * Returns the release, or why another run holds the lock; a dead holder's lock is taken over.
+ */
+const holdLock = (root: string): (() => void) | string => {
+  const path = NodePath.join(syncDir(root), "lock");
+  NodeFS.mkdirSync(syncDir(root), { recursive: true });
+  for (;;) {
+    try {
+      NodeFS.writeFileSync(path, `${process.pid}\n`, { flag: "wx" });
+      return () => NodeFS.rmSync(path, { force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let pid: number;
+    try {
+      pid = Number(NodeFS.readFileSync(path, "utf8").trim());
+    } catch {
+      continue; // released between the two calls
+    }
+    try {
+      process.kill(pid, 0);
+      return `another fork sync (pid ${pid}) holds ${path}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM")
+        return `another fork sync (pid ${pid}) holds ${path}`;
+      NodeFS.rmSync(path, { force: true });
+    }
+  }
 };
 
 export const reportPath = (root: string, tag: string): string =>
@@ -694,15 +729,14 @@ const reapplyHooks = (
 /**
  * The insertion resolver for one conflicted path: each conflict hunk whose fork
  * side (`:3:`) only adds lines takes the upstream side (`:2:`) plus those lines.
- * `null` when the path has no three text stages to merge.
  */
 const mergeInsertions = (
   runner: CommandRunner,
   worktree: string,
   path: string,
-): { readonly resolved: true } | { readonly refuseReason: string } | null => {
+): { readonly resolved: true } | { readonly refuseReason: string } => {
   if ([1, 2, 3].some((stage) => stageContent(runner, worktree, stage as 1 | 2 | 3, path) === null))
-    return null;
+    return { refuseReason: "a side adds or deletes the whole file, so there is no line merge" };
   // Exit status counts the conflict hunks; a negative status (255) is an error, such as a binary file.
   const merged = gitResult(runner, worktree, [
     "merge-file",
@@ -720,7 +754,8 @@ const mergeInsertions = (
     `:1:${path}`,
     `:3:${path}`,
   ]);
-  if (merged.error !== undefined || merged.status < 1 || merged.status > 127) return null;
+  if (merged.error !== undefined || merged.status < 1 || merged.status > 127)
+    return { refuseReason: "git merge-file cannot merge the path as text" };
   const resolved = resolveInsertions(merged.stdout);
   if ("refuseReason" in resolved) return resolved;
   NodeFS.writeFileSync(NodePath.join(worktree, path), resolved.text);
@@ -1881,10 +1916,6 @@ export interface RunOptions {
 const USAGE = "usage: vp run fork:sync [<tag>] [--dry-run]";
 
 export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): number => {
-  const runner = options.runner ?? realRunner;
-  const root = options.root ?? process.cwd();
-  const now = options.now ?? (() => new Date());
-  const startedAt = now();
   let parsed;
   try {
     parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--dry-run"] });
@@ -1892,6 +1923,27 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`);
     return 1;
   }
+  const runner = options.runner ?? realRunner;
+  const root = mainCheckout(runner, options.root ?? process.cwd());
+  const release = holdLock(root);
+  if (typeof release === "string") {
+    process.stderr.write(`sync: ${release}\n`);
+    return 1;
+  }
+  try {
+    return runLocked(parsed, runner, root, options.now ?? (() => new Date()));
+  } finally {
+    release();
+  }
+};
+
+const runLocked = (
+  parsed: ReturnType<typeof parseArgs>,
+  runner: CommandRunner,
+  root: string,
+  now: () => Date,
+): number => {
+  const startedAt = now();
   const dryRun = parsed.flags.has("--dry-run");
   const explicit = parsed.positionals[0] ?? null;
   // The failing step names the failure issue; it advances as the run does.

@@ -63,6 +63,10 @@ const resolveHunk = (
     if (forkIndex > next) blocks.push({ before: baseIndex, lines: fork.slice(next, forkIndex) });
     next = forkIndex + 1;
   }
+  // A line upstream also added (a backport the fork carried) would land twice.
+  const upstreamLines = new Set(ours.map((line) => line.trim()).filter((line) => line !== ""));
+  if (blocks.some(({ lines }) => lines.some((line) => upstreamLines.has(line.trim()))))
+    return "upstream already has a line the fork inserts";
   const inserts = new Map<number, Array<string>>();
   for (const { before, lines } of blocks) {
     if (!survives(before - 1) && !survives(before))

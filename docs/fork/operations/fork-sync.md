@@ -99,7 +99,7 @@ Conflict resolution is machine-owned, in this order.
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
-An insertion lands before the next base line upstream kept, after upstream's own additions in that gap; it refuses when the fork side changes a base line or upstream rewrote both lines around it.
+An insertion lands before the next base line upstream kept, after upstream's own additions in that gap; it refuses when the fork side changes a base line, upstream rewrote both lines around it, or upstream already has an inserted line.
 There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
 
 ## Attention issue lifecycle
@@ -142,6 +142,7 @@ The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it 
 Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
 **Kept sync worktree.** Lives in the main checkout's `.t3/fork-sync`, whichever checkout runs the sync.
+A lock there holds one sync at a time; a second run refuses while the first lives.
 `vp run fork:sync` first waits for the invoking checkout's own setup, so a fresh lane never races its install.
 Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
 It carries every stop's rows between runs, so the report keeps them.

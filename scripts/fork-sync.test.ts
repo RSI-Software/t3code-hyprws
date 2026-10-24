@@ -809,10 +809,11 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
       assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
 
-      // A dirty trunk checkout keeps local hyprws where it was and says so.
+      // A dirty trunk checkout keeps local hyprws where it was and says so. The
+      // rerun starts inside the kept worktree it then drops.
       NodeFS.writeFileSync(NodePath.join(f.root, "shared.txt"), "local edit\n");
       const { output, value: code } = capture(() =>
-        run(["v1.0.0"], { runner: exec().runner, root: f.root }),
+        run(["v1.0.0"], { runner: exec().runner, root: f.worktree }),
       );
       assert.strictEqual(code, 0);
       const pushed = readReport(f.root, "v1.0.0");
@@ -821,6 +822,25 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
       assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), shas.fork);
       assert.match(output, /local hyprws kept at .*: its checkout .* has local changes/);
+      assert.isFalse(NodeFS.existsSync(f.worktree));
+    },
+  );
+});
+
+it("refuses to start while another live sync holds the lock", () => {
+  withFixture(
+    {
+      forkContent: "fork line1\nline2\nline3\n",
+      upstreamContent: "line1\nline2\nline3 upstream\n",
+    },
+    (f) => {
+      const lock = NodePath.join(NodePath.dirname(f.worktree), "lock");
+      NodeFS.mkdirSync(NodePath.dirname(lock), { recursive: true });
+      NodeFS.writeFileSync(lock, `${process.ppid}\n`);
+      const { calls, runner } = exec();
+      assert.strictEqual(run(["v1.0.0"], { runner, root: f.root }), 1);
+      assert.isFalse(calls.some(({ args }) => args[0] === "fetch"));
+      assert.isTrue(NodeFS.existsSync(lock));
     },
   );
 });

@@ -28,11 +28,14 @@ it("lands a fork insertion beside a line upstream deleted", () => {
   });
 });
 
-it("refuses a fork edit and an insertion whose neighbours upstream rewrote", () => {
+it("refuses a fork edit, an insertion whose neighbours upstream rewrote, and one upstream already added", () => {
   assert.deepStrictEqual(resolveInsertions(hunk(["up"], ["base"], ["fork"])), {
     refuseReason: "the fork side changes or removes a base line in a conflict hunk",
   });
   assert.deepStrictEqual(resolveInsertions(hunk(["X", "Y"], ["a", "b"], ["a", "F", "b"])), {
     refuseReason: "upstream rewrote both lines around a fork insertion",
+  });
+  assert.deepStrictEqual(resolveInsertions(hunk(["a", "F"], ["a", "b"], ["a", "F", "b"])), {
+    refuseReason: "upstream already has a line the fork inserts",
   });
 });
