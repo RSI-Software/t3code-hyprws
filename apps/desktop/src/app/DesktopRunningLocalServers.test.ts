@@ -3,14 +3,16 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { deriveServerRuntimeStatePath } from "@t3tools/shared/serverRuntimeState";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import * as TestClock from "effect/testing/TestClock";
 
-import { make } from "./DesktopRunningLocalServers.ts";
+import { awaitServiceUpdateHandoff, make } from "./DesktopRunningLocalServers.ts";
 
 const textEncoder = new TextEncoder();
 const baseDir = "/test/.t3";
@@ -41,19 +43,20 @@ const runtimeState = (input: { readonly pid: number; readonly origin: string }) 
 
 const fakeFileSystemLayer = (files: ReadonlyMap<string, string>) =>
   FileSystem.layerNoop({
-    readFileString: (path) => {
-      const value = files.get(path);
-      return value === undefined
-        ? Effect.fail(
-            PlatformError.systemError({
-              _tag: "NotFound",
-              module: "FileSystem",
-              method: "readFileString",
-              pathOrDescriptor: path,
-            }),
-          )
-        : Effect.succeed(value);
-    },
+    readFileString: (path) =>
+      Effect.suspend(() => {
+        const value = files.get(path);
+        return value === undefined
+          ? Effect.fail(
+              PlatformError.systemError({
+                _tag: "NotFound",
+                module: "FileSystem",
+                method: "readFileString",
+                pathOrDescriptor: path,
+              }),
+            )
+          : Effect.succeed(value);
+      }),
   });
 
 const makeProcess = (input: {
@@ -258,4 +261,29 @@ describe("DesktopRunningLocalServers", () => {
       expect(malformed.detail).toContain("invalid JSON");
     });
   });
+
+  it.effect("waits for the background service to finish a pending update", () =>
+    Effect.gen(function* () {
+      const serviceStatePath = "/test/.t3/runtime/service-state.json";
+      const files = new Map([
+        [
+          serviceStatePath,
+          JSON.stringify({ activeVersion: "1.0.0", update: { status: "pending" } }),
+        ],
+      ]);
+      const fiber = yield* awaitServiceUpdateHandoff(baseDir).pipe(
+        Effect.provide(Layer.mergeAll(fakeFileSystemLayer(files), NodePath.layer)),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("5 seconds");
+      expect(fiber.pollUnsafe()).toBeUndefined();
+
+      files.set(
+        serviceStatePath,
+        JSON.stringify({ activeVersion: "1.0.1", update: { status: "committed" } }),
+      );
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(fiber);
+    }),
+  );
 });

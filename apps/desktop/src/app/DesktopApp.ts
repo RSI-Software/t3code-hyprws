@@ -387,6 +387,7 @@ const startup = Effect.gen(function* () {
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   const settings = yield* desktopSettings.load;
   const latchedLaunchMode = yield* latchDesktopBackendModeForStartup(settings.backendMode);
+  yield* DesktopRunningLocalServers.awaitServiceUpdateHandoff(environment.baseDir); // fork-hook: backend-attach/update-handoff-wait
   const existingServer =
     latchedLaunchMode.effectiveMode === "managed" && !environment.isDevelopment
       ? (yield* (yield* DesktopRunningLocalServers.DesktopRunningLocalServers).discover).find(

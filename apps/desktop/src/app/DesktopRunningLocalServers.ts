@@ -281,6 +281,38 @@ export const make = Effect.fn("desktop.runningLocalServers.make")(function* (
   return DesktopRunningLocalServers.of({ discover, pairLocalServer });
 });
 
+// Mirrors the server launcher's `runtime/service-state.json`; desktop cannot import apps/server.
+const decodeServiceState = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({ update: Schema.optional(Schema.Struct({ status: Schema.String })) }),
+  ),
+);
+
+/**
+ * A background-service update stops the old server, backs up the database, then starts the new
+ * one. Discovery in that gap finds no server, so a managed backend would hit the ownership lock
+ * (or take the home over). Wait for the handoff instead; a stale marker only costs the bound.
+ */
+export const awaitServiceUpdateHandoff = Effect.fn("desktop.runningLocalServers.awaitUpdate")(
+  function* (baseDir: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const pending = fs.readFileString(path.join(baseDir, "runtime", "service-state.json")).pipe(
+      Effect.map((raw) =>
+        Option.exists(decodeServiceState(raw), (state) => state.update?.status === "pending"),
+      ),
+      Effect.orElseSucceed(() => false),
+    );
+    if (!(yield* pending)) return;
+    yield* Effect.logInfo("waiting for the background service to finish updating");
+    yield* Effect.sleep(Duration.seconds(1)).pipe(
+      Effect.andThen(pending),
+      Effect.repeat({ while: (stillPending) => stillPending }),
+      Effect.timeoutOption(Duration.minutes(5)),
+    );
+  },
+);
+
 export const layer = Layer.effect(
   DesktopRunningLocalServers,
   Effect.gen(function* () {
