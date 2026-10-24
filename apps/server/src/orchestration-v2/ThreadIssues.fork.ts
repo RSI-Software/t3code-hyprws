@@ -12,7 +12,6 @@ import type {
   ThreadIssueKey,
   ThreadIssueLink,
 } from "@t3tools/contracts";
-import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 import {
   normalizeThreadPullRequestKey,
   threadPullRequestKeysEqual,
@@ -55,13 +54,16 @@ export const withThreadIssues = <T extends { readonly issues?: ReadonlyArray<Thr
   return { ...rest, ...threadIssuesField(issues) } as T;
 };
 
+// An unparseable sync time compares as earlier, so it is refused as stale.
+const isBefore = (left: string, right: string): boolean => !(Date.parse(left) >= Date.parse(right));
+
 /**
  * A snapshot read before the link existed describes an earlier link, and one
  * read before the stored snapshot lost a race to it; both are dropped.
  */
 const isStaleThreadIssueSync = (link: ThreadIssueLink, syncedAt: string): boolean =>
-  compareDateTimeStrings(syncedAt, link.linkedAt) < 0 ||
-  (link.snapshot !== null && compareDateTimeStrings(syncedAt, link.snapshot.syncedAt) < 0);
+  isBefore(syncedAt, link.linkedAt) ||
+  (link.snapshot !== null && isBefore(syncedAt, link.snapshot.syncedAt));
 
 const describeKey = (key: ThreadIssueKey) => `issue ${key.host}/${key.repository}#${key.number}`;
 
