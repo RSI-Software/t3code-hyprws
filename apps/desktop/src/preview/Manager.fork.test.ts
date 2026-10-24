@@ -77,7 +77,7 @@ describe("fork preview manager ownership", () => {
   );
 });
 
-type Listener = (...args: unknown[]) => void;
+type Listener = (...args: unknown[]) => unknown;
 
 interface TestCapturedPreviewImage {
   readonly toJPEG: () => Buffer;
@@ -159,11 +159,12 @@ const makeTestPreviewWebContents = (
   } as unknown as TestPreviewWebContents;
 };
 
-const settle = function* (until: () => boolean) {
-  for (let attempt = 0; attempt < 30 && !until(); attempt++) {
-    yield* Effect.promise(() => Promise.resolve());
-  }
-};
+// The manager's zoom-changed handler returns the fiber that applies the zoom.
+const wheelZoom = (listener: Listener | undefined, direction: "in" | "out") =>
+  Effect.suspend(() => {
+    const fiber = listener?.({} as never, direction) as Fiber.Fiber<void> | undefined;
+    return fiber ? Fiber.join(fiber) : Effect.die(new Error("zoom-changed listener missing"));
+  });
 
 describe("fork preview manager zoom and window close", () => {
   effectIt.effect("honors guest wheel zoom through the tab-owned state", () =>
@@ -189,13 +190,11 @@ describe("fork preview manager zoom and window close", () => {
 
         const staleZoomChanged = listeners.get("zoom-changed");
         setZoomFactor.mockClear();
-        staleZoomChanged?.({} as never, "in");
-        yield* settle(() => states.at(-1)?.zoomFactor === 1.1);
+        yield* wheelZoom(staleZoomChanged, "in");
         expect(setZoomFactor).toHaveBeenLastCalledWith(1.1);
         expect(states.at(-1)?.zoomFactor).toBe(1.1);
 
-        staleZoomChanged?.({} as never, "out");
-        yield* settle(() => states.at(-1)?.zoomFactor === 1);
+        yield* wheelZoom(staleZoomChanged, "out");
         expect(setZoomFactor).toHaveBeenLastCalledWith(1);
         expect(states.at(-1)?.zoomFactor).toBe(1);
 
@@ -217,8 +216,7 @@ describe("fork preview manager zoom and window close", () => {
         // The replaced guest's wheel listener is unbound and ignored.
         expect(off).toHaveBeenCalledWith("zoom-changed", staleZoomChanged);
         replacementSetZoomFactor.mockClear();
-        staleZoomChanged?.({} as never, "in");
-        yield* settle(() => false);
+        yield* wheelZoom(staleZoomChanged, "in");
         expect(replacementSetZoomFactor).not.toHaveBeenCalled();
         expect(states.at(-1)?.zoomFactor).toBe(1.1);
 
@@ -226,20 +224,17 @@ describe("fork preview manager zoom and window close", () => {
         for (let index = 0; index < 20; index += 1) yield* manager.zoomIn("tab_wheel");
         expect(states.at(-1)?.zoomFactor).toBe(5);
         replacementSetZoomFactor.mockClear();
-        replacementListeners.get("zoom-changed")?.({} as never, "in");
-        yield* settle(() => false);
+        yield* wheelZoom(replacementListeners.get("zoom-changed"), "in");
         expect(replacementSetZoomFactor).not.toHaveBeenCalled();
 
         for (let index = 0; index < 20; index += 1) yield* manager.zoomOut("tab_wheel");
         expect(states.at(-1)?.zoomFactor).toBe(0.25);
         replacementSetZoomFactor.mockClear();
-        replacementListeners.get("zoom-changed")?.({} as never, "out");
-        yield* settle(() => false);
+        yield* wheelZoom(replacementListeners.get("zoom-changed"), "out");
         expect(replacementSetZoomFactor).not.toHaveBeenCalled();
 
         yield* manager.closeTab("tab_wheel");
-        replacementListeners.get("zoom-changed")?.({} as never, "in");
-        yield* settle(() => false);
+        yield* wheelZoom(replacementListeners.get("zoom-changed"), "in");
         expect(replacementSetZoomFactor).not.toHaveBeenCalled();
       }),
     ),
