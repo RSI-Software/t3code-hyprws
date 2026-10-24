@@ -15,6 +15,7 @@ import { resolveRuntimeMode } from "../../OrchestratorMcpService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
+import { prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -158,6 +159,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 Effect.orElseSucceed(() => runtimeMode),
               )
             : runtimeMode;
+        const joinGroup = yield* prepareLaunchGroupFork(caller?.id, input.group); // fork-hook: thread-ordering/mcp-launch-group
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,
@@ -197,6 +199,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           }),
         );
         const thread = result.projection.thread;
+        yield* joinGroup([{ threadId: thread.id }]); // fork-hook: thread-ordering/mcp-launch-group
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
         return {
           threadId: thread.id,
