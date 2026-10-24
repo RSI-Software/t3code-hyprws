@@ -65,3 +65,15 @@ Review changed TypeScript under `apps/`, `packages/`, and `infra/`, tests aside,
 ## Reporting
 
 Report only violations introduced by changed lines. Name the smallest relevant range for each and state the expected fix. Optional style preferences and untouched legacy code are not findings.
+
+## Fork seams
+
+This repository is a fork that rebases onto upstream often; `docs/fork/internals/fork-delta.md` "Carry cost" owns the rule.
+
+- **Fork code:** `*.fork.ts(x)` or fork-only files
+- **Upstream files:** only marked `fork-hook` lines
+- **Sanctioned:** a fork helper reached from a hook
+- **Never ask:** to move fork logic upstream
+- **Never ask:** to edit upstream lines
+
+A convention above that would need either is not a finding; report it against the fork file instead, if at all.
