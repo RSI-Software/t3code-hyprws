@@ -55,7 +55,7 @@
     "fork:stale-delete": "node scripts/lib/fork-stale-delete.ts",
     "fork:fixup-fold": "node scripts/fork-fixup-fold.ts",
     "fork:ci": "node scripts/fork-ci.ts",
-    "fork:sync": "node scripts/fork-sync.ts",
+    "fork:sync": "node --import ./scripts/lib/await-setup.ts scripts/fork-sync.ts",
     "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",

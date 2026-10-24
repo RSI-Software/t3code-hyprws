@@ -27,8 +27,9 @@ const HELP = `Usage: vp run fork:fixup-fold [--base <ref>] [--head <ref>]
 Proves every fixup! commit in <base>..<head> folds into the commit it names.
 The sync rebase folds each fixup into its owner, so a fixup that only applies
 at the branch tip lands green in pull-request CI and then blocks the next
-sync (RSI-Software/t3code-hyprws#1554). The replay runs the stack from
-<base> in a throwaway repository with the sync's own fixup placement and
+sync (RSI-Software/t3code-hyprws#1554). The replay runs the stack from the
+merge base of <base> and <head> in a throwaway repository with the sync's own
+fixup placement and
 requires no stops and a tree equal to the unfolded tip. A stack without
 fixups skips the replay.
 `;
@@ -195,22 +196,20 @@ export const fixupFoldFailures = (
       git.run(["rev-parse", "--verify", `${ref}^{commit}`]).trim();
     const replay = new SystemGit(repo);
     replay.run(["checkout", "--quiet", "--detach", resolve(head)]);
-    const result = runCommand(
-      "git",
-      [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", resolve(base)],
-      {
-        cwd: repo,
-        env: {
-          ...process.env,
-          // Only the discarded replay commits need an identity; preserve the original authors.
-          GIT_COMMITTER_NAME: "Fork Fixup Fold",
-          GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
-          GIT_EDITOR: "true",
-          GIT_SEQUENCE_EDITOR: sequenceEditor(),
-          [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
-        },
+    // The merge base, not `base` itself: upstream may have moved past the commit the stack sits on.
+    const onto = git.run(["merge-base", resolve(base), resolve(head)]).trim();
+    const result = runCommand("git", [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", onto], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        // Only the discarded replay commits need an identity; preserve the original authors.
+        GIT_COMMITTER_NAME: "Fork Fixup Fold",
+        GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
+        GIT_EDITOR: "true",
+        GIT_SEQUENCE_EDITOR: sequenceEditor(),
+        [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
       },
-    );
+    });
     if (result.status !== 0) {
       const stopped = replay.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
       const stoppedSha = stopped.status === 0 ? stopped.stdout.trim() : "";

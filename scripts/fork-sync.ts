@@ -291,6 +291,20 @@ export interface ForkSyncReport extends Schema.Schema.Type<typeof ForkSyncReport
 
 const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "" });
 
+/**
+ * The main checkout of the repository `cwd` belongs to. The sync runs from
+ * there and keeps its state there, so a rerun from another lane, or from inside
+ * the kept worktree it may drop, adopts the same state.
+ */
+const mainCheckout = (runner: CommandRunner, cwd: string): string => {
+  const common = gitResult(runner, cwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  return common.status === 0 ? NodePath.dirname(common.stdout.trim()) : cwd;
+};
+
 export const reportPath = (root: string, tag: string): string =>
   NodePath.join(root, SYNC_DIR, `${tag}.json`);
 
@@ -541,6 +555,36 @@ const applyCarry = (
 const dropWorktree = (runner: CommandRunner, root: string): void => {
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
   gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+};
+
+/**
+ * Move local hyprws to the pushed tip when it still sits at the lease, so the
+ * next worktree does not start from a trunk the sync replaced. Checked out
+ * somewhere (usually the main checkout), `reset --keep` moves that tree too
+ * and only when its tracked files are clean. Anything else keeps the branch and
+ * prints why: the push already succeeded, so this never fails the run.
+ */
+const followTrunk = (runner: CommandRunner, root: string, old: string, next: string): void => {
+  const keep = (why: string): void => {
+    process.stdout.write(`sync: local ${HYPRWS_BRANCH} kept at ${why}; reset it to ${next}\n`);
+  };
+  const local = gitResult(runner, root, ["rev-parse", "--verify", `refs/heads/${HYPRWS_BRANCH}`]);
+  if (local.status !== 0) return;
+  if (local.stdout.trim() !== old) return keep(`${local.stdout.trim()}, not the lease`);
+  const checkout = git(runner, root, ["worktree", "list", "--porcelain"])
+    .split("\n\n")
+    .map((block) => block.split("\n"))
+    .find((block) => block.includes(`branch refs/heads/${HYPRWS_BRANCH}`))?.[0]
+    ?.slice("worktree ".length);
+  if (checkout === undefined) {
+    gitAllow(runner, root, ["update-ref", `refs/heads/${HYPRWS_BRANCH}`, next, old]);
+    return;
+  }
+  const status = gitResult(runner, checkout, ["status", "--porcelain", "--untracked-files=no"]);
+  if (status.status !== 0 || status.stdout.trim() !== "")
+    return keep(`${old}: its checkout ${checkout} has local changes`);
+  const moved = gitResult(runner, checkout, ["reset", "--quiet", "--keep", next]);
+  if (moved.status !== 0) keep(`${old}: ${moved.stderr.trim() || "reset --keep refused"}`);
 };
 
 const stageContent = (
@@ -1778,7 +1822,6 @@ const USAGE = "usage: vp run fork:sync [<tag>] [--dry-run]";
 
 export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): number => {
   const runner = options.runner ?? realRunner;
-  const root = options.root ?? process.cwd();
   const now = options.now ?? (() => new Date());
   const startedAt = now();
   let parsed;
@@ -1788,6 +1831,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`);
     return 1;
   }
+  const root = mainCheckout(runner, options.root ?? process.cwd());
   const dryRun = parsed.flags.has("--dry-run");
   const explicit = parsed.positionals[0] ?? null;
   // The failing step names the failure issue; it advances as the run does.
@@ -2037,6 +2081,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       });
     }
     dropWorktree(runner, root);
+    followTrunk(runner, root, expectedOld, newSha);
 
     // a clean run closes the block issues it made stale, whether the rebase
     // moved the trunk or the trunk already sat on the target
