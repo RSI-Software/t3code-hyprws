@@ -34,6 +34,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import { createUpdateProgress } from "./updateProgress.ts";
+import { awaitPendingServiceUpdate } from "./updatePendingWait.fork.ts"; // fork-hook: upstream-fixes/await-pending-update
 import * as CliService from "./service.ts";
 
 export class CliUpdateError extends Schema.TaggedError<CliUpdateError>()("CliUpdateError", {
@@ -351,6 +352,7 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
     }
   }
 
+  yield* awaitPendingServiceUpdate({ baseDir: input.baseDir, status: service.status }); // fork-hook: upstream-fixes/await-pending-update
   const status = yield* service.status;
   // The unit name is per user, not per T3 home. Only touch the service when it
   // serves the home this update targets; otherwise it belongs to another
