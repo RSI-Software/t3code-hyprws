@@ -19,7 +19,7 @@
 // | ------- | -------------------------------------------------- |
 // | target  | the named target is not a release tag on upstream  |
 // | fetch   | the fetch errors                                   |
-// | rebase  | a conflict no automatic resolver fixes             |
+// | rebase  | a conflict neither rerere nor hook re-apply fixes  |
 // | ci      | hyprws CI is not green on the candidate tip        |
 // | push    | the expected-old lease is refused                  |
 // | blocked | `gh` refuses the write                             |
@@ -69,7 +69,6 @@ import {
 } from "./lib/fork-command.ts";
 import { deriveForkHooksIn } from "./lib/fork-hooks.ts";
 import { reapplyForkHooks } from "./lib/fork-hook-reapply.ts";
-import { INSERTION_MARKER_SIZE, resolveInsertions } from "./lib/fork-insertion-merge.ts";
 import { mergeLicenseLists } from "./lib/fork-license-merge.ts";
 import {
   FORK_REPOSITORY,
@@ -164,14 +163,8 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
     : "unknown";
 };
 
-/** How a conflict row resolved: hook re-apply, a fork-only insertion, an accepted net-zero delete, regeneration, or a manual resolution. */
-export const ConflictVia = Schema.Literals([
-  "hook",
-  "insertion",
-  "manual",
-  "net-zero-delete",
-  "regenerate",
-]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, regeneration, or a manual resolution. */
+export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete", "regenerate"]);
 
 /** The recorded reason when an upstream deletion meets a net-zero fork edit. */
 export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
@@ -189,7 +182,7 @@ export const ConflictRow = Schema.Struct({
   via: ConflictVia,
   /** Hook keys re-inserted by hook re-apply; empty for every other row. */
   hooksReapplied: Schema.Array(Schema.String),
-  /** Why hook re-apply or the insertion resolver refused the path; set on `manual` rows. */
+  /** Why hook re-apply refused the path; set on `manual` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
   /** Why an automatic rule resolved the path; set on `net-zero-delete` and `regenerate` rows. */
   reason: Schema.optionalKey(Schema.String),
@@ -299,10 +292,9 @@ export interface ForkSyncReport extends Schema.Schema.Type<typeof ForkSyncReport
 const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "" });
 
 /**
- * The main checkout of the repository `cwd` belongs to. Sync state (reports,
- * the kept worktree, its state file) lives there whichever checkout runs the
- * sync, so a rerun from another lane, or from inside the kept worktree it may
- * drop, adopts the same state.
+ * The main checkout of the repository `cwd` belongs to. The sync runs from
+ * there and keeps its state there, so a rerun from another lane, or from inside
+ * the kept worktree it may drop, adopts the same state.
  */
 const mainCheckout = (runner: CommandRunner, cwd: string): string => {
   const common = gitResult(runner, cwd, [
@@ -313,41 +305,8 @@ const mainCheckout = (runner: CommandRunner, cwd: string): string => {
   return common.status === 0 ? NodePath.dirname(common.stdout.trim()) : cwd;
 };
 
-const syncDir = (root: string): string => NodePath.join(root, SYNC_DIR);
-
-/**
- * One sync at a time per repository, since every lane shares the kept worktree.
- * Returns the release, or why another run holds the lock; a dead holder's lock is taken over.
- */
-const holdLock = (root: string): (() => void) | string => {
-  const path = NodePath.join(syncDir(root), "lock");
-  NodeFS.mkdirSync(syncDir(root), { recursive: true });
-  for (;;) {
-    try {
-      NodeFS.writeFileSync(path, `${process.pid}\n`, { flag: "wx" });
-      return () => NodeFS.rmSync(path, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-    let pid: number;
-    try {
-      pid = Number(NodeFS.readFileSync(path, "utf8").trim());
-    } catch {
-      continue; // released between the two calls
-    }
-    try {
-      process.kill(pid, 0);
-      return `another fork sync (pid ${pid}) holds ${path}`;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EPERM")
-        return `another fork sync (pid ${pid}) holds ${path}`;
-      NodeFS.rmSync(path, { force: true });
-    }
-  }
-};
-
 export const reportPath = (root: string, tag: string): string =>
-  NodePath.join(syncDir(root), `${tag}.json`);
+  NodePath.join(root, SYNC_DIR, `${tag}.json`);
 
 /** Prove the report against its schema, then persist it. Decisions hit disk before any post. */
 const writeReport = (root: string, report: ForkSyncReport): string => {
@@ -417,7 +376,7 @@ const REBASE_CONFIG = [
   "maintenance.auto=false",
 ];
 
-export const worktreePath = (root: string): string => NodePath.join(syncDir(root), WORKTREE_DIR);
+export const worktreePath = (root: string): string => NodePath.join(root, SYNC_DIR, WORKTREE_DIR);
 
 /**
  * What the kept sync worktree was built for and what it carries between runs.
@@ -436,7 +395,7 @@ interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
 
 const worktreeStatePath = (root: string): string =>
-  NodePath.join(syncDir(root), `${WORKTREE_DIR}.json`);
+  NodePath.join(root, SYNC_DIR, `${WORKTREE_DIR}.json`);
 
 const writeWorktreeState = (root: string, state: WorktreeState): void =>
   NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
@@ -724,43 +683,6 @@ const reapplyHooks = (
   NodeFS.writeFileSync(NodePath.join(worktree, path), result.text);
   git(runner, worktree, ["add", "--", path]);
   return { reinserted: result.reinserted };
-};
-
-/**
- * The insertion resolver for one conflicted path: each conflict hunk whose fork
- * side (`:3:`) only adds lines takes the upstream side (`:2:`) plus those lines.
- */
-const mergeInsertions = (
-  runner: CommandRunner,
-  worktree: string,
-  path: string,
-): { readonly resolved: true } | { readonly refuseReason: string } => {
-  if ([1, 2, 3].some((stage) => stageContent(runner, worktree, stage as 1 | 2 | 3, path) === null))
-    return { refuseReason: "a side adds or deletes the whole file, so there is no line merge" };
-  // Exit status counts the conflict hunks; a negative status (255) is an error, such as a binary file.
-  const merged = gitResult(runner, worktree, [
-    "merge-file",
-    "-p",
-    "--diff3",
-    "--object-id",
-    `--marker-size=${INSERTION_MARKER_SIZE}`,
-    "-L",
-    "upstream",
-    "-L",
-    "base",
-    "-L",
-    "fork",
-    `:2:${path}`,
-    `:1:${path}`,
-    `:3:${path}`,
-  ]);
-  if (merged.error !== undefined || merged.status < 1 || merged.status > 127)
-    return { refuseReason: "git merge-file cannot merge the path as text" };
-  const resolved = resolveInsertions(merged.stdout);
-  if ("refuseReason" in resolved) return resolved;
-  NodeFS.writeFileSync(NodePath.join(worktree, path), resolved.text);
-  git(runner, worktree, ["add", "--", path]);
-  return { resolved: true };
 };
 
 /**
@@ -1128,24 +1050,7 @@ const replayOnto = (
         continue;
       }
       const applied = reapplyHooks(runner, worktree, path);
-      const inserted =
-        applied === null || "refuseReason" in applied
-          ? mergeInsertions(runner, worktree, path)
-          : null;
-      if (inserted !== null && "resolved" in inserted) {
-        conflicts.push({
-          path,
-          forkCommit,
-          forkSubject,
-          upstreamCommit: touch.sha,
-          upstreamSubject: touch.subject,
-          via: "insertion",
-          hooksReapplied: [],
-        });
-        continue;
-      }
       if (applied === null || "refuseReason" in applied) {
-        const refuseReason = applied?.refuseReason ?? inserted?.refuseReason;
         manual.push(path);
         conflicts.push({
           path,
@@ -1155,7 +1060,7 @@ const replayOnto = (
           upstreamSubject: touch.subject,
           via: "manual",
           hooksReapplied: [],
-          ...(refuseReason !== undefined ? { refuseReason } : {}),
+          ...(applied !== null ? { refuseReason: applied.refuseReason } : {}),
         });
         continue;
       }
@@ -1573,7 +1478,7 @@ export const attentionIssueBody = (report: ForkSyncReport, previous?: string): s
   return [
     `Origin: hyprws sync run onto ${report.target.tag}; \`vp run fork:sync ${report.target.tag}\`.`,
     "",
-    `A sync run rebased \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\` and stopped at a seam no automatic resolver resolves.`,
+    `A sync run rebased \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\` and stopped at a seam neither rerere nor hook re-apply resolves.`,
     "",
     `Blocking upstream commit: ${cell(`${blocked.blockingSha} ${blocking?.upstreamSubject ?? ""}`)}`,
     "",
@@ -1916,6 +1821,9 @@ export interface RunOptions {
 const USAGE = "usage: vp run fork:sync [<tag>] [--dry-run]";
 
 export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): number => {
+  const runner = options.runner ?? realRunner;
+  const now = options.now ?? (() => new Date());
+  const startedAt = now();
   let parsed;
   try {
     parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--dry-run"] });
@@ -1923,27 +1831,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`);
     return 1;
   }
-  const runner = options.runner ?? realRunner;
   const root = mainCheckout(runner, options.root ?? process.cwd());
-  const release = holdLock(root);
-  if (typeof release === "string") {
-    process.stderr.write(`sync: ${release}\n`);
-    return 1;
-  }
-  try {
-    return runLocked(parsed, runner, root, options.now ?? (() => new Date()));
-  } finally {
-    release();
-  }
-};
-
-const runLocked = (
-  parsed: ReturnType<typeof parseArgs>,
-  runner: CommandRunner,
-  root: string,
-  now: () => Date,
-): number => {
-  const startedAt = now();
   const dryRun = parsed.flags.has("--dry-run");
   const explicit = parsed.positionals[0] ?? null;
   // The failing step names the failure issue; it advances as the run does.
@@ -2100,7 +1988,7 @@ const runLocked = (
           publishError: null,
           publishedVia: null,
         },
-        error: `blocked by ${blockingSha.slice(0, 7)}: ${manualPaths.length} path${manualPaths.length === 1 ? "" : "s"} no automatic resolver resolves`,
+        error: `blocked by ${blockingSha.slice(0, 7)}: ${manualPaths.length} path${manualPaths.length === 1 ? "" : "s"} neither rerere nor hook re-apply resolves`,
       });
       writeReport(root, blockedReport);
       process.stdout.write(`${renderReport(blockedReport)}\n`);

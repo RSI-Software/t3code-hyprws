@@ -827,24 +827,6 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
   );
 });
 
-it("refuses to start while another live sync holds the lock", () => {
-  withFixture(
-    {
-      forkContent: "fork line1\nline2\nline3\n",
-      upstreamContent: "line1\nline2\nline3 upstream\n",
-    },
-    (f) => {
-      const lock = NodePath.join(NodePath.dirname(f.worktree), "lock");
-      NodeFS.mkdirSync(NodePath.dirname(lock), { recursive: true });
-      NodeFS.writeFileSync(lock, `${process.ppid}\n`);
-      const { calls, runner } = exec();
-      assert.strictEqual(run(["v1.0.0"], { runner, root: f.root }), 1);
-      assert.isFalse(calls.some(({ args }) => args[0] === "fetch"));
-      assert.isTrue(NodeFS.existsSync(lock));
-    },
-  );
-});
-
 it("resolves a marked hook seam by re-applying the hook", () => {
   withFixture(
     {
@@ -927,36 +909,12 @@ it("refuses a commit that edits an earlier hook, even beside a new one", () => {
   );
 });
 
-it("resolves a seam whose fork side only inserts: upstream's side, then the fork lines", () => {
-  withFixture(
-    {
-      baseContent: "const a = 1;\nconst z = 26;\n",
-      forkContent: "const a = 1;\nconst fork = 0;\nconst z = 26;\n",
-      upstreamContent: "const a = 1;\nconst up = 0;\nconst z = 26;\n",
-    },
-    (f) => {
-      const { runner } = exec();
-      const code = capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root })).value;
-      assert.strictEqual(code, 0);
-      const report = readReport(f.root, "v1.0.0");
-      assert.deepEqual(
-        report.conflicts.map((row) => row.via),
-        ["insertion"],
-      );
-      assert.strictEqual(
-        f.git(["show", `${report.trunk.after}:shared.txt`], f.root),
-        "const a = 1;\nconst up = 0;\nconst fork = 0;\nconst z = 26;",
-      );
-    },
-  );
-});
-
 it("refuses a marked hook beside an unmarked edit and files one keyed block", () => {
   withFixture(
     {
       baseContent: 'import { a } from "a";\n',
       forkContent:
-        'import { a, changed } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
+        'import { changed } from "fork";\nimport { a } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
       upstreamContent: 'import { a } from "upstream";\nimport { b } from "b";\n',
     },
     (f) => {
@@ -1315,7 +1273,7 @@ it("exits 0 with already applied when the fork sits on the tag", () => {
   );
 });
 
-it("picks the newest upstream release tag when no tag is given, keeping state in the main checkout", () => {
+it("picks the newest upstream release tag when no tag is given", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
@@ -1323,13 +1281,9 @@ it("picks the newest upstream release tag when no tag is given, keeping state in
       nightlyTag: true,
     },
     (f) => {
-      // A lane runs from its own linked worktree; reports and the kept worktree still land in one place.
-      const lane = NodePath.join(f.root, "..", "lane");
-      f.git(["worktree", "add", "--quiet", "--detach", lane, "hyprws"], f.root);
       const { runner } = exec();
-      const code = capture(() => run(["--dry-run"], { runner, root: lane })).value;
+      const code = capture(() => run(["--dry-run"], { runner, root: f.root })).value;
       assert.strictEqual(code, 0);
-      assert.isTrue(NodeFS.existsSync(f.worktree));
       const report = readReport(f.root, "v1.0.1-nightly.20260901.1");
       assert.strictEqual(report.target.tag, "v1.0.1-nightly.20260901.1");
       assert.strictEqual(report.outcome, "applied");

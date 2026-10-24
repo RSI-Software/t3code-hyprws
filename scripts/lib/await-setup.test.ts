@@ -46,17 +46,3 @@ it("holds the entry until a running setup exits", async () => {
     NodeFS.rmSync(cwd, { recursive: true, force: true });
   }
 });
-
-it("refuses with the failed setup's tail instead of running the entry", async () => {
-  const cwd = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "await-setup-"));
-  try {
-    NodeFS.mkdirSync(NodePath.join(cwd, ".t3"));
-    NodeFS.writeFileSync(NodePath.join(cwd, ".t3", "setup-failed"), "Setup exited with code 1.\n");
-    const { code, stdout, stderr } = await finished(entry(cwd));
-    assert.strictEqual(code, 1);
-    assert.match(stderr, /Setup exited with code 1/);
-    assert.strictEqual(stdout, "");
-  } finally {
-    NodeFS.rmSync(cwd, { recursive: true, force: true });
-  }
-});

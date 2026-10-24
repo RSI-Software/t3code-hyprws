@@ -61,7 +61,7 @@ The run never rebased; the stack is untouched.
 
 ### Conflict
 
-A seam no automatic resolver resolves.
+A seam neither rerere nor hook re-apply resolves.
 Resolve each seam by verdict, then follow Unblock.
 
 | Verdict | Seam                                                        |
@@ -95,7 +95,7 @@ The expected-old lease lost; someone landed first.
 
 ## Unblock
 
-The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, hook re-apply re-inserts marked fork hooks, and a hunk whose fork side only adds lines takes upstream's side plus those lines.
+The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, and hook re-apply re-inserts marked fork hooks.
 Only a `manual` row stops the run.
 
 In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.

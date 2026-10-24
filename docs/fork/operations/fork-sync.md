@@ -15,15 +15,15 @@ It folds each `fixup! <subject>` landing into the one fork commit it names, a sq
 It rewords only an owner that absorbs a squash-landed fixup: the fixup's PR link joins its `Squashes:` list, rendered the way fork:fold renders one.
 The rebase refuses a rebased tip that dropped any PR link, except from a commit the target carries: patch-for-patch, or superseded with every path it touched identical to the target.
 
-| Step    | Does                                                                      | Fails when                                |
-| ------- | ------------------------------------------------------------------------- | ----------------------------------------- |
-| target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag           |
-| fetch   | `git fetch --tags --force upstream`, `git fetch origin hyprws`            | fetch error                               |
-| rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict no automatic resolution clears |
-| ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                      |
-| push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                             |
-| blocked | one attention issue for any red run, via `gh`                             | `gh` refuses the write                    |
-| report  | the main checkout's `.t3/fork-sync/<tag>.json`, typed, before any post    |                                           |
+| Step    | Does                                                                      | Fails when                                         |
+| ------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
+| target  | the named tag, or the newest release tag on `upstream`                    | the target is not a release tag                    |
+| fetch   | `git fetch --tags --force upstream`, `git fetch origin hyprws`            | fetch error                                        |
+| rebase  | detached worktree, `git rebase -i --autosquash --rerere-autoupdate <tag>` | a conflict rerere and hook re-apply cannot resolve |
+| ci      | [candidate CI](#candidate-ci) on the rebased tip                          | the run is not green                               |
+| push    | `--force-with-lease=hyprws:<fetched sha>`                                 | lease refused                                      |
+| blocked | one attention issue for any red run, via `gh`                             | `gh` refuses the write                             |
+| report  | the main checkout's `.t3/fork-sync/<tag>.json`, typed, before any post    |                                                    |
 
 A tag the fork already sits on reports `already applied`, after closing the open sync attention issue.
 `--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no close.
@@ -92,14 +92,12 @@ Conflict resolution is machine-owned, in this order.
 | --- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | Local rerere replays resolutions within the run's rebase and stages them                                                       |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text           |
-| 3   | Insertion: each conflict hunk whose fork side only adds lines takes upstream's side plus those lines                           |
-| 4   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
-| 5   | A [regenerable file](#regenerable-files) regenerates once every other path in the stop resolves                                |
-| 6   | Anything left is a `manual` row and stops the run                                                                              |
+| 3   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
+| 4   | A [regenerable file](#regenerable-files) regenerates once every other path in the stop resolves                                |
+| 5   | Anything left is a `manual` row and stops the run                                                                              |
 
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
-An insertion lands before the next base line upstream kept, after upstream's own additions in that gap; it refuses when the fork side changes a base line, upstream rewrote both lines around it, or upstream already has an inserted line.
 There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
 
 ## Attention issue lifecycle
@@ -142,7 +140,6 @@ The next sync's rebase folds each fixup into its owner, and `fork:ci` proves it 
 Autosquash discards a fixup's body, so a reason worth keeping goes in its own commit.
 
 **Kept sync worktree.** Lives in the main checkout's `.t3/fork-sync`, whichever checkout runs the sync.
-A lock there holds one sync at a time; a second run refuses while the first lives.
 `vp run fork:sync` first waits for the invoking checkout's own setup, so a fresh lane never races its install.
 Created through the `t3.json` setup step, so a stop has dependencies installed; the local gate reinstalls the frozen lockfile first, since the rebase can move it.
 It carries every stop's rows between runs, so the report keeps them.
