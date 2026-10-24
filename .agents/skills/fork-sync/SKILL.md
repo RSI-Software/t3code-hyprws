@@ -19,6 +19,7 @@ vp run fork:sync <tag> --dry-run
 ```
 
 `--dry-run` rebases and runs candidate CI, then stops: no trunk push, no issue, no publication.
+The run waits for the checkout's own worktree setup first.
 Any other flag is a defect.
 Name a tag only when the user names one; otherwise run with no tag.
 
@@ -33,7 +34,8 @@ A moved lease or a new tag rebases again instead.
 
 ## Read the report
 
-`.t3/fork-sync/<tag>.json` is the only run authority; the printed Markdown is output.
+`.t3/fork-sync/<tag>.json` in the main checkout is the only run authority; the printed Markdown is output.
+The kept sync worktree lives there too, whichever checkout runs the sync.
 Post-push recovery reads this file, never a comment.
 
 Fields: [the report](../../../docs/fork/operations/fork-sync.md#the-report).
@@ -76,6 +78,8 @@ Resolve each seam by verdict, then follow Unblock.
 - **Red job**: `ci.jobs` names it
 - **Wait**: ends at the first failed job
 - **Real failure**: fix in the kept worktree
+- **Tests**: `vp test run` inside the package
+- **Fixup owner**: `vp run fork:fixup-fold`
 - **Flake**: `gh run rerun` after the run ends
 - **Never started**: check the mirror token
 - **Rerun**: the same command
@@ -96,6 +100,7 @@ Only a `manual` row stops the run.
 
 In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.
 Upstream deleted and the fork edit is net-zero: the deletion stands.
+Before keeping an upstream deletion, grep the old trunk (`git grep <name> <lease sha>`): later fork commits are not replayed yet.
 A [regenerable file](../../../docs/fork/operations/fork-sync.md#regenerable-files) regenerates on the rerun.
 Never adapt inside a replayed commit: the hook guard refuses it.
 Adaptation lands at the tip, one commit per owner, per [Reshape](../../../docs/fork/operations/fork-sync.md#unblocking-by-hand).
