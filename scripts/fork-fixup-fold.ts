@@ -27,8 +27,9 @@ const HELP = `Usage: vp run fork:fixup-fold [--base <ref>] [--head <ref>]
 Proves every fixup! commit in <base>..<head> folds into the commit it names.
 The sync rebase folds each fixup into its owner, so a fixup that only applies
 at the branch tip lands green in pull-request CI and then blocks the next
-sync (RSI-Software/t3code-hyprws#1554). The replay runs the stack from
-<base> in a throwaway repository with the sync's own fixup placement and
+sync (RSI-Software/t3code-hyprws#1554). The replay runs the stack from the
+merge base of <base> and <head> in a throwaway repository with the sync's own
+fixup placement and
 requires no stops and a tree equal to the unfolded tip. A stack without
 fixups skips the replay.
 `;
