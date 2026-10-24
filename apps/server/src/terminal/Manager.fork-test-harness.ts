@@ -35,6 +35,9 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
     | undefined;
   killed = false;
   private initialEventDelivered = false;
+  private readonly listeningSignal = Promise.withResolvers<void>();
+  /** Resolves once the manager has attached both data and exit listeners. */
+  readonly listening = this.listeningSignal.promise;
   constructor(
     pid: number,
     initialEvent?:
@@ -62,6 +65,7 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
   onData(callback: (data: string) => void): () => void {
     this.dataListeners.add(callback);
+    this.signalListening();
     if (!this.initialEventDelivered && this.initialEvent?.type === "data") {
       this.initialEventDelivered = true;
       callback(this.initialEvent.data);
@@ -72,6 +76,7 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
   onExit(callback: (event: PtyAdapter.PtyExitEvent) => void): () => void {
     this.exitListeners.add(callback);
+    this.signalListening();
     if (!this.initialEventDelivered && this.initialEvent?.type === "exit") {
       this.initialEventDelivered = true;
       callback(this.initialEvent.event);
@@ -88,8 +93,10 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   hasDataListener(): boolean {
     return this.dataListeners.size > 0;
   }
-  hasExitListener(): boolean {
-    return this.exitListeners.size > 0;
+  private signalListening(): void {
+    if (this.dataListeners.size > 0 && this.exitListeners.size > 0) {
+      this.listeningSignal.resolve();
+    }
   }
   emitExit(event: PtyAdapter.PtyExitEvent): void {
     for (const listener of this.exitListeners) {
@@ -160,6 +167,14 @@ class FakePtyAdapter {
   > = [];
   private readonly mode: "sync" | "async";
   private nextPid = 9000;
+  private readonly spawnWaiters: Array<PromiseWithResolvers<FakePtyProcess>> = [];
+  /** Resolves with the process at `index` once it has been spawned. */
+  spawned(index: number): Promise<FakePtyProcess> {
+    const existing = this.processes[index];
+    if (existing) return Promise.resolve(existing);
+    this.spawnWaiters[index] ??= Promise.withResolvers<FakePtyProcess>();
+    return this.spawnWaiters[index].promise;
+  }
   constructor(mode: "sync" | "async" = "sync") {
     this.mode = mode;
   }
@@ -183,6 +198,7 @@ class FakePtyAdapter {
       typeof initialEvent === "function" ? initialEvent(input) : initialEvent,
     );
     this.processes.push(process);
+    this.spawnWaiters[this.processes.length - 1]?.resolve(process);
     if (this.mode === "async") {
       return Effect.tryPromise({
         try: async () => process,

@@ -605,12 +605,8 @@ it.layer(
         Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
         { startImmediately: true },
       );
-      while (ptyAdapter.processes.length < 2) yield* Effect.yieldNow;
-      while (
-        !ptyAdapter.processes[1]?.hasDataListener() ||
-        !ptyAdapter.processes[1]?.hasExitListener()
-      )
-        yield* Effect.yieldNow;
+      const candidate = yield* Effect.promise(() => ptyAdapter.spawned(1));
+      yield* Effect.promise(() => candidate.listening);
       yield* Deferred.succeed(deadline, undefined);
       const error = yield* Fiber.join(move);
 
@@ -643,13 +639,11 @@ it.layer(
         Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
         { startImmediately: true },
       );
-      while (ptyAdapter.processes.length < 2) yield* Effect.yieldNow;
-      const candidate = ptyAdapter.processes[1];
+      const candidate = yield* Effect.promise(() => ptyAdapter.spawned(1));
       const spawnInput = ptyAdapter.spawnInputs[1];
-      expect(candidate).toBeDefined();
       expect(spawnInput).toBeDefined();
-      if (!candidate || !spawnInput) return;
-      while (!candidate.hasDataListener() || !candidate.hasExitListener()) yield* Effect.yieldNow;
+      if (!spawnInput) return;
+      yield* Effect.promise(() => candidate.listening);
       candidate.emitData(managedReadyEvent(spawnInput).data);
       candidate.emitExit({ exitCode: 1, signal: 0 });
       const error = yield* Fiber.join(move);
