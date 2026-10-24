@@ -49,3 +49,15 @@ Hold new and changed UI to that shape:
 ## Reporting
 
 Report only violations introduced by changed lines. Keep each brief: name the rule, name the primitive or location the code should use instead, and stop. Do not comment on class ordering, aesthetic preference, or untouched legacy code, and do not demand cleanup outside the PR's scope.
+
+## Fork seams
+
+This repository is a fork that rebases onto upstream often; `docs/fork/internals/fork-delta.md` "Carry cost" owns the rule.
+
+- **Fork code:** `*.fork.ts(x)` or fork-only files
+- **Upstream files:** only marked `fork-hook` lines
+- **Sanctioned:** a fork helper reached from a hook
+- **Never ask:** to move fork logic upstream
+- **Never ask:** to edit upstream lines
+
+A convention above that would need either is not a finding; report it against the fork file instead, if at all.
