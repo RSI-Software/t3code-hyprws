@@ -195,22 +195,20 @@ export const fixupFoldFailures = (
       git.run(["rev-parse", "--verify", `${ref}^{commit}`]).trim();
     const replay = new SystemGit(repo);
     replay.run(["checkout", "--quiet", "--detach", resolve(head)]);
-    const result = runCommand(
-      "git",
-      [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", resolve(base)],
-      {
-        cwd: repo,
-        env: {
-          ...process.env,
-          // Only the discarded replay commits need an identity; preserve the original authors.
-          GIT_COMMITTER_NAME: "Fork Fixup Fold",
-          GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
-          GIT_EDITOR: "true",
-          GIT_SEQUENCE_EDITOR: sequenceEditor(),
-          [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
-        },
+    // The merge base, not `base` itself: upstream may have moved past the commit the stack sits on.
+    const onto = git.run(["merge-base", resolve(base), resolve(head)]).trim();
+    const result = runCommand("git", [...REPLAY_CONFIG, "rebase", "-i", "--autosquash", onto], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        // Only the discarded replay commits need an identity; preserve the original authors.
+        GIT_COMMITTER_NAME: "Fork Fixup Fold",
+        GIT_COMMITTER_EMAIL: "fork-fixup-fold@example.invalid",
+        GIT_EDITOR: "true",
+        GIT_SEQUENCE_EDITOR: sequenceEditor(),
+        [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
       },
-    );
+    });
     if (result.status !== 0) {
       const stopped = replay.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
       const stoppedSha = stopped.status === 0 ? stopped.stdout.trim() : "";

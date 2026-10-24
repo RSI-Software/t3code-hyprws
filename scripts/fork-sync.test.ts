@@ -774,6 +774,9 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
       const lease = recording.calls.find(isLeasePush);
       assert.include(lease!.args, `${tip}:hyprws`);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      // The clean local trunk follows, checkout included.
+      assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), tip);
+      assert.strictEqual(f.git(["status", "--porcelain", "--untracked-files=no"], f.root), "");
     },
   );
 });
@@ -806,12 +809,18 @@ it("keeps the green tip on a refused push, and a rerun on the same lease publish
       assert.strictEqual(f.git(["rev-parse", "HEAD"], f.worktree), tip);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), shas.fork);
 
-      const code = capture(() => run(["v1.0.0"], { runner: exec().runner, root: f.root })).value;
+      // A dirty trunk checkout keeps local hyprws where it was and says so.
+      NodeFS.writeFileSync(NodePath.join(f.root, "shared.txt"), "local edit\n");
+      const { output, value: code } = capture(() =>
+        run(["v1.0.0"], { runner: exec().runner, root: f.root }),
+      );
       assert.strictEqual(code, 0);
       const pushed = readReport(f.root, "v1.0.0");
       assert.strictEqual(pushed.outcome, "applied");
       assert.strictEqual(pushed.trunk.after, tip);
       assert.strictEqual(f.git(["rev-parse", "origin/hyprws"], f.root), tip);
+      assert.strictEqual(f.git(["rev-parse", "hyprws"], f.root), shas.fork);
+      assert.match(output, /local hyprws kept at .*: its checkout .* has local changes/);
     },
   );
 });
@@ -898,12 +907,36 @@ it("refuses a commit that edits an earlier hook, even beside a new one", () => {
   );
 });
 
+it("resolves a seam whose fork side only inserts: upstream's side, then the fork lines", () => {
+  withFixture(
+    {
+      baseContent: "const a = 1;\nconst z = 26;\n",
+      forkContent: "const a = 1;\nconst fork = 0;\nconst z = 26;\n",
+      upstreamContent: "const a = 1;\nconst up = 0;\nconst z = 26;\n",
+    },
+    (f) => {
+      const { runner } = exec();
+      const code = capture(() => run(["v1.0.0", "--dry-run"], { runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      const report = readReport(f.root, "v1.0.0");
+      assert.deepEqual(
+        report.conflicts.map((row) => row.via),
+        ["insertion"],
+      );
+      assert.strictEqual(
+        f.git(["show", `${report.trunk.after}:shared.txt`], f.root),
+        "const a = 1;\nconst up = 0;\nconst fork = 0;\nconst z = 26;",
+      );
+    },
+  );
+});
+
 it("refuses a marked hook beside an unmarked edit and files one keyed block", () => {
   withFixture(
     {
       baseContent: 'import { a } from "a";\n',
       forkContent:
-        'import { changed } from "fork";\nimport { a } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
+        'import { a, changed } from "a";\nimport { forkThing } from "fork"; // fork-hook: fork-meta/test\n',
       upstreamContent: 'import { a } from "upstream";\nimport { b } from "b";\n',
     },
     (f) => {
@@ -1262,7 +1295,7 @@ it("exits 0 with already applied when the fork sits on the tag", () => {
   );
 });
 
-it("picks the newest upstream release tag when no tag is given", () => {
+it("picks the newest upstream release tag when no tag is given, keeping state in the main checkout", () => {
   withFixture(
     {
       forkContent: "fork line1\nline2\nline3\n",
@@ -1270,9 +1303,13 @@ it("picks the newest upstream release tag when no tag is given", () => {
       nightlyTag: true,
     },
     (f) => {
+      // A lane runs from its own linked worktree; reports and the kept worktree still land in one place.
+      const lane = NodePath.join(f.root, "..", "lane");
+      f.git(["worktree", "add", "--quiet", "--detach", lane, "hyprws"], f.root);
       const { runner } = exec();
-      const code = capture(() => run(["--dry-run"], { runner, root: f.root })).value;
+      const code = capture(() => run(["--dry-run"], { runner, root: lane })).value;
       assert.strictEqual(code, 0);
+      assert.isTrue(NodeFS.existsSync(f.worktree));
       const report = readReport(f.root, "v1.0.1-nightly.20260901.1");
       assert.strictEqual(report.target.tag, "v1.0.1-nightly.20260901.1");
       assert.strictEqual(report.outcome, "applied");
