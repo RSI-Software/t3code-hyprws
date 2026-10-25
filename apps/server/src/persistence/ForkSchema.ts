@@ -76,6 +76,15 @@ const FORK_TABLES = [
     created_at TEXT NOT NULL,
     PRIMARY KEY (session_id, operation, client_request_id)
   )`,
+  // Sidebar thread groups for the thread-ordering domain, in sidebar order.
+  // Members are a JSON array of thread ids; a thread is in at most one group.
+  `CREATE TABLE IF NOT EXISTS fork_thread_groups (
+    group_id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    thread_ids_json TEXT NOT NULL,
+    parent_thread_id TEXT
+  )`,
 ] as const;
 
 /**
