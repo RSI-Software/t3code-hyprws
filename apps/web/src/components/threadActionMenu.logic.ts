@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import type { SidebarThreadGroupContextMenuId } from "./Sidebar.logic"; // fork-hook: thread-ordering/group-menu-type
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import { msg } from "gt-react";
 
@@ -10,6 +11,7 @@ import { forkThreadMenuItems } from "./threadActionMenu.logic.fork"; // fork-hoo
 import { openInNewWindowMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: multi-window/dispatch-thread-menu-import
 
 export type ThreadActionMenuId =
+  | SidebarThreadGroupContextMenuId // fork-hook: thread-ordering/group-menu-id
   | "find"
   | "new-thread-on-branch"
   | "filter-by-project"
@@ -102,6 +104,7 @@ export function buildDraftActionMenuItems(
 }
 
 export interface ThreadActionMenuState {
+  readonly threadGroupsFork?: ReadonlyArray<ContextMenuItem<SidebarThreadGroupContextMenuId>>; // fork-hook: thread-ordering/group-menu-items-state
   readonly canOperate: boolean;
   readonly canFind?: boolean;
   /** False where no inline title editor is rendered, such as sidebar search results. */
@@ -308,6 +311,7 @@ export function buildThreadActionMenuItems(
       ],
     },
     { id: "project-settings", label: resolve(msg("Project settings")), icon: "settings" },
+    ...(state.threadGroupsFork ?? []), // fork-hook: thread-ordering/group-menu-items
     {
       id: "archive",
       label: resolve(msg("Archive thread")),
