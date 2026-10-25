@@ -8,7 +8,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { SidebarThreadGroup } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../state/threadGroups";
 import {
   createThreadGroupTitleOwner,
   threadGroupTitleFailureDescription,

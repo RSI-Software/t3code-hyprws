@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { useUiStateStore, type SidebarThreadGroup } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../state/threadGroups";
+import { useUiStateStore } from "../uiStateStore";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
@@ -41,6 +42,8 @@ import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 // during a drag; the drop layer draws the outline when a row would join it.
 export function SidebarThreadGroupHeader(props: {
   readonly group: SidebarThreadGroup;
+  /** False where this client cannot edit the group: actions hide, collapse still works. */
+  readonly canEdit: boolean;
   readonly memberCount: number;
   readonly isGenerating: boolean;
   readonly isDissolving?: boolean;
@@ -101,7 +104,7 @@ export function SidebarThreadGroupHeader(props: {
           tone={dragging ? "emphasized" : "muted"}
           aria-busy={props.isGenerating || undefined}
           onClick={() => props.onCollapsedChange(expanded)}
-          onDoubleClick={() => setIsEditing(true)}
+          onDoubleClick={() => props.canEdit && setIsEditing(true)}
           // Room for the hover menu, so it never covers the label.
           accessory={<span aria-hidden className="w-5 shrink-0" />}
         >
@@ -111,7 +114,7 @@ export function SidebarThreadGroupHeader(props: {
           </span>
         </CollapsibleSectionHeader>
       )}
-      {isEditing ? null : (
+      {isEditing || !props.canEdit ? null : (
         <div className="absolute inset-y-0 right-6 flex items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100 has-[[data-popup-open]]:opacity-100">
           <Menu>
             <MenuTrigger

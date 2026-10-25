@@ -11,7 +11,11 @@ import { AsyncResult } from "effect/reactivity";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { readThreadShells } from "../state/entities";
-import { useUiStateStore, type SidebarThreadGroup } from "../uiStateStore";
+import {
+  renameThreadGroupIfCurrent,
+  type SidebarThreadGroup,
+  useThreadGroupStoreFork,
+} from "../state/threadGroups";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 type GroupSnapshot = Pick<SidebarThreadGroup, "title" | "threadIds">;
@@ -236,16 +240,16 @@ let appOwner: ReturnType<typeof createThreadGroupTitleOwner<EnvironmentThreadShe
 function appThreadGroupTitles() {
   if (appOwner !== null) return appOwner;
   appOwner = createThreadGroupTitleOwner<EnvironmentThreadShell>({
-    readGroups: () => useUiStateStore.getState().threadGroups,
+    readGroups: () => useThreadGroupStoreFork.getState().threadGroups,
     readThreads: readThreadShells,
     keyOf: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-    renameIfCurrent: (...args) => useUiStateStore.getState().renameThreadGroupIfCurrent(...args),
+    renameIfCurrent: renameThreadGroupIfCurrent,
     toasts: {
       add: (options) => toastManager.add(options),
       close: (toastId) => toastManager.close(toastId),
     },
   });
-  useUiStateStore.subscribe(appOwner.pruneStale);
+  useThreadGroupStoreFork.subscribe(appOwner.pruneStale);
   return appOwner;
 }
 
