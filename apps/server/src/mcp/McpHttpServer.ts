@@ -71,6 +71,8 @@ import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { IssuesToolkitHandlersLiveFork } from "./toolkits/issues/handlers.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
 import { IssuesToolkitFork } from "./toolkits/issues/tools.fork.ts"; // fork-hook: github-issues/mcp-issues-toolkit-import
+import { ThreadGroupsToolkitHandlersLiveFork } from "./toolkits/threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-thread-groups-toolkit-import
+import { ThreadGroupsToolkitFork } from "./toolkits/threadGroups/tools.fork.ts"; // fork-hook: thread-ordering/mcp-thread-groups-toolkit-import
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -1193,6 +1195,7 @@ export const layerTools = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   toolkitRegistration(IssuesToolkitFork, IssuesToolkitHandlersLiveFork), // fork-hook: github-issues/mcp-issues-toolkit
+  toolkitRegistration(ThreadGroupsToolkitFork, ThreadGroupsToolkitHandlersLiveFork), // fork-hook: thread-ordering/mcp-thread-groups-toolkit
   layerDeviceToolkit,
   layerHtmlToolkit,
 );

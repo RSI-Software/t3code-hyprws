@@ -162,6 +162,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.agentSessionsScan]: AuthOrchestrationReadScope,
   [WS_METHODS.agentSessionsImport]: AuthOrchestrationOperateScope,
   [WS_METHODS.threadCheckoutMoveRequest]: AuthOrchestrationOperateScope, // fork-hook: zmux-estate/checkout-move-rpc-auth
+  [WS_METHODS.threadGroupsSubscribeFork]: AuthOrchestrationReadScope, // fork-hook: thread-ordering/thread-groups-rpc-auth
+  [WS_METHODS.threadGroupsMutateFork]: AuthOrchestrationOperateScope, // fork-hook: thread-ordering/thread-groups-rpc-auth
   [WS_METHODS.assetsCreateUrl]: AuthOrchestrationReadScope,
   [WS_METHODS.assetsPersistChatAttachments]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,

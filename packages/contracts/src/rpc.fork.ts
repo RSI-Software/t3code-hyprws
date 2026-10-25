@@ -170,10 +170,43 @@ export const checkoutMoveRpcFork = {
   rpcs: [WsThreadCheckoutMoveRequestRpcFork] as const,
 };
 
+// Server-side sidebar thread groups (thread-ordering); the schemas and the one
+// mutation reducer live in `threadGroups.fork.ts`.
+import {
+  ThreadGroupErrorFork,
+  ThreadGroupMutationFork,
+  ThreadGroupsSnapshotFork,
+} from "./threadGroups.fork.ts";
+
+/**
+ * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
+ * marked hooks in `rpc.ts` (`thread-ordering/thread-groups-rpc-*`).
+ */
+export const threadGroupsRpcFork = {
+  methodNames: {
+    threadGroupsSubscribeFork: "threadGroups.subscribeFork",
+    threadGroupsMutateFork: "threadGroups.mutateFork",
+  } as const,
+  rpcs: [
+    Rpc.make("threadGroups.subscribeFork", {
+      payload: Schema.Struct({}),
+      success: ThreadGroupsSnapshotFork,
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
+    Rpc.make("threadGroups.mutateFork", {
+      payload: ThreadGroupMutationFork,
+      success: ThreadGroupsSnapshotFork,
+      error: Schema.Union([ThreadGroupErrorFork, EnvironmentAuthorizationError]),
+    }),
+  ] as const,
+};
+
 /** Every fork WS RPC; the server serves them from a handler layer of their own. */
 export const wsRpcsFork = [
   ...pullRequestAttachmentRpcFork.rpcs,
   ...pullRequestActivityRpcFork.rpcs,
   ...githubIssuesRpcFork.rpcs,
   ...checkoutMoveRpcFork.rpcs,
+  ...threadGroupsRpcFork.rpcs,
 ] as const;
