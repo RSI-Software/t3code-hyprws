@@ -1806,12 +1806,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     spans: activeThreadGroupSpans,
     threadByKey,
     setMembership: setThreadGroupMembership,
-    canGroup: (threadKey) => {
-      const thread = threadByKey.get(threadKey);
+    canGroup: (threadKeys, groupKey) => {
+      const threads = threadKeys.flatMap((key) => threadByKey.get(key) ?? []);
       return (
-        thread !== undefined &&
-        threadGroupsFork.canGroupThreadsFork([threadKey]) &&
-        canOperateThreads([thread])
+        threads.length === threadKeys.length &&
+        threadGroupsFork.canGroupThreadsFork(threadKeys, groupKey) &&
+        canOperateThreads(threads)
       );
     },
     requestTitle: requestThreadGroupTitle,
@@ -3357,6 +3357,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             >
                               <SidebarThreadGroupHeader
                                 group={span.group}
+                                canEdit={
+                                  threadGroupsFork.canGroupThreadsFork(span.group.threadIds) &&
+                                  canOperateThreads(span.threads)
+                                }
                                 memberCount={span.threads.length}
                                 isGenerating={generatingGroupIds.has(span.groupKey)}
                                 isDissolving={

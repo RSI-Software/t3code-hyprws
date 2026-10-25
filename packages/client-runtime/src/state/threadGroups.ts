@@ -33,6 +33,9 @@ export function createThreadGroupEnvironmentAtoms<R, E>(
     mutate: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:thread-groups:mutate",
       tag: WS_METHODS.threadGroupsMutateFork,
+      // One edit at a time per environment, so replies arrive in the order sent
+      // and an older pending edit never replays over a newer answer.
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
     }),
     generateTitle: createEnvironmentCommand(runtime, {
       label: "environment-data:thread-groups:generate-title",

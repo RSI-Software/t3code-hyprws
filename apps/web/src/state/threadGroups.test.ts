@@ -58,7 +58,7 @@ function answers() {
 }
 
 describe("thread group store", () => {
-  it("retries a failed import, keeps pending edits over snapshots, and sends edits in order", async () => {
+  it("retries a failed import, keeps pending edits over snapshots, and drops stale replies", async () => {
     const server = answers();
     receiveThreadGroupsSnapshotFork(env, snapshot(1, []));
     // The import fails; the next snapshot tries again.
@@ -81,21 +81,18 @@ describe("thread group store", () => {
     receiveThreadGroupsSnapshotFork(env, snapshot(3, []));
     expect(shown()).toEqual(["env:g1 New group"]);
 
-    // Two renames: the second waits for the first, so the older one never
-    // replays over the newer answer.
-    renameThreadGroup("env:g1", "First");
-    renameThreadGroup("env:g1", "Second");
     const g1 = {
       id: "g1",
       title: "New group",
       threadIds: [ThreadId.make("a"), ThreadId.make("b")],
     };
+    receiveThreadGroupsSnapshotFork(env, snapshot(4, [g1]));
+    renameThreadGroup("env:g1", "Named");
+    await server.answer(3, { _tag: "Success", value: snapshot(5, [{ ...g1, title: "Named" }]) });
+    // The first edit's reply lands last, older than what the client holds.
     await server.answer(2, { _tag: "Success", value: snapshot(4, [g1]) });
-    expect(server.sent()).toBe(3);
-    await server.answer(3, { _tag: "Success", value: snapshot(5, [{ ...g1, title: "First" }]) });
-    await server.answer(4, { _tag: "Success", value: snapshot(6, [{ ...g1, title: "Second" }]) });
     await vi.waitFor(() => expect(useThreadGroupStoreFork.getState().pending[env]).toEqual([]));
-    expect(shown()).toEqual(["env:g1 Second"]);
+    expect(shown()).toEqual(["env:g1 Named"]);
 
     // A thread from another environment cannot join, so callers skip follow-ups.
     expect(setThreadGroupMembership(["other:x"], { kind: "existing", groupId: "env:g1" })).toBe(

@@ -38,8 +38,8 @@ export function useSidebarThreadGroupDragFork<T>(input: {
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
   ) => boolean;
-  /** False for a thread whose environment cannot group it here. */
-  readonly canGroup: (threadKey: string) => boolean;
+  /** False when these threads, or the group they would join, cannot be grouped here. */
+  readonly canGroup: (threadKeys: readonly string[], groupKey: string | null) => boolean;
   readonly requestTitle: (request: {
     readonly groupId: string;
     readonly members: readonly T[];
@@ -73,10 +73,23 @@ export function useSidebarThreadGroupDragFork<T>(input: {
     return () => document.removeEventListener("pointermove", onMove);
   }, [activeId, originX, updateDrag]);
 
+  const newGroup = (firstThreadKey: string) => ({
+    id: newThreadGroupKeyFork(firstThreadKey),
+    title: "New group",
+  });
+  /** Where a release would land, or null when the write it implies cannot apply. */
+  const project = (activeId: string, overId: string, steps: number) => {
+    const projected = projectSidebarThreadGroupDepthFork(tree, activeId, overId, steps);
+    const drop =
+      projected === null ? null : resolveSidebarThreadGroupDropFork(tree, projected, newGroup);
+    if (drop === null) return { projected, drop };
+    const groupKey = drop.target.kind === "existing" ? drop.target.groupId : null;
+    return canGroup(drop.threadIds, groupKey)
+      ? { projected, drop }
+      : { projected: null, drop: null };
+  };
   const projection =
-    drag?.overId == null || !canGroup(drag.activeId)
-      ? null
-      : projectSidebarThreadGroupDepthFork(tree, drag.activeId, drag.overId, drag.steps);
+    drag?.overId == null ? null : project(drag.activeId, drag.overId, drag.steps).projected;
 
   // Both events carry the current target; the first one of a drag also
   // starts it, taking the pickup point from the event that activated it.
@@ -98,18 +111,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
     const current = dragRef.current;
     updateDrag(() => null);
     if (current === null || event.over === null || target === null) return;
-    if (!canGroup(String(event.active.id))) return;
-    const released = projectSidebarThreadGroupDepthFork(
-      tree,
-      String(event.active.id),
-      String(event.over.id),
-      current.steps,
-    );
-    if (released === null) return;
-    const drop = resolveSidebarThreadGroupDropFork(tree, released, (firstThreadKey) => ({
-      id: newThreadGroupKeyFork(firstThreadKey),
-      title: "New group",
-    }));
+    const { drop } = project(String(event.active.id), String(event.over.id), current.steps);
     if (drop === null) return;
     if (!setMembership(drop.threadIds, drop.target) || drop.target.kind !== "new") return;
     const members = drop.threadIds.flatMap((key) => threadByKey.get(key) ?? []);
