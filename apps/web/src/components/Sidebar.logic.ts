@@ -30,7 +30,7 @@ import {
 import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
-import type { SidebarThreadGroup } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../state/threadGroups"; // fork-hook: thread-ordering/group-type-import
 import { pushSidebarWorkingShelfFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-rows-import
 import {
   insertSidebarThreadGroupMarkersFork,

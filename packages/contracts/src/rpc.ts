@@ -154,6 +154,7 @@ import { pullRequestActivityRpcFork } from "./rpc.fork.ts"; // fork-hook: upstre
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
 import { checkoutMoveRpcFork } from "./rpc.fork.ts"; // fork-hook: zmux-estate/checkout-move-rpc-import
+import { threadGroupsRpcFork } from "./rpc.fork.ts"; // fork-hook: thread-ordering/thread-groups-rpc-import
 import {
   OrchestrationSearchThreadsError,
   OrchestrationSearchThreadsInput,
@@ -530,6 +531,7 @@ export const WS_METHODS = {
 
   ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
   ...checkoutMoveRpcFork.methodNames, // fork-hook: zmux-estate/checkout-move-rpc-methods
+  ...threadGroupsRpcFork.methodNames, // fork-hook: thread-ordering/thread-groups-rpc-methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
   pullRequestsSummary: "pullRequests.summary",
@@ -1956,6 +1958,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsCloudInstallRelayClientRpc,
   ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
   ...checkoutMoveRpcFork.rpcs, // fork-hook: zmux-estate/checkout-move-rpc-group
+  ...threadGroupsRpcFork.rpcs, // fork-hook: thread-ordering/thread-groups-rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsSummaryRpc,

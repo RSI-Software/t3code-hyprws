@@ -1,4 +1,5 @@
 import { delegatedRoundProgressFork } from "../orchestration-v2/delegatedRounds.fork.ts"; // fork-hook: delegated-rounds/mcp-progress-import
+import { LaunchedThreadPlacementFork } from "../orchestration-v2/ThreadGroupsService.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 import {
   CommandId,
   type RunId,
@@ -2606,6 +2607,7 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
+              yield* (yield* LaunchedThreadPlacementFork)(threadId); // fork-hook: thread-ordering/mcp-launch-group
               // A receipt can appear after target resolution; use the committed thread's selection.
               const resolvedModelSelection = (yield* threadManagement
                 .getThreadRecords(threadId, [])
