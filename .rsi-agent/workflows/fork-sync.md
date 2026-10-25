@@ -1,0 +1,21 @@
+---
+name: Fork sync
+on: [issue-label]
+context: [.agents/skills/fork-sync/SKILL.md]
+needs: [checkout, push]
+outputs: { branch: sync/resolution }
+trust: { bots: ["github-actions[bot]"] }
+---
+
+# Fork sync resolution
+
+This issue is the `hyprws` sync attention issue: a sync stopped on a seam neither rerere nor hook re-apply resolves.
+Its title names the target tag; its body names each manual path and the blocking commit.
+
+The `fork-sync` skill owns every step and rule; follow it, and copy nothing from memory.
+Its "Job mode" section is this job's procedure, from a clean clone to `HEAD` at the resolution export.
+
+- **Resolve:** by the skill's Conflict verdicts
+- **Unsure:** report `blocked`; a human takes over
+- **Never push `hyprws`:** the driver is its writer
+- **Never post:** to `pingdotgg/t3code`
