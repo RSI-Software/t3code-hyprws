@@ -186,6 +186,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.issueTrackersList]: "issues",
   [WS_METHODS.issueTrackersConnect]: "issues",
   [WS_METHODS.issueTrackersBindProject]: "issues",
+  [WS_METHODS.threadGroupsSubscribeFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate
+  [WS_METHODS.threadGroupsMutateFork]: "orchestration", // fork-hook: thread-ordering/thread-groups-rpc-aggregate
   [WS_METHODS.sourceControlLookupRepository]: "source-control",
   [WS_METHODS.sourceControlCloneRepository]: "source-control",
   [WS_METHODS.sourceControlPublishRepository]: "source-control",
