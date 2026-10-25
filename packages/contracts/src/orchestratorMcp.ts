@@ -36,6 +36,7 @@ import { secretRequestPageUrl } from "./secretRequest.ts";
 import { hasOnlyPairedSurrogates } from "./threadMetadataMcp.ts";
 import { LastThreadTitleRegeneration, ThreadTitleRegeneration } from "./threadTitle.ts";
 import { McpThreadWaitUntilFork, McpThreadWorkFork } from "./mcpThreadWork.fork.ts"; // fork-hook: device-auth/mcp-thread-work
+import { ThreadLaunchGroupFork } from "./threadGroups.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
@@ -287,6 +288,7 @@ export const OrchestratorMcpCreateThreadsInput = Schema.Struct({
     Schema.isMaxLength(20),
   ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  group: Schema.optional(ThreadLaunchGroupFork), // fork-hook: thread-ordering/mcp-launch-group
 });
 export type OrchestratorMcpCreateThreadsInput = typeof OrchestratorMcpCreateThreadsInput.Type;
 

@@ -32,6 +32,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
+import { placeLaunchedThreadsFork, prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
 
@@ -245,6 +246,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 Effect.orElseSucceed(() => runtimeMode),
               )
             : runtimeMode;
+        const joinGroup = yield* prepareLaunchGroupFork(caller?.id, input.group); // fork-hook: thread-ordering/mcp-launch-group
         if (!replaying) {
           const providers = yield* (yield* ProviderRegistry.ProviderRegistry).getProviders;
           startedRuntimeMode = yield* resolveRuntimeMode(startedRuntimeMode, input.runtimeMode, {
@@ -301,6 +303,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             }
             return unavailable();
           }),
+          placeLaunchedThreadsFork(joinGroup), // fork-hook: thread-ordering/mcp-launch-group
         );
         const thread = result.projection.thread;
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
