@@ -347,11 +347,13 @@ it("carries a hand resolution and its fixups to a fresh runner through sync/reso
 
       // the export: one parentless commit of rerere entries and the fixups
       const exported = "refs/fork-sync/resolution";
+      const exportedRerere = (): string => f.git(["ls-tree", "-r", exported, "rr-cache"], f.root);
       assert.strictEqual(f.git(["rev-list", "--count", exported], f.root), "1");
       assert.match(
         f.git(["ls-tree", "-r", "--name-only", exported], f.root),
         /^fixups\.mbox\nrr-cache\/[0-9a-f]+\/postimage\nrr-cache\/[0-9a-f]+\/preimage$/,
       );
+      const pushed = exportedRerere();
       assert.strictEqual(
         f.git(["log", "-1", "--format=%(trailers:key=Fork-Sync-Tag,valueonly)", exported], f.root),
         "v1.0.0",
@@ -372,6 +374,15 @@ it("carries a hand resolution and its fixups to a fresh runner through sync/reso
         f.git(["log", "-1", "--format=%s", tip], f.root),
         "fix: the candidate needs this",
       );
+      // the replayed stop records nothing, yet exports again
+      assert.strictEqual(exportedRerere(), pushed);
+      // a rerun on that finished worktree keeps its tip; the fixups never stack twice
+      const rerun = capture(() =>
+        run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root }),
+      );
+      assert.strictEqual(rerun.value, 0);
+      assert.match(rerun.output, /fixups from origin\/sync\/resolution skipped/);
+      assert.strictEqual(readReport(f.root, "v1.0.0").trunk.after, tip);
 
       // the branch is data only: a tree of anything else refuses the run
       f.git(["push", "--quiet", "--force", "origin", "hyprws:refs/heads/sync/resolution"], f.root);

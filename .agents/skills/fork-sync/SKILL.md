@@ -154,7 +154,7 @@ It hands its resolutions to the next run as data on `sync/resolution`.
 4. Repeat until the rebase finishes
 5. Commit tip adaptation there; rerun once
 6. `git update-ref --no-deref HEAD refs/fork-sync/resolution`
-7. Push HEAD to `sync/resolution`
+7. Report `committed`: rsi-pr-agent pushes `HEAD`
 
 Every rebase rewrites `refs/fork-sync/resolution` before `ci`, so a `ci` failure in the job is expected.
 It is one parentless commit:

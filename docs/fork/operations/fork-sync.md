@@ -108,12 +108,14 @@ The driver keeps them as git data instead.
 - **Export:** `refs/fork-sync/resolution`, per rebase
 - **Shape:** one parentless commit, no workflows
 - **Contents:** resolved rerere, `fixups.mbox`
-- **Scope:** only this sync's stops
-- **Push:** the resolver, to `sync/resolution`
+- **Scope:** this sync's stops and every import
+- **Push:** rsi-pr-agent or a hand resolver
 - **Import:** each run, before the rebase
 - **Rerere:** joins rr-cache, never replacing
-- **Fixups:** `git am --3way` atop the rebase
+- **Fixups:** `git am --3way` atop a fresh rebase
 - **Fixup gate:** `Fork-Sync-Tag` is the target
+- **Kept worktree:** its own tip work wins
+- **Carry plus fixups:** refuses the run
 - **Refusal:** any other path fails the run
 
 The driver reads the branch as data only; nothing on it executes.

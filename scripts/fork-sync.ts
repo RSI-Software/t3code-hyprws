@@ -391,7 +391,7 @@ const WorktreeState = Schema.Struct({
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
   /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
   rebased: Schema.optionalKey(Schema.String),
-  /** The rerere ids every stop so far recorded, so the export carries exactly this sync's. */
+  /** The rerere ids to export: every stop's, plus every imported one, since a replay records none. */
   rerere: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
@@ -611,9 +611,9 @@ const withScratchIndex = <T>(
 };
 
 /**
- * Write `RESOLUTION_REF`: the resolved rerere entries this sync's stops
- * recorded, plus the tip commits above the finished rebase as `fixups.mbox`.
- * Nothing to carry deletes it.
+ * Write `RESOLUTION_REF`: the resolved rerere entries `state` names, plus the
+ * tip commits above the finished rebase as `fixups.mbox`. Nothing to carry
+ * deletes it.
  */
 const exportResolution = (
   runner: CommandRunner,
@@ -679,13 +679,25 @@ const exportResolution = (
   );
 };
 
+/** What `origin/sync/resolution` holds for this sync. */
+interface ImportedResolution {
+  /** Every imported rerere id: a stop one replays never reaches `MERGE_RR`, yet the next export needs it. */
+  readonly rerere: ReadonlyArray<string>;
+  /** The fixups mbox, only when made for this sync's tag. */
+  readonly fixups: string | null;
+}
+
 /**
  * Import `origin/sync/resolution` before the rebase: its rerere entries join
  * the local rr-cache without replacing one, and its fixups return only when
  * they were made for `tag`. Anything but rerere entries and the mbox refuses
  * the run: the branch is data an agent writes, never code the driver trusts.
  */
-const importResolution = (runner: CommandRunner, root: string, tag: string): string | null => {
+const importResolution = (
+  runner: CommandRunner,
+  root: string,
+  tag: string,
+): ImportedResolution | null => {
   const remoteRef = `refs/heads/${SYNC_RESOLUTION_BRANCH}`;
   const listed = gitResult(runner, root, ["ls-remote", "--exit-code", "origin", remoteRef]);
   if (listed.status === 2) return null;
@@ -723,35 +735,51 @@ const importResolution = (runner: CommandRunner, root: string, tag: string): str
   process.stdout.write(
     `sync: imported ${missing.length} rerere entr${missing.length === 1 ? "y" : "ies"} from origin/${SYNC_RESOLUTION_BRANCH}${fixups !== null && madeFor !== tag ? ` (fixups made for ${madeFor || "no tag"} skipped)` : ""}\n`,
   );
-  return fixups !== null && madeFor === tag
-    ? runRequire(runner, "git", ["cat-file", "blob", fixups], { cwd: root })
-    : null;
+  return {
+    rerere: [...new Set(rerere.map((path) => path.split("/")[1]!))],
+    fixups:
+      fixups !== null && madeFor === tag
+        ? runRequire(runner, "git", ["cat-file", "blob", fixups], { cwd: root })
+        : null,
+  };
 };
 
 /**
- * Apply the imported fixups above the finished rebase, as `applyCarry` does
- * the carry: a stopped `git am` stays for the operator to resolve and
- * `git add`; the rerun continues it. A HEAD above the rebase means tip work
- * already landed, so the mbox is not applied again.
+ * Apply the imported fixups above a rebase this run finished, as `applyCarry`
+ * does the carry: a stopped `git am` stays for the operator to resolve and
+ * `git add`; the rerun continues it. A worktree finished earlier keeps its own
+ * tip work, which the export then publishes; fixups meeting carried tip work
+ * refuse the run rather than pick one.
  */
 const applyFixups = (
   runner: CommandRunner,
   worktree: string,
   rebased: string,
+  finished: boolean,
   mbox: string | null,
 ): void => {
   const env = { ...process.env, GIT_EDITOR: "true" };
-  let spec: CommandSpec | null = null;
-  let args: ReadonlyArray<string> = [];
+  let spec: CommandSpec;
+  let args: ReadonlyArray<string>;
   if (NodeFS.existsSync(gitPath(runner, worktree, "rebase-apply"))) {
     args = ["am", "--continue"];
     spec = { cwd: worktree, env };
-  } else if (mbox !== null && git(runner, worktree, ["rev-parse", "HEAD"]) === rebased) {
+  } else if (mbox === null) {
+    return;
+  } else if (!finished) {
+    process.stdout.write(
+      `sync: fixups from origin/${SYNC_RESOLUTION_BRANCH} skipped: the kept worktree's tip work stands\n`,
+    );
+    return;
+  } else if (git(runner, worktree, ["rev-parse", "HEAD"]) !== rebased) {
+    throw new Error(
+      `${worktree} carries tip commits and origin/${SYNC_RESOLUTION_BRANCH} holds fixups; reset it to ${rebased.slice(0, 7)} or drop the branch, then rerun`,
+    );
+  } else {
     process.stdout.write(`sync: applying the fixups from origin/${SYNC_RESOLUTION_BRANCH}\n`);
     args = ["am", "--3way"];
     spec = { cwd: worktree, env, input: mbox };
   }
-  if (spec === null) return;
   const applied = runner.run("git", [...REBASE_CONFIG, ...args], spec);
   if (applied.status !== 0 || applied.error !== undefined)
     throw new Error(
@@ -1334,15 +1362,16 @@ export type SyncRebase = RebaseOutcome & {
  * A new worktree runs the repo's setup step before the rebase starts, so a
  * stop has dependencies. Each stop's rows persist beside the worktree as they
  * are recorded, so the run that finishes the rebase still reports them.
- * `fixups` (imported from `sync/resolution`) apply above a finished rebase,
- * and every outcome exports the resolution data for the next run.
+ * `imported` (from `sync/resolution`) joins the exported rerere ids, and its
+ * fixups apply above a rebase this run finishes; every outcome exports the
+ * resolution data for the next run.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
   oldSha: string,
-  fixups: string | null = null,
+  imported: ImportedResolution | null = null,
 ): SyncRebase => {
   const worktree = worktreePath(root);
   const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
@@ -1359,7 +1388,7 @@ export const rebaseOnto = (
   }
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
-  const rerere: string[] = [];
+  const rerere: string[] = [...(imported?.rerere ?? [])];
   let outcome: RebaseOutcome;
   try {
     outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere);
@@ -1378,11 +1407,12 @@ export const rebaseOnto = (
   }
   // Only the run that finishes the rebase records it: an adopted finished
   // worktree's HEAD already holds tip work above it.
+  const finished = state.rebased === undefined;
   const rebased = state.rebased ?? outcome.newSha;
   state = { ...state, rebased };
   writeWorktreeState(root, state);
   applyCarry(runner, root, worktree, rebased);
-  applyFixups(runner, worktree, rebased, fixups);
+  applyFixups(runner, worktree, rebased, finished, imported?.fixups ?? null);
   exportResolution(runner, root, worktree, state);
   return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
 };
