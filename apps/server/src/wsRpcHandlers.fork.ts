@@ -10,6 +10,7 @@ import * as CheckoutMoveFork from "./git/CheckoutMoveService.fork.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts";
 import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
+import * as ThreadGroups from "./orchestration-v2/ThreadGroupsService.fork.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 
 // The middleware only types the handlers; `RpcServer.make` runs upstream's full group, whose
@@ -23,6 +24,7 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
   const githubIssues = yield* GitHubIssueService.GitHubIssueService;
   const checkoutMoves = yield* CheckoutMoveFork.CheckoutMoveServiceFork;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const threadGroups = yield* ThreadGroups.ThreadGroupsServiceFork;
   return WsRpcGroupFork.of({
     ...gitHubIssueRpcHandlersFork(githubIssues, sql),
     ...CheckoutMoveFork.checkoutMoveRpcHandlersFork(checkoutMoves),
@@ -31,5 +33,7 @@ export const makeWsRpcHandlersFork = Effect.gen(function* () {
     "pullRequests.uploadAttachment": (input) => pullRequests.uploadAttachment(input),
     "pullRequests.subscribeActivityRefreshesFork": () =>
       pullRequests.subscribeActivityRefreshesFork,
+    "threadGroups.subscribeFork": () => threadGroups.changes,
+    "threadGroups.mutateFork": (mutation) => threadGroups.mutate(mutation),
   });
 });
