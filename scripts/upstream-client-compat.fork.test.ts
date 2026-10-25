@@ -432,11 +432,13 @@ describe("an upstream client reading a fork server", () => {
           githubIssues: true,
           threadIssues: true,
           githubIssueStateChange: true,
+          threadGroupsFork: true,
         },
       },
     );
     expect(decoded).toMatchObject({ capabilities: { repositoryIdentity: true } });
     expect(JSON.stringify(decoded)).not.toContain("githubIssues");
+    expect(JSON.stringify(decoded)).not.toContain("threadGroupsFork");
   });
 
   it("reads fork settings through their upstream slots, Worktrunk as a worktree", () => {
