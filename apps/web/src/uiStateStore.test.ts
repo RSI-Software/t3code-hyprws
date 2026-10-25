@@ -21,7 +21,6 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     sidebarProjectScopeKeys: [],
     threadOrderByProject: {},
-    threadGroups: [], // fork-hook: thread-ordering/group-state
     threadLastVisitedAtById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
@@ -117,7 +116,6 @@ describe("parsePersistedState", () => {
       projectOrder: ["physical-b", "physical-a"],
       // Fork state a parsed UiState always carries; see uiStateStore.fork.test.ts.
       threadOrderByProject: {},
-      threadGroups: [], // fork-hook: thread-ordering/group-state
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
