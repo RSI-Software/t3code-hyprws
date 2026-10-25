@@ -209,6 +209,21 @@ function settle(environmentId: EnvironmentId, editId: number) {
 }
 
 let nextEditId = 0;
+/**
+ * The last edit sent per environment. Each edit waits for the one before, so
+ * replies arrive in order and an older pending edit never replays over a
+ * newer answer.
+ */
+const sending = new Map<EnvironmentId, Promise<void>>();
+
+/** Whether these threads can be grouped: one environment that serves groups. */
+export function canGroupThreadsFork(threadKeys: readonly string[]): boolean {
+  const local = localThreadIds(threadKeys);
+  return (
+    local !== null &&
+    useThreadGroupStoreFork.getState().confirmed[local.environmentId] !== undefined
+  );
+}
 
 /** Shows the edit at once, then settles on the server's answer; false when nothing applied. */
 function mutate(environmentId: EnvironmentId, mutation: ThreadGroupMutationFork): boolean {
@@ -221,10 +236,12 @@ function mutate(environmentId: EnvironmentId, mutation: ThreadGroupMutationFork)
   update({
     pending: { ...state.pending, [environmentId]: [...(state.pending[environmentId] ?? []), edit] },
   });
-  void runAtomCommand(appAtomRegistry, threadGroupEnvironment.mutate, {
-    environmentId,
-    input: mutation,
-  }).then((settled) => {
+  const send = () =>
+    runAtomCommand(appAtomRegistry, threadGroupEnvironment.mutate, {
+      environmentId,
+      input: mutation,
+    });
+  const sent = (sending.get(environmentId) ?? Promise.resolve()).then(send).then((settled) => {
     if (settled._tag === "Success") confirm(environmentId, settled.value);
     settle(environmentId, edit.id);
     if (settled._tag === "Success" || isAtomCommandInterrupted(settled)) return;
@@ -235,6 +252,7 @@ function mutate(environmentId: EnvironmentId, mutation: ThreadGroupMutationFork)
       description: error instanceof Error ? error.message : String(error),
     });
   });
+  sending.set(environmentId, sent);
   return true;
 }
 

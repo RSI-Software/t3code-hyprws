@@ -1806,6 +1806,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     spans: activeThreadGroupSpans,
     threadByKey,
     setMembership: setThreadGroupMembership,
+    canGroup: (threadKey) => {
+      const thread = threadByKey.get(threadKey);
+      return (
+        thread !== undefined &&
+        threadGroupsFork.canGroupThreadsFork([threadKey]) &&
+        canOperateThreads([thread])
+      );
+    },
     requestTitle: requestThreadGroupTitle,
   }); // fork-hook: thread-ordering/group-drag
   const {
@@ -2107,7 +2115,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         count,
         eligible:
           selectedThreads.length === threadKeys.length &&
-          selectedThreads.every((thread) => activeThreads.includes(thread)), // fork-hook: thread-ordering/group-create-eligible
+          selectedThreads.every((thread) => activeThreads.includes(thread)) &&
+          threadGroupsFork.canGroupThreadsFork(threadKeys) &&
+          canOperateThreads(selectedThreads), // fork-hook: thread-ordering/group-create-eligible
       });
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
@@ -2500,9 +2510,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const activeThreadKeys = activeThreads.map((candidate) =>
           scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
         ); // fork-hook: thread-ordering/group-menu-state
-        const groups = activeThreadKeys.includes(threadKey)
-          ? threadGroupsFork.environmentThreadGroupsFork(threadGroups, thread.environmentId)
-          : []; // fork-hook: thread-ordering/group-menu-state
+        const groups =
+          activeThreadKeys.includes(threadKey) &&
+          threadGroupsFork.canGroupThreadsFork([threadKey]) &&
+          canOperateThreads([thread])
+            ? threadGroupsFork.environmentThreadGroupsFork(threadGroups, thread.environmentId)
+            : []; // fork-hook: thread-ordering/group-menu-state
         const currentGroup = groups.find((group) => group.threadIds.includes(threadKey));
         const membershipItems = buildThreadGroupMembershipContextMenuItems({
           groups,

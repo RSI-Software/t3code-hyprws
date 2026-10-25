@@ -38,13 +38,15 @@ export function useSidebarThreadGroupDragFork<T>(input: {
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
   ) => boolean;
+  /** False for a thread whose environment cannot group it here. */
+  readonly canGroup: (threadKey: string) => boolean;
   readonly requestTitle: (request: {
     readonly groupId: string;
     readonly members: readonly T[];
     readonly expectedGroup: Pick<SidebarThreadGroup, "title" | "threadIds">;
   }) => unknown;
 }) {
-  const { items, spans, threadByKey, setMembership, requestTitle } = input;
+  const { items, spans, threadByKey, setMembership, canGroup, requestTitle } = input;
   const tree = sidebarThreadGroupTreeFork({ items, spans });
   const [drag, setDrag] = useState<GroupDrag | null>(null);
   const dragRef = useRef<GroupDrag | null>(null);
@@ -72,7 +74,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   }, [activeId, originX, updateDrag]);
 
   const projection =
-    drag?.overId == null
+    drag?.overId == null || !canGroup(drag.activeId)
       ? null
       : projectSidebarThreadGroupDepthFork(tree, drag.activeId, drag.overId, drag.steps);
 
@@ -96,6 +98,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
     const current = dragRef.current;
     updateDrag(() => null);
     if (current === null || event.over === null || target === null) return;
+    if (!canGroup(String(event.active.id))) return;
     const released = projectSidebarThreadGroupDepthFork(
       tree,
       String(event.active.id),

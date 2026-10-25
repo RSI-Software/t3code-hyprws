@@ -2607,6 +2607,7 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
+              yield* (yield* LaunchedThreadPlacementFork)(threadId); // fork-hook: thread-ordering/mcp-launch-group
               // A receipt can appear after target resolution; use the committed thread's selection.
               const resolvedModelSelection = (yield* threadManagement
                 .getThreadRecords(threadId, [])
@@ -2671,7 +2672,6 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
-              yield* (yield* LaunchedThreadPlacementFork)(threadId); // fork-hook: thread-ordering/mcp-launch-group
               return {
                 threadId,
                 runId: run?.id ?? null,
