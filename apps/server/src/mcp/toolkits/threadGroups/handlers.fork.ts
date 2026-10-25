@@ -2,6 +2,7 @@
 // the launch hook that places agent-launched threads. Both act through
 // `ThreadGroupsServiceFork`, so every client sees the change live.
 import {
+  isThreadGroupErrorFork,
   OrchestratorMcpFailure,
   type ThreadId,
   type ThreadLaunchGroupFork,
@@ -11,7 +12,7 @@ import * as Option from "effect/Option";
 
 import * as ThreadGroups from "../../../orchestration-v2/ThreadGroupsService.fork.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { readCaller } from "../../threadAccess.ts";
+import { readCaller, unavailable } from "../../threadAccess.ts";
 import { ThreadGroupsToolkitFork } from "./tools.fork.ts";
 
 export const ThreadGroupsToolkitHandlersLiveFork = McpToolAccess.toLayer(ThreadGroupsToolkitFork, {
@@ -19,7 +20,7 @@ export const ThreadGroupsToolkitHandlersLiveFork = McpToolAccess.toLayer(ThreadG
     Effect.gen(function* () {
       const { caller } = yield* readCaller();
       const groups = yield* ThreadGroups.ThreadGroupsServiceFork;
-      return yield* groups.describe(yield* groups.snapshot, caller?.id);
+      return yield* groups.list(caller?.id).pipe(Effect.mapError(unavailable));
     }),
   ),
   t3_thread_group_update: McpToolAccess.writesThreads(
@@ -29,7 +30,11 @@ export const ThreadGroupsToolkitHandlersLiveFork = McpToolAccess.toLayer(ThreadG
         // Thread control, as for the other thread tools.
         const { caller } = yield* readCaller();
         const groups = yield* ThreadGroups.ThreadGroupsServiceFork;
-        return yield* groups.describe(yield* groups.mutate(edit), caller?.id);
+        return yield* groups
+          .edit(edit, caller?.id)
+          .pipe(
+            Effect.mapError((error) => (isThreadGroupErrorFork(error) ? error : unavailable())),
+          );
       }),
   ),
 });

@@ -6,10 +6,13 @@
 import {
   applyThreadGroupMutationFork,
   type ThreadGroupFork,
-  ThreadGroupErrorFork,
+  type ThreadGroupEditFork,
+  type ThreadGroupErrorFork,
   ThreadGroupFork as ThreadGroupForkSchema,
   type ThreadGroupMutationFork,
   type ThreadGroupsDescribedFork,
+  ThreadGroupUnknownGroupErrorFork,
+  ThreadGroupUnknownThreadErrorFork,
   type ThreadGroupsSnapshotFork,
   ThreadId,
   type ThreadLaunchGroupFork,
@@ -24,6 +27,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import type * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export class ThreadGroupsServiceFork extends Context.Service<
@@ -36,11 +40,21 @@ export class ThreadGroupsServiceFork extends Context.Service<
       mutation: ThreadGroupMutationFork,
     ) => Effect.Effect<ThreadGroupsSnapshotFork, ThreadGroupErrorFork>;
     readonly groupOf: (threadId: ThreadId) => Effect.Effect<ThreadGroupFork | undefined>;
-    /** Names each member as seen from `caller`; a thread deleted since it was grouped is left out. */
-    readonly describe: (
-      snapshot: ThreadGroupsSnapshotFork,
+    /**
+     * The groups as an agent reads them, with `caller`'s own group named. A
+     * thread deleted since it was grouped is left out.
+     */
+    readonly list: (
       caller: ThreadId | undefined,
-    ) => Effect.Effect<ThreadGroupsDescribedFork>;
+    ) => Effect.Effect<ThreadGroupsDescribedFork, Orchestrator.OrchestratorV2Error>;
+    /** An agent's edit, answered as `list` reads the result. */
+    readonly edit: (
+      edit: ThreadGroupEditFork,
+      caller: ThreadId | undefined,
+    ) => Effect.Effect<
+      ThreadGroupsDescribedFork,
+      ThreadGroupErrorFork | Orchestrator.OrchestratorV2Error
+    >;
     /**
      * Resolves where launched threads go before any exists, so an unknown group
      * creates nothing. The returned join never fails: the thread is already
@@ -131,7 +145,7 @@ const make = Effect.gen(function* () {
     if (mutation.type === "set-membership") {
       for (const threadId of mutation.threadIds) {
         if (!(yield* isLiveThread(threadId))) {
-          return yield* new ThreadGroupErrorFork({ reason: "unknown-thread", threadId });
+          return yield* new ThreadGroupUnknownThreadErrorFork({ threadId });
         }
       }
       return mutation;
@@ -172,9 +186,7 @@ const make = Effect.gen(function* () {
     caller: ThreadId | undefined,
   ) {
     const groups = yield* Effect.forEach(snapshot.groups, (group) =>
-      Effect.forEach(group.threadIds, (threadId) =>
-        threads.getThreadShell(threadId).pipe(Effect.orDie),
-      ).pipe(
+      Effect.forEach(group.threadIds, threads.getThreadShell).pipe(
         Effect.map((members) => ({
           id: group.id,
           title: group.title,
@@ -204,7 +216,7 @@ const make = Effect.gen(function* () {
     } else if (group !== "none") {
       const { groups } = yield* SubscriptionRef.get(ref);
       if (!groups.some((candidate) => candidate.id === group.groupId)) {
-        return yield* new ThreadGroupErrorFork({ reason: "unknown-group", groupId: group.groupId });
+        return yield* new ThreadGroupUnknownGroupErrorFork({ groupId: group.groupId });
       }
       groupId = group.groupId;
     }
@@ -217,14 +229,13 @@ const make = Effect.gen(function* () {
             target: { type: "existing", groupId },
           }).pipe(
             Effect.asVoid,
-            Effect.catchTags({
-              ThreadGroupErrorFork: (error) =>
-                Effect.logWarning("A launched thread was left out of its group", {
-                  groupId,
-                  threadId,
-                  reason: error.reason,
-                }),
-            }),
+            Effect.catch((error) =>
+              Effect.logWarning("A launched thread was left out of its group", {
+                groupId,
+                threadId,
+                error: error._tag,
+              }),
+            ),
           );
   });
 
@@ -233,7 +244,9 @@ const make = Effect.gen(function* () {
     changes: SubscriptionRef.changes(ref),
     mutate,
     groupOf,
-    describe,
+    list: (caller) =>
+      Effect.flatMap(SubscriptionRef.get(ref), (snapshot) => describe(snapshot, caller)),
+    edit: (edit, caller) => Effect.flatMap(mutate(edit), (snapshot) => describe(snapshot, caller)),
     prepareLaunch,
   });
 });
