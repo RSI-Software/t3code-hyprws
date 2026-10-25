@@ -107,6 +107,7 @@ Its title names the step and target, so reruns never rename it; its body carries
 
 The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
 Older matches close with a one-line pointer to the kept issue; only no match files a new one.
+A blocked run also adds `rsi:fork-sync` on create or rewrite, which starts rsi-pr-agent's `fork-sync` workflow; a failed run never does.
 A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
 A refused publication or close lands in the report and fails the run.
 Dry runs never publish or close issues.

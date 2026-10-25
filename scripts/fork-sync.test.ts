@@ -1488,7 +1488,7 @@ it("files one attention issue with the governed fields", () => {
   assert.strictEqual(value("--type"), "Notification 🔔");
   assert.deepStrictEqual(
     args.filter((argument, index) => args[index - 1] === "--label"),
-    ["ci"],
+    ["ci", "rsi:fork-sync"],
   );
   const list = recording.calls.find(
     ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "list",
@@ -1535,6 +1535,7 @@ it("edits the open issue in place when the rendered body drifts, never comments"
   assert.strictEqual(args[2], "11");
   const value = (name: string): string | undefined => args[args.indexOf(name) + 1];
   assert.strictEqual(value("--title"), "hyprws sync blocked at rebase (v1.0.0)");
+  assert.strictEqual(value("--add-label"), "rsi:fork-sync");
   assert.include(edits[0]!.body, blockingShaMarker("5".repeat(40)));
   assert.strictEqual(
     recording.calls.some(({ args }) => args[0] === "issue" && args[1] === "comment"),
@@ -1575,6 +1576,7 @@ it("rewrites the one standing issue for a new target and supersedes older open o
   const args = edits[0]!.args;
   assert.strictEqual(args[2], "12");
   assert.strictEqual(args[args.indexOf("--title") + 1], "hyprws sync failed at check (v1.1.0)");
+  assert.notInclude(args, "--add-label");
   const body = edits[0]!.body;
   assert.include(body, "Open since 2026-09-21 across 2 targets;");
   assert.include(body, "- 2026-09-22 · `v1.1.0` · check\n- 2026-09-21 · `v1.0.0` · check");
@@ -1664,10 +1666,10 @@ it("falls back to gh issue edit --type when gh rejects --type at create", () => 
   assert.strictEqual(typeEdit!.args[2], "44");
   const typeIndex = typeEdit!.args.indexOf("--type");
   assert.strictEqual(typeEdit!.args[typeIndex + 1], "Notification 🔔");
-  // still exactly one label on the landed create
+  // the same labels on the landed create
   assert.deepStrictEqual(
     creates[1]!.args.filter((argument, index) => creates[1]!.args[index - 1] === "--label"),
-    ["ci"],
+    ["ci", "rsi:fork-sync"],
   );
 });
 
