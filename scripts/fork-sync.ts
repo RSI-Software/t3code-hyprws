@@ -76,6 +76,7 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
   SYNC_CANDIDATE_BRANCH,
+  SYNC_RESOLUTION_BRANCH,
 } from "./lib/fork-policy.ts";
 import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
@@ -390,6 +391,8 @@ const WorktreeState = Schema.Struct({
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
   /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
   rebased: Schema.optionalKey(Schema.String),
+  /** The rerere ids every stop so far recorded, so the export carries exactly this sync's. */
+  rerere: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -555,6 +558,205 @@ const applyCarry = (
 const dropWorktree = (runner: CommandRunner, root: string): void => {
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
   gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+};
+
+/**
+ * Resolutions outlive the runner as git data: every CI run starts on a fresh
+ * clone, so `.git/rr-cache` and the tip fixups die with it. Each rebase writes
+ * them to one parentless commit at `RESOLUTION_REF`; whoever resolved a stop
+ * pushes that commit to `sync/resolution`, and the next run imports it before
+ * it rebases. The import treats the branch purely as data: it accepts only
+ * rerere entries and one mbox, and nothing in it ever executes.
+ */
+const RESOLUTION_REF = "refs/fork-sync/resolution";
+const RESOLUTION_REMOTE_REF = `refs/remotes/origin/${SYNC_RESOLUTION_BRANCH}`;
+const RESOLUTION_TAG_TRAILER = "Fork-Sync-Tag";
+const FIXUPS_FILE = "fixups.mbox";
+const RERERE_PATH = /^rr-cache\/[0-9a-f]{40,64}\/(?:pre|post)image(?:\.\d+)?$/;
+
+const gitPath = (runner: CommandRunner, cwd: string, name: string): string =>
+  git(runner, cwd, ["rev-parse", "--path-format=absolute", "--git-path", name]);
+
+/** The rerere ids the current stop recorded (`MERGE_RR` holds `<id>[.<n>]\t<path>\0`). */
+const stopRerereIds = (runner: CommandRunner, worktree: string): ReadonlyArray<string> => {
+  let entries: string;
+  try {
+    entries = NodeFS.readFileSync(gitPath(runner, worktree, "MERGE_RR"), "utf8");
+  } catch {
+    return [];
+  }
+  return entries.split("\0").flatMap((entry) => entry.match(/^([0-9a-f]+)(?:\.\d+)?\t/)?.[1] ?? []);
+};
+
+/** Run git against a scratch index, so building or reading a tree never touches a checkout's. */
+const withScratchIndex = <T>(
+  runner: CommandRunner,
+  root: string,
+  effect: (gitIndexed: (args: ReadonlyArray<string>, input?: string) => string) => T,
+): T => {
+  const index = gitPath(runner, root, "fork-sync-resolution.index");
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  NodeFS.rmSync(index, { force: true });
+  try {
+    return effect((args, input) =>
+      runRequire(runner, "git", args, {
+        cwd: root,
+        env,
+        ...(input === undefined ? {} : { input }),
+      }),
+    );
+  } finally {
+    NodeFS.rmSync(index, { force: true });
+  }
+};
+
+/**
+ * Write `RESOLUTION_REF`: the resolved rerere entries this sync's stops
+ * recorded, plus the tip commits above the finished rebase as `fixups.mbox`.
+ * Nothing to carry deletes it.
+ */
+const exportResolution = (
+  runner: CommandRunner,
+  root: string,
+  worktree: string,
+  state: WorktreeState,
+): void => {
+  const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  // Only resolved entries: an id with no postimage is a stop still waiting.
+  const files = (state.rerere ?? []).flatMap((id) => {
+    let names: ReadonlyArray<string>;
+    try {
+      names = NodeFS.readdirSync(NodePath.join(commonDir, "rr-cache", id));
+    } catch {
+      return [];
+    }
+    if (!names.some((name) => name.startsWith("postimage"))) return [];
+    return names.map((name) => `rr-cache/${id}/${name}`).filter((path) => RERERE_PATH.test(path));
+  });
+  const shas =
+    files.length === 0
+      ? []
+      : lines(
+          git(runner, root, [
+            "hash-object",
+            "-w",
+            "--",
+            ...files.map((path) => NodePath.join(commonDir, path)),
+          ]),
+        );
+  const entries = files.map((path, index) => `100644 ${shas[index]}\t${path}`);
+  if (
+    state.rebased !== undefined &&
+    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status === 0
+  ) {
+    const mbox = runRequire(runner, "git", ["format-patch", "--stdout", `${state.rebased}..HEAD`], {
+      cwd: worktree,
+    });
+    if (mbox !== "")
+      entries.push(
+        `100644 ${runRequire(runner, "git", ["hash-object", "-w", "--stdin"], { cwd: root, input: mbox }).trim()}\t${FIXUPS_FILE}`,
+      );
+  }
+  if (entries.length === 0) {
+    gitAllow(runner, root, ["update-ref", "-d", RESOLUTION_REF]);
+    return;
+  }
+  const tree = withScratchIndex(runner, root, (gitIndexed) => {
+    gitIndexed(["update-index", "--add", "--index-info"], `${entries.join("\n")}\n`);
+    return gitIndexed(["write-tree"]).trim();
+  });
+  const commit = git(runner, root, [
+    "commit-tree",
+    tree,
+    "-m",
+    `fork-sync resolution for ${state.tag}`,
+    "-m",
+    `${RESOLUTION_TAG_TRAILER}: ${state.tag}`,
+  ]);
+  git(runner, root, ["update-ref", RESOLUTION_REF, commit]);
+  process.stdout.write(
+    `sync: resolution data at ${RESOLUTION_REF} (${commit.slice(0, 7)}); push it to ${SYNC_RESOLUTION_BRANCH} to carry it to the next run\n`,
+  );
+};
+
+/**
+ * Import `origin/sync/resolution` before the rebase: its rerere entries join
+ * the local rr-cache without replacing one, and its fixups return only when
+ * they were made for `tag`. Anything but rerere entries and the mbox refuses
+ * the run: the branch is data an agent writes, never code the driver trusts.
+ */
+const importResolution = (runner: CommandRunner, root: string, tag: string): string | null => {
+  const remoteRef = `refs/heads/${SYNC_RESOLUTION_BRANCH}`;
+  const listed = gitResult(runner, root, ["ls-remote", "--exit-code", "origin", remoteRef]);
+  if (listed.status === 2) return null;
+  if (listed.status !== 0 || listed.error !== undefined)
+    throw new Error(
+      `git ls-remote origin ${remoteRef} failed: ${listed.stderr.trim() || listed.error?.message || "no output"}`,
+    );
+  git(runner, root, ["fetch", "--no-tags", "origin", `+${remoteRef}:${RESOLUTION_REMOTE_REF}`]);
+  const entries = lines(git(runner, root, ["ls-tree", "-r", "--full-tree", RESOLUTION_REMOTE_REF]));
+  const rerere: string[] = [];
+  let fixups: string | null = null;
+  for (const entry of entries) {
+    const match = /^100644 blob ([0-9a-f]+)\t(.+)$/.exec(entry);
+    const path = match?.[2] ?? entry;
+    if (match !== null && RERERE_PATH.test(path)) rerere.push(path);
+    else if (match !== null && path === FIXUPS_FILE) fixups = match[1] ?? null;
+    else
+      throw new Error(
+        `origin/${SYNC_RESOLUTION_BRANCH} holds ${path}, which is not resolution data; only rr-cache entries and ${FIXUPS_FILE} import`,
+      );
+  }
+  const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const missing = rerere.filter((path) => !NodeFS.existsSync(NodePath.join(commonDir, path)));
+  if (missing.length > 0)
+    withScratchIndex(runner, root, (gitIndexed) => {
+      gitIndexed(["read-tree", RESOLUTION_REMOTE_REF]);
+      gitIndexed(["checkout-index", `--prefix=${commonDir}/`, "--", ...missing]);
+    });
+  const madeFor = git(runner, root, [
+    "log",
+    "-1",
+    `--format=%(trailers:key=${RESOLUTION_TAG_TRAILER},valueonly)`,
+    RESOLUTION_REMOTE_REF,
+  ]);
+  process.stdout.write(
+    `sync: imported ${missing.length} rerere entr${missing.length === 1 ? "y" : "ies"} from origin/${SYNC_RESOLUTION_BRANCH}${fixups !== null && madeFor !== tag ? ` (fixups made for ${madeFor || "no tag"} skipped)` : ""}\n`,
+  );
+  return fixups !== null && madeFor === tag
+    ? runRequire(runner, "git", ["cat-file", "blob", fixups], { cwd: root })
+    : null;
+};
+
+/**
+ * Apply the imported fixups above the finished rebase, as `applyCarry` does
+ * the carry: a stopped `git am` stays for the operator to resolve and
+ * `git add`; the rerun continues it. A HEAD above the rebase means tip work
+ * already landed, so the mbox is not applied again.
+ */
+const applyFixups = (
+  runner: CommandRunner,
+  worktree: string,
+  rebased: string,
+  mbox: string | null,
+): void => {
+  const env = { ...process.env, GIT_EDITOR: "true" };
+  let spec: CommandSpec | null = null;
+  let args: ReadonlyArray<string> = [];
+  if (NodeFS.existsSync(gitPath(runner, worktree, "rebase-apply"))) {
+    args = ["am", "--continue"];
+    spec = { cwd: worktree, env };
+  } else if (mbox !== null && git(runner, worktree, ["rev-parse", "HEAD"]) === rebased) {
+    process.stdout.write(`sync: applying the fixups from origin/${SYNC_RESOLUTION_BRANCH}\n`);
+    args = ["am", "--3way"];
+    spec = { cwd: worktree, env, input: mbox };
+  }
+  if (spec === null) return;
+  const applied = runner.run("git", [...REBASE_CONFIG, ...args], spec);
+  if (applied.status !== 0 || applied.error !== undefined)
+    throw new Error(
+      `a fixup from origin/${SYNC_RESOLUTION_BRANCH} stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
+    );
 };
 
 /**
@@ -942,7 +1144,8 @@ export const refuseDroppedLinks = (
  * block again and resolved ones continue; a finished HEAD is taken as the
  * rebased tip as long as it contains the target.
  *
- * `conflicts` collects this run's rows as they happen; `rebaseOnto` owns it.
+ * `conflicts` collects this run's rows and `rerere` each stop's rerere ids as
+ * they happen; `rebaseOnto` owns both.
  */
 const replayOnto = (
   runner: CommandRunner,
@@ -951,6 +1154,7 @@ const replayOnto = (
   oldSha: string,
   adopted: boolean,
   conflicts: ConflictRow[],
+  rerere: string[],
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
   // The fork stack above `target` sits on this upstream commit — for a normal
@@ -1013,6 +1217,7 @@ const replayOnto = (
       throw new Error(
         `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}`,
       );
+    rerere.push(...stopRerereIds(runner, worktree));
     const forkCommit = git(runner, worktree, ["rev-parse", "REBASE_HEAD"]);
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
@@ -1129,12 +1334,15 @@ export type SyncRebase = RebaseOutcome & {
  * A new worktree runs the repo's setup step before the rebase starts, so a
  * stop has dependencies. Each stop's rows persist beside the worktree as they
  * are recorded, so the run that finishes the rebase still reports them.
+ * `fixups` (imported from `sync/resolution`) apply above a finished rebase,
+ * and every outcome exports the resolution data for the next run.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
   oldSha: string,
+  fixups: string | null = null,
 ): SyncRebase => {
   const worktree = worktreePath(root);
   const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
@@ -1151,20 +1359,31 @@ export const rebaseOnto = (
   }
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
+  const rerere: string[] = [];
   let outcome: RebaseOutcome;
   try {
-    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts);
+    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere);
   } finally {
-    state = { ...state, conflicts: mergeStops(carried, conflicts) };
+    state = {
+      ...state,
+      conflicts: mergeStops(carried, conflicts),
+      rerere: [...new Set([...(state.rerere ?? []), ...rerere])],
+    };
     writeWorktreeState(root, state);
   }
   const recorded = mergeStops(carried, outcome.conflicts);
-  if (outcome.status === "blocked") return { ...outcome, recorded };
+  if (outcome.status === "blocked") {
+    exportResolution(runner, root, worktree, state);
+    return { ...outcome, recorded };
+  }
   // Only the run that finishes the rebase records it: an adopted finished
   // worktree's HEAD already holds tip work above it.
   const rebased = state.rebased ?? outcome.newSha;
-  writeWorktreeState(root, { ...state, rebased });
+  state = { ...state, rebased };
+  writeWorktreeState(root, state);
   applyCarry(runner, root, worktree, rebased);
+  applyFixups(runner, worktree, rebased, fixups);
+  exportResolution(runner, root, worktree, state);
   return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
 };
 
@@ -1958,7 +2177,13 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // rebase
     step = "rebase";
-    const rebase = rebaseOnto(runner, root, target, expectedOld);
+    const rebase = rebaseOnto(
+      runner,
+      root,
+      target,
+      expectedOld,
+      importResolution(runner, root, target.tag),
+    );
 
     if (rebase.status === "blocked") {
       // This run's rows: earlier stops' manual paths are already resolved.

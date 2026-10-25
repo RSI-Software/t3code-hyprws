@@ -95,7 +95,7 @@ The expected-old lease lost; someone landed first.
 
 ## Unblock
 
-The driver resolves every seam it can: local rerere replays resolutions within the run's rebase, and hook re-apply re-inserts marked fork hooks.
+The driver resolves every seam it can: rerere replays resolutions from this rebase and [`sync/resolution`](#job-mode), and hook re-apply re-inserts marked fork hooks.
 Only a `manual` row stops the run.
 
 In the rebase, resolve minimally: upstream's text stands, and a marked fork hook goes back verbatim.
@@ -142,6 +142,31 @@ The body keeps its open-since date, target count, and last five runs; a clean ru
 2. `git rebase --abort` if one is in progress.
 3. `git reset --hard <sha>`.
 4. Rerun `vp run fork:sync <tag>`.
+
+## Job mode
+
+A job resolves a blocked sync without writing the trunk or the candidate.
+It hands its resolutions to the next run as data on `sync/resolution`.
+
+1. Run `vp run fork:sync <tag> --dry-run`
+2. Resolve `manual` paths per [Conflict](#conflict)
+3. `git add` them in the kept worktree; rerun
+4. Repeat until the rebase finishes
+5. Commit tip adaptation there; rerun once
+6. `git update-ref --no-deref HEAD refs/fork-sync/resolution`
+7. Push HEAD to `sync/resolution`
+
+Every rebase rewrites `refs/fork-sync/resolution` before `ci`, so a `ci` failure in the job is expected.
+It is one parentless commit:
+
+```text
+rr-cache/<id>/preimage   one per resolved stop
+rr-cache/<id>/postimage
+fixups.mbox              tip commits above the rebase
+```
+
+The next run imports it before it rebases: rerere replays each stop, and the fixups apply when its `Fork-Sync-Tag` matches.
+Anything else on the branch fails the run.
 
 ## Never
 

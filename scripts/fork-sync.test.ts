@@ -324,6 +324,66 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
   );
 });
 
+it("carries a hand resolution and its fixups to a fresh runner through sync/resolution", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      const resolve = (): number =>
+        capture(() => run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root })).value;
+      assert.strictEqual(resolve(), 1);
+      NodeFS.writeFileSync(
+        NodePath.join(f.worktree, "shared.txt"),
+        "line1\nline2 resolved\nline3\n",
+      );
+      f.git(["add", "shared.txt"], f.worktree);
+      assert.strictEqual(resolve(), 0);
+      NodeFS.writeFileSync(NodePath.join(f.worktree, "fix.txt"), "fix\n");
+      f.git(["add", "fix.txt"], f.worktree);
+      f.git(["commit", "--quiet", "-m", "fix: the candidate needs this"], f.worktree);
+      assert.strictEqual(resolve(), 0);
+
+      // the export: one parentless commit of rerere entries and the fixups
+      const exported = "refs/fork-sync/resolution";
+      assert.strictEqual(f.git(["rev-list", "--count", exported], f.root), "1");
+      assert.match(
+        f.git(["ls-tree", "-r", "--name-only", exported], f.root),
+        /^fixups\.mbox\nrr-cache\/[0-9a-f]+\/postimage\nrr-cache\/[0-9a-f]+\/preimage$/,
+      );
+      assert.strictEqual(
+        f.git(["log", "-1", "--format=%(trailers:key=Fork-Sync-Tag,valueonly)", exported], f.root),
+        "v1.0.0",
+      );
+      f.git(["push", "--quiet", "origin", `${exported}:refs/heads/sync/resolution`], f.root);
+
+      // a fresh runner: no worktree, no state, no rr-cache
+      f.git(["worktree", "remove", "--force", f.worktree], f.root);
+      NodeFS.rmSync(NodePath.join(f.root, ".t3", "fork-sync", "worktree.json"));
+      NodeFS.rmSync(NodePath.join(f.root, ".git", "rr-cache"), { recursive: true });
+      assert.strictEqual(resolve(), 0);
+      const tip = readReport(f.root, "v1.0.0").trunk.after!;
+      assert.strictEqual(
+        f.git(["show", `${tip}:shared.txt`], f.root),
+        "line1\nline2 resolved\nline3",
+      );
+      assert.strictEqual(
+        f.git(["log", "-1", "--format=%s", tip], f.root),
+        "fix: the candidate needs this",
+      );
+
+      // the branch is data only: a tree of anything else refuses the run
+      f.git(["push", "--quiet", "--force", "origin", "hyprws:refs/heads/sync/resolution"], f.root);
+      assert.strictEqual(resolve(), 1);
+      assert.match(
+        readReport(f.root, "v1.0.0").error ?? "",
+        /sync\/resolution holds shared\.txt, which is not resolution data/,
+      );
+    },
+  );
+});
+
 it("runs the repo's worktree setup once, so the first stop already has its dependencies", () => {
   withFixture(
     {
