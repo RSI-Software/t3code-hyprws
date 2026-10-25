@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { useUiStateStore, type SidebarThreadGroup } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../state/threadGroups";
+import { useUiStateStore } from "../uiStateStore";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";

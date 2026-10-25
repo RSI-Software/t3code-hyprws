@@ -1,8 +1,11 @@
 import type { DragEndEvent, DragMoveEvent, DragOverEvent } from "@dnd-kit/core";
 import { useEffect, useRef, useState } from "react";
 
-import { randomUUID } from "~/lib/utils";
-import type { SidebarThreadGroup, SidebarThreadGroupMembershipTarget } from "../uiStateStore";
+import {
+  newThreadGroupKeyFork,
+  type SidebarThreadGroup,
+  type SidebarThreadGroupMembershipTarget,
+} from "../state/threadGroups";
 import type { SidebarDropTarget, SidebarListItem } from "./Sidebar.logic";
 import type { SidebarThreadGroupSpan } from "./SidebarThreadGroup.markers";
 import {
@@ -32,7 +35,6 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   readonly spans: readonly SidebarThreadGroupSpan<T>[];
   readonly threadByKey: ReadonlyMap<string, T>;
   readonly setMembership: (
-    order: readonly string[],
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
   ) => void;
@@ -101,12 +103,12 @@ export function useSidebarThreadGroupDragFork<T>(input: {
       current.steps,
     );
     if (released === null) return;
-    const drop = resolveSidebarThreadGroupDropFork(tree, released, () => ({
-      id: randomUUID(),
+    const drop = resolveSidebarThreadGroupDropFork(tree, released, (firstThreadKey) => ({
+      id: newThreadGroupKeyFork(firstThreadKey),
       title: "New group",
     }));
     if (drop === null) return;
-    setMembership(target.activeOrder, drop.threadIds, drop.target);
+    setMembership(drop.threadIds, drop.target);
     if (drop.target.kind !== "new") return;
     const members = drop.threadIds.flatMap((key) => threadByKey.get(key) ?? []);
     void requestTitle({

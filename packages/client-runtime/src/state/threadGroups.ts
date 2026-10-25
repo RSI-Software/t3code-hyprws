@@ -1,4 +1,4 @@
-import type { ThreadGroupTitleGenerationInput } from "@t3tools/contracts";
+import { type ThreadGroupTitleGenerationInput, WS_METHODS } from "@t3tools/contracts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -7,7 +7,11 @@ import { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
-import { createEnvironmentCommand } from "./runtime.ts";
+import {
+  createEnvironmentCommand,
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcSubscriptionAtomFamily,
+} from "./runtime.ts";
 import { ThreadGroupTitleLoader } from "./threadGroupTitleHttp.ts";
 
 export { ThreadGroupTitleLoader, threadGroupTitleLoaderLayer } from "./threadGroupTitleHttp.ts";
@@ -21,6 +25,15 @@ export function createThreadGroupEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | ThreadGroupTitleLoader | R, E>,
 ) {
   return {
+    /** The environment's groups (fork), then one snapshot per committed change. */
+    groups: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:thread-groups:subscribe",
+      tag: WS_METHODS.threadGroupsSubscribeFork,
+    }),
+    mutate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:thread-groups:mutate",
+      tag: WS_METHODS.threadGroupsMutateFork,
+    }),
     generateTitle: createEnvironmentCommand(runtime, {
       label: "environment-data:thread-groups:generate-title",
       execute: Effect.fn("threadGroups.execute")(function* (

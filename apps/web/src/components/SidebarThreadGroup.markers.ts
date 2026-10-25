@@ -1,4 +1,4 @@
-import type { SidebarThreadGroup } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../state/threadGroups";
 import type { SidebarListItem, SidebarListMarker } from "./Sidebar.logic";
 
 // A thread group is a span of the sidebar's one sortable list: a header

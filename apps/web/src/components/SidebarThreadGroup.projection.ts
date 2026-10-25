@@ -1,6 +1,6 @@
 import { arrayMove } from "@dnd-kit/sortable";
 
-import type { SidebarThreadGroup, SidebarThreadGroupMembershipTarget } from "../uiStateStore";
+import type { SidebarThreadGroup, SidebarThreadGroupMembershipTarget } from "../state/threadGroups";
 import {
   resolveSidebarDropTarget,
   sidebarListItemId,
@@ -208,7 +208,8 @@ export interface SidebarThreadGroupDrop {
 export function resolveSidebarThreadGroupDropFork(
   tree: SidebarThreadGroupTree,
   projection: SidebarThreadGroupProjection,
-  newGroup: () => Pick<SidebarThreadGroup, "id" | "title">,
+  /** Names a new group, in the environment of its first thread. */
+  newGroup: (firstThreadKey: string) => Pick<SidebarThreadGroup, "id" | "title">,
 ): SidebarThreadGroupDrop | null {
   if (projection.refused) return null;
   const active = tree.nodes.get(projection.activeId);
@@ -220,7 +221,7 @@ export function resolveSidebarThreadGroupDropFork(
   if (parent.kind === "thread")
     return {
       threadIds: [parent.key, projection.activeId],
-      target: { kind: "new", group: newGroup() },
+      target: { kind: "new", group: newGroup(parent.key) },
     };
   const groupId = parent.group.id;
   if (projection.asParent)
