@@ -31,6 +31,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import { ThreadLaunchGroupFork } from "@t3tools/contracts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 const shared = {
   success: Project,
@@ -126,6 +127,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
       }),
     ),
     attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
+    group: Schema.optional(ThreadLaunchGroupFork), // fork-hook: thread-ordering/mcp-launch-group
   }),
   success: Schema.Struct({
     threadId: ThreadId,
