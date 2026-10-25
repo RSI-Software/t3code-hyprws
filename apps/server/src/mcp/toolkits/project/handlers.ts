@@ -27,6 +27,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
+import { placeLaunchedThreadsFork, prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 function projectFailure(error: Project.ProjectServiceError) {
   if (error._tag === "ProjectOperationError") return unavailable();
@@ -208,6 +209,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 Effect.orElseSucceed(() => runtimeMode),
               )
             : runtimeMode;
+        const joinGroup = yield* prepareLaunchGroupFork(caller?.id, input.group); // fork-hook: thread-ordering/mcp-launch-group
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,
@@ -248,6 +250,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             }
             return unavailable();
           }),
+          placeLaunchedThreadsFork(joinGroup), // fork-hook: thread-ordering/mcp-launch-group
         );
         const thread = result.projection.thread;
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);

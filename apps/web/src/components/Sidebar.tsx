@@ -111,8 +111,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isMacPlatform } from "~/lib/utils";
-import { randomUUID } from "~/lib/utils"; // fork-hook: thread-ordering/group-id-import
-import { threadGroupEnvironment } from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
+import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
 import {
   SidebarThreadGroupDropLayerFork,
   SidebarThreadGroupFoldFork,
@@ -134,7 +133,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
-import type { SidebarThreadGroup } from "../uiStateStore"; // fork-hook: thread-ordering/sidebar-thread-group-import
+import type { SidebarThreadGroup } from "../state/threadGroups"; // fork-hook: thread-ordering/sidebar-thread-group-import
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -919,8 +918,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectScopeItems,
   } = useSidebarLookups();
   const delegatedUnderParent = useDelegatedUnderParent();
-  const threadGroups = useUiStateStore((store) => store.threadGroups); // fork-hook: thread-ordering/group-state
-  const setThreadGroupParent = useUiStateStore((store) => store.setThreadGroupParent); // fork-hook: thread-ordering/group-state
+  const threadGroups = threadGroupsFork.useThreadGroupStoreFork((store) => store.threadGroups); // fork-hook: thread-ordering/group-state
+  const {
+    setThreadGroupMembership,
+    renameThreadGroup,
+    setThreadGroupCollapsed,
+    setThreadGroupParent,
+    removeThreadGroup,
+    threadGroupEnvironment,
+  } = threadGroupsFork; // fork-hook: thread-ordering/group-state
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2025,6 +2031,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     spans: activeThreadGroupSpans,
     threadByKey,
     setMembership: setThreadGroupMembership,
+    canGroup: (threadKeys, groupKey) => {
+      const threads = threadKeys.flatMap((key) => threadByKey.get(key) ?? []);
+      return (
+        threads.length === threadKeys.length &&
+        threadGroupsFork.canGroupThreadsFork(threadKeys, groupKey) &&
+        canOperateThreads(threads)
+      );
+    },
     requestTitle: requestThreadGroupTitle,
   }); // fork-hook: thread-ordering/group-drag
   const {
@@ -2403,6 +2417,28 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (clicked.value === "create-thread-group") {
+        const selectedKeys = new Set(threadKeys);
+        const members = activeThreads.filter((thread) =>
+          selectedKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+        );
+        if (members.length < 2) return;
+        const memberKeys = members.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        const newGroup = {
+          id: threadGroupsFork.newThreadGroupKeyFork(memberKeys[0]!),
+          title: "New group",
+        };
+        if (!setThreadGroupMembership(memberKeys, { kind: "new", group: newGroup })) return;
+        clearSelection();
+        void requestThreadGroupTitle({
+          groupId: newGroup.id,
+          members,
+          expectedGroup: { title: newGroup.title, threadIds: memberKeys },
+        });
+        return;
+      } // fork-hook: thread-ordering/group-create
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -2689,7 +2725,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const activeThreadKeys = activeThreads.map((candidate) =>
           scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
         ); // fork-hook: thread-ordering/group-menu-state
-        const groups = activeThreadKeys.includes(threadKey) ? threadGroups : []; // fork-hook: thread-ordering/group-menu-state
+        const groups =
+          activeThreadKeys.includes(threadKey) &&
+          threadGroupsFork.canGroupThreadsFork([threadKey]) &&
+          canOperateThreads([thread])
+            ? threadGroupsFork.environmentThreadGroupsFork(threadGroups, thread.environmentId)
+            : []; // fork-hook: thread-ordering/group-menu-state
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2736,8 +2777,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (clicked.value === "move-out-of-group") {
-          // Group membership is local UI state, so it stays available without the operate scope.
-          setThreadGroupMembership(activeThreadKeys, [threadKey], { kind: "none" }); // fork-hook: thread-ordering/group-menu-action
+          setThreadGroupMembership([threadKey], { kind: "none" }); // fork-hook: thread-ordering/group-menu-action
           return;
         }
         if (currentGroup && clicked.value === "set-group-parent") {
@@ -3580,6 +3620,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             >
                               <SidebarThreadGroupHeader
                                 group={span.group}
+                                canEdit={
+                                  threadGroupsFork.canGroupThreadsFork(span.group.threadIds) &&
+                                  canOperateThreads(span.threads)
+                                }
                                 memberCount={span.threads.length}
                                 isGenerating={generatingGroupIds.has(span.groupKey)}
                                 isDissolving={
