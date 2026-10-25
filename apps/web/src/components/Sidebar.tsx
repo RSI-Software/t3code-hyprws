@@ -2200,15 +2200,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const memberKeys = members.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
-        clearSelection();
         const newGroup = {
           id: threadGroupsFork.newThreadGroupKeyFork(memberKeys[0]!),
           title: "New group",
         };
-        setThreadGroupMembership(memberKeys, {
-          kind: "new",
-          group: newGroup,
-        });
+        if (!setThreadGroupMembership(memberKeys, { kind: "new", group: newGroup })) return;
+        clearSelection();
         void requestThreadGroupTitle({
           groupId: newGroup.id,
           members,

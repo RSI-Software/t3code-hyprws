@@ -8,7 +8,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import { threadWorkHandlersFork } from "./threadWork.fork.ts"; // fork-hook: device-auth/mcp-thread-work
-import { prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
+import { placeLaunchedThreadsFork, prepareLaunchGroupFork } from "../threadGroups/handlers.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 
 const handlers = {
   orchestrator_capabilities: McpToolAccess.reads((input) =>
@@ -101,9 +101,7 @@ const handlers = {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       const joinGroup = yield* prepareLaunchGroupFork(scope.thread?.threadId, input.group); // fork-hook: thread-ordering/mcp-launch-group
-      return yield* service
-        .createThreads(scope, input)
-        .pipe(Effect.tap(({ threads }) => joinGroup(threads))); // fork-hook: thread-ordering/mcp-launch-group
+      return yield* service.createThreads(scope, input).pipe(placeLaunchedThreadsFork(joinGroup)); // fork-hook: thread-ordering/mcp-launch-group
     }),
   ),
   t3_thread_list: McpToolAccess.reads((input) =>

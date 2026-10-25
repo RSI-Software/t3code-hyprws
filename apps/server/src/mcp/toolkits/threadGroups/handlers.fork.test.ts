@@ -9,10 +9,7 @@ import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 import { McpServer } from "effect/ai";
 
-import {
-  ThreadGroupsServiceFork,
-  threadGroupsServiceLiveFork,
-} from "../../../orchestration-v2/ThreadGroupsService.fork.ts";
+import * as ThreadGroups from "../../../orchestration-v2/ThreadGroupsService.fork.ts";
 import { ensureForkSchema } from "../../../persistence/ForkSchema.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -39,7 +36,7 @@ const invocation: McpInvocationContext.McpInvocationScope = {
 };
 
 // Every thread is live and titled by its id; each test gets a fresh database.
-const services = threadGroupsServiceLiveFork.pipe(
+const services = ThreadGroups.layer.pipe(
   Layer.provide(Layer.effectDiscard(ensureForkSchema())),
   Layer.provideMerge(
     Layer.mergeAll(
@@ -65,7 +62,7 @@ const call = <Name extends keyof typeof ThreadGroupsToolkitFork.tools>(
     Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
   );
 
-const startGroup = ThreadGroupsServiceFork.pipe(
+const startGroup = ThreadGroups.ThreadGroupsServiceFork.pipe(
   Effect.flatMap((groups) =>
     groups.mutate({
       type: "set-membership",
@@ -102,19 +99,22 @@ it.effect("agents move threads into the caller's group and list it by name", () 
 it.effect("launches join the caller's group by default and refuse an unknown group", () =>
   Effect.gen(function* () {
     yield* startGroup;
-    const groups = yield* ThreadGroupsServiceFork;
+    const groups = yield* ThreadGroups.ThreadGroupsServiceFork;
     const ungrouped = yield* prepareLaunchGroupFork(orchestrator, "none");
-    yield* ungrouped([{ threadId: second }]);
+    yield* ungrouped(second);
     assert.strictEqual(yield* groups.groupOf(second), undefined);
 
     const joinCaller = yield* prepareLaunchGroupFork(orchestrator, undefined);
-    const rolledBack = ThreadId.make("rolled-back");
-    yield* joinCaller([{ threadId: second }, { threadId: rolledBack, status: "rolled_back" }]);
+    yield* joinCaller(second);
     assert.deepStrictEqual((yield* groups.groupOf(second))?.threadIds, [
       orchestrator,
       first,
       second,
     ]);
+    // The thread already exists, so a group removed mid-launch must not fail it.
+    yield* groups.mutate({ type: "remove", groupId: "g1" });
+    yield* joinCaller(first);
+    assert.strictEqual(yield* groups.groupOf(first), undefined);
 
     const unknown = yield* prepareLaunchGroupFork(orchestrator, { groupId: "gone" }).pipe(
       Effect.exit,

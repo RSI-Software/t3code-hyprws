@@ -37,7 +37,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
   readonly setMembership: (
     threadIds: readonly string[],
     target: SidebarThreadGroupMembershipTarget,
-  ) => void;
+  ) => boolean;
   readonly requestTitle: (request: {
     readonly groupId: string;
     readonly members: readonly T[];
@@ -108,8 +108,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
       title: "New group",
     }));
     if (drop === null) return;
-    setMembership(drop.threadIds, drop.target);
-    if (drop.target.kind !== "new") return;
+    if (!setMembership(drop.threadIds, drop.target) || drop.target.kind !== "new") return;
     const members = drop.threadIds.flatMap((key) => threadByKey.get(key) ?? []);
     void requestTitle({
       groupId: drop.target.group.id,

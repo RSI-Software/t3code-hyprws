@@ -199,7 +199,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           }),
         );
         const thread = result.projection.thread;
-        yield* joinGroup([{ threadId: thread.id }]); // fork-hook: thread-ordering/mcp-launch-group
+        yield* joinGroup(thread.id); // fork-hook: thread-ordering/mcp-launch-group
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
         return {
           threadId: thread.id,

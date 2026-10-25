@@ -18,6 +18,7 @@ import {
   EnvironmentId,
   type ThreadGroupFork,
   type ThreadGroupMutationFork,
+  type ThreadGroupsSnapshotFork,
   ThreadId,
 } from "@t3tools/contracts";
 import { create } from "zustand";
@@ -94,38 +95,48 @@ function writeJson(key: string, value: unknown) {
   } catch {}
 }
 
-type GroupsByEnvironment = Readonly<Record<EnvironmentId, ReadonlyArray<ThreadGroupFork>>>;
+interface PendingEdit {
+  readonly id: number;
+  readonly mutation: ThreadGroupMutationFork;
+}
 
 interface ThreadGroupsState {
-  /** Last server snapshot per environment that serves groups. */
-  readonly confirmed: GroupsByEnvironment;
-  /** `confirmed` plus edits still in flight. */
-  readonly shown: GroupsByEnvironment;
+  /** Newest server snapshot per environment that serves groups. */
+  readonly confirmed: Readonly<Record<EnvironmentId, ThreadGroupsSnapshotFork>>;
+  /** Edits sent and not yet answered, oldest first; shown over `confirmed`. */
+  readonly pending: Readonly<Record<EnvironmentId, ReadonlyArray<PendingEdit>>>;
   readonly collapsed: Readonly<Record<string, true>>;
   readonly threadGroups: SidebarThreadGroup[];
 }
 
-function flatten(
-  shown: GroupsByEnvironment,
-  collapsed: Readonly<Record<string, true>>,
-): SidebarThreadGroup[] {
-  return Object.entries(shown).flatMap(([environmentId, groups]) =>
-    groups.map((group) => {
-      const environment = EnvironmentId.make(environmentId);
+/** Confirmed groups with the pending edits replayed; one the server outran drops out. */
+function shownGroups(state: ThreadGroupsState, environmentId: EnvironmentId) {
+  const confirmed = state.confirmed[environmentId];
+  if (confirmed === undefined) return undefined;
+  return (state.pending[environmentId] ?? []).reduce((groups, { mutation }) => {
+    const result = applyThreadGroupMutationFork(groups, mutation, randomUUID);
+    return "error" in result ? groups : result.groups;
+  }, confirmed.groups);
+}
+
+function flatten(state: ThreadGroupsState): SidebarThreadGroup[] {
+  return Object.keys(state.confirmed).flatMap((environmentId) => {
+    const environment = EnvironmentId.make(environmentId);
+    const threadKey = (threadId: ThreadId) =>
+      scopedThreadKey(scopeThreadRef(environment, threadId));
+    return (shownGroups(state, environment) ?? []).map((group) => {
       const key = groupKey(environment, group.id);
-      const threadKey = (threadId: ThreadId) =>
-        scopedThreadKey(scopeThreadRef(environment, threadId));
       return {
         id: key,
         title: group.title,
         threadIds: group.threadIds.map(threadKey),
-        collapsed: collapsed[key] === true,
+        collapsed: state.collapsed[key] === true,
         ...(group.parentThreadId === undefined
           ? {}
           : { parentThreadId: threadKey(group.parentThreadId) }),
       };
-    }),
-  );
+    });
+  });
 }
 
 const initialCollapsed = (() => {
@@ -138,17 +149,16 @@ const initialCollapsed = (() => {
 
 export const useThreadGroupStoreFork = create<ThreadGroupsState>(() => ({
   confirmed: {},
-  shown: {},
+  pending: {},
   collapsed: initialCollapsed,
   threadGroups: [],
 }));
 
 function update(next: Partial<Omit<ThreadGroupsState, "threadGroups">>) {
   useThreadGroupStoreFork.setState((state) => {
-    const shown = next.shown ?? state.shown;
-    const collapsed = next.collapsed ?? state.collapsed;
-    if (next.collapsed !== undefined) writeJson(COLLAPSED_KEY, collapsed);
-    return { ...next, threadGroups: flatten(shown, collapsed) };
+    const merged = { ...state, ...next };
+    if (next.collapsed !== undefined) writeJson(COLLAPSED_KEY, merged.collapsed);
+    return { ...next, threadGroups: flatten(merged) };
   });
 }
 
@@ -159,50 +169,73 @@ function setCollapsed(key: string, collapsed: boolean) {
   update({ collapsed: collapsed ? { ...rest, [key]: true } : rest });
 }
 
-function applySnapshot(environmentId: EnvironmentId, groups: ReadonlyArray<ThreadGroupFork>) {
-  const { confirmed, shown, collapsed } = useThreadGroupStoreFork.getState();
-  const live = new Set(groups.map((group) => groupKey(environmentId, group.id)));
-  const stale = Object.keys(collapsed).filter(
+/**
+ * Takes a snapshot unless it is older than the one held: an RPC reply can
+ * arrive after the stream already carried a later change.
+ */
+function confirm(environmentId: EnvironmentId, snapshot: ThreadGroupsSnapshotFork) {
+  const state = useThreadGroupStoreFork.getState();
+  const current = state.confirmed[environmentId];
+  if (current?.epoch === snapshot.epoch && snapshot.revision < current.revision) return;
+  const confirmed = { ...state.confirmed, [environmentId]: snapshot };
+  const live = new Set(
+    (shownGroups({ ...state, confirmed }, environmentId) ?? []).map((group) =>
+      groupKey(environmentId, group.id),
+    ),
+  );
+  const stale = Object.keys(state.collapsed).filter(
     (key) => parseKey(key)?.environmentId === environmentId && !live.has(key),
   );
   update({
-    confirmed: { ...confirmed, [environmentId]: groups },
-    shown: { ...shown, [environmentId]: groups },
+    confirmed,
     ...(stale.length === 0
       ? {}
       : {
           collapsed: Object.fromEntries(
-            Object.entries(collapsed).filter(([key]) => !stale.includes(key)),
+            Object.entries(state.collapsed).filter(([key]) => !stale.includes(key)),
           ),
         }),
   });
 }
 
-/** Shows the edit at once, then settles on the server's answer or rolls back. */
-function mutate(environmentId: EnvironmentId, mutation: ThreadGroupMutationFork) {
-  const current = useThreadGroupStoreFork.getState().shown[environmentId];
-  // An environment without the fork capability, or not yet loaded, has no groups to edit.
-  if (current === undefined) return;
-  const result = applyThreadGroupMutationFork(current, mutation, randomUUID);
-  if ("error" in result) return;
+function settle(environmentId: EnvironmentId, editId: number) {
+  const { pending } = useThreadGroupStoreFork.getState();
   update({
-    shown: { ...useThreadGroupStoreFork.getState().shown, [environmentId]: result.groups },
+    pending: {
+      ...pending,
+      [environmentId]: (pending[environmentId] ?? []).filter((edit) => edit.id !== editId),
+    },
+  });
+}
+
+let nextEditId = 0;
+
+/** Shows the edit at once, then settles on the server's answer; false when nothing applied. */
+function mutate(environmentId: EnvironmentId, mutation: ThreadGroupMutationFork): boolean {
+  const state = useThreadGroupStoreFork.getState();
+  const current = shownGroups(state, environmentId);
+  // An environment without the fork capability, or not yet loaded, has no groups to edit.
+  if (current === undefined) return false;
+  if ("error" in applyThreadGroupMutationFork(current, mutation, randomUUID)) return false;
+  const edit = { id: nextEditId++, mutation };
+  update({
+    pending: { ...state.pending, [environmentId]: [...(state.pending[environmentId] ?? []), edit] },
   });
   void runAtomCommand(appAtomRegistry, threadGroupEnvironment.mutate, {
     environmentId,
     input: mutation,
   }).then((settled) => {
-    if (settled._tag === "Success") return applySnapshot(environmentId, settled.value.groups);
-    applySnapshot(environmentId, useThreadGroupStoreFork.getState().confirmed[environmentId] ?? []);
-    if (!isAtomCommandInterrupted(settled)) {
-      const error = squashAtomCommandFailure(settled);
-      toastManager.add({
-        type: "error",
-        title: "Thread group change failed",
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
+    if (settled._tag === "Success") confirm(environmentId, settled.value);
+    settle(environmentId, edit.id);
+    if (settled._tag === "Success" || isAtomCommandInterrupted(settled)) return;
+    const error = squashAtomCommandFailure(settled);
+    toastManager.add({
+      type: "error",
+      title: "Thread group change failed",
+      description: error instanceof Error ? error.message : String(error),
+    });
   });
+  return true;
 }
 
 /** Splits scoped thread keys by environment; edits never span two. */
@@ -218,19 +251,20 @@ function localThreadIds(keys: readonly string[]) {
   return { environmentId, threadIds };
 }
 
+/** False when the edit cannot apply here, so callers skip their follow-ups. */
 export function setThreadGroupMembership(
   threadKeys: readonly string[],
   target: SidebarThreadGroupMembershipTarget,
-) {
+): boolean {
   const local = localThreadIds(threadKeys);
   const [first, ...rest] = local?.threadIds ?? [];
-  if (local === null || first === undefined) return;
+  if (local === null || first === undefined) return false;
   const targetKey =
     target.kind === "existing" ? target.groupId : target.kind === "new" ? target.group.id : null;
   const group = targetKey === null ? null : parseKey(targetKey);
-  if (group !== null && group.environmentId !== local.environmentId) return;
+  if (group !== null && group.environmentId !== local.environmentId) return false;
   if (target.kind === "existing" && targetKey !== null) setCollapsed(targetKey, false);
-  mutate(local.environmentId, {
+  return mutate(local.environmentId, {
     type: "set-membership",
     threadIds: [first, ...rest],
     target:
@@ -308,23 +342,33 @@ function takeLegacyGroups() {
 }
 takeLegacyGroups();
 
+/** Per environment: an import in flight, or one finished; a failed one retries on the next snapshot. */
+const imports = new Map<EnvironmentId, "running" | "done">();
+
 function importLegacyGroups(environmentId: EnvironmentId) {
+  if (imports.has(environmentId)) return;
   const { share, remaining } = splitLegacyThreadGroupsFork(readJson(IMPORT_KEY), environmentId);
   if (share.length === 0) {
     writeJson(IMPORT_KEY, remaining);
+    imports.set(environmentId, "done");
     return;
   }
+  imports.set(environmentId, "running");
   void runAtomCommand(appAtomRegistry, threadGroupEnvironment.mutate, {
     environmentId,
     input: { type: "import", groups: share.map(({ imported }) => imported) },
   }).then((settled) => {
-    if (settled._tag !== "Success") return;
+    if (settled._tag !== "Success") {
+      imports.delete(environmentId);
+      return;
+    }
+    imports.set(environmentId, "done");
     // Read again: another environment may have taken its share meanwhile.
     writeJson(
       IMPORT_KEY,
       splitLegacyThreadGroupsFork(readJson(IMPORT_KEY), environmentId).remaining,
     );
-    applySnapshot(environmentId, settled.value.groups);
+    confirm(environmentId, settled.value);
     for (const { imported, collapsed } of share) {
       if (collapsed) setCollapsed(groupKey(environmentId, imported.id), true);
     }
@@ -334,16 +378,15 @@ function importLegacyGroups(environmentId: EnvironmentId) {
 /** Called by the per-environment sync with each server snapshot. */
 export function receiveThreadGroupsSnapshotFork(
   environmentId: EnvironmentId,
-  groups: ReadonlyArray<ThreadGroupFork>,
+  snapshot: ThreadGroupsSnapshotFork,
 ) {
-  const first = useThreadGroupStoreFork.getState().confirmed[environmentId] === undefined;
-  applySnapshot(environmentId, groups);
-  if (first) importLegacyGroups(environmentId);
+  confirm(environmentId, snapshot);
+  importLegacyGroups(environmentId);
 }
 
 /** Drops environments that left the client, or stopped serving groups. */
 export function retainThreadGroupEnvironmentsFork(environmentIds: ReadonlySet<EnvironmentId>) {
-  const { confirmed, shown } = useThreadGroupStoreFork.getState();
+  const { confirmed, pending } = useThreadGroupStoreFork.getState();
   const keep = <T>(record: Readonly<Record<EnvironmentId, T>>) =>
     Object.fromEntries(
       Object.entries(record).filter(([environmentId]) =>
@@ -351,5 +394,5 @@ export function retainThreadGroupEnvironmentsFork(environmentIds: ReadonlySet<En
       ),
     ) as Record<EnvironmentId, T>;
   if (Object.keys(confirmed).every((id) => environmentIds.has(EnvironmentId.make(id)))) return;
-  update({ confirmed: keep(confirmed), shown: keep(shown) });
+  update({ confirmed: keep(confirmed), pending: keep(pending) });
 }

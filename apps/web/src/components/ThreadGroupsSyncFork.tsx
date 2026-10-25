@@ -18,7 +18,7 @@ function EnvironmentThreadGroupsSync(props: { readonly environmentId: Environmen
     threadGroupEnvironment.groups({ environmentId: props.environmentId, input: {} }),
   );
   useEffect(() => {
-    if (data !== null) receiveThreadGroupsSnapshotFork(props.environmentId, data.groups);
+    if (data !== null) receiveThreadGroupsSnapshotFork(props.environmentId, data);
   }, [data, props.environmentId]);
   return null;
 }

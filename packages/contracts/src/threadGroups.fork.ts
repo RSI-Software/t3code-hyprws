@@ -21,6 +21,10 @@ export const ThreadGroupFork = Schema.Struct({
 export type ThreadGroupFork = typeof ThreadGroupFork.Type;
 
 export const ThreadGroupsSnapshotFork = Schema.Struct({
+  /** Names one server run; `revision` restarts with it. */
+  epoch: Schema.String,
+  /** Rises with each committed change, so a client can drop a reply older than its snapshot. */
+  revision: Schema.Number,
   groups: Schema.Array(ThreadGroupFork),
 });
 export type ThreadGroupsSnapshotFork = typeof ThreadGroupsSnapshotFork.Type;
@@ -86,14 +90,55 @@ export const ThreadLaunchGroupFork = Schema.Union([
 });
 export type ThreadLaunchGroupFork = typeof ThreadLaunchGroupFork.Type;
 
+/** The groups as an agent reads them: members named, deleted threads left out. */
+export const ThreadGroupsDescribedFork = Schema.Struct({
+  groups: Schema.Array(
+    Schema.Struct({
+      id: ThreadGroupIdFork,
+      title: Schema.String,
+      parentThreadId: Schema.NullOr(ThreadId),
+      threads: Schema.Array(Schema.Struct({ threadId: ThreadId, title: Schema.String })),
+    }),
+  ),
+  callerGroupId: Schema.NullOr(ThreadGroupIdFork).annotate({
+    description: "The group of the calling thread, or null when it has none.",
+  }),
+});
+export type ThreadGroupsDescribedFork = typeof ThreadGroupsDescribedFork.Type;
+
 export class ThreadGroupErrorFork extends Schema.TaggedError<ThreadGroupErrorFork>()(
   "ThreadGroupErrorFork",
-  { message: TrimmedNonEmptyString },
-) {}
+  {
+    reason: Schema.Literals([
+      "unknown-group",
+      "unknown-thread",
+      "group-exists",
+      "too-few-threads",
+      "parent-not-member",
+    ]),
+    groupId: Schema.optionalKey(ThreadGroupIdFork),
+    threadId: Schema.optionalKey(ThreadId),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "unknown-group":
+        return `Unknown thread group ${this.groupId}.`;
+      case "unknown-thread":
+        return `Unknown thread ${this.threadId}.`;
+      case "group-exists":
+        return `Thread group ${this.groupId} already exists.`;
+      case "too-few-threads":
+        return "A new thread group needs at least two threads.";
+      case "parent-not-member":
+        return `Thread ${this.threadId} is not in group ${this.groupId}.`;
+    }
+  }
+}
 
 export type ThreadGroupMutationResultFork =
   | { readonly groups: ReadonlyArray<ThreadGroupFork> }
-  | { readonly error: string };
+  | { readonly error: ThreadGroupErrorFork };
 
 /** Moves the threads out of every group, then into the target. Groups under two members dissolve. */
 function setMembership(
@@ -105,17 +150,19 @@ function setMembership(
   const moving = [...new Set(threadIds)];
   const movingIds = new Set(moving);
   if (target.type === "existing" && !groups.some((group) => group.id === target.groupId)) {
-    return { error: `Unknown thread group ${target.groupId}.` };
+    return {
+      error: new ThreadGroupErrorFork({ reason: "unknown-group", groupId: target.groupId }),
+    };
   }
   if (target.type === "new" && moving.length < 2) {
-    return { error: "A new thread group needs at least two threads." };
+    return { error: new ThreadGroupErrorFork({ reason: "too-few-threads" }) };
   }
   if (
     target.type === "new" &&
     target.groupId !== undefined &&
     groups.some((group) => group.id === target.groupId)
   ) {
-    return { error: `Thread group ${target.groupId} already exists.` };
+    return { error: new ThreadGroupErrorFork({ reason: "group-exists", groupId: target.groupId }) };
   }
   let next = groups.map((group): ThreadGroupFork => {
     const { parentThreadId, ...rest } = group;
@@ -191,7 +238,11 @@ export function applyThreadGroupMutationFork(
       return { groups: groups.filter((group) => group.id !== mutation.groupId) };
   }
   const group = groups.find((candidate) => candidate.id === mutation.groupId);
-  if (group === undefined) return { error: `Unknown thread group ${mutation.groupId}.` };
+  if (group === undefined) {
+    return {
+      error: new ThreadGroupErrorFork({ reason: "unknown-group", groupId: mutation.groupId }),
+    };
+  }
   let next: ThreadGroupFork = group;
   if (mutation.type === "rename") {
     const { expected } = mutation;
@@ -208,7 +259,13 @@ export function applyThreadGroupMutationFork(
     } else if (group.threadIds.includes(mutation.parentThreadId)) {
       next = { ...rest, parentThreadId: mutation.parentThreadId };
     } else {
-      return { error: `Thread ${mutation.parentThreadId} is not in group ${group.id}.` };
+      return {
+        error: new ThreadGroupErrorFork({
+          reason: "parent-not-member",
+          groupId: group.id,
+          threadId: mutation.parentThreadId,
+        }),
+      };
     }
   }
   return { groups: groups.map((candidate) => (candidate.id === group.id ? next : candidate)) };

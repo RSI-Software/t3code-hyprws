@@ -1,4 +1,5 @@
 import { delegatedRoundProgressFork } from "../orchestration-v2/delegatedRounds.fork.ts"; // fork-hook: delegated-rounds/mcp-progress-import
+import { LaunchedThreadPlacementFork } from "../orchestration-v2/ThreadGroupsService.fork.ts"; // fork-hook: thread-ordering/mcp-launch-group-import
 import {
   CommandId,
   type RunId,
@@ -2670,6 +2671,7 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
+              yield* (yield* LaunchedThreadPlacementFork)(threadId); // fork-hook: thread-ordering/mcp-launch-group
               return {
                 threadId,
                 runId: run?.id ?? null,

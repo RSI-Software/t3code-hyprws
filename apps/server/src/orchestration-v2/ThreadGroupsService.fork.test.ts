@@ -9,10 +9,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
-import {
-  ThreadGroupsServiceFork,
-  threadGroupsServiceLiveFork,
-} from "./ThreadGroupsService.fork.ts";
+import * as ThreadGroups from "./ThreadGroupsService.fork.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 const a = ThreadId.make("a");
@@ -40,15 +37,15 @@ const database = it.layer(
   Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" }), NodeCrypto.layer, threads),
 );
 // The service loads its table on build, so the schema goes first.
-const withService = <A, E>(effect: Effect.Effect<A, E, ThreadGroupsServiceFork>) =>
-  Effect.andThen(ensureForkSchema(), Effect.provide(effect, threadGroupsServiceLiveFork));
+const withService = <A, E>(effect: Effect.Effect<A, E, ThreadGroups.ThreadGroupsServiceFork>) =>
+  Effect.andThen(ensureForkSchema(), Effect.provide(effect, ThreadGroups.layer));
 
 database("ThreadGroupsServiceFork", (it) => {
   it.effect("persists membership across a reload and dissolves groups under two members", () =>
     Effect.gen(function* () {
       yield* withService(
         Effect.gen(function* () {
-          const service = yield* ThreadGroupsServiceFork;
+          const service = yield* ThreadGroups.ThreadGroupsServiceFork;
           yield* service.mutate({
             type: "set-membership",
             threadIds: [a, b],
@@ -64,7 +61,7 @@ database("ThreadGroupsServiceFork", (it) => {
 
       const reloaded = yield* withService(
         Effect.gen(function* () {
-          const service = yield* ThreadGroupsServiceFork;
+          const service = yield* ThreadGroups.ThreadGroupsServiceFork;
           const before = yield* service.snapshot;
           // The parent leaving stops it leading; the group keeps two members.
           const afterParentLeaves = yield* service.mutate({
@@ -95,7 +92,7 @@ database("ThreadGroupsServiceFork validation", (it) => {
   it.effect("refuses unknown or deleted threads and notifies only committed changes", () =>
     withService(
       Effect.gen(function* () {
-        const service = yield* ThreadGroupsServiceFork;
+        const service = yield* ThreadGroups.ThreadGroupsServiceFork;
         const seen = yield* service.changes.pipe(
           Stream.take(2),
           Stream.runCollect,
@@ -127,8 +124,11 @@ database("ThreadGroupsServiceFork validation", (it) => {
 
         const snapshots = Array.from(yield* Fiber.join(seen));
         assert.deepStrictEqual(
-          snapshots.map((snapshot) => snapshot.groups.map((group) => group.title)),
-          [[], ["Draft"]],
+          snapshots.map((snapshot) => [snapshot.revision, snapshot.groups.map((g) => g.title)]),
+          [
+            [0, []],
+            [1, ["Draft"]],
+          ],
         );
       }),
     ),
@@ -139,7 +139,7 @@ database("ThreadGroupsServiceFork import", (it) => {
   it.effect("imports local groups without stealing grouped or dead threads", () =>
     withService(
       Effect.gen(function* () {
-        const service = yield* ThreadGroupsServiceFork;
+        const service = yield* ThreadGroups.ThreadGroupsServiceFork;
         yield* service.mutate({
           type: "set-membership",
           threadIds: [a, b],
