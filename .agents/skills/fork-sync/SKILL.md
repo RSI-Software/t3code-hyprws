@@ -174,6 +174,14 @@ PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag> --dry-run
 
 The report's summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
+**Red candidate.** The issue names each red job instead of a seam.
+
+1. Dry run: the rebase replays from `sync/resolution`
+2. Read each red job: `gh run view --job <id> --log-failed`
+3. Reproduce with `vp test run` inside its package
+4. Fix at the tip, per [Candidate CI](#candidate-ci)
+5. Rerun, export, and report as above
+
 Every rebase rewrites `refs/fork-sync/resolution` before `ci`, so a `ci` failure in the job is expected.
 It is one parentless commit:
 
