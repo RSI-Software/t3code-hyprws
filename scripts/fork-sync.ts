@@ -253,7 +253,9 @@ const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "
 /**
  * The main checkout of the repository `cwd` belongs to. The sync runs from
  * there and keeps its state there, so a rerun from another lane, or from inside
- * the kept worktree it may drop, adopts the same state.
+ * the kept worktree it may drop, adopts the same state. A checkout whose git
+ * dir lives elsewhere (an rsi-pr-agent job's) has no checkout beside that dir,
+ * so it is its own main checkout.
  */
 const mainCheckout = (runner: CommandRunner, cwd: string): string => {
   const common = gitResult(runner, cwd, [
@@ -261,7 +263,10 @@ const mainCheckout = (runner: CommandRunner, cwd: string): string => {
     "--path-format=absolute",
     "--git-common-dir",
   ]);
-  return common.status === 0 ? NodePath.dirname(common.stdout.trim()) : cwd;
+  if (common.status !== 0) return cwd;
+  if (NodePath.basename(common.stdout.trim()) === ".git")
+    return NodePath.dirname(common.stdout.trim());
+  return git(runner, cwd, ["rev-parse", "--show-toplevel"]);
 };
 
 export const reportPath = (root: string, tag: string): string =>
