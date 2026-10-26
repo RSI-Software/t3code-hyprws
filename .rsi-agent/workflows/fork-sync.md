@@ -10,8 +10,8 @@ timeout: 45
 
 # Fork sync resolution
 
-This issue is the `hyprws` sync attention issue: a sync stopped on a seam neither rerere nor hook re-apply resolves.
-Its title names the target tag; its body names each manual path and the blocking commit.
+This issue is the `hyprws` sync attention issue: a sync stopped on a seam neither rerere nor hook re-apply resolves, or its candidate failed CI.
+Its title names the target tag; its body names each manual path and the blocking commit, or each red job.
 
 The `fork-sync` skill owns every step and rule; follow it, and copy nothing from memory.
 Its "Job mode" section is this job's procedure, from a clean clone to `HEAD` at the resolution export.
