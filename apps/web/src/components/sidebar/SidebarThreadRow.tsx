@@ -533,7 +533,7 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
 
 type SidebarThreadRowProps = {
   grouped?: boolean | undefined; // fork-hook: thread-ordering/group-member-prop
-  groupFoldFork?: ReactNode; // fork-hook: thread-ordering/group-fold-prop
+  groupParent?: boolean | undefined; // fork-hook: thread-ordering/group-parent-prop
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
@@ -1390,6 +1390,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         props.grouped && "ml-2 border-l border-sidebar-border/70 pl-1.5", // fork-hook: thread-ordering/group-member-rail
+        props.groupParent && "-mt-px rounded-lg rounded-tl-none bg-sidebar-row-hover/60", // fork-hook: thread-ordering/group-parent-surface
         metaLineEmpty && "[contain-intrinsic-size:auto_58px]",
         sortable?.isDragging && "relative z-20",
       )}
@@ -1580,7 +1581,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
-      {props.groupFoldFork /* fork-hook: thread-ordering/group-fold */}
     </li>
   );
 });
