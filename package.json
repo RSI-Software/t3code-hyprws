@@ -58,6 +58,7 @@
     "fork:sync": "node --import ./scripts/lib/await-setup.ts scripts/fork-sync.ts",
     "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
+    "postinstall": "node scripts/fork-gh-default.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts"
   },
