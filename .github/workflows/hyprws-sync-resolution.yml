@@ -1,16 +1,21 @@
 name: hyprws sync resolution
 
-# A resolution pushed to sync/resolution reruns the upstream sync from the
-# trunk's own definition. Nothing from that branch ever runs here: `fork:sync`
-# imports it as data (docs/fork/operations/fork-sync.md#resolution-data).
+# A marker pushed to sync/resolution reruns the upstream sync from the trunk's
+# own definition (docs/fork/operations/fork-sync.md#the-land-run). A push runs
+# the workflow files of the pushed commit; a marker's tree is its lease's, a
+# trunk tree, so this file is always one the trunk carried. The job holds no
+# secret and only dispatches on hyprws, the one ref the hyprws-sync
+# environment deploys to; the dispatched run queues behind any sync in flight.
 #
-# No `push` trigger: a push runs the workflow files of the pushed commit, and
-# the resolution commit holds none. The signal is rsi-pr-agent's sticky comment
-# on the sync attention issue turning `**pushed**`; `issue_comment` always runs
-# this file from the default branch. The job holds no secret and only
-# dispatches; the dispatched run queues behind any sync in flight.
+# A job that ends without a push (failed, blocked, unchanged) leaves only its
+# sticky comment, so a settled rsi-pr-agent sticky also reruns the sync; a
+# pushed sticky is skipped because its push already did. An
+# issue_comment runs the default branch's file, which is hyprws.
 
 on:
+  push:
+    branches:
+      - sync/resolution
   issue_comment:
     types: [created, edited]
 
@@ -19,12 +24,15 @@ permissions: {}
 jobs:
   rerun:
     name: Rerun the upstream sync
-    if: >-
-      github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
-      startsWith(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
-      contains(github.event.comment.body, '**pushed**')
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: >-
+      github.event_name == 'push' || (
+        github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
+        contains(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
+        !contains(github.event.comment.body, '**running**') &&
+        !contains(github.event.comment.body, '**pushing**') &&
+        !contains(github.event.comment.body, '**pushed**'))
     permissions:
       actions: write
     steps:
