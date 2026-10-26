@@ -83,6 +83,7 @@ export function SidebarThreadGroupHeader(props: {
   };
   const expanded = !props.group.collapsed;
   const children = props.childThreads;
+  const statusDots = useChildStatusDots(expanded ? null : children);
   const toggle = {
     "aria-busy": props.isGenerating || undefined,
     onClick: () => props.onCollapsedChange(expanded),
@@ -111,24 +112,40 @@ export function SidebarThreadGroupHeader(props: {
           />
         </div>
       ) : children ? (
-        <button
-          type="button"
-          {...toggle}
-          aria-expanded={expanded}
-          aria-label={`${props.group.title}, ${children.length} child ${children.length === 1 ? "thread" : "threads"}`}
-          className={cn(
-            "flex h-full min-w-0 max-w-[calc(100%-1.75rem)] cursor-pointer items-center gap-1.5 rounded-t-lg bg-sidebar-row-hover/60 px-2.5 text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-            dragging ? "text-sidebar-foreground/80" : "text-sidebar-muted-foreground",
-          )}
-        >
-          <span className="truncate">{props.group.title}</span>
-          <span className="shrink-0 tabular-nums opacity-70">{children.length}</span>
-          {props.group.collapsed ? <SidebarThreadGroupStatusDots threads={children} /> : null}
-          <ChevronDownIcon
-            aria-hidden
-            className={cn("size-3 shrink-0 transition-transform", !expanded && "rotate-180")}
-          />
-        </button>
+        // Disabled rather than unmounted while expanded, so a keyboard toggle keeps focus.
+        <Tooltip disabled={expanded}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                {...toggle}
+                aria-expanded={expanded}
+                aria-label={`${props.group.title}, ${children.length} child ${children.length === 1 ? "thread" : "threads"}`}
+                className={cn(
+                  "flex h-full min-w-0 max-w-[calc(100%-1.75rem)] cursor-pointer items-center gap-1.5 rounded-t-lg bg-sidebar-row-hover/60 px-2.5 text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+                  dragging ? "text-sidebar-foreground/80" : "text-sidebar-muted-foreground",
+                )}
+              />
+            }
+          >
+            <span className="truncate">{props.group.title}</span>
+            <span className="shrink-0 tabular-nums opacity-70">{children.length}</span>
+            {statusDots.length > 0 ? <SidebarThreadGroupStatusDots dots={statusDots} /> : null}
+            <ChevronDownIcon
+              aria-hidden
+              className={cn("size-3 shrink-0 transition-transform", !expanded && "rotate-180")}
+            />
+          </TooltipTrigger>
+          <TooltipPopup side="right">
+            {statusDots.map((dot) => (
+              <div key={dot.key} className="flex items-center gap-1.5">
+                <span className={cn("size-2 shrink-0 rounded-full", dot.className)} />
+                <span className="truncate">{dot.title}</span>
+                <span className="text-muted-foreground">{dot.label}</span>
+              </div>
+            ))}
+          </TooltipPopup>
+        </Tooltip>
       ) : (
         <CollapsibleSectionHeader
           expanded={expanded}
@@ -179,57 +196,50 @@ export function SidebarThreadGroupHeader(props: {
   );
 }
 
+// Key order is urgency: a collapsed tab shows the first MAX_STATUS_DOTS, so a
+// child that needs attention never hides behind the overflow count.
 const STATUS_DOT: Record<SidebarThreadStatus | "done", { label: string; className: string }> = {
   approval: { label: "Approval", className: "bg-warning" },
   input: { label: "Input", className: "bg-indigo-500" },
-  working: { label: "Working", className: "bg-info" },
-  waiting: { label: "Waiting", className: "bg-muted-foreground/60" },
   failed: { label: "Failed", className: "bg-error" },
   limited: { label: "Limited", className: "bg-warning" },
   done: { label: "Done", className: "bg-success" },
+  working: { label: "Working", className: "bg-info" },
+  waiting: { label: "Waiting", className: "bg-muted-foreground/60" },
   ready: { label: "Read", className: "border border-muted-foreground/50" },
 };
+const URGENCY = Object.keys(STATUS_DOT);
+const MAX_STATUS_DOTS = 6;
 
-// A collapsed parent group keeps its parent row; its tab carries one dot per
+// A collapsed parent group keeps its parent row; its tab carries a dot per
 // hidden child in the row's own status colours, so a finished or blocked child
-// still shows without opening the group. The dots keep their room and the
-// title truncates first.
-function SidebarThreadGroupStatusDots(props: {
-  readonly threads: readonly EnvironmentThreadShell[];
-}) {
+// still shows without opening the group. The tab's tooltip lists every child.
+function useChildStatusDots(threads: readonly EnvironmentThreadShell[] | null) {
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
-  const dots = props.threads.map((thread) => {
-    const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-    const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localVisits[key]);
-    const status = resolveSidebarThreadStatus(thread);
-    const kind =
-      status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt }) ? "done" : status;
-    return { key, title: thread.title, ...STATUS_DOT[kind] };
-  });
+  if (threads === null) return [];
+  return threads
+    .map((thread) => {
+      const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localVisits[key]);
+      const status = resolveSidebarThreadStatus(thread);
+      const kind =
+        status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt }) ? "done" : status;
+      return { key, kind, title: thread.title, ...STATUS_DOT[kind] };
+    })
+    .toSorted((a, b) => URGENCY.indexOf(a.kind) - URGENCY.indexOf(b.kind));
+}
+
+function SidebarThreadGroupStatusDots(props: {
+  readonly dots: ReturnType<typeof useChildStatusDots>;
+}) {
+  const overflow = props.dots.length - MAX_STATUS_DOTS;
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            data-testid="sidebar-thread-group-dots"
-            className="flex shrink-0 items-center gap-0.5"
-          />
-        }
-      >
-        {dots.map((dot) => (
-          <span key={dot.key} className={cn("size-2 shrink-0 rounded-full", dot.className)} />
-        ))}
-      </TooltipTrigger>
-      <TooltipPopup side="right">
-        {dots.map((dot) => (
-          <div key={dot.key} className="flex items-center gap-1.5">
-            <span className={cn("size-2 shrink-0 rounded-full", dot.className)} />
-            <span className="truncate">{dot.title}</span>
-            <span className="text-muted-foreground">{dot.label}</span>
-          </div>
-        ))}
-      </TooltipPopup>
-    </Tooltip>
+    <span data-testid="sidebar-thread-group-dots" className="flex shrink-0 items-center gap-0.5">
+      {props.dots.slice(0, MAX_STATUS_DOTS).map((dot) => (
+        <span key={dot.key} className={cn("size-2 shrink-0 rounded-full", dot.className)} />
+      ))}
+      {overflow > 0 ? <span className="ms-0.5 tabular-nums">+{overflow}</span> : null}
+    </span>
   );
 }
 
