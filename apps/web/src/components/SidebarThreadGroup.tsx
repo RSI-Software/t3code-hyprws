@@ -2,7 +2,7 @@ import { useDndContext, useDndMonitor } from "@dnd-kit/core";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
-  ChevronRightIcon,
+  ChevronDownIcon,
   MoreHorizontalIcon,
   RefreshCwIcon,
   SquarePenIcon,
@@ -36,8 +36,11 @@ import {
 } from "./SidebarThreadGroup.projection";
 import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 
-// Mirrors upstream's shelf section header (Snoozed / Settled): label with the
-// count, a hairline, and a chevron, reading at full strength during a drag. It
+// A parentless group mirrors upstream's shelf section header (Snoozed /
+// Settled): label with the count, a hairline, and a chevron. A group with a
+// parent wears its title as a tab on the parent card instead, so the title
+// reads as the parent's and one chevron folds the children both ways; the
+// parent row's surface hook pulls up 1px to close the list gap under the tab. Either
 // renders inside the group's sortable header marker, so it moves with the rows
 // during a drag; the drop layer draws the outline when a row would join it.
 export function SidebarThreadGroupHeader(props: {
@@ -45,6 +48,8 @@ export function SidebarThreadGroupHeader(props: {
   /** False where this client cannot edit the group: actions hide, collapse still works. */
   readonly canEdit: boolean;
   readonly memberCount: number;
+  /** The parent's children, in list order; null for a parentless group. */
+  readonly childThreads: readonly EnvironmentThreadShell[] | null;
   readonly isGenerating: boolean;
   readonly isDissolving?: boolean;
   readonly onCollapsedChange: (collapsed: boolean) => void;
@@ -77,18 +82,25 @@ export function SidebarThreadGroupHeader(props: {
     setIsEditing(false);
   };
   const expanded = !props.group.collapsed;
+  const children = props.childThreads;
+  const toggle = {
+    "aria-busy": props.isGenerating || undefined,
+    onClick: () => props.onCollapsedChange(expanded),
+    onDoubleClick: () => props.canEdit && setIsEditing(true),
+  };
 
   return (
     <div
       data-testid={`sidebar-thread-group-${props.group.id}`}
       className={cn(
-        "group/thread-group relative h-8 transition-opacity duration-150 ease-out",
+        "group/thread-group relative transition-opacity duration-150 ease-out",
+        children ? "flex h-7 items-end gap-1" : "h-8",
         // Keeps its height: the sortable preview measured it at pickup.
         props.isDissolving && "pointer-events-none opacity-30",
       )}
     >
       {isEditing ? (
-        <div className="flex h-full items-center px-1">
+        <div className="flex h-full w-full items-center px-1">
           <SidebarRenameInput
             ariaLabel="Thread group title"
             value={title}
@@ -98,13 +110,30 @@ export function SidebarThreadGroupHeader(props: {
             className="h-6 text-xs"
           />
         </div>
+      ) : children ? (
+        <button
+          type="button"
+          {...toggle}
+          aria-expanded={expanded}
+          aria-label={`${props.group.title}, ${children.length} child ${children.length === 1 ? "thread" : "threads"}`}
+          className={cn(
+            "flex h-full min-w-0 max-w-[calc(100%-1.75rem)] cursor-pointer items-center gap-1.5 rounded-t-lg bg-sidebar-row-hover/60 px-2.5 text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+            dragging ? "text-sidebar-foreground/80" : "text-sidebar-muted-foreground",
+          )}
+        >
+          <span className="truncate">{props.group.title}</span>
+          <span className="shrink-0 tabular-nums opacity-70">{children.length}</span>
+          {props.group.collapsed ? <SidebarThreadGroupStatusDots threads={children} /> : null}
+          <ChevronDownIcon
+            aria-hidden
+            className={cn("size-3 shrink-0 transition-transform", !expanded && "rotate-180")}
+          />
+        </button>
       ) : (
         <CollapsibleSectionHeader
           expanded={expanded}
           tone={dragging ? "emphasized" : "muted"}
-          aria-busy={props.isGenerating || undefined}
-          onClick={() => props.onCollapsedChange(expanded)}
-          onDoubleClick={() => props.canEdit && setIsEditing(true)}
+          {...toggle}
           // Room for the hover menu, so it never covers the label.
           accessory={<span aria-hidden className="w-5 shrink-0" />}
         >
@@ -115,7 +144,12 @@ export function SidebarThreadGroupHeader(props: {
         </CollapsibleSectionHeader>
       )}
       {isEditing || !props.canEdit ? null : (
-        <div className="absolute inset-y-0 right-6 flex items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100 has-[[data-popup-open]]:opacity-100">
+        <div
+          className={cn(
+            "flex items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100 has-[[data-popup-open]]:opacity-100",
+            children ? "h-full" : "absolute inset-y-0 right-6",
+          )}
+        >
           <Menu>
             <MenuTrigger
               render={
@@ -145,7 +179,7 @@ export function SidebarThreadGroupHeader(props: {
   );
 }
 
-const FOLD_DOT: Record<SidebarThreadStatus | "done", { label: string; className: string }> = {
+const STATUS_DOT: Record<SidebarThreadStatus | "done", { label: string; className: string }> = {
   approval: { label: "Approval", className: "bg-warning" },
   input: { label: "Input", className: "bg-indigo-500" },
   working: { label: "Working", className: "bg-info" },
@@ -156,12 +190,12 @@ const FOLD_DOT: Record<SidebarThreadStatus | "done", { label: string; className:
   ready: { label: "Read", className: "border border-muted-foreground/50" },
 };
 
-// A collapsed group keeps its parent row; the children fold into this strip
-// under it, one dot per child in the row's own status colours, so a finished
-// or blocked child still shows without opening the group.
-export function SidebarThreadGroupFoldFork(props: {
+// A collapsed parent group keeps its parent row; its tab carries one dot per
+// hidden child in the row's own status colours, so a finished or blocked child
+// still shows without opening the group. The dots keep their room and the
+// title truncates first.
+function SidebarThreadGroupStatusDots(props: {
   readonly threads: readonly EnvironmentThreadShell[];
-  readonly onExpand: () => void;
 }) {
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
   const dots = props.threads.map((thread) => {
@@ -170,30 +204,21 @@ export function SidebarThreadGroupFoldFork(props: {
     const status = resolveSidebarThreadStatus(thread);
     const kind =
       status === "ready" && hasUnseenCompletion({ ...thread, lastVisitedAt }) ? "done" : status;
-    return { key, title: thread.title, ...FOLD_DOT[kind] };
+    return { key, title: thread.title, ...STATUS_DOT[kind] };
   });
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
-            data-testid="sidebar-thread-group-fold"
-            aria-label={`Show ${dots.length} child threads`}
-            onClick={props.onExpand}
-            className="mt-0.5 ml-2 flex h-6 w-[calc(100%-0.5rem)] cursor-pointer items-center gap-1.5 rounded-r-md border-l border-sidebar-border/70 pl-2.5 text-secondary-label text-xs hover:bg-sidebar-row-hover"
+          <span
+            data-testid="sidebar-thread-group-dots"
+            className="flex shrink-0 items-center gap-0.5"
           />
         }
       >
-        <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
-        <span className="shrink-0 tabular-nums">
-          {dots.length} {dots.length === 1 ? "thread" : "threads"}
-        </span>
-        <span className="flex min-w-0 items-center gap-1 overflow-hidden">
-          {dots.map((dot) => (
-            <span key={dot.key} className={cn("size-2 shrink-0 rounded-full", dot.className)} />
-          ))}
-        </span>
+        {dots.map((dot) => (
+          <span key={dot.key} className={cn("size-2 shrink-0 rounded-full", dot.className)} />
+        ))}
       </TooltipTrigger>
       <TooltipPopup side="right">
         {dots.map((dot) => (

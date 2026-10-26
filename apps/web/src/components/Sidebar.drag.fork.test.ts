@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { createSidebarCollisionDetection, createSidebarSortingStrategy } from "./Sidebar.drag.ts";
+import { createSidebarCollisionDetection } from "./Sidebar.drag.ts";
 import {
   sidebarListItemId,
   sidebarMarkerId,
@@ -113,34 +113,5 @@ describe("createSidebarCollisionDetection group headers", () => {
       ),
     };
     expect(detector(withoutHeader)[0]?.id).toBe("member");
-  });
-});
-
-describe("createSidebarSortingStrategy folded group parent", () => {
-  it("opens a gap the height of a taller lifted card", () => {
-    // A collapsed group's parent carries its fold strip, so it outgrows a card.
-    const items: SidebarListItem[] = [
-      { kind: "marker", marker: "pinned-header" },
-      { kind: "marker", marker: "pinned-divider" },
-      thread("above", "active"),
-      thread("parent", "active"),
-      { kind: "marker", marker: "settled-header" },
-      { kind: "marker", marker: "settled-placeholder" },
-    ];
-    const rects = [
-      rect(100, 0),
-      rect(101, 0),
-      rect(102, 82),
-      rect(185, 110),
-      rect(296, 32),
-      rect(329, 0),
-    ];
-    const strategy = createSidebarSortingStrategy({
-      items,
-      settledOrder: [],
-      settledExpanded: false,
-    });
-    const args = { activeIndex: 3, overIndex: 2, activeNodeRect: rects[3]!, rects };
-    expect(strategy({ ...args, index: 2 })?.y).toBe(111);
   });
 });

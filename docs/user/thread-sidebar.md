@@ -110,7 +110,7 @@ Drop a thread flush left directly under a group's header to make it the group's 
 Move the parent right to make it an ordinary member again; **Set as group parent** in a member's menu does the same as the drop.
 The group a drop would join is outlined, and a shadow shows where the thread lands.
 Pinned threads stay out of groups; a group can hold threads from any project on the same server.
-Collapsing a group with a parent keeps the parent visible and folds the rest into a strip showing their count and status; click it to expand.
+A group with a parent wears its title as a tab on the parent; click the tab to collapse the group to the parent alone, with a status dot for each hidden thread, and again to expand.
 Groups can be collapsed, renamed, regenerated, or dissolved from their header.
 Generated group names use the same title-generation setting as thread titles.
 Each server keeps its own groups, so every device connected to it shows the same names and members.
