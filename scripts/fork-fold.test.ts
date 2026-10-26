@@ -838,6 +838,66 @@ it("falls back to a worktree rebase at the first refused block and resumes acros
     assert.include(beta, "Fork-Tier: core");
   }));
 
+it("keeps a fold whose members cancel as one empty commit in the worktree fallback", () =>
+  withWorktreeStack(({ root, base, alphaFeature, alphaDependent, betaCleanup, betaEdit }) => {
+    write(root, "gamma.fork.test.ts", "gamma\n");
+    const gammaTest = commitAll(root, "test: gamma", "Fork-Domain: fold-c\nFork-Tier: qol");
+    NodeFS.rmSync(NodePath.join(root, "gamma.fork.test.ts"));
+    const gammaRetire = commitAll(
+      root,
+      "chore: retire gamma test",
+      "Fork-Domain: fold-c\nFork-Tier: qol",
+    );
+    NodeFS.writeFileSync(
+      NodePath.join(root, "plan.tsv"),
+      `${alphaFeature}\t${alphaDependent}\n${betaCleanup}\t${betaEdit}\n${gammaTest}\t${gammaRetire}\n`,
+    );
+    const worktree = worktreeDir(root);
+    const apply = () => cli(root, ["apply", "plan.tsv", "--base", base]);
+    assert.strictEqual(apply().status, 1);
+    resolveStop(root, worktree, "A1!\nl2\nl3\nl4\nl5\n");
+    assert.strictEqual(apply().status, 1);
+    resolveStop(root, worktree, "A1!\nB2\nl3\nl4\nl5\n");
+
+    // The gamma pair empties its own lead: no stop, one empty fold.
+    const applied = apply();
+    assert.strictEqual(applied.status, 0, applied.stderr);
+    const tip = applied.stdout.trim();
+    assert.strictEqual(
+      git(root, ["rev-parse", `${tip}^{tree}`]),
+      git(root, ["rev-parse", `${gammaRetire}^{tree}`]),
+    );
+    assert.strictEqual(
+      git(root, ["rev-parse", `${tip}^{tree}`]),
+      git(root, ["rev-parse", `${tip}^^{tree}`]),
+    );
+    const gamma = git(root, ["log", "-1", "--format=%B", tip]);
+    assert.include(gamma, "test: gamma");
+    assert.include(gamma, `- ${gammaRetire.slice(0, 7)}`);
+  }));
+
+it("never replays a recorded rerere resolution in the worktree fallback", () =>
+  withWorktreeStack(({ root, base, alphaFeature, alphaDependent, betaCleanup, betaEdit }) => {
+    // A checkout with rerere on holds a stale postimage for the beta cleanup's conflict.
+    git(root, ["config", "rerere.enabled", "true"]);
+    git(root, ["checkout", "-q", "--detach", alphaDependent]);
+    assert.throws(() => git(root, ["cherry-pick", betaCleanup]));
+    write(root, "shared.txt", "stale\n");
+    git(root, ["rerere"]);
+    git(root, ["cherry-pick", "--abort"]);
+    git(root, ["checkout", "-q", "fixture"]);
+
+    NodeFS.writeFileSync(
+      NodePath.join(root, "plan.tsv"),
+      `${alphaFeature}\t${alphaDependent}\n${betaCleanup}\t${betaEdit}\n`,
+    );
+    const stopped = cli(root, ["apply", "plan.tsv", "--base", base]);
+    assert.strictEqual(stopped.status, 1, stopped.stderr);
+    const worktree = worktreeDir(root);
+    assert.strictEqual(git(worktree, ["diff", "--name-only", "--diff-filter=U"]), "shared.txt");
+    assert.include(NodeFS.readFileSync(NodePath.join(worktree, "shared.txt"), "utf8"), "<<<<<<<");
+  }));
+
 it("resolves fork-owned conflicts to the old head on the fast path", () =>
   withLedgerStack(false, ({ root, base, gammaLead, deltaLead, gammaEdit, deltaDrop, head }) => {
     NodeFS.writeFileSync(
