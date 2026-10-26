@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { isDesktopClientOnlyMode } from "~/environments/primary/target"; // fork-hook: backend-attach/local-environment-switch-import
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import {
   AlertDialog,
@@ -23,7 +24,7 @@ export function LocalEnvironmentSetting() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!setEnabled) return null;
+  if (!setEnabled || isDesktopClientOnlyMode()) return null; // fork-hook: backend-attach/local-environment-switch
 
   const applyChange = async () => {
     setIsUpdating(true);
