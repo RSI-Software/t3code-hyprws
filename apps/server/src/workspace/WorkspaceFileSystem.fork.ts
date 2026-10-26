@@ -11,8 +11,10 @@
 // the service (or on a settings error) the containment guard stays closed.
 import { type ProjectWriteFileInput, projectFileRevision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import type * as FileSystem from "effect/FileSystem";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -110,29 +112,43 @@ export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnc
   },
 );
 
-const fileWriteLocks = new Map<string, { readonly lock: Semaphore.Semaphore; writers: number }>();
-
 /**
  * Runs one write per file at a time, so two clients saving from the same disk
- * version cannot both pass the comparison before either writes.
+ * version cannot both pass the comparison before either writes. Keyed by the
+ * real path, so two names for one file share its lock.
  */
-export const oneWritePerFile = <A, E, R>(
-  write: Effect.Effect<A, E, R>,
-  input: ProjectWriteFileInput,
-): Effect.Effect<A, E, R> =>
-  Effect.suspend(() => {
-    const key = `${input.cwd}\0${input.relativePath}`;
-    const entry = fileWriteLocks.get(key) ?? { lock: Semaphore.makeUnsafe(1), writers: 0 };
-    fileWriteLocks.set(key, entry);
-    entry.writers += 1;
-    return entry.lock
-      .withPermits(1)(write)
-      .pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            entry.writers -= 1;
-            if (entry.writers === 0) fileWriteLocks.delete(key);
-          }),
-        ),
-      );
-  });
+export const oneWritePerFile = <E, R>(
+  layer: Layer.Layer<WorkspaceFileSystem.WorkspaceFileSystem, E, R>,
+) =>
+  Layer.effect(
+    WorkspaceFileSystem.WorkspaceFileSystem,
+    Effect.gen(function* () {
+      const service = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fileWriteLocks = new Map<
+        string,
+        { readonly lock: Semaphore.Semaphore; writers: number }
+      >();
+      return WorkspaceFileSystem.WorkspaceFileSystem.of({
+        ...service,
+        writeFile: Effect.fn("WorkspaceFileSystem.oneWritePerFile")(function* (input) {
+          const target = path.resolve(input.cwd, input.relativePath);
+          const key = yield* fileSystem.realPath(target).pipe(Effect.orElseSucceed(() => target));
+          const entry = fileWriteLocks.get(key) ?? { lock: Semaphore.makeUnsafe(1), writers: 0 };
+          fileWriteLocks.set(key, entry);
+          entry.writers += 1;
+          return yield* entry.lock
+            .withPermits(1)(service.writeFile(input))
+            .pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  entry.writers -= 1;
+                  if (entry.writers === 0) fileWriteLocks.delete(key);
+                }),
+              ),
+            );
+        }),
+      });
+    }),
+  ).pipe(Layer.provide(layer));

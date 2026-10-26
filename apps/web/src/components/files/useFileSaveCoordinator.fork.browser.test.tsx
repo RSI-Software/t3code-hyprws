@@ -164,7 +164,7 @@ describe("file-save stale-write guard", () => {
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
   });
 
-  it("drops a closed panel's in-flight draft when the user reloads", async () => {
+  it("drops a closed panel's in-flight draft when the user reloads and edits again", async () => {
     setup();
     using _loaded = showLoadedFile("# Readme\n");
     using _timers = fakeTimers();
@@ -178,8 +178,13 @@ describe("file-save stale-write guard", () => {
     await screen.unmount();
 
     toast.mock.calls[0]![0].data.secondaryActionProps.onClick();
+    await using _reopened = await editLoadedFile("# Readme fresh\n");
     inFlight.resolve(diskChanged);
     await vi.runAllTimersAsync();
-    expect(writeFile).toHaveBeenCalledTimes(2);
+    expect(writeFile.mock.calls.map(([request]) => request.input.contents)).toEqual([
+      "# Readme edited\n",
+      "# Readme edited twice\n",
+      "# Readme fresh\n",
+    ]);
   });
 });

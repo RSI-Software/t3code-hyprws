@@ -13,6 +13,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./WorkspaceFileSystem.ts";
+import * as WorkspaceFileSystemFork from "./WorkspaceFileSystem.fork.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 const ServerSettingsLayer = ServerSettings.layerTest();
 const KnownWorkspacesLayer = Layer.mock(KnownWorkspaces.KnownWorkspaces)({
@@ -23,6 +24,7 @@ const ProjectLayer = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
   Layer.provide(ServerSettingsLayer),
+  WorkspaceFileSystemFork.oneWritePerFile,
 );
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(ProjectLayer),
@@ -156,22 +158,26 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
-    it.effect("lets only one of two saves from the same disk version through", () =>
+    it.effect("lets only one of two saves from the same disk version through, by any name", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
         const cwd = yield* makeTempDir;
         yield* writeTextFile(cwd, "README.md", "# Readme\n");
-        const save = (contents: string) =>
+        yield* fileSystem.symlink(path.join(cwd, "README.md"), path.join(cwd, "Alias.md"));
+        const save = (relativePath: string, contents: string) =>
           workspaceFileSystem
             .writeFile({
               cwd,
-              relativePath: "README.md",
+              relativePath,
               contents,
               expectedRevision: projectFileRevision("# Readme\n"),
             })
             .pipe(Effect.result);
 
-        const results = yield* Effect.all([save("# From one\n"), save("# From two\n")], {
+        const saves = [save("README.md", "# From one\n"), save("Alias.md", "# From two\n")];
+        const results = yield* Effect.all(saves, {
           concurrency: "unbounded",
         });
 

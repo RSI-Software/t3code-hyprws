@@ -64,6 +64,10 @@ export function withStaleWriteGuard<A, E>(
       coordinator.current?.discard();
       return AsyncResult.failure(Cause.interrupt());
     }
+    // Edits store their draft before saving it, so a different draft means this
+    // one is superseded, such as a disposed editor's draft after Reload and a fresh edit.
+    const draft = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
+    if (draft && draft.contents !== input.contents) return AsyncResult.failure(Cause.interrupt());
     const result = await writeFile({
       environmentId,
       input: expectedRevision === undefined ? input : { ...input, expectedRevision },
