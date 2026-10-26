@@ -26,7 +26,6 @@ vi.mock(import("~/state/use-atom-command"), async (original) => ({
 vi.mock(import("./projectFilesQueryState"), async (original) => ({
   ...(await original()),
   confirmProjectFileQueryData: confirmFile,
-  getUnsavedProjectFileQueryData: () => null,
 }));
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -79,8 +78,8 @@ function showLoadedFile(contents: string) {
   };
 }
 
-/** Mounts the coordinator and edits the loaded file to `edited`. */
-async function editLoadedFile(edited: string) {
+/** Mounts an editor for the file without editing it. */
+async function openEditor() {
   let change: (contents: string) => void = () => {};
   function FileSurface() {
     const coordinator = useFileSaveCoordinator(props);
@@ -99,8 +98,14 @@ async function editLoadedFile(edited: string) {
     setProjectFileQueryData(environmentId, props.cwd, props.relativePath, contents);
     change(contents);
   };
-  edit(edited);
-  return Object.assign(screen, { edit });
+  return Object.assign(screen, { edit, change: (contents: string) => change(contents) });
+}
+
+/** Mounts an editor and edits the loaded file to `edited`. */
+async function editLoadedFile(edited: string) {
+  const screen = await openEditor();
+  screen.edit(edited);
+  return screen;
 }
 
 describe("file-save stale-write guard", () => {
@@ -161,6 +166,27 @@ describe("file-save stale-write guard", () => {
     toast.mock.calls[0]![0].data.secondaryActionProps.onClick();
     await vi.runAllTimersAsync();
     expect(writeFile).toHaveBeenCalledTimes(refusedSaves);
+    expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
+  });
+
+  it("does not resave a draft another editor already saved", async () => {
+    setup();
+    const actual = await vi.importActual<typeof import("./projectFilesQueryState")>(
+      "./projectFilesQueryState",
+    );
+    confirmFile.mockImplementation(actual.confirmProjectFileQueryData);
+    using _loaded = showLoadedFile("# Readme\n");
+    using _timers = fakeTimers();
+    const inFlight = Promise.withResolvers<AsyncResult.AsyncResult<unknown, unknown>>();
+    writeFile.mockReturnValueOnce(inFlight.promise);
+    await using _first = await editLoadedFile("# Readme edited\n");
+    await vi.advanceTimersByTimeAsync(500);
+    // A second editor recovers the same unsaved draft while the first saves it.
+    await using _second = await openEditor();
+
+    inFlight.resolve(AsyncResult.success({ relativePath: "file.txt" }));
+    await vi.runAllTimersAsync();
+    expect(writeFile).toHaveBeenCalledOnce();
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
   });
 

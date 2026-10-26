@@ -28,6 +28,7 @@ import {
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   getProjectFileQueryAtom,
+  getUnsavedProjectFileQueryData,
   optimisticFileAtom,
 } from "./projectFilesQueryState";
 
@@ -68,6 +69,11 @@ export function withStaleWriteGuard<A, E>(
     // one is superseded, such as a disposed editor's draft after Reload and a fresh edit.
     const draft = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
     if (draft && draft.contents !== input.contents) return AsyncResult.failure(Cause.interrupt());
+    if (draft && !getUnsavedProjectFileQueryData(environmentId, cwd, relativePath)) {
+      // Another editor saved this draft and dropped its base; resending would skip the check.
+      coordinator.current?.discard();
+      return AsyncResult.failure(Cause.interrupt());
+    }
     const result = await writeFile({
       environmentId,
       input: expectedRevision === undefined ? input : { ...input, expectedRevision },
