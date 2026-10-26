@@ -211,9 +211,9 @@ export function createSidebarSortingStrategy(input: {
         ? labelHeight
         : item.kind === "marker" && item.marker.endsWith("placeholder")
           ? slimHeight
-          : moved && target.section !== active.section
+          : moved
             ? fallback
-            : (rect?.height ?? fallback); // fork-hook: thread-ordering/group-fold-drag-height
+            : (rect?.height ?? fallback);
     });
     const firstShelf = items.findIndex(isShelfHeader);
     const shelfRect = rects[firstShelf];

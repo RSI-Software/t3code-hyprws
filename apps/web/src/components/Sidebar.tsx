@@ -100,11 +100,7 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isMacPlatform } from "~/lib/utils";
 import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-ordering/group-title-command-import
-import {
-  SidebarThreadGroupDropLayerFork,
-  SidebarThreadGroupFoldFork,
-  SidebarThreadGroupHeader,
-} from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
+import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
 import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
@@ -3181,7 +3177,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                        groupState?: { grouped?: boolean; fold?: ReactNode }, // fork-hook: thread-ordering/group-row-state
+                        groupState?: { grouped?: boolean; parent?: boolean }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3222,7 +3218,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             isPinned={thread.pinnedAt != null}
                             grouped={groupState?.grouped}
-                            groupFoldFork={groupState?.fold} // fork-hook: thread-ordering/group-fold
+                            groupParent={groupState?.parent} // fork-hook: thread-ordering/group-parent
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3329,15 +3325,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 // A parent leads flush; only its children indent.
                                 grouped:
                                   groupEntry !== undefined && !isDissolving && !groupEntry.isParent,
-                                fold:
-                                  groupEntry?.isParent && groupEntry.group.collapsed ? (
-                                    <SidebarThreadGroupFoldFork
-                                      threads={groupEntry.threads.slice(1)}
-                                      onExpand={() =>
-                                        setThreadGroupCollapsed(groupEntry.group.id, false)
-                                      }
-                                    />
-                                  ) : undefined,
+                                parent: groupEntry?.isParent === true && !isDissolving,
                               }, // fork-hook: thread-ordering/group-member-state
                             ),
                           );
@@ -3353,10 +3341,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             <SortableSidebarMarker
                               key={item.marker}
                               marker={item.marker}
-                              className="mx-0.5"
+                              // A parent's tab lines up with the card edge below it.
+                              className={span.parentKey === null ? "mx-0.5" : ""}
                             >
                               <SidebarThreadGroupHeader
                                 group={span.group}
+                                childThreads={
+                                  span.parentKey === null ? null : span.threads.slice(1)
+                                }
                                 canEdit={
                                   threadGroupsFork.canGroupThreadsFork(span.group.threadIds) &&
                                   canOperateThreads(span.threads)
