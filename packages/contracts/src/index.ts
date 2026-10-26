@@ -75,6 +75,7 @@ export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export { wsRpcsFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/ws-rpcs-fork-export
+export * from "./projectFileRevision.fork.ts"; // fork-hook: upstream-fixes/file-revision-export
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
