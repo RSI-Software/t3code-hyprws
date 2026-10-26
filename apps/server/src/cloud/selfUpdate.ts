@@ -35,8 +35,10 @@ import {
   PinnedRuntimePreflightBlockedError,
   prunePinnedRuntimes,
 } from "./pinnedRuntime.ts";
+import { databaseBackupBytesFork } from "./databaseBackupBytes.fork.ts"; // fork-hook: upstream-fixes/migration-backup-label
 import { repointLaunchersFork } from "./launcherRepoint.fork.ts"; // fork-hook: upstream-fixes/launcher-repoint-import
 import { decodeServicePreflightResult } from "./servicePreflight.ts";
+import type { ServicePreflightResult } from "./servicePreflight.ts"; // fork-hook: upstream-fixes/migration-backup-label
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
@@ -184,6 +186,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     }
 
     return yield* Effect.gen(function* () {
+      let preflightFork: ServicePreflightResult | undefined; // fork-hook: upstream-fixes/migration-backup-label
       yield* reportProgress("downloading");
       const paths = yield* ensurePinnedRuntimeInstalled({
         baseDir: serverConfig.baseDir,
@@ -246,6 +249,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
                     );
                   }
                   const preflight = decodeServicePreflightResult(parsed);
+                  preflightFork = preflight; // fork-hook: upstream-fixes/migration-backup-label
                   if (preflight === undefined || preflight.version !== targetVersion) {
                     return Effect.fail(
                       new PinnedRuntimeInstallError({
@@ -272,6 +276,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         ),
       );
 
+      const backupFork = yield* databaseBackupBytesFork(fs, serverConfig.dbPath, preflightFork); // fork-hook: upstream-fixes/migration-backup-label
       yield* reportProgress("installing");
       const updateId = yield* Effect.uninterruptible(
         launcher.requestUpdate({ targetVersion, dbPath: serverConfig.dbPath }).pipe(
@@ -293,7 +298,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
         targetVersion,
         runtimePath: paths.entryPath,
       });
-      return { targetVersion, method: "boot-service" as const, updateId };
+      return { targetVersion, method: "boot-service" as const, updateId, ...backupFork }; // fork-hook: upstream-fixes/migration-backup-label
     }).pipe(Effect.onError(() => Ref.set(inFlight, false)));
   });
 
