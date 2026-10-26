@@ -15,6 +15,8 @@ const FORK_COLUMNS: ReadonlyArray<{
   { table: "auth_device_authorizations", column: "mcp_policy_json", definition: "TEXT" },
   // The run an external MCP interrupt committed to, read back by its retry.
   { table: "auth_external_mcp_requests", column: "pinned_target", definition: "TEXT" },
+  // When the legacy import folded a V1 issue link into its V2 thread; set rows never import again.
+  { table: "projection_thread_issues", column: "imported_at", definition: "TEXT" },
 ];
 
 /**
