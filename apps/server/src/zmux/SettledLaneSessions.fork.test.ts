@@ -114,6 +114,10 @@ const harness = () =>
             calls.push("release");
             return releaseSucceeded;
           }),
+        closeSettledManagedAttachments: ({ target }) =>
+          Effect.sync(() => {
+            calls.push(`close:${target}`);
+          }),
       }),
       Layer.mock(Binder.ZmuxSessionBinder)({
         bind: (lane) =>
@@ -211,7 +215,12 @@ describe("settled checkout sessions", () => {
     Effect.gen(function* () {
       const h = yield* harness();
       yield* h.reactor.reconcile(id);
-      expect(h.calls).toEqual(["release", "prepare:/repo-feature", "unbind"]);
+      expect(h.calls).toEqual([
+        "release",
+        "prepare:/repo-feature",
+        "unbind",
+        "close:proof/feature",
+      ]);
       expect(yield* h.removed).toEqual(identity);
     }),
   );
@@ -252,7 +261,12 @@ describe("settled checkout sessions", () => {
         if (timing === "before reconciliation") h.deleteProject();
         else h.setBeforeCleanup(Effect.sync(h.deleteProject));
         yield* h.reactor.reconcile(id);
-        expect(h.calls).toEqual(["release", "prepare:/repo-feature", "unbind"]);
+        expect(h.calls).toEqual([
+          "release",
+          "prepare:/repo-feature",
+          "unbind",
+          "close:proof/feature",
+        ]);
         expect(yield* h.removed).toEqual(identity);
       }),
   );
@@ -338,7 +352,13 @@ describe("settled checkout sessions", () => {
       h.setThread({ settledOverride: null });
       yield* h.emit("thread.unsettled");
       yield* h.bound;
-      expect(h.calls).toEqual(["release", "prepare:/repo-feature", "unbind", "bind:/repo-feature"]);
+      expect(h.calls).toEqual([
+        "release",
+        "prepare:/repo-feature",
+        "unbind",
+        "close:proof/feature",
+        "bind:/repo-feature",
+      ]);
     }),
   );
 
@@ -364,6 +384,7 @@ describe("settled checkout sessions", () => {
       h.refuse();
       yield* h.reactor.reconcile(id);
       expect(h.calls.filter((call) => call === "unbind")).toHaveLength(1);
+      expect(h.calls.some((call) => call.startsWith("close:"))).toBe(false);
       h.forgetProject();
       yield* h.reactor.reconcile(id);
       expect(h.calls.filter((call) => call === "unbind")).toHaveLength(1);
