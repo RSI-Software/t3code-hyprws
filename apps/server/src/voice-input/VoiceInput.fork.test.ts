@@ -1,4 +1,4 @@
-import type { VoiceInputConfigUpdateFork } from "@t3tools/contracts";
+import type { VoiceInputConfigUpdateFork, VoiceTextSettingsFork } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -12,6 +12,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as VoiceInput from "./VoiceInput.fork.ts";
+import * as VoiceText from "./VoiceText.fork.ts";
 
 function recording(rate = 16000) {
   const audio = new Uint8Array(44 + rate * 2);
@@ -38,6 +39,7 @@ const openai: VoiceInputConfigUpdateFork = {
   baseUrl: "http://127.0.0.1:8788/v1",
   live: false,
   model: "nemo",
+  extensions: false,
 };
 const meta = {
   enabled: true,
@@ -45,6 +47,7 @@ const meta = {
   baseUrl: "https://api.meta.ai/v1",
   live: true,
   model: "muse-voice-transcribe-1.0",
+  extensions: false,
 } satisfies VoiceInputConfigUpdateFork;
 const silentSocket = Socket.make({
   reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
@@ -57,6 +60,7 @@ function harness(
   customClient?: HttpClient.HttpClient,
 ) {
   const stored = new Map<string, Uint8Array>();
+  const speech = { defaults: { terms: "" }, projects: {} as Record<string, { terms: string }> };
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
   const secrets = ServerSecretStore.ServerSecretStore.of({
     get: (name) => Effect.sync(() => Option.fromUndefinedOr(stored.get(name))),
@@ -88,13 +92,16 @@ function harness(
       Layer.mergeAll(
         Layer.succeed(ServerSecretStore.ServerSecretStore, secrets),
         Layer.succeed(HttpClient.HttpClient, customClient ?? client),
+        Layer.mock(VoiceText.VoiceText)({
+          settings: Effect.sync(() => speech as unknown as VoiceTextSettingsFork),
+        }),
       ),
     ),
   );
   const run = <A, E, R = never>(
     use: (service: VoiceInput.VoiceInput["Service"]) => Effect.Effect<A, E, R>,
   ) => Effect.flatMap(VoiceInput.VoiceInput, use).pipe(Effect.provide(layer));
-  return { stored, requests, run };
+  return { stored, requests, speech, run };
 }
 
 describe("external dictation service", () => {
@@ -245,6 +252,60 @@ describe("external dictation service", () => {
       expect(body.formData.get("file")).toBeInstanceOf(Blob);
     }),
   );
+  it.effect.each([
+    { extensions: false, keywords: [], spelling: null },
+    {
+      extensions: true,
+      keywords: ["kubectl", "Hyprland", "VecT"],
+      spelling: '[{"from":["cube control","cubectol"],"to":"kubectl"}]',
+    },
+  ])("sends project terms with extensions $extensions", ({ extensions, keywords, spelling }) =>
+    Effect.gen(function* () {
+      const h = harness();
+      h.speech.defaults.terms = "shared";
+      h.speech.projects.p1 = { terms: "cube control, cubectol -> kubectl\n\n Hyprland \nVec<T>" };
+      yield* h.run((s) =>
+        Effect.gen(function* () {
+          yield* s.configure({ ...openai, extensions });
+          yield* s.transcribe(recording(), "p1");
+          yield* s.transcribe(recording(), "gone");
+        }),
+      );
+      const [project, shared] = h.requests.map((request) =>
+        request.body._tag === "FormData" ? request.body.formData : new FormData(),
+      );
+      expect(project?.get("prompt")).toBe("kubectl, Hyprland, Vec<T>");
+      expect(project?.getAll("keywords[]")).toEqual(keywords);
+      expect(project?.get("custom_spelling")).toBe(spelling);
+      expect(shared?.get("prompt")).toBe("shared");
+    }),
+  );
+  it.effect("drops terms past Promptletariat's hint limits", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      h.speech.defaults.terms = Array.from(
+        { length: 150 },
+        (_, i) => `${"a".repeat(200)}${i}, b${i} -> ${i}${"é".repeat(150)}`,
+      ).join("\n");
+      yield* h.run((s) =>
+        Effect.gen(function* () {
+          yield* s.configure({ ...openai, extensions: true });
+          yield* s.transcribe(recording());
+        }),
+      );
+      const body = h.requests[0]?.body;
+      if (body?._tag !== "FormData") throw new Error("Expected upload");
+      const keywords = body.formData.getAll("keywords[]").map(String);
+      expect(keywords.length).toBeGreaterThan(0);
+      expect(keywords.every((keyword) => keyword.length <= 128)).toBe(true);
+      expect(
+        new URLSearchParams(keywords.map((word): [string, string] => ["hotword", word])).toString()
+          .length,
+      ).toBeLessThanOrEqual(8192);
+      const spelling = JSON.parse(String(body.formData.get("custom_spelling")));
+      expect(spelling.flatMap((rule: { from: Array<string> }) => rule.from)).toHaveLength(256);
+    }),
+  );
   it.effect("retains keys only for the same destination and supports removal", () =>
     Effect.gen(function* () {
       const h = harness();
@@ -325,10 +386,10 @@ describe("external dictation service", () => {
   );
   it.effect.each([
     {
-      config: { ...openai, live: true },
+      config: { ...openai, live: true, extensions: true },
       url: "ws://127.0.0.1:8788/v1/realtime?intent=transcription",
       headers: { authorization: "Bearer stream-key" },
-      start: '"type":"session.update"',
+      start: '"transcription":{"model":"nemo","prompt":"kubectl","keywords":["kubectl"]}',
     },
     {
       config: meta,
@@ -339,6 +400,7 @@ describe("external dictation service", () => {
   ] as const)("opens $config.provider's streaming socket with its key", ({ config, ...expected }) =>
     Effect.gen(function* () {
       const h = harness();
+      h.speech.defaults.terms = "kubectl";
       yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
       const opened = Promise.withResolvers<{ url: string; options: unknown; start: unknown }>();
       const upstream = Layer.succeed(Socket.WebSocketConstructor, (url, options) => ({

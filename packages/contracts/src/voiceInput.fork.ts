@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 export * from "./voiceText.fork.ts";
@@ -17,6 +18,8 @@ export const VoiceInputConfigFork = Schema.Struct({
   /** Streams a live preview; off uploads the whole recording after Stop. */
   live: Schema.Boolean,
   model: Schema.String.check(Schema.isMaxLength(200)),
+  /** Sends Promptletariat's `keywords` and `custom_spelling`, which OpenAI rejects. */
+  extensions: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type VoiceInputConfigFork = typeof VoiceInputConfigFork.Type;
 

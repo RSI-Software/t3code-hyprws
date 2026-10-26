@@ -322,6 +322,21 @@ export function VoiceTextSettingsFork({
               ) : null}
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Speech terms"
+            description="Names the speech service should recognize, one per line. Add `heard, misheard -> Term` to fix a spelling. Meta ignores them."
+          >
+            <div className="mt-3 max-w-2xl pb-3.5">
+              <Textarea
+                value={form.terms}
+                rows={4}
+                aria-label="Speech terms"
+                placeholder={"kubectl\ncube control, cubectol -> kubectl"}
+                onChange={(event) => update({ terms: event.target.value })}
+                spellCheck={false}
+              />
+            </div>
+          </SettingsRow>
         </fieldset>
         <div className="flex flex-wrap items-center gap-3 pt-4">
           <Button

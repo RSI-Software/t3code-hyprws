@@ -7,6 +7,7 @@ const meta: VoiceInputSettingsFork = {
   provider: "meta",
   baseUrl: "https://api.meta.ai/v1",
   live: true,
+  extensions: false,
   model: "muse-voice-transcribe-1.0",
   hasApiKey: false,
 };

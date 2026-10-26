@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectId, ThreadId } from "./baseSchemas.ts";
@@ -25,6 +26,10 @@ export const VoiceTextConfigFork = Schema.Struct({
   formattingPrompt: prompt,
   contextPrompt: prompt,
   projectContext: Schema.String.check(Schema.isMaxLength(20_000)),
+  /** One term per line; `heard, misheard -> Term` adds a spelling rule. Sent to the speech service. */
+  terms: Schema.String.check(Schema.isMaxLength(20_000)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
 });
 export type VoiceTextConfigFork = typeof VoiceTextConfigFork.Type;
 export const VoiceTextSettingsFork = Schema.Struct({
