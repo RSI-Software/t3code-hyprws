@@ -1,10 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercise the launcher's native filesystem and SQLite process boundary.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 
 import { afterEach, expect, it } from "@effect/vitest";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { Launcher, readServiceState, writeServiceState } from "./serviceLauncher.ts";
 import { backupDatabaseForMigrationsFork } from "./serviceLauncherBackup.fork.ts";
@@ -193,3 +195,69 @@ process.exit(1);
   expect(await NodeFSP.readFile(livePath, "utf8")).toBe("live");
   expect(backedUp).toBe(true);
 });
+
+// A FIFO database keeps `cp` reading until the test closes its writer, so the stop lands mid-copy.
+it.runIf(HostProcess.Platform.defaultValue() === "linux")(
+  "a stop during the backup aborts the copy and leaves the update pending",
+  async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-launcher-fork-stop-"));
+    roots.push(root);
+    const databasePath = NodePath.join(root, "state.sqlite");
+    NodeChildProcess.execFileSync("mkfifo", [databasePath]);
+    const trialStarted = NodePath.join(root, "trial-started");
+    for (const version of ["1.0.0", "1.1.0"]) {
+      const versionDir = NodePath.join(root, "runtime", "versions", version);
+      await NodeFSP.mkdir(versionDir, { recursive: true });
+      await NodeFSP.writeFile(NodePath.join(versionDir, ".install-complete"), version);
+      await NodeFSP.writeFile(
+        NodePath.join(versionDir, "t3"),
+        `#!${process.execPath}
+if (process.argv[2] === "__service-preflight") process.exit(1);
+const context = JSON.parse(process.env.T3_SERVICE_LAUNCHER_CONTEXT);
+if (context.update?.status === "pending") require("node:fs").writeFileSync(${JSON.stringify(trialStarted)}, "");
+`,
+        { mode: 0o755 },
+      );
+    }
+    const statePath = NodePath.join(root, "runtime", "service-state.json");
+    await writeServiceState(statePath, {
+      protocol: SERVICE_LAUNCHER_PROTOCOL,
+      activeVersion: "1.0.0",
+      update: {
+        id: "update-1",
+        fromVersion: "1.0.0",
+        targetVersion: "1.1.0",
+        dbPath: databasePath,
+        status: "pending",
+      },
+    });
+    const launcher = new Launcher(root, await readServiceState(statePath));
+    const running = launcher.run();
+    // Opening the FIFO for writing resolves once `cp` has opened it to read. Holding it open
+    // keeps the copy blocked, so only an abort lets the stop finish.
+    const writer = await NodeFSP.open(databasePath, "w");
+    try {
+      await launcher.stop("SIGTERM");
+      await running;
+    } finally {
+      await writer.close();
+    }
+
+    const state = await readServiceState(statePath);
+    expect(state.activeVersion).toBe("1.0.0");
+    expect(state.update?.status).toBe("pending");
+    const backupDir = NodePath.join(root, "runtime", "db-backup", "update-1");
+    for (const path of [trialStarted, backupDir, `${backupDir}.staging`]) {
+      await expect(NodeFSP.stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+
+    // The next start resumes the update: a full backup, then the trial.
+    await NodeFSP.rm(databasePath);
+    await NodeFSP.writeFile(databasePath, "database");
+    const resumed = new Launcher(root, await readServiceState(statePath));
+    await expect(resumed.run()).rejects.toThrow("Active child exited unexpectedly");
+    await NodeFSP.stat(trialStarted);
+    expect((await readServiceState(statePath)).update?.status).toBe("rolled-back");
+    expect(await NodeFSP.readFile(databasePath, "utf8")).toBe("database");
+  },
+);
