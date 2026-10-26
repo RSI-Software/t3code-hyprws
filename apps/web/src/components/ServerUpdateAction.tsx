@@ -16,6 +16,7 @@ import {
   type ServerUpdateStage,
   type ServerUpdateState,
 } from "@t3tools/client-runtime/state/server";
+import { serverUpdateRestartLabelFork } from "@t3tools/client-runtime/state/server-update-backup"; // fork-hook: upstream-fixes/migration-backup-label
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -213,7 +214,7 @@ function useServerUpdateDetail(state: Exclude<ServerUpdateState, { status: "idle
   if (state.status === "failed") return state.message;
   if (state.status === "completed") return `Updated to t3@${state.targetVersion}.`;
   const elapsed = serverUpdateRestartElapsedSeconds(state, now);
-  return `${serverUpdateStageLabel(state.stage)}${elapsed === null ? "" : ` ${elapsed}s elapsed`}`;
+  return `${serverUpdateRestartLabelFork(state, serverUpdateStageLabel(state.stage))}${elapsed === null ? "" : ` ${elapsed}s elapsed`}`; // fork-hook: upstream-fixes/migration-backup-label
 }
 
 /** Unknown byte counts stay indeterminate; terminal outcomes stop all activity. */
