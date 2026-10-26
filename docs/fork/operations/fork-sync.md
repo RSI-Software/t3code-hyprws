@@ -90,7 +90,7 @@ Conflict resolution is machine-owned, in this order.
 
 | #   | Rule                                                                                                                           |
 | --- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Local rerere replays resolutions within the run's rebase and stages them                                                       |
+| 1   | Rerere replays resolutions from the run's rebase and [`sync/resolution`](#resolution-data), and stages them                    |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text           |
 | 3   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
 | 4   | A [regenerable file](#regenerable-files) regenerates once every other path in the stop resolves                                |
@@ -99,6 +99,27 @@ Conflict resolution is machine-owned, in this order.
 Only upstream moved: upstream's text stands.
 A marked fork hook goes back in verbatim, shifted only when upstream re-indented its anchor.
 There is no "upstream superseded this" rule: retirement is a traced verdict written in [fork-delta](../internals/fork-delta.md), never a merge rule.
+
+## Resolution data
+
+Every CI run starts on a fresh runner, so `.git/rr-cache` and tip fixups die with it.
+The driver keeps them as git data instead.
+
+- **Export:** `refs/fork-sync/resolution`, per rebase
+- **Shape:** one parentless commit, no workflows
+- **Contents:** resolved rerere, `fixups.mbox`
+- **Scope:** this sync's stops and every import
+- **Push:** rsi-pr-agent or a hand resolver
+- **Import:** each run, before the rebase
+- **Rerere:** joins rr-cache, never replacing
+- **Fixups:** `git am --3way` atop a fresh rebase
+- **Fixup gate:** `Fork-Sync-Tag` is the target
+- **Kept worktree:** pins its import; a moved branch refuses
+- **Carry plus fixups:** refuses the run
+- **Refusal:** any other path fails the run
+
+The driver reads the branch as data only; nothing on it executes.
+The [job mode](../../../.agents/skills/fork-sync/SKILL.md#job-mode) runbook produces it.
 
 ## Attention issue lifecycle
 
