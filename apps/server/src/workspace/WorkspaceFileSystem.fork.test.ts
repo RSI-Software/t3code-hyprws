@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import { projectFileRevision } from "@t3tools/contracts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -78,6 +79,55 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           byteLength: 14,
           truncated: false,
         });
+      }),
+    );
+  });
+
+  describe("writeFile", () => {
+    it.effect("refuses a save whose draft predates a disk change", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "README.md", "# Readme\n");
+        const loadedRevision = projectFileRevision("# Readme\n");
+        yield* writeTextFile(cwd, "README.md", "# Readme\nline from disk\n");
+
+        const error = yield* workspaceFileSystem
+          .writeFile({
+            cwd,
+            relativePath: "README.md",
+            contents: "# Readme edited\n",
+            expectedRevision: loadedRevision,
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("WorkspaceFileChangedError");
+        expect(yield* fileSystem.readFileString(path.join(cwd, "README.md"))).toBe(
+          "# Readme\nline from disk\n",
+        );
+      }),
+    );
+
+    it.effect("saves over the disk version the draft started from", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "README.md", "# Readme\n");
+
+        yield* workspaceFileSystem.writeFile({
+          cwd,
+          relativePath: "README.md",
+          contents: "# Readme edited\n",
+          expectedRevision: projectFileRevision("# Readme\n"),
+        });
+
+        expect(yield* fileSystem.readFileString(path.join(cwd, "README.md"))).toBe(
+          "# Readme edited\n",
+        );
       }),
     );
   });

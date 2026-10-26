@@ -9,7 +9,10 @@
 // — upstream files and test harnesses keep upstream text, and the production
 // wiring in `server.ts` provides the service through one marked hook. Without
 // the service (or on a settings error) the containment guard stays closed.
+import { type ProjectWriteFileInput, projectFileRevision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
+import * as Schema from "effect/Schema";
 
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -41,3 +44,51 @@ export const makeExternalSymlinksFork = (): ExternalSymlinksFork => ({
         )
       : blocked,
 });
+
+// Stale-write guard (RSI-Software/t3code-hyprws#1761): a save that names the
+// disk version its draft started from is refused once the disk moved on, so an
+// open editor never silently replaces an agent's or another editor's change.
+export class WorkspaceFileChangedError extends Schema.TaggedError<WorkspaceFileChangedError>()(
+  "WorkspaceFileChangedError",
+  { workspaceRoot: Schema.String, relativePath: Schema.String },
+) {
+  override get message(): string {
+    return `Workspace file '${this.relativePath}' in '${this.workspaceRoot}' changed on disk since it was loaded.`;
+  }
+}
+
+// Matches readFile's cap: the panel only edits files it read whole.
+const COMPARED_MAX_BYTES = 1024 * 1024;
+
+const diskRevision = (fileSystem: FileSystem.FileSystem, path: string) =>
+  fileSystem.stat(path).pipe(
+    Effect.flatMap((stat) =>
+      stat.size > COMPARED_MAX_BYTES
+        ? Effect.succeed(null)
+        : fileSystem
+            .readFile(path)
+            .pipe(
+              Effect.map((bytes) => projectFileRevision(new TextDecoder("utf-8").decode(bytes))),
+            ),
+    ),
+    // A file deleted since the load reads as empty, the same as a new file.
+    Effect.catch((error) =>
+      Effect.succeed(error.reason._tag === "NotFound" ? projectFileRevision("") : null),
+    ),
+  );
+
+/** Refuses the write when the file no longer holds the draft's base version. */
+export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnchangedSinceLoad")(
+  function* (
+    fileSystem: FileSystem.FileSystem,
+    realTargetPath: string,
+    input: ProjectWriteFileInput,
+  ) {
+    if (input.expectedRevision === undefined) return;
+    if ((yield* diskRevision(fileSystem, realTargetPath)) === input.expectedRevision) return;
+    return yield* new WorkspaceFileChangedError({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+  },
+);
