@@ -28,7 +28,9 @@ interface TitleThread {
 
 export interface ThreadGroupTitleRequest<T> {
   readonly groupId: string;
+  /** Every member but the parent, which leads the title request. */
   readonly members: readonly T[];
+  readonly parent?: T | undefined;
   readonly expectedGroup: GroupSnapshot;
   readonly previousTitle?: string | undefined;
 }
@@ -39,6 +41,7 @@ export interface ThreadGroupTitleDeps<T extends TitleThread> {
     readonly input: {
       readonly projectId: T["projectId"];
       readonly memberTitles: readonly string[];
+      readonly parentTitle?: string;
       readonly previousTitle?: string;
     };
   }) => Promise<AtomCommandResult<{ readonly title: string }, unknown>>;
@@ -115,10 +118,14 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
     const group = currentGroup(groupId);
     if (group === undefined) return;
     const byKey = new Map(deps.readThreads().map((thread) => [deps.keyOf(thread), thread]));
-    const members = group.threadIds.flatMap((threadId) => byKey.get(threadId) ?? []);
+    const parent = group.parentThreadId === undefined ? undefined : byKey.get(group.parentThreadId);
+    const members = group.threadIds.flatMap((threadId) =>
+      threadId === group.parentThreadId ? [] : (byKey.get(threadId) ?? []),
+    );
     void request({
       groupId,
       members,
+      parent,
       expectedGroup: { title: group.title, threadIds: [...group.threadIds] },
       // A regenerate asks for a title unlike the one the group has now.
       ...(regenerate ? { previousTitle: group.title } : {}),
@@ -132,10 +139,10 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
   };
 
   const request = async (input: ThreadGroupTitleRequest<T>): Promise<void> => {
-    // Members may span projects and environments; the first member's
-    // environment names the group, and only the titles reach the model.
-    const first = input.members[0];
-    if (!first || input.members.length < 2) return;
+    // Members may span projects and environments; the parent's or else the
+    // first member's environment names the group, and only titles reach the model.
+    const first = input.parent ?? input.members[0];
+    if (!first || input.members.length + (input.parent ? 1 : 0) < 2) return;
     const groupKey = input.groupId;
     if (inFlight.has(groupKey)) return;
     clearFailure(groupKey);
@@ -146,6 +153,7 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
         input: {
           projectId: first.projectId,
           memberTitles: input.members.map((thread) => thread.title),
+          ...(input.parent === undefined ? {} : { parentTitle: input.parent.title }),
           ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
         },
       });
