@@ -639,7 +639,7 @@ Upstream reveals ignored workspace paths on demand and safely reads explicitly t
 | Client state | Collapsed state stays per client; pre-server local groups import once per environment                                           |
 | Removal      | A member stepped back to depth 0 leaves, and a one-member group dissolves                                                       |
 | Parent drop  | Depth 0 directly under a header makes that row the parent; stepping the parent right demotes it                                 |
-| Collapsed    | The header replaces the anchor row; with a parent, the parent stays and children fold into a strip                              |
+| Collapsed    | The header replaces the anchor row; with a parent, the parent stays and the title tab shows each child's status                 |
 | Names        | Server thread-title generation names groups; headers rename inline and dissolve                                                 |
 | Scope        | Active, unpinned threads of one environment, from any project                                                                   |
 | Agents       | `t3_thread_group_list` and `t3_thread_group_update`; launches join the caller's group unless `group` says otherwise             |
