@@ -82,7 +82,10 @@ import * as PortScanner from "../preview/PortScanner.ts";
 import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClient.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
-import { makeSettlementAttachmentReleaseFork } from "./SettlementAttachmentRelease.fork.ts"; // fork-hook: zmux-estate/settled-lane-release-import
+import {
+  makeSettledSessionCloseFork,
+  makeSettlementAttachmentReleaseFork,
+} from "./SettlementAttachmentRelease.fork.ts"; // fork-hook: zmux-estate/settled-lane-release-import
 import { terminalModeForSessionFork } from "./SettlementHookShell.fork.ts"; // fork-hook: zmux-estate/settle-hook-shell-mode-import
 import { SettledLaneAttachGuard } from "../zmux/SettledLaneAttachGuard.fork.ts"; // fork-hook: zmux-estate/settled-lane-attach-guard-import
 import {
@@ -275,6 +278,10 @@ export class TerminalManager extends Context.Service<
     readonly releaseSettledManagedAttachments: (input: {
       readonly threadId: string;
     }) => Effect.Effect<boolean>; // fork-hook: zmux-estate/settled-lane-release-contract
+
+    readonly closeSettledManagedAttachments: (input: {
+      readonly target: string;
+    }) => Effect.Effect<void>; // fork-hook: zmux-estate/settled-lane-close-contract
 
     readonly subscribe: (
       listener: (event: TerminalEvent) => Effect.Effect<void>,
@@ -4915,6 +4922,22 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     processKillGraceMs,
   }); // fork-hook: zmux-estate/settled-lane-release-implementation
 
+  const closeSettledManagedAttachments = makeSettledSessionCloseFork({
+    viewers: readManagerState.pipe(
+      Effect.map((state) => [
+        ...state.sessions.values(),
+        ...state.retainedManagedSessions.values(),
+      ]),
+    ),
+    close: (viewer) =>
+      close({
+        threadId: viewer.threadId,
+        terminalId: viewer.terminalId,
+        ...(viewer.attachmentId ? { attachmentId: viewer.attachmentId } : {}),
+        deleteHistory: true,
+      }),
+  }); // fork-hook: zmux-estate/settled-lane-close-implementation
+
   return TerminalManager.of({
     open,
     attachStream,
@@ -4927,6 +4950,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     close,
     closeIdle,
     releaseSettledManagedAttachments, // fork-hook: zmux-estate/settled-lane-release-service
+    closeSettledManagedAttachments, // fork-hook: zmux-estate/settled-lane-close-service
     subscribe,
     subscribeMetadata,
   });
