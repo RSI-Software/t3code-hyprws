@@ -188,7 +188,8 @@ describe("file-save stale-write guard", () => {
     await vi.advanceTimersByTimeAsync(0);
     // The readback after the save clears the draft before the replay fires.
     appAtomRegistry.set(optimisticFileAtom(environmentId, props.cwd, props.relativePath), null);
-    await vi.runAllTimersAsync();
+    // Only as far as the replay: the real readback leaves its own timers running.
+    await vi.advanceTimersByTimeAsync(500);
     expect(writeFile).toHaveBeenCalledOnce();
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
   });
