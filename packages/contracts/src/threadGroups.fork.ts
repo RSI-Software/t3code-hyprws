@@ -5,7 +5,7 @@
 // groups, so the upstream app never decodes one.
 import * as Schema from "effect/Schema";
 
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const ThreadGroupIdFork = TrimmedNonEmptyString;
 export type ThreadGroupIdFork = typeof ThreadGroupIdFork.Type;
@@ -294,3 +294,26 @@ export function applyThreadGroupMutationFork(
   }
   return { groups: groups.map((candidate) => (candidate.id === group.id ? next : candidate)) };
 }
+
+export const ThreadGroupTitleGenerationInput = Schema.Struct({
+  projectId: ProjectId,
+  /** Every member but the parent, which `parentTitle` carries. */
+  memberTitles: Schema.Array(TrimmedNonEmptyString).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(50),
+  ),
+  parentTitle: Schema.optional(TrimmedNonEmptyString),
+  previousTitle: Schema.optional(TrimmedNonEmptyString),
+}).check(
+  Schema.makeFilter((input) =>
+    input.memberTitles.length + (input.parentTitle === undefined ? 0 : 1) >= 2
+      ? true
+      : "A thread group title needs at least two threads.",
+  ),
+);
+export type ThreadGroupTitleGenerationInput = typeof ThreadGroupTitleGenerationInput.Type;
+
+export const ThreadGroupTitleGenerationResult = Schema.Struct({
+  title: TrimmedNonEmptyString,
+});
+export type ThreadGroupTitleGenerationResult = typeof ThreadGroupTitleGenerationResult.Type;

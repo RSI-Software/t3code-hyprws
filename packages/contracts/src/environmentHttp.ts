@@ -59,6 +59,10 @@ import {
 } from "./orchestrationV2.ts";
 import { Project, ProjectMutation, ProjectSnapshot } from "./project.ts";
 import {
+  ThreadGroupTitleGenerationInput,
+  ThreadGroupTitleGenerationResult,
+} from "./threadGroups.fork.ts"; // fork-hook: thread-ordering/group-title-contract-import
+import {
   PullRequestDiffInput,
   PullRequestDiffResult,
   PullRequestOperationError,
@@ -681,21 +685,6 @@ const EnvironmentOrchestrationThreadHistoryErrors = [
   EnvironmentResourceNotFoundError,
   EnvironmentInternalError,
 ] as const;
-
-export const ThreadGroupTitleGenerationInput = Schema.Struct({
-  projectId: ProjectId,
-  memberTitles: Schema.Array(TrimmedNonEmptyString).check(
-    Schema.isMinLength(2),
-    Schema.isMaxLength(50),
-  ),
-  previousTitle: Schema.optional(TrimmedNonEmptyString),
-});
-export type ThreadGroupTitleGenerationInput = typeof ThreadGroupTitleGenerationInput.Type;
-
-export const ThreadGroupTitleGenerationResult = Schema.Struct({
-  title: TrimmedNonEmptyString,
-});
-export type ThreadGroupTitleGenerationResult = typeof ThreadGroupTitleGenerationResult.Type;
 
 class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
   .add(
