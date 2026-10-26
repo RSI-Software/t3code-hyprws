@@ -13,6 +13,7 @@ import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.
 import type { SettingsScopeSearch } from "./settingsScope";
 import { getThreadAutoSettlementSearchAvailability } from "./settingsSearch";
 import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
+import { canManageLocalBackendFork } from "./connectionsClientOnly.fork"; // fork-hook: backend-attach/search-local-backend-import
 
 export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch = {}) {
   const { environments } = useEnvironments();
@@ -46,7 +47,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
     cloudLinkState?.linkRevoked !== true &&
     (cloudLinkState?.managedTunnelActive ?? cloudLinkState?.linked ?? false) === true;
   const localEnvironmentDisabled = isLocalEnvironmentDisabled() === true;
-  const canManageLocalBackend = !localEnvironmentDisabled && canMaintain;
+  const canManageLocalBackend = canManageLocalBackendFork(canMaintain) === true; // fork-hook: backend-attach/search-local-backend
   const desktopWsl = useEnvironmentQuery(
     isElectron && canManageLocalBackend ? desktopWslStateAtom : null,
   );
