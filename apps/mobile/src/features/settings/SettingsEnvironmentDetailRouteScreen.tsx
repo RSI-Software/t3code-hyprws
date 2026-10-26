@@ -10,6 +10,7 @@ import {
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
+import { serverUpdateRestartLabelFork } from "@t3tools/client-runtime/state/server-update-backup"; // fork-hook: upstream-fixes/migration-backup-label
 import { AsyncResult } from "effect/reactivity";
 import { useRef, useState } from "react";
 import { View } from "react-native";
@@ -235,7 +236,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                     {running ? (
                       <Text className="text-sm text-foreground-muted">
                         {updateState.stage === "resuming"
-                          ? "Restarting and reconnecting…"
+                          ? serverUpdateRestartLabelFork(
+                              updateState,
+                              "Restarting and reconnecting…",
+                            ) // fork-hook: upstream-fixes/migration-backup-label
                           : "Downloading update…"}
                       </Text>
                     ) : updateState.status === "failed" ? (
