@@ -91,9 +91,15 @@ const diskRevision = Effect.fnUntraced(function* (
     ),
     Effect.mapError(failed("stat")),
   );
-  // Only a regular file can hold the loaded version; reading a FIFO would block.
-  if (Option.isNone(stat) || stat.value.type !== "File" || stat.value.size > COMPARED_MAX_BYTES)
-    return null;
+  if (Option.isNone(stat)) return null;
+  // Not a disk change to overwrite: reading or writing a FIFO would block.
+  if (stat.value.type !== "File")
+    return yield* new WorkspaceFileSystem.WorkspacePathNotFileError({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+      resolvedPath: realTargetPath,
+    });
+  if (stat.value.size > COMPARED_MAX_BYTES) return null;
   const bytes = yield* fileSystem.readFile(realTargetPath).pipe(Effect.mapError(failed("read")));
   return projectFileRevision(new TextDecoder("utf-8").decode(bytes));
 });

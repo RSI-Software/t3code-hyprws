@@ -136,7 +136,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
     );
 
     it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
-      "refuses a save whose loaded file became a FIFO, without reading it",
+      "refuses a save whose loaded file became a FIFO as not a file",
       () =>
         Effect.gen(function* () {
           const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
@@ -164,7 +164,8 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
             })
             .pipe(Effect.flip);
 
-          expect(error._tag).toBe("WorkspaceFileChangedError");
+          // Not a disk change: Overwrite would block opening the FIFO.
+          expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspacePathNotFileError);
         }),
     );
 
