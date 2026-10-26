@@ -1,4 +1,8 @@
-import type { OrchestrationV2AppThread } from "@t3tools/contracts";
+import type {
+  OrchestrationV2AppThread,
+  OrchestrationV2ThreadProjection,
+  RunId,
+} from "@t3tools/contracts";
 
 /** A fork copies conversation and checkout settings, not the source's live controls. */
 export function freshConversationForkMetadataFork() {
@@ -62,6 +66,41 @@ export function conversationForkContextFork(
     "Explicit issue/PR links and watches are not inherited; a PR discovered from the shared branch is a separate association.",
     "[/T3 Code conversation fork]",
   ].join("\n");
+}
+
+/**
+ * The notice is owed until a non-compact turn on the current native thread carried it: a native
+ * `/compact` takes its command unchanged, so the notice waits for the next turn.
+ */
+export function conversationForkNoticeOwedFork(
+  projection: Pick<OrchestrationV2ThreadProjection, "runs" | "messages">,
+  input: {
+    readonly sameNativeThread: boolean;
+    readonly acceptedAttempts: ReadonlyArray<{ readonly nativeThreadId?: string | undefined }>;
+    readonly nativeInputRunIds: ReadonlySet<RunId>;
+    readonly legacyInputRunIds: ReadonlySet<RunId>;
+  },
+) {
+  // Legacy runs (no recorded native id) count only as ProviderTurnStartService's
+  // `nativeThreadHasTurns` counts them: on an unreplaced thread with no recorded native ids.
+  const held = new Set(
+    input.sameNativeThread &&
+      !input.acceptedAttempts.some((attempt) => attempt.nativeThreadId !== undefined)
+      ? [...input.nativeInputRunIds, ...input.legacyInputRunIds]
+      : input.nativeInputRunIds,
+  );
+  // Turn-start projections load every `/compact` message, not every message.
+  const compactMessageIds = new Set(
+    projection.messages
+      .filter(
+        (message) =>
+          message.attachments.length === 0 && message.text.trim().toLowerCase() === "/compact",
+      )
+      .map((message) => message.id),
+  );
+  return !projection.runs.some(
+    (run) => held.has(run.id) && !compactMessageIds.has(run.userMessageId),
+  );
 }
 
 export function appendConversationForkContextFork(
