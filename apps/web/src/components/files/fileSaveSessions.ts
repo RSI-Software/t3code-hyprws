@@ -7,6 +7,7 @@ import { projectEnvironment } from "~/state/projects";
 import { environmentSession, readEnvironmentScope, sessionHasScope } from "~/state/session";
 
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
+import { guardFileSaveSessionFork, resumeFileSaveSessionFork } from "./fileSaveSessionGuard.fork"; // fork-hook: upstream-fixes/stale-write-guard-import
 import {
   confirmProjectFileQueryData,
   getUnsavedProjectFileQueryData,
@@ -21,6 +22,7 @@ export interface FileSaveTarget {
 export type FilePendingListener = (relativePath: string, pending: boolean) => void;
 
 export interface FileSaveSessionDeps {
+  readonly guardFork?: typeof guardFileSaveSessionFork; // fork-hook: upstream-fixes/stale-write-guard-contract
   readonly debounceMs: number;
   readonly canPersist: (target: FileSaveTarget) => boolean;
   /** Calls `onWritable` each time the target environment regains write access. */
@@ -69,6 +71,7 @@ export function createFileSaveSessions(deps: FileSaveSessionDeps) {
         for (const listener of listeners.keys()) listener(target.relativePath, pending);
       },
       persist: (contents) => deps.persist(target, contents),
+      ...deps.guardFork?.(target, () => (sessions.get(key) === session ? coordinator : null)), // fork-hook: upstream-fixes/stale-write-guard
       onConfirmed: (contents) => deps.confirm(target, contents),
       onSettled: () => {
         if (!session.flushingOnRelease) return;
@@ -130,6 +133,7 @@ export function createFileSaveSessions(deps: FileSaveSessionDeps) {
     /** Edits for a file nobody holds open are dropped, so retired editors stay inert. */
     change(target: FileSaveTarget, contents: string): void {
       const session = sessions.get(fileSaveKey(target));
+      resumeFileSaveSessionFork(session); // fork-hook: upstream-fixes/stale-write-session-resume
       if (session && session.leases > 0) session.coordinator.change(contents);
     },
   };
@@ -140,6 +144,7 @@ function fileSaveKey({ environmentId, cwd, relativePath }: FileSaveTarget): stri
 }
 
 const fileSaveSessions = createFileSaveSessions({
+  guardFork: guardFileSaveSessionFork, // fork-hook: upstream-fixes/stale-write-session-persist
   debounceMs: 500,
   canPersist: ({ environmentId }) => readEnvironmentScope(environmentId, AuthFilesystemWriteScope),
   subscribeWritable: ({ environmentId }, onWritable) => {
