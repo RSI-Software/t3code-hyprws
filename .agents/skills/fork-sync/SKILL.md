@@ -175,6 +175,15 @@ PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag> --dry-run
 
 The report's summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
+**Budget.** A killed job saves nothing, so export before the prompt's limit:
+
+- **Two thirds gone:** finish the current seam only
+- **Export:** step 8; a blocked rerun already wrote it
+- **Report:** `committed`; `Partial:`, then Verify
+- **Next job:** resumes at the next stop
+
+A no-progress export changes nothing, so no new job starts.
+
 **Red candidate.** The issue names each red job instead of a seam.
 
 1. Dry run: the rebase replays from `sync/resolution`
