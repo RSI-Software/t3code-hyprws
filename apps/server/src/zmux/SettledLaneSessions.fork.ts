@@ -131,6 +131,10 @@ export const makeSettledLaneReactor = Effect.gen(function* () {
                 retry: ZmuxSessionBinder.protectedCleanupCommand(prepared.identity),
               });
             }
+            // Only a confirmed absence ends the viewers; any other outcome keeps them resumable.
+            if (removed.status === "unbound" || removed.status === "not-found") {
+              yield* terminals.closeSettledManagedAttachments({ target: prepared.identity.target });
+            }
           }),
         );
       }).pipe(
