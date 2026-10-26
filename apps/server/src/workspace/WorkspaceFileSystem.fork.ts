@@ -14,7 +14,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -22,6 +21,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as ServerSettings from "../serverSettings.ts";
 // Cycle-safe: only read when a write runs, after both modules load.
 import * as WorkspaceFileSystem from "./WorkspaceFileSystem.ts";
+import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const blocked = Effect.succeed(false);
 
@@ -125,7 +125,7 @@ export const oneWritePerFile = <E, R>(
     Effect.gen(function* () {
       const service = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
+      const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
       const fileWriteLocks = new Map<
         string,
         { readonly lock: Semaphore.Semaphore; writers: number }
@@ -133,7 +133,15 @@ export const oneWritePerFile = <E, R>(
       return WorkspaceFileSystem.WorkspaceFileSystem.of({
         ...service,
         writeFile: Effect.fn("WorkspaceFileSystem.oneWritePerFile")(function* (input) {
-          const target = path.resolve(input.cwd, input.relativePath);
+          // Never follow a path upstream refuses, such as a UNC share; let it refuse it.
+          const resolved = yield* workspacePaths
+            .resolveRelativePathWithinRoot({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+            })
+            .pipe(Effect.option);
+          if (Option.isNone(resolved)) return yield* service.writeFile(input);
+          const target = resolved.value.absolutePath;
           const key = yield* fileSystem.realPath(target).pipe(Effect.orElseSucceed(() => target));
           const entry = fileWriteLocks.get(key) ?? { lock: Semaphore.makeUnsafe(1), writers: 0 };
           fileWriteLocks.set(key, entry);
@@ -151,4 +159,4 @@ export const oneWritePerFile = <E, R>(
         }),
       });
     }),
-  ).pipe(Layer.provide(layer));
+  ).pipe(Layer.provide(layer), Layer.provide(WorkspacePaths.layer));

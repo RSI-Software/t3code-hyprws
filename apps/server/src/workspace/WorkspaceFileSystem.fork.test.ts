@@ -185,6 +185,36 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("refuses a path outside the workspace before following it", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* makeTempDir;
+        const followed: Array<string> = [];
+        const watchedFileSystem = Layer.succeed(FileSystem.FileSystem, {
+          ...fileSystem,
+          realPath: (target) => {
+            followed.push(target);
+            return fileSystem.realPath(target);
+          },
+        });
+
+        const failures = yield* Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          return yield* Effect.forEach(
+            ["../outside.md", "//server/share/notes.md"],
+            (relativePath) =>
+              workspaceFileSystem.writeFile({ cwd, relativePath, contents: "x" }).pipe(Effect.flip),
+          );
+        }).pipe(Effect.provide(Layer.fresh(ProjectLayer).pipe(Layer.provide(watchedFileSystem))));
+
+        expect(failures.map((failure) => failure._tag)).toEqual([
+          "WorkspacePathOutsideRootError",
+          "WorkspacePathOutsideRootError",
+        ]);
+        expect(followed).toEqual([]);
+      }),
+    );
+
     it.effect("saves over the disk version the draft started from", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
