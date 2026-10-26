@@ -93,6 +93,7 @@ Conflict resolution is machine-owned, in this order.
 | 1   | Rerere replays resolutions from the run's rebase and [`sync/resolution`](#resolution-data), and stages them                    |
 | 2   | Hook re-apply re-inserts the marked fork hooks a conflicted file declares, from the fork side onto the upstream text           |
 | 3   | An upstream delete of a path whose fork trunk blob still equals the base blob (a net-zero fork edit) is accepted with `git rm` |
+| 3a  | So is an upstream delete of a path [`sync/resolution`](#resolution-data) lists as retired                                      |
 | 4   | A [regenerable file](#regenerable-files) regenerates once every other path in the stop resolves                                |
 | 5   | Anything left is a `manual` row and stops the run                                                                              |
 
@@ -107,7 +108,8 @@ The driver keeps them as git data instead.
 
 - **Export:** `refs/fork-sync/resolution`, per rebase
 - **Shape:** one parentless commit, no workflows
-- **Contents:** resolved rerere, `fixups.mbox`
+- **Contents:** resolved rerere, `fixups.mbox`, `retired`
+- **Retired:** paths a resolver `git rm`'d at a delete/modify stop
 - **Scope:** this sync's stops and every import
 - **Push:** rsi-pr-agent or a hand resolver
 - **Import:** each run, before the rebase

@@ -20,12 +20,15 @@ import {
  * them to one parentless commit at `RESOLUTION_REF`; whoever resolved a stop
  * pushes that commit to `sync/resolution`, and the next run imports it before
  * it rebases. The import treats the branch purely as data: it accepts only
- * rerere entries and one mbox, and nothing in it ever executes.
+ * rerere entries, one mbox, and one list of retired paths, and nothing in it
+ * ever executes. Rerere never records a delete/modify stop, so the paths a
+ * resolver retired (kept upstream's deletion) travel as that list.
  */
 export const RESOLUTION_REF = "refs/fork-sync/resolution";
 const RESOLUTION_REMOTE_REF = `refs/remotes/origin/${SYNC_RESOLUTION_BRANCH}`;
 const RESOLUTION_TAG_TRAILER = "Fork-Sync-Tag";
 const FIXUPS_FILE = "fixups.mbox";
+const RETIRED_FILE = "retired";
 const RERERE_PATH = /^rr-cache\/[0-9a-f]{40,64}\/(?:pre|post)image(?:\.\d+)?$/;
 
 /** The rerere ids the current stop recorded (`MERGE_RR` holds `<id>[.<n>]\t<path>\0`). */
@@ -62,9 +65,9 @@ const withScratchIndex = <T>(
 };
 
 /**
- * Write `RESOLUTION_REF`: the resolved rerere entries `state` names, plus the
- * tip commits above the finished rebase as `fixups.mbox`. Nothing to carry
- * deletes it.
+ * Write `RESOLUTION_REF`: the resolved rerere entries `state` names, the
+ * retired paths, plus the tip commits above the finished rebase as
+ * `fixups.mbox`. Nothing to carry deletes it.
  */
 export const exportResolution = (
   runner: CommandRunner,
@@ -74,6 +77,7 @@ export const exportResolution = (
     readonly tag: string;
     readonly rebased?: string;
     readonly rerere?: ReadonlyArray<string>;
+    readonly retired?: ReadonlyArray<string>;
   },
 ): void => {
   const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
@@ -100,6 +104,11 @@ export const exportResolution = (
           ]),
         );
   const entries = files.map((path, index) => `100644 ${shas[index]}\t${path}`);
+  const retired = [...new Set(state.retired ?? [])].toSorted();
+  if (retired.length > 0)
+    entries.push(
+      `100644 ${runRequire(runner, "git", ["hash-object", "-w", "--stdin"], { cwd: root, input: `${retired.join("\n")}\n` }).trim()}\t${RETIRED_FILE}`,
+    );
   if (
     state.rebased !== undefined &&
     gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status === 0
@@ -141,12 +150,15 @@ export interface ImportedResolution {
   readonly rerere: ReadonlyArray<string>;
   /** The fixups mbox, only when made for this sync's tag. */
   readonly fixups: string | null;
+  /** Paths whose upstream deletion a resolver kept; a delete/modify stop on one accepts it. */
+  readonly retired: ReadonlyArray<string>;
 }
 
 /**
  * Import `origin/sync/resolution` before the rebase: its rerere entries join
  * the local rr-cache without replacing one, and its fixups return only when
- * they were made for `tag`. Anything but rerere entries and the mbox refuses
+ * they were made for `tag`. Anything but rerere entries, the mbox, and the
+ * retired list refuses
  * the run: the branch is data an agent writes, never code the driver trusts.
  */
 export const importResolution = (
@@ -165,14 +177,16 @@ export const importResolution = (
   const entries = lines(git(runner, root, ["ls-tree", "-r", "--full-tree", RESOLUTION_REMOTE_REF]));
   const rerere: string[] = [];
   let fixups: string | null = null;
+  let retired: string | null = null;
   for (const entry of entries) {
     const match = /^100644 blob ([0-9a-f]+)\t(.+)$/.exec(entry);
     const path = match?.[2] ?? entry;
     if (match !== null && RERERE_PATH.test(path)) rerere.push(path);
     else if (match !== null && path === FIXUPS_FILE) fixups = match[1] ?? null;
+    else if (match !== null && path === RETIRED_FILE) retired = match[1] ?? null;
     else
       throw new Error(
-        `origin/${SYNC_RESOLUTION_BRANCH} holds ${path}, which is not resolution data; only rr-cache entries and ${FIXUPS_FILE} import`,
+        `origin/${SYNC_RESOLUTION_BRANCH} holds ${path}, which is not resolution data; only rr-cache entries, ${FIXUPS_FILE}, and ${RETIRED_FILE} import`,
       );
   }
   const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
@@ -198,5 +212,9 @@ export const importResolution = (
       fixups !== null && madeFor === tag
         ? runRequire(runner, "git", ["cat-file", "blob", fixups], { cwd: root })
         : null,
+    retired:
+      retired === null
+        ? []
+        : lines(runRequire(runner, "git", ["cat-file", "blob", retired], { cwd: root })),
   };
 };

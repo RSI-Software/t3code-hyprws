@@ -126,11 +126,19 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
     : "unknown";
 };
 
-/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, regeneration, or a manual resolution. */
-export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete", "regenerate"]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, a carried retirement, regeneration, or a manual resolution. */
+export const ConflictVia = Schema.Literals([
+  "hook",
+  "manual",
+  "net-zero-delete",
+  "retired",
+  "regenerate",
+]);
 
 /** The recorded reason when an upstream deletion meets a net-zero fork edit. */
 export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
+/** The recorded reason when an upstream deletion meets a path a resolver retired. */
+export const RETIRED_REASON = "upstream deleted; retired by sync/resolution";
 
 export const ConflictRow = Schema.Struct({
   /** Repo-relative path of the conflicted file. */
@@ -147,7 +155,7 @@ export const ConflictRow = Schema.Struct({
   hooksReapplied: Schema.Array(Schema.String),
   /** Why hook re-apply refused the path; set on `manual` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
-  /** Why an automatic rule resolved the path; set on `net-zero-delete` and `regenerate` rows. */
+  /** Why an automatic rule resolved the path; set on `net-zero-delete`, `retired`, and `regenerate` rows. */
   reason: Schema.optionalKey(Schema.String),
 });
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
@@ -358,6 +366,8 @@ const WorktreeState = Schema.Struct({
   rebased: Schema.optionalKey(Schema.String),
   /** The rerere ids to export: every stop's, plus every imported one, since a replay records none. */
   rerere: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** The paths a resolver retired, plus every imported one: rerere records no delete/modify stop. */
+  retired: Schema.optionalKey(Schema.Array(Schema.String)),
   /** The `sync/resolution` commit this worktree imported; a moved branch refuses adoption. */
   resolution: Schema.optionalKey(Schema.String),
 });
@@ -929,8 +939,12 @@ export const refuseDroppedLinks = (
  * block again and resolved ones continue; a finished HEAD is taken as the
  * rebased tip as long as it contains the target.
  *
- * `conflicts` collects this run's rows and `rerere` each stop's rerere ids as
- * they happen; `rebaseOnto` owns both.
+ * A delete/modify a resolver settled by keeping upstream's deletion leaves
+ * the path out of the index, where rerere never looks: each stop records such
+ * paths in `retired`, and a later replay accepts the same deletion again.
+ *
+ * `conflicts` collects this run's rows, `rerere` each stop's rerere ids, and
+ * `retired` each stop's retired paths as they happen; `rebaseOnto` owns all three.
  */
 const replayOnto = (
   runner: CommandRunner,
@@ -940,6 +954,7 @@ const replayOnto = (
   adopted: boolean,
   conflicts: ConflictRow[],
   rerere: string[],
+  retired: string[],
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
   // The fork stack above `target` sits on this upstream commit — for a normal
@@ -1003,6 +1018,26 @@ const replayOnto = (
         `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}`,
       );
     rerere.push(...stopRerereIds(runner, worktree));
+    const modified = lines(
+      git(runner, worktree, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-only",
+        "-r",
+        "--diff-filter=MT",
+        "REBASE_HEAD",
+      ]),
+    );
+    if (modified.length > 0) {
+      const tracked = new Set(lines(git(runner, worktree, ["ls-files", "--", ...modified])));
+      retired.push(
+        ...modified.filter(
+          (path) =>
+            !tracked.has(path) &&
+            gitResult(runner, root, ["cat-file", "-e", `${target.sha}:${path}`]).status !== 0,
+        ),
+      );
+    }
     const forkCommit = git(runner, worktree, ["rev-parse", "REBASE_HEAD"]);
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
@@ -1018,14 +1053,17 @@ const replayOnto = (
       }
       // Delete/modify with the deletion on the upstream (rebase base) side:
       // when the fork trunk's final blob for the path equals the base blob,
-      // the fork edit is net-zero and the deletion is accepted outright. Any
-      // other delete/modify shape falls through to hook re-apply, which
-      // refuses it, and then to a manual row.
-      if (
+      // the fork edit is net-zero and the deletion is accepted outright, as
+      // it is for a path a resolver already retired. Any other delete/modify
+      // shape falls through to hook re-apply, which refuses it, and then to
+      // a manual row.
+      const upstreamDeleted =
         stageContent(runner, worktree, 2, path) === null &&
-        stageContent(runner, worktree, 3, path) !== null &&
-        gitResult(runner, root, ["diff", "--quiet", baseSha, oldSha, "--", path]).status === 0
-      ) {
+        stageContent(runner, worktree, 3, path) !== null;
+      const netZero =
+        upstreamDeleted &&
+        gitResult(runner, root, ["diff", "--quiet", baseSha, oldSha, "--", path]).status === 0;
+      if (netZero || (upstreamDeleted && retired.includes(path))) {
         git(runner, worktree, ["rm", "--quiet", "--", path]);
         conflicts.push({
           path,
@@ -1033,9 +1071,9 @@ const replayOnto = (
           forkSubject,
           upstreamCommit: touch.sha,
           upstreamSubject: touch.subject,
-          via: "net-zero-delete",
+          via: netZero ? "net-zero-delete" : "retired",
           hooksReapplied: [],
-          reason: NET_ZERO_REASON,
+          reason: netZero ? NET_ZERO_REASON : RETIRED_REASON,
         });
         continue;
       }
@@ -1119,7 +1157,8 @@ export type SyncRebase = RebaseOutcome & {
  * A new worktree runs the repo's setup step before the rebase starts, so a
  * stop has dependencies. Each stop's rows persist beside the worktree as they
  * are recorded, so the run that finishes the rebase still reports them.
- * `imported` (from `sync/resolution`) joins the exported rerere ids, and its
+ * `imported` (from `sync/resolution`) joins the exported rerere ids and
+ * retired paths, and its
  * fixups apply above a rebase this run finishes; every outcome exports the
  * resolution data for the next run.
  */
@@ -1159,14 +1198,16 @@ export const rebaseOnto = (
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
   const rerere: string[] = [...(imported?.rerere ?? [])];
+  const retired: string[] = [...(state.retired ?? []), ...(imported?.retired ?? [])];
   let outcome: RebaseOutcome;
   try {
-    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere);
+    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere, retired);
   } finally {
     state = {
       ...state,
       conflicts: mergeStops(carried, conflicts),
       rerere: [...new Set([...(state.rerere ?? []), ...rerere])],
+      retired: [...new Set(retired)],
     };
     writeWorktreeState(root, state);
   }
