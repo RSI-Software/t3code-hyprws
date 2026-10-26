@@ -448,6 +448,7 @@ export const ProjectFileFailure = Schema.Literals([
   "path_not_file",
   "binary_file",
   "operation_failed",
+  "contents_changed", // fork-hook: upstream-fixes/stale-write-failure
 ]);
 export type ProjectFileFailure = typeof ProjectFileFailure.Type;
 
@@ -503,6 +504,7 @@ export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
+  expectedRevision: Schema.optional(TrimmedNonEmptyString), // fork-hook: upstream-fixes/stale-write-revision
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 

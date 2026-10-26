@@ -105,6 +105,7 @@ export const WorkspaceFileSystemError = Schema.Union([
   WorkspaceFilePathEscapeError,
   WorkspacePathNotFileError,
   WorkspaceBinaryFileError,
+  WorkspaceFileSystemFork.WorkspaceFileChangedError, // fork-hook: upstream-fixes/stale-write-error
 ]);
 export type WorkspaceFileSystemError = typeof WorkspaceFileSystemError.Type;
 
@@ -535,6 +536,7 @@ export const make = Effect.gen(function* () {
     yield* knownWorkspaces.assertContains(input.cwd);
     const target = yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
+    yield* WorkspaceFileSystemFork.assertUnchangedSinceLoad(fileSystem, realTargetPath, input); // fork-hook: upstream-fixes/stale-write-check
 
     yield* fileSystem.makeDirectory(path.dirname(realTargetPath), { recursive: true }).pipe(
       Effect.mapError(
