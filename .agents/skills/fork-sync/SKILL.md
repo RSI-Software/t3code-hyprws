@@ -175,6 +175,11 @@ PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag> --dry-run
 
 The report's summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
+**One checkout.** The job's disk holds one install, about 8 GiB:
+
+- **Never:** clone, copy, or add a worktree to prove an export
+- **Proof:** the next run's replay; candidate CI gates the rest
+
 **Budget.** A killed job saves nothing, so export before the prompt's limit:
 
 - **Clock:** `date -u` at start and at every stop
