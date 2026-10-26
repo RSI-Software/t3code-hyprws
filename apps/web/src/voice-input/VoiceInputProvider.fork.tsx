@@ -53,7 +53,7 @@ function createDesktopVoiceRuntimeFork() {
         const unavailableReason = voiceInputUnavailableReasonFork(config);
         if (unavailableReason) throw new Error(unavailableReason);
         // A failed live preview never costs the recording: Stop uploads the captured WAV instead.
-        const live = config.streamingEndpoint
+        const live = config.live
           ? await prepareLiveVoiceFork(prepared, signal, {
               onPreview: (text) => {
                 if (!signal.aborted) session.previewTranscript(text, navigator.language);

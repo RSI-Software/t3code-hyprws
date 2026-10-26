@@ -8,7 +8,7 @@ Check one or more outputs; **System default** selects the default at recording s
 **Target volume** is a percentage of each output’s starting volume; set separate fade-down and fade-back-up times in milliseconds (`0` is instant, `1000` is one second).
 These preferences save automatically on this desktop.
 Stop, cancel, or closing the recording window restores volume; manual volume adjustments and mute state are preserved.
-Choose a speech service, enter its endpoint and API key if required, enable dictation, then save.
+Choose a speech service, enter its base URL, model, and API key if required, enable dictation, then save.
 
 In chat, click the mic, speak, then click the check to finish.
 Review or edit the transcript before sending.
@@ -21,21 +21,19 @@ Leaving the chat while the microphone is still recording cancels dictation.
 
 The mic stays disabled until the saved speech configuration is complete.
 
-- **Meta Muse:** the defaults with your Meta API key
-- **OpenAI, Groq, Mistral:** compatible presets
-- **OpenAI-compatible:** any compatible service
-- **Local HTTP:** `audio/wav` in, `{"text":"…"}` out
+- **Meta:** the defaults with your Meta API key
+- **OpenAI-compatible:** any service with OpenAI's transcription API, such as `https://api.openai.com/v1`
 
-Other listed services are unavailable until their adapters are implemented.
+T3 adds the upload and realtime paths to the base URL.
+Saved Local HTTP settings, or URLs with query parameters, stay off until you save a base URL.
 
-**Live preview:** set **Streaming endpoint** to show words while you speak.
-Meta uses its realtime socket; every other service uses the OpenAI Realtime transcription protocol, such as `wss://api.openai.com/v1/realtime?intent=transcription`.
-Leave it empty to transcribe after you finish.
-If the live stream fails, finishing uploads the recording to the regular endpoint instead.
+**Live preview:** shows words while you speak.
+Meta uses its realtime socket; every other service uses OpenAI Realtime transcription, so turn it off for services without it.
+If the live stream fails, finishing uploads the recording instead.
 
-Endpoints resolve from the selected environment's server: `localhost` means that server's machine.
+Base URLs resolve from the selected environment's server: `localhost` means that server's machine.
 Audio stays in memory and is limited to five minutes.
-Keys are stored on that environment; changing the service or either endpoint clears a saved key.
+Keys are stored on that environment; changing the service or base URL clears a saved key.
 
 ## Cleanup and formatting
 
