@@ -1921,7 +1921,7 @@ it("files one governed failure issue when hyprws CI is red on the candidate", ()
     assert.strictEqual(value("--type"), "Notification 🔔");
     assert.deepStrictEqual(
       args.filter((argument, index) => args[index - 1] === "--label"),
-      ["ci"],
+      ["ci", "rsi:fork-sync"],
     );
     assert.deepStrictEqual(
       recording.calls
