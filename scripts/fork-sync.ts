@@ -1044,7 +1044,7 @@ const replayOnto = (
         "--no-commit-id",
         "--name-only",
         "-r",
-        "--diff-filter=M",
+        "--diff-filter=MT",
         "REBASE_HEAD",
       ]),
     );
