@@ -132,7 +132,9 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
         [linked],
       );
 
-      // A V2 unlink survives every later startup, and a rebuild agrees.
+      // A V2 unlink survives every later startup and compaction, and a rebuild
+      // agrees. Rows imported before `imported_at` existed carry only the event.
+      yield* sql`UPDATE projection_thread_issues SET imported_at = NULL`;
       yield* eventSink.write({
         events: [
           {
@@ -147,13 +149,11 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
       });
       yield* importer.reconcileShells;
       assert.isFalse("issues" in (yield* projections.getThread(linked)));
+      yield* maintenance.compactEventStore();
+      yield* importer.reconcileShells;
+      assert.isFalse("issues" in (yield* projections.getThread(linked)));
       assert.isTrue((yield* maintenance.rebuild).valid);
       assert.isFalse("issues" in (yield* projections.getThread(linked)));
-      const markers = yield* sql<{ readonly count: number }>`
-        SELECT COUNT(*) AS count FROM orchestration_events
-        WHERE event_id = ${legacyThreadIssuesEventIdFork(linked)}
-      `;
-      assert.strictEqual(markers[0]?.count, 1);
     }),
   );
 
