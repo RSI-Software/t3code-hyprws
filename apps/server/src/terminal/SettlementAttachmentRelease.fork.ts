@@ -67,3 +67,39 @@ export const makeSettlementAttachmentReleaseFork =
           }).pipe(Effect.as(false)),
         ),
       );
+
+interface SettledViewer {
+  readonly threadId: string;
+  readonly terminalId: string;
+  readonly attachmentId: string | null;
+  readonly managedSessionIdentity: { readonly target: string } | null;
+}
+
+/**
+ * Close every viewer of a native session settlement removed. A suspended viewer
+ * would otherwise keep counting as running and resume as a plain shell.
+ */
+export const makeSettledSessionCloseFork =
+  <E extends Error>(input: {
+    readonly viewers: Effect.Effect<ReadonlyArray<SettledViewer>>;
+    readonly close: (viewer: SettledViewer) => Effect.Effect<void, E>;
+  }) =>
+  ({ target }: { readonly target: string }) =>
+    input.viewers.pipe(
+      Effect.flatMap((viewers) =>
+        Effect.forEach(
+          viewers.filter((viewer) => viewer.managedSessionIdentity?.target === target),
+          (viewer) =>
+            input.close(viewer).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("failed to close viewer of removed settled session", {
+                  threadId: viewer.threadId,
+                  terminalId: viewer.terminalId,
+                  error: error.name,
+                }),
+              ),
+            ),
+          { discard: true },
+        ),
+      ),
+    );
