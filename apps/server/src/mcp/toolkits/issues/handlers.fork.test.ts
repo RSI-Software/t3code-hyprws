@@ -2,6 +2,7 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  SourceControlProviderKind,
   ThreadId,
   type OrchestrationV2ServerCommand as OrchestrationCommand,
   type OrchestrationProjectShell,
@@ -11,6 +12,7 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -30,6 +32,7 @@ import { IssuesToolkitFork } from "./tools.fork.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
+const OTHER_THREAD_ID = ThreadId.make("thread-2");
 
 const testCrypto = Crypto.make({
   randomBytes: (size) => new Uint8Array(size).fill(7),
@@ -49,6 +52,15 @@ const invocation: McpInvocationContext.McpInvocationScope = {
   issuedAt: 1,
 };
 
+const clientInvocation = (
+  access: McpInvocationContext.McpClientCaller["access"],
+): McpInvocationContext.McpInvocationScope => ({
+  ...invocation,
+  requestNamespace: "client:session-1",
+  thread: undefined,
+  client: { sessionId: "session-1", label: "Claude Code", access },
+});
+
 const GITHUB_IDENTITY: OrchestrationProjectShell["repositoryIdentity"] = {
   canonicalKey: "github.com/t3tools/t3code",
   locator: {
@@ -56,7 +68,7 @@ const GITHUB_IDENTITY: OrchestrationProjectShell["repositoryIdentity"] = {
     remoteName: "origin",
     remoteUrl: "git@github.com:T3Tools/T3Code.git",
   },
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   displayName: "T3Tools/T3Code",
   owner: "T3Tools",
   name: "T3Code",
@@ -78,9 +90,12 @@ function makeProject(
 }
 
 /** A shell carrying the optional `issues` key, omitted when empty like the server omits it. */
-function makeThread(issues: ReadonlyArray<ThreadIssueLink> = []): OrchestrationV2ThreadShell {
+function makeThread(
+  issues: ReadonlyArray<ThreadIssueLink> = [],
+  id: ThreadId = THREAD_ID,
+): OrchestrationV2ThreadShell {
   const shell = v2PullRequestThread({
-    id: THREAD_ID,
+    id,
     projectId: PROJECT_ID,
     title: "Thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
@@ -128,6 +143,8 @@ interface HarnessOptions {
   ) => Orchestrator.OrchestratorDispatchError | null;
   /** What shell reads see once a command is dispatched, such as the thread deleted meanwhile. */
   readonly threadAfterDispatch?: OrchestrationV2ThreadShell | null;
+  readonly otherThread?: OrchestrationV2ThreadShell;
+  readonly scope?: McpInvocationContext.McpInvocationScope;
 }
 
 /** The thread shell reads see; dispatch may replace it. */
@@ -146,7 +163,14 @@ function harnessDependencies(
       getShell: () => Effect.succeed(Option.fromNullishOr(project)),
     }),
     Layer.mock(Orchestrator.OrchestratorV2)({
-      getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? state.current : null),
+      getThreadShell: (threadId) =>
+        Effect.succeed(
+          threadId === THREAD_ID
+            ? state.current
+            : threadId === OTHER_THREAD_ID
+              ? (options.otherThread ?? null)
+              : null,
+        ),
       dispatch,
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
@@ -186,7 +210,7 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (options: Ha
       Effect.map(
         (chunk) => chunk.at(-1)!.result as Tool.Success<(typeof IssuesToolkitFork.tools)[Name]>,
       ),
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, options.scope ?? invocation),
       Effect.provide(dependencies),
     );
   return { commands, call };
@@ -394,7 +418,7 @@ describe("issue toolkit handlers", () => {
             remoteName: "origin",
             remoteUrl: "git@gitlab.com:group/project.git",
           },
-          provider: "gitlab",
+          provider: SourceControlProviderKind.make("gitlab"),
           displayName: "group/project",
         }),
       });
@@ -407,13 +431,55 @@ describe("issue toolkit handlers", () => {
     }),
   );
 
-  it.effect("fails cleanly when the token's thread no longer exists", () =>
+  it.effect("acts on the thread named by threadId, from another thread or a client", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness({ thread: null });
-      const error = yield* harness
-        .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/1" })
+      const otherThread = makeThread([makeLink(8)], OTHER_THREAD_ID);
+      const url = "https://github.com/t3tools/t3code/issues/1";
+      for (const scope of [invocation, clientInvocation("full-access")]) {
+        const harness = yield* makeHarness({ otherThread, scope });
+        yield* harness.call("link_issue", { threadId: OTHER_THREAD_ID, url });
+        yield* harness.call("unlink_issue", { threadId: OTHER_THREAD_ID, url });
+        expect(yield* Ref.get(harness.commands)).toMatchObject([
+          { type: "thread.issue.link", threadId: OTHER_THREAD_ID },
+          { type: "thread.issue.unlink", threadId: OTHER_THREAD_ID },
+        ]);
+        const listed = yield* harness.call("list_thread_issues", { threadId: OTHER_THREAD_ID });
+        expect(listed.issues.map((issue) => issue.number)).toEqual([8]);
+      }
+    }),
+  );
+
+  it.effect("asks a client outside a thread for threadId, and keeps a read-only one to reads", () =>
+    Effect.gen(function* () {
+      const client = yield* makeHarness({ scope: clientInvocation("approval-required") });
+      const missing = yield* client.call("list_thread_issues", {}).pipe(Effect.flip);
+      expect(missing).toMatchObject({ _tag: "IssueThreadRequiredError" });
+      const readOnly = yield* makeHarness({ scope: clientInvocation("read-only") });
+      const refused = yield* readOnly
+        .call("link_issue", {
+          threadId: THREAD_ID,
+          url: "https://github.com/t3tools/t3code/issues/1",
+        })
         .pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "IssueThreadNotFoundError", threadId: THREAD_ID });
+      expect(refused).toMatchObject({ code: "capability_denied" });
+      expect(yield* readOnly.call("list_thread_issues", { threadId: THREAD_ID })).toEqual({
+        issues: [],
+      });
+      expect(yield* Ref.get(readOnly.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("fails cleanly when the token's thread is gone or soft-deleted", () =>
+    Effect.gen(function* () {
+      const deleted = { ...makeThread(), deletedAt: DateTime.makeUnsafe("2026-08-21T00:00:00Z") };
+      for (const thread of [null, deleted]) {
+        const harness = yield* makeHarness({ thread });
+        const error = yield* harness
+          .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/1" })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "IssueThreadNotFoundError", threadId: THREAD_ID });
+        expect(yield* Ref.get(harness.commands)).toEqual([]);
+      }
     }),
   );
 
