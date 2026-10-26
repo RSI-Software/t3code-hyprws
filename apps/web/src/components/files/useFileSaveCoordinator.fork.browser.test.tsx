@@ -144,4 +144,20 @@ describe("file-save stale-write guard", () => {
     expect(getOptimisticProjectFileQueryData(environmentId, "/workspace", "file.txt")).toBeNull();
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
   });
+
+  it("drops the draft of a panel reopened since the prompt when the user reloads", async () => {
+    setup();
+    using _loaded = showLoadedFile("# Readme\n");
+    using _timers = fakeTimers();
+    await using first = await editLoadedFile("# Readme edited\n");
+    await vi.advanceTimersByTimeAsync(500);
+    await first.unmount();
+    await using _reopened = await editLoadedFile("# Readme edited\n");
+    const refusedSaves = writeFile.mock.calls.length;
+
+    toast.mock.calls[0]![0].data.secondaryActionProps.onClick();
+    await vi.runAllTimersAsync();
+    expect(writeFile).toHaveBeenCalledTimes(refusedSaves);
+    expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
+  });
 });

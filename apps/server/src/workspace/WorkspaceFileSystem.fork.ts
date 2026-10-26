@@ -12,9 +12,13 @@
 import { type ProjectWriteFileInput, projectFileRevision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
 import * as ServerSettings from "../serverSettings.ts";
+// Cycle-safe: only read when a write runs, after both modules load.
+import * as WorkspaceFileSystem from "./WorkspaceFileSystem.ts";
 
 const blocked = Effect.succeed(false);
 
@@ -60,22 +64,34 @@ export class WorkspaceFileChangedError extends Schema.TaggedError<WorkspaceFileC
 // Matches readFile's cap: the panel only edits files it read whole.
 const COMPARED_MAX_BYTES = 1024 * 1024;
 
-const diskRevision = (fileSystem: FileSystem.FileSystem, path: string) =>
-  fileSystem.stat(path).pipe(
-    Effect.flatMap((stat) =>
-      stat.size > COMPARED_MAX_BYTES
-        ? Effect.succeed(null)
-        : fileSystem
-            .readFile(path)
-            .pipe(
-              Effect.map((bytes) => projectFileRevision(new TextDecoder("utf-8").decode(bytes))),
-            ),
+// Untraced: assertUnchangedSinceLoad already spans it.
+const diskRevision = Effect.fnUntraced(function* (
+  fileSystem: FileSystem.FileSystem,
+  realTargetPath: string,
+  input: ProjectWriteFileInput,
+) {
+  const failed = (operation: "stat" | "read") => (cause: PlatformError.PlatformError) =>
+    new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+      resolvedPath: realTargetPath,
+      operationPath: realTargetPath,
+      operation,
+      cause,
+    });
+  const stat = yield* fileSystem.stat(realTargetPath).pipe(
+    // A file deleted since the load no longer holds the loaded version.
+    Effect.asSome,
+    Effect.catchIf(
+      (error) => error.reason._tag === "NotFound",
+      () => Effect.succeedNone,
     ),
-    // A file deleted since the load reads as empty, the same as a new file.
-    Effect.catch((error) =>
-      Effect.succeed(error.reason._tag === "NotFound" ? projectFileRevision("") : null),
-    ),
+    Effect.mapError(failed("stat")),
   );
+  if (Option.isNone(stat) || stat.value.size > COMPARED_MAX_BYTES) return null;
+  const bytes = yield* fileSystem.readFile(realTargetPath).pipe(Effect.mapError(failed("read")));
+  return projectFileRevision(new TextDecoder("utf-8").decode(bytes));
+});
 
 /** Refuses the write when the file no longer holds the draft's base version. */
 export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnchangedSinceLoad")(
@@ -85,7 +101,7 @@ export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnc
     input: ProjectWriteFileInput,
   ) {
     if (input.expectedRevision === undefined) return;
-    if ((yield* diskRevision(fileSystem, realTargetPath)) === input.expectedRevision) return;
+    if ((yield* diskRevision(fileSystem, realTargetPath, input)) === input.expectedRevision) return;
     return yield* new WorkspaceFileChangedError({
       workspaceRoot: input.cwd,
       relativePath: input.relativePath,

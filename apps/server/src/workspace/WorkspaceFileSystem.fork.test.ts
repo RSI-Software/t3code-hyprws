@@ -110,6 +110,52 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("refuses a save whose loaded file was deleted since", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+
+        const error = yield* workspaceFileSystem
+          .writeFile({
+            cwd,
+            relativePath: "empty.md",
+            contents: "draft\n",
+            expectedRevision: projectFileRevision(""),
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("WorkspaceFileChangedError");
+        expect(yield* fileSystem.exists(path.join(cwd, "empty.md"))).toBe(false);
+      }),
+    );
+
+    it.effect("reports an unreadable file as a failed read, not a disk change", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "README.md", "# Readme\n");
+        yield* fileSystem.chmod(path.join(cwd, "README.md"), 0o000);
+
+        const error = yield* workspaceFileSystem
+          .writeFile({
+            cwd,
+            relativePath: "README.md",
+            contents: "# Readme edited\n",
+            expectedRevision: projectFileRevision("# Readme\n"),
+          })
+          .pipe(Effect.flip);
+
+        expect(error).toMatchObject({
+          _tag: "WorkspaceFileSystemOperationError",
+          operation: "read",
+        });
+      }),
+    );
+
     it.effect("saves over the disk version the draft started from", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
