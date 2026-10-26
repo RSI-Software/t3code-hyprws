@@ -230,6 +230,8 @@ const layerGitFixtureTemplates = Layer.effect(
     yield* runGit(repo, ["config", "user.name", "Test User"]);
     // Override global autocrlf on Windows for LF assertions, including linked worktrees.
     yield* runGit(repo, ["config", "core.autocrlf", "false"]);
+    yield* runGit(repo, ["config", "core.hooksPath", ".git/hooks"]); // fork-hook: upstream-fixes/git-fixture-hooks-path
+    yield* runGit(repo, ["config", "core.excludesFile", ""]); // fork-hook: upstream-fixes/git-fixture-excludes-file
     yield* fs.writeFileString(NodePath.join(repo, "README.md"), "hello\n");
     yield* runGit(repo, ["add", "README.md"]);
     yield* runGit(repo, ["commit", "-m", "Initial commit"]);
@@ -249,7 +251,6 @@ function initRepo(
     for (const entry of [".git", "README.md"]) {
       yield* fs.copy(NodePath.join(templates.repo, entry), NodePath.join(cwd, entry));
     }
-    yield* runGit(cwd, ["config", "core.hooksPath", ".git/hooks"]);
   });
 }
 
