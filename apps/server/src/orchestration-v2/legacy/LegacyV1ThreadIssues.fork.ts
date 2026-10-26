@@ -9,6 +9,7 @@ import {
   ThreadIssueLink,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -24,18 +25,31 @@ const decodeLegacyLinks = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Array(ThreadIssueLink)),
 );
 
-/** One import per thread, ever: a later unlink in V2 is never undone by a restart. */
+/** The import's V2 event; compaction can supersede it, so it never decides a re-import. */
 export const legacyThreadIssuesEventIdFork = (threadId: ThreadId) =>
   EventId.make(`migration:v1:thread:${threadId}:issues`);
 
 /**
  * Folds each live V2 thread's V1 issue links into its payload. A link already
- * on the thread wins, so the import only ever adds.
+ * on the thread wins, so the import only ever adds. `imported_at` on the V1 row
+ * makes it once per thread, ever: a later unlink in V2 is never undone by a
+ * restart, even after compaction drops the import event
+ * (RSI-Software/t3code-hyprws#1816).
  */
 export const importLegacyThreadIssuesFork = Effect.fn("importLegacyThreadIssuesFork")(function* (
   sql: SqlClient.SqlClient,
   eventSink: EventSink.EventSinkV2["Service"],
 ) {
+  const now = DateTime.formatIso(yield* DateTime.now);
+  // An import event still present marks its rows: imports from before
+  // `imported_at`, and a crash between the event write and the mark below.
+  yield* sql`
+    UPDATE projection_thread_issues SET imported_at = ${now}
+    WHERE imported_at IS NULL AND EXISTS (
+      SELECT 1 FROM orchestration_events AS imported
+      WHERE imported.event_id = 'migration:v1:thread:' || projection_thread_issues.thread_id || ':issues'
+    )
+  `;
   const rows = yield* sql<{
     readonly thread_id: ThreadId;
     readonly issues_json: string;
@@ -52,11 +66,7 @@ export const importLegacyThreadIssuesFork = Effect.fn("importLegacyThreadIssuesF
     FROM projection_thread_issues AS link
     INNER JOIN orchestration_v2_projection_threads AS v2_thread
       ON v2_thread.thread_id = link.thread_id
-    WHERE v2_thread.deleted_at IS NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM orchestration_events AS imported
-        WHERE imported.event_id = 'migration:v1:thread:' || link.thread_id || ':issues'
-      )
+    WHERE v2_thread.deleted_at IS NULL AND link.imported_at IS NULL
     GROUP BY link.thread_id
     ORDER BY link.thread_id ASC
   `;
@@ -66,7 +76,7 @@ export const importLegacyThreadIssuesFork = Effect.fn("importLegacyThreadIssuesF
     const current = decodeStoredThread(row.payload_json);
     const legacy = decodeLegacyLinks(row.issues_json);
     if (Option.isNone(current) || Option.isNone(legacy)) {
-      // No marker is written, so the thread retries on every startup and warns each time.
+      // Left unmarked, so the thread retries on every startup and warns each time.
       undecodedThreadCount += 1;
       yield* Effect.logWarning("Legacy issue links skipped: undecodable row").pipe(
         Effect.annotateLogs({
@@ -94,6 +104,9 @@ export const importLegacyThreadIssuesFork = Effect.fn("importLegacyThreadIssuesF
         },
       ],
     });
+    yield* sql`
+      UPDATE projection_thread_issues SET imported_at = ${now} WHERE thread_id = ${thread.id}
+    `;
     importedLinkCount += added.length;
   }
   if (rows.length > 0) {
