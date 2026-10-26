@@ -177,7 +177,8 @@ The report's summary ends with `Verify:` and those items: behaviour to exercise 
 
 **Budget.** A killed job saves nothing, so export before the prompt's limit:
 
-- **Two thirds gone:** finish the current seam only
+- **Clock:** `date -u` at start and at every stop
+- **Half gone by that clock:** finish the seam only
 - **Export:** step 8; a blocked rerun already wrote it
 - **Report:** `committed`; `Partial:`, then Verify
 - **Next job:** resumes at the next stop
