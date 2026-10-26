@@ -19,5 +19,6 @@ Its "Job mode" section is this job's procedure, from a clean clone to `HEAD` at 
 - **Resolve:** by the skill's Conflict section
 - **Unsure:** decide per Job mode; never block
 - **Verify:** summary ends with what to test
+- **Partial:** safe on `sync/resolution`; see Budget
 - **Never push `hyprws`:** the driver is its writer
 - **Never post:** to `pingdotgg/t3code`
