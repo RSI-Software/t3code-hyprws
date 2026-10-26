@@ -25,8 +25,10 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 
-import { isLocalEnvironmentDisabled } from "../../localEnvironment";
-import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork"; // fork-hook: backend-attach/connections-session-scopes-import
+import {
+  canManageLocalBackendFork,
+  connectionsSessionScopesFork,
+} from "./connectionsClientOnly.fork"; // fork-hook: backend-attach/connections-session-scopes-import
 import {
   applyWslEnableSelection,
   isWslSettingsRowVisible,
@@ -287,7 +289,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const canReadRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayReadScope);
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const canManageRelay = useEnvironmentScope(primaryEnvironmentId, AuthRelayWriteScope);
-  const canManageLocalBackend = !isLocalEnvironmentDisabled() && canMaintain;
+  const canManageLocalBackend = canManageLocalBackendFork(canMaintain); // fork-hook: backend-attach/connections-local-backend
   const showsAccess = view === "access";
   const authAccessChanges = useEnvironmentQuery(
     showsAccess && canReadAccess && primaryEnvironmentId !== null
