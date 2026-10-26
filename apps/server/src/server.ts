@@ -155,6 +155,7 @@ import * as TaskFolders from "./workspace/TaskFolders.ts";
 import * as TaskFolderStore from "./workspace/TaskFolderStore.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as WorkspaceFileSystemFork from "./workspace/WorkspaceFileSystem.fork.ts"; // fork-hook: upstream-fixes/stale-write-serial-import
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsAutomaticFetchInterval from "./vcs/VcsAutomaticFetchInterval.ts";
@@ -603,6 +604,7 @@ const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
   Layer.provide(layerWorkspaceEntries),
   Layer.provide(layerKnownWorkspaces),
   Layer.provide(layerServerSettings), // fork-hook: upstream-fixes/wfs-server-settings-layer
+  WorkspaceFileSystemFork.oneWritePerFile, // fork-hook: upstream-fixes/stale-write-serial
 );
 
 const layerWorkspace = Layer.mergeAll(
