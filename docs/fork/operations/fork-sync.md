@@ -119,6 +119,10 @@ The driver keeps them as git data instead.
 - **Refusal:** any other path fails the run
 
 The driver reads the branch as data only; nothing on it executes.
+
+**Rerun:** `hyprws-sync-resolution.yml` dispatches the trunk's sync when rsi-pr-agent's `fork-sync` comment reads `**pushed**`.
+A `push` trigger cannot do it: it runs the pushed commit's workflow files, and the resolution commit has none.
+A hand push reruns with `gh workflow run hyprws-upstream-sync.yml --ref hyprws`.
 The [job mode](../../../.agents/skills/fork-sync/SKILL.md#job-mode) runbook produces it.
 
 ## Attention issue lifecycle
