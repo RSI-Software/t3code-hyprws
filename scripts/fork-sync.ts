@@ -61,12 +61,7 @@ import {
 } from "./fork-fold.ts";
 import { FORK_CI_WORKFLOW_PATH } from "./lib/fork-ci-flags.ts";
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
-import {
-  commandText,
-  requireCommandSuccess,
-  runCommand,
-  type CommandResult,
-} from "./lib/fork-command.ts";
+import { commandText, type CommandResult } from "./lib/fork-command.ts";
 import { deriveForkHooksIn } from "./lib/fork-hooks.ts";
 import { reapplyForkHooks } from "./lib/fork-hook-reapply.ts";
 import { mergeLicenseLists } from "./lib/fork-license-merge.ts";
@@ -76,7 +71,26 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
   SYNC_CANDIDATE_BRANCH,
+  SYNC_RESOLUTION_BRANCH,
 } from "./lib/fork-policy.ts";
+import {
+  git,
+  gitAllow,
+  gitPath,
+  gitResult,
+  lines,
+  realRunner,
+  runRequire,
+  type CommandRunner,
+  type CommandSpec,
+} from "./lib/fork-sync-git.ts";
+import {
+  exportResolution,
+  importResolution,
+  RESOLUTION_REF,
+  stopRerereIds,
+  type ImportedResolution,
+} from "./lib/fork-sync-resolution.ts";
 import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
@@ -97,63 +111,6 @@ export { blockingShaMarker };
 
 export const failureMarker = (step: string, key: string): string =>
   `<!-- sync-failure:${step}:${key} -->`;
-
-export interface CommandSpec {
-  readonly cwd: string;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly stream?: boolean;
-  readonly timeout?: number;
-  readonly input?: string;
-}
-
-export interface CommandRunner {
-  run(command: string, args: ReadonlyArray<string>, spec: CommandSpec): CommandResult;
-}
-
-/** The production runner: every command is a real child process. */
-export const realRunner: CommandRunner = {
-  run: (command, args, spec) =>
-    runCommand(command, args, {
-      cwd: spec.cwd,
-      ...(spec.env === undefined ? {} : { env: spec.env }),
-      ...(spec.stream === undefined ? {} : { stream: spec.stream }),
-      ...(spec.timeout === undefined ? {} : { timeout: spec.timeout }),
-      ...(spec.input === undefined ? {} : { input: spec.input }),
-    }),
-};
-
-const lines = (value: string): ReadonlyArray<string> =>
-  value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-const gitResult = (
-  runner: CommandRunner,
-  cwd: string,
-  args: ReadonlyArray<string>,
-): CommandResult => runner.run("git", args, { cwd });
-
-const git = (runner: CommandRunner, cwd: string, args: ReadonlyArray<string>): string => {
-  const result = gitResult(runner, cwd, args);
-  if (result.status !== 0 || result.error !== undefined)
-    throw new Error(
-      `git ${args.join(" ")} failed in ${cwd}: ${result.stderr.trim() || result.error?.message || "no output"}`,
-    );
-  return result.stdout.trim();
-};
-
-/** A git command whose failure the run itself tolerates. */
-const gitAllow = (runner: CommandRunner, cwd: string, args: ReadonlyArray<string>): void => {
-  gitResult(runner, cwd, args);
-};
-
-const runRequire = (
-  runner: CommandRunner,
-  command: string,
-  args: ReadonlyArray<string>,
-  spec: CommandSpec,
-): string => requireCommandSuccess(runner.run(command, args, spec), command, args);
 
 /** Best-effort trunk sha for a failure that stops before any tag resolved. */
 const trunkSha = (runner: CommandRunner, root: string): string => {
@@ -390,6 +347,10 @@ const WorktreeState = Schema.Struct({
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
   /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
   rebased: Schema.optionalKey(Schema.String),
+  /** The rerere ids to export: every stop's, plus every imported one, since a replay records none. */
+  rerere: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** The `sync/resolution` commit this worktree imported; a moved branch refuses adoption. */
+  resolution: Schema.optionalKey(Schema.String),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -555,6 +516,41 @@ const applyCarry = (
 const dropWorktree = (runner: CommandRunner, root: string): void => {
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
   gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
+};
+
+/**
+ * Apply the imported fixups above a rebase this run finished, as `applyCarry`
+ * does the carry: a stopped `git am` stays for the operator to resolve and
+ * `git add`; the rerun continues it. A worktree finished earlier already holds
+ * them: adoption pins the import it was built with.
+ */
+const applyFixups = (
+  runner: CommandRunner,
+  worktree: string,
+  rebased: string,
+  finished: boolean,
+  mbox: string | null,
+): void => {
+  const env = { ...process.env, GIT_EDITOR: "true" };
+  let spec: CommandSpec;
+  let args: ReadonlyArray<string>;
+  if (NodeFS.existsSync(gitPath(runner, worktree, "rebase-apply"))) {
+    args = ["am", "--continue"];
+    spec = { cwd: worktree, env };
+  } else if (mbox === null) {
+    return;
+  } else if (!finished || git(runner, worktree, ["rev-parse", "HEAD"]) !== rebased) {
+    return;
+  } else {
+    process.stdout.write(`sync: applying the fixups from origin/${SYNC_RESOLUTION_BRANCH}\n`);
+    args = ["am", "--3way"];
+    spec = { cwd: worktree, env, input: mbox };
+  }
+  const applied = runner.run("git", [...REBASE_CONFIG, ...args], spec);
+  if (applied.status !== 0 || applied.error !== undefined)
+    throw new Error(
+      `a fixup from origin/${SYNC_RESOLUTION_BRANCH} stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
+    );
 };
 
 /**
@@ -924,7 +920,8 @@ export const refuseDroppedLinks = (
  * block again and resolved ones continue; a finished HEAD is taken as the
  * rebased tip as long as it contains the target.
  *
- * `conflicts` collects this run's rows as they happen; `rebaseOnto` owns it.
+ * `conflicts` collects this run's rows and `rerere` each stop's rerere ids as
+ * they happen; `rebaseOnto` owns both.
  */
 const replayOnto = (
   runner: CommandRunner,
@@ -933,6 +930,7 @@ const replayOnto = (
   oldSha: string,
   adopted: boolean,
   conflicts: ConflictRow[],
+  rerere: string[],
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
   // The fork stack above `target` sits on this upstream commit — for a normal
@@ -995,6 +993,7 @@ const replayOnto = (
       throw new Error(
         `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}`,
       );
+    rerere.push(...stopRerereIds(runner, worktree));
     const forkCommit = git(runner, worktree, ["rev-parse", "REBASE_HEAD"]);
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
@@ -1111,17 +1110,33 @@ export type SyncRebase = RebaseOutcome & {
  * A new worktree runs the repo's setup step before the rebase starts, so a
  * stop has dependencies. Each stop's rows persist beside the worktree as they
  * are recorded, so the run that finishes the rebase still reports them.
+ * `imported` (from `sync/resolution`) joins the exported rerere ids, and its
+ * fixups apply above a rebase this run finishes; every outcome exports the
+ * resolution data for the next run.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
   oldSha: string,
+  imported: ImportedResolution | null = null,
 ): SyncRebase => {
   const worktree = worktreePath(root);
   const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
   let state = keptWorktreeState(runner, root, expected);
   const adopted = state !== null;
+  // A kept worktree imported one resolution; another one (but this checkout's
+  // own export) would meet stops and tip work it never saw.
+  if (
+    state !== null &&
+    imported !== null &&
+    imported.commit !== state.resolution &&
+    imported.commit !==
+      gitResult(runner, root, ["rev-parse", "--verify", "--quiet", RESOLUTION_REF]).stdout.trim()
+  )
+    throw new Error(
+      `origin/${SYNC_RESOLUTION_BRANCH} moved to ${imported.commit.slice(0, 7)} since the kept sync worktree imported it; drop ${worktreeStatePath(root)} and rerun to start fresh`,
+    );
   if (state === null) {
     saveTipCommits(runner, root);
     dropWorktree(runner, root);
@@ -1129,24 +1144,42 @@ export const rebaseOnto = (
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
     runWorktreeSetup(runner, root, worktree);
     state = expected;
-    writeWorktreeState(root, state);
   }
+  state = imported === null ? state : { ...state, resolution: imported.commit };
+  writeWorktreeState(root, state);
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
+  const rerere: string[] = [...(imported?.rerere ?? [])];
   let outcome: RebaseOutcome;
   try {
-    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts);
+    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere);
   } finally {
-    state = { ...state, conflicts: mergeStops(carried, conflicts) };
+    state = {
+      ...state,
+      conflicts: mergeStops(carried, conflicts),
+      rerere: [...new Set([...(state.rerere ?? []), ...rerere])],
+    };
     writeWorktreeState(root, state);
   }
   const recorded = mergeStops(carried, outcome.conflicts);
-  if (outcome.status === "blocked") return { ...outcome, recorded };
+  if (outcome.status === "blocked") {
+    exportResolution(runner, root, worktree, state);
+    return { ...outcome, recorded };
+  }
   // Only the run that finishes the rebase records it: an adopted finished
   // worktree's HEAD already holds tip work above it.
+  const finished = state.rebased === undefined;
+  // Before `rebased` persists, so every rerun refuses again until one is dropped.
+  if (finished && imported?.fixups != null && carriedCommits(runner, root).length > 0)
+    throw new Error(
+      `tip commits carried from the dropped sync worktree meet fixups from origin/${SYNC_RESOLUTION_BRANCH}; delete the ${CARRY_REFS} refs or the branch, then rerun`,
+    );
   const rebased = state.rebased ?? outcome.newSha;
-  writeWorktreeState(root, { ...state, rebased });
+  state = { ...state, rebased };
+  writeWorktreeState(root, state);
   applyCarry(runner, root, worktree, rebased);
+  applyFixups(runner, worktree, rebased, finished, imported?.fixups ?? null);
+  exportResolution(runner, root, worktree, state);
   return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
 };
 
@@ -1940,7 +1973,13 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // rebase
     step = "rebase";
-    const rebase = rebaseOnto(runner, root, target, expectedOld);
+    const rebase = rebaseOnto(
+      runner,
+      root,
+      target,
+      expectedOld,
+      importResolution(runner, root, target.tag),
+    );
 
     if (rebase.status === "blocked") {
       // This run's rows: earlier stops' manual paths are already resolved.

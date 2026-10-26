@@ -7,6 +7,8 @@ export const HYPRWS_REF = `refs/heads/${HYPRWS_BRANCH}`;
 export const ORIGIN_HYPRWS_REF = `refs/remotes/origin/${HYPRWS_BRANCH}`;
 /** Where `fork:sync` pushes a rebased tip for hyprws CI before the trunk moves. */
 export const SYNC_CANDIDATE_BRANCH = "sync/candidate";
+/** Where a resolved sync's conflict resolutions wait, as data, for the next `fork:sync`. */
+export const SYNC_RESOLUTION_BRANCH = "sync/resolution";
 export const UPSTREAM_LANE = "upstream/main";
 
 export interface VersionParts {
