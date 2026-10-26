@@ -1103,7 +1103,7 @@ it("accepts an upstream delete whose fork edit is net-zero and continues the reb
   );
 });
 
-it("still blocks a delete/modify whose fork edit is not net-zero", () => {
+it("blocks a delete/modify whose fork edit is not net-zero, then carries its retirement", () => {
   withFixture(
     {
       forkContent: "line1\nline2 fork\nline3\n",
@@ -1129,6 +1129,29 @@ it("still blocks a delete/modify whose fork edit is not net-zero", () => {
       assert.deepStrictEqual(report.decision.paths, ["shared.txt"]);
       // The modified text still stands in the worktree, awaiting a manual resolution.
       assert.strictEqual(NodeFS.existsSync(NodePath.join(f.worktree, "shared.txt")), true);
+
+      // A resolver retires it; rerere records nothing, yet the export carries it.
+      const resolve = (): number =>
+        capture(() => run(["v2.0.0", "--dry-run"], { runner: exec().runner, root: f.root })).value;
+      f.git(["rm", "--quiet", "shared.txt"], f.worktree);
+      assert.strictEqual(resolve(), 0);
+      const exported = "refs/fork-sync/resolution";
+      assert.strictEqual(f.git(["show", `${exported}:retired`], f.root), "shared.txt");
+      f.git(["push", "--quiet", "origin", `${exported}:refs/heads/sync/resolution`], f.root);
+
+      // a fresh runner replays the retirement and never stops
+      f.git(["worktree", "remove", "--force", f.worktree], f.root);
+      NodeFS.rmSync(NodePath.join(f.root, ".t3", "fork-sync", "worktree.json"));
+      assert.strictEqual(resolve(), 0);
+      const replayed = readReport(f.root, "v2.0.0");
+      assert.deepStrictEqual(
+        replayed.conflicts.map((conflict) => [conflict.via, conflict.reason]),
+        [["retired", "upstream deleted; retired by sync/resolution"]],
+      );
+      assert.strictEqual(
+        f.git(["ls-tree", "--name-only", replayed.trunk.after!, "--", "shared.txt"], f.root),
+        "",
+      );
     },
   );
 });
