@@ -17,7 +17,6 @@ import {
   refuseDroppedLinks,
   resolveFixups,
   publishAttention,
-  realRunner,
   rebaseOnto,
   readReport,
   REGENERATION_ROUTES,
@@ -25,11 +24,11 @@ import {
   renderReport,
   reportPath,
   run,
-  type CommandRunner,
   type ForkSyncReport,
 } from "./fork-sync.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
+import { realRunner, type CommandRunner } from "./lib/fork-sync-git.ts";
 import { FOLD_MESSAGES_ENV, placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
 
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
