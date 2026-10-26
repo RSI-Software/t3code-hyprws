@@ -114,8 +114,7 @@ export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnc
 
 /**
  * Runs one write per file at a time, so two clients saving from the same disk
- * version cannot both pass the comparison before either writes. Keyed by the
- * real path, so two names for one file share its lock.
+ * version cannot both pass the comparison before either writes.
  */
 export const oneWritePerFile = <E, R>(
   layer: Layer.Layer<WorkspaceFileSystem.WorkspaceFileSystem, E, R>,
@@ -142,7 +141,31 @@ export const oneWritePerFile = <E, R>(
             .pipe(Effect.option);
           if (Option.isNone(resolved)) return yield* service.writeFile(input);
           const target = resolved.value.absolutePath;
-          const key = yield* fileSystem.realPath(target).pipe(Effect.orElseSucceed(() => target));
+          // Device and inode name the file itself, so every hard or symbolic link shares
+          // its lock. A missing file has no version to race over, so its path will do.
+          const key = yield* fileSystem.stat(target).pipe(
+            Effect.map((info) =>
+              Option.match(info.ino, {
+                onNone: () => target,
+                onSome: (ino) => `${info.dev}:${ino}`,
+              }),
+            ),
+            Effect.catchIf(
+              (error) => error.reason._tag === "NotFound",
+              () => Effect.succeed(target),
+            ),
+            Effect.mapError(
+              (cause) =>
+                new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
+                  workspaceRoot: input.cwd,
+                  relativePath: input.relativePath,
+                  resolvedPath: target,
+                  operationPath: target,
+                  operation: "stat",
+                  cause,
+                }),
+            ),
+          );
           const entry = fileWriteLocks.get(key) ?? { lock: Semaphore.makeUnsafe(1), writers: 0 };
           fileWriteLocks.set(key, entry);
           entry.writers += 1;

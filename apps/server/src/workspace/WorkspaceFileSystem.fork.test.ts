@@ -166,6 +166,7 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const cwd = yield* makeTempDir;
         yield* writeTextFile(cwd, "README.md", "# Readme\n");
         yield* fileSystem.symlink(path.join(cwd, "README.md"), path.join(cwd, "Alias.md"));
+        yield* fileSystem.link(path.join(cwd, "README.md"), path.join(cwd, "Hard.md"));
         const save = (relativePath: string, contents: string) =>
           workspaceFileSystem
             .writeFile({
@@ -176,12 +177,20 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
             })
             .pipe(Effect.result);
 
-        const saves = [save("README.md", "# From one\n"), save("Alias.md", "# From two\n")];
+        const saves = [
+          save("README.md", "# From one\n"),
+          save("Alias.md", "# From two\n"),
+          save("Hard.md", "# From three\n"),
+        ];
         const results = yield* Effect.all(saves, {
           concurrency: "unbounded",
         });
 
-        expect(results.map((result) => result._tag).toSorted()).toEqual(["Failure", "Success"]);
+        expect(results.map((result) => result._tag).toSorted()).toEqual([
+          "Failure",
+          "Failure",
+          "Success",
+        ]);
       }),
     );
 
@@ -192,6 +201,10 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const followed: Array<string> = [];
         const watchedFileSystem = Layer.succeed(FileSystem.FileSystem, {
           ...fileSystem,
+          stat: (target) => {
+            followed.push(target);
+            return fileSystem.stat(target);
+          },
           realPath: (target) => {
             followed.push(target);
             return fileSystem.realPath(target);
