@@ -109,5 +109,41 @@ it.layer(NodeServices.layer, { excludeTestServices: true })(
         yield* manager.close({ threadId: input.threadId });
       }),
     );
+
+    it.effect("closes viewers of a removed session instead of resuming them as plain shells", () =>
+      Effect.gen(function* () {
+        let removed = false;
+        const live = resolvedZmuxProcessRunner().service;
+        const runner = new FakeProcessRunner((runInput) =>
+          removed
+            ? Effect.succeed(processResult({ stdout: '{"status":"not-found"}' }))
+            : live.run(runInput),
+        );
+        const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+          terminalSessionMode: "zmux",
+          shellResolver: () => "/bin/bash",
+          resolveOnlyForSettledThread: () => Effect.succeed(removed),
+        }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, runner.service));
+        const input = openInput({ worktreePath: process.cwd() });
+        const release = yield* manager.attachStream(input, () => Effect.void);
+        const ptyProcess = ptyAdapter.processes[0]!;
+        const kill = ptyProcess.kill.bind(ptyProcess);
+        ptyProcess.kill = (signal) => {
+          kill(signal);
+          ptyProcess.emitExit({ exitCode: 0, signal: 15 });
+        };
+        yield* manager.releaseSettledManagedAttachments({ threadId: input.threadId });
+        removed = true;
+        yield* manager.closeSettledManagedAttachments({ target: "zmux/main" });
+        release();
+
+        expect(yield* getEvents).toContainEqual(
+          expect.objectContaining({ type: "closed", terminalId: input.terminalId }),
+        );
+        const resumed = yield* manager.attachStream({ ...input, resume: true }, () => Effect.void);
+        expect(ptyAdapter.spawnInputs).toHaveLength(1);
+        resumed();
+      }),
+    );
   },
 );
