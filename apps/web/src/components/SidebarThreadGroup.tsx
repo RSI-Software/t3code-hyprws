@@ -211,8 +211,8 @@ const STATUS_DOT: Record<SidebarThreadStatus | "done", { label: string; classNam
 const URGENCY = Object.keys(STATUS_DOT);
 const MAX_STATUS_DOTS = 6;
 
-// A collapsed parent group keeps its parent row; its tab carries a dot per
-// hidden child in the row's own status colours, so a finished or blocked child
+// A collapsed parent group keeps its parent row; its tab carries status dots
+// for the hidden children in the rows' own colours, so a finished or blocked child
 // still shows without opening the group. The tab's tooltip lists every child.
 function useChildStatusDots(threads: readonly EnvironmentThreadShell[] | null) {
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
