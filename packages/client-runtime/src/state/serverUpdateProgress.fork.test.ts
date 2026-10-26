@@ -19,6 +19,7 @@ import {
   type ServerUpdateState,
 } from "./server.ts";
 import { trackOutdatedServerUpdate } from "./outdatedServerUpdate.ts";
+import { serverUpdateRestartLabelFork } from "./serverUpdateBackup.fork.ts";
 
 const versions = { fromVersion: "1.0.0", targetVersion: "1.0.1" };
 const restarting = { status: "running", stage: "resuming", ...versions } as const;
@@ -54,6 +55,20 @@ describe("server update progress", () => {
       { status: "failed", stage: "resuming", ...versions, message: "Timed out" },
     ];
     for (const state of states) expect(serverUpdateRestartElapsedSeconds(state, 10000)).toBeNull();
+  });
+
+  it("names the pre-migration backup only while restarting", () => {
+    const backingUp = { ...restarting, databaseBackupBytesFork: 20_900_000_000 };
+    expect(serverUpdateRestartLabelFork(backingUp, "Restarting…")).toBe(
+      "Backing up database (20.9 GB) and restarting…",
+    );
+    expect(
+      serverUpdateRestartLabelFork({ ...restarting, databaseBackupBytesFork: 40_000 }, "x"),
+    ).toBe("Backing up database (1 MB) and restarting…");
+    expect(serverUpdateRestartLabelFork(restarting, "Restarting…")).toBe("Restarting…");
+    expect(
+      serverUpdateRestartLabelFork({ ...backingUp, status: "failed", message: "x" }, "Failed"),
+    ).toBe("Failed");
   });
 
   it("uses only real streamed milestones and does not invent byte progress", () => {
