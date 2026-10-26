@@ -323,6 +323,32 @@ it("stops at a conflict rerere and hooks cannot resolve, then applies after a ha
   );
 });
 
+it("runs from a checkout whose git dir lives elsewhere, as an rsi-pr-agent job's does", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+    },
+    (f) => {
+      f.git(
+        ["init", "--quiet", `--separate-git-dir=${NodePath.join(f.root, "..", "gitdir")}`],
+        f.root,
+      );
+      const resolve = (): number =>
+        capture(() => run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root })).value;
+      assert.strictEqual(resolve(), 1);
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "blocked");
+      NodeFS.writeFileSync(
+        NodePath.join(f.worktree, "shared.txt"),
+        "line1\nline2 resolved\nline3\n",
+      );
+      f.git(["add", "shared.txt"], f.worktree);
+      assert.strictEqual(resolve(), 0);
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "applied");
+    },
+  );
+});
+
 it("carries a hand resolution and its fixups to a fresh runner through sync/resolution", () => {
   withFixture(
     {
