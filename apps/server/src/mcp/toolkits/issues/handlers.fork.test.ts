@@ -11,6 +11,7 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -467,13 +468,17 @@ describe("issue toolkit handlers", () => {
     }),
   );
 
-  it.effect("fails cleanly when the token's thread no longer exists", () =>
+  it.effect("fails cleanly when the token's thread is gone or soft-deleted", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness({ thread: null });
-      const error = yield* harness
-        .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/1" })
-        .pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "IssueThreadNotFoundError", threadId: THREAD_ID });
+      const deleted = { ...makeThread(), deletedAt: DateTime.makeUnsafe("2026-08-21T00:00:00Z") };
+      for (const thread of [null, deleted]) {
+        const harness = yield* makeHarness({ thread });
+        const error = yield* harness
+          .call("link_issue", { url: "https://github.com/t3tools/t3code/issues/1" })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({ _tag: "IssueThreadNotFoundError", threadId: THREAD_ID });
+        expect(yield* Ref.get(harness.commands)).toEqual([]);
+      }
     }),
   );
 
