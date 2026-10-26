@@ -7,7 +7,8 @@ import { projectFileRevision } from "@t3tools/contracts";
 // chose to overwrite. A saved or reloaded draft holds SETTLED until the next
 // edit, so an editor still holding it cannot resend it unchecked.
 const SETTLED = Symbol("settled");
-const draftBases = new Map<object, string | undefined | typeof SETTLED>();
+// Weak keys: a closed file's atom and its settled entry can be collected.
+const draftBases = new WeakMap<object, string | undefined | typeof SETTLED>();
 
 export function captureFileSaveBase(file: object, diskContents: () => string | undefined): void {
   if (draftBases.has(file) && draftBases.get(file) !== SETTLED) return;
@@ -29,6 +30,7 @@ export function settleFileSave(file: object): void {
 
 /** Rebases a tracked draft, after a save or an explicit overwrite. */
 export function rebaseFileSave(file: object, diskContents: string | undefined): void {
-  if (!draftBases.has(file)) return;
+  // A save landing after Reload must not revive the dropped draft.
+  if (!draftBases.has(file) || draftBases.get(file) === SETTLED) return;
   draftBases.set(file, diskContents === undefined ? undefined : projectFileRevision(diskContents));
 }

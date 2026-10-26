@@ -194,6 +194,28 @@ describe("file-save stale-write guard", () => {
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
   });
 
+  it("keeps a closed panel's draft dropped when its in-flight save lands after Reload", async () => {
+    setup();
+    using _loaded = showLoadedFile("# Readme\n");
+    using _timers = fakeTimers();
+    await using screen = await editLoadedFile("# Readme edited\n");
+    await vi.advanceTimersByTimeAsync(500);
+    const inFlight = Promise.withResolvers<AsyncResult.AsyncResult<unknown, unknown>>();
+    writeFile.mockReturnValueOnce(inFlight.promise);
+    screen.edit("# Readme edited twice\n");
+    await vi.advanceTimersByTimeAsync(500);
+    screen.edit("# Readme edited thrice\n");
+    await screen.unmount();
+
+    toast.mock.calls[0]![0].data.secondaryActionProps.onClick();
+    inFlight.resolve(AsyncResult.success({ relativePath: "file.txt" }));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(writeFile.mock.calls.map(([request]) => request.input.contents)).toEqual([
+      "# Readme edited\n",
+      "# Readme edited twice\n",
+    ]);
+  });
+
   it("drops a closed panel's in-flight draft when the user reloads and edits again", async () => {
     setup();
     using _loaded = showLoadedFile("# Readme\n");
