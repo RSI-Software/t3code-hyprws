@@ -81,6 +81,7 @@ async function setup() {
     recentMessageCount: 0,
     projectContext: "",
     terms: "",
+    speechCleanup: "",
     ...VOICE_TEXT_STARTER_PROMPTS_FORK,
   };
   mocks.request.mockReset().mockImplementation(async ({ operation, text }) => ({
@@ -123,6 +124,26 @@ describe("dictation text lifecycle", () => {
       ["format", "react useEffect"],
     ]);
     expect(draft.text).toBe("Formatted: react useEffect");
+    await click("Undo text processing");
+    expect(draft.text).toBe("react use affect");
+  });
+  it("takes the speech service's edit instead of automatic cleanup and undoes to raw", async () => {
+    await using _fixture = await setup();
+    let transcript = "";
+    await act(async () => {
+      transcript = await actions.processTranscript(
+        "react use affect",
+        new AbortController().signal,
+        undefined,
+        "React useEffect.",
+      );
+    });
+    expect(transcript).toBe("React useEffect.");
+    await act(async () => {
+      input.commitDraft(transcript, transcript.length);
+      actions.transcriptionCommitted(transcript);
+    });
+    expect(mocks.request.mock.calls.map(([call]) => call.operation)).toEqual(["format"]);
     await click("Undo text processing");
     expect(draft.text).toBe("react use affect");
   });

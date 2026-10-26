@@ -181,7 +181,7 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
           return json({ error: "Expected WAV audio." }, 415);
         return yield* readBody(VOICE_INPUT_MAX_BYTES_FORK).pipe(
           Effect.flatMap((audio) => service.transcribe(audio, projectIdOf(request))),
-          Effect.map((text) => json({ text })),
+          Effect.map((transcript) => json(transcript)),
           Effect.catch(failure),
         );
       }),

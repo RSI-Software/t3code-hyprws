@@ -5,16 +5,17 @@ import {
   type VoiceDraftSnapshot,
   type VoiceInputControllerDependencies,
   type VoiceInputState,
-  type VoiceTranscriber,
+  type PreparedVoiceTranscription,
+  type VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, VoiceInputTranscriptFork } from "@t3tools/contracts";
 import type { ThreadRouteTarget } from "../threadRoutes";
 import type { VoicePreviewFork } from "./preview.fork";
 
 export interface DesktopVoiceTargetFork {
   readonly ownerKey: string;
   readonly environmentId: EnvironmentId;
-  /** Selects the project's speech-service terms. */
+  /** Selects the project's speech-service settings. */
   readonly projectId: ProjectId | null;
   readonly label: string;
   readonly route: ThreadRouteTarget;
@@ -34,11 +35,24 @@ export interface DesktopVoiceSnapshotFork {
   readonly preview: VoicePreviewFork | null;
 }
 
+/** The shared transcriber, returning the speech service's own cleanup beside the transcript. */
+export interface VoiceTranscriberFork {
+  readonly prepare: (options: VoiceTranscriptionOptions) => Promise<
+    Omit<PreparedVoiceTranscription, "transcribe"> & {
+      readonly transcribe: (
+        uri: string,
+        options: VoiceTranscriptionOptions,
+      ) => Promise<VoiceInputTranscriptFork>;
+    }
+  >;
+}
+
 interface VoiceTextCallbacksFork {
   readonly processTranscript: (
     text: string,
     signal: AbortSignal,
     draft?: VoiceDraftSnapshot,
+    edited?: string,
   ) => Promise<string>;
   readonly transcriptionCommitted: (text: string) => void;
 }
@@ -66,7 +80,7 @@ export class DesktopVoiceSessionFork {
       VoiceInputControllerDependencies,
       "readDraft" | "commitDraft" | "getTranscriber" | "onStateChange"
     > & {
-      readonly getTranscriber: (target: DesktopVoiceTargetFork) => VoiceTranscriber;
+      readonly getTranscriber: (target: DesktopVoiceTargetFork) => VoiceTranscriberFork;
     },
   ) {
     this.controller = new VoiceInputController({
@@ -94,7 +108,10 @@ export class DesktopVoiceSessionFork {
             return {
               ...prepared,
               transcribe: async (uri, transcriptionOptions) => {
-                const transcript = await prepared.transcribe(uri, transcriptionOptions);
+                const { text: transcript, edited } = await prepared.transcribe(
+                  uri,
+                  transcriptionOptions,
+                );
                 if (!transcriptionOptions.signal.aborted) this.update({ transcript });
                 if (
                   !transcriptionOptions.signal.aborted &&
@@ -105,7 +122,9 @@ export class DesktopVoiceSessionFork {
                     transcript,
                     transcriptionOptions.signal,
                     this.capturedDraft ?? undefined,
+                    edited,
                   );
+                // Off screen, nothing can Undo the speech service's edit, so keep the raw words.
                 return transcript;
               },
             };

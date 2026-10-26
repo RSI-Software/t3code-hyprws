@@ -59,7 +59,10 @@ function harness(
   customClient?: HttpClient.HttpClient,
 ) {
   const stored = new Map<string, Uint8Array>();
-  const speech = { defaults: { terms: "" }, projects: {} as Record<string, { terms: string }> };
+  const speech = {
+    defaults: { terms: "", speechCleanup: "" },
+    projects: {} as Record<string, { terms: string; speechCleanup: string }>,
+  };
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
   const secrets = ServerSecretStore.ServerSecretStore.of({
     get: (name) => Effect.sync(() => Option.fromUndefinedOr(stored.get(name))),
@@ -191,7 +194,7 @@ describe("external dictation service", () => {
           return yield* s.transcribe(audio);
         }),
       );
-      expect(text).toBe("meta words");
+      expect(text).toEqual({ text: "meta words" });
       expect(h.requests[0]?.url).toBe("https://api.meta.ai/v1/asr/transcribe");
       expect(h.requests[0]?.headers.authorization).toBe("Bearer meta-key");
       const body = h.requests[0]?.body;
@@ -241,7 +244,7 @@ describe("external dictation service", () => {
           return yield* s.transcribe(recording());
         }),
       );
-      expect(text).toBe("spoken words");
+      expect(text).toEqual({ text: "spoken words" });
       expect(h.requests[0]?.url).toBe("http://127.0.0.1:8788/v1/audio/transcriptions");
       expect(h.requests[0]?.headers.authorization).toBeUndefined();
       const body = h.requests[0]?.body;
@@ -251,17 +254,19 @@ describe("external dictation service", () => {
       expect(body.formData.get("file")).toBeInstanceOf(Blob);
     }),
   );
-  it.effect("sends project terms as the prompt and applies their spelling rules", () =>
+  it.effect("sends project speech settings as standard fields and applies spelling rules", () =>
     Effect.gen(function* () {
       const h = harness({
         text: " Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ. ",
+        edited_text: " cubectol. ",
       });
       h.speech.defaults.terms = "shared";
       h.speech.projects.p1 = {
         terms:
           "cube -> Kube\ncube control, cubectol -> kubectl\n\n Hyprland \nVec<T>\ndollar dollar -> $$\nΟΔΟΣ -> Odos\nfive words is too long",
+        speechCleanup: " Drop filler words. ",
       };
-      const texts = yield* h.run((s) =>
+      const transcripts = yield* h.run((s) =>
         Effect.gen(function* () {
           yield* s.configure(openai);
           return [yield* s.transcribe(recording(), "p1"), yield* s.transcribe(recording(), "gone")];
@@ -270,19 +275,25 @@ describe("external dictation service", () => {
       const [project, shared] = h.requests.map((request) =>
         request.body._tag === "FormData" ? request.body.formData : new FormData(),
       );
-      // Only standard fields; one entry over four words would make the list read as prose.
+      // One entry over four words would make the list read as prose, so it stays out.
       expect([...(project?.keys() ?? [])].toSorted()).toEqual([
         "file",
         "model",
         "prompt",
         "response_format",
+        "transcript_edit",
       ]);
       expect(project?.get("prompt")).toBe("Kube, kubectl, Hyprland, Vec<T>, $$, Odos");
+      expect(project?.get("transcript_edit")).toBe("Drop filler words.");
       expect(shared?.get("prompt")).toBe("shared");
-      expect(texts).toEqual([
+      expect(shared?.get("transcript_edit")).toBeNull();
+      expect(transcripts).toEqual([
         // The longest alias wins, targets are inserted literally, and case folding is Unicode's.
-        "kubectl, then kubectl, Kube and cubectoland, $$, Odos.",
-        "Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ.",
+        { text: "kubectl, then kubectl, Kube and cubectoland, $$, Odos.", edited: "kubectl." },
+        {
+          text: "Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ.",
+          edited: "cubectol.",
+        },
       ]);
     }),
   );
@@ -361,7 +372,7 @@ describe("external dictation service", () => {
       });
       const empty = harness({ text: " " });
       yield* empty.run((s) => s.configure(openai));
-      expect(yield* empty.run((s) => s.transcribe(recording()))).toBe("");
+      expect(yield* empty.run((s) => s.transcribe(recording()))).toEqual({ text: "" });
     }),
   );
   it.effect.each([
@@ -369,7 +380,7 @@ describe("external dictation service", () => {
       config: { ...openai, live: true },
       url: "ws://127.0.0.1:8788/v1/realtime?intent=transcription",
       headers: { authorization: "Bearer stream-key" },
-      start: '"transcription":{"model":"nemo","prompt":"kubectl"}',
+      start: '"transcription":{"model":"nemo","prompt":"kubectl","transcript_edit":"Tidy."}',
     },
     {
       config: meta,
@@ -380,7 +391,7 @@ describe("external dictation service", () => {
   ] as const)("opens $config.provider's streaming socket with its key", ({ config, ...expected }) =>
     Effect.gen(function* () {
       const h = harness();
-      h.speech.defaults.terms = "kubectl";
+      h.speech.defaults = { terms: "kubectl", speechCleanup: "Tidy." };
       yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
       const opened = Promise.withResolvers<{ url: string; options: unknown; start: unknown }>();
       const upstream = Layer.succeed(Socket.WebSocketConstructor, (url, options) => ({
@@ -431,7 +442,7 @@ describe("external dictation service", () => {
     ({ config, start, ready, previews, end, final }) =>
       Effect.gen(function* () {
         const h = harness();
-        h.speech.projects.p1 = { terms: "cube control -> kubectl" };
+        h.speech.projects.p1 = { terms: "cube control -> kubectl", speechCleanup: "" };
         yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
         const fromClient = yield* Queue.make<string>();
         const toClient = yield* Queue.make<string>();

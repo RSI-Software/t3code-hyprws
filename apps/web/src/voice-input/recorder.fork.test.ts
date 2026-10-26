@@ -67,7 +67,7 @@ function microphoneFixture() {
     get active() {
       return active;
     },
-    result: Promise.resolve("words"),
+    result: Promise.resolve({ text: "words" }),
     send: vi.fn(),
     finish: vi.fn(() => {
       active = false;

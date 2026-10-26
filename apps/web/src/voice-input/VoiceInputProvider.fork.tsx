@@ -74,16 +74,14 @@ function createDesktopVoiceRuntimeFork() {
           locale: navigator.language,
           transcribe: async (uri, { signal }) => {
             if (live) {
-              const text = await live.result.catch(() => null);
-              if (text !== null) return text;
+              const transcript = await live.result.catch(() => null);
+              if (transcript !== null) return transcript;
             }
             signal.throwIfAborted();
-            return (
-              await runVoiceInputRequestFork(
-                transcribeVoiceInputFork(prepared, recorder.read(uri), target.projectId),
-                signal,
-              )
-            ).text;
+            return runVoiceInputRequestFork(
+              transcribeVoiceInputFork(prepared, recorder.read(uri), target.projectId),
+              signal,
+            );
           },
         };
       },

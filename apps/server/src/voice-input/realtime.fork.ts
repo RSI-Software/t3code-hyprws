@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import type * as Socket from "effect/socket/Socket";
@@ -10,6 +11,7 @@ const encodeTranscript = Schema.encodeSync(
       type: Schema.Literal("transcript"),
       text: Schema.String,
       final: Schema.Boolean,
+      edited: Schema.optionalKey(Schema.String),
     }),
   ),
 );
@@ -18,10 +20,11 @@ export class VoiceStreamProtocolErrorFork extends Schema.TaggedError<VoiceStream
   { detail: Schema.String },
 ) {}
 
-/** A full transcript replaces the previous preview; nothing else reaches the client. */
+/** A full transcript replaces the previous preview; `edited` is the service's cleanup of the final one. */
 export type VoiceStreamUpdateFork =
   | { readonly type: "ready" }
   | { readonly type: "transcript"; readonly text: string; readonly final: boolean }
+  | { readonly type: "edited"; readonly text: string }
   | undefined;
 
 /** One provider's realtime wire for one session; the relay owns limits, order, and the client protocol. */
@@ -33,6 +36,8 @@ export interface VoiceStreamAdapterFork {
   readonly audio: (pcm: Uint8Array) => string | Uint8Array;
   /** Ends input and requests the final transcript. */
   readonly end: ReadonlyArray<string>;
+  /** An `edited` update may follow the final transcript. */
+  readonly awaitsEdit?: boolean;
   readonly receive: (
     frame: string,
   ) => Effect.Effect<VoiceStreamUpdateFork, Schema.SchemaError | VoiceStreamProtocolErrorFork>;
@@ -61,22 +66,46 @@ export const relayVoiceStreamFork = Effect.fn("VoiceInput.relayStream")(function
   const endInput = yield* Deferred.make<void>();
   // Validated client input in arrival order; `null` ends input.
   const input = yield* Queue.unbounded<Uint8Array | null>();
+  // One provider frame at a time, so a batch never splits across the final and its edit.
+  let pulled: Array<string | Uint8Array> = [];
+  const nextUpdate = Effect.gen(function* () {
+    while (pulled.length === 0) pulled = [...(yield* reader.pull)];
+    const frame = pulled.shift();
+    if (typeof frame !== "string" || frame.length > 65536)
+      return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid event." });
+    return yield* adapter.receive(frame);
+  });
+  // The edit trails the final transcript and never arrives on the service's timeout or error;
+  // the client then falls back to its own cleanup.
+  const awaitEdit = Effect.gen(function* () {
+    while (true) {
+      const update = yield* nextUpdate;
+      if (update?.type === "edited") return update.text;
+    }
+  }).pipe(
+    Effect.timeoutOption("1500 millis"),
+    Effect.map(Option.getOrUndefined),
+    Effect.orElseSucceed(() => undefined),
+  );
   const receive = Effect.gen(function* () {
     while (true) {
-      for (const frame of yield* reader.pull) {
-        if (typeof frame !== "string" || frame.length > 65536)
-          return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid event." });
-        const update = yield* adapter.receive(frame);
-        if (update?.type === "ready" && !ready) {
-          ready = true;
-          yield* downstreamWriter.write('{"type":"ready"}');
-          yield* Deferred.succeed(isReady, undefined);
-        } else if (update?.type === "transcript") {
-          if (!ready || (update.final && !delivered))
-            return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid transcript." });
+      const update = yield* nextUpdate;
+      if (update?.type === "ready" && !ready) {
+        ready = true;
+        yield* downstreamWriter.write('{"type":"ready"}');
+        yield* Deferred.succeed(isReady, undefined);
+      } else if (update?.type === "transcript") {
+        if (!ready || (update.final && !delivered))
+          return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid transcript." });
+        if (!update.final) {
           yield* downstreamWriter.write(encodeTranscript(update));
-          if (update.final) return;
+          continue;
         }
+        const edited = adapter.awaitsEdit && update.text.trim() ? yield* awaitEdit : undefined;
+        yield* downstreamWriter.write(
+          encodeTranscript(edited === undefined ? update : { ...update, edited }),
+        );
+        return;
       }
     }
   });

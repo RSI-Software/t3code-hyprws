@@ -3,7 +3,7 @@ import {
   withDeviceHubQuery,
 } from "@t3tools/client-runtime/state/deviceHubAccess";
 import type { PreparedConnection } from "@t3tools/client-runtime/connection";
-import { VOICE_INPUT_ROUTE_FORK } from "@t3tools/contracts";
+import { VOICE_INPUT_ROUTE_FORK, type VoiceInputTranscriptFork } from "@t3tools/contracts";
 import { runVoiceInputRequestFork } from "./client.fork";
 
 export interface LiveVoiceHandlersFork {
@@ -17,7 +17,7 @@ export interface LiveVoiceSessionFork {
   send(audio: ArrayBuffer): void;
   finish(): void;
   cancel(): void;
-  readonly result: Promise<string>;
+  readonly result: Promise<VoiceInputTranscriptFork>;
 }
 
 /**
@@ -33,13 +33,13 @@ export function connectLiveVoiceFork(
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
-    const final = Promise.withResolvers<string>();
+    const final = Promise.withResolvers<VoiceInputTranscriptFork>();
     // A failure during recording surfaces only when the caller awaits result.
     void final.promise.catch(() => {});
     let open = false;
     let ready = false;
     let ended = false;
-    let transcript: string | null = null;
+    let transcript: VoiceInputTranscriptFork | null = null;
     let settled = false;
     let timer: ReturnType<typeof setTimeout>;
     // A warm provider acknowledges within milliseconds; only a slow one shows as waiting.
@@ -120,7 +120,11 @@ export function connectLiveVoiceFork(
           typeof event.final === "boolean"
         ) {
           if (transcript !== null || (event.final && !ended)) throw new Error("Unexpected final.");
-          if (event.final) transcript = event.text;
+          if (event.final)
+            transcript =
+              "edited" in event && typeof event.edited === "string"
+                ? { text: event.text, edited: event.edited }
+                : { text: event.text };
           onPreview(event.text);
         } else {
           throw new Error("Invalid event.");

@@ -25,7 +25,7 @@ const harness = (scopes: EnvironmentAuth.AuthenticatedSession["scopes"], authent
         Effect.sync(() => {
           calls++;
           projects.push(projectId);
-          return "words";
+          return { text: "words", edited: "Words." };
         }),
     });
     const context = yield* Layer.build(
@@ -119,12 +119,15 @@ describe("dictation HTTP boundary", () => {
       expect(h.calls()).toBe(0);
     }),
   );
-  it.effect("returns text without caching", () =>
+  it.effect("returns the transcript without caching", () =>
     Effect.gen(function* () {
       const h = yield* harness([AuthOrchestrationOperateScope]);
       const response = yield* Effect.promise(() => h.handler(upload()));
       expect(response.status).toBe(200);
-      expect(yield* Effect.promise(() => response.json())).toEqual({ text: "words" });
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        text: "words",
+        edited: "Words.",
+      });
       expect(response.headers.get("cache-control")).toBe("no-store");
     }),
   );

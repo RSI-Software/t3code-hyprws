@@ -337,6 +337,21 @@ export function VoiceTextSettingsFork({
               />
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Speech service cleanup"
+            description="How Promptletariat should edit each transcript; leave empty for other services. When an edit arrives, automatic cleanup is skipped."
+          >
+            <div className="mt-3 max-w-2xl pb-3.5">
+              <Textarea
+                value={form.speechCleanup}
+                rows={3}
+                maxLength={2000}
+                aria-label="Speech service cleanup"
+                placeholder="Remove filler words and fix punctuation."
+                onChange={(event) => update({ speechCleanup: event.target.value })}
+              />
+            </div>
+          </SettingsRow>
         </fieldset>
         <div className="flex flex-wrap items-center gap-3 pt-4">
           <Button

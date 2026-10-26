@@ -102,6 +102,7 @@ const make = Effect.gen(function* () {
         recentMessageCount: 0,
         projectContext: "",
         terms: "",
+        speechCleanup: "",
         ...VOICE_TEXT_STARTER_PROMPTS_FORK,
       },
       projects: {},

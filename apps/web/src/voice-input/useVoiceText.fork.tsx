@@ -167,6 +167,7 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
     text: string,
     signal: AbortSignal,
     originalDraft?: VoiceDraftSnapshot,
+    edited?: string,
   ) => {
     skipAutomatic.current = false;
     const current = latest.current;
@@ -177,6 +178,8 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
       raw.kind === "commit"
         ? { text: raw.text, cursor: raw.selection.end, ownerKey: captured.ownerKey }
         : null;
+    // The speech service already cleaned up; undo still restores the raw transcript.
+    if (edited !== undefined) return edited;
     if (!current.canOperate || !text.trim() || current.config?.cleanupMode !== "auto") return text;
     const controller = new AbortController();
     pending.current = controller;

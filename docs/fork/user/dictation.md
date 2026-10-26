@@ -36,6 +36,12 @@ Add `heard, misheard -> Term` to fix a spelling.
 Terms go out as the standard `prompt` hint, which Meta ignores; a term over four words is left out.
 Spelling fixes apply to every service's transcript.
 
+**Speech service cleanup:** for Promptletariat only; an instruction here asks it to edit each transcript.
+Leave it empty for other services, which may reject the field.
+When its edit arrives, automatic cleanup is skipped; Undo still restores the raw transcript.
+Without an edit, automatic cleanup runs as usual.
+A transcript that finishes while you are on another screen keeps the raw words.
+
 Base URLs resolve from the selected environment's server: `localhost` means that server's machine.
 Audio stays in memory and is limited to five minutes.
 Keys are stored on that environment; changing the service or base URL clears a saved key.

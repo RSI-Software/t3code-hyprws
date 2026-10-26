@@ -30,6 +30,10 @@ export const VoiceTextConfigFork = Schema.Struct({
   terms: Schema.String.check(Schema.isMaxLength(20_000)).pipe(
     Schema.withDecodingDefault(Effect.succeed("")),
   ),
+  /** Promptletariat `transcript_edit`; an edit that arrives replaces automatic cleanup. Empty is off. */
+  speechCleanup: Schema.String.check(Schema.isMaxLength(2000)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
 });
 export type VoiceTextConfigFork = typeof VoiceTextConfigFork.Type;
 export const VoiceTextSettingsFork = Schema.Struct({

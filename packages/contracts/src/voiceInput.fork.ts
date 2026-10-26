@@ -33,4 +33,9 @@ export const VoiceInputSettingsFork = Schema.Struct({
 });
 export type VoiceInputSettingsFork = typeof VoiceInputSettingsFork.Type;
 
-export const VoiceInputTranscriptFork = Schema.Struct({ text: Schema.String });
+/** `edited` is the speech service's own cleanup, when it returned one. */
+export const VoiceInputTranscriptFork = Schema.Struct({
+  text: Schema.String,
+  edited: Schema.optionalKey(Schema.String),
+});
+export type VoiceInputTranscriptFork = typeof VoiceInputTranscriptFork.Type;

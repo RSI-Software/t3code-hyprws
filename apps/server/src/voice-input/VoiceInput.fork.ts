@@ -1,8 +1,8 @@
 import {
   VoiceInputConfigFork,
   VoiceInputConfigUpdateFork,
-  VoiceInputTranscriptFork,
   type VoiceInputSettingsFork,
+  type VoiceInputTranscriptFork,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -168,6 +168,11 @@ function voiceTermsFork(terms: string) {
   };
 }
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** `edited_text` is Promptletariat's answer to `transcript_edit`. */
+const OpenAiTranscript = Schema.Struct({
+  text: Schema.String,
+  edited_text: Schema.optionalKey(Schema.String),
+});
 
 export class VoiceInput extends Context.Service<
   VoiceInput,
@@ -176,11 +181,11 @@ export class VoiceInput extends Context.Service<
     readonly configure: (
       input: VoiceInputConfigUpdateFork,
     ) => Effect.Effect<VoiceInputSettingsFork, VoiceInputError>;
-    /** `projectId` selects the dictating project's speech terms; the defaults' otherwise. */
+    /** `projectId` selects the dictating project's speech settings; the defaults' otherwise. */
     readonly transcribe: (
       audio: Uint8Array,
       projectId?: string,
-    ) => Effect.Effect<string, VoiceInputError>;
+    ) => Effect.Effect<VoiceInputTranscriptFork, VoiceInputError>;
     readonly stream: (
       socket: Socket.Socket,
       projectId?: string,
@@ -193,13 +198,14 @@ const make = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
   const text = yield* VoiceText.VoiceText;
   const writes = yield* Semaphore.make(1);
-  const projectTerms = (projectId: string | undefined) =>
+  const projectSpeech = (projectId: string | undefined) =>
     text.settings.pipe(
-      Effect.map(({ projects, defaults }) =>
-        voiceTermsFork(((projectId && projects[projectId]) || defaults).terms),
-      ),
-      // Terms only steer recognition; dictation still works without them.
-      Effect.orElseSucceed(() => voiceTermsFork("")),
+      Effect.map(({ projects, defaults }) => {
+        const { terms, speechCleanup } = (projectId && projects[projectId]) || defaults;
+        return { ...voiceTermsFork(terms), edit: speechCleanup.trim() };
+      }),
+      // These only steer the speech service; dictation still works without them.
+      Effect.orElseSucceed(() => ({ ...voiceTermsFork(""), edit: "" })),
     );
 
   const read = secrets.get(SECRET_NAME).pipe(
@@ -259,7 +265,7 @@ const make = Effect.gen(function* () {
     if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
     if (!isVoiceRecordingFork(audio)) return yield* new VoiceInputError({ reason: "audio" });
     const { upload } = voiceInputUrlsFork(config);
-    const { prompt, spell } = yield* projectTerms(projectId);
+    const { prompt, spell, edit } = yield* projectSpeech(projectId);
     let request: HttpClientRequest.HttpClientRequest;
     if (config.provider === "meta") {
       request = metaVoiceRequestFork(upload, config.model, audio);
@@ -269,6 +275,7 @@ const make = Effect.gen(function* () {
       form.set("model", config.model);
       form.set("response_format", "json");
       if (prompt) form.set("prompt", prompt);
+      if (edit) form.set("transcript_edit", edit);
       request = HttpClientRequest.post(upload).pipe(HttpClientRequest.bodyFormData(form));
     }
     if (config.apiKey)
@@ -279,14 +286,16 @@ const make = Effect.gen(function* () {
     if (response.status < 200 || response.status >= 300) {
       return yield* new VoiceInputError({ reason: "upstream", status: response.status });
     }
-    const text = yield* (
+    const body = yield* (
       config.provider === "meta"
-        ? metaVoiceTranscriptFork(response)
-        : HttpClientResponse.schemaBodyJson(VoiceInputTranscriptFork)(response).pipe(
-            Effect.map((body) => body.text),
+        ? metaVoiceTranscriptFork(response).pipe(
+            Effect.map((text): typeof OpenAiTranscript.Type => ({ text })),
           )
+        : HttpClientResponse.schemaBodyJson(OpenAiTranscript)(response)
     ).pipe(Effect.mapError((cause) => new VoiceInputError({ reason: "response", cause })));
-    return spell(text.trim());
+    const text = spell(body.text.trim());
+    const edited = body.edited_text?.trim();
+    return text && edited ? { text, edited: spell(edited) } : { text };
   });
   return VoiceInput.of({
     settings: read.pipe(Effect.map(publicSettings)),
@@ -296,11 +305,11 @@ const make = Effect.gen(function* () {
         const config = yield* read;
         if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
         if (!config.live) return yield* new VoiceInputError({ reason: "live" });
-        const { prompt, spell } = yield* projectTerms(projectId);
+        const { prompt, spell, edit } = yield* projectSpeech(projectId);
         const wire =
           config.provider === "meta"
             ? metaVoiceStreamFork(config)
-            : openAiVoiceStreamFork(config, prompt);
+            : openAiVoiceStreamFork(config, { prompt, transcript_edit: edit });
         const adapter: VoiceStreamAdapterFork = {
           ...wire,
           receive: (frame) =>
@@ -308,7 +317,9 @@ const make = Effect.gen(function* () {
               .receive(frame)
               .pipe(
                 Effect.map((update) =>
-                  update?.type === "transcript" ? { ...update, text: spell(update.text) } : update,
+                  update?.type === "transcript" || update?.type === "edited"
+                    ? { ...update, text: spell(update.text) }
+                    : update,
                 ),
               ),
         };

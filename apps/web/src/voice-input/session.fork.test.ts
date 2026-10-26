@@ -41,7 +41,7 @@ function createDraft(ownerKey: string, environmentId = EnvironmentId.make("first
   };
 }
 
-function createSession() {
+function createSession(edited?: string) {
   const result = Promise.withResolvers<string>();
   const entered = Promise.withResolvers<AbortSignal>();
   const getTranscriber = vi.fn((_target: DesktopVoiceTargetFork) => ({
@@ -49,7 +49,7 @@ function createSession() {
       locale: "en-US",
       transcribe: async (_uri: string, { signal }: { signal: AbortSignal }) => {
         entered.resolve(signal);
-        return result.promise;
+        return { text: await result.promise, ...(edited ? { edited } : {}) };
       },
     }),
   }));
@@ -121,9 +121,10 @@ describe("desktop dictation across navigation", () => {
   });
 
   it.each(["existing thread", "new thread", "settings"])(
-    "finishes in the original draft after navigating to %s",
+    "finishes raw in the original draft after navigating to %s",
     async (destination) => {
-      const { session, result, entered, deleteRecording } = createSession();
+      // Undo cannot follow the draft off screen, so the speech service's edit is skipped there.
+      const { session, result, entered, deleteRecording } = createSession("Spoken text.");
       const original = createDraft("original");
       const originalEditor = vi.fn();
       const detach = session.attach("original", originalEditor);

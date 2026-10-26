@@ -39,6 +39,7 @@ const config: VoiceTextConfigFork = {
   recentMessageCount: 0,
   projectContext: "React, Zustand, Hyprland",
   terms: "",
+  speechCleanup: "",
   ...VOICE_TEXT_STARTER_PROMPTS_FORK,
 };
 

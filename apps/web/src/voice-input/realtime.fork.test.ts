@@ -54,11 +54,11 @@ it("replaces hypotheses and waits for endStream, final text, and clean close", a
   expect(h.socket.sent.filter((frame) => typeof frame === "string")).toEqual([
     '{"type":"endStream"}',
   ]);
-  h.socket.event({ type: "transcript", text: "Hello world.", final: true });
+  h.socket.event({ type: "transcript", text: "hello world", final: true, edited: "Hello world." });
   await Promise.resolve();
   expect(complete).not.toHaveBeenCalled();
   h.socket.closed(1000);
-  expect(await live.result).toBe("Hello world.");
+  expect(await live.result).toEqual({ text: "hello world", edited: "Hello world." });
 });
 it.each([1000, 1011])("refuses close %i without a final transcript", async (code) => {
   const h = fixture();

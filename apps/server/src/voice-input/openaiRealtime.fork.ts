@@ -6,6 +6,7 @@ const RealtimeEvent = Schema.Struct({
   type: Schema.String,
   delta: Schema.optionalKey(Schema.String),
   transcript: Schema.optionalKey(Schema.String),
+  edited_text: Schema.optionalKey(Schema.String),
   error: Schema.optionalKey(Schema.Struct({ message: Schema.optionalKey(Schema.String) })),
 });
 const decodeRealtimeEvent = Schema.decodeEffect(Schema.fromJsonString(RealtimeEvent));
@@ -35,11 +36,15 @@ export function upsamplePcmFork() {
 
 /**
  * OpenAI Realtime transcription: the standard wire for every non-Meta streaming endpoint.
- * Partials arrive as deltas; the completed event carries the authoritative final text.
+ * Partials arrive as deltas; the completed event carries the authoritative final text, and
+ * Promptletariat's `edited` event its `transcript_edit` cleanup.
  */
 export function openAiVoiceStreamFork(
   config: { model: string; apiKey: string },
-  prompt = "",
+  hints: { readonly prompt: string; readonly transcript_edit: string } = {
+    prompt: "",
+    transcript_edit: "",
+  },
 ): VoiceStreamAdapterFork {
   const upsample = upsamplePcmFork();
   let preview = "";
@@ -53,7 +58,11 @@ export function openAiVoiceStreamFork(
           audio: {
             input: {
               format: { type: "audio/pcm", rate: 24000 },
-              transcription: { model: config.model, ...(prompt ? { prompt } : {}) },
+              transcription: {
+                model: config.model,
+                ...(hints.prompt ? { prompt: hints.prompt } : {}),
+                ...(hints.transcript_edit ? { transcript_edit: hints.transcript_edit } : {}),
+              },
               turn_detection: null,
             },
           },
@@ -66,6 +75,7 @@ export function openAiVoiceStreamFork(
         audio: Buffer.from(upsample(pcm)).toString("base64"),
       }),
     end: ['{"type":"input_audio_buffer.commit"}'],
+    awaitsEdit: hints.transcript_edit !== "",
     receive: Effect.fnUntraced(function* (frame) {
       const event = yield* decodeRealtimeEvent(frame);
       switch (event.type) {
@@ -78,6 +88,10 @@ export function openAiVoiceStreamFork(
           if (event.transcript === undefined)
             return yield* new VoiceStreamProtocolErrorFork({ detail: "Invalid transcript." });
           return { type: "transcript", text: event.transcript, final: true } as const;
+        case "prlt.conversation.item.input_audio_transcription.edited":
+          return event.edited_text === undefined
+            ? undefined
+            : ({ type: "edited", text: event.edited_text } as const);
         case "conversation.item.input_audio_transcription.failed":
         case "error": {
           // The provider's message names the wrong model, key, or route.

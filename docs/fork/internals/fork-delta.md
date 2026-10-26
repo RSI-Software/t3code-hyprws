@@ -892,6 +892,7 @@ One base URL per service derives both paths: Meta's ASR wire, or OpenAI's multip
 Live preview relays one PCM capture through a shared server core with per-wire adapters: Meta's realtime socket, or OpenAI Realtime transcription for everything else.
 The same capture builds the WAV, so a failed stream falls back to batch upload.
 Project speech terms resolve on the server from the request's project and go out only as the standard `prompt`; the server applies spelling rules itself, so any OpenAI-compatible service works.
+A project's speech service cleanup goes out as Promptletariat's `transcript_edit`; an edit that arrives replaces automatic cleanup, the relay waits 1.5 seconds for its trailing realtime event, and a missing edit falls back to cleanup.
 Mobile remains upstream-owned.
 
 ### Retirement condition

@@ -142,7 +142,7 @@ function mountRuntime(transcript: string) {
       releaseRecording: async () => {},
       deleteRecording: () => {},
       getTranscriber: () => ({
-        prepare: async () => ({ locale: "en-US", transcribe: async () => transcript }),
+        prepare: async () => ({ locale: "en-US", transcribe: async () => ({ text: transcript }) }),
       }),
     }),
   };

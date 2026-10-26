@@ -24,6 +24,7 @@ const config: VoiceTextConfigFork = {
   recentMessageCount: 0,
   projectContext: "",
   terms: "",
+  speechCleanup: "",
   ...VOICE_TEXT_STARTER_PROMPTS_FORK,
 };
 describe("dictation draft transformations", () => {

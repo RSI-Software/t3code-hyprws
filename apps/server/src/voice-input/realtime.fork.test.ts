@@ -163,6 +163,35 @@ it.effect("speaks OpenAI Realtime transcription and keeps a cumulative preview",
     yield* Fiber.join(h.fiber);
   }),
 );
+it.effect.each([
+  { edit: '"edited_text":"Ship it Friday."', final: ',"edited":"Ship it Friday."' },
+  { edit: null, final: "" },
+])("waits briefly for a transcript edit, else sends the raw final", ({ edit, final }) =>
+  Effect.gen(function* () {
+    const h = yield* relay(
+      openAiVoiceStreamFork(
+        { model: "nemo", apiKey: "" },
+        { prompt: "", transcript_edit: "Tidy." },
+      ),
+    );
+    yield* h.upstream.send('{"type":"session.updated"}');
+    expect(yield* h.client.read).toBe('{"type":"ready"}');
+    yield* h.client.send('{"type":"endStream"}');
+    expect(yield* h.upstream.read).toBe('{"type":"input_audio_buffer.commit"}');
+    yield* h.upstream.send(
+      '{"type":"conversation.item.input_audio_transcription.completed","transcript":"um ship it friday"}',
+    );
+    if (edit)
+      yield* h.upstream.send(
+        `{"type":"prlt.conversation.item.input_audio_transcription.edited","text":"um ship it friday",${edit}}`,
+      );
+    else yield* TestClock.adjust("1500 millis");
+    expect(yield* h.client.read).toBe(
+      `{"type":"transcript","text":"um ship it friday","final":true${final}}`,
+    );
+    yield* Fiber.join(h.fiber);
+  }),
+);
 it.effect("fails at once on OpenAI Realtime error and transcription failure events", () =>
   Effect.gen(function* () {
     for (const type of ["error", "conversation.item.input_audio_transcription.failed"]) {
