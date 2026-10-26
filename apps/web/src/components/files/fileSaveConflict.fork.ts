@@ -16,19 +16,13 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 
 import { toastManager } from "../ui/toast";
 import { stackedThreadToast } from "../ui/toastHelpers";
-import {
-  fileSaveBase,
-  isReloadedFileSave,
-  markFileSaveReloaded,
-  rebaseFileSave,
-} from "./fileSaveBase.fork";
+import { fileSaveBase, isSettledFileSave, rebaseFileSave } from "./fileSaveBase.fork";
 import type { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   clearProjectFileQueryData,
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   getProjectFileQueryAtom,
-  getUnsavedProjectFileQueryData,
   optimisticFileAtom,
 } from "./projectFilesQueryState";
 
@@ -60,8 +54,8 @@ export function withStaleWriteGuard<A, E>(
     const { cwd, relativePath } = input;
     const file = optimisticFileAtom(environmentId, cwd, relativePath);
     const expectedRevision = fileSaveBase(file);
-    if (isReloadedFileSave(expectedRevision)) {
-      // The user dropped this draft with Reload; this editor never got the news.
+    if (isSettledFileSave(expectedRevision)) {
+      // Another editor saved this draft, or the user dropped it with Reload.
       coordinator.current?.discard();
       return AsyncResult.failure(Cause.interrupt());
     }
@@ -69,11 +63,6 @@ export function withStaleWriteGuard<A, E>(
     // one is superseded, such as a disposed editor's draft after Reload and a fresh edit.
     const draft = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
     if (draft && draft.contents !== input.contents) return AsyncResult.failure(Cause.interrupt());
-    if (draft && !getUnsavedProjectFileQueryData(environmentId, cwd, relativePath)) {
-      // Another editor saved this draft and dropped its base; resending would skip the check.
-      coordinator.current?.discard();
-      return AsyncResult.failure(Cause.interrupt());
-    }
     const result = await writeFile({
       environmentId,
       input: expectedRevision === undefined ? input : { ...input, expectedRevision },
@@ -107,7 +96,6 @@ export function withStaleWriteGuard<A, E>(
       closeConflict(file);
       coordinator.current?.discard();
       clearProjectFileQueryData(environmentId, cwd, relativePath);
-      markFileSaveReloaded(file);
       appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
     };
     const options = stackedThreadToast({

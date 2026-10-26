@@ -16,7 +16,7 @@ import { useFilesystemReadAccess } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
 import { useProjectPathSearch } from "~/state/queries";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
-import { captureFileSaveBase, forgetFileSaveBase } from "./fileSaveBase.fork"; // fork-hook: upstream-fixes/stale-write-base-import
+import { captureFileSaveBase, settleFileSave } from "./fileSaveBase.fork"; // fork-hook: upstream-fixes/stale-write-base-import
 
 const EMPTY_PROJECT_FILE_PATH = "";
 const EMPTY_PROJECT_ENTRIES_QUERY_ATOM = Atom.make(
@@ -146,7 +146,7 @@ export function confirmProjectFileQueryData(
   const atom = optimisticFileAtom(environmentId, cwd, relativePath);
   const optimisticFile = appAtomRegistry.get(atom);
   if (optimisticFile?.data.contents !== contents) return false;
-  forgetFileSaveBase(atom); // fork-hook: upstream-fixes/stale-write-base-confirmed
+  settleFileSave(atom); // fork-hook: upstream-fixes/stale-write-base-confirmed
 
   const queryAtom = getProjectFileQueryAtom(environmentId, cwd, relativePath);
   const confirmed = {
@@ -185,7 +185,7 @@ export function clearProjectFileQueryData(
   const atom = optimisticFileAtom(environmentId, cwd, relativePath);
   appAtomRegistry.set(atom, null);
   releaseUnsavedFile(atom);
-  forgetFileSaveBase(atom); // fork-hook: upstream-fixes/stale-write-base-cleared
+  settleFileSave(atom); // fork-hook: upstream-fixes/stale-write-base-cleared
 }
 
 function failureCause<A>(result: AsyncResult.AsyncResult<A, unknown>): unknown {

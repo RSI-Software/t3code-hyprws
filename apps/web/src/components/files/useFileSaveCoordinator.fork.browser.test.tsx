@@ -98,7 +98,7 @@ async function openEditor() {
     setProjectFileQueryData(environmentId, props.cwd, props.relativePath, contents);
     change(contents);
   };
-  return Object.assign(screen, { edit, change: (contents: string) => change(contents) });
+  return Object.assign(screen, { edit });
 }
 
 /** Mounts an editor and edits the loaded file to `edited`. */
@@ -185,6 +185,9 @@ describe("file-save stale-write guard", () => {
     await using _second = await openEditor();
 
     inFlight.resolve(AsyncResult.success({ relativePath: "file.txt" }));
+    await vi.advanceTimersByTimeAsync(0);
+    // The readback after the save clears the draft before the replay fires.
+    appAtomRegistry.set(optimisticFileAtom(environmentId, props.cwd, props.relativePath), null);
     await vi.runAllTimersAsync();
     expect(writeFile).toHaveBeenCalledOnce();
     expect(onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
