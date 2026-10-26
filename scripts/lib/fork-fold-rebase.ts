@@ -101,14 +101,19 @@ export const resolveForkOwnedTree = (
   }
 };
 
-/** Flags mirror the sync rebase's configuration (scripts/fork-sync.ts REBASE_CONFIG), which explains each. */
+/**
+ * Flags mirror the sync rebase's configuration (scripts/fork-sync.ts
+ * REBASE_CONFIG), which explains each, except rerere: a fold moves commits to
+ * new positions, where a recorded postimage is stale, so rerere stays off even
+ * when the checkout enables it.
+ */
 const REBASE_FLAGS = [
   "-c",
   "core.commentChar=auto",
   "-c",
   "diff.algorithm=histogram",
   "-c",
-  "rerere.enabled=true",
+  "rerere.enabled=false",
   "-c",
   "maintenance.auto=false",
 ];
@@ -241,7 +246,6 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
           "-i",
           "--autosquash",
           "--empty=keep",
-          "--rerere-autoupdate",
           "--onto",
           request.onto,
           upstream,
@@ -258,10 +262,23 @@ export const rebaseRemaining = (git: FoldGit, request: FoldRebaseRequest): FoldR
   // Fork-owned conflicts resolve to the old head; only upstream-owned ones stop.
   // Pinned from the invoking checkout: inside the worktree `HEAD` is the rebase.
   const oldHead = must(["rev-parse", "--verify", `${request.head}^{commit}`]);
+  const stagedMatches = (rev: string): boolean =>
+    git.run(["diff", "--cached", "--quiet", rev, "--"], { cwd: worktree }).status === 0;
   while (status.status !== 0 && rebaseInProgress()) {
     const unmerged = must(["diff", "--name-only", "--diff-filter=U"], worktree)
       .split("\n")
       .filter((path) => path.length > 0);
+    // A fixup that undoes its fold's earlier members stops: `--empty=keep`
+    // covers picks, not an amend that empties the commit. The cancelled fold
+    // stays as one empty commit.
+    if (unmerged.length === 0 && !stagedMatches("HEAD") && stagedMatches("HEAD^")) {
+      must(
+        [...REBASE_FLAGS, "commit", "--amend", "--allow-empty", "--no-edit", "--no-verify"],
+        worktree,
+      );
+      status = resume();
+      continue;
+    }
     const { forkOwned, upstream: owned } = partitionConflicts(git, request.stackBase, unmerged);
     for (const path of forkOwned) {
       must(
