@@ -24,7 +24,10 @@ vi.mock("~/state/session", () => ({
 }));
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => writeFile }));
 vi.mock("./projectFilesQueryState", () => ({
+  clearProjectFileQueryData: vi.fn(),
   confirmProjectFileQueryData: () => true,
+  getProjectFileQueryAtom: vi.fn(),
+  optimisticFileAtom: () => ({}),
   getOptimisticProjectFileQueryData: () => null,
   getUnsavedProjectFileQueryData: () => null,
   setProjectFileQueryData: vi.fn(),
