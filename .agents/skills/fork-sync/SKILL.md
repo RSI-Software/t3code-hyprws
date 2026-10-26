@@ -154,6 +154,7 @@ No human reviews it: candidate CI gates the landing.
 3. Run `vp run fork:sync <tag> --dry-run`
 4. Resolve `manual` paths per [Conflict](#conflict)
 5. `git add` them in the kept worktree; rerun
+   - **Retire:** `git rm` the path instead
 6. Repeat until the rebase finishes
 7. Commit tip adaptation there; rerun once
 8. `git update-ref --no-deref HEAD refs/fork-sync/resolution`
@@ -189,6 +190,7 @@ It is one parentless commit:
 rr-cache/<id>/preimage   one per resolved stop
 rr-cache/<id>/postimage
 fixups.mbox              tip commits above the rebase
+retired                  paths kept deleted at a delete/modify stop
 ```
 
 The next run imports it before it rebases: rerere replays each stop, and the fixups apply when its `Fork-Sync-Tag` matches.
