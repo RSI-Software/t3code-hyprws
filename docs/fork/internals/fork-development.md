@@ -60,6 +60,7 @@ Nothing opens a browser; agents place windows through `donjor hypr`.
 | `origin`   | `RSI-Software/t3code-hyprws` | Fork branches, published      |
 
 Local `main` mirrors `upstream/main`, pushed fast-forward only.
+With `upstream` present, `gh` refuses or targets `pingdotgg/t3code`; install pins its default to the fork (`scripts/fork-gh-default.ts`).
 `hyprws` is the single trunk, every domain in one rebased stack.
 Domains are not branches: a commit declares one with `Fork-Domain`.
 
