@@ -7,6 +7,7 @@ import {
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   PositiveInt,
+  ThreadId,
   ThreadIssueLinkSource,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -34,6 +35,11 @@ const LINK_EVERY_ISSUE =
  * target: both resolve to the same host-level identity.
  */
 export const IssueTargetInput = Schema.Struct({
+  threadId: Schema.optional(
+    ThreadId.annotate({
+      description: "Thread to act on. Omit for this thread.",
+    }),
+  ),
   url: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
@@ -87,6 +93,15 @@ export class IssueHostRequiredError extends Schema.TaggedError<IssueHostRequired
   }
 }
 
+export class IssueThreadRequiredError extends Schema.TaggedError<IssueThreadRequiredError>()(
+  "IssueThreadRequiredError",
+  {},
+) {
+  override get message(): string {
+    return "Pass threadId: this MCP client is not running inside a T3 thread.";
+  }
+}
+
 export class IssueThreadNotFoundError extends Schema.TaggedError<IssueThreadNotFoundError>()(
   "IssueThreadNotFoundError",
   { threadId: Schema.String },
@@ -129,6 +144,7 @@ export const IssueToolError = Schema.Union([
   IssueUrlInvalidError,
   IssueTargetIncompleteError,
   IssueHostRequiredError,
+  IssueThreadRequiredError,
   IssueThreadNotFoundError,
   IssueLinkFailedError,
   IssueUnlinkFailedError,
@@ -202,7 +218,12 @@ const UnlinkIssueTool = Tool.make("unlink_issue", {
   .annotate(Tool.OpenWorld, false);
 
 const ListThreadIssuesTool = Tool.make("list_thread_issues", {
-  description: `List the GitHub issues linked to this thread with their last known state. ${LINK_EVERY_ISSUE}`,
+  description: `List the GitHub issues linked to a thread (omit threadId for this thread) with their last known state. ${LINK_EVERY_ISSUE}`,
+  parameters: Schema.Struct({
+    threadId: Schema.optional(
+      ThreadId.annotate({ description: "Thread to list. Omit for this thread." }),
+    ),
+  }),
   success: ListThreadIssuesResult,
   failure: IssueToolError,
   dependencies,
