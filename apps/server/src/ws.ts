@@ -540,6 +540,8 @@ function projectFileFailureContext(
         operation: error.operation,
         operationPath: error.operationPath,
       };
+    case "WorkspaceFileChangedError": // fork-hook: upstream-fixes/stale-write-failure
+      return { failure: "contents_changed" }; // fork-hook: upstream-fixes/stale-write-failure
     case "WorkspaceFilePathEscapeError":
       return {
         failure: "resolved_path_outside_root",

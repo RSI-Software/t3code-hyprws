@@ -37,6 +37,13 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     void this.persistLatest();
   } // fork-hook: markdown-editing/file-save-flush
 
+  /** Drops the pending draft without writing it. */
+  discard(): void {
+    this.clearTimer();
+    this.confirmedRevision = this.latestRevision;
+    this.options.onPendingChange(false);
+  } // fork-hook: upstream-fixes/file-save-discard
+
   dispose(): void {
     this.disposed = true;
     this.clearTimer();

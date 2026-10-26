@@ -5,6 +5,7 @@ import { projectEnvironment } from "~/state/projects";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 
+import { withStaleWriteGuard } from "./fileSaveConflict.fork"; // fork-hook: upstream-fixes/stale-write-guard-import
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -79,6 +80,7 @@ function createFileSaveSession({
   writeFile: ReturnType<typeof useProjectFileWriter>;
 }) {
   const coordinatorRef = createRef<FileSaveCoordinator>();
+  writeFile = withStaleWriteGuard(writeFile, coordinatorRef); // fork-hook: upstream-fixes/stale-write-guard
   return {
     change: (contents: string) => coordinatorRef.current?.change(contents),
     flush: () => coordinatorRef.current?.flush(), // fork-hook: markdown-editing/file-save-action
