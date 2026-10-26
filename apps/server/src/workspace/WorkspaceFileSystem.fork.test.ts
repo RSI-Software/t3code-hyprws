@@ -156,6 +156,29 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("lets only one of two saves from the same disk version through", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "README.md", "# Readme\n");
+        const save = (contents: string) =>
+          workspaceFileSystem
+            .writeFile({
+              cwd,
+              relativePath: "README.md",
+              contents,
+              expectedRevision: projectFileRevision("# Readme\n"),
+            })
+            .pipe(Effect.result);
+
+        const results = yield* Effect.all([save("# From one\n"), save("# From two\n")], {
+          concurrency: "unbounded",
+        });
+
+        expect(results.map((result) => result._tag).toSorted()).toEqual(["Failure", "Success"]);
+      }),
+    );
+
     it.effect("saves over the disk version the draft started from", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

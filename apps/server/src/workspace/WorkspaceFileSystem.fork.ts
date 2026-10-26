@@ -15,6 +15,7 @@ import type * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ServerSettings from "../serverSettings.ts";
 // Cycle-safe: only read when a write runs, after both modules load.
@@ -108,3 +109,30 @@ export const assertUnchangedSinceLoad = Effect.fn("WorkspaceFileSystem.assertUnc
     });
   },
 );
+
+const fileWriteLocks = new Map<string, { readonly lock: Semaphore.Semaphore; writers: number }>();
+
+/**
+ * Runs one write per file at a time, so two clients saving from the same disk
+ * version cannot both pass the comparison before either writes.
+ */
+export const oneWritePerFile = <A, E, R>(
+  write: Effect.Effect<A, E, R>,
+  input: ProjectWriteFileInput,
+): Effect.Effect<A, E, R> =>
+  Effect.suspend(() => {
+    const key = `${input.cwd}\0${input.relativePath}`;
+    const entry = fileWriteLocks.get(key) ?? { lock: Semaphore.makeUnsafe(1), writers: 0 };
+    fileWriteLocks.set(key, entry);
+    entry.writers += 1;
+    return entry.lock
+      .withPermits(1)(write)
+      .pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            entry.writers -= 1;
+            if (entry.writers === 0) fileWriteLocks.delete(key);
+          }),
+        ),
+      );
+  });

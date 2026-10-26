@@ -83,7 +83,7 @@ function createFileSaveSession({
   writeFile: ReturnType<typeof useProjectFileWriter>;
 }) {
   const coordinatorRef = createRef<FileSaveCoordinator>();
-  writeFile = withStaleWriteGuard(writeFile, coordinatorRef, environmentId, cwd, relativePath); // fork-hook: upstream-fixes/stale-write-guard
+  writeFile = withStaleWriteGuard(writeFile, coordinatorRef); // fork-hook: upstream-fixes/stale-write-guard
   return {
     change: (contents: string) => coordinatorRef.current?.change(contents),
     flush: () => coordinatorRef.current?.flush(), // fork-hook: markdown-editing/file-save-action

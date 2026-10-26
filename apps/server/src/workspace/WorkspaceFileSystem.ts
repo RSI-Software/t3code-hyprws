@@ -586,7 +586,7 @@ export const make = Effect.gen(function* () {
     });
     yield* workspaceEntries.refresh(input.cwd);
     return { relativePath: target.relativePath };
-  });
+  }, WorkspaceFileSystemFork.oneWritePerFile); // fork-hook: upstream-fixes/stale-write-serial
 
   return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile });
 });

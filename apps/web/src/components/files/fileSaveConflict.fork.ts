@@ -7,6 +7,8 @@ import {
   type AtomCommandResult,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
 import * as Schema from "effect/Schema";
 import type { RefObject } from "react";
 
@@ -14,7 +16,12 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 
 import { toastManager } from "../ui/toast";
 import { stackedThreadToast } from "../ui/toastHelpers";
-import { fileSaveBase, rebaseFileSave } from "./fileSaveBase.fork";
+import {
+  fileSaveBase,
+  isReloadedFileSave,
+  markFileSaveReloaded,
+  rebaseFileSave,
+} from "./fileSaveBase.fork";
 import type { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   clearProjectFileQueryData,
@@ -34,20 +41,7 @@ interface FileWriteRequest {
 type FileWrite<A, E> = (request: FileWriteRequest) => Promise<AtomCommandResult<A, E>>;
 
 const isProjectWriteFileError = Schema.is(ProjectWriteFileError);
-type Session = RefObject<FileSaveCoordinator | null>;
 const conflictToasts = new Map<object, ReturnType<typeof toastManager.add>>();
-// Every editor session of a file, so a prompt raised by one panel still acts
-// on the panel that replaced it.
-const fileSessions = new Map<object, Set<Session>>();
-
-function liveCoordinators(file: object): FileSaveCoordinator[] {
-  const live: FileSaveCoordinator[] = [];
-  for (const session of fileSessions.get(file) ?? []) {
-    if (session.current) live.push(session.current);
-    else fileSessions.get(file)?.delete(session);
-  }
-  return live;
-}
 
 function closeConflict(file: object): void {
   const toastId = conflictToasts.get(file);
@@ -59,17 +53,17 @@ function closeConflict(file: object): void {
 /** Sends each save with its draft's base revision and prompts when the server refuses it. */
 export function withStaleWriteGuard<A, E>(
   writeFile: FileWrite<A, E>,
-  session: Session,
-  environmentId: EnvironmentId,
-  cwd: string,
-  relativePath: string,
+  coordinator: RefObject<FileSaveCoordinator | null>,
 ): FileWrite<A, E> {
-  const file = optimisticFileAtom(environmentId, cwd, relativePath);
-  const sessions = fileSessions.get(file) ?? new Set();
-  fileSessions.set(file, sessions.add(session));
-
-  const writeDraft = async (input: ProjectWriteFileInput) => {
+  const guarded: FileWrite<A, E> = async ({ environmentId, input }) => {
+    const { cwd, relativePath } = input;
+    const file = optimisticFileAtom(environmentId, cwd, relativePath);
     const expectedRevision = fileSaveBase(file);
+    if (isReloadedFileSave(expectedRevision)) {
+      // The user dropped this draft with Reload; this editor never got the news.
+      coordinator.current?.discard();
+      return AsyncResult.failure(Cause.interrupt());
+    }
     const result = await writeFile({
       environmentId,
       input: expectedRevision === undefined ? input : { ...input, expectedRevision },
@@ -80,33 +74,32 @@ export function withStaleWriteGuard<A, E>(
       return result;
     }
     const error = squashAtomCommandFailure(result);
-    if (isProjectWriteFileError(error) && error.failure === "contents_changed") askOnConflict();
-    return result;
-  };
+    if (!isProjectWriteFileError(error) || error.failure !== "contents_changed") return result;
 
-  const overwrite = () => {
-    closeConflict(file);
-    rebaseFileSave(file, undefined);
-    const draft = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
-    if (!draft) return;
-    const [coordinator] = liveCoordinators(file);
-    if (coordinator) {
-      coordinator.change(draft.contents);
-      return;
-    }
-    // The panel closed with the draft unsaved; write it without a session.
-    void writeDraft({ cwd, relativePath, contents: draft.contents }).then((written) => {
-      if (written._tag === "Success")
-        confirmProjectFileQueryData(environmentId, cwd, relativePath, draft.contents);
-    });
-  };
-  const reload = () => {
-    closeConflict(file);
-    for (const coordinator of liveCoordinators(file)) coordinator.discard();
-    clearProjectFileQueryData(environmentId, cwd, relativePath);
-    appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
-  };
-  const askOnConflict = () => {
+    const overwrite = () => {
+      closeConflict(file);
+      rebaseFileSave(file, undefined);
+      const draft = getOptimisticProjectFileQueryData(environmentId, cwd, relativePath);
+      if (!draft) return;
+      if (coordinator.current) {
+        coordinator.current.change(draft.contents);
+        return;
+      }
+      // The panel closed with the draft unsaved; write it without a session.
+      void guarded({ environmentId, input: { cwd, relativePath, contents: draft.contents } }).then(
+        (written) => {
+          if (written._tag === "Success")
+            confirmProjectFileQueryData(environmentId, cwd, relativePath, draft.contents);
+        },
+      );
+    };
+    const reload = () => {
+      closeConflict(file);
+      coordinator.current?.discard();
+      clearProjectFileQueryData(environmentId, cwd, relativePath);
+      markFileSaveReloaded(file);
+      appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
+    };
     const options = stackedThreadToast({
       type: "warning",
       title: `${relativePath} changed on disk`,
@@ -118,7 +111,7 @@ export function withStaleWriteGuard<A, E>(
     const shownId = conflictToasts.get(file);
     if (shownId !== undefined) {
       toastManager.update(shownId, options);
-      return;
+      return result;
     }
     // A dismissed prompt must not block the next one.
     const toastId = toastManager.add({
@@ -128,7 +121,7 @@ export function withStaleWriteGuard<A, E>(
       },
     });
     conflictToasts.set(file, toastId);
+    return result;
   };
-
-  return ({ input }) => writeDraft(input);
+  return guarded;
 }
