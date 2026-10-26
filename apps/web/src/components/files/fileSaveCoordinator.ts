@@ -44,6 +44,13 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     void this.persistLatest();
   }
 
+  /** Drops the pending draft without writing it. */
+  discard(): void {
+    this.clearTimer();
+    this.confirmedRevision = this.latestRevision;
+    this.options.onPendingChange(false);
+  } // fork-hook: upstream-fixes/file-save-discard
+
   dispose(): void {
     this.disposed = true;
     this.clearTimer();
@@ -71,6 +78,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       return;
     }
 
+    this.clearTimer(); // fork-hook: upstream-fixes/file-save-drain-timer
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
