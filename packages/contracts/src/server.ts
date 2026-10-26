@@ -896,6 +896,7 @@ export const ServerSelfUpdateResult = Schema.Struct({
   method: ServerSelfUpdateMethod,
   updateId: Schema.optionalKey(TrimmedNonEmptyString),
   desktopUpdateToken: Schema.optionalKey(TrimmedNonEmptyString),
+  databaseBackupBytesFork: Schema.optionalKey(NonNegativeInt), // fork-hook: upstream-fixes/migration-backup-label
 });
 export type ServerSelfUpdateResult = typeof ServerSelfUpdateResult.Type;
 

@@ -74,6 +74,7 @@ export type ServerUpdateState =
       readonly targetVersion: string;
       /** First transport drop for this attempt, retained across reconnects. */
       readonly restartStartedAt?: number;
+      readonly databaseBackupBytesFork?: number; // fork-hook: upstream-fixes/migration-backup-label
     }
   | {
       readonly status: "completed";
@@ -933,10 +934,12 @@ export function createServerEnvironmentAtoms<R, E>(
       let currentStage: ServerUpdateStage = "downloading";
       let desktopCommitLostTransport = false;
       let restartStartedAt: number | undefined;
+      let backupFork: Pick<ServerSelfUpdateResult, "databaseBackupBytesFork"> = {}; // fork-hook: upstream-fixes/migration-backup-label
       const setRunningState = (state: Extract<ServerUpdateState, { status: "running" }>) =>
         atomRegistry.set(stateAtom, {
           ...state,
           ...(restartStartedAt === undefined ? {} : { restartStartedAt }),
+          ...backupFork, // fork-hook: upstream-fixes/migration-backup-label
         });
       setRunningState({
         status: "running",
@@ -1085,6 +1088,8 @@ export function createServerEnvironmentAtoms<R, E>(
             }
 
             targetVersion = updateResult.targetVersion;
+            if (updateResult.databaseBackupBytesFork !== undefined)
+              backupFork = { databaseBackupBytesFork: updateResult.databaseBackupBytesFork }; // fork-hook: upstream-fixes/migration-backup-label
 
             currentStage = "resuming";
             setRunningState({
