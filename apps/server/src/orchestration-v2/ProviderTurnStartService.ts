@@ -57,6 +57,7 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import {
   conversationForkContextFork,
+  conversationForkNoticeOwedFork,
   appendConversationForkContextFork,
 } from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
 import {
@@ -939,7 +940,19 @@ export const layer: Layer.Layer<
             return handoffBudget({
               tokenCap,
               modelContextWindow,
-              userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+              userText: appendConversationForkContextFork(
+                restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                conversationForkContextFork(
+                  projection.thread,
+                  conversationForkNoticeOwedFork(projection, {
+                    sameNativeThread,
+                    acceptedAttempts,
+                    nativeInputRunIds,
+                    legacyInputRunIds,
+                  }),
+                ),
+                isCompactionCommandMessage(message),
+              ), // fork-hook: upstream-fixes/conversation-fork-context-budget
               attachments: message.attachments,
               providerThread: budgetProviderThread,
               nativeContextEstimate:
@@ -1379,7 +1392,12 @@ export const layer: Layer.Layer<
       );
       const forkContextFork = conversationForkContextFork(
         projection.thread,
-        nativeInputRunIds.size + legacyInputRunIds.size === 0,
+        conversationForkNoticeOwedFork(projection, {
+          sameNativeThread,
+          acceptedAttempts,
+          nativeInputRunIds,
+          legacyInputRunIds,
+        }),
       ); // fork-hook: upstream-fixes/conversation-fork-context
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
