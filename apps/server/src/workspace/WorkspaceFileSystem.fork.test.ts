@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - FileSystem cannot create a FIFO.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -6,6 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { projectFileRevision } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -131,6 +133,39 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         expect(error._tag).toBe("WorkspaceFileChangedError");
         expect(yield* fileSystem.exists(path.join(cwd, "empty.md"))).toBe(false);
       }),
+    );
+
+    it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
+      "refuses a save whose loaded file became a FIFO, without reading it",
+      () =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          const filePath = path.join(cwd, "README.md");
+          yield* writeTextFile(cwd, "README.md", "# Readme\n");
+          yield* fileSystem.remove(filePath);
+          yield* Effect.promise(
+            () =>
+              new Promise<void>((resolve, reject) =>
+                NodeChildProcess.execFile("mkfifo", [filePath], (error) =>
+                  error ? reject(error) : resolve(),
+                ),
+              ),
+          );
+
+          const error = yield* workspaceFileSystem
+            .writeFile({
+              cwd,
+              relativePath: "README.md",
+              contents: "# Readme edited\n",
+              expectedRevision: projectFileRevision("# Readme\n"),
+            })
+            .pipe(Effect.flip);
+
+          expect(error._tag).toBe("WorkspaceFileChangedError");
+        }),
     );
 
     it.effect("reports an unreadable file as a failed read, not a disk change", () =>
