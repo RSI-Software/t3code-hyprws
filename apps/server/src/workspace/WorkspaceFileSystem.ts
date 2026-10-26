@@ -108,6 +108,7 @@ export const WorkspaceFileSystemError = Schema.Union([
   WorkspaceFilePathEscapeError,
   WorkspacePathNotFileError,
   WorkspaceBinaryFileError,
+  WorkspaceFileSystemFork.WorkspaceFileChangedError, // fork-hook: upstream-fixes/stale-write-error
 ]);
 export type WorkspaceFileSystemError = typeof WorkspaceFileSystemError.Type;
 
@@ -592,6 +593,7 @@ export const make = Effect.gen(function* () {
       !input.contents.startsWith(UTF8_BOM) &&
       (yield* Effect.promise(() => startsWithUtf8Bom(realTargetPath)));
     const contents = keepsBom ? UTF8_BOM + input.contents : input.contents;
+    yield* WorkspaceFileSystemFork.assertUnchangedSinceLoad(fileSystem, realTargetPath, input); // fork-hook: upstream-fixes/stale-write-check
 
     yield* fileSystem.makeDirectory(path.dirname(realTargetPath), { recursive: true }).pipe(
       Effect.mapError(
