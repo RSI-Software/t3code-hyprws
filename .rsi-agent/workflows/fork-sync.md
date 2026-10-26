@@ -5,6 +5,7 @@ context: [.agents/skills/fork-sync/SKILL.md]
 needs: [checkout, push]
 outputs: { branch: sync/resolution }
 trust: { bots: ["github-actions[bot]"] }
+timeout: 45
 ---
 
 # Fork sync resolution
