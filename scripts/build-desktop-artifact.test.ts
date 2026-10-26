@@ -19,6 +19,7 @@ import * as Sink from "effect/Sink";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { vi } from "vite-plus/test";
 
 import {
   buildDesktopBundles,
@@ -1140,6 +1141,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        // Spawned commands inherit the host env, so an Electron host's
+        // ELECTRON_RUN_AS_NODE=1 would read as a probe spawn.
+        vi.stubEnv("ELECTRON_RUN_AS_NODE", undefined);
+        yield* Effect.addFinalizer(() => Effect.sync(() => vi.unstubAllEnvs()));
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
