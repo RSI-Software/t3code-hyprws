@@ -28,6 +28,7 @@ Update or configure zmux on the host, then retry.
 
 Settling or deleting a worktree thread removes its entire zmux session, including every tab and running command.
 This also disconnects other viewers and threads using that session.
+T3 Code closes its terminals on that session; a new terminal after unsettling opens the fresh session.
 Settlement keeps the worktree and branch, but discards the session permanently.
 Unsettling, or new activity on a settled thread, creates a fresh session when automatic sessions are on.
 Otherwise opening a zmux terminal creates it.
