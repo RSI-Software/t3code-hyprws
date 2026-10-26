@@ -393,6 +393,8 @@ const WorktreeState = Schema.Struct({
   rebased: Schema.optionalKey(Schema.String),
   /** The rerere ids to export: every stop's, plus every imported one, since a replay records none. */
   rerere: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** The `sync/resolution` commit this worktree imported; a moved branch refuses adoption. */
+  resolution: Schema.optionalKey(Schema.String),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -681,6 +683,7 @@ const exportResolution = (
 
 /** What `origin/sync/resolution` holds for this sync. */
 interface ImportedResolution {
+  readonly commit: string;
   /** Every imported rerere id: a stop one replays never reaches `MERGE_RR`, yet the next export needs it. */
   readonly rerere: ReadonlyArray<string>;
   /** The fixups mbox, only when made for this sync's tag. */
@@ -736,6 +739,7 @@ const importResolution = (
     `sync: imported ${missing.length} rerere entr${missing.length === 1 ? "y" : "ies"} from origin/${SYNC_RESOLUTION_BRANCH}${fixups !== null && madeFor !== tag ? ` (fixups made for ${madeFor || "no tag"} skipped)` : ""}\n`,
   );
   return {
+    commit: git(runner, root, ["rev-parse", RESOLUTION_REMOTE_REF]),
     rerere: [...new Set(rerere.map((path) => path.split("/")[1]!))],
     fixups:
       fixups !== null && madeFor === tag
@@ -747,9 +751,8 @@ const importResolution = (
 /**
  * Apply the imported fixups above a rebase this run finished, as `applyCarry`
  * does the carry: a stopped `git am` stays for the operator to resolve and
- * `git add`; the rerun continues it. A worktree finished earlier keeps its own
- * tip work, which the export then publishes; fixups meeting carried tip work
- * refuse the run rather than pick one.
+ * `git add`; the rerun continues it. A worktree finished earlier already holds
+ * them: adoption pins the import it was built with.
  */
 const applyFixups = (
   runner: CommandRunner,
@@ -766,15 +769,8 @@ const applyFixups = (
     spec = { cwd: worktree, env };
   } else if (mbox === null) {
     return;
-  } else if (!finished) {
-    process.stdout.write(
-      `sync: fixups from origin/${SYNC_RESOLUTION_BRANCH} skipped: the kept worktree's tip work stands\n`,
-    );
+  } else if (!finished || git(runner, worktree, ["rev-parse", "HEAD"]) !== rebased) {
     return;
-  } else if (git(runner, worktree, ["rev-parse", "HEAD"]) !== rebased) {
-    throw new Error(
-      `${worktree} carries tip commits and origin/${SYNC_RESOLUTION_BRANCH} holds fixups; reset it to ${rebased.slice(0, 7)} or drop the branch, then rerun`,
-    );
   } else {
     process.stdout.write(`sync: applying the fixups from origin/${SYNC_RESOLUTION_BRANCH}\n`);
     args = ["am", "--3way"];
@@ -1377,6 +1373,18 @@ export const rebaseOnto = (
   const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
   let state = keptWorktreeState(runner, root, expected);
   const adopted = state !== null;
+  // A kept worktree imported one resolution; another one (but this checkout's
+  // own export) would meet stops and tip work it never saw.
+  if (
+    state !== null &&
+    imported !== null &&
+    imported.commit !== state.resolution &&
+    imported.commit !==
+      gitResult(runner, root, ["rev-parse", "--verify", "--quiet", RESOLUTION_REF]).stdout.trim()
+  )
+    throw new Error(
+      `origin/${SYNC_RESOLUTION_BRANCH} moved to ${imported.commit.slice(0, 7)} since the kept sync worktree imported it; drop ${worktreeStatePath(root)} and rerun to start fresh`,
+    );
   if (state === null) {
     saveTipCommits(runner, root);
     dropWorktree(runner, root);
@@ -1384,8 +1392,9 @@ export const rebaseOnto = (
     git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
     runWorktreeSetup(runner, root, worktree);
     state = expected;
-    writeWorktreeState(root, state);
   }
+  state = imported === null ? state : { ...state, resolution: imported.commit };
+  writeWorktreeState(root, state);
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
   const rerere: string[] = [...(imported?.rerere ?? [])];
@@ -1408,6 +1417,11 @@ export const rebaseOnto = (
   // Only the run that finishes the rebase records it: an adopted finished
   // worktree's HEAD already holds tip work above it.
   const finished = state.rebased === undefined;
+  // Before `rebased` persists, so every rerun refuses again until one is dropped.
+  if (finished && imported?.fixups != null && carriedCommits(runner, root).length > 0)
+    throw new Error(
+      `tip commits carried from the dropped sync worktree meet fixups from origin/${SYNC_RESOLUTION_BRANCH}; delete the ${CARRY_REFS} refs or the branch, then rerun`,
+    );
   const rebased = state.rebased ?? outcome.newSha;
   state = { ...state, rebased };
   writeWorktreeState(root, state);

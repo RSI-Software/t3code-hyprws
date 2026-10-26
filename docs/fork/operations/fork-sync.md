@@ -114,7 +114,7 @@ The driver keeps them as git data instead.
 - **Rerere:** joins rr-cache, never replacing
 - **Fixups:** `git am --3way` atop a fresh rebase
 - **Fixup gate:** `Fork-Sync-Tag` is the target
-- **Kept worktree:** its own tip work wins
+- **Kept worktree:** pins its import; a moved branch refuses
 - **Carry plus fixups:** refuses the run
 - **Refusal:** any other path fails the run
 

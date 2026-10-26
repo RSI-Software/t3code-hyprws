@@ -381,8 +381,20 @@ it("carries a hand resolution and its fixups to a fresh runner through sync/reso
         run(["v1.0.0", "--dry-run"], { runner: exec().runner, root: f.root }),
       );
       assert.strictEqual(rerun.value, 0);
-      assert.match(rerun.output, /fixups from origin\/sync\/resolution skipped/);
+      assert.notMatch(rerun.output, /applying the fixups/);
       assert.strictEqual(readReport(f.root, "v1.0.0").trunk.after, tip);
+
+      // a resolution the kept worktree never imported refuses its adoption
+      const moved = f.git(
+        ["commit-tree", `${exported}^{tree}`, "-m", "other", "-m", "Fork-Sync-Tag: v1.0.0"],
+        f.root,
+      );
+      f.git(
+        ["push", "--quiet", "--force", "origin", `${moved}:refs/heads/sync/resolution`],
+        f.root,
+      );
+      assert.strictEqual(resolve(), 1);
+      assert.match(readReport(f.root, "v1.0.0").error ?? "", /sync\/resolution moved to/);
 
       // the branch is data only: a tree of anything else refuses the run
       f.git(["push", "--quiet", "--force", "origin", "hyprws:refs/heads/sync/resolution"], f.root);
