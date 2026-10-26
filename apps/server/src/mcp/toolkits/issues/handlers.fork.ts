@@ -1,13 +1,9 @@
-// Fork-owned handlers for the thread ↔ GitHub issue MCP tools
-// (RSI-Software/t3code-hyprws#1433), mirroring upstream's pull request
-// handlers in `../pullRequests/handlers.ts`. Every call acts on the calling
-// agent's own thread, links with source `agent`, and resolves the layer-1
-// decider's duplicate and missing-link rejections into idempotent results
-// only once a reread of the thread confirms that outcome.
+// Fork-owned handlers for the thread ↔ GitHub issue MCP tools, mirroring upstream's
+// `../pullRequests/handlers.ts`. Each call acts on the requested thread or the caller's own, links
+// with source `agent`, and turns the decider's duplicate and missing-link rejections into
+// idempotent results only once a reread of the thread confirms that outcome.
 import {
   CommandId,
-  pullRequestHostOf,
-  SourceControlProviderKind,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -24,6 +20,7 @@ import {
   threadIssueKeysEqual,
 } from "../../../orchestration-v2/ThreadIssues.fork.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
+import { sourceControlDefinitions } from "../../../sourceControl/sourceControlDefinitions.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
@@ -34,6 +31,7 @@ import {
   type IssueTargetInput,
   IssueTargetIncompleteError,
   IssueThreadNotFoundError,
+  IssueThreadRequiredError,
   IssueUnlinkFailedError,
   IssueUrlInvalidError,
   type ListThreadIssuesResult,
@@ -56,7 +54,7 @@ const GITHUB_DOT_COM = "github.com";
 function projectGitHubHost(project: OrchestrationProjectShell | undefined): string | null {
   const identity = project?.repositoryIdentity;
   if (!identity || identity.provider !== "github") return null;
-  const host = pullRequestHostOf(identity, SourceControlProviderKind.make("github")).toLowerCase();
+  const host = sourceControlDefinitions.changeRequestHost(identity, "github").toLowerCase();
   try {
     const remote = new URL(identity.locator.remoteUrl);
     if (
@@ -172,7 +170,7 @@ const make = Effect.gen(function* () {
     const thread = yield* engine
       .getThreadShell(threadId)
       .pipe(Effect.mapError((cause) => new Failure({ cause })));
-    if (thread === null) {
+    if (thread === null || thread.deletedAt !== null) {
       return yield* new IssueThreadNotFoundError({ threadId });
     }
     return thread;
@@ -183,15 +181,16 @@ const make = Effect.gen(function* () {
       | typeof IssueLinkFailedError
       | typeof IssueUnlinkFailedError
       | typeof IssueListFailedError,
+    requested: ThreadId | undefined,
   ) {
-    // Every agent credential carries the thread-link capability upstream grants
-    // for pull requests; issue links are the same authority over the same thread.
+    // Issue links are the same authority over the same thread as pull request
+    // links, so they ride upstream's pull-requests capability.
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
-    // Issue tools act as the calling thread; a client signed in outside one has none.
-    if (scope.thread === undefined) {
-      return yield* new Failure({ cause: new Error("Issue tools need a calling T3 thread.") });
+    const threadId = requested ?? scope.thread?.threadId;
+    if (threadId === undefined) {
+      return yield* new IssueThreadRequiredError();
     }
-    return yield* readThread(scope.thread.threadId, Failure);
+    return yield* readThread(threadId, Failure);
   });
 
   /**
@@ -232,11 +231,14 @@ const make = Effect.gen(function* () {
         ? Effect.failCause(cause as Cause.Cause<never>)
         : Effect.fail(new Failure({ cause }));
 
-  // Each tool acts on or reads the calling thread, so access is the caller's own.
+  const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A, E, R>(
+    handle: (params: P) => Effect.Effect<A, E, R>,
+  ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
+
   return {
-    link_issue: McpToolAccess.actsAsCaller((input) =>
+    link_issue: writesThread((input) =>
       Effect.gen(function* () {
-        const thread = yield* requireThread(IssueLinkFailedError);
+        const thread = yield* requireThread(IssueLinkFailedError, input.threadId);
         const project = yield* projectOf(thread, IssueLinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
         const rejection = yield* engine
@@ -263,9 +265,9 @@ const make = Effect.gen(function* () {
         return { ...target, alreadyLinked: rejection !== null };
       }),
     ),
-    unlink_issue: McpToolAccess.actsAsCaller((input) =>
+    unlink_issue: writesThread((input) =>
       Effect.gen(function* () {
-        const thread = yield* requireThread(IssueUnlinkFailedError);
+        const thread = yield* requireThread(IssueUnlinkFailedError, input.threadId);
         const project = yield* projectOf(thread, IssueUnlinkFailedError);
         const target = yield* resolveIssueTarget(input, project);
         const rejection = yield* engine
@@ -295,8 +297,8 @@ const make = Effect.gen(function* () {
         };
       }),
     ),
-    list_thread_issues: McpToolAccess.readsAsCaller(() =>
-      requireThread(IssueListFailedError).pipe(Effect.map(listThreadIssuesFork)),
+    list_thread_issues: McpToolAccess.reads((input) =>
+      requireThread(IssueListFailedError, input.threadId).pipe(Effect.map(listThreadIssuesFork)),
     ),
   } satisfies McpToolAccess.Handlers<typeof IssuesToolkitFork.tools>;
 });
