@@ -84,6 +84,9 @@ export function decodeServicePreflightResult(value: unknown): ServicePreflightRe
       status: "ready",
       version: record.version,
       launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
+      ...(typeof record.pendingMigrationsFork === "boolean"
+        ? { pendingMigrationsFork: record.pendingMigrationsFork }
+        : {}), // fork-hook: upstream-fixes/migration-backup-label
     };
   }
   if (
