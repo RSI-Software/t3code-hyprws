@@ -6,7 +6,10 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork";
+import {
+  canManageLocalBackendFork,
+  connectionsSessionScopesFork,
+} from "./connectionsClientOnly.fork";
 
 const standardSession: AuthSessionState = {
   authenticated: true,
@@ -51,5 +54,20 @@ describe("connectionsSessionScopesFork", () => {
     const session: AuthSessionState = { ...standardSession, permissions: [AuthAccessWriteScope] };
     const scopes = connectionsSessionScopesFork({}, AuthStandardClientScopes, session, true);
     expect(scopes).toEqual([AuthAccessWriteScope]);
+  });
+});
+
+describe("canManageLocalBackendFork", () => {
+  it("hides local backend controls from a client-only attach holding the maintain scope", () => {
+    expect(canManageLocalBackendFork(true, true, false)).toBe(false);
+  });
+
+  it("keeps them for a desktop that manages its backend", () => {
+    expect(canManageLocalBackendFork(true, false, false)).toBe(true);
+  });
+
+  it("hides them while the local environment is off or the scope is missing", () => {
+    expect(canManageLocalBackendFork(true, false, true)).toBe(false);
+    expect(canManageLocalBackendFork(false, false, false)).toBe(false);
   });
 });

@@ -26,8 +26,10 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 
-import { isLocalEnvironmentDisabled } from "../../localEnvironment";
-import { connectionsSessionScopesFork } from "./connectionsSessionScopes.fork"; // fork-hook: backend-attach/connections-session-scopes-import
+import {
+  canManageLocalBackendFork,
+  connectionsSessionScopesFork,
+} from "./connectionsClientOnly.fork"; // fork-hook: backend-attach/connections-session-scopes-import
 import {
   applyWslEnableSelection,
   isWslSettingsRowVisible,
