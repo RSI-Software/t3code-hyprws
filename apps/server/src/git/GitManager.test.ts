@@ -220,6 +220,9 @@ function initRepo(
     // Override global autocrlf on Windows for LF assertions, including linked worktrees.
     yield* runGit(cwd, ["config", "core.autocrlf", "false"]);
     yield* runGit(cwd, ["config", "core.hooksPath", ".git/hooks"]);
+    // A global ignore listing AGENTS.md or CLAUDE.md would silently drop the
+    // fixture's instruction files; an empty path disables it on every platform.
+    yield* runGit(cwd, ["config", "core.excludesFile", ""]);
     yield* fs.writeFileString(NodePath.join(cwd, "README.md"), "hello\n");
     yield* runGit(cwd, ["add", "README.md"]);
     yield* runGit(cwd, ["commit", "-m", "Initial commit"]);
