@@ -98,6 +98,8 @@ const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
 const BLOCK_LABEL = "ci";
+/** A blocked stop also starts rsi-pr-agent's `.rsi-agent/workflows/fork-sync.md`. */
+const AGENT_LABEL = "rsi:fork-sync";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v2";
@@ -1567,8 +1569,13 @@ export interface GitHub {
 const NOTIFICATION_TYPE = "Notification 🔔";
 
 /** Every write goes through plain `gh`; `edit` rewrites title and body in one call. */
-export const githubClient = (runner: CommandRunner, root: string): GitHub => {
+export const githubClient = (
+  runner: CommandRunner,
+  root: string,
+  labels: ReadonlyArray<string> = [],
+): GitHub => {
   const repo = ["--repo", FORK_REPOSITORY];
+  const labelArgs = [BLOCK_LABEL, ...labels].flatMap((label) => ["--label", label]);
   const list = (titlePhrase: string) =>
     JSON.parse(
       runRequire(
@@ -1605,8 +1612,7 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
           bodyPath,
           "--type",
           NOTIFICATION_TYPE,
-          "--label",
-          BLOCK_LABEL,
+          ...labelArgs,
         ],
         { cwd: root },
       );
@@ -1616,17 +1622,7 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
         // type by editing the fresh issue right after, noting either refusal.
         const retry = runner.run(
           "gh",
-          [
-            "issue",
-            "create",
-            ...repo,
-            "--title",
-            title,
-            "--body-file",
-            bodyPath,
-            "--label",
-            BLOCK_LABEL,
-          ],
+          ["issue", "create", ...repo, "--title", title, "--body-file", bodyPath, ...labelArgs],
           { cwd: root },
         );
         if (retry.status !== 0 || retry.error !== undefined)
@@ -1645,7 +1641,17 @@ export const githubClient = (runner: CommandRunner, root: string): GitHub => {
       runRequire(
         runner,
         "gh",
-        ["issue", "edit", String(issue), ...repo, "--title", title, "--body-file", bodyPath],
+        [
+          "issue",
+          "edit",
+          String(issue),
+          ...repo,
+          "--title",
+          title,
+          "--body-file",
+          bodyPath,
+          ...labels.flatMap((label) => ["--add-label", label]),
+        ],
         { cwd: root },
       );
     },
@@ -1694,9 +1700,10 @@ const upsertStandingIssue = (
   runner: CommandRunner,
   root: string,
   title: string,
+  labels: ReadonlyArray<string>,
   render: (previous?: string) => string,
 ): { readonly issue: number | null; readonly publishedVia: "gh" } => {
-  const github = githubClient(runner, root);
+  const github = githubClient(runner, root, labels);
   const [standing, ...superseded] = [
     ...new Map(
       [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE]
@@ -1727,8 +1734,12 @@ export const publishAttention = (
   const key = report.blocked !== null ? "blocked" : "failure";
   const stop = report[key]!;
   try {
-    const { issue, publishedVia } = upsertStandingIssue(runner, root, stop.title, (previous) =>
-      attentionIssueBody(report, previous),
+    const { issue, publishedVia } = upsertStandingIssue(
+      runner,
+      root,
+      stop.title,
+      key === "blocked" ? [AGENT_LABEL] : [],
+      (previous) => attentionIssueBody(report, previous),
     );
     return {
       ...report,
