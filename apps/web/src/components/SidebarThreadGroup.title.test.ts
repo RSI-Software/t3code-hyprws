@@ -75,6 +75,7 @@ function harness() {
   const calls: {
     readonly projectId: string;
     readonly memberTitles: readonly string[];
+    readonly parentTitle?: string;
     readonly previousTitle?: string;
   }[] = [];
   const pending: ((result: TitleResult) => void)[] = [];
@@ -267,6 +268,18 @@ describe("createThreadGroupTitleOwner", () => {
       expectedGroup: { title: "New group", threadIds: ["b1", "a1"] },
     });
     expect(h.calls[0]).toEqual({ projectId: "p-b", memberTitles: ["Thread b1", "Thread a1"] });
+  });
+
+  it("regenerates with the parent leading, not as the newest member", () => {
+    const h = harness();
+    h.update("h", { parentThreadId: "b2" });
+    h.owner.regenerate("h");
+    expect(h.calls[0]).toEqual({
+      projectId: "p-b",
+      memberTitles: ["Thread b1"],
+      parentTitle: "Thread b2",
+      previousTitle: "Other",
+    });
   });
 
   it("retries with thread titles edited while the sidebar was away", async () => {

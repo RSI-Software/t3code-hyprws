@@ -17,18 +17,29 @@ import type { ProjectStoreV2 } from "./ProjectStore.ts";
 import { withThreadGroupTitleBudgetFork } from "./ThreadGroupTitles.timeout.fork.ts"; // fork-hook: thread-ordering/title-budget-import
 
 // The thread-title prompt titles whatever the user asked for, so an
-// instruction here becomes the title ("Name Sidebar Thread Group"). Each
-// member title stands in as one user request, in the USER-section shape of
-// regenerated thread contents, so the group is titled by their shared subject.
-function buildThreadGroupTitleMessage(memberTitles: readonly string[]): string {
-  return memberTitles.map((title) => `USER:\n${title}`).join("\n\n");
+// instruction in the message becomes the title ("Name Sidebar Thread Group").
+// Each member title stands in as one user request, in the USER-section shape of
+// regenerated thread contents; the guidance rides in `instructions` instead.
+function buildThreadGroupTitleMessage(input: {
+  readonly memberTitles: readonly string[];
+  readonly parentTitle?: string | undefined;
+}): string {
+  const parent =
+    input.parentTitle === undefined ? [] : [`USER (parent thread):\n${input.parentTitle}`];
+  return [...parent, ...input.memberTitles.map((title) => `USER:\n${title}`)].join("\n\n");
 }
+
+// The regenerate prompt titles the latest goal, which made the newest member
+// the group's title.
+export const THREAD_GROUP_TITLE_INSTRUCTIONS =
+  "The USER entries are not one conversation. Each is the title of one thread in a single sidebar group, in no meaningful order. Title the subject the threads share, anchored on the parent thread when one is marked. Never title the group after one member thread alone, and never after grouping or naming threads.";
 
 export function generateThreadGroupTitle(
   textGeneration: TextGeneration["Service"],
   input: {
     readonly cwd: string;
     readonly memberTitles: readonly string[];
+    readonly parentTitle?: string | undefined;
     readonly previousTitle?: string | undefined;
     readonly modelSelection: ModelSelection;
   },
@@ -36,8 +47,9 @@ export function generateThreadGroupTitle(
   return textGeneration
     .generateThreadTitle({
       cwd: input.cwd,
-      message: buildThreadGroupTitleMessage(input.memberTitles),
+      message: buildThreadGroupTitleMessage(input),
       ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
+      instructions: THREAD_GROUP_TITLE_INSTRUCTIONS,
       modelSelection: input.modelSelection,
     })
     .pipe(withThreadGroupTitleBudgetFork); // fork-hook: thread-ordering/title-budget
@@ -76,6 +88,7 @@ export const makeThreadGroupTitleHandlerFork = (projectStore: ProjectStoreV2["Se
     return yield* generateThreadGroupTitle(textGeneration.value, {
       cwd: project.value.workspaceRoot,
       memberTitles: args.payload.memberTitles,
+      parentTitle: args.payload.parentTitle,
       previousTitle: args.payload.previousTitle,
       modelSelection: settings.textGenerationModelSelection,
     }).pipe(Effect.catch(failTitleGeneration));
