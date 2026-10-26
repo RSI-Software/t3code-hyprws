@@ -98,7 +98,11 @@ const SYNC_DIR = ".t3/fork-sync";
 const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
 const BLOCK_LABEL = "ci";
-/** A blocked stop also starts rsi-pr-agent's `.rsi-agent/workflows/fork-sync.md`. */
+/**
+ * A blocked stop or a red candidate also starts rsi-pr-agent's
+ * `.rsi-agent/workflows/fork-sync.md`; an unchanged body never relabels, so
+ * one stop gets one job per target.
+ */
 const AGENT_LABEL = "rsi:fork-sync";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
@@ -1743,7 +1747,7 @@ export const publishAttention = (
       runner,
       root,
       stop.title,
-      key === "blocked" ? [AGENT_LABEL] : [],
+      key === "blocked" || report.failure?.step === "ci" ? [AGENT_LABEL] : [],
       (previous) => attentionIssueBody(report, previous),
     );
     return {
