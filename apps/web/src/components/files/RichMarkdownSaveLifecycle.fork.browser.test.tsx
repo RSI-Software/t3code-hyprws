@@ -28,7 +28,10 @@ vi.mock("@t3tools/client-runtime/state/runtime", async (original) => ({
   runAtomCommand: (...args: unknown[]) => writeFile(args[2]),
 }));
 vi.mock("./projectFilesQueryState", () => ({
+  clearProjectFileQueryData: vi.fn(),
   confirmProjectFileQueryData: () => true,
+  getProjectFileQueryAtom: vi.fn(),
+  optimisticFileAtom: () => ({}),
   getOptimisticProjectFileQueryData: () => null,
   getUnsavedProjectFileQueryData: () => null,
   setProjectFileQueryData: vi.fn(),
