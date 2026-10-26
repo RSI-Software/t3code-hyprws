@@ -148,13 +148,18 @@ The body keeps its open-since date, target count, and last five runs; a clean ru
 A job resolves a blocked sync without writing the trunk or the candidate.
 It hands its resolutions to the next run as data on `sync/resolution`.
 
-1. Run `vp run fork:sync <tag> --dry-run`
-2. Resolve `manual` paths per [Conflict](#conflict)
-3. `git add` them in the kept worktree; rerun
-4. Repeat until the rebase finishes
-5. Commit tip adaptation there; rerun once
-6. `git update-ref --no-deref HEAD refs/fork-sync/resolution`
-7. Report `committed`: rsi-pr-agent pushes `HEAD`; the sync reruns
+1. Add the `upstream` remote unless present
+2. Run `vp run fork:sync <tag> --dry-run`
+3. Resolve `manual` paths per [Conflict](#conflict)
+4. `git add` them in the kept worktree; rerun
+5. Repeat until the rebase finishes
+6. Commit tip adaptation there; rerun once
+7. `git update-ref --no-deref HEAD refs/fork-sync/resolution`
+8. Report `committed`: rsi-pr-agent pushes `HEAD`; the sync reruns
+
+```sh
+git remote add upstream https://github.com/pingdotgg/t3code.git
+```
 
 Every rebase rewrites `refs/fork-sync/resolution` before `ci`, so a `ci` failure in the job is expected.
 It is one parentless commit:
