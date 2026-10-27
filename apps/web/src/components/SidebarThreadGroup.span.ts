@@ -45,11 +45,9 @@ function moveSidebarListItem(
   return moved;
 }
 
-/** Upstream's projection lays the active section out from the drop order,
-    which knows no group markers. With spans in the list, lay that section out
-    from the moved list instead, so each header and end marker keeps its place
-    among the rows. Unmeasured rows, a collapsed group's hidden anchor, take no
-    space. */
+/** Upstream lays the active section out from the drop order, which knows no group
+    markers; with spans, lay it out from the moved list so each header and end marker
+    keeps its place. Unmeasured rows (a collapsed group's hidden anchor) take no space. */
 export function projectSidebarThreadGroupSpansFork(
   projected: SidebarListItem[],
   input: {

@@ -246,11 +246,10 @@ interface LayerBox {
   readonly bottom: number;
 }
 
-// The sortable-tree example's indicator, drawn over the list rather than into
-// it: a soft slot where the lifted row would land, indented to its projected
-// depth, and one outline around the group it would join, or the thread a new
-// group would start from. It reads the layout the sortable preview computed
-// for this render, so it renders after the rows, as the list's last child.
+// The sortable-tree indicator, drawn over the list: a slot where the lifted row would land at
+// its projected depth, and an outline around the group it would join or the thread a new group
+// would start from. It reads the layout the sortable preview computed for this render, so it
+// renders after the rows, as the list's last child.
 export function SidebarThreadGroupDropLayerFork(props: {
   readonly items: readonly SidebarListItem[];
   readonly spans: readonly Pick<SidebarThreadGroupSpan, "groupKey" | "visibleKeys">[];
