@@ -90,15 +90,13 @@ export function GitHubIssueDetailPanel({
   const query = useEnvironmentQuery(
     githubIssueEnvironment.detail({ environmentId, input: reference }),
   );
-  // The detail query is shared with the issues page and keeps its answer while idle, so an
-  // already-read issue would otherwise show the cached read. Every arrival at an issue is worth
-  // one re-read, whether the panel just mounted or the reference changed underneath it:
-  // everything after that is the reader's explicit refresh. The server answers detail straight
-  // from the host with no cache of its own, so a re-read is the refresh. Keyed on the issue
-  // identity rather than the mount, and read through an effect event so a new `refresh`
-  // closure alone never spends another read.
+  // The detail query is shared with the issues page and keeps its answer while idle, so each
+  // arrival at an issue spends one re-read; later ones are the reader's explicit refresh. Keyed
+  // on issue identity, and read through an effect event so a new `refresh` closure alone never
+  // spends another read.
   const issueKey = `${environmentId}:${reference.projectId}:${reference.repository.toLowerCase()}#${reference.number}`;
   const refreshOnOpen = useEffectEvent(() => query.refresh());
+  // oxlint-disable-next-line t3code/react-effect-budget -- asks the server, which reads GitHub uncached, to refresh the shared detail query once per opened issue.
   useEffect(() => {
     refreshOnOpen();
   }, [

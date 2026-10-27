@@ -34,10 +34,6 @@ export function githubIssueShellBootstrappedAtom(environmentId: EnvironmentId | 
     : environmentShellBootstrappedAtom(environmentId);
 }
 
-function useGitHubIssueEnvironmentShellBootstrapped(environmentId: EnvironmentId | null): boolean {
-  return useAtomValue(githubIssueShellBootstrappedAtom(environmentId));
-}
-
 const useGitHubIssueListsQuery = createMergedEnvironmentQueryFork<
   GitHubIssueListInput,
   GitHubIssueListResult
