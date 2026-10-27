@@ -618,6 +618,19 @@ it("refuses the candidate push when the local fork:ci battery is red", () => {
   );
 });
 
+it("refuses a session's hand-off while the local fork:ci battery is red on its tip", () => {
+  withFixture(CLEAN, (f) => {
+    const recording = exec({ vp: (args) => (args[1] === "fork:ci" ? refused("fmt") : ok()) });
+    const { value } = capture(() => run(["v1.0.0"], { runner: recording.runner, root: f.root }));
+    assert.strictEqual(value, 1);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.outcome, "failed");
+    assert.strictEqual(report.failure?.step, "check");
+    assert.strictEqual(report.ci?.conclusion, "skipped: local fork:ci failed (exit 1)");
+    assert.notInclude(report.decision.resume, "sync/resolution");
+  });
+});
+
 const redThenGreen = (): { readonly red: Recording; readonly green: Recording } => ({
   red: exec({ ci: { conclusion: "failure" } }),
   green: exec(),
