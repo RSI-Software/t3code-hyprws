@@ -1,7 +1,5 @@
-// Fork-only: GitHub issue RPC handler wiring for commit `9f92309411`
-// (feat(issues): add GitHub Issues surface scoped to project windows). The
-// handler table entries are spread into the fork WS handler table in
-// `wsRpcHandlers.fork.ts`; the service-layer wiring joins upstream through
+// Fork-only: GitHub issue RPC handler wiring. The handler table entries spread into the fork WS
+// handler table in `wsRpcHandlers.fork.ts`; the service layers join upstream through
 // `github-issues/server-service-live` and friends.
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,6 +12,8 @@ import type {
   ThreadIssueSyncInput,
 } from "@t3tools/contracts";
 import { GitHubIssueOperationError } from "@t3tools/contracts";
+
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
@@ -69,12 +69,13 @@ export const gitHubIssueRpcHandlersFork = (
 
 /**
  * The upstream-shaped service layer, composed with its own dependencies. The
- * project list and repository identities come from the server runtime; the
- * GitHub reads go through the request policy the runtime already provides to
- * the pull-request providers.
+ * project list and repository identities come from the server runtime. The
+ * GitHub driver builds its request policy privately, so issue reads build their
+ * own credential and quota view.
  */
 export const gitHubIssueServiceLiveFork = GitHubIssueService.layer.pipe(
   Layer.provide(GitHubIssueGraphQl.layer),
+  Layer.provide(GitHubRest.layerWithDependencies),
 );
 
 /**

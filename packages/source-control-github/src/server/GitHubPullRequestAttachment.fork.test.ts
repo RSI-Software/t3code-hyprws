@@ -10,11 +10,11 @@ import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/process";
 import * as Redacted from "effect/Redacted";
 import { VcsProcessExitError } from "@t3tools/contracts";
-import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
-import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
+import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
+import * as GitHubRest from "./GitHubRest.ts";
 import * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
-import * as GitHubPullRequestApi from "@t3tools/source-control-github/server/GitHubPullRequestApi";
+import * as GitHubPullRequestApi from "./GitHubPullRequestApi.ts";
 import { parseGitHubAttachmentUploadOutput } from "./gitHubAttachmentUpload.fork.ts";
 
 const mockedRun = vi.fn<SourceControlHost.SourceControlHost["Service"]["process"]["run"]>();

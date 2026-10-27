@@ -14,10 +14,7 @@ import {
   GitHubIssueCliMissingError as GitHubIssueCliMissingErrorClass,
   GitHubIssueCliUnauthenticatedError as GitHubIssueCliUnauthenticatedErrorClass,
   GitHubIssueOperationError as GitHubIssueOperationErrorClass,
-  pullRequestHostOf,
-  SourceControlProviderKind,
 } from "@t3tools/contracts";
-import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -26,6 +23,7 @@ import * as Schema from "effect/Schema";
 
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import type * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
 import * as GitHubIssueGraphQl from "./gitHubIssueGraphQl.fork.ts";
 import {
@@ -263,12 +261,9 @@ export const make = Effect.gen(function* () {
       // duplicate earlier in the snapshot can hide the project the caller explicitly selected.
       if (projectId !== undefined && project.id !== projectId) continue;
       if (project.repositoryIdentity?.provider !== "github") continue;
-      const repository = sourceControlRepositorySelector(project.repositoryIdentity);
+      const repository = sourceControlDefinitions.repositorySelector(project.repositoryIdentity);
       if (repository === null) continue;
-      const host = pullRequestHostOf(
-        project.repositoryIdentity,
-        SourceControlProviderKind.make("github"),
-      );
+      const host = sourceControlDefinitions.changeRequestHost(project.repositoryIdentity, "github");
       const key = `${host}/${repository}`.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);

@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import type * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
+import type * as GitHubRest from "./GitHubRest.ts";
 import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 
 export class GitHubAttachmentUploadError extends Schema.TaggedError<GitHubAttachmentUploadError>()(

@@ -1,7 +1,11 @@
 // Fork-owned: the light read the linked-issue sync uses (RSI-Software/t3code-hyprws#1451).
 // The harness mirrors `GitHubIssueService.test.ts`, which owns the list, detail, and state tests.
 import { assert, describe, it, vi } from "@effect/vitest";
-import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import {
+  SourceControlProviderKind,
+  type OrchestrationProjectShell,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -25,7 +29,7 @@ function project(id: string): OrchestrationProjectShell {
         remoteName: "origin",
         remoteUrl: "https://github.com/acme/web.git",
       },
-      provider: "github",
+      provider: SourceControlProviderKind.make("github"),
       displayName: "acme/web",
       owner: "acme",
       name: "web",

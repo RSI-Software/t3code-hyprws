@@ -1,5 +1,9 @@
 import { assert, describe, it, vi } from "@effect/vitest";
-import type { OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import {
+  SourceControlProviderKind,
+  type OrchestrationProjectShell,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -33,7 +37,7 @@ function project(input: {
         remoteName: "origin",
         remoteUrl: `https://${host}/${repository}.git`,
       },
-      provider: input.provider ?? "github",
+      provider: SourceControlProviderKind.make(input.provider ?? "github"),
       displayName: repository,
       owner,
       name,
