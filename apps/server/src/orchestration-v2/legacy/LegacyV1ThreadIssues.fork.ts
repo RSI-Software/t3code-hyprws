@@ -28,11 +28,9 @@ export const legacyThreadIssuesEventIdFork = (threadId: ThreadId) =>
   EventId.make(`migration:v1:thread:${threadId}:issues`);
 
 /**
- * Folds each live V2 thread's V1 issue links into its payload. A link already
- * on the thread wins, so the import only ever adds. `imported_at` on the V1 row
- * makes it once per thread, ever: a later unlink in V2 is never undone by a
- * restart, even after compaction drops the import event
- * (RSI-Software/t3code-hyprws#1816).
+ * Folds each live V2 thread's V1 issue links into its payload; a link already on the thread
+ * wins, so the import only adds. `imported_at` on the V1 row makes it once per thread, ever: a
+ * restart never undoes a later V2 unlink, even after compaction drops the import event.
  */
 export const importLegacyThreadIssuesFork = Effect.fn("importLegacyThreadIssuesFork")(function* (
   sql: SqlClient.SqlClient,

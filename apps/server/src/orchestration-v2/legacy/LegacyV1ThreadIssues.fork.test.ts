@@ -149,7 +149,7 @@ it.layer(TestLayer)("V1 issue link import", (it) => {
       });
       yield* importer.reconcileShells;
       assert.isFalse("issues" in (yield* projections.getThread(linked)));
-      yield* maintenance.compactEventStore;
+      yield* maintenance.compactEventStore();
       yield* importer.reconcileShells;
       assert.isFalse("issues" in (yield* projections.getThread(linked)));
       assert.isTrue((yield* maintenance.rebuild).valid);
