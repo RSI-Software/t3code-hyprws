@@ -1,31 +1,7 @@
-// Per-window scope for unsent composer drafts (RSI-Software/t3code-hyprws#1346).
-//
-// The upstream store persists every draft under one route-derived key, so two
-// windows on the same route share unsent (pre-thread) drafts and clobber each
-// other. This module splits each persisted write in two:
-//
-// - the window bucket `<key>:window:<token>` holds draft sessions, their
-//   composer drafts, and the project-to-session map; on desktop the token is
-//   the WindowId, which survives a reload and an update-relaunch restore
-//   (RSI-Software/t3code-hyprws#1374); on plain web it lives in sessionStorage,
-//   which survives a reload; either way it differs per window;
-// - the shared bucket `<key>` keeps thread drafts and sticky model choices.
-//   A window writes only the slices it changed since it last read or wrote,
-//   so another window's edits and deletions are never overwritten.
-//
-// Each live window holds a Web Lock named for its token. At startup, under the
-// adopt lock, a window adopts every source nobody owns: draft sessions an older
-// build left in the shared bucket, and window buckets whose token lock is not
-// held (a closed tab, or every window of a previous Electron run) and whose
-// `touchedAt` is older than a grace window. A window mid-reload takes its lock
-// back inside that window; an unlocked fresh bucket is re-checked once after it.
-// A WindowId bucket is held back until one re-check after the restore grace,
-// because quit destroys windows without unloading them and a restored window
-// takes its lock back only once its page loads.
-// The adopter writes its own bucket first and clears the sources second, so no
-// text is lost. Without the Web Locks API ownership is unknowable, so orphan
-// buckets are left alone.
-// Known limit: a duplicated web tab copies sessionStorage and shares the token.
+// Per-window scope for unsent composer drafts: upstream persists every draft under one
+// route key, so windows on one route clobber each other. The window bucket
+// `<key>:window:<token>` holds draft sessions; the shared `<key>` keeps thread drafts and
+// sticky models, and a window writes only the slices it changed since it last read or wrote.
 import { Debouncer } from "@tanstack/react-pacer";
 
 import type { DeferredStorage } from "./lib/storage";
@@ -131,6 +107,9 @@ const createdAt = (sessions: Record<string, unknown>, session: unknown): string 
 const pick = (record: DraftRecord, keep: (key: string) => boolean) =>
   Object.fromEntries(Object.entries(record).filter(([key]) => keep(key)));
 
+// Desktop uses the WindowId, which survives a reload and an update-relaunch restore; web keeps
+// a sessionStorage token, which survives a reload. Known limit: a duplicated web tab copies
+// sessionStorage and shares the token.
 function readWindowToken(session: StringStorage, windowId: string | undefined): string {
   if (windowId) return windowId;
   try {
@@ -407,6 +386,10 @@ export function createWindowDraftScope<S, P extends PersistedDraftsShape>(
       baseline = new Map();
     },
     flush,
+    // Under the adopt lock, adopt every source nobody owns: sessions an older build left in
+    // the shared bucket, and window buckets whose token lock is free past their grace. Write
+    // our bucket before clearing sources, so no text is lost. Without Web Locks ownership is
+    // unknowable, so orphan window buckets are left alone.
     adopt: async (name, afterAdopt) => {
       const locks = env.locks;
       if (!locks) {
