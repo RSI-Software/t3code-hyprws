@@ -34,6 +34,7 @@ import * as Stream from "effect/Stream";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
+import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -362,6 +363,7 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
           ingestion,
           IdAllocator.layer,
           McpAppModelContext.layerEmpty,
+          PreviewAgentActivity.layer,
           ServerSettings.layerTest(),
           Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({
             allocate: () => Effect.succeed(1),
@@ -478,7 +480,7 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
     const send = (event: ProviderAdapterV2Event) =>
       publish(event).pipe(
         Effect.flatMap((acks) =>
-          Effect.all([...acks.values()].map(Deferred.await), { concurrency: "unbounded" }),
+          Effect.forEach([...acks.values()], Deferred.await, { concurrency: "unbounded" }),
         ),
       );
     return { start, publish, send, projections, history, sink, entered, release, closures, closed };

@@ -119,7 +119,7 @@ const layerFlakyProjectionReads = (flaky: FlakyProjectionReads) =>
         Effect.gen(function* () {
           if (yield* Ref.getAndSet(flaky.armed, false)) {
             yield* Queue.offer(flaky.failures, undefined);
-            return yield* Effect.fail(new ProjectionStore.ProjectionStoreReadError({ threadId }));
+            return yield* new ProjectionStore.ProjectionStoreReadError({ threadId });
           }
           return yield* delegate.getThreadRecords(threadId, fields, filter);
         });
@@ -215,12 +215,10 @@ const layerTest = (input: {
           startTurn: () => Effect.die("unused"),
           steerTurn: () => Effect.void,
           interruptTurn: ({ providerTurnId }) =>
-            Effect.gen(function* () {
-              yield* Ref.update(input.state, (current) => ({
-                ...current,
-                interruptedTurnIds: [...current.interruptedTurnIds, providerTurnId],
-              }));
-            }),
+            Ref.update(input.state, (current) => ({
+              ...current,
+              interruptedTurnIds: [...current.interruptedTurnIds, providerTurnId],
+            })),
           unloadThread: ({ providerThread }) =>
             Effect.gen(function* () {
               yield* Ref.update(input.state, (current) => ({
