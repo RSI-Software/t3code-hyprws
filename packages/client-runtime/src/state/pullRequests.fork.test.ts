@@ -95,6 +95,7 @@ it.effect.each(["current", "unknown RPC", "missing method"] as const)(
           session: yield* SubscriptionRef.make<Option.Option<RpcSession>>(
             Option.some({
               client,
+              inboundFrames: Effect.succeed(0),
               ready: Effect.void,
               probe: Effect.void,
               closed: Effect.never,
