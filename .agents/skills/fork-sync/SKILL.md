@@ -119,6 +119,8 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
 - **Lost hook:** restore it at the tip
   - Target carries it: drop its leftovers
   - Trailer: `Fork-Hook-Retired: domain/name`
+- **Merge-tree:** path conflicts with upstream
+  - Move the hook lines off its changed lines
 - **Local checks:** each rerun runs `fork:ci`
   - Focused tests: `vp test run`
 - **Gate:** candidate CI in the land run
@@ -131,6 +133,7 @@ Rerun once after tip work so the marker covers it.
 ## Hand off
 
 Every rerun writes `refs/fork-sync/resolution`: finished once the rebase ends, partial at every block.
+A finished marker predates the `hooks` and `check` steps: hand off only after a green run.
 A partial hand-off is fine; the next session or job resumes from it.
 
 **Session:**
