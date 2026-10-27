@@ -15,8 +15,8 @@ const RELEASES = `[
 ]
 `;
 
-// Serves the fixture for the releases API and 404s everything else, so the
-// installer stops right after announcing the version it resolved.
+// Serves the fixtures for the latest-release page and the releases API and 404s everything
+// else, so the installer stops right after announcing the version it resolved.
 const STUB_CURL = `#!/bin/sh
 url= out=
 while [ $# -gt 0 ]; do
@@ -28,6 +28,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%s\\n' "$url" >> "$STUB_DIR/urls"
 case "$url" in
+  */releases/latest) printf '{"tag_name":"v0.0.43-hyprws.3"}' > "$out"; printf 200 ;;
   https://api.github.com/*) cp "$STUB_DIR/releases.json" "$out"; printf 200 ;;
   *) : > "$out"; printf 404 ;;
 esac
@@ -71,11 +72,11 @@ const runInstaller = async (input: { uname: string; env?: Record<string, string>
 };
 
 describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("fork installer", () => {
-  it("resolves the newest -hyprws stable from the fork's releases, never a nightly", async () => {
+  it("resolves the stable from the fork's latest release", async () => {
     const { stderr, urls } = await runInstaller({ uname: "Linux x86_64" });
     expect(stderr).toContain("Installing T3 Code 0.0.43-hyprws.3\n");
     expect(urls).toEqual([
-      "https://api.github.com/repos/RSI-Software/t3code-hyprws/releases?per_page=100",
+      "https://github.com/RSI-Software/t3code-hyprws/releases/latest",
       "https://github.com/RSI-Software/t3code-hyprws/releases/download/v0.0.43-hyprws.3/SHA256SUMS",
     ]);
   });

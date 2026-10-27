@@ -570,7 +570,7 @@ it.live("lists and answers pending requests through the external HTTP MCP catalo
               .map((line) => line.slice(5).trim())
           : [text];
         const bodies = yield* Effect.forEach(encodedResponses, (encodedResponse) =>
-          Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(encodedResponse),
+          decodeJson(encodedResponse),
         );
         // SSE may carry notifications before the response to this request.
         const body = bodies.find(
