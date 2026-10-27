@@ -201,14 +201,10 @@ export const make = Effect.gen(function* () {
         detail: "The attached server moved to another endpoint.",
       });
     }
-    // discover() verifies env id (persisted vs probed descriptor) and
-    // endpoint reachability, but a restart on the SAME port keeps both.
-    // Identity is the environment id: the live descriptor must still report
-    // the attached env id. A same-environment restart (an update restart)
-    // then re-verifies in place with its fresh pid/start time
-    // (RSI-Software/t3code-hyprws#1706) instead of dropping the client's
-    // environments; a different server reports a different env id and is
-    // rejected here or by the discovery find above.
+    // A restart on the same port passes discover(), so identity is the env id:
+    // a same-environment (update) restart re-verifies in place with its fresh
+    // pid/start time instead of dropping the client's environments, while a
+    // different server reports a different env id and is rejected.
     const descriptor = yield* fetchDescriptorEnvironmentId(live);
     if (descriptor.environmentId !== server.environmentId) {
       return yield* new DesktopAttachedPrimaryUnavailableError({
@@ -432,11 +428,10 @@ export const make = Effect.gen(function* () {
   const autoAttachOnStartup: DesktopAttachedPrimary["Service"]["autoAttachOnStartup"] =
     refreshOrAttach;
 
-  // Under the lock: the first reader holding a dead bearer re-mints and
-  // parallel readers queue, then find the fresh token already stored. A mint
-  // that raced a drop sees the bumped generation and serves the newer
-  // attachment (or none) instead of resurrecting the dropped one. A mint
-  // failure drops the attachment so the renderer falls back to hosted-static.
+  // Under the lock, the first reader with a dead bearer re-mints and the rest
+  // find the fresh token. A mint that raced a drop sees the bumped generation
+  // and never resurrects the dropped attachment; a mint failure drops the
+  // attachment so the renderer falls back to hosted-static.
   const readLocked = Effect.fn("DesktopAttachedPrimary.readLocked")(function* (
     probedToken: string | null,
   ) {
