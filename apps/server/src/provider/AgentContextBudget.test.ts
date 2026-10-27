@@ -38,6 +38,7 @@ import { buildCodexAdditionalContext } from "./CodexDeveloperInstructions.ts";
 import { DocumentText } from "./DocumentText.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
+import { subtractForkContextOverhead } from "./agentContextOverhead.fork.ts"; // fork-hook: fork-meta/context-budget-import
 import { forkToolHandlerServices } from "./agentContextBudget.fork.ts"; // fork-hook: thread-ordering/context-budget-import
 
 // Registration only stores tool definitions, so the handlers' services are never called.
@@ -117,6 +118,7 @@ it.effect("agent context matches the committed budget", () =>
       ),
     };
 
+    subtractForkContextOverhead(measured); // fork-hook: fork-meta/context-budget-accounting
     expect(measured).toEqual(budget);
   }).pipe(
     Effect.provide(
