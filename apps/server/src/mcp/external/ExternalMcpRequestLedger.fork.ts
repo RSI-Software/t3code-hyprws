@@ -1,9 +1,7 @@
-// Fork-owned retry ledger for `/api/mcp/external` mutations
-// (RSI-Software/t3code-hyprws device-auth domain). A `clientRequestId` names
-// one request: the ledger binds it to the request's fingerprint, to the target
-// it commits to before acting, and once the mutation succeeds to its result, so
-// a retry replays that result without touching the thread again, and a reused
-// key with a different request fails.
+// Fork-owned retry ledger for `/api/mcp/external` mutations. A `clientRequestId` binds to the
+// request's fingerprint, to the target it commits to before acting, and on success to its result,
+// so a retry replays that result without touching the thread again, and a reused key with a
+// different request fails.
 import { type AuthSessionId, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

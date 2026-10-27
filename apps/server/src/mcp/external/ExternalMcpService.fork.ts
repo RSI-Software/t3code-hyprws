@@ -1,9 +1,7 @@
-// Fork-owned service behind `/api/mcp/external`: thread coordination for an
-// owner-approved client outside T3 (RSI-Software/t3code-hyprws device-auth
-// domain). Upstream's `OrchestratorMcpService` answers to a calling provider
-// thread; this answers to a device-authorized session and its grant policy,
-// reusing upstream's projection helpers through the marked
-// `device-auth/mcp-external-helpers` export.
+// Fork-owned service behind `/api/mcp/external`: thread coordination for an owner-approved
+// client outside T3. Upstream's `OrchestratorMcpService` answers to a calling provider thread;
+// this answers to a device-authorized session and its grant policy, reusing upstream's
+// projection helpers through the marked `device-auth/mcp-external-helpers` export.
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";

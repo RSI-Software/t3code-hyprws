@@ -41,7 +41,7 @@ const readyInstance: DesktopBackendManager.DesktopBackendInstance = {
   label: Effect.succeed("Local"),
   start: Effect.void,
   stop: () => Effect.void,
-  currentConfig: Effect.succeed(Option.some(readyConfig)),
+  currentConfig: Effect.succeedSome(readyConfig),
   snapshot: Effect.succeed({
     desiredRunning: true,
     ready: true,

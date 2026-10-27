@@ -62,7 +62,6 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: worktrunk-hooks/git-manager-test-layer
-import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
 import * as GitManager from "./GitManager.ts";
 
 /** A change request the fake host reports. Omitted fields read as an open, undated request. */
