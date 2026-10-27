@@ -1,13 +1,9 @@
-// Fork-owned handlers for the thread ↔ GitHub issue MCP tools
-// (RSI-Software/t3code-hyprws#1433), mirroring upstream's pull request
-// handlers in `../pullRequests/handlers.ts`. Every call acts on the requested
-// thread or the caller's own, links with source `agent`, and resolves the layer-1
-// decider's duplicate and missing-link rejections into idempotent results
-// only once a reread of the thread confirms that outcome.
+// Fork-owned handlers for the thread ↔ GitHub issue MCP tools, mirroring upstream's
+// `../pullRequests/handlers.ts`. Each call acts on the requested thread or the caller's own, links
+// with source `agent`, and turns the decider's duplicate and missing-link rejections into
+// idempotent results only once a reread of the thread confirms that outcome.
 import {
   CommandId,
-  pullRequestHostOf,
-  SourceControlProviderKind,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -24,6 +20,7 @@ import {
   threadIssueKeysEqual,
 } from "../../../orchestration-v2/ThreadIssues.fork.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
+import { sourceControlDefinitions } from "../../../sourceControl/sourceControlDefinitions.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
@@ -57,7 +54,7 @@ const GITHUB_DOT_COM = "github.com";
 function projectGitHubHost(project: OrchestrationProjectShell | undefined): string | null {
   const identity = project?.repositoryIdentity;
   if (!identity || identity.provider !== "github") return null;
-  const host = pullRequestHostOf(identity, SourceControlProviderKind.make("github")).toLowerCase();
+  const host = sourceControlDefinitions.changeRequestHost(identity, "github").toLowerCase();
   try {
     const remote = new URL(identity.locator.remoteUrl);
     if (
