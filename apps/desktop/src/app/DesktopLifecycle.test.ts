@@ -72,7 +72,7 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
     getOrCreate: () => Effect.die("unexpected identity window creation"), // fork-hook: multi-window/identity-window-get-or-create
     createNew: () => Effect.die("unexpected new window creation"), // fork-hook: multi-window/dispatch-create-new
     close: () => Effect.void, // fork-hook: multi-window/identity-window-close
-    windowIdFor: () => Effect.succeed(Option.none()), // fork-hook: multi-window/window-id-for
+    windowIdFor: () => Effect.succeedNone, // fork-hook: multi-window/window-id-for
     listWindows: Effect.succeed([]), // fork-hook: multi-window/window-id-list
     windowsByRecency: Effect.succeed([]), // fork-hook: multi-window/window-targets-by-recency
     currentMainOrFirst: Effect.die("unexpected current window read"),
