@@ -22,7 +22,6 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { McpSchema } from "effect/ai";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -145,7 +144,7 @@ const setup = Effect.gen(function* () {
           Layer.mergeAll(
             registry,
             Layer.mock(ProjectService.ProjectService)({
-              getShell: () => Effect.succeed(Option.some(shell)),
+              getShell: () => Effect.succeedSome(shell),
               listShells: () => Effect.succeed([shell]),
             }),
             Layer.mock(ProviderRegistry.ProviderRegistry)({}),
