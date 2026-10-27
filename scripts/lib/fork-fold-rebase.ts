@@ -114,7 +114,7 @@ export const resolveForkOwnedTree = (
  */
 const REBASE_FLAGS = [
   "-c",
-  "core.commentChar=auto",
+  "core.commentChar=;",
   "-c",
   "diff.algorithm=histogram",
   "-c",
