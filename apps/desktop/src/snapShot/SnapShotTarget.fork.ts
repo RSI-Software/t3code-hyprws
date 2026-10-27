@@ -11,11 +11,10 @@ import { IpcRequester } from "../electron/WindowTargets.fork.ts";
 // even if another window is focused before it is ready.
 const pinned = new Map<string, Electron.BrowserWindow>();
 
-// The capture whose reveal and activation are pending. Captures acquire their
-// source one at a time behind the snapshot mutex, and each one's `requested`
-// event opens that phase, so the latest requested capture is the only one that
-// can still reveal a window. Its `started` event reveals the pinned window
-// itself and closes the phase; without an animation, its own activation does.
+// The capture whose reveal is pending. Captures run one at a time behind the
+// snapshot mutex, so only the latest `requested` capture can still reveal a
+// window; its `started` event (or, without an animation, its activation)
+// reveals the pinned window and closes the phase.
 let revealing: string | undefined;
 
 const release = (captureId: string) => {
@@ -57,12 +56,9 @@ export const endSnapShotReveal = Effect.sync(() => {
 });
 
 /**
- * Wraps the renderer dispatch so every event of one capture reaches the window
- * its `requested` event pinned. Returns false when the event has no pinned
- * window, leaving the caller's own dispatch in charge.
- *
- * The pin is released when the capture settles, or when the fiber that
- * requested it ends, so an interrupted capture never keeps its window.
+ * Routes every event of one capture to the window its `requested` event pinned;
+ * false means no pin, so the caller's own dispatch applies. The pin is released
+ * when the capture settles or its requesting fiber ends.
  */
 export const makePinnedSnapShotDispatch =
   <E, R>(

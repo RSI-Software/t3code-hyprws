@@ -14,13 +14,9 @@ interface ReadyRenderer {
 }
 
 /**
- * Tracks activation readiness per app window instead of for one main window.
- *
- * Every window that reports ready stays ready until it reports not ready,
- * navigates away, or is destroyed, so closing one window never clears the
- * others. A request goes to the ready window focused most recently; the broker
- * still sends one at a time. Losing a window fails only a request it was
- * handling, and the remaining windows take the queue.
+ * Tracks activation readiness per app window, so closing one never clears the
+ * others. Requests go to the most recently focused ready window, one at a time;
+ * losing a window fails only the request it was handling.
  */
 export function makeActivationRenderers(input: {
   readonly broker: DesktopAppActivationBroker;

@@ -68,7 +68,7 @@ function makeEmitter() {
       listeners.get(event)?.delete(listener);
     }),
     emit: (event: string, ...args: unknown[]) => {
-      for (const listener of [...(listeners.get(event) ?? [])]) listener(...args);
+      for (const listener of Array.from(listeners.get(event) ?? [])) listener(...args);
     },
   };
 }

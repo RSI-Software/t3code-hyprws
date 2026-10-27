@@ -3,12 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 /**
- * The webContents id of the renderer whose IPC request is running.
- *
- * `DesktopIpc` provides it around every handler, so a window resolved anywhere
- * inside that request (a dialog owner, an SSH prompt, fullscreen state) is the
- * window that asked. Outside a request it is none, and resolution falls to the
- * most recently focused app window.
+ * The webContents id of the renderer whose IPC request is running, provided by
+ * `DesktopIpc` so any window resolved inside that request is the one that
+ * asked. Outside a request it is none and resolution falls to the most
+ * recently focused app window.
  */
 export const IpcRequester = Context.Reference<Option.Option<number>>(
   "@t3tools/desktop/electron/IpcRequester",
