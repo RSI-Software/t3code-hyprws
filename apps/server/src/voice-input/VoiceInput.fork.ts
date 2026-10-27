@@ -136,7 +136,8 @@ function voiceTermsFork(terms: string) {
     if (term.split(/\s+/u).length <= 4) canonical.add(term);
     if (heard === term) continue;
     for (const from of (heard ?? "").split(",")) {
-      if (from.trim()) spellings.set(spellingKey(from), term);
+      const words = from.trim().split(/\s+/u).filter(Boolean);
+      if (words.length > 0) spellings.set(words.map(escapeRegExp).join("\\s+"), term);
     }
   }
   let prompt = "";
@@ -145,21 +146,27 @@ function voiceTermsFork(terms: string) {
     if (next.length > 4096) break;
     prompt = next;
   }
-  // One pass, longest alias first, so a replacement is never rescanned by another rule.
-  const heard = [...spellings.keys()]
-    .toSorted((a, b) => b.length - a.length)
-    .map((from) => from.split(" ").map(escapeRegExp).join("\\s+"));
+  // One pass, longest alias first, so a replacement is never rescanned by another rule. Each alias
+  // is its own group, so the target follows the regex's case folding rather than a second one.
+  const rules = [...spellings].toSorted(([a], [b]) => b.length - a.length);
   const pattern =
-    heard.length > 0
-      ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${heard.join("|")})(?![\\p{L}\\p{N}])`, "giu")
+    rules.length > 0
+      ? new RegExp(
+          `(?<![\\p{L}\\p{N}])(?:${rules.map(([from]) => `(${from})`).join("|")})(?![\\p{L}\\p{N}])`,
+          "giu",
+        )
       : undefined;
   return {
     prompt,
     spell: (text: string) =>
-      pattern ? text.replace(pattern, (match) => spellings.get(spellingKey(match)) ?? match) : text,
+      pattern
+        ? text.replace(pattern, (match, ...groups: Array<unknown>) => {
+            const rule = groups.slice(0, rules.length).findIndex((group) => group !== undefined);
+            return rules[rule]?.[1] ?? match;
+          })
+        : text,
   };
 }
-const spellingKey = (text: string) => text.trim().split(/\s+/u).join(" ").toLowerCase();
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class VoiceInput extends Context.Service<

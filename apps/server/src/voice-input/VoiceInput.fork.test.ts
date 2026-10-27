@@ -254,12 +254,12 @@ describe("external dictation service", () => {
   it.effect("sends project terms as the prompt and applies their spelling rules", () =>
     Effect.gen(function* () {
       const h = harness({
-        text: " Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar. ",
+        text: " Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ. ",
       });
       h.speech.defaults.terms = "shared";
       h.speech.projects.p1 = {
         terms:
-          "cube -> Kube\ncube control, cubectol -> kubectl\n\n Hyprland \nVec<T>\ndollar dollar -> $$\nfive words is too long",
+          "cube -> Kube\ncube control, cubectol -> kubectl\n\n Hyprland \nVec<T>\ndollar dollar -> $$\nΟΔΟΣ -> Odos\nfive words is too long",
       };
       const texts = yield* h.run((s) =>
         Effect.gen(function* () {
@@ -277,12 +277,12 @@ describe("external dictation service", () => {
         "prompt",
         "response_format",
       ]);
-      expect(project?.get("prompt")).toBe("Kube, kubectl, Hyprland, Vec<T>, $$");
+      expect(project?.get("prompt")).toBe("Kube, kubectl, Hyprland, Vec<T>, $$, Odos");
       expect(shared?.get("prompt")).toBe("shared");
       expect(texts).toEqual([
-        // The longest alias wins, and targets are inserted literally.
-        "kubectl, then kubectl, Kube and cubectoland, $$.",
-        "Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar.",
+        // The longest alias wins, targets are inserted literally, and case folding is Unicode's.
+        "kubectl, then kubectl, Kube and cubectoland, $$, Odos.",
+        "Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ.",
       ]);
     }),
   );
@@ -402,57 +402,81 @@ describe("external dictation service", () => {
       expect(start).toContain(expected.start);
     }),
   );
-  it.effect("spells project terms in live previews and the final transcript", () =>
-    Effect.gen(function* () {
-      const h = harness();
-      h.speech.defaults.terms = "cube control -> kubectl";
-      yield* h.run((s) => s.configure({ ...openai, live: true }));
-      const fromClient = yield* Queue.make<string>();
-      const toClient = yield* Queue.make<string>();
-      const toUpstream = yield* Queue.make<string>();
-      let deliver: (event: { data: string }) => void = () => {};
-      const client = Socket.make({
-        reader: Effect.succeed({
-          pull: Queue.take(fromClient).pipe(Effect.map((frame) => [frame] as const)),
-          upgrade: () => Effect.void,
-        }),
-        writer: Effect.succeed({
-          write: (frame) => Queue.offer(toClient, String(frame)).pipe(Effect.asVoid),
-          writeAll: () => Effect.void,
-        }),
-      });
-      const upstream = Layer.succeed(Socket.WebSocketConstructor, () => ({
-        readyState: 1,
-        addEventListener: (type: string, listener: typeof deliver) => {
-          if (type === "message") deliver = listener;
-        },
-        removeEventListener: () => {},
-        close: () => {},
-        send: (frame: string) => Queue.offerUnsafe(toUpstream, frame),
-      }));
-      const fiber = yield* h
-        .run((s) => s.stream(client))
-        .pipe(Effect.scoped, Effect.provide(upstream), Effect.forkChild);
-      expect(yield* Queue.take(toUpstream)).toContain('"prompt":"kubectl"');
-      const event = (type: string, fields: string) =>
-        deliver({ data: `{"type":"${type}",${fields}}` });
-      deliver({ data: '{"type":"session.updated"}' });
-      expect(yield* Queue.take(toClient)).toBe('{"type":"ready"}');
-      const transcription = "conversation.item.input_audio_transcription";
-      for (const delta of ["cube", " control"])
-        event(`${transcription}.delta`, `"delta":"${delta}"`);
-      expect(yield* Queue.take(toClient)).toBe('{"type":"transcript","text":"cube","final":false}');
-      expect(yield* Queue.take(toClient)).toBe(
-        '{"type":"transcript","text":"kubectl","final":false}',
-      );
-      yield* Queue.offer(fromClient, '{"type":"endStream"}');
-      expect(yield* Queue.take(toUpstream)).toBe('{"type":"input_audio_buffer.commit"}');
-      event(`${transcription}.completed`, '"transcript":"Cube control."');
-      expect(yield* Queue.take(toClient)).toBe(
-        '{"type":"transcript","text":"kubectl.","final":true}',
-      );
-      yield* Fiber.join(fiber);
-    }),
+  const transcription = "conversation.item.input_audio_transcription";
+  it.effect.each([
+    {
+      config: { ...openai, live: true },
+      start: '"prompt":"kubectl"',
+      ready: '{"type":"session.updated"}',
+      previews: [
+        `{"type":"${transcription}.delta","delta":"cube"}`,
+        `{"type":"${transcription}.delta","delta":" control"}`,
+      ],
+      end: '{"type":"input_audio_buffer.commit"}',
+      final: `{"type":"${transcription}.completed","transcript":"Cube control."}`,
+    },
+    {
+      config: meta,
+      start: '"accessToken"',
+      ready: '{"sessionId":"session"}',
+      previews: [
+        '{"type":"transcript","transcript":"cube","final":false}',
+        '{"type":"transcript","transcript":"cube control","final":false}',
+      ],
+      end: '{"type":"endStream"}',
+      final: '{"type":"transcript","transcript":"Cube control.","final":true}',
+    },
+  ] as const)(
+    "spells $config.provider live previews and the final transcript with the project's terms",
+    ({ config, start, ready, previews, end, final }) =>
+      Effect.gen(function* () {
+        const h = harness();
+        h.speech.projects.p1 = { terms: "cube control -> kubectl" };
+        yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
+        const fromClient = yield* Queue.make<string>();
+        const toClient = yield* Queue.make<string>();
+        const toUpstream = yield* Queue.make<string>();
+        let deliver: (event: { data: string }) => void = () => {};
+        const client = Socket.make({
+          reader: Effect.succeed({
+            pull: Queue.take(fromClient).pipe(Effect.map((frame) => [frame] as const)),
+            upgrade: () => Effect.void,
+          }),
+          writer: Effect.succeed({
+            write: (frame) => Queue.offer(toClient, String(frame)).pipe(Effect.asVoid),
+            writeAll: () => Effect.void,
+          }),
+        });
+        const upstream = Layer.succeed(Socket.WebSocketConstructor, () => ({
+          readyState: 1,
+          addEventListener: (type: string, listener: typeof deliver) => {
+            if (type === "message") deliver = listener;
+          },
+          removeEventListener: () => {},
+          close: () => {},
+          send: (frame: string) => Queue.offerUnsafe(toUpstream, frame),
+        }));
+        const fiber = yield* h
+          .run((s) => s.stream(client, "p1"))
+          .pipe(Effect.scoped, Effect.provide(upstream), Effect.forkChild);
+        expect(yield* Queue.take(toUpstream)).toContain(start);
+        deliver({ data: ready });
+        expect(yield* Queue.take(toClient)).toBe('{"type":"ready"}');
+        for (const data of previews) deliver({ data });
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"cube","final":false}',
+        );
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"kubectl","final":false}',
+        );
+        yield* Queue.offer(fromClient, '{"type":"endStream"}');
+        expect(yield* Queue.take(toUpstream)).toBe(end);
+        deliver({ data: final });
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"kubectl.","final":true}',
+        );
+        yield* Fiber.join(fiber);
+      }),
   );
   it.effect("refuses a live socket while live preview is off", () =>
     Effect.gen(function* () {
