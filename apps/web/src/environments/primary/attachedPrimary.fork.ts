@@ -130,22 +130,22 @@ export function withAttachedPrimaryRetry(client: HttpClient.HttpClient): HttpCli
           ? rejectEffect(sentBearer(request), "transport")
           : Effect.void,
       ),
-      Effect.flatMap((first) =>
-        first.status !== 401 || resolveDesktopAttachedPrimaryTarget() === null
-          ? Effect.succeed(first)
-          : Effect.promise(invalidateAttachedPrimaryBearerToken).pipe(
-              Effect.flatMap((fresh) =>
-                fresh === null
-                  ? Effect.as(rejectEffect(sentBearer(request), "unauthorized"), first)
-                  : client
-                      .execute(HttpClientRequest.bearerToken(request, fresh))
-                      .pipe(
-                        Effect.tap((second) =>
-                          second.status === 401 ? rejectEffect(fresh, "unauthorized") : Effect.void,
-                        ),
+      Effect.filterOrElse(
+        (first) => first.status !== 401 || resolveDesktopAttachedPrimaryTarget() === null,
+        (first) =>
+          Effect.promise(invalidateAttachedPrimaryBearerToken).pipe(
+            Effect.flatMap((fresh) =>
+              fresh === null
+                ? Effect.as(rejectEffect(sentBearer(request), "unauthorized"), first)
+                : client
+                    .execute(HttpClientRequest.bearerToken(request, fresh))
+                    .pipe(
+                      Effect.tap((second) =>
+                        second.status === 401 ? rejectEffect(fresh, "unauthorized") : Effect.void,
                       ),
-              ),
+                    ),
             ),
+          ),
       ),
     ),
   );

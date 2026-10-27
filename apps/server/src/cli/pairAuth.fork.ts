@@ -1,10 +1,6 @@
-// Pairing storage for `t3 pair` (RSI-Software/t3code-hyprws#1750). Pair only
-// mints a token for a server that is already running, and that server owns its
-// database schema. A pair from another install, such as a freshly updated
-// desktop attaching to an older service, must not migrate or analyze the
-// database under it: that is slow enough to time out the attach, and it leaves
-// the running server on a schema newer than its code. A missing database
-// still gets the full setup, as upstream does.
+// Pairing storage for `t3 pair`. Pair only mints a token for an already-running server, which
+// owns its schema, so it must not migrate or analyze that database: that can time out an attach
+// and leave the server on a schema newer than its code. A missing database gets full setup.
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
