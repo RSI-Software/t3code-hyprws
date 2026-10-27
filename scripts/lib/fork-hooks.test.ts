@@ -293,6 +293,14 @@ it("bounds a branch statement and template literals behind a trailing marker", (
   const singleLines = ["const a = 1;", "markIt(); // x"].join("\n").split("\n");
   const got = statementStartLine(singleLines, 2);
   assert.strictEqual(got, 2, JSON.stringify({ singleLines, got }));
+  // Quotes and brackets inside a regex literal open nothing; division stays division.
+  const regex = [
+    'const unquoted = token.replace(/^[\'"]|[\'"]$/g, "");',
+    "const half = total / 2 / count;",
+    "const word = /[{(`]/.test(s) ? a : b;",
+    "markIt(); // fork-hook: dom/x",
+  ].join("\n");
+  assert.strictEqual(statementStartLine(regex.split("\n"), 4), 4);
 });
 
 it("refuses a statement start it cannot prove", () => {
