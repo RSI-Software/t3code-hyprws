@@ -149,16 +149,13 @@ const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string
     privateNetworkOnly: state.privateNetworkOnly,
   });
 
-// Fork (`pair --json`): the desktop consumes this output and compares
-// `pairingUrl.origin` to the runtime-state `origin` field strictly. With no
-// explicit host the upstream direct base falls back to `localhost` while the
-// runtime record says `127.0.0.1`, so one JSON object carried two origins and
-// the desktop rejected the link. JSON output therefore pairs through the
-// recorded origin when — and only when — no host is configured; every other
-// host value (wildcard included) keeps the upstream base, whose interface
-// fallback stays the useful URL for a remote client.
-const resolveJsonPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
-  state.host === undefined ? state.origin : resolveDirectPairingBaseUrl(state);
+const resolveJsonPairingBaseUrl = (state: PersistedServerRuntimeState): string => {
+  // The desktop compares `pairingUrl.origin` to the runtime-state `origin` strictly, and with
+  // no host the upstream base says `localhost` while the record says `127.0.0.1`. So JSON output
+  // pairs through the recorded origin only when no host is configured; any other host value
+  // keeps the upstream base, whose interface fallback suits a remote client.
+  return state.host === undefined ? state.origin : resolveDirectPairingBaseUrl(state);
+}; // fork-hook: backend-attach/json-pairing-origin
 
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
