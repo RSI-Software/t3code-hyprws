@@ -130,7 +130,9 @@ it.effect("reads the destination environment with cookie authentication", () =>
 it.effect("uploads WAV bytes with the selected environment bearer grant", () =>
   Effect.gen(function* () {
     let request: RequestInit = {};
-    const fetchFn: typeof fetch = (_url, init) => {
+    let url = "";
+    const fetchFn: typeof fetch = (input, init) => {
+      url = String(input);
       request = init ?? {};
       return Promise.resolve(Response.json({ text: "Dictated text" }));
     };
@@ -138,7 +140,9 @@ it.effect("uploads WAV bytes with the selected environment bearer grant", () =>
     const result = yield* transcribeVoiceInputFork(
       { ...prepared, httpAuthorization: { _tag: "Bearer", token: "environment-grant" } },
       wav,
+      "project-1",
     ).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
+    expect(url).toMatch(/\/transcribe\?projectId=project-1$/);
     expect(result.text).toBe("Dictated text");
     const headers = new Headers(request.headers);
     expect(headers.get("authorization")).toBe("Bearer environment-grant");
@@ -199,7 +203,7 @@ it.effect("keeps detail from the existing text error body", () =>
 
 it.effect("rejects malformed transcript responses", () =>
   Effect.gen(function* () {
-    const result = yield* transcribeVoiceInputFork(prepared, new Uint8Array()).pipe(
+    const result = yield* transcribeVoiceInputFork(prepared, new Uint8Array(), null).pipe(
       Effect.provide(
         layerRemoteHttpClient(() =>
           Promise.resolve(Response.json({ transcript: "wrong protocol" })),

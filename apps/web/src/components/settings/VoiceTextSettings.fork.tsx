@@ -16,11 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { useScopedSettings } from "./useScopedSettings";
 import { useEnvironmentScope, readPreparedConnection } from "../../state/session";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
-import {
-  deriveProviderInstanceEntries,
-  applyProviderInstanceSettings,
-  sortProviderInstanceEntries,
-} from "../../providerInstances";
+import { providerInstanceEntriesFor } from "../../providerInstances";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { useVoiceTextSettingsFork } from "../../voice-input/useVoiceSettings.fork";
 import {
@@ -57,13 +53,7 @@ export function VoiceTextSettingsFork({
   const providers = (
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS
   ).filter((provider) => provider.supportsTextGeneration !== false);
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(
-      deriveProviderInstanceEntries(providers),
-      providerSettings,
-      projectId,
-    ),
-  );
+  const entries = providerInstanceEntriesFor(providers, providerSettings, projectId);
   const selectedEntry = entries.find(
     (entry) => entry.instanceId === form?.modelSelection.instanceId,
   );
@@ -321,6 +311,21 @@ export function VoiceTextSettingsFork({
                   Generate / Refresh context
                 </Button>
               ) : null}
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            title="Speech terms"
+            description="Names to recognize, one per line, up to four words each. Add `heard, misheard -> Term` to fix a spelling."
+          >
+            <div className="mt-3 max-w-2xl pb-3.5">
+              <Textarea
+                value={form.terms}
+                rows={4}
+                aria-label="Speech terms"
+                placeholder={"kubectl\ncube control, cubectol -> kubectl"}
+                onChange={(event) => update({ terms: event.target.value })}
+                spellCheck={false}
+              />
             </div>
           </SettingsRow>
         </fieldset>

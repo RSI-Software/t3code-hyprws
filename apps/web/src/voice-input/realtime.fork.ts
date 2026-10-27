@@ -143,13 +143,17 @@ export async function prepareLiveVoiceFork(
   prepared: PreparedConnection,
   signal: AbortSignal,
   handlers: LiveVoiceHandlersFork,
+  projectId: string | null,
 ) {
   const access = await runVoiceInputRequestFork(
     resolveDeviceHubAccess({ prepared, hubBasePath: VOICE_INPUT_ROUTE_FORK }),
     signal,
   );
   return connectLiveVoiceFork(
-    withDeviceHubQuery(`${access.wsBase}/realtime`, access),
+    withDeviceHubQuery(
+      `${access.wsBase}/realtime${projectId ? `?${new URLSearchParams({ projectId })}` : ""}`,
+      access,
+    ),
     signal,
     handlers,
   );

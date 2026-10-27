@@ -37,10 +37,10 @@ export function upsamplePcmFork() {
  * OpenAI Realtime transcription: the standard wire for every non-Meta streaming endpoint.
  * Partials arrive as deltas; the completed event carries the authoritative final text.
  */
-export function openAiVoiceStreamFork(config: {
-  model: string;
-  apiKey: string;
-}): VoiceStreamAdapterFork {
+export function openAiVoiceStreamFork(
+  config: { model: string; apiKey: string },
+  prompt = "",
+): VoiceStreamAdapterFork {
   const upsample = upsamplePcmFork();
   let preview = "";
   return {
@@ -53,7 +53,7 @@ export function openAiVoiceStreamFork(config: {
           audio: {
             input: {
               format: { type: "audio/pcm", rate: 24000 },
-              transcription: { model: config.model },
+              transcription: { model: config.model, ...(prompt ? { prompt } : {}) },
               turn_detection: null,
             },
           },
