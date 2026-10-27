@@ -252,11 +252,9 @@ const decodeForkSyncReport = Schema.decodeSync(ForkSyncReport);
 const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "" });
 
 /**
- * The main checkout of the repository `cwd` belongs to. The sync runs from
- * there and keeps its state there, so a rerun from another lane, or from inside
- * the kept worktree it may drop, adopts the same state. A checkout whose git
- * dir lives elsewhere (an rsi-pr-agent job's) has no checkout beside that dir,
- * so it is its own main checkout.
+ * The main checkout of `cwd`'s repository, where the sync runs and keeps state, so a rerun from
+ * another lane or from the kept worktree adopts it. A checkout whose git dir lives elsewhere (an
+ * rsi-pr-agent job's) has no checkout beside that dir, so it is its own main checkout.
  */
 const mainCheckout = (runner: CommandRunner, cwd: string): string => {
   const common = gitResult(runner, cwd, [
