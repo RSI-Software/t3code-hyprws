@@ -1,10 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - an install lifecycle script; Node built-ins only, so it never fails an install.
 /**
- * Pins `gh` in this clone to the fork on every install. The fork keeps an
- * `upstream` remote for sync, and with two GitHub remotes `gh` refuses or picks
- * `pingdotgg/t3code` until `gh repo set-default` runs. This writes the same
- * `remote.<name>.gh-resolved` mark directly, so machines without `gh` install
- * unchanged. Linked worktrees share the clone's config.
+ * Pins `gh` in this clone to the fork on every install: with an `upstream` remote too, `gh` refuses
+ * or picks `pingdotgg/t3code` until `gh repo set-default` runs. Writing the same
+ * `remote.<name>.gh-resolved` mark directly leaves machines without `gh` unchanged. Linked
+ * worktrees share the clone's config.
  */
 import * as NodeChildProcess from "node:child_process";
 
