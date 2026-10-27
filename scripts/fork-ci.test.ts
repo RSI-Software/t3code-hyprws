@@ -69,7 +69,7 @@ it("fails an untagged tip through the delta check, before the scan", () => {
   }
 });
 
-it("runs delta, stale-delete, fixup fold, merge-tree, scan, check, and suite in order when every step passes", () => {
+it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typecheck, and suite in order when every step passes", () => {
   const { root, head, base } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
@@ -97,7 +97,9 @@ it("runs delta, stale-delete, fixup fold, merge-tree, scan, check, and suite in 
         `${head}^`,
         "--no-typecheck",
       ],
+      ["vp", "run", "knip:check"],
       ["vp", "check"],
+      ["vp", "run", "typecheck"],
       ["vp", "run", "--filter", "@t3tools/scripts", "test"],
     ]);
   } finally {
@@ -118,13 +120,14 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
       return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
     };
     assert.strictEqual(run([], root, step), 1);
-    const [delta, staleDelete, fixupFold, mergeTree, scan, check] = calls;
-    assert.strictEqual(calls.length, 6);
+    const [delta, staleDelete, fixupFold, mergeTree, scan, knip, check] = calls;
+    assert.strictEqual(calls.length, 7);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(mergeTree?.[0], "bash");
     assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(knip, ["vp", "run", "knip:check"]);
     assert.deepStrictEqual(check, ["vp", "check"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
