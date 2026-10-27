@@ -121,10 +121,10 @@ export class FakeProcessRunner {
     this.result = result;
   }
   readonly service = ProcessRunner.ProcessRunner.of({
-    run: (input) => {
+    run: Effect.fn("TerminalTestProcessRunner.run")((input) => {
       this.inputs.push(input);
       return typeof this.result === "function" ? this.result(input) : this.result;
-    },
+    }),
   });
 }
 export function processResult(

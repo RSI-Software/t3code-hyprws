@@ -33,7 +33,6 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -358,7 +357,7 @@ const harness = <A, E>(
           Layer.provideMerge(threadManagementLayer),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
-              getShell: () => Effect.succeed(Option.some(shell)),
+              getShell: () => Effect.succeedSome(shell),
             }),
           ),
           Layer.provide(registryLayer),
