@@ -3,8 +3,8 @@
 
 // The local pre-pull-request battery, each check as hyprws-ci.yml runs it so local green is never
 // greener than CI: the Fork ledger delta, stale-delete, and fixup fold checks, the merge-tree job,
-// the rebase scan (flags from scripts/lib/fork-ci-flags.ts), read-only `vp check` (never `--fix`),
-// and the whole scripts suite. The Body job, knip, typecheck, builds, and product tests run apart.
+// the rebase scan (flags from scripts/lib/fork-ci-flags.ts), knip, read-only `vp check` (never
+// `--fix`), typecheck, and the whole scripts suite. Body, builds, and product tests run apart.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand } from "./lib/fork-command.ts";
@@ -32,10 +32,12 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  7. vp check, the exact form the workflow's Check step runs
+  7. vp run knip:check, the Check job's unused-code step
+  8. vp check, the exact form the workflow's Check step runs
      (scripts/fork-ci.ts never passes --fix: the fixer reformats files
      outside branch scope on this trunk)
-  8. the whole @t3tools/scripts test suite
+  9. vp run typecheck, the Check job's typecheck step
+  10. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -124,20 +126,22 @@ export const run = (
     return 1;
   }
 
-  const check = step("vp", ["check"], root);
-  if (check !== 0) {
-    process.stderr.write("fork:ci: vp check failed; fix above before pushing\n");
-    return 1;
-  }
-
-  const suite = step("vp", ["run", "--filter", "@t3tools/scripts", "test"], root);
-  if (suite !== 0) {
-    process.stderr.write("fork:ci: scripts suite failed; fix above before pushing\n");
-    return 1;
+  // The Check job's own order: knip, vp check (never --fix), typecheck.
+  const gates: ReadonlyArray<readonly [string, string, ReadonlyArray<string>]> = [
+    ["knip", "vp", ["run", "knip:check"]],
+    ["vp check", "vp", ["check"]],
+    ["typecheck", "vp", ["run", "typecheck"]],
+    ["scripts suite", "vp", ["run", "--filter", "@t3tools/scripts", "test"]],
+  ];
+  for (const [name, command, args] of gates) {
+    if (step(command, args, root) !== 0) {
+      process.stderr.write(`fork:ci: ${name} failed; fix above before pushing\n`);
+      return 1;
+    }
   }
 
   process.stdout.write(
-    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, merge-tree check, rebase scan, vp check, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, merge-tree check, rebase scan, knip, vp check, typecheck, and scripts suite are green on this head\n",
   );
   return 0;
 };
