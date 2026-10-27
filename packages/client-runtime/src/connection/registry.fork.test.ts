@@ -93,6 +93,7 @@ const makeHarness = (initialTargets: ReadonlyArray<ConnectionTarget>) =>
                 Effect.andThen(Deferred.succeed(connected, undefined)),
                 Effect.andThen(Effect.never),
               ),
+            checkHost: () => Effect.succeed("unchecked"),
             checkRoute: () => Effect.succeed("unchecked"),
             preflight: () => Effect.succeed(true),
           }),
