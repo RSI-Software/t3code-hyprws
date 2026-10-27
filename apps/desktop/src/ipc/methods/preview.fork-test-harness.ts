@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import { BrowserWindow, webContents } from "electron";
 import type * as Electron from "electron";
 
@@ -35,7 +34,7 @@ export const previewSenderWindowFork = (
       ),
     ),
     Layer.mock(ElectronWindow.ElectronWindow)({
-      windowIdFor: () => Effect.succeed(Option.some(testWindowId(1))),
+      windowIdFor: () => Effect.succeedSome(testWindowId(1)),
     }),
     Layer.succeed(PreviewManager.PreviewManager, {
       ...manager,

@@ -1,3 +1,4 @@
+// @effect-diagnostics effectFnOpportunity:off - Test doubles, like upstream testkits.
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
