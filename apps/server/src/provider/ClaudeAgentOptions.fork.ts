@@ -62,24 +62,9 @@ export function withClaudeAgentOptions(
 }
 
 /**
- * A selected agent overrides whatever `--agent` the configured launch args
- * carry, and "default" clears it. Startup and resume build their launch args
- * from the same place, so a selection survives a resumed session.
- */
-function withClaudeAgentLaunchArgs(
-  configured: Record<string, string | null>,
-  selectedAgent: string | undefined,
-): Record<string, string | null> {
-  if (selectedAgent === undefined) return configured;
-  const { agent: _configuredAgent, ...withoutAgent } = configured;
-  return selectedAgent === "default" ? withoutAgent : { ...withoutAgent, agent: selectedAgent };
-}
-
-/**
  * Applies the thread's agent selection in place to the launch args a query is
- * built from, with the `withClaudeAgentLaunchArgs` precedence: a selected agent
- * overrides a configured `--agent` and "default" clears it. Without a
- * selection the configured args stay as they are.
+ * built from: a selected agent overrides a configured `--agent` and "default"
+ * clears it. Without a selection the configured args stay as they are.
  */
 export function applyClaudeAgentLaunchArg(
   extraArgs: Record<string, string | null>,
