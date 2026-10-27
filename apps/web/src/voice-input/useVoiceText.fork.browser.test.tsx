@@ -27,7 +27,8 @@ vi.mock("../state/session", () => ({
 vi.mock("@t3tools/client-runtime/rpc", () => ({
   transformVoiceTextFork: (_prepared: unknown, input: unknown) => input,
 }));
-vi.mock("@t3tools/client-runtime/state/runtime", () => ({
+vi.mock("@t3tools/client-runtime/state/runtime", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   executeAtomQuery: async (
     _registry: unknown,
     input: unknown,
