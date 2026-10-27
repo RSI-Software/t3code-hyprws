@@ -80,6 +80,7 @@ async function setup() {
     formattingMinWords: 2,
     recentMessageCount: 0,
     projectContext: "",
+    terms: "",
     ...VOICE_TEXT_STARTER_PROMPTS_FORK,
   };
   mocks.request.mockReset().mockImplementation(async ({ operation, text }) => ({
