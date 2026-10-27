@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git check runs before an Effect runtime exists.
 
-// Checks every fork domain's rebase scan against the shared files its own
-// commits touch. Shared means the fork changed the file above its upstream base
-// and upstream changed it too on the way to the target, which is where a rebase
-// silently merges two intents, so the file must be listed in that domain's
-// rebase-scan table in docs/fork/internals/fork-delta.md. The target defaults to
-// live `upstream/main`; `--target <tag>` pins a release.
+// Checks every fork domain's rebase scan against the shared files its commits touch: changed by the
+// fork above its upstream base and by upstream on the way to the target, where a rebase silently
+// merges two intents. Each must be listed in docs/fork/internals/fork-delta.md. The target defaults
+// to live `upstream/main`; `--target <tag>` pins a release.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";

@@ -1,14 +1,7 @@
-// The re-apply stage the sync walk runs on every unmerged path left after rerere
-// autoupdate stages what it can (RSI-Software/t3code-hyprws#953):
-// when upstream rewrote a file a fork commit also touched, the marked hook lines are re-inserted
-// from the manifest instead of handing the seam to a human.
-//
-// The rule is deliberately narrow. A hook is re-applied only when its derived context anchor
-// (RSI-Software/t3code-hyprws#1155) resolves to exactly one site in the merged upstream text, and
-// the hook's exact marked line (or JSX pair) is still readable from the fork side. Zero sites,
-// several sites, or an unreadable hook line are all a refusal — a dead hook that typechecks is
-// worse than a stop, so there is deliberately no file-end fallback. Re-insertion only ever
-// inserts: an upstream line is never deleted or rewritten to make room for a hook.
+// The re-apply stage the sync walk runs on every unmerged path rerere left: marked hook lines are
+// re-inserted from the manifest instead of handing the seam to a human. A hook re-applies only when
+// its context anchor resolves to exactly one merged-upstream site and its marked line is readable
+// from the fork side; anything else refuses (a dead hook that typechecks is worse than a stop).
 
 import {
   FORK_HOOK_BLOCK_SUFFIX,
@@ -174,13 +167,9 @@ export interface ForkHookReapplyResult {
 }
 
 /**
- * Re-apply the marked hooks one conflicted path carries in the manifest. `merged` is the merged
- * upstream text (conflict hunks already resolved to the upstream side); `fork` is the fork-side
- * text the hook's exact marked line is read from; `entries` are the derived rows for the path.
- * `resolved` carries the fork tip's declaration spans (RSI-Software/t3code-hyprws#1030): a key
- * with no in-file marker in `fork` reads its lines from the tip-located span — the raw, unmarked
- * lines of `fork` itself, never an annotated copy, so the resolved text carries no marker the
- * fork blob did not already have.
+ * Re-apply the marked hooks one conflicted path carries. `merged` is the upstream-resolved text and
+ * `fork` the fork-side text hook lines are read from. A key with no in-file marker reads its lines
+ * from its tip-located span in `resolved`: raw lines of `fork`, so no new marker enters the text.
  */
 export const reapplyForkHooks = (
   merged: string,

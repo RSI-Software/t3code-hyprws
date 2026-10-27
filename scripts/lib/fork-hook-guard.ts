@@ -1,10 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Hook guard (a fork:scan stage): for a fork commit touching an
-// upstream-owned file, added lines must sit inside a marked hook. Marked
-// insertions only — cause (a) of the old four-cause hook-seam rule
-// (RSI-Software/t3code-hyprws#1190). Removal, marker-declaration, and
-// one-construct checks do not come back.
+// Hook guard (a fork:scan stage): for a fork commit touching an upstream-owned file, added lines
+// must sit inside a marked hook. It checks marked insertions only.
 
 import {
   FORK_HOOK_BLOCK_SUFFIX,
