@@ -119,7 +119,9 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     heading: null,
     paths: [
       "/settings/general",
+      "/settings/dictation", // fork-hook: voice-input/settings-nav-group
       "/settings/appearance",
+      "/settings/terminal", // fork-hook: zmux-estate/settings-nav-group
       "/settings/chat",
       "/settings/diffs",
       "/settings/keybindings",
