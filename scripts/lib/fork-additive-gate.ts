@@ -301,14 +301,9 @@ const testFindings = (
       });
       continue;
     }
-    // Lost lines are measured against the upstream target tree only: a
-    // line the fork added itself may leave freely, so moving a legacy
-    // fork case into a `.fork.test.ts` sibling is not refused. The old
-    // union with the since tree was dead code — the since tree here IS
-    // `target`, so its line set could never reject anything carried.
-    // Carried is the multiset intersection: of a line's copies in the since
-    // tree, at most the upstream count are upstream's; the rest are fork
-    // duplicates that may leave freely (RSI-Software/t3code-hyprws#1365).
+    // Lost lines are measured against the upstream target tree only: a line the fork added itself may
+    // leave freely. Carried is the multiset intersection: of a line's copies in the since tree, at
+    // most the upstream count are upstream's; the rest are fork duplicates that may leave freely.
     const headLines = significantLines(headText);
     const forkCopies = lostUpstreamLines(
       significantLines(upstreamText),
