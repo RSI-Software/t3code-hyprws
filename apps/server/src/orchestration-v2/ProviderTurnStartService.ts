@@ -77,6 +77,7 @@ import {
   conversationForkNoticeOwedFork,
   appendConversationForkContextFork,
   conversationForkTurnInputFork,
+  conversationForkBudgetFork,
 } from "./conversationFork.fork.ts"; // fork-hook: upstream-fixes/conversation-fork-context-import
 import {
   isRestartNoteContinuation,
@@ -1175,7 +1176,7 @@ export const layer: Layer.Layer<
               tokenCap,
               modelContextWindow,
               userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
-              userText: appendConversationForkContextFork(
+              ...conversationForkBudgetFork(
                 restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
                 conversationForkContextFork(
                   projection.thread,
