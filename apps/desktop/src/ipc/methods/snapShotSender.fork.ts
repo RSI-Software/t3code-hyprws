@@ -10,15 +10,10 @@ import type * as DesktopIpc from "../DesktopIpc.ts";
 const runtime = Electron as Partial<typeof Electron>;
 
 /**
- * Resolves the registered app window that sent a snapshot IPC request.
- *
- * The hub is not the only trusted renderer: a project window is its own
- * `BrowserWindow` with its own `webContents`, so its snapshot requests are
- * legitimate. Trust follows the window registry rather than `getAllWindows`,
- * which would also return the preview and browser windows that host untrusted
- * web content. Resolution mirrors `PreviewWindowPolicy.resolvePreviewForSender`.
- *
- * Anything the registry cannot name resolves to `None`, so callers fail closed.
+ * Resolves the registered app window that sent a snapshot request. Trust follows
+ * the window registry, not `getAllWindows`, which also returns windows hosting
+ * untrusted web content; anything unregistered is `None`, so callers fail closed.
+ * Mirrors `PreviewWindowPolicy.resolvePreviewForSender`.
  */
 export const resolveRegisteredSenderWindow = Effect.fn(
   "desktop.ipc.snapShot.resolveRegisteredSenderWindow",
