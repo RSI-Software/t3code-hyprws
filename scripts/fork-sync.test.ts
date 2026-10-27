@@ -557,10 +557,10 @@ it("leaves the trunk alone and names the red jobs when hyprws CI is red on the c
     },
     (f) => {
       const shas = forkShas(f);
-      // the run is still in progress: the first failed job already ends the wait
+      // the wait outlasts the first red job, so the report names every one
       const recording = exec({ ci: { conclusion: "failure", pending: 3 } });
       const printed = capture(() => land(["v1.0.0"], { runner: recording.runner, root: f.root }));
-      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 1);
+      assert.strictEqual(recording.calls.filter(({ command }) => command === "sleep").length, 4);
       assert.strictEqual(printed.value, 1);
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "failed");
@@ -848,7 +848,7 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
               ? `sleep ${args[0]}`
               : `${command} ${args[1]}`,
         );
-      // the local battery, on the rebased lockfile, gates the candidate push; each poll reads the jobs
+      // the local battery, on the rebased lockfile, gates the candidate push; the jobs are read once, at completion
       assert.deepStrictEqual(steps, [
         "gh list",
         "vp --frozen-lockfile",
@@ -856,10 +856,8 @@ it("pushes the candidate, waits for hyprws CI, then lease-pushes the same sha", 
         `${tip}:refs/heads/sync/candidate`,
         "sleep 30",
         "gh list",
-        "gh view",
         "sleep 30",
         "gh list",
-        "gh view",
         "sleep 30",
         "gh list",
         "gh view",
