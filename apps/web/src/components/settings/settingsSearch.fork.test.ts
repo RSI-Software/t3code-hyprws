@@ -12,10 +12,10 @@ describe("searchSettings — external workspace symlinks (fork)", () => {
     ]);
   });
 
-  it("routes where links open to integrations beside the symlinks entry", () => {
+  it("routes where links open to the browser page", () => {
     expect(searchSettings("open links in")[0]).toMatchObject({
       id: "browser-link-target",
-      to: "/settings/integrations",
+      to: "/settings/browser",
     });
     expect(
       searchSettings("external links").find(({ id }) => id === "browser-link-target"),
