@@ -99,6 +99,7 @@ const DesktopVoiceContextFork = createContext<ReturnType<
 /** Window-owned lifetime: navigating among threads or settings does not dispose transcription. */
 export function DesktopVoiceInputProviderFork({ children }: { children: ReactNode }) {
   const [runtime] = useState(createDesktopVoiceRuntimeFork);
+  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to document `visibilitychange` and disposes the voice session and recorder on unmount.
   useEffect(() => {
     const interrupt = () => {
       if (document.hidden) void runtime.session.controller.appMovedToBackground();
