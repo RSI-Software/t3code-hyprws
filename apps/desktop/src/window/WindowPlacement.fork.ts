@@ -71,11 +71,10 @@ export const titleOptionFork = (
 ): Pick<Electron.BrowserWindowConstructorOptions, "title"> => ({ title });
 
 /**
- * Upstream titles every window with the app name. This rewrites that one
- * title from the window's latest page title; `resolve` returns null to keep
- * it. Install before the title hold, which restores the `setTitle` it found,
- * and before upstream's own `page-title-updated` listener, so the page title
- * is current when that listener sets the title.
+ * Rewrites upstream's app-name title from the latest page title (`resolve`
+ * returns null to keep it). Install before the title hold, which restores the
+ * `setTitle` it found, and before upstream's `page-title-updated` listener, so
+ * the page title is current when that listener sets the title.
  */
 export const retitleWindowFork = (
   window: Electron.BrowserWindow,
