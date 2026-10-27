@@ -1,7 +1,6 @@
-// Ghostty draws box drawing, blocks, Braille, Powerline, branch, and
-// legacy-computing glyphs itself instead of taking them from the font, so they
-// fill the cell edge to edge at any line height and tile without seams. Its
-// own sprite rasterizer (ghostty-org/ghostty `src/font/sprite`, MIT) ships as
+// Ghostty draws box, block, Braille, Powerline, branch, and legacy-computing glyphs
+// itself so they fill the cell edge to edge at any line height without seams. Its
+// sprite rasterizer (ghostty-org/ghostty `src/font/sprite`, MIT) ships as
 // ghostty-sprite.wasm; this module draws its coverage masks onto the canvas.
 
 import spriteWasmUrl from "../vendor/ghostty-sprite.wasm?url";

@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - build-time check run by build-libghostty-wasm.sh.
 /**
- * Diffs ghostty-sprite.wasm against Ghostty's own sprite golden images
- * (src/font/sprite/testdata at the pinned revision). Each PNG is a 16x16 grid
- * of padded cells for one 256-codepoint page at one metric set; the wasm must
- * reproduce every page pixel for pixel.
- *
+ * Diffs ghostty-sprite.wasm pixel for pixel against Ghostty's sprite goldens
+ * (src/font/sprite/testdata at the pinned revision): each PNG is a 16x16 grid of padded
+ * cells for one 256-codepoint page at one metric set.
  * Usage: node check-ghostty-sprite-goldens.ts <ghostty-sprite.wasm> <testdata-dir>
  */
 import * as NodeFS from "node:fs";
