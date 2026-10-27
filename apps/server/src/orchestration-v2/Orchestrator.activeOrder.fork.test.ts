@@ -54,9 +54,11 @@ const createThread = (threadId: ThreadId) =>
     }),
   );
 
+const decodeCommand = Schema.decodeSync(OrchestrationV2Command);
+
 it.layer(layer)("active thread ordering reset (fork)", (it) => {
   it("accepts a null key on the wire", () => {
-    const command = Schema.decodeSync(OrchestrationV2Command)({
+    const command = decodeCommand({
       type: "thread.active.reorder",
       commandId: "active-order-wire",
       threadId: "active-order-wire",
