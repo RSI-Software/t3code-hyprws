@@ -76,7 +76,7 @@ Issue comments are projections of it: never parse one, and never treat an edit t
 | Outcome           | Exit | Run     | Means                                  |
 | ----------------- | ---- | ------- | -------------------------------------- |
 | `already-applied` | 0    | both    | the trunk contains the tag             |
-| `rebased`         | 0    | session | finished marker written                |
+| `rebased`         | 0    | session | finished marker; tip passes `fork:ci`  |
 | `applied`         | 0    | land    | trunk moved to a green candidate       |
 | `blocked`         | 1    | both    | manual seam; partial marker written    |
 | `failed`          | 1    | both    | `fetch` through `blocked`; see `error` |
