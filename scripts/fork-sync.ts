@@ -632,12 +632,9 @@ const reapplyHooks = (
 };
 
 /**
- * A generated path a conflict regenerates instead of stopping. A `generator`
- * route reruns a `vp` command; `from: "root"` runs the trunk checkout's copy
- * of it, with that checkout's install, against the replay worktree, whose own
- * copy may be mid-replay and whose install exists only when a setup step ran.
- * A `merge` route has no generator: it merges the three stages and formats the
- * result.
+ * A generated path a conflict regenerates instead of stopping. A `generator` route reruns a `vp`
+ * command; `from: "root"` runs the trunk checkout's copy with its install against the replay
+ * worktree, whose own copy may be mid-replay. A `merge` route merges the three stages and formats.
  */
 export type RegenerationRoute =
   | {
