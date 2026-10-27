@@ -2466,8 +2466,8 @@ it("refuses a rebased tip that drops a squash landing's pull request link", () =
   withFoldFixture((f) => {
     const target = { tag: "v1.0.0", sha: f.git(["rev-parse", "v1.0.0"], f.root) };
     const oldSha = f.git(["rev-parse", "hyprws"], f.root);
-    // A tip folded the pre-#1592 way: the fixup's changes land, its link does
-    // not. The cherry-picked owner keeps its own message and loses #1600.
+    // A tip folded the old way: the fixup's changes land, its link does
+    // not. The cherry-picked owner keeps its own message and loses the link.
     f.git(["checkout", "--quiet", "--detach", "v1.0.0"], f.root);
     f.git(["cherry-pick", "--quiet", `${oldSha}^`], f.root);
     const dropped = f.git(["rev-parse", "HEAD"], f.root);

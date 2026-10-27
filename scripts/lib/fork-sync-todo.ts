@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - Git runs this as the sync rebase's sequence editor.
 
-// The sync rebase's sequence editor. Git autosquash matches a `fixup!` by
-// subject prefix, so it cannot fold the `fixup! <owner subject> (#N)` a squash
-// landing writes (RSI-Software/t3code-hyprws#1508). The driver resolves every
-// fixup to its owner before the rebase starts; this editor then rewrites git's
-// generated todo in place, moving each resolved fixup under its owner as
-// `fixup`, and giving each owner carrying a folded message one `exec` line
-// that amends the folded commit with the `Squashes:` rendering that keeps the
-// fixup's PR link (RSI-Software/t3code-hyprws#1592). Rewriting git's own todo,
-// rather than writing one from scratch, keeps every other todo decision git
-// makes, such as dropping cherry-picks upstream already carries.
+// The sync rebase's sequence editor. Autosquash matches `fixup!` by subject prefix, so it cannot
+// fold the `fixup! <owner subject> (#N)` a squash landing writes. The driver resolves fixups first;
+// this editor rewrites git's own todo, moving each under its owner with an `exec` that amends in the
+// `Squashes:` section, so every other todo decision git made stands.
 
 import * as NodeFS from "node:fs";
 import * as NodeURL from "node:url";
@@ -39,11 +33,9 @@ export const FOLD_AMEND_LINE =
 const TODO_LINE = /^(?:pick|p|fixup|f|squash|s) ([0-9a-f]{4,40})(.*)$/;
 
 /**
- * Move each fixup line under its owner's line as `fixup`, in the pairs' order.
- * A line git already moved is placed again, so the fold never depends on
- * autosquash. A fixup whose owner is absent from the todo stays where it is.
- * An owner carrying a folded message file takes one `exec` line after its
- * last fixup, amending the folded commit with that message.
+ * Move each fixup line under its owner as `fixup`, in pair order, even where git already moved it,
+ * so the fold never depends on autosquash. A fixup with no owner in the todo stays put. An owner
+ * with a folded message file gets one `exec` after its last fixup that amends in that message.
  */
 export const placeFixups = (
   todo: string,

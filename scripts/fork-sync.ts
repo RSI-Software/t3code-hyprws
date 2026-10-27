@@ -760,14 +760,10 @@ export const resolveFixups = (commits: ReadonlyArray<SubjectCommit>): FixupResol
 };
 
 /**
- * The message each owner carries after the sync folds its fixups: the owner's
- * own message with one `Squashes:` section inserted above the trailer block,
- * listing the owner and every fixup it absorbs exactly as fork:fold renders a
- * fold's members (RSI-Software/t3code-hyprws#1591), so a squash landing's PR
- * link survives the fold on the owner's message (RSI-Software/t3code-hyprws#1592). A fixup that
- * cites no fork pull request — a walk-authored fixup — keeps nothing, so its
- * owner is absent from the map and folds as git's plain `fixup`, its message
- * untouched.
+ * Each owner's message after the sync folds its fixups: a `Squashes:` section above its trailer
+ * block lists owner and fixups as fork:fold renders a fold, so a squash landing's PR link survives.
+ * A fixup citing no fork pull request keeps nothing, so its owner is absent from the map and folds
+ * as git's plain `fixup`.
  */
 export const foldSyncMessages = (
   commits: ReadonlyArray<FoldCommit>,
@@ -792,11 +788,9 @@ export const foldSyncMessages = (
 };
 
 /**
- * One folded owner message: the owner's subject and prose, then the `Squashes:`
- * section — this fold's members first, an earlier sync fold's member lines kept
- * listed after them (a refold keeps every link an earlier fold gathered) — then
- * the trailer block verbatim, `Co-authored-by:` included. The section shape is
- * foldMessage's, so no second rendering exists.
+ * One folded owner message: subject and prose, then the `Squashes:` section (this fold's members,
+ * then an earlier fold's member lines, so a refold keeps every link), then the trailer block
+ * verbatim. The section shape is foldMessage's, so no second rendering exists.
  */
 const foldedOwnerMessage = (owner: FoldCommit, fixups: ReadonlyArray<FoldCommit>): string => {
   const [subject = "", ...rest] = owner.message.replace(/\r\n/g, "\n").split("\n");

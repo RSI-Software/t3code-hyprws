@@ -123,12 +123,9 @@ export const trailerBlock = (body: string): string => {
 };
 
 /**
- * The body split at its trailer block: the paragraphs above it, then the
- * trailer paragraph verbatim — tail lines such as `Co-authored-by:` inside it
- * included — when the body ends with one. `trailerBlock` reads only the
- * `Key: value` lines, so a writer that must keep the message's tail intact
- * (the sync lifting a `Squashes:` section above an untouched trailer block)
- * splits with this instead and renders the trailers half back verbatim.
+ * The body split at its trailer block: the paragraphs above, then the trailer paragraph verbatim,
+ * tail lines included. A writer that must keep the tail intact (the sync lifting a `Squashes:`
+ * section above the block) splits with this, since `trailerBlock` reads only `Key: value` lines.
  */
 export const splitTrailerBlock = (
   body: string,
