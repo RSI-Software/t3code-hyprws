@@ -32,20 +32,24 @@ function recording(rate = 16000) {
   view.setUint32(40, rate * 2, true);
   return audio;
 }
-const local: VoiceInputConfigUpdateFork = {
+const openai: VoiceInputConfigUpdateFork = {
   enabled: true,
-  provider: "local",
-  endpoint: "http://127.0.0.1:8788/transcribe",
-  streamingEndpoint: "",
-  model: "",
+  provider: "openai-compatible",
+  baseUrl: "http://127.0.0.1:8788/v1",
+  live: false,
+  model: "nemo",
 };
 const meta = {
   enabled: true,
   provider: "meta",
-  endpoint: "https://api.meta.ai/v1/asr/transcribe",
-  streamingEndpoint: "wss://api.meta.ai/v1/asr/realtime",
+  baseUrl: "https://api.meta.ai/v1",
+  live: true,
   model: "muse-voice-transcribe-1.0",
 } satisfies VoiceInputConfigUpdateFork;
+const silentSocket = Socket.make({
+  reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
+  writer: Effect.succeed({ write: () => Effect.void, writeAll: () => Effect.void }),
+});
 
 function harness(
   body: unknown = { text: " spoken words " },
@@ -94,40 +98,56 @@ function harness(
 }
 
 describe("external dictation service", () => {
-  it.effect("reads the previous custom-service identifier without losing its saved key", () =>
+  it.effect.each([
+    {
+      legacy: {
+        provider: "promptletariat",
+        endpoint: "https://stt.example/v1/",
+        streamingEndpoint: "wss://stt.example/v1/realtime?intent=transcription",
+      },
+      expected: { baseUrl: "https://stt.example/v1", live: true, enabled: true },
+    },
+    {
+      legacy: {
+        provider: "groq",
+        endpoint: " https://stt.example/v1/audio/transcriptions/ ",
+        streamingEndpoint: "",
+      },
+      expected: { baseUrl: "https://stt.example/v1", live: false, enabled: true },
+    },
+    {
+      // Meta settings from before streaming URLs.
+      legacy: { provider: "meta", endpoint: "https://api.meta.ai/v1/asr/transcribe" },
+      expected: { provider: "meta", baseUrl: "https://api.meta.ai/v1", live: true, enabled: true },
+    },
+    {
+      // Local HTTP posted a different body; it waits for reconfiguring.
+      legacy: { provider: "local", endpoint: "http://127.0.0.1:8080/transcribe" },
+      expected: { baseUrl: "http://127.0.0.1:8080/transcribe", enabled: false },
+    },
+    {
+      legacy: {
+        provider: "openai",
+        endpoint: "https://stt.example/v1/audio/transcriptions?api-version=1",
+      },
+      expected: { enabled: false },
+    },
+  ])("migrates $legacy.provider URL settings and keeps the saved key", ({ legacy, expected }) =>
     Effect.gen(function* () {
       const h = harness();
       h.stored.set(
         "fork-voice-input",
         new TextEncoder().encode(
-          JSON.stringify({
-            ...local,
-            provider: "promptletariat",
-            model: "whisper",
-            apiKey: "legacy-secret",
-          }),
+          JSON.stringify({ enabled: true, model: "m", apiKey: "legacy-secret", ...legacy }),
         ),
       );
       const settings = yield* h.run((s) => s.settings);
       expect(settings).toMatchObject({
         provider: "openai-compatible",
+        ...expected,
         hasApiKey: true,
-        enabled: true,
       });
       expect(JSON.stringify(settings)).not.toContain("legacy-secret");
-      yield* h.run((s) => s.transcribe(recording()));
-      expect(h.requests[0]?.headers.authorization).toBe("Bearer legacy-secret");
-    }),
-  );
-  it.effect("seeds Meta's live socket for settings saved before streaming URLs", () =>
-    Effect.gen(function* () {
-      const h = harness();
-      const { streamingEndpoint: _, ...legacy } = meta;
-      h.stored.set(
-        "fork-voice-input",
-        new TextEncoder().encode(JSON.stringify({ ...legacy, apiKey: "" })),
-      );
-      expect((yield* h.run((s) => s.settings)).streamingEndpoint).toBe(meta.streamingEndpoint);
     }),
   );
   it.effect("bounds provider latency and interrupts pending requests", () =>
@@ -145,7 +165,7 @@ describe("external dictation service", () => {
         ),
       );
       const h = harness(undefined, 200, client);
-      yield* h.run((s) => s.configure(local));
+      yield* h.run((s) => s.configure(openai));
       const pending = yield* h
         .run((s) => s.transcribe(recording()))
         .pipe(Effect.flip, Effect.forkScoped);
@@ -166,6 +186,7 @@ describe("external dictation service", () => {
         }),
       );
       expect(text).toBe("meta words");
+      expect(h.requests[0]?.url).toBe("https://api.meta.ai/v1/asr/transcribe");
       expect(h.requests[0]?.headers.authorization).toBe("Bearer meta-key");
       const body = h.requests[0]?.body;
       if (body?._tag !== "FormData") throw new Error("Expected Meta multipart upload");
@@ -199,116 +220,72 @@ describe("external dictation service", () => {
     Effect.gen(function* () {
       const h = harness();
       expect(yield* h.run((s) => s.settings)).toMatchObject({ enabled: false, hasApiKey: false });
-      const settings = yield* h.run((s) => s.configure({ ...local, apiKey: "test-secret" }));
+      const settings = yield* h.run((s) => s.configure({ ...openai, apiKey: "test-secret" }));
       expect(settings.hasApiKey).toBe(true);
       expect(JSON.stringify(settings)).not.toContain("test-secret");
       expect(settings).not.toHaveProperty("apiKey");
     }),
   );
-  it.effect("uploads raw WAV with optional bearer auth", () =>
+  it.effect("uploads OpenAI multipart below the base URL with optional bearer auth", () =>
     Effect.gen(function* () {
       const h = harness();
-      const audio = recording();
       const text = yield* h.run((s) =>
         Effect.gen(function* () {
-          yield* s.configure({ ...local, apiKey: "local-key" });
-          return yield* s.transcribe(audio);
+          yield* s.configure({ ...openai, baseUrl: "http://127.0.0.1:8788/v1/" });
+          return yield* s.transcribe(recording());
         }),
       );
       expect(text).toBe("spoken words");
-      expect(h.requests[0]?.url).toBe(local.endpoint);
-      expect(h.requests[0]?.headers).toMatchObject({
-        authorization: "Bearer local-key",
-        "content-type": "audio/wav",
-      });
-      expect(h.requests[0]?.body).toMatchObject({ _tag: "Uint8Array", body: audio });
+      expect(h.requests[0]?.url).toBe("http://127.0.0.1:8788/v1/audio/transcriptions");
+      expect(h.requests[0]?.headers.authorization).toBeUndefined();
+      const body = h.requests[0]?.body;
+      if (body?._tag !== "FormData") throw new Error("Expected upload");
+      expect(body.formData.get("model")).toBe("nemo");
+      expect(body.formData.get("response_format")).toBe("json");
+      expect(body.formData.get("file")).toBeInstanceOf(Blob);
     }),
-  );
-  it.effect.each(["openai-compatible", "groq"] as const)(
-    "uses the OpenAI multipart contract for %s",
-    (provider) =>
-      Effect.gen(function* () {
-        const h = harness();
-        yield* h.run((s) =>
-          Effect.gen(function* () {
-            yield* s.configure({
-              ...local,
-              provider,
-              endpoint: "http://localhost:9000/v1/audio/transcriptions",
-              model: "nemo",
-            });
-            yield* s.transcribe(recording());
-          }),
-        );
-        const body = h.requests[0]?.body;
-        if (body?._tag !== "FormData") throw new Error("Expected upload");
-        expect(body.formData.get("model")).toBe("nemo");
-        expect(body.formData.get("response_format")).toBe("json");
-        expect(body.formData.get("file")).toBeInstanceOf(Blob);
-        expect(h.requests[0]?.headers.authorization).toBeUndefined();
-      }),
   );
   it.effect("retains keys only for the same destination and supports removal", () =>
     Effect.gen(function* () {
       const h = harness();
       yield* h.run((s) =>
         Effect.gen(function* () {
-          yield* s.configure({ ...local, apiKey: "original" });
-          expect((yield* s.configure(local)).hasApiKey).toBe(true);
+          yield* s.configure({ ...openai, apiKey: "original" });
+          expect((yield* s.configure({ ...openai, live: true, model: "other" })).hasApiKey).toBe(
+            true,
+          );
           expect(
-            (yield* s.configure({ ...local, endpoint: "http://localhost:9000/transcribe" }))
-              .hasApiKey,
+            (yield* s.configure({ ...openai, baseUrl: "http://localhost:9000/v1" })).hasApiKey,
           ).toBe(false);
-          yield* s.configure({ ...local, apiKey: "original" });
-          expect(
-            (yield* s.configure({
-              ...local,
-              streamingEndpoint: "ws://localhost:9000/realtime",
-              model: "nemo",
-            })).hasApiKey,
-          ).toBe(false);
-          yield* s.configure({ ...local, apiKey: "original" });
-          expect((yield* s.configure({ ...local, apiKey: "" })).hasApiKey).toBe(false);
+          yield* s.configure({ ...openai, apiKey: "original" });
+          expect((yield* s.configure({ ...openai, apiKey: "" })).hasApiKey).toBe(false);
         }),
       );
     }),
   );
-  it.effect("refuses disabled and stub providers before any request", () =>
+  it.effect("refuses a disabled service before any request", () =>
     Effect.gen(function* () {
       const h = harness();
       expect(yield* h.run((s) => s.transcribe(recording())).pipe(Effect.flip)).toMatchObject({
         reason: "disabled",
       });
-      yield* h.run((s) => s.configure({ ...local, provider: "deepgram", model: "nova" }));
-      expect(yield* h.run((s) => s.transcribe(recording())).pipe(Effect.flip)).toMatchObject({
-        reason: "unsupported",
-      });
       expect(h.requests).toHaveLength(0);
     }),
   );
   it.effect.each([
-    "file:///tmp/audio",
-    "https://user:password@example.com/transcribe",
-    "https://example.com/#token",
-  ])("rejects unsafe endpoint %s", (endpoint) =>
+    { baseUrl: "file:///tmp/audio" },
+    { baseUrl: "wss://example.com/v1" },
+    { baseUrl: "https://user:password@example.com/v1" },
+    { baseUrl: "https://example.com/v1?key=secret" },
+    { baseUrl: "https://example.com/#token" },
+    { baseUrl: "https://example.com/v1?" },
+    { baseUrl: "https://example.com/v1#" },
+    { model: " " },
+  ])("rejects unsafe settings %o", (fields) =>
     Effect.gen(function* () {
       const h = harness();
       expect(
-        yield* h.run((s) => s.configure({ ...local, endpoint })).pipe(Effect.flip),
-      ).toMatchObject({ reason: "settings" });
-      expect(h.stored.size).toBe(0);
-    }),
-  );
-  it.effect.each([
-    { streamingEndpoint: "https://example.com/realtime", model: "nemo" },
-    { streamingEndpoint: "wss://user:password@example.com/realtime", model: "nemo" },
-    // Safe, but a stream needs a model and Local HTTP leaves it empty.
-    { streamingEndpoint: "wss://example.com/realtime", model: "" },
-  ])("rejects streaming endpoint $streamingEndpoint with model '$model'", (fields) =>
-    Effect.gen(function* () {
-      const h = harness();
-      expect(
-        yield* h.run((s) => s.configure({ ...local, ...fields })).pipe(Effect.flip),
+        yield* h.run((s) => s.configure({ ...openai, ...fields })).pipe(Effect.flip),
       ).toMatchObject({ reason: "settings" });
       expect(h.stored.size).toBe(0);
     }),
@@ -318,7 +295,7 @@ describe("external dictation service", () => {
     (audio) =>
       Effect.gen(function* () {
         const h = harness();
-        yield* h.run((s) => s.configure(local));
+        yield* h.run((s) => s.configure(openai));
         expect(yield* h.run((s) => s.transcribe(audio)).pipe(Effect.flip)).toMatchObject({
           reason: "audio",
         });
@@ -328,7 +305,7 @@ describe("external dictation service", () => {
   it.effect("reports status without private provider details", () =>
     Effect.gen(function* () {
       const h = harness({ error: "private detail" }, 401);
-      yield* h.run((s) => s.configure(local));
+      yield* h.run((s) => s.configure(openai));
       expect((yield* h.run((s) => s.transcribe(recording())).pipe(Effect.flip)).message).toBe(
         "Dictation provider returned HTTP 401.",
       );
@@ -337,27 +314,28 @@ describe("external dictation service", () => {
   it.effect("rejects invalid transcripts and accepts empty speech", () =>
     Effect.gen(function* () {
       const invalid = harness({ text: 42 });
-      yield* invalid.run((s) => s.configure(local));
+      yield* invalid.run((s) => s.configure(openai));
       expect(yield* invalid.run((s) => s.transcribe(recording())).pipe(Effect.flip)).toMatchObject({
         reason: "response",
       });
       const empty = harness({ text: " " });
-      yield* empty.run((s) => s.configure(local));
+      yield* empty.run((s) => s.configure(openai));
       expect(yield* empty.run((s) => s.transcribe(recording()))).toBe("");
     }),
   );
   it.effect.each([
     {
-      config: {
-        ...local,
-        provider: "openai-compatible",
-        streamingEndpoint: "ws://localhost:9000/v1/realtime?intent=transcription",
-        model: "nemo",
-      },
+      config: { ...openai, live: true },
+      url: "ws://127.0.0.1:8788/v1/realtime?intent=transcription",
       headers: { authorization: "Bearer stream-key" },
       start: '"type":"session.update"',
     },
-    { config: meta, headers: undefined, start: '"accessToken":"Bearer stream-key"' },
+    {
+      config: meta,
+      url: "wss://api.meta.ai/v1/asr/realtime",
+      headers: undefined,
+      start: '"accessToken":"Bearer stream-key"',
+    },
   ] as const)("opens $config.provider's streaming socket with its key", ({ config, ...expected }) =>
     Effect.gen(function* () {
       const h = harness();
@@ -370,35 +348,27 @@ describe("external dictation service", () => {
         close: () => {},
         send: (start) => opened.resolve({ url, options, start }),
       }));
-      const client = Socket.make({
-        reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
-        writer: Effect.succeed({ write: () => Effect.void, writeAll: () => Effect.void }),
-      });
       const fiber = yield* h
-        .run((s) => s.stream(client))
+        .run((s) => s.stream(silentSocket))
         .pipe(Effect.scoped, Effect.provide(upstream), Effect.forkChild);
       const { url, options, start } = yield* Effect.promise(() => opened.promise);
       yield* Fiber.interrupt(fiber);
-      expect(url).toBe(config.streamingEndpoint);
+      expect(url).toBe(expected.url);
       expect(options).toEqual(
         expected.headers ? { protocols: undefined, headers: expected.headers } : undefined,
       );
       expect(start).toContain(expected.start);
     }),
   );
-  it.effect("keeps live preview off without a streaming endpoint", () =>
+  it.effect("refuses a live socket while live preview is off", () =>
     Effect.gen(function* () {
       const h = harness();
-      yield* h.run((s) => s.configure(local));
-      const client = Socket.make({
-        reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
-        writer: Effect.succeed({ write: () => Effect.void, writeAll: () => Effect.void }),
-      });
+      yield* h.run((s) => s.configure(openai));
       expect(
         yield* h
-          .run((s) => s.stream(client))
+          .run((s) => s.stream(silentSocket))
           .pipe(Effect.scoped, Effect.provide(Socket.layerWebSocketConstructorGlobal), Effect.flip),
-      ).toMatchObject({ reason: "unsupported" });
+      ).toMatchObject({ reason: "live" });
     }),
   );
 });
