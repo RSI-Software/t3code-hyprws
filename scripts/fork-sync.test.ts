@@ -1357,6 +1357,33 @@ it("exits 0 with already applied when the fork sits on the tag", () => {
   );
 });
 
+it("adds the upstream remote a fresh clone lacks, then syncs", () => {
+  withFixture(
+    {
+      forkContent: "line1\nline2 fork\nline3\n",
+      upstreamContent: "line1\nline2 upstream\nline3\n",
+      forkOnTag: true,
+    },
+    (f) => {
+      const local = f.git(["remote", "get-url", "upstream"], f.root);
+      f.git(["remote", "remove", "upstream"], f.root);
+      // Route the real upstream URL to the fixture's bare repository.
+      f.git(
+        ["config", `url.${local}.insteadOf`, "https://github.com/pingdotgg/t3code.git"],
+        f.root,
+      );
+      const { runner } = exec();
+      const code = capture(() => run(["v1.0.0"], { runner, root: f.root })).value;
+      assert.strictEqual(code, 0);
+      assert.strictEqual(readReport(f.root, "v1.0.0").outcome, "already-applied");
+      assert.strictEqual(
+        f.git(["config", "remote.upstream.url"], f.root),
+        "https://github.com/pingdotgg/t3code.git",
+      );
+    },
+  );
+});
+
 it("picks the newest upstream release tag when no tag is given", () => {
   withFixture(
     {
