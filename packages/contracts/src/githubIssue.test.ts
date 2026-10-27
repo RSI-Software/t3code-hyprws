@@ -49,11 +49,11 @@ const detail = {
 
 describe("GitHub issue contracts", () => {
   it("decodes every issue detail field", () => {
-    expect(Schema.decodeUnknownSync(GitHubIssueDetail)(detail)).toStrictEqual(detail);
+    expect(decodeIssueDetail(detail)).toStrictEqual(detail);
   });
 
   it("keeps the host's true comment total when the returned comments are capped", () => {
-    const decoded = Schema.decodeUnknownSync(GitHubIssueDetail)({ ...detail, commentCount: 101 });
+    const decoded = decodeIssueDetail({ ...detail, commentCount: 101 });
     expect(decoded.comments).toHaveLength(1);
     expect(decoded.commentCount).toBe(101);
   });
@@ -81,7 +81,7 @@ describe("GitHub issue contracts", () => {
 
   it.each([0, -1])("rejects non-positive issue number %s", (number) => {
     expect(() =>
-      Schema.decodeUnknownSync(GitHubIssueRef)({
+      decodeIssueRef({
         projectId: "project-1",
         repository: "t3tools/t3code",
         number,
@@ -96,11 +96,11 @@ describe("GitHub issue contracts", () => {
   });
 
   it.each([0, 101, 1.5])("rejects invalid list limit %s", (limit) => {
-    expect(() => Schema.decodeUnknownSync(GitHubIssueListInput)({ state: "all", limit })).toThrow();
+    expect(() => decodeIssueListInput({ state: "all", limit })).toThrow();
   });
 
   it("keeps the upstream project error field set", () => {
-    const decoded = Schema.decodeUnknownSync(GitHubIssueListProjectError)({
+    const decoded = decodeIssueListProjectError({
       projectId: "project-1",
       projectTitle: "t3code",
       message: "Run gh auth login",
