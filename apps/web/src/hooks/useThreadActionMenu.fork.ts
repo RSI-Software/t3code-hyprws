@@ -84,12 +84,10 @@ export async function forkThreadActionFork(input: {
         description: cause instanceof Error ? cause.message : "An error occurred.",
       }),
     );
-  // The command target splits environment routing from the dispatch payload,
-  // a V2 `thread.fork` from the latest stable run whose child id the client
-  // mints, so the reply needs no child id. Refusals surface as a Failure result,
-  // defects (wire/schema crashes) as a rejected run, and interruption as an
-  // interrupts-only cause — all paths clear the in-flight flag, and only
-  // interruption stays silent.
+  // The client mints the V2 `thread.fork` child id, so the reply needs none. Refusals
+  // surface as a Failure result, defects (wire/schema crashes) as a rejected run, and
+  // interruption as an interrupts-only cause; all paths clear the in-flight flag, and
+  // only interruption stays silent.
   setForkInFlight(threadKey, true);
   try {
     const command = buildLatestStableForkCommandFork({

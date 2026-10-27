@@ -1,8 +1,6 @@
-// Fork-only: client state for the per-thread "Fork thread" menu action. It
-// dispatches orchestration V2 `thread.fork` from the source's latest stable
-// run through the environment-scoped dispatch RPC; the in-flight set disables
-// the menu item for the duration of a fork so an in-flight request cannot be
-// double-fired from either menu surface.
+// Fork-only client state for the "Fork thread" menu action, which dispatches V2 `thread.fork`
+// through the environment-scoped dispatch RPC. The in-flight set disables the menu item during
+// a fork so a request cannot be double-fired from either menu surface.
 import {
   CommandId,
   ORCHESTRATION_V2_WS_METHODS,

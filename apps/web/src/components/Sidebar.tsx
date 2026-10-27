@@ -2600,9 +2600,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           isRegeneratingTitle,
           isRunning: !threadRuntimeCanArchive(thread.runtime),
           hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
-          canShareWithGuest: appAtomRegistry.get(
-            canShareWithGuestAtom(threadRef.environmentId),
-          ),
+          canShareWithGuest: appAtomRegistry.get(canShareWithGuestAtom(threadRef.environmentId)), // fork-hook: thread-ordering/share-with-guest-menu-state
           fork: forkThreadMenuStateFork(
             readForkProviderFork(threadRef, thread),
             forkInFlight(threadKey),

@@ -1,5 +1,4 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
-import type { ProviderDriverKind } from "@t3tools/contracts"; // fork-hook: thread-fork/driver-kind-type-import
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 import { resetOrderMenuItems } from "./threadActionMenu.logic.fork"; // fork-hook: thread-ordering/reset-order-items-import

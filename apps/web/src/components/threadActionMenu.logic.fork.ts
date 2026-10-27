@@ -47,11 +47,9 @@ export type ForkThreadShell = Pick<
 >;
 
 /**
- * Menu state for the Fork action. V2 `thread.fork` copies the thread from its
- * latest stable run: natively when the provider can fork, otherwise as a
- * portable context handoff, so any configured provider qualifies once the
- * thread has run. Disabled while the thread is busy (the orchestrator stays
- * authoritative) or while a fork for that thread is still in flight.
+ * V2 `thread.fork` copies from the latest stable run, natively or as a portable context
+ * handoff, so any configured provider qualifies once the thread has run. Disabled while
+ * busy (the orchestrator stays authoritative) or while a fork for it is in flight.
  */
 export function forkThreadMenuStateFork(
   driver: ProviderDriverKind | null | undefined,
