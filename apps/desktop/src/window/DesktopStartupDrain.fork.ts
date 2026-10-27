@@ -14,11 +14,9 @@ import { isExplicitLaunchRequest, type WindowRequest } from "./WindowDispatch.fo
 const { logInfo: logWindowInfo, logWarning: logWindowWarning } =
   makeComponentLogger("desktop-window");
 
-// Fork-only: startup drain for restore and launch intent (RSI-Software/t3code-hyprws#1340).
 // Launch intents (second launch, deep link, --project) that arrive before the
-// renderer can load wait here instead of a single slot, so a second intent
-// cannot evict the first. Small and fixed: bursts larger than this are
-// tray-icon storms, not user intent.
+// renderer can load queue here, so a second intent cannot evict the first.
+// Small and fixed: larger bursts are tray-icon storms, not user intent.
 const STARTUP_INTENT_QUEUE_CAPACITY = 8;
 
 export interface WindowOpeners {
@@ -39,15 +37,10 @@ export interface StartupDrainServices {
 }
 
 /**
- * Fork-only: one startup drain over a restore plus a bounded queue of launch
- * intents. The restore runs exactly once (update relaunch state is consumed,
- * never repeated); every ready transition drains whatever intents are queued.
- * Readiness stays false until the drain finishes, so an intent arriving
- * mid-drain still queues instead of bypassing it. Open failures are typed,
- * never defects: one failed open fails the drain through the error channel
- * (the backend pool swallows post-readiness window-open errors, so surfacing
- * keeps the restart retry in `activate` reachable), and the losers of a
- * concurrent ready race await the winner's Deferred instead of re-polling.
+ * One startup drain over a run-once restore plus queued launch intents; every
+ * ready transition drains the queue, and readiness stays false until it ends.
+ * A failed open fails the drain as a typed error, never a defect, which keeps
+ * the restart retry in `activate` reachable.
  */
 const makeStartupDrainImpl = Effect.gen(function* () {
   // NOTE: Queue/Ref constructors below MUST stay interruptible. Wrapping
@@ -57,21 +50,15 @@ const makeStartupDrainImpl = Effect.gen(function* () {
   // One-time update-relaunch restore: consumed by the first drain only, so a
   // later backend restart never replays it.
   const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
-  // False until the first drain finishes: openArguments queues while unset,
-  // so readiness flips true only after restore plus queued intents open.
-  // Reads and writes below always go through Ref, never a raw field: two
-  // ready signals race on the runtime's async boundary, and a synchronous
-  // read-then-write pair in one Effect step observing the other signal's
-  // in-flight update is exactly the lost-intent race the concurrent test
-  // pins. Ref.modify claims the winner slot atomically instead.
+  // False until the first drain finishes, so openArguments queues meanwhile.
+  // Always accessed through Ref, never a raw field: two ready signals race on
+  // the async boundary, and a raw read-then-write loses intents (the
+  // concurrent test pins this).
   const readyToDispatchRef = yield* Ref.make(false);
-  // Completion signal for the running drain, or undefined when no drain is
-  // running: a ready signal that finds a live predecessor parks on it, so
-  // exactly one signal owns each consume and the loser observes the consumed
-  // queue through the cold-start guard and no-ops. Claimed with a single
-  // atomic Ref.modify (never a synchronous read-then-write, which the
-  // concurrent ready race slips between); reset when the body finishes, so a
-  // later backend restart still drains anew.
+  // Completion signal of the running drain, or undefined when idle. A ready
+  // signal that finds one parks on it, so exactly one signal owns each consume.
+  // Claimed with one atomic Ref.modify and reset when the body finishes, so a
+  // later backend restart drains anew.
   const drainWaiters = yield* Ref.make<Deferred.Deferred<void> | undefined>(undefined);
 
   const queueStartupIntent = Effect.fn("desktop.startupDrain.queue")(function* (
@@ -86,12 +73,10 @@ const makeStartupDrainImpl = Effect.gen(function* () {
     }
   });
 
-  // A queued launch takes the same dispatch row it would take once ready
-  // (RSI-Software/t3code-hyprws#1343), except a plain second launch: drained,
-  // it only creates the primary window when none is open and never reveals
-  // one. The table never reveals a window it creates either, so a cold start
-  // does not take the foreground back from whatever the user moved on to
-  // while the backend booted: ready-to-show reveals it.
+  // A queued launch takes its normal dispatch row, except a plain second launch,
+  // which only creates the primary window when none is open. Neither reveals a
+  // window it creates, so a cold start never steals the foreground back;
+  // ready-to-show reveals it.
   const openIntent = (openers: WindowOpeners, intent: WindowRequest) =>
     (intent.kind === "activate"
       ? openers.createMainIfBackendReady()
@@ -128,39 +113,23 @@ const makeStartupDrainImpl = Effect.gen(function* () {
   });
 
   /**
-   * Opens the consumed restore (first pass only) plus every queued intent, in
-   * order, then re-polls until the queue stays empty: an intent staged
-   * mid-drain (a queued signal arriving while the first window opens) joins
-   * this drain instead of stranding until the next ready transition, which
-   * may never come. Cold start is read once before the loop — every pass
-   * after the first has consumed work, so only a genuinely empty cold boot
-   * invents the hub fallback. Readiness flips true only after the final
-   * pass, so a signal racing the drain still queues instead of bypassing it.
-   * Any open failure fails the drain through the error channel (never a
-   * defect: Effect.die would bypass the backend pool's typed error contract
-   * and kill supervisors that only expect DesktopWindowError); the remaining
-   * intents still open first so one bad window cannot strand the rest.
+   * Opens the restore plus queued intents, re-polling until empty so an intent
+   * staged mid-drain is not stranded. Open failures fail the drain as a typed
+   * DesktopWindowError (Effect.die would kill supervisors), but only after the
+   * remaining intents open, so one bad window cannot strand the rest.
    */
   const drainBody = Effect.fn("DesktopStartupDrain.drainBody")(function* (
     services: StartupDrainServices,
     openers: WindowOpeners,
   ): Effect.fn.Return<void, DesktopWindowError> {
-    // Cold start only before any drain has finished: a later ready signal
-    // (the second of renderer-ready/backend-ready, or a restart with an
-    // empty queue) must not invent a hub window nobody asked for — e.g. a
-    // --project launch drains its intent on the first signal, and the
-    // second signal finds an empty queue. After a backend restart
-    // markNotReady clears the flag, so a genuinely windowless restart still
-    // recreates main through the same fallback.
+    // Cold start only before any drain has finished, so a later ready signal
+    // with an empty queue never invents a hub window. markNotReady clears the
+    // flag on backend restart, so a windowless restart still recreates main.
     const coldStart = !(yield* Ref.get(readyToDispatchRef));
     const restored = yield* drainPendingRestore(openers);
-    // Poll, never take: takeAll would block forever on an empty queue and
-    // hang readiness when nothing was queued. Loop until a full pass polls
-    // empty: an intent staged while the last opens ran joins this drain
-    // instead of stranding until a next ready transition that may never
-    // come. The hub fallback belongs to a genuinely empty cold boot only:
-    // only the first pass can see it, because every later pass polled
-    // after consuming work.
+    // Poll, never take: takeAll blocks forever on an empty queue. Loop until a
+    // pass polls empty so intents staged mid-drain join it. Only the first pass
+    // can see a genuinely empty cold boot and open the hub fallback.
     let failed = false;
     let drainedAny = restored;
     for (;;) {
@@ -187,57 +156,45 @@ const makeStartupDrainImpl = Effect.gen(function* () {
     yield* Ref.set(readyToDispatchRef, true);
     if (failed) {
       yield* logWindowWarning("startup drain finished with failures");
-      return yield* Effect.fail(
-        new ElectronWindow.ElectronWindowCreateError({
-          options: {
-            title: null,
-            width: null,
-            height: null,
-            minWidth: null,
-            minHeight: null,
-            show: null,
-            modal: null,
-            frame: null,
-            transparent: null,
-            backgroundColor: null,
-            webPreferences: {
-              preload: null,
-              partition: null,
-              backgroundThrottling: null,
-              sandbox: null,
-              contextIsolation: null,
-              nodeIntegration: null,
-              webviewTag: null,
-            },
+      return yield* new ElectronWindow.ElectronWindowCreateError({
+        options: {
+          title: null,
+          width: null,
+          height: null,
+          minWidth: null,
+          minHeight: null,
+          show: null,
+          modal: null,
+          frame: null,
+          transparent: null,
+          backgroundColor: null,
+          webPreferences: {
+            preload: null,
+            partition: null,
+            backgroundThrottling: null,
+            sandbox: null,
+            contextIsolation: null,
+            nodeIntegration: null,
+            webviewTag: null,
           },
-          cause: new Error("startup drain: one or more windows failed to open"),
-        }),
-      );
+        },
+        cause: new Error("startup drain: one or more windows failed to open"),
+      });
     }
   });
 
-  // Exactly one ready signal owns each consume. The winner claims the slot
-  // with a single atomic Ref.modify — never a synchronous read-then-write,
-  // which the concurrent ready race slips between (both signals read empty
-  // before either writes, so both run the body and split the queue; the
-  // concurrent test pins this). The loser parks on the winner's completion
-  // Deferred, then observes the consumed queue through the cold-start guard
-  // and no-ops instead of re-polling. A semaphore cannot do this:
-  // withPermit releases around every interruptible window open, so two
-  // drains interleave poll/open/poll/open and split the queue. The slot
-  // resets in the same step where completion is signaled, so the next
-  // generation of ready signals drains anew and losers always await live.
+  // Exactly one ready signal owns each consume; losers park on the winner's
+  // Deferred. Not a semaphore: withPermit releases around each interruptible
+  // window open, so two drains would interleave and split the queue. The slot
+  // resets as completion is signaled, so the next ready signals drain anew.
   const drain = (
     services: StartupDrainServices,
     resolveOpeners: () => WindowOpeners,
   ): Effect.Effect<void, DesktopWindowError> =>
     Effect.flatMap(Deferred.make<void>(), (fresh) =>
       Effect.flatMap(
-        // Claim the winner slot atomically: exactly one concurrent signal
-        // swaps in its Deferred, every other signal observes the winner's
-        // and parks. Never a synchronous read-then-write — the concurrent
-        // ready race slips between the read and the write, so both signals
-        // run the body and split the queue (the concurrent test pins this).
+        // Atomic claim: a read-then-write lets both racing signals run the
+        // body and split the queue (the concurrent test pins this).
         Ref.modify(drainWaiters, (predecessor) => {
           if (predecessor !== undefined) return [predecessor, predecessor] as const;
           return [fresh, fresh] as const;

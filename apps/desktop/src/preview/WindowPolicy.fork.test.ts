@@ -66,6 +66,7 @@ const idleState = (tabId: string): PreviewTabState => ({
   colorScheme: "system",
   audioMuted: false,
   audible: false,
+  capturing: false,
   controller: "none",
   updatedAt: "2026-09-03T00:00:00.000Z",
 });
@@ -322,11 +323,9 @@ describe("desktop preview window policy", () => {
     const firstSend = vi.fn();
     const secondSend = vi.fn();
     const getById = vi.fn((windowId: WindowId) =>
-      Effect.succeed(
-        Option.some({
-          webContents: { send: windowId === firstWindowId ? firstSend : secondSend },
-        } as never),
-      ),
+      Effect.succeedSome({
+        webContents: { send: windowId === firstWindowId ? firstSend : secondSend },
+      } as never),
     );
     let stateListener: (
       owner: WindowPolicy.PreviewOwner,
@@ -516,7 +515,7 @@ describe("desktop preview window policy", () => {
     return Effect.gen(function* () {
       const resolved = yield* WindowPolicy.resolvePreviewForSender(
         { sender },
-        { windowIdFor: () => Effect.succeed(Option.some(firstWindowId)) } as never,
+        { windowIdFor: () => Effect.succeedSome(firstWindowId) } as never,
         { forWindow } as never,
         authorizationError,
       );
@@ -534,7 +533,7 @@ describe("desktop preview window policy", () => {
 
     return WindowPolicy.resolvePreviewForSender(
       { sender },
-      { windowIdFor: () => Effect.succeed(Option.none()) } as never,
+      { windowIdFor: () => Effect.succeedNone } as never,
       null as never,
       authorizationError,
     ).pipe(

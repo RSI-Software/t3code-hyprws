@@ -29,12 +29,9 @@ import type { PreviewManager, PreviewManagerError, PreviewTabState } from "./Man
 import type { RecordingInputOptions } from "./RecordingInput.ts";
 
 /**
- * Fork-owned preview policy for desktop windows.
- *
- * The upstream preview manager still owns Chromium behavior. This module owns
- * which desktop window gets an instance, which sender may reach it, and where
- * its events are delivered. Every instance is owned by one `WindowId`, except
- * the app instance behind upstream's window-less `PreviewManager` surface.
+ * Which desktop window gets a preview instance, which sender may reach it, and
+ * where its events go; upstream still owns Chromium behavior. Each instance has
+ * one `WindowId` owner, except the app instance behind `PreviewManager`.
  */
 export const APP_PREVIEW_OWNER = "app";
 export type PreviewOwner = WindowId | typeof APP_PREVIEW_OWNER;
@@ -190,13 +187,13 @@ const deliverOwned = <A>(
     listeners,
     (listener) =>
       Effect.suspend(() => deliver(listener)).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterrupts(cause)
-            ? Effect.failCause(cause)
-            : Effect.logWarning("Desktop preview event listener failed.", {
-                eventKind: kind,
-                cause,
-              }),
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterrupts(cause),
+          (cause) =>
+            Effect.logWarning("Desktop preview event listener failed.", {
+              eventKind: kind,
+              cause,
+            }),
         ),
       ),
     { discard: true },
@@ -401,11 +398,9 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     });
   });
 
-  // Upstream prepares every attached guest through its window-less manager, but
-  // a guest belongs to the window whose renderer hosts it. That window's
-  // operations must open the guest's control session: one opened by the app
-  // instance would leave the window's own registerWebview facing an attached
-  // debugger it does not own.
+  // A guest belongs to the window whose renderer hosts it, so that window must
+  // open its control session; one opened by the app instance would leave the
+  // window's registerWebview facing a debugger it does not own.
   const prepareWebview = Effect.fn("PreviewWindowPolicy.prepareWebview")(function* (
     guest: Electron.WebContents,
   ) {

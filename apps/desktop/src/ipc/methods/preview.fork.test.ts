@@ -269,13 +269,11 @@ describe("fork preview IPC ownership", () => {
     }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
         getById: (windowId: WindowId) =>
-          Effect.succeed(
-            Option.some({
-              webContents: {
-                send: windowId === projectWindowId ? firstSend : secondSend,
-              },
-            } as never),
-          ),
+          Effect.succeedSome({
+            webContents: {
+              send: windowId === projectWindowId ? firstSend : secondSend,
+            },
+          } as never),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, {
         subscribeOwnedStateChanges: (listener: typeof stateListener) =>
@@ -300,15 +298,13 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.startRecording.handler({ tabId: "owned-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
+        windowIdFor: () => Effect.succeedSome(projectWindowId),
       } as never),
       Effect.provideService(DesktopClientSettings.DesktopClientSettings, {
-        get: Effect.succeed(
-          Option.some({
-            browserRecordingShowKeyPresses: true,
-            browserRecordingShowMousePresses: false,
-          }),
-        ),
+        get: Effect.succeedSome({
+          browserRecordingShowKeyPresses: true,
+          browserRecordingShowMousePresses: false,
+        }),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, {
         forWindow: (requested: WindowId) =>
@@ -338,7 +334,7 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.closeTab.handler({ tabId: "owned-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
+        windowIdFor: () => Effect.succeedSome(projectWindowId),
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, {
         forWindow: () => Effect.succeed({ closeTab } as never),
@@ -359,7 +355,7 @@ describe("fork preview IPC ownership", () => {
 
     return PreviewIpc.closeTab.handler({ tabId: "other-tab" }, { sender }).pipe(
       Effect.provideService(ElectronWindow.ElectronWindow, {
-        windowIdFor: () => Effect.succeed(Option.none()),
+        windowIdFor: () => Effect.succeedNone,
       } as never),
       Effect.provideService(PreviewManager.PreviewManager, null as never),
       Effect.exit,
@@ -383,7 +379,7 @@ describe("fork preview IPC ownership", () => {
     return Effect.map(
       PreviewIpc.registerWebview.handler({ tabId: "tab-1", webContentsId: 0 }, { sender }).pipe(
         Effect.provideService(ElectronWindow.ElectronWindow, {
-          windowIdFor: () => Effect.succeed(Option.some(projectWindowId)),
+          windowIdFor: () => Effect.succeedSome(projectWindowId),
         } as never),
         Effect.provideService(PreviewManager.PreviewManager, {
           forWindow: () => Effect.succeed({ registerWebview } as never),

@@ -1,11 +1,9 @@
 import type { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
 /**
- * How long the new-thread path waits for the project file before falling back
- * to the global default. The query never settles while the environment is
- * unreachable, and a draft is client-side state that must not wait on the
- * network: without this bound, opening a project whose environment is down
- * leaves the route stuck with nothing rendered.
+ * The new-thread path's wait for the project file before using the global default. The
+ * query never settles while the environment is unreachable, and a client-side draft must
+ * not wait on the network, or a project whose environment is down renders nothing.
  */
 const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
 

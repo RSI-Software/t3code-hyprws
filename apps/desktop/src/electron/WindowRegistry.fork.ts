@@ -13,14 +13,9 @@ import type { WindowId } from "../window/WindowId.fork.ts";
 import { type WindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
 
 /**
- * Fork-owned registry of the app windows main created, keyed by `WindowId`.
- *
- * What a window shows (`identity`) is data on its record, never its key; a
- * lookup by identity is a scan. A record leaves the registry when its window
- * closes or is found destroyed, so no caller ever reads a dead window back.
- *
- * Only windows main created are registered, so the connecting splash, DevTools
- * and popups are never a request target.
+ * App windows main created, keyed by `WindowId` (`identity` is data, so lookup
+ * by it is a scan). Records leave when the window closes or is found destroyed.
+ * The splash, DevTools, and popups are never registered, so never a target.
  */
 export interface RegisteredWindow {
   readonly windowId: WindowId;
