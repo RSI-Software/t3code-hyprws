@@ -7,7 +7,7 @@ import type {
   ThreadPullRequestWatch,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { threadPullRequestKeyOf } from "@t3tools/shared/threadPullRequests";
+import { threadPullRequestKeyOf } from "../sourceControl/threadPullRequests.ts";
 
 /** Bounds consecutive comment-only wakes to stop bot reply loops; check, conflict, or push news resets it. */
 export const PULL_REQUEST_WATCH_WAKE_LIMIT = 10;
