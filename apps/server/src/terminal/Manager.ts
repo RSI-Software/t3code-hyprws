@@ -2205,11 +2205,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         yield* Effect.sleep(DEFAULT_PERSIST_DEBOUNCE_MS);
       }
 
-      const parsed = Schema.decodeUnknownOption(
-        Schema.fromJsonString(
-          Schema.Tuple([Schema.String, Schema.String, Schema.NullOr(Schema.String)]),
-        ),
-      )(sessionKey);
+      const parsed = decodeSessionKey(sessionKey); // fork-hook: zmux-estate/persist-history-key
       if (Option.isNone(parsed)) {
         return;
       }
@@ -2835,10 +2831,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       // and the re-resolution keeps the strict readiness receipt.
       options.ensureZmuxSession && !(yield* resolveOnlyForSettledThread(session.threadId))
         ? ensureZmuxSession(targetDir, expectedMatch).pipe(
-            Effect.flatMap((ensured) =>
-              ensured.target
-                ? resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
-                : Effect.succeed(ensured),
+            Effect.filterOrElse(
+              (ensured) => !ensured.target,
+              () => resolveZmuxSession(targetDir, expectedMatch, spawnEnv),
             ),
           )
         : resolveZmuxSession(targetDir, expectedMatch, spawnEnv)
