@@ -60,10 +60,14 @@ export const threadGroupTitleLoaderLayer: Layer.Layer<
       RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
     );
     return ThreadGroupTitleLoader.of({
-      generate: (prepared, request) =>
-        fetchEnvironmentThreadGroupTitle({ prepared, request, signer, remoteAuthorization }).pipe(
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-        ),
+      generate: Effect.fn("ThreadGroupTitleLoader.generate")(function (prepared, request) {
+        return fetchEnvironmentThreadGroupTitle({
+          prepared,
+          request,
+          signer,
+          remoteAuthorization,
+        }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient));
+      }),
     });
   }),
 );
