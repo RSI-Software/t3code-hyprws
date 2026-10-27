@@ -110,6 +110,7 @@ import {
   focusTerminalViewport,
   registerTerminalFocusTarget,
 } from "../lib/terminalFocus";
+import { useReattachFocusFork } from "./terminalReattachFocus.fork"; // fork-hook: zmux-estate/terminal-reattach-focus
 import {
   resolveTerminalFontPreference,
   resolveTerminalFontSizePreference,
@@ -546,17 +547,6 @@ export function shouldHandleTerminalExit(
   );
 }
 
-export function shouldRestoreTerminalFocusAfterResume(input: {
-  attached: boolean;
-  status: TerminalSessionState["status"];
-  restoreRequested: boolean;
-  focusPending: boolean;
-}): boolean {
-  return (
-    input.attached && input.status === "running" && input.restoreRequested && input.focusPending
-  );
-}
-
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -614,6 +604,8 @@ function TerminalSessionViewport({
   restoreFocusOnReattach,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const reattachFocusFork = useReattachFocusFork(attached, restoreFocusOnReattach, containerRef); // fork-hook: zmux-estate/terminal-reattach-focus
+  const resumeReattachFocus = useEffectEvent(reattachFocusFork.resume); // fork-hook: zmux-estate/terminal-reattach-focus
   const autoFocusedRef = useRef(false);
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
   const visibleRef = useRef(visible);
@@ -655,10 +647,6 @@ function TerminalSessionViewport({
   }); // fork-hook: zmux-estate/checkout-launch-identity
   const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
-  const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
-  const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
-  const restoreFocusAfterAttachRef = useRef(false);
-  const wasAttachedRef = useRef(attached);
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
@@ -867,6 +855,7 @@ function TerminalSessionViewport({
       if (latestSession.error !== null) writeSystemMessage(terminal, latestSession.error);
       synchronizedStatusRef.current = "closed";
       synchronizeTerminalStatus(terminal, latestSession.status, latestSession.version);
+      resumeReattachFocus(latestSession.status, () => terminal.focus()); // fork-hook: zmux-estate/terminal-reattach-focus
       // Read and subscribe in one synchronous step so no output lands between them.
       let previousSession = latestSession;
       let resizeGeneration = writableSessionGeneration(latestSession, hasTerminalWriteAccess());
@@ -882,6 +871,7 @@ function TerminalSessionViewport({
           const previous = previousSession;
           previousSession = session;
           synchronizeTerminalStatus(terminal, session.status, session.version);
+          resumeReattachFocus(session.status, () => terminal.focus()); // fork-hook: zmux-estate/terminal-reattach-focus
           if (previous.lifecycleVersion !== session.lifecycleVersion) terminal.resetSession(""); // fork-hook: zmux-estate/terminal-selection-reset
           outputCursorRef.current = lifecycleCursorFork(outputCursorRef.current, previous, session); // fork-hook: zmux-estate/terminal-lifecycle-output
           outputCursorRef.current = synchronizeTerminalSession(
