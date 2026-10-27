@@ -28,12 +28,9 @@ export interface CommandOptions {
 }
 
 /**
- * A wedged child — a stuck network call, a prompt with nothing left to answer it — used to hang
- * forever; only an external CI job's own timeout-minutes ever ended it. This bounds every command
- * that does not name its own timeout. 45 minutes clears the slowest ordinary fork-walk step (a
- * 275-commit rebase, `vp i`, `fork:scan`, `fork:delta --check`) with room to spare; a caller whose
- * command is legitimately allowed to run longer (a CI-watch poll, a release-workflow wait) must
- * say so with its own explicit `timeout`.
+ * Bounds every command that names no timeout, so a wedged child cannot hang forever. 45 minutes
+ * clears the slowest ordinary fork-walk step (a 275-commit rebase, `vp i`, `fork:scan`); a command
+ * allowed to run longer (a CI-watch poll, a release-workflow wait) passes its own `timeout`.
  */
 export const DEFAULT_COMMAND_TIMEOUT_MS = 45 * 60 * 1000;
 

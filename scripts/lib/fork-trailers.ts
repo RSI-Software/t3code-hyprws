@@ -58,33 +58,17 @@ export const forkLogArguments = (base: string, head: string) =>
   ] as const;
 
 /**
- * Squash messages routinely carry a trailer block more than once (18 of the last 400 trunk commits
- * repeat `Fork-Domain`, some five times). Repetition itself is benign — every observed duplicate
- * agrees on the value — so the parser only fails when the copies disagree: the proof checks can
- * never validate a copy they were never shown, so a stale first copy next to a corrected later one
- * would otherwise pass in silence (see 43e1a15ad3, where the whole block landed twice).
+ * Squash messages often repeat a trailer block, and every observed duplicate agrees, so repetition
+ * is benign. Copies that disagree fail: the proof checks validate one copy, so a stale copy beside
+ * a corrected one would otherwise pass in silence.
  */
 class DuplicateForkTrailerError extends Error {}
 
 /**
- * The commit's trailer block, read from the body's final paragraph only.
- *
- * A "tail material" line is one of — each entry is here because a real trunk commit has that
- * shape at the end of its message, in or after the trailer block:
- *
- * - blank line (message padding);
- * - a whole-line HTML comment (the landing tool's `<!-- gh-bot:attest ... -->` / stack marker);
- * - `Co-authored-by:` (GitHub UI squashes append the co-author after the real trailer block);
- * - `(cherry picked from commit <sha>)` (git appends it after the block on cherry-pick -x;
- *   see c324f9bab0, where it sits inside the block directly after the co-author line);
- * - a `---`-or-more separator (see 8778853f80);
- * - a `Closes|Fixes|Resolves|Refs ... #<n>` reference line (see 47852a62a9).
- *
- * Trailing paragraphs made up entirely of tail material are dropped; the last remaining paragraph
- * is the trailer block iff every line is `Key: value` or tail material and at least one line is
- * `Key: value` (tail noise inside the block is tolerated but never parsed). Prose paragraphs are
- * never walked across, so a prose sentence above the block that mentions `Fork-Tier:` (see
- * 1c2f9d5628) stays out; a body whose final paragraph is not trailer-shaped has no trailers.
+ * The trailer block is the final paragraph left after dropping trailing paragraphs of tail material:
+ * blank lines, whole-line HTML comments, `Co-authored-by:`, cherry-pick notes, `---` separators, and
+ * `Closes|Fixes|Resolves|Refs ... #<n>` lines. Every line must be `Key: value` or tail material, at
+ * least one `Key: value`; prose above the block is never walked across.
  */
 const TAIL_LINE = [
   /^\s*$/,
