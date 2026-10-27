@@ -274,12 +274,9 @@ const SQUASH_MARKER = /\(#(\d+)\)\s*$/;
 const SQUASH_MEMBER_LINE = /^- [0-9a-f]{7,40}\b/;
 
 /**
- * The fork pull requests a commit cites, as full `RSI-Software/t3code-hyprws#N`
- * refs in first-seen order: its subject's squash marker, a fork pull URL in its
- * message, and refs already listed on an earlier fold's `Squashes:` lines, full
- * or as a bare `(#N)` marker. A bare `#N` in a body is usually an issue
- * (`Closes #N`), and any other repo's ref posts backlinks upstream, so neither
- * is carried.
+ * The fork pull requests a commit cites, as full `RSI-Software/t3code-hyprws#N` refs in first-seen
+ * order: its subject's squash marker, fork pull URLs, and earlier `Squashes:` refs, full or bare
+ * `(#N)`. A bare `#N` in a body is usually an issue, and another repo's ref backlinks upstream.
  */
 export const forkPullRequests = (message: string): ReadonlyArray<string> => {
   const normalized = message.replace(/\r\n/g, "\n");
