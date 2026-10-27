@@ -1,12 +1,7 @@
-// Fork-owned send guards (RSI-Software/t3code-hyprws device-auth domain) for a
-// caller that vetted a thread before sending to it. `steerTarget` on
-// `ThreadManagementService.sendToThread` names the one provider attempt the
-// message may join: `auto` queues instead of joining another, and `steer` or
-// `restart` fails. `expectedModes` names the thread modes the caller vetted.
-// Both ride on `message.dispatch`, and the orchestrator refuses the send under
-// the thread lock once the run has moved to another attempt or the modes have
-// changed. The guard holds at dispatch commit; modes the owner sets afterwards
-// govern turns that resolve their runtime policy later, as for any message.
+// Fork-owned send guards for a caller that vetted a thread before sending. `steerTarget` names
+// the one provider attempt the message may join (`auto` queues instead; `steer` or `restart`
+// fails) and `expectedModes` the vetted modes. Both ride on `message.dispatch`, which refuses
+// the send under the thread lock once the attempt or modes changed before commit.
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2Command,

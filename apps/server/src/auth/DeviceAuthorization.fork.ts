@@ -138,11 +138,9 @@ export class DeviceAuthorizationStore extends Context.Service<
       DeviceAuthorizationStoreError
     >;
     /**
-     * Grants `scopes` when given, else the requested scopes, else the standard
-     * client scopes. `scopes` may narrow a request but never widen it; with no
-     * request it may name any environment scope.
-     *
-     * `mcpPolicy` instead grants an external MCP client: no scopes, and the
+     * Grants `scopes` when given, else the requested scopes, else the standard client scopes.
+     * `scopes` may narrow a request but never widen it; with no request it may name any
+     * environment scope. `mcpPolicy` instead grants an external MCP client no scopes, with the
      * policy as the session's only authority.
      */
     readonly approve: (input: {

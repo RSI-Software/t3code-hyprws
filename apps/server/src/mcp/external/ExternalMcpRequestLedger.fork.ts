@@ -48,11 +48,10 @@ export const makeExternalMcpRequestLedger = Effect.gen(function* () {
   const lock = yield* Semaphore.make(1);
 
   /**
-   * Runs `execute` once per `(session, operation, key)`. A retry with the same
-   * fingerprint replays the stored result; a different fingerprint fails. A
-   * request whose earlier attempt never recorded a result runs again, so
-   * `execute` must recover what that attempt already committed, through its
-   * stable ids or its pin, before it selects anything from the live thread.
+   * Runs `execute` once per `(session, operation, key)`: the same fingerprint replays the stored
+   * result and a different one fails. An attempt that never recorded a result runs again, so
+   * `execute` must recover what it already committed, through its stable ids or its pin, before
+   * it selects anything from the live thread.
    */
   const run = <A, I>(
     input: {
