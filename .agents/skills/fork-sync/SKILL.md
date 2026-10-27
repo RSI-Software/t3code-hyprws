@@ -176,6 +176,9 @@ mkdir -p /tmp/fork-bin && ln -sf "$PWD/node_modules/.bin/vp" /tmp/fork-bin/vp
 PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag>
 ```
 
+**Foreground only.** Run every command to completion; leave no background process before the reply.
+A live one holds the job open and can rewrite the marker after the bundle.
+
 **Decide every seam.** Uncertainty never blocks a job:
 
 - **Default:** upstream stands; port at the tip
