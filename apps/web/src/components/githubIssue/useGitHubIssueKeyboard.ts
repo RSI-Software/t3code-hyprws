@@ -47,13 +47,10 @@ function copyIssueLink(url: string) {
 }
 
 /**
- * The issue list's keyboard, matching the pull request page where the two share a gesture.
- *
- * The returned handler goes on an element holding both the search field and the rows, and walks
- * focus between them with the arrow keys; Enter on a row already opens it. With `page` set, the
- * page also answers the shortcuts ChatView would own elsewhere: Mod+F focuses the search, the
- * right panel's close shortcut closes the open issue and the copy-reference shortcut copies its
- * link. A thread's issues panel leaves those to the thread around it.
+ * Matches the pull request page. The returned handler goes on an element holding the search
+ * field and rows and walks focus with the arrow keys. With `page` set it also answers the
+ * shortcuts ChatView owns elsewhere (Mod+F, panel close, copy reference); a thread's issues
+ * panel leaves those to the thread around it.
  */
 export function useGitHubIssueKeyboard({
   page,
@@ -97,6 +94,7 @@ export function useGitHubIssueKeyboard({
       if (!event.repeat) copyIssueLink(openIssueUrl);
     }
   });
+  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to document `keydown` DOM events for page-level shortcuts.
   useEffect(() => {
     if (!page) return;
     const onKeyDown = (event: KeyboardEvent) => onPageShortcut(event);
