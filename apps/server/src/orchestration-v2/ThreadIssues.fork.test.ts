@@ -12,7 +12,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -56,6 +55,7 @@ const CheckpointStoreTestLayer = CheckpointStore.layer.pipe(
 const EmptyProviderInstanceRegistry = Layer.succeed(
   ProviderInstanceRegistry.ProviderInstanceRegistry,
   {
+    // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
     getInstance: () => Effect.succeed(undefined),
     listInstances: Effect.succeed([]),
     listUnavailable: Effect.succeed([]),
@@ -80,7 +80,7 @@ const TestLayer = RuntimeLayer.layer.pipe(
   ),
   Layer.provide(
     Layer.mock(ProjectService.ProjectService)({
-      getById: () => Effect.succeed(Option.none()),
+      getById: () => Effect.succeedNone,
     }),
   ),
   Layer.provide(PlatformTestLayer),
