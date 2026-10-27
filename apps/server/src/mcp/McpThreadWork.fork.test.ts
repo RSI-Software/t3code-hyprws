@@ -1,8 +1,7 @@
-// The work view on `/mcp` and `/api/mcp/external` against the shapes the UI
-// reads: an owner whose run completed with subagents still running, and
-// provider-native subagent threads, which have no runs. Shells come from the
-// real shell projection, so the view and the sidebar's "Waiting on N
-// subagents" read the same derivation.
+// The work view on `/mcp` and `/api/mcp/external` against the shapes the UI reads: an owner
+// whose run completed with subagents still running, and provider-native subagent threads with
+// no runs. Shells come from the real shell projection, so the view and the sidebar's "Waiting
+// on N subagents" read the same derivation.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -20,7 +19,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -428,7 +426,7 @@ const makeHarness = () => {
       Layer.mergeAll(
         threadManagement,
         Layer.mock(ProjectService.ProjectService)({
-          getShell: (projectId) => Effect.succeed(Option.some(projectShell(projectId))),
+          getShell: (projectId) => Effect.succeedSome(projectShell(projectId)),
           listShells: () => Effect.succeed([projectShell(granted), projectShell(other)]),
         }),
         Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),

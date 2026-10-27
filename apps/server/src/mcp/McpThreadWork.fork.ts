@@ -1,10 +1,7 @@
-// Fork-owned work view for thread reads on `/mcp` and `/api/mcp/external`
-// (RSI-Software/t3code-hyprws device-auth domain). Run status alone reads a
-// thread as finished while the provider still works in the background: a
-// foreground turn that ended with subagents or monitors left running, or a
-// provider-native subagent thread, which has no runs at all. This reads the
-// same projection the UI shows, so an agent watching a thread sees what the
-// sidebar's "Waiting on N subagents" sees.
+// Fork-owned work view for thread reads on `/mcp` and `/api/mcp/external`. Run status alone
+// reads a thread as finished while the provider still works: a turn that ended with subagents
+// or monitors running, or a provider-native subagent thread with no runs. This reads the same
+// projection as the sidebar's "Waiting on N subagents".
 import {
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,

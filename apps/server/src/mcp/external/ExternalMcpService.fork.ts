@@ -573,8 +573,8 @@ const make = Effect.gen(function* () {
           }),
       );
     }),
-    listProjects: (principal) =>
-      projects
+    listProjects: Effect.fn("ExternalMcpService.listProjects")(function (principal) {
+      return projects
         .listShells(
           principal.policy.projectIds === "*"
             ? undefined
@@ -591,7 +591,8 @@ const make = Effect.gen(function* () {
               })),
           ),
           Effect.mapError((error) => failure("orchestration_error", errorMessage(error))),
-        ),
+        );
+    }),
 
     listThreads: Effect.fn("ExternalMcpService.listThreads")(function* (principal, input) {
       yield* loadProject(principal, input.projectId);

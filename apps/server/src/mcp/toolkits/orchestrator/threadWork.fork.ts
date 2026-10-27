@@ -1,9 +1,7 @@
-// Fork-owned work view on the in-thread `/mcp` thread tools
-// (RSI-Software/t3code-hyprws device-auth domain). Upstream's list, read, and
-// wait report run status only, so a thread whose run ended with subagents,
-// monitors, or delegated children still running reads as done. List, read, and
-// a run wait call the upstream service first, which keeps its authorization and
-// output, then add the work `/api/mcp/external` reports.
+// Fork-owned work view on the in-thread `/mcp` thread tools. Upstream's list, read, and wait
+// report run status only, so a thread whose run ended with subagents, monitors, or delegated
+// children still running reads as done. List, read, and run waits call the upstream service
+// first, keeping its authorization and output, then add the work `/api/mcp/external` reports.
 import {
   type OrchestrationV2ThreadShell,
   OrchestratorMcpFailure,
