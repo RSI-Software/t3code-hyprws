@@ -27,22 +27,10 @@ import * as SessionStore from "./SessionStore.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 
 /**
- * Owner-approved device authorization for native clients, shaped like RFC 8628.
- *
- * A client starts at `POST /oauth/device_authorization` and receives a secret
- * device code plus a short user code. The environment owner reads the pending
- * request with `t3 auth device list` and approves it by user code with
- * `t3 auth device approve`. The client then polls `POST /oauth/device_token`
- * with its device code and receives the access token directly, so the
- * credential never passes through the owner or any other channel.
- *
- * A DPoP proof at the start binds the request, and the issued session, to the
- * client's key; polling must then prove the same key.
- *
- * Both routes are unauthenticated, so neither writes per-request state outside
- * the capped table: proofs are checked without the shared replay markers, and
- * a bound row instead accepts each poll proof only with a later `iat` than the
- * last one.
+ * Owner-approved device authorization shaped like RFC 8628: once the owner approves the user
+ * code (`t3 auth device approve`), polling `POST /oauth/device_token` returns the token directly.
+ * A DPoP proof binds the request and session to the client's key. The unauthenticated routes
+ * write nothing outside the capped table, so a poll proof needs a later `iat` than the last.
  */
 
 export const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
