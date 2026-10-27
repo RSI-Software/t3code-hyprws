@@ -25,7 +25,7 @@ The rebase refuses a rebased tip that dropped any PR link, except from a commit 
 | Step    | Does                                           | Fails when               |
 | ------- | ---------------------------------------------- | ------------------------ |
 | fetch   | `upstream` tags, `origin/hyprws`, the marker   | fetch error              |
-| target  | named tag, marker's tag, or newest release     | not a release tag        |
+| target  | named, kept, marker's, or newest tag           | not a release tag        |
 | rebase  | `git rebase -i --autosquash <tag>`             | a seam no resolver fixes |
 | carry   | cherry-picks trunk commits since the lease     | a pick conflicts         |
 | ci      | land: [candidate CI](#candidate-ci) on the tip | the run is not green     |
