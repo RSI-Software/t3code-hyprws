@@ -1340,12 +1340,9 @@ const localForkCi = (runner: CommandRunner, root: string, sha: string): string |
 };
 
 /**
- * hyprws CI's verdict on `sha`. A sha with a run already, such as a red run
- * rerun by hand, reuses it. Any other sha runs the local fork:ci first, so a
- * lint, ledger, fold, or scan refusal costs minutes instead of a CI round,
- * and is then force-pushed to the candidate branch. The driver polls until
- * the run completes, and a run that never starts or never
- * finishes is not green.
+ * hyprws CI's verdict on `sha`. A sha with a run reuses it; any other runs the local
+ * `vp run fork:ci` first, so a refusal costs minutes instead of a CI round, then force-pushes to
+ * the candidate branch. Polls until the run completes; one that never starts or ends is not green.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
   let latest = latestCiRun(runner, root, sha);
