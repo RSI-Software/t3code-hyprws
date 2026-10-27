@@ -327,5 +327,6 @@ export function applyWindowSidebarScopeSeed(groups: SeedGroups, settled: boolean
 
 /** Applies this window's seed project once the sidebar's project groups resolve it. */
 export function useWindowSidebarScopeSeed(groups: SeedGroups, settled: boolean): void {
+  // oxlint-disable-next-line t3code/react-effect-budget -- writes the resolved seed project into the external UI-state store.
   useEffect(() => applyWindowSidebarScopeSeed(groups, settled), [groups, settled]);
 }
