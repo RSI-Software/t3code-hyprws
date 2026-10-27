@@ -223,24 +223,17 @@ export const testCaseTitles = (text: string): ReadonlyArray<string> =>
   caseOpeners(text).map((opener) => opener.title);
 
 /**
- * The 1-based lines opening a sibling test case (`it`/`test`/`effectIt`
- * with a string-literal title), in source order. A forkSupersedes call
- * belongs to the case whose opener is nearest at-or-after its own
- * line — the doc-comment convention in the tree puts the declaration
- * immediately before the case it documents. A declaration after the
- * last case opener belongs to none.
+ * The 1-based lines opening a sibling test case (`it`/`test`/`effectIt` with a literal title), in
+ * order. A forkSupersedes call belongs to the nearest opener at-or-after its line, since it sits
+ * right before the case it documents; a declaration after the last opener belongs to none.
  */
 export const siblingCaseOpenerLines = (text: string): ReadonlyArray<number> =>
   caseOpeners(text).map((opener) => opener.start + 1);
 
 /**
- * The upstream titles a sibling text declares as superseded for one upstream
- * path, excused one per documented sibling case. Declarations resolve to
- * the nearest case opener at-or-after their own line; each documented case
- * excuses exactly one declaration, so five declarations stacked before one
- * case excuse one deletion and a declaration after the last opener excuses
- * none (RSI-Software/t3code-hyprws#1208). Additive-only reader over
- * `collectForkSupersedes`; the parser itself is untouched.
+ * The upstream titles a sibling declares superseded for one upstream path, excused one per
+ * documented case: each declaration resolves to the nearest opener at-or-after it, so five stacked
+ * before one case excuse one deletion and one after the last opener excuses none.
  */
 export const enclosedSupersededTitles = (text: string, path: string): ReadonlyArray<string> => {
   const openers = siblingCaseOpenerLines(text);
@@ -316,11 +309,8 @@ const significantLines = (text: string): Array<string> =>
     );
 
 /**
- * The significant lines of the named case in a test file's text: from its
- * opener to the next case opener (or end of file). Null when no case
- * carries the title. A declaration names one upstream case, so validation
- * reads that case — never the whole file
- * (RSI-Software/t3code-hyprws#1206).
+ * The significant lines of the named case: its opener to the next opener or end of file, or null
+ * when no case carries the title. A declaration names one case, so validation reads only that.
  */
 const caseBodyForTitle = (text: string, title: string): ReadonlyArray<string> | null => {
   const lines = caseSourceLines(text, title);

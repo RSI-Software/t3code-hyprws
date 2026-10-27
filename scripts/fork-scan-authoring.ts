@@ -1,19 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// Authoring guards for `vp run fork:scan`. Each rule names a
-// shape a later rebase pays for, at the moment a fork commit creates it:
-//
-// - upstream-test: the commit adds a fork test block to an upstream-owned test
-//   file instead of its `*.fork.test.ts` sibling, or rewrites an upstream
-//   assertion in place (a same-size swap nets to zero added blocks, so the
-//   removed side is the whole shape).
-// - replaced-export: the commit deletes an upstream-owned exported declaration
-//   and re-declares it, so every later upstream edit to it lands invisibly.
-//
-// (RSI-Software/t3code-hyprws#1190: smallest form of the old authoring-guard
-// cluster; footprint, lockfile, boundary, seam, and reshape rules do not come
-// back.) Warnings on commits in the `--since` range fail the scan; historical
-// range stays advisory.
+// Authoring guards for `vp run fork:scan`, each naming a shape a later rebase pays for:
+// upstream-test (a fork block added to an upstream test file instead of its `*.fork.test.ts`
+// sibling, or an upstream assertion rewritten in place) and replaced-export (an upstream export
+// deleted and re-declared). `--since` range warnings fail the scan; the historical range is advisory.
 
 import {
   caseSourceLines,
