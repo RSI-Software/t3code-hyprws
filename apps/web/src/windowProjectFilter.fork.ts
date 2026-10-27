@@ -50,6 +50,7 @@ export function useWindowProjectFilter(
 
 /** Runs `onChange` after every write to this window's filter. */
 export function useWindowProjectFilterChange(onChange: () => void) {
+  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to the external window filter store.
   useEffect(() => windowProjectFilterState().subscribe(onChange), [onChange]);
 }
 
