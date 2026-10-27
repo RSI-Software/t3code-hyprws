@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request check runs before an Effect runtime exists.
 
-// The sync folds every `fixup! <owner subject>` into the commit it names
-// during its rebase, so a fixup that only applies at the branch tip lands
-// green in pull-request CI and then blocks the next sync
-// (RSI-Software/t3code-hyprws#1554). This check proves the folds before
-// landing: it replays the trunk-plus-branch stack from the upstream base with
-// the sync's own fixup placement (`resolveFixups` and the sequence editor),
-// in a throwaway repository, and requires a stop-free replay whose tree equals
-// the unfolded tip. Rerere stays off: a recorded resolution would mask a stop
-// the replay must report. A stack without fixups skips the replay entirely.
+// The sync folds each `fixup!` into its owner, so a fixup that only applies at the tip passes PR CI
+// and then blocks the next sync. This proves the folds first: it replays the stack with the sync's
+// own fixup placement in a throwaway repo and needs a stop-free replay equal to the unfolded tip.
+// Rerere stays off, since a recorded resolution would mask a stop; no fixups skips the replay.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -61,12 +56,9 @@ const stackSubjects = (git: SystemGit, base: string, head: string): ReadonlyArra
     });
 
 /**
- * Fetch, in one batch, every blob the replay reads (the base tree and the
- * stack's commits) that a partial clone lacks. CI checks out `blob:none`, and
- * the replay runs in a scratch repository with no promisor remote: a folded
- * blob another fetched ref already holds (a sync candidate) reads to a
- * promisor clone as remote-only, so git fetches it instead of writing it, and
- * a lazy fetch of a just-written blob is refused ("not our ref").
+ * Fetch in one batch every blob the replay reads that a partial clone lacks. CI checks out
+ * `blob:none` and the scratch repo has no promisor remote: a blob another fetched ref holds reads
+ * as remote-only, so git fetches instead of writing it, and that lazy fetch is refused.
  */
 const hydrateStack = (git: SystemGit, base: string, head: string): void => {
   const promisor = /^remote\.(.+)\.promisor true$/m.exec(
