@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -113,6 +114,11 @@ const configureSettings = Effect.fn("http.configureSettings")(function* (
   );
 });
 
+/** The dictating project, from the `projectId` query. */
+const projectIdOf = (request: HttpServerRequest.HttpServerRequest) =>
+  Option.getOrUndefined(HttpServerRequest.toURL(request))?.searchParams.get("projectId") ??
+  undefined;
+
 export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
   Layer.mergeAll(
     HttpRouter.add(
@@ -130,7 +136,7 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
               reader: Effect.succeed(reader),
               writer: Effect.succeed(writer),
             });
-            yield* service.stream(connected).pipe(
+            yield* service.stream(connected, projectIdOf(request)).pipe(
               Effect.catch((error) =>
                 Effect.gen(function* () {
                   // The client falls back to batch silently, so the server log is the only trace.
@@ -174,7 +180,7 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
         if (request.headers["content-type"]?.split(";")[0]?.trim() !== "audio/wav")
           return json({ error: "Expected WAV audio." }, 415);
         return yield* readBody(VOICE_INPUT_MAX_BYTES_FORK).pipe(
-          Effect.flatMap(service.transcribe),
+          Effect.flatMap((audio) => service.transcribe(audio, projectIdOf(request))),
           Effect.map((text) => json({ text })),
           Effect.catch(failure),
         );
@@ -182,77 +188,81 @@ export const routes = (service: VoiceInput.VoiceInput["Service"]) =>
     ),
   );
 
-const voiceInputRoutes = Layer.unwrap(Effect.map(VoiceInput.VoiceInput, routes)).pipe(
-  Layer.provide(VoiceInput.layer.pipe(Layer.provide(ServerSecretStore.layer))),
-);
-
-const voiceTextRoutes = Layer.unwrap(
-  Effect.map(VoiceText.VoiceText, (service) => {
-    const post = <S extends Schema.Top & { readonly DecodingServices: never }>(
-      route: string,
-      scope: AuthEnvironmentScope,
-      schema: S,
-      run: (input: S["Type"]) => Effect.Effect<unknown, VoiceText.VoiceTextError>,
-    ) =>
-      HttpRouter.add(
-        "POST",
-        `${VOICE_INPUT_ROUTE_FORK}/text/${route}`,
-        Effect.gen(function* () {
-          const refusal = yield* authorize(scope);
-          if (refusal) return refusal;
-          const request = yield* HttpServerRequest.HttpServerRequest;
-          if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
-            return json({ error: "Expected JSON." }, 415);
-          return yield* readBody(512_000).pipe(
-            Effect.flatMap((bytes) =>
-              Schema.decodeEffect(Schema.fromJsonString(schema))(new TextDecoder().decode(bytes)),
-            ),
-            Effect.mapError((cause) => new VoiceText.VoiceTextError({ reason: "settings", cause })),
-            Effect.flatMap(run),
-            Effect.map((result) => json(result)),
-            Effect.catch((error) =>
-              Effect.succeed(
-                json(
-                  {
-                    error: error.message,
-                    code: error.reason,
-                    ...(error.detail ? { detail: error.detail } : {}),
-                  },
-                  error.reason === "model" || error.reason === "response" ? 502 : 400,
-                ),
+const voiceTextRoutes = (service: VoiceText.VoiceText["Service"]) => {
+  const post = <S extends Schema.Top & { readonly DecodingServices: never }>(
+    route: string,
+    scope: AuthEnvironmentScope,
+    schema: S,
+    run: (input: S["Type"]) => Effect.Effect<unknown, VoiceText.VoiceTextError>,
+  ) =>
+    HttpRouter.add(
+      "POST",
+      `${VOICE_INPUT_ROUTE_FORK}/text/${route}`,
+      Effect.gen(function* () {
+        const refusal = yield* authorize(scope);
+        if (refusal) return refusal;
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json")
+          return json({ error: "Expected JSON." }, 415);
+        return yield* readBody(512_000).pipe(
+          Effect.flatMap((bytes) =>
+            Schema.decodeEffect(Schema.fromJsonString(schema))(new TextDecoder().decode(bytes)),
+          ),
+          Effect.mapError((cause) => new VoiceText.VoiceTextError({ reason: "settings", cause })),
+          Effect.flatMap(run),
+          Effect.map((result) => json(result)),
+          Effect.catch((error) =>
+            Effect.succeed(
+              json(
+                {
+                  error: error.message,
+                  code: error.reason,
+                  ...(error.detail ? { detail: error.detail } : {}),
+                },
+                error.reason === "model" || error.reason === "response" ? 502 : 400,
               ),
             ),
-          );
-        }),
-      );
-    return Layer.mergeAll(
-      HttpRouter.add(
-        "GET",
-        `${VOICE_INPUT_ROUTE_FORK}/text/settings`,
-        Effect.gen(function* () {
-          const refusal = yield* authorize(AuthOrchestrationReadScope);
-          if (refusal) return refusal;
-          return yield* service.settings.pipe(
-            Effect.map((result) => json(result)),
-            Effect.catch((error) =>
-              Effect.succeed(json({ error: error.message, code: error.reason }, 500)),
-            ),
-          );
-        }),
-      ),
-      post("settings", AuthSettingsWriteScope, VoiceTextConfigureFork, service.configure),
-      post("transform", AuthOrchestrationOperateScope, VoiceTextTransformFork, service.transform),
-      post("context", AuthOrchestrationOperateScope, VoiceTextContextFork, service.generateContext),
+          ),
+        );
+      }),
     );
+  return Layer.mergeAll(
+    HttpRouter.add(
+      "GET",
+      `${VOICE_INPUT_ROUTE_FORK}/text/settings`,
+      Effect.gen(function* () {
+        const refusal = yield* authorize(AuthOrchestrationReadScope);
+        if (refusal) return refusal;
+        return yield* service.settings.pipe(
+          Effect.map((result) => json(result)),
+          Effect.catch((error) =>
+            Effect.succeed(json({ error: error.message, code: error.reason }, 500)),
+          ),
+        );
+      }),
+    ),
+    post("settings", AuthSettingsWriteScope, VoiceTextConfigureFork, service.configure),
+    post("transform", AuthOrchestrationOperateScope, VoiceTextTransformFork, service.transform),
+    post("context", AuthOrchestrationOperateScope, VoiceTextContextFork, service.generateContext),
+  );
+};
+
+export const routeLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const voice = yield* VoiceInput.VoiceInput;
+    const text = yield* VoiceText.VoiceText;
+    return Layer.merge(routes(voice), voiceTextRoutes(text));
   }),
 ).pipe(
   Layer.provide(
-    VoiceText.layer.pipe(
+    VoiceInput.layer.pipe(
+      Layer.provideMerge(
+        VoiceText.layer.pipe(
+          Layer.provide(ProjectStore.layer),
+          Layer.provide(ProjectionStore.layer),
+        ),
+      ),
       Layer.provide(ServerSecretStore.layer),
-      Layer.provide(ProjectStore.layer),
-      Layer.provide(ProjectionStore.layer),
     ),
   ),
 );
-
-export const routeLayer = Layer.merge(voiceInputRoutes, voiceTextRoutes);

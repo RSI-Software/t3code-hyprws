@@ -7,13 +7,15 @@ import {
   type VoiceInputState,
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { ThreadRouteTarget } from "../threadRoutes";
 import type { VoicePreviewFork } from "./preview.fork";
 
 export interface DesktopVoiceTargetFork {
   readonly ownerKey: string;
   readonly environmentId: EnvironmentId;
+  /** Selects the project's speech-service terms. */
+  readonly projectId: ProjectId | null;
   readonly label: string;
   readonly route: ThreadRouteTarget;
   readonly readDraft: () => Omit<VoiceDraftSnapshot, "revision"> | null;
