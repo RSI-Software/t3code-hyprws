@@ -587,11 +587,10 @@ const createTipFixupStack = () => {
 };
 
 /**
- * upstream: seed lines l1-l5; optionally the beta pair of createWorktreeStack, whose
- * reorder conflicts on the upstream file; then gamma (fold-c) and delta (fold-d)
- * editing the fork-owned ledger.txt, and a scratch.txt delta creates, gamma edits,
- * and delta deletes. Folding gamma's edit into its lead conflicts only on those
- * fork-owned paths.
+ * Upstream seeds l1-l5, optionally with createWorktreeStack's beta pair (its reorder conflicts on
+ * the upstream file). Gamma (fold-c) and delta (fold-d) edit fork-owned ledger.txt, plus a
+ * scratch.txt delta creates, gamma edits, and delta deletes, so folding gamma's edit into its lead
+ * conflicts only on those fork-owned paths.
  */
 const createLedgerStack = (withUpstreamConflict: boolean) => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-fold-ledger-"));

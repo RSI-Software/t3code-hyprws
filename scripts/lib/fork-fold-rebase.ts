@@ -1,12 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - Standalone fold tool runs before an Effect runtime exists.
 
-// The worktree fallback behind fork-fold apply. The merge-tree fast path stops
-// at the first refused block; from that block on the remaining plan replays as
-// one `git rebase -i --autosquash` in a throwaway worktree under the git common
-// dir, not `.t3/`, which is dev-server state. Each stop keeps the sequencer in
-// place; rerunning apply adopts the worktree and continues, so the sequencer
-// finishes every group exactly once and `git worktree remove` claims the
-// worktree only on a finished fold.
+// The worktree fallback behind fork-fold apply: from the first block merge-tree refuses, the
+// remaining plan replays as one `git rebase -i --autosquash` in a worktree under the git common dir
+// (not `.t3/`, which is dev-server state). A stop keeps the sequencer; rerunning apply adopts the
+// worktree, and only a finished fold removes it.
 
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
@@ -60,10 +57,8 @@ export interface FoldGit {
 export class FoldRebaseError extends Error {}
 
 /**
- * A conflicted path the stack base lacks is fork-owned: upstream never
- * conflicts with it on a rebase, so its intermediate states carry no replay
- * value. Both apply paths resolve it to its content at the old head, or drop
- * it when the head lacks it; tree equality at the tip is unchanged.
+ * A conflicted path the stack base lacks is fork-owned, so its intermediate states carry no replay
+ * value: both apply paths resolve it to its old-head content, or drop it when the head lacks it.
  * `stackBase` is the upstream commit the stack sits on, never a ref that moves.
  */
 export const partitionConflicts = (
