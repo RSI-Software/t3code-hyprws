@@ -297,12 +297,9 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
       undeclaredDomains.push(domain);
       continue;
     }
-    // A file only the fork changed cannot merge two intents, so only the files
-    // upstream also changed on the way to the target have to be listed. Both
-    // sides are net diffs against the base: a file an intermediate fork commit
-    // touched and a later one reverted carries no fork delta to preserve. The
-    // commits still decide which domain owns the file. The overlap definition
-    // lives in lib/fork-overlap.ts, shared with `fork:delta --inventory`.
+    // Only files upstream also changed can merge two intents, so only they must be listed. Both
+    // sides are net diffs against the base (see lib/fork-overlap.ts); the commits still decide which
+    // domain owns the file.
     const shared = overlapPaths(paths, input.forkChanged, input.upstreamChanged);
     const covers = (path: string) => patterns.some((pattern) => matchesScanPattern(pattern, path));
     domains.push({

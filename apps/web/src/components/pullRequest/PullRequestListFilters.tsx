@@ -4,7 +4,6 @@ import type {
   ProjectId,
   PullRequestFilterOptionsInput,
   PullRequestInvolvement,
-  ProjectIconOverride,
   PullRequestListFilters,
   PullRequestListState,
   SourceControlProviderKind,
