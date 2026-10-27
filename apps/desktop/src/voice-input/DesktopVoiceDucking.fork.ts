@@ -104,15 +104,18 @@ export const layer = Layer.effect(
               Effect.succeed({ unavailableReason: error.message, outputs: [] }),
             ),
           ),
-      start: (owner, sessionId, settings) =>
-        attempt(async () => {
+      start: Effect.fn("DesktopVoiceDuckingFork.start")(function (owner, sessionId, settings) {
+        return attempt(async () => {
           if (unsupported) throw new Error(unsupported);
           watchOwner(owner);
           await manager.start(owner, sessionId, settings);
           if (Electron.webContents.fromId(owner)?.isDestroyed() !== false)
             await manager.stop(owner);
-        }),
-      stop: (owner, sessionId) => attempt(() => manager.stop(owner, sessionId)),
+        });
+      }),
+      stop: Effect.fn("DesktopVoiceDuckingFork.stop")(function (owner, sessionId) {
+        return attempt(() => manager.stop(owner, sessionId));
+      }),
       shutdown,
     });
   }),
