@@ -10,9 +10,9 @@ import {
   isTerminalAttachmentDemanded,
   resolveTerminalWindowDemand,
   shouldForwardThreadTerminalShortcut,
-  shouldRestoreTerminalFocusAfterResume,
   lifecycleCursorFork,
 } from "./ThreadTerminalDrawer";
+import { shouldRestoreTerminalFocusAfterResume } from "./terminalReattachFocus.fork";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
     key: "x",

@@ -7,11 +7,9 @@ import { useEffect, useEffectEvent } from "react";
 import { focusActiveDrawerTerminal } from "../lib/terminalFocus";
 import { shouldRefocusComposerOnWindowFocus } from "./ChatView.logic";
 
-// Returning to a thread should land in the composer, unless something that
-// deliberately holds typing focus — a text field, a drawer or panel terminal,
-// a dialog or popup — would be steamrolled. Upstream's window-focus predicate
-// already encodes exactly those exceptions, so thread-change autofocus is one
-// call into it.
+// Returning to a thread lands in the composer unless something deliberately holds
+// typing focus (a text field, a terminal, a dialog or popup). Upstream's
+// window-focus predicate already encodes exactly those exceptions.
 export function shouldAutoFocusComposerOnThreadChange(
   activeElement: Parameters<typeof shouldRefocusComposerOnWindowFocus>[0],
 ): boolean {
