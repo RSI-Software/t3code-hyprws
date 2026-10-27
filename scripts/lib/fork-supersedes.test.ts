@@ -237,16 +237,10 @@ it("refuses a declaration whose upstream case body now matches the fork", () => 
 });
 
 it("reports an in-place rename the sibling copied", () => {
-  // Gap 1 in the issue's own words: undeclared detection is blind to
-  // a rename — it fires only when a sibling case shares a title with
-  // its upstream counterpart, so a fork that renames upstream's case in
-  // place and copies the result to the sibling leaves no shared title
-  // and reports nothing — the damaging shape, because it mutates the
-  // upstream file (RSI-Software/t3code-hyprws#1206). Fixture strings
-  // only: RSI-Software/t3code-hyprws#1204 removed the live rename
-  // instance. The sibling predates the head's rename: it carries the
-  // base body under the base title, so head and sibling share no
-  // renamed title and the old title-sharing rule reports nothing.
+  // Gap 1: undeclared detection was blind to a rename. A fork that renames upstream's case in place
+  // and copies it to the sibling leaves no shared title, the damaging shape since it mutates the
+  // upstream file. The sibling carries the base body under the base title, so the old title-sharing
+  // rule reports nothing.
   const base = [
     `it("replaces the standalone explorer", () => {`,
     `  expect(1).toBe(1);`,
@@ -304,11 +298,9 @@ it("reports an in-place rename the sibling copied", () => {
 });
 
 it("judges retire per declared case, not per sibling file", () => {
-  // Gap 2: retire candidacy read the whole sibling file inside the
-  // per-declaration loop, so two declarations with one adopted retired
-  // neither, and a sibling that is a subset of the upstream file retired
-  // all (RSI-Software/t3code-hyprws#1206). Fixture strings only:
-  // RSI-Software/t3code-hyprws#1204 removed the live rename instance.
+  // Gap 2: retire candidacy read the whole sibling file inside the per-declaration loop, so two
+  // declarations with one adopted retired neither, and a sibling that is a subset of the upstream
+  // file retired all.
   const upstream = [
     `it("first", () => {`,
     `  expect(1).toBe(2);`,

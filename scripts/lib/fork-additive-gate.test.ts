@@ -58,7 +58,7 @@ const commitAll = (root: string, message: string): void => {
 };
 
 it("passes a pure-addition head", () => {
-  const { root, run, write, commit } = fixture();
+  const { root, write, commit } = fixture();
   write("apps/web/src/thing.ts", "export const keep = 1;\n");
   write("apps/web/src/thing.test.ts", 'it("first", () => {});\n');
   write("apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
@@ -72,7 +72,7 @@ it("passes a pure-addition head", () => {
 });
 
 it("flags a deleted upstream file", () => {
-  const { root, run, write, commit } = fixture();
+  const { root, write, commit } = fixture();
   write("apps/web/src/thing.ts", "export const keep = 1;\n");
   commit("upstream: base");
   const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
@@ -87,7 +87,7 @@ it("flags a deleted upstream file", () => {
 });
 
 it("flags a migration number collision and a shrunk test", () => {
-  const { root, run, write, commit } = fixture();
+  const { root, write, commit } = fixture();
   write("apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
   write("apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
   write("apps/server/src/persistence/Migrations/002_Next.ts", "export default 2;\n");
@@ -104,7 +104,7 @@ it("flags a migration number collision and a shrunk test", () => {
 });
 
 it("flags a removed upstream test line even when declarations hold", () => {
-  const { root, run, write, commit } = fixture();
+  const { root, write, commit } = fixture();
   write("apps/web/src/thing.test.ts", 'it("first", () => {\n  expect(keep).toBe(1);\n});\n');
   commit("upstream: base");
   const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
@@ -124,7 +124,7 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
   // the exemption — counting same-titled sibling cases keeps the deadlock. The
   // replacement case must exist: a bare declaration buys nothing.
   const setup = (): { root: string; base: string; since: string } => {
-    const { root, run, write, commit } = fixture();
+    const { root, write, commit } = fixture();
     write(
       "apps/web/src/thing.test.ts",
       'it("upstream", () => {\n  expect(keep).toBe(1);\n});\nit("other", () => {});\n',
@@ -189,7 +189,7 @@ it("does not count a declared-superseded case as a shrink, and still shrinks an 
     // Five declarations stacked before one case: only one excusal, so
     // deleting five upstream cases still fails. Per-declaration
     // documentation, not per-file presence (RSI-Software/t3code-hyprws#1208).
-    const { root, run, write, commit } = fixture();
+    const { root, write, commit } = fixture();
     write(
       "apps/web/src/thing.test.ts",
       [1, 2, 3, 4, 5]
@@ -234,7 +234,7 @@ it("lets a fork-added line leave freely but guards upstream lines via the siblin
   // the fork added itself may leave the upstream-owned file freely; only
   // an upstream-carried line must MOVE to the `.fork.test.ts` sibling.
   const setup = (): { root: string; base: string; since: string } => {
-    const { root, run, write, commit } = fixture();
+    const { root, write, commit } = fixture();
     write("apps/web/src/thing.test.ts", 'it("upstream", () => {});\n');
     commit("upstream: base");
     const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
@@ -289,7 +289,7 @@ it("excuses a named upstream case a live declaration supersedes, and holds an un
   // lines are superseded rather than contradictory, so no tests finding
   // fires. The declaration documents the case that follows it.
   const setup = (): { root: string; base: string; since: string } => {
-    const { root, run, write, commit } = fixture();
+    const { root, write, commit } = fixture();
     write("apps/web/src/thing.test.ts", 'it("upstream", () => {\n  expect(keep).toBe(1);\n});\n');
     commit("upstream: base");
     const base = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
@@ -331,7 +331,7 @@ it("excuses a named upstream case a live declaration supersedes, and holds an un
     // A declaration names one case only: a second moved case it does not
     // name stays a finding. Two cases live here from the start so the
     // since tree (base2) still carries both.
-    const { root, run, write, commit } = fixture();
+    const { root, write, commit } = fixture();
     write(
       "apps/web/src/thing.test.ts",
       'it("upstream", () => {\n  expect(keep).toBe(1);\n});\nit("other", () => {\n  expect(keep).toBe(1);\n});\n',

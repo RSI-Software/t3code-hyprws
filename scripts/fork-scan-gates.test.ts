@@ -691,7 +691,7 @@ it("surfaces a retire candidate without failing the scan", () => {
 
 /**
  * One fixture, three scans: the additive gate and the authoring checks run
- * together the way `fork:scan` runs them, because the #1210 deadlock fell
+ * together the way `fork:scan` runs them, because a past deadlock fell
  * between the two separate unit suites. The upstream case below is rewritten
  * in place, then declared-superseded on a second tip.
  */

@@ -20,7 +20,6 @@ import { SystemGit } from "./fork-git-reader.ts";
 const HEAD = "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
 const BASE = "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
 const TRUNK = "cccc3333cccc3333cccc3333cccc3333cccc3333";
-const HEAD_PARENT = "dddd4444dddd4444dddd4444dddd4444dddd4444";
 
 const fakeGit = (overrides: {
   readonly base?: string;

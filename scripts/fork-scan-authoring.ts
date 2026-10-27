@@ -89,12 +89,9 @@ export interface AuthoringGuardInput {
   // Test ownership follows the selected target, including independent
   // same-path additions.
   readonly upstreamTestFiles: ReadonlySet<string>;
-  // The significant lines each touched upstream test file carries in the
-  // target tree. A fork commit that deletes a line it added itself — the
-  // repair the rule asks for — removes nothing upstream wrote, so only a
-  // line in this set is an upstream case being changed. An absent entry
-  // refuses every removal, because an unread tree is not evidence that the
-  // line was the fork's.
+  // The significant lines each touched upstream test file carries in the target tree. Deleting a
+  // line the fork added itself removes nothing upstream wrote, so only lines here count. An absent
+  // entry refuses every removal: an unread tree is not evidence the line was the fork's.
   readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
   // The significant lines each touched upstream file carries in the target
   // tree, for the hook guard's mirror filter (RSI-Software/t3code-hyprws#1207):
@@ -395,17 +392,10 @@ export const collectAuthoringWarnings = (
         `${path} gains ${count} fork test block(s); move them to ${forkTestSibling(path)}`,
       );
     }
-    // A fork commit may only append to an upstream test file. The counting
-    // rule above sees a gained block; it never sees an assertion rewritten
-    // in place, which is a removal on the source side and an addition of the
-    // same size on the target side. The removed side alone is the whole
-    // shape, so refuse on it and let the sibling carry the fork's case.
-    // A declared-superseded case is exempted structurally: the target-tree
-    // lines of each case the sibling declares for this path are stripped
-    // before membership is tested, so a shared body line the fork kept
-    // from the case it replaced does not count as an upstream removal
-    // (RSI-Software/t3code-hyprws#1208). The declaration alone buys
-    // nothing: the sibling must carry a replacement case.
+    // A fork commit may only append to an upstream test file. An in-place rewrite is a same-size
+    // removal plus addition the block count misses, so refuse on the removed side. Lines of each case
+    // the sibling declares superseded are stripped first, but the declaration alone buys nothing: the
+    // sibling must carry a replacement case.
     for (const [path, lines] of [...patch.removedTestLines].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {

@@ -375,14 +375,10 @@ const testFindings = (
 };
 
 /**
- * The head's own tree against the upstream base tree: files and
- * migrations read against the base (a deleted upstream file is a
- * violation whenever it left), while the tests check diffs the head
- * against the since tree — the trunk tip the change branched from — so
- * only NEW loss fires. Lost-line measurement additionally filters through
- * the base tree: a line the fork added itself may leave freely, so moving
- * a legacy fork case into a `.fork.test.ts` sibling is not refused. A
- * null since (unscoped run) skips the tests check.
+ * The head's tree against the upstream base: files and migrations read against the base, so a
+ * deleted upstream file is always a violation, while the tests check diffs the head against the
+ * since tree (the trunk tip the change branched from), so only NEW loss fires. A null since (an
+ * unscoped run) skips the tests check.
  */
 export const checkAdditive = (
   runner: CommandRunner,

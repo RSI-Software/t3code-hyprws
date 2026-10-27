@@ -45,11 +45,9 @@ const kindOf = (text: string): UpstreamReference["kind"] => {
   return "number";
 };
 
-// Masking blanks every region GitHub renders as code — it never links from one
-// — keeping offsets and newlines, so a finding's line and column still point at
-// the original body. An HTML comment renders as nothing, so the pull-request
-// template's instructions and the landing tool's attestation footers live in
-// one safely; one never closed hides the rest of the body, as on GitHub.
+// Masking blanks every region GitHub renders as code, which never links, keeping offsets and
+// newlines so findings still point into the original body. An HTML comment renders as nothing (the
+// PR template's instructions and attestation footers live in one); an unclosed one hides the rest.
 const maskHtmlComments = (body: string) =>
   body.replace(/<!--[\s\S]*?-->|<!--[\s\S]*$/g, (region) => region.replace(/[^\n]/g, " "));
 

@@ -16,13 +16,9 @@ export interface CommandOptions {
   readonly timeout?: number;
   readonly maxBuffer?: number;
   /**
-   * Opt-in: the child's piped stdout/stderr are captured, then written
-   * through to ours on return, so the captured text stays available for
-   * failure details. Live progress is lost for long children — nothing
-   * reaches the terminal until the child exits — but an operator's own
-   * `2>&1 | tee run.log` still records the whole run. Writes go to our
-   * stdout/stderr, never to the child's stdin, which stays closed so a
-   * prompting child fails fast.
+   * Opt-in: capture the child's piped output, then write it through to ours on return, so it stays
+   * available for failure details. Live progress is lost until the child exits. The child's stdin
+   * stays closed, so a prompting child fails fast.
    */
   readonly stream?: boolean;
 }
@@ -64,15 +60,9 @@ export const runCommand = (
 };
 
 /**
- * `stream: true` without the capture trade-off: the child runs under
- * spawnSync with piped stdio so its output is captured, then the captured
- * text is written through to our own stdout/stderr on return, keeping the
- * full text for failure details at the cost of live progress — nothing
- * reaches the terminal until the child exits. (A synchronous poll of a
- * live ChildProcess cannot observe its exit — `exitCode` never lands while
- * this thread polls — so true arrival-time interleaving is out of reach
- * here; write-through order is stdout, then stderr. stdin stays closed, so
- * a prompting child still fails fast.)
+ * `stream: true` via spawnSync with piped stdio, written through to our stdout, then stderr, on
+ * return. A synchronous poll of a live ChildProcess never observes its exit, so arrival-order
+ * interleaving is out of reach. stdin stays closed, so a prompting child still fails fast.
  */
 const runCommandStreaming = (
   command: string,

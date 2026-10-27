@@ -1,13 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
 
-// The `forkSupersedes({ upstream, reason, commit })` declaration a fork test
-// sibling carries beside a case that deliberately contradicts an upstream
-// case (RSI-Software/t3code-hyprws#716). The upstream file is never touched,
-// so the declaration is the only record of which upstream case the fork
-// contradicts, why, and in which commit — and prose no tool reads is no
-// record at all. This module parses declarations out of sibling text and
-// judges them against the target tree's text, the way `fork-overlap.ts`
-// judges a shared file: pure functions over strings, no git here.
+// The `forkSupersedes({ upstream, reason, commit })` declaration a fork test sibling carries beside
+// a case that deliberately contradicts an upstream case: the only tool-read record of which case,
+// why, and in which commit. This parses declarations from sibling text and judges them against the
+// target tree's text: pure functions over strings, no git.
 
 export interface ForkSupersedesDeclaration {
   /** The upstream file path the declaration names, before the ` > `. */
@@ -263,15 +259,9 @@ export const enclosedSupersededTitles = (text: string, path: string): ReadonlyAr
 };
 
 /**
- * The upstream titles a sibling text declares as superseded for one upstream
- * path, each paired with whether the declaration resolves to a documented
- * sibling case. hasReplacement is per declaration: the nearest case opener
- * at-or-after the declaration's own line must exist, or the declaration
- * sits after the last case and buys no exemption. One documented case
- * excuses one declaration — five declarations stacked before one case
- * excuse one deletion, never five (RSI-Software/t3code-hyprws#1208).
- * Additive-only reader over `collectForkSupersedes`; the parser itself is
- * untouched.
+ * The upstream titles a sibling declares superseded for one path, each with whether it resolves to
+ * a documented sibling case (an opener at-or-after it). One documented case excuses one
+ * declaration, so five stacked before one case excuse one deletion, never five.
  */
 export const supersededTitlesByPath = (
   text: string,
@@ -355,12 +345,9 @@ const caseBodyForRename = (text: string, title: string): ReadonlyArray<string> |
 };
 
 /**
- * The significant lines of the sibling case a declaration documents: from
- * the nearest case opener at-or-after the declaration's own line to the
- * following opener (or end of file), reusing `siblingCaseOpenerLines` so
- * the doc-comment resolution rule stays single-sourced
- * (RSI-Software/t3code-hyprws#1208). Null when the declaration sits after
- * the last opener and documents no case.
+ * The significant lines of the sibling case a declaration documents: the nearest opener
+ * at-or-after its line to the next opener or end of file, via `siblingCaseOpenerLines`. Null when
+ * the declaration sits after the last opener.
  */
 const documentedCaseBody = (text: string, line: number): ReadonlyArray<string> | null => {
   const openers = siblingCaseOpenerLines(text);
@@ -379,15 +366,10 @@ const stripDeclarationCalls = (text: string): string =>
   text.replace(/forkSupersedes\s*\(\s*\{[^}]*\}\s*\)\s*;?/gs, "");
 
 /**
- * Every declaration in the fork siblings, judged against the upstream
- * texts. `siblings` maps a sibling path to its text; `upstreamTexts` maps
- * an upstream path to its assessed-tree text (absent when the tree no
- * longer carries the file); `baseTexts` maps an upstream path to its
- * merge-base text (absent the same way). A declaration whose upstream
- * case now carries the fork behaviour — its significant lines are a
- * subset of the upstream file's — is a retire candidate: the declaration
- * and its sibling case go in the same change. Judgement is advisory per
- * se; the caller decides what fails.
+ * Judge every sibling declaration against `upstreamTexts` (assessed tree) and `baseTexts` (merge
+ * base), each absent when its tree lacks the file. A declaration whose upstream case already carries
+ * the fork behaviour is a retire candidate: it and its case go in one change. Advisory; the caller
+ * decides what fails.
  */
 export const assessForkSupersedes = (
   siblings: ReadonlyMap<string, string>,
@@ -420,12 +402,9 @@ export const assessForkSupersedes = (
         );
         continue;
       }
-      // A live divergence contradicts upstream: the named upstream case
-      // must differ from the documented sibling case. When the upstream
-      // body already carries the sibling case, the declaration is not a
-      // live divergence — it is a retire candidate, deletion-ready with
-      // its case — so it never reads as superseded on title alone
-      // (RSI-Software/t3code-hyprws#1206).
+      // A live divergence: the named upstream case must differ from the documented sibling case. An
+      // upstream body that already carries the sibling case makes the declaration a retire candidate,
+      // so it never reads as superseded on title alone.
       const upstreamCase = caseBodyForTitle(upstreamText, declaration.upstreamTitle);
       const siblingCase = documentedCaseBody(text, declaration.line);
       const bodyAgrees =
@@ -469,15 +448,9 @@ export const assessForkSupersedes = (
         undeclared.push({ sibling, title });
         continue;
       }
-      // Rename shape: the base carried a body under this title that the
-      // assessed text dropped, while the assessed text carries that
-      // same body under a new title — the head renamed the case in
-      // place while the sibling still carries the base title, so no
-      // shared title survives. That is undeclared too. The sibling
-      // agreeing with the base body is not required: the sibling
-      // predates the rename and may carry fork behaviour. A base-absent
-      // counterpart leaves the old rule standing: no shared title, no
-      // finding.
+      // Rename shape: the base carried a body under this title that the assessed text dropped and now
+      // carries under a new title. The sibling need not match the base body, since it predates the
+      // rename. A base-absent counterpart keeps the old rule: no shared title, no finding.
       if (baseText === undefined) continue;
       const baseBody = baseBodies.get(title);
       if (baseBody === undefined || baseBody.length === 0) continue;

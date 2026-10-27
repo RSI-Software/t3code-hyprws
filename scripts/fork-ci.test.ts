@@ -26,7 +26,7 @@ const git = (root: string, args: ReadonlyArray<string>): string =>
     },
   ).trim();
 
-/** A base pinned as upstream/main with one untagged commit above it: the #1213 shape. */
+/** A base pinned as upstream/main with one untagged commit above it. */
 const untaggedFixture = (): { root: string; head: string; base: string } => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-ci-test-"));
   git(root, ["init", "--quiet", "--initial-branch", "main"]);

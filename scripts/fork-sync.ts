@@ -284,7 +284,7 @@ const writeReport = (root: string, report: ForkSyncReport): string => {
 
 /** Post-push recovery reads the typed report, never a rendered comment. */
 export const readReport = (root: string, tag: string): ForkSyncReport =>
-  Schema.decodeSync(ForkSyncReport)(JSON.parse(NodeFS.readFileSync(reportPath(root, tag), "utf8")));
+  decodeForkSyncReport(JSON.parse(NodeFS.readFileSync(reportPath(root, tag), "utf8")));
 
 /**
  * The release tags upstream published onto `upstream/main`'s first-parent lane,
@@ -558,12 +558,9 @@ const upstreamTouch = (
 };
 
 /**
- * Hook re-apply for one conflicted path: the merged text is the upstream side
- * (`:2:`), the fork side (`:3:`) declares the hooks, and every reinserted key is
- * named. The fork side must be a fully marked insertion — the base stage (`:1:`)
- * equals the fork stage with every marked span removed
- * (RSI-Software/t3code-hyprws#1187); any other shape refuses. `null` when the
- * path is not purely a hook re-insertion.
+ * Hook re-apply for one conflicted path: the merged text is upstream's (`:2:`) and the fork side
+ * (`:3:`) declares the hooks. The fork side must be a fully marked insertion (the base stage `:1:`
+ * equals it with every marked span removed); `null` for any other shape.
  */
 const reapplyHooks = (
   runner: CommandRunner,

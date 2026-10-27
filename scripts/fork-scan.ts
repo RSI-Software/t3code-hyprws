@@ -102,11 +102,9 @@ export interface ScanResult {
   // including the CI `Fork rebase scan` step, which invokes `fork:scan`
   // directly and never `fork:ci`.
   readonly additive: ReadonlyArray<AdditiveFinding>;
-  // The forkSupersedes declarations (RSI-Software/t3code-hyprws#716):
-  // malformed calls and declarations naming an absent upstream file or
-  // title, plus the retire candidates whose upstream case adopted the fork
-  // behaviour. A named upstream case reads as superseded rather than
-  // contradictory; the additive gate consumes that reading.
+  // The forkSupersedes declarations: malformed calls, declarations naming an absent upstream file or
+  // title, and retire candidates whose upstream case adopted the fork behaviour. A named upstream case
+  // reads as superseded rather than contradictory; the additive gate consumes that reading.
   readonly supersedes: ReadonlyArray<string>;
   readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
 }
