@@ -109,10 +109,9 @@ const loadForkContracts = async () =>
  */
 const acrossTheWire = (fork: Codec, upstream: Codec, json: unknown) => {
   const forkJson = Schema.toCodecJson(fork);
+  const upstreamJson = Schema.toCodecJson(upstream);
   const encoded = Schema.encodeUnknownSync(forkJson)(Schema.decodeUnknownSync(forkJson)(json));
-  return Schema.decodeUnknownSync(Schema.toCodecJson(upstream))(
-    JSON.parse(JSON.stringify(encoded)),
-  );
+  return Schema.decodeUnknownSync(upstreamJson)(JSON.parse(JSON.stringify(encoded)));
 };
 
 /**
@@ -206,11 +205,9 @@ const unionTags = (slots: LiteralSlots) => {
 };
 
 /**
- * Fork union members an upstream client cannot decode: a tag upstream's union
- * at the same path lacks, unless one of its members takes any tag there (the
- * V2 thread stream's unknown-event case). `forkOnlyLiterals` misses these,
- * since each member keys its own paths. Encoded side only: a member upstream
- * takes on the wire decodes, even when it decodes to a skip case.
+ * Fork union members an upstream client cannot decode: a tag upstream's union at the same path
+ * lacks, unless one of its members takes any tag there. `forkOnlyLiterals` misses these. Encoded
+ * side only: a member upstream takes on the wire decodes, even to a skip case.
  */
 const forkOnlyMembers = (forkSchema: Codec, upstreamSchema: Codec) => {
   const upstreamSlots = collectLiterals(SchemaAST.toEncoded(upstreamSchema.ast));
