@@ -63,6 +63,7 @@ export function useFileTreeEntries(input: {
   // visibility instead of serving the previous listing, and aborts in-flight
   // requests so a stale response cannot repopulate the cleared caches.
   const loadedPreference = useRef(includeIgnored);
+  // oxlint-disable-next-line t3code/react-effect-budget -- The preference prop drives a refetch. // fork-hook: workspace-files/mobile-tree-ignored-refresh
   useEffect(() => {
     if (loadedPreference.current === includeIgnored) return;
     loadedPreference.current = includeIgnored;

@@ -7,7 +7,6 @@ import {
 import * as Effect from "effect/Effect";
 
 import { splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
-import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 
 // Mirrors the upstream module-local constants so the fork listing matches the

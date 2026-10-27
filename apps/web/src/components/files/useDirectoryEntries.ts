@@ -116,6 +116,7 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   // fork-hook: workspace-files/file-browser-ignored-listing — a preference flip invalidates the
   // per-directory caches so every visited folder refetches with (or without) ignored entries.
   const loadedPreference = useRef(includeIgnored);
+  // oxlint-disable-next-line t3code/react-effect-budget -- The preference store drives a refetch. // fork-hook: workspace-files/file-browser-ignored-listing
   useEffect(() => {
     if (loadedPreference.current === includeIgnored) return;
     loadedPreference.current = includeIgnored;
