@@ -121,12 +121,10 @@ export class DesktopAttachedPrimary extends Context.Service<
       DesktopAttachedPrimaryError
     >;
     /**
-     * The renderer saw `bearerToken` fail (a transport error or a 401 that
-     * survived one re-mint). A no-op unless that bearer is still the attached
-     * one, so a late failure never drops a successor. Drops the attachment.
-     * A transport error backs auto-attach off like a failed pair; an
-     * `unauthorized` reject skips the instance until it restarts, so the
-     * launch stays visibly hosted-static instead of flapping.
+     * Drops the attachment when `bearerToken` failed and is still the attached
+     * one, so a late failure never drops a successor. A transport error backs
+     * auto-attach off; `unauthorized` skips the instance until it restarts, so
+     * the launch stays hosted-static instead of flapping.
      */
     readonly reject: (
       bearerToken: string,
@@ -151,7 +149,7 @@ const ATTACH_RETRY_MAX_MS = 60_000;
 const attachRetryDelayMs = (failures: number) =>
   Math.min(ATTACH_RETRY_BASE_MS * 2 ** (failures - 1), ATTACH_RETRY_MAX_MS);
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const discovery = yield* DesktopRunningLocalServers.DesktopRunningLocalServers;
   const httpClient = yield* HttpClient.HttpClient;

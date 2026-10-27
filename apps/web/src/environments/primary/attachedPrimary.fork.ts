@@ -15,11 +15,9 @@ function isClientOnly(): boolean {
 }
 
 /**
- * The attached server as the primary target, or null. The sync bridge read
- * serves main's last verified cache; the platform poll advances it, so a
- * restarted, moved, or rejected server converges to hosted-static. The
- * source reads `desktop-managed`: the backend is local either way, and only
- * main distinguishes adopted from spawned.
+ * The sync bridge read serves main's last verified cache, which the platform poll advances,
+ * so a restarted, moved, or rejected server converges to hosted-static. The source reads
+ * `desktop-managed`: the backend is local either way; only main tells adopted from spawned.
  */
 export function resolveDesktopAttachedPrimaryTarget(): PrimaryEnvironmentTarget | null {
   const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;

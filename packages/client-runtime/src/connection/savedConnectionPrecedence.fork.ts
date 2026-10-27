@@ -7,13 +7,10 @@ import * as ClientCapabilities from "../platform/capabilities.ts";
 import type { ConnectionCatalogEntry, PlatformConnectionRegistration } from "./catalog.ts";
 
 /**
- * Saved-connection precedence (RSI-Software/t3code-hyprws#1350,
- * RSI-Software/t3code-hyprws#1412). Upstream's platform primary replaces and
- * deletes a persisted registration for the same environment, which is right
- * for a spawned backend. An attached server comes and goes, so platforms that
- * attach opt in: the attached primary wins while present, so the environment
- * stays local, and the saved connection is kept and returns when the
- * attachment drops.
+ * Upstream's platform primary replaces and deletes a saved registration for its environment,
+ * which suits a spawned backend. An attached server comes and goes, so attaching platforms opt
+ * in: the attached primary wins while present, and the saved connection is kept and returns when
+ * the attachment drops.
  */
 export const savedConnectionsOutrankPrimary = Effect.map(
   Effect.serviceOption(ClientCapabilities.PrimaryEnvironmentAuth),
