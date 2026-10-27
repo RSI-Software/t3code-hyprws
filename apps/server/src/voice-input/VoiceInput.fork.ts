@@ -17,14 +17,8 @@ import * as Socket from "effect/socket/Socket";
 import type * as Scope from "effect/Scope";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { voiceInputProvidersFork } from "./providers.fork.ts";
 import { isVoiceRecordingFork } from "./recording.fork.ts";
-import {
-  metaRealtimeUrlFork,
-  metaVoiceRequestFork,
-  metaVoiceStreamFork,
-  metaVoiceTranscriptFork,
-} from "./meta.fork.ts";
+import { metaVoiceRequestFork, metaVoiceStreamFork, metaVoiceTranscriptFork } from "./meta.fork.ts";
 import { openAiVoiceStreamFork } from "./openaiRealtime.fork.ts";
 import { relayVoiceStreamFork } from "./realtime.fork.ts";
 
@@ -33,7 +27,7 @@ export class VoiceInputError extends Schema.TaggedError<VoiceInputError>()("Voic
     "settings",
     "storage",
     "disabled",
-    "unsupported",
+    "live",
     "audio",
     "upstream",
     "response",
@@ -44,13 +38,13 @@ export class VoiceInputError extends Schema.TaggedError<VoiceInputError>()("Voic
   override get message(): string {
     switch (this.reason) {
       case "settings":
-        return "Check the dictation endpoint and model.";
+        return "Check the dictation base URL and model.";
       case "storage":
         return "Could not load or save dictation settings.";
       case "disabled":
         return "Enable dictation in Settings first.";
-      case "unsupported":
-        return "This dictation provider is not implemented yet.";
+      case "live":
+        return "Live preview is off for this speech service.";
       case "audio":
         return "Use a mono PCM16 WAV recording at 16 or 24 kHz, up to five minutes.";
       case "upstream":
@@ -63,42 +57,70 @@ export class VoiceInputError extends Schema.TaggedError<VoiceInputError>()("Voic
   }
 }
 
-const StoredSettings = Schema.Struct({
-  ...VoiceInputConfigFork.fields,
-  provider: Schema.Union([VoiceInputConfigFork.fields.provider, Schema.Literal("promptletariat")]),
-  streamingEndpoint: Schema.optionalKey(VoiceInputConfigFork.fields.streamingEndpoint),
+const StoredSettings = Schema.Struct({ ...VoiceInputConfigFork.fields, apiKey: Schema.String });
+/** Legacy providers whose wire this service still speaks. */
+const OPENAI_SHAPED_LEGACY = new Set([
+  "meta",
+  "openai-compatible",
+  "openai",
+  "groq",
+  "mistral",
+  "promptletariat",
+]);
+/** Settings saved with full upload and socket URLs; read once so the saved key survives. */
+const LegacySettings = Schema.Struct({
+  enabled: Schema.Boolean,
+  provider: Schema.String,
+  endpoint: Schema.String,
+  streamingEndpoint: Schema.optionalKey(Schema.String),
+  model: Schema.String,
   apiKey: Schema.String,
 });
-// Settings saved before streaming URLs existed kept Meta live through its derived socket.
-const legacyStreamingEndpoint = (provider: string, endpoint: string) => {
-  if (provider !== "meta") return "";
-  try {
-    return metaRealtimeUrlFork(endpoint);
-  } catch {
-    return "";
-  }
-};
 const codec = Schema.fromJsonString(StoredSettings);
+const decodeLegacySettings = Schema.decodeEffect(Schema.fromJsonString(LegacySettings));
 const decodeStoredSettings = (encoded: string) =>
   Schema.decodeEffect(codec)(encoded).pipe(
-    Effect.map((config) => ({
-      ...config,
-      provider:
-        config.provider === "promptletariat" ? ("openai-compatible" as const) : config.provider,
-      streamingEndpoint:
-        config.streamingEndpoint ?? legacyStreamingEndpoint(config.provider, config.endpoint),
-    })),
+    Effect.catch(() =>
+      decodeLegacySettings(encoded).pipe(
+        Effect.map(({ endpoint, streamingEndpoint, ...legacy }) => {
+          const provider = legacy.provider === "meta" ? "meta" : "openai-compatible";
+          const baseUrl = apiRootFork(
+            endpoint.trim().replace(/\/(audio\/transcriptions|asr\/transcribe)\/*$/, ""),
+          );
+          return {
+            ...legacy,
+            provider,
+            baseUrl: baseUrl ?? endpoint.trim(),
+            // Local HTTP and unknown wires, or URLs with parameters, need reconfiguring.
+            enabled:
+              legacy.enabled && baseUrl !== null && OPENAI_SHAPED_LEGACY.has(legacy.provider),
+            // Meta settings from before streaming URLs were always live.
+            live: streamingEndpoint === undefined ? provider === "meta" : streamingEndpoint !== "",
+          } as const;
+        }),
+      ),
+    ),
   );
 const decodeConfigUpdate = Schema.decodeEffect(VoiceInputConfigUpdateFork);
 const SECRET_NAME = "fork-voice-input";
 const defaults = {
   enabled: false,
   provider: "meta",
-  endpoint: "https://api.meta.ai/v1/asr/transcribe",
-  streamingEndpoint: "wss://api.meta.ai/v1/asr/realtime",
+  baseUrl: "https://api.meta.ai/v1",
+  live: true,
   model: "muse-voice-transcribe-1.0",
   apiKey: "",
 } as const;
+
+/** Each wire's upload and realtime paths below one API root. */
+function voiceInputUrlsFork(config: Pick<VoiceInputConfigFork, "provider" | "baseUrl">) {
+  const base = config.baseUrl.replace(/\/+$/, "");
+  const [upload, realtime] =
+    config.provider === "meta"
+      ? ["/asr/transcribe", "/asr/realtime"]
+      : ["/audio/transcriptions", "/realtime?intent=transcription"];
+  return { upload: base + upload, realtime: base.replace(/^http/, "ws") + realtime };
+}
 
 export class VoiceInput extends Context.Service<
   VoiceInput,
@@ -135,7 +157,6 @@ const make = Effect.gen(function* () {
   }: VoiceInputConfigFork & { apiKey: string }): VoiceInputSettingsFork => ({
     ...settings,
     hasApiKey: apiKey.length > 0,
-    providers: voiceInputProvidersFork,
   });
   const configure = Effect.fn("VoiceInput.configure")(function* (
     input: VoiceInputConfigUpdateFork,
@@ -143,28 +164,21 @@ const make = Effect.gen(function* () {
     const config = yield* decodeConfigUpdate(input).pipe(
       Effect.mapError((cause) => new VoiceInputError({ reason: "settings", cause })),
     );
-    const streamingEndpoint = config.streamingEndpoint.trim();
-    if (
-      !isEndpoint(config.endpoint, ["http:", "https:"]) ||
-      (streamingEndpoint && !isEndpoint(streamingEndpoint, ["ws:", "wss:"])) ||
-      ((config.provider !== "local" || streamingEndpoint) && config.model.trim().length === 0)
-    ) {
-      return yield* new VoiceInputError({ reason: "settings" });
-    }
+    const baseUrl = apiRootFork(config.baseUrl.trim());
+    const model = config.model.trim();
+    if (baseUrl === null || !model) return yield* new VoiceInputError({ reason: "settings" });
     const previous = yield* read;
     const apiKey =
       config.apiKey?.trim() ??
-      (config.provider === previous.provider &&
-      config.endpoint === previous.endpoint &&
-      streamingEndpoint === previous.streamingEndpoint
+      (config.provider === previous.provider && baseUrl === previous.baseUrl
         ? previous.apiKey
         : "");
     const saved = {
       enabled: config.enabled,
       provider: config.provider,
-      endpoint: config.endpoint,
-      streamingEndpoint,
-      model: config.model.trim(),
+      baseUrl,
+      live: config.live,
+      model,
       apiKey,
     };
     const encoded = yield* Schema.encodeEffect(codec)(saved).pipe(
@@ -179,25 +193,20 @@ const make = Effect.gen(function* () {
   const transcribe = Effect.fn("VoiceInput.transcribe")(function* (audio: Uint8Array) {
     const config = yield* read;
     if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
-    if (!voiceInputProvidersFork.find((provider) => provider.id === config.provider)?.available) {
-      return yield* new VoiceInputError({ reason: "unsupported" });
-    }
     if (!isVoiceRecordingFork(audio)) return yield* new VoiceInputError({ reason: "audio" });
-    let request =
-      config.provider === "meta"
-        ? metaVoiceRequestFork(config.endpoint, config.model, audio)
-        : HttpClientRequest.post(config.endpoint);
-    if (config.apiKey)
-      request = HttpClientRequest.setHeader(request, "authorization", `Bearer ${config.apiKey}`);
-    if (config.provider === "local") {
-      request = HttpClientRequest.bodyUint8Array(request, audio, "audio/wav");
-    } else if (config.provider !== "meta") {
+    const { upload } = voiceInputUrlsFork(config);
+    let request: HttpClientRequest.HttpClientRequest;
+    if (config.provider === "meta") {
+      request = metaVoiceRequestFork(upload, config.model, audio);
+    } else {
       const form = new FormData();
       form.set("file", new Blob([new Uint8Array(audio)], { type: "audio/wav" }), "dictation.wav");
       form.set("model", config.model);
       form.set("response_format", "json");
-      request = HttpClientRequest.bodyFormData(request, form);
+      request = HttpClientRequest.post(upload).pipe(HttpClientRequest.bodyFormData(form));
     }
+    if (config.apiKey)
+      request = HttpClientRequest.setHeader(request, "authorization", `Bearer ${config.apiKey}`);
     const response = yield* client
       .execute(request)
       .pipe(Effect.mapError((cause) => new VoiceInputError({ reason: "upstream", cause })));
@@ -220,15 +229,10 @@ const make = Effect.gen(function* () {
       function* (socket) {
         const config = yield* read;
         if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
-        if (
-          !config.streamingEndpoint ||
-          !voiceInputProvidersFork.find((provider) => provider.id === config.provider)?.available
-        ) {
-          return yield* new VoiceInputError({ reason: "unsupported" });
-        }
+        if (!config.live) return yield* new VoiceInputError({ reason: "live" });
         const adapter =
           config.provider === "meta" ? metaVoiceStreamFork(config) : openAiVoiceStreamFork(config);
-        const upstream = yield* Socket.makeWebSocket(config.streamingEndpoint, {
+        const upstream = yield* Socket.makeWebSocket(voiceInputUrlsFork(config).realtime, {
           openTimeout: "10 seconds",
           ...(adapter.headers ? { headers: adapter.headers } : {}),
         });
@@ -253,11 +257,18 @@ const make = Effect.gen(function* () {
 export const layer = Layer.effect(VoiceInput, make);
 const isVoiceInputError = Schema.is(VoiceInputError);
 
-function isEndpoint(value: string, protocols: ReadonlyArray<string>) {
+/** The canonical API root, or null for one paths cannot be appended to. */
+function apiRootFork(value: string) {
   try {
     const url = new URL(value);
-    return protocols.includes(url.protocol) && !url.username && !url.password && !url.hash;
+    // URL drops a bare trailing ? or #, so check the raw text.
+    return (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      !/[?#]/.test(value)
+      ? url.origin + url.pathname.replace(/\/+$/, "")
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
