@@ -767,11 +767,9 @@ const make = Effect.gen(function* () {
                   failure("orchestration_error", `Unable to create thread: ${errorMessage(error)}`),
                 ),
               );
-            // An earlier attempt may have created the thread, or also sent its
-            // prompt, and the owner may have changed it since: a sent prompt
-            // is reported, and an unsent one goes only to a thread that still
-            // sits in this project and under the grant's ceilings when the
-            // prompt commits.
+            // An earlier attempt may have created the thread or sent its prompt, and the owner
+            // may have changed it since: a sent prompt is reported, and an unsent one goes only
+            // to a thread still in this project and under the grant's ceilings at commit.
             const actual = yield* loadThread(principal, threadId);
             if (actual.thread.projectId !== input.projectId) {
               return yield* threadUnavailable(threadId);
@@ -867,13 +865,10 @@ const make = Effect.gen(function* () {
               } satisfies OrchestratorMcpThreadSendResult;
             }
             const expectedModes = yield* vetThreadModes(principal, target.thread);
-            // Steering joins a running turn, so a capped credential is held to
-            // turns requested under the thread's current modes; `auto` queues
-            // instead. The send may join only the attempt vetted here, whose
-            // modes its running provider turn fixed. Dispatch refuses the send
-            // under the thread lock once the run moves to another attempt or
-            // the modes vetted above change before it commits. Modes the owner
-            // sets after that govern later turns, as for any queued message.
+            // Steering joins a running turn, so a capped credential is held to turns under the
+            // thread's current modes; `auto` queues instead. The send joins only the attempt
+            // vetted here: dispatch refuses it under the thread lock once the run moves on or
+            // the vetted modes change before commit. Later mode changes govern later turns.
             const capped = isCapped(principal);
             let delivery = mode;
             let steerTarget: RunAttemptId | null | undefined;
