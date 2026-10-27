@@ -1,17 +1,8 @@
 /**
- * Remembers which Hyprland client belongs to which desktop window. Update
- * relaunches restore a previous arrangement.
- *
- * This is deliberately not monitor policy. The service never derives where a
- * window belongs and every move is silent, so the user's current workspace does
- * not change underneath them.
- *
- * Every operation is best-effort. Off Hyprland, or with the socket gone, each
- * one becomes a no-op instead of an error -- window restore must not depend on
- * a compositor being present.
- *
- * The same address map, joined with each window's published project filter, is
- * written out for tools outside the app (`WindowProjectManifest.fork.ts`).
+ * Maps Hyprland clients to desktop windows so update relaunches restore an
+ * arrangement. Not monitor policy: every move is silent. Best-effort: off
+ * Hyprland or without the socket each operation is a no-op, never an error.
+ * The map also feeds `WindowProjectManifest.fork.ts`.
  */
 import type { DesktopWindowProjectScope } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -273,15 +264,15 @@ export const make = Effect.fn("HyprlandPlacement.make")(function* (options: {
     isAvailable,
     claim,
     snapshotAddresses: isAvailable ? snapshotAddresses : Effect.succeed(new Set<string>()),
-    forget: (windowId) =>
-      Effect.sync(() => {
-        addressesByWindowId.delete(windowId);
-        scopesByWindowId.delete(windowId);
-      }).pipe(Effect.andThen(publishManifest)),
-    publishScope: (windowId, scope) =>
-      Effect.sync(() => void scopesByWindowId.set(windowId, scope)).pipe(
-        Effect.andThen(publishManifest),
-      ),
+    forget: Effect.fn("HyprlandPlacement.forget")(function* (windowId) {
+      addressesByWindowId.delete(windowId);
+      scopesByWindowId.delete(windowId);
+      yield* publishManifest;
+    }),
+    publishScope: Effect.fn("HyprlandPlacement.publishScope")(function* (windowId, scope) {
+      scopesByWindowId.set(windowId, scope);
+      yield* publishManifest;
+    }),
     workspaceOf,
     stageWorkspaceRule,
     clearWorkspaceRule,

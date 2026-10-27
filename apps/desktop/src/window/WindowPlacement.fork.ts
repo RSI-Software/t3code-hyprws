@@ -1,17 +1,7 @@
-// Fork-only: how a window meets Hyprland when it maps
-// (RSI-Software/t3code-hyprws#1345). `DesktopWindow.ts` carries one-line hooks
-// into these helpers.
-//
-// Hyprland matches windows by exact title, and generic windows share one (two
-// all-projects windows are both "T3 Code"). So a window restored onto a
-// captured workspace maps under a title carrying its WindowId and keeps it
-// until claimed; only then does it take its normal title. Every other window
-// maps under its normal title, so the user's own rules on it still fire,
-// unless another window is still unclaimed under its normal title: windows
-// opened together could not be told apart, so the later ones map under their
-// claim title too (RSI-Software/t3code-hyprws#1380). The workspace is still
-// the user's choice: a restore replays the one captured, and anything else
-// maps wherever Hyprland puts it.
+// Hyprland matches windows by exact title, and generic windows share one. A
+// restored window, or one opened while another is unclaimed under the same
+// title, maps under its WindowId claim title until claimed; others map under
+// their normal title so user rules still fire. Hooks live in `DesktopWindow.ts`.
 import * as Effect from "effect/Effect";
 import type * as Electron from "electron";
 

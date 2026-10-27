@@ -9,13 +9,13 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import type * as Electron from "electron";
-import { vi } from "vite-plus/test";
+import { vi, type Mock } from "vite-plus/test";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
 import type * as PreviewManager from "../preview/Manager.ts";
-import type { DesktopWindowHarnessFork } from "./DesktopWindow.test.ts";
+import type { DesktopWindowLayerTestFork } from "./DesktopWindow.test.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import { testRestoreEntry, testWindowId } from "./testWindowIds.fork.ts";
 import { WINDOW_ID_PRELOAD_ARGUMENT, windowIdPreloadArgument } from "./WindowId.fork.ts";
@@ -66,6 +66,28 @@ export const previewSessionCountersFork = (input: {
           }),
       }
     : {};
+};
+
+type WindowListenerFork = (...args: readonly unknown[]) => void;
+
+// The fork cases' view of upstream's `makeFakeBrowserWindow`. Its inferred
+// vitest mock types cannot be named in an exported declaration.
+type FakeBrowserWindowFork = {
+  readonly window: Electron.BrowserWindow;
+  readonly isFocused: Mock<() => boolean>;
+  readonly isMinimized: Mock<() => boolean>;
+  readonly isVisible: Mock<() => boolean>;
+  readonly loadURL: Mock<() => Promise<void>>;
+  readonly openDevTools: Mock;
+  readonly send: Mock;
+  readonly setTitle: Mock;
+  readonly webContentsListeners: Map<string, WindowListenerFork>;
+  readonly windowListeners: Map<string, WindowListenerFork>;
+};
+
+type DesktopWindowHarnessFork = {
+  readonly makeFakeBrowserWindow: () => FakeBrowserWindowFork;
+  readonly layerTest: DesktopWindowLayerTestFork;
 };
 
 /**
