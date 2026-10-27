@@ -188,7 +188,7 @@ describe("buildSidebarListItems", () => {
       ),
     ).toEqual(["thread-a", "thread-b"]);
     // A row for the hidden member would reach the renderer unresolved and
-    // crash on its thread fields (issue #901).
+    // crash on its thread fields.
     const resolvable = new Set(keys);
     for (const item of items) {
       if (item.kind === "thread") expect(resolvable.has(item.key)).toBe(true);
