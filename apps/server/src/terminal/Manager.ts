@@ -4419,7 +4419,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     let unsubscribe: (() => void) | null = null;
     let attachmentAcquired = false;
     let released = false;
-    let releaseTransferred = false;
 
     const release = () => {
       unsubscribe?.();
@@ -4500,13 +4499,11 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
       snapshotFloor = initialSnapshot?.sequence ?? null;
       deliverLive = true;
-      releaseTransferred = true;
       return release;
     }).pipe(
       (effect) => withThreadLock(input.threadId, effect),
-      Effect.ensuring(
+      Effect.onError(() =>
         Effect.gen(function* () {
-          if (releaseTransferred) return;
           unsubscribe?.();
           unsubscribe = null;
           if (attachmentAcquired && !released) {
@@ -4518,7 +4515,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             );
           }
         }).pipe(Effect.ignoreCause({ log: true })),
-      ),
+      ), // fork-hook: zmux-estate/stream-release-attachment
     );
   };
 
