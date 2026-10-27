@@ -1,21 +1,8 @@
 /**
- * One-shot record of which windows were open, written just before an update
- * relaunch and consumed by the next launch.
- *
- * Upstream has a single window, so `quitAndInstall` relaunching into a bare
- * app is correct there. The fork's unit of organization is the project window,
- * so an update that silently collapses a workspace-per-project layout into one
- * hub window destroys the user's arrangement. This manifest is how that
- * arrangement crosses the restart.
- *
- * Manifest v2 keeps one row per window (its WindowId, route, bounds, and
- * Hyprland workspace), so extra all-projects or same-project windows come back
- * too. A v1 manifest, one row per identity, is still read.
- *
- * Deliberately not a general session store. It is written only on the install
- * path, deleted the moment it is read, and ignored once stale, so a normal
- * quit still starts clean and a crashed update never resurrects windows days
- * later.
+ * One-shot record of open windows (v2: one row per window; v1 still read) that
+ * carries the window arrangement across an update relaunch. Not a session
+ * store: written only on install, deleted when read, and ignored once stale, so
+ * a normal quit starts clean and a crashed update never resurrects windows.
  */
 import {
   EnvironmentId,

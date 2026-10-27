@@ -232,14 +232,10 @@ export function formatClearSuppressionWindowRule(
 }
 
 /**
- * Pick the compositor client that belongs to a window we just opened.
- *
- * Everything this process owns shares one pid, so pid alone is ambiguous once
- * a second window exists. Claimed addresses drop out, then a single exact
- * title match is the answer. A window whose renderer retitled it before the
- * claim has one more answer: given the addresses seen before it was shown,
- * the only new client of ours that no staged title reserves. Two windows
- * mapping at once leave two new clients, and neither is guessed at.
+ * Our windows share one pid, so: drop claimed addresses, take a single exact
+ * title match, else (for a window retitled before the claim) the only new
+ * client since `knownAddresses` that no staged title reserves. Two new clients
+ * at once are ambiguous and neither is guessed.
  */
 export function selectClientForWindow(input: {
   readonly clients: readonly HyprlandClient[];
