@@ -54,6 +54,7 @@ import {
 import * as ExternalMcpServer from "./ExternalMcpServer.fork.ts";
 import * as ExternalMcpService from "./ExternalMcpService.fork.ts";
 
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
 const projectId = ProjectId.make("project:requests");
 const otherProjectId = ProjectId.make("project:outside-grant");
 const threadId = ThreadId.make("thread:requests");

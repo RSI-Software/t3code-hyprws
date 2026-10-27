@@ -1,8 +1,7 @@
-// Fork-owned pending-request reads and question answers for `/api/mcp/external`
-// (RSI-Software/t3code-hyprws device-auth domain). Answers dispatch the same
-// `runtime-request.respond` the provider-thread `t3_pending_request_respond`
-// tool and the composer send. Approvals are listed so the caller can tell the
-// owner; an external credential never decides one.
+// Fork-owned pending-request reads and question answers for `/api/mcp/external`.
+// Answers dispatch the same `runtime-request.respond` as the `t3_pending_request_respond` tool and
+// the composer. Approvals are listed so the caller can tell the owner; an external credential
+// never decides one.
 import {
   type CommandId,
   OrchestratorMcpFailure,
