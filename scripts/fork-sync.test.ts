@@ -646,6 +646,15 @@ it("names a hook the tip carries fewer marked lines of, unless a tip commit reti
     assert.deepStrictEqual(lostHooks(realRunner, f.root, trunk, tip), ["d/call (2→1)"]);
     const retired = write(["a();"], "retire\n\nFork-Hook-Retired: d/call");
     assert.deepStrictEqual(lostHooks(realRunner, f.root, trunk, retired), []);
+
+    // A landed trailer's rebased copy retires nothing in a later sync.
+    const kept = ["a(); // fork-hook: d/call"];
+    const message = "keep one\n\nFork-Hook-Retired: d/call";
+    const landed = write(kept, message);
+    f.git(["checkout", "--quiet", "--detach", retired], f.root);
+    write(kept, message);
+    const rebased = write(["a();"], "drop the last");
+    assert.deepStrictEqual(lostHooks(realRunner, f.root, landed, rebased), ["d/call (1→0)"]);
   });
 });
 
