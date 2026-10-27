@@ -21,14 +21,9 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { showExternalLinkContextMenu } from "./externalLinkContextMenu";
 
-/**
- * Fork: the GitHub link destination controls. Everything the destination
- * feature needs lives here — target parsing, the destination list, the
- * preferred-destination policy driven by the two open-mode client settings,
- * the open dispatch (native panel, integrated browser, external browser), and
- * the context menu — so `ChatMarkdown.tsx` carries only marked hook lines and
- * this file owns the behaviour.
- */
+// Fork: GitHub link destination controls (target parsing, destination policy
+// from the open-mode client settings, open dispatch, context menu), so
+// `ChatMarkdown.tsx` carries only marked hook lines.
 
 export type GitHubLinkDestination = "native" | "integrated" | "external";
 export type GitHubLinkKind = "repository" | "issue" | "pull-request";

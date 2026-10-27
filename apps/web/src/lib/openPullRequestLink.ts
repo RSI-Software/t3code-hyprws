@@ -17,7 +17,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readProjects, useProjects } from "../state/entities";
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
+import { linkPreferenceFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null, url: string) {
   const projects = useProjects();
@@ -60,6 +60,7 @@ export function useOpenChangeRequestLink(
     const serverConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
     const resolvedThreadRef = targetThreadRef ?? threadRef;
     const resolvedPanelRef = panelRef ?? resolvedThreadRef;
+    const allProjects = readProjects(); // fork-hook: github-issues/issue-link-projects
     if (
       openGitHubIssueLinkFork({
         event,
@@ -80,6 +81,7 @@ export function useOpenChangeRequestLink(
       environmentId: resolvedThreadRef?.environmentId ?? targetEnvironmentId,
       primaryEnvironmentId,
       lendHostProject: resolvedPanelRef !== undefined,
+      ...linkPreferenceFork(resolvedThreadRef), // fork-hook: github-issues/change-request-preferred-project
     });
     if (target === null) return false;
     const { project, repository, number, host } = target;

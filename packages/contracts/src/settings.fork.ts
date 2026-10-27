@@ -1,11 +1,9 @@
 import * as Schema from "effect/Schema";
 
 /**
- * Fork: how a GitHub link opens — in the integrated browser or the external
- * one — and how a change request link opens, which also offers the native
- * panel. These live beside — not inside — upstream's `settings.ts`, whose
- * schema carries only the marked hook lines that spread them into the client
- * settings and patch schemas.
+ * Fork: how a GitHub link opens (integrated or external browser) and how a change request link
+ * opens, which also offers the native panel. Upstream `settings.ts` only carries the marked hook
+ * lines that spread these into the client settings and patch schemas.
  */
 
 export const GitHubLinkOpenMode = Schema.Literals(["integrated", "external"]);
