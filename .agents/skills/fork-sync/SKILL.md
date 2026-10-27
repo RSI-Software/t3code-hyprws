@@ -24,7 +24,7 @@ vp run fork:sync <tag>      # one named v… tag
 
 Any other flag is a defect.
 
-**Target:** the named tag, else a valid marker's tag the trunk lacks, else the newest upstream release tag.
+**Target:** the named tag, else the kept worktree's or a valid marker's tag the trunk lacks, else the newest upstream release tag.
 
 **Start:** the first that applies.
 

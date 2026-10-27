@@ -509,7 +509,8 @@ it("ignores a marker for another tag, another tree, or a lease the trunk dropped
       `its lease ${marker.lease.slice(0, 7)} is not in origin/hyprws`,
     );
 
-    // with no tag named, a marker the run ignores never picks its older tag
+    // with no tag named and no kept worktree, a marker the run ignores never picks its older tag
+    NodeFS.rmSync(NodePath.join(f.root, ".t3", "fork-sync", "worktree.json"));
     const newest = capture(() => run([], { runner: exec().runner, root: f.root }));
     assert.strictEqual(newest.value, 0);
     assert.include(newest.output, `ignoring marker ${marker.commit.slice(0, 7)}`);
@@ -752,12 +753,14 @@ it("blocks again on a rerun while the kept rebase still has unresolved paths", (
     {
       forkContent: "line1\nline2 fork\nline3\n",
       upstreamContent: "line1\nline2 upstream\nline3\n",
+      nightlyTag: true,
     },
     (f) => {
       const first = exec();
       capture(() => run(["v1.0.0"], { runner: first.runner, root: f.root }));
+      // a no-tag rerun keeps the kept worktree's tag over a newer release
       const second = exec();
-      const code = capture(() => run(["v1.0.0"], { runner: second.runner, root: f.root })).value;
+      const code = capture(() => run([], { runner: second.runner, root: f.root })).value;
       assert.strictEqual(code, 1);
       const report = readReport(f.root, "v1.0.0");
       assert.strictEqual(report.outcome, "blocked");
