@@ -3,11 +3,9 @@ import type * as Electron from "electron";
 const EDITING_ROLES = new Set(["cut", "copy", "paste", "selectAll"]);
 
 /**
- * App action menus stay in the renderer so they keep T3's icons, hierarchy,
- * and theme tokens; inside the app's own renderer a native menu opens only for
- * the native actions this click actually offers. A browser guest or a sign-in
- * popup has no renderer menu behind it, so it keeps the always-native editing
- * roles. Trims `template` in place; false when nothing is left to show.
+ * App menus render in the renderer, so in the app renderer a native menu opens
+ * only for native actions the click offers; guests and sign-in popups keep the
+ * native editing roles. Trims `template` in place; false when nothing is left.
  */
 export const trimAppContextMenuFork = (
   template: Electron.MenuItemConstructorOptions[],
