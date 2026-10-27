@@ -1,4 +1,4 @@
-import type { VoiceInputConfigUpdateFork } from "@t3tools/contracts";
+import type { VoiceInputConfigUpdateFork, VoiceTextSettingsFork } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -6,12 +6,14 @@ import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Socket from "effect/socket/Socket";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as VoiceInput from "./VoiceInput.fork.ts";
+import * as VoiceText from "./VoiceText.fork.ts";
 
 function recording(rate = 16000) {
   const audio = new Uint8Array(44 + rate * 2);
@@ -57,6 +59,7 @@ function harness(
   customClient?: HttpClient.HttpClient,
 ) {
   const stored = new Map<string, Uint8Array>();
+  const speech = { defaults: { terms: "" }, projects: {} as Record<string, { terms: string }> };
   const requests: Array<HttpClientRequest.HttpClientRequest> = [];
   const secrets = ServerSecretStore.ServerSecretStore.of({
     get: (name) => Effect.sync(() => Option.fromUndefinedOr(stored.get(name))),
@@ -88,13 +91,16 @@ function harness(
       Layer.mergeAll(
         Layer.succeed(ServerSecretStore.ServerSecretStore, secrets),
         Layer.succeed(HttpClient.HttpClient, customClient ?? client),
+        Layer.mock(VoiceText.VoiceText)({
+          settings: Effect.sync(() => speech as unknown as VoiceTextSettingsFork),
+        }),
       ),
     ),
   );
   const run = <A, E, R = never>(
     use: (service: VoiceInput.VoiceInput["Service"]) => Effect.Effect<A, E, R>,
   ) => Effect.flatMap(VoiceInput.VoiceInput, use).pipe(Effect.provide(layer));
-  return { stored, requests, run };
+  return { stored, requests, speech, run };
 }
 
 describe("external dictation service", () => {
@@ -245,6 +251,41 @@ describe("external dictation service", () => {
       expect(body.formData.get("file")).toBeInstanceOf(Blob);
     }),
   );
+  it.effect("sends project terms as the prompt and applies their spelling rules", () =>
+    Effect.gen(function* () {
+      const h = harness({
+        text: " Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ. ",
+      });
+      h.speech.defaults.terms = "shared";
+      h.speech.projects.p1 = {
+        terms:
+          "cube -> Kube\ncube control, cubectol -> kubectl\n\n Hyprland \nVec<T>\ndollar dollar -> $$\nΟΔΟΣ -> Odos\nfive words is too long",
+      };
+      const texts = yield* h.run((s) =>
+        Effect.gen(function* () {
+          yield* s.configure(openai);
+          return [yield* s.transcribe(recording(), "p1"), yield* s.transcribe(recording(), "gone")];
+        }),
+      );
+      const [project, shared] = h.requests.map((request) =>
+        request.body._tag === "FormData" ? request.body.formData : new FormData(),
+      );
+      // Only standard fields; one entry over four words would make the list read as prose.
+      expect([...(project?.keys() ?? [])].toSorted()).toEqual([
+        "file",
+        "model",
+        "prompt",
+        "response_format",
+      ]);
+      expect(project?.get("prompt")).toBe("Kube, kubectl, Hyprland, Vec<T>, $$, Odos");
+      expect(shared?.get("prompt")).toBe("shared");
+      expect(texts).toEqual([
+        // The longest alias wins, targets are inserted literally, and case folding is Unicode's.
+        "kubectl, then kubectl, Kube and cubectoland, $$, Odos.",
+        "Cube  control, then CUBECTOL, cube and cubectoland, dollar dollar, οδοσ.",
+      ]);
+    }),
+  );
   it.effect("retains keys only for the same destination and supports removal", () =>
     Effect.gen(function* () {
       const h = harness();
@@ -328,7 +369,7 @@ describe("external dictation service", () => {
       config: { ...openai, live: true },
       url: "ws://127.0.0.1:8788/v1/realtime?intent=transcription",
       headers: { authorization: "Bearer stream-key" },
-      start: '"type":"session.update"',
+      start: '"transcription":{"model":"nemo","prompt":"kubectl"}',
     },
     {
       config: meta,
@@ -339,6 +380,7 @@ describe("external dictation service", () => {
   ] as const)("opens $config.provider's streaming socket with its key", ({ config, ...expected }) =>
     Effect.gen(function* () {
       const h = harness();
+      h.speech.defaults.terms = "kubectl";
       yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
       const opened = Promise.withResolvers<{ url: string; options: unknown; start: unknown }>();
       const upstream = Layer.succeed(Socket.WebSocketConstructor, (url, options) => ({
@@ -359,6 +401,82 @@ describe("external dictation service", () => {
       );
       expect(start).toContain(expected.start);
     }),
+  );
+  const transcription = "conversation.item.input_audio_transcription";
+  it.effect.each([
+    {
+      config: { ...openai, live: true },
+      start: '"prompt":"kubectl"',
+      ready: '{"type":"session.updated"}',
+      previews: [
+        `{"type":"${transcription}.delta","delta":"cube"}`,
+        `{"type":"${transcription}.delta","delta":" control"}`,
+      ],
+      end: '{"type":"input_audio_buffer.commit"}',
+      final: `{"type":"${transcription}.completed","transcript":"Cube control."}`,
+    },
+    {
+      config: meta,
+      start: '"accessToken"',
+      ready: '{"sessionId":"session"}',
+      previews: [
+        '{"type":"transcript","transcript":"cube","final":false}',
+        '{"type":"transcript","transcript":"cube control","final":false}',
+      ],
+      end: '{"type":"endStream"}',
+      final: '{"type":"transcript","transcript":"Cube control.","final":true}',
+    },
+  ] as const)(
+    "spells $config.provider live previews and the final transcript with the project's terms",
+    ({ config, start, ready, previews, end, final }) =>
+      Effect.gen(function* () {
+        const h = harness();
+        h.speech.projects.p1 = { terms: "cube control -> kubectl" };
+        yield* h.run((s) => s.configure({ ...config, apiKey: "stream-key" }));
+        const fromClient = yield* Queue.make<string>();
+        const toClient = yield* Queue.make<string>();
+        const toUpstream = yield* Queue.make<string>();
+        let deliver: (event: { data: string }) => void = () => {};
+        const client = Socket.make({
+          reader: Effect.succeed({
+            pull: Queue.take(fromClient).pipe(Effect.map((frame) => [frame] as const)),
+            upgrade: () => Effect.void,
+          }),
+          writer: Effect.succeed({
+            write: (frame) => Queue.offer(toClient, String(frame)).pipe(Effect.asVoid),
+            writeAll: () => Effect.void,
+          }),
+        });
+        const upstream = Layer.succeed(Socket.WebSocketConstructor, () => ({
+          readyState: 1,
+          addEventListener: (type: string, listener: typeof deliver) => {
+            if (type === "message") deliver = listener;
+          },
+          removeEventListener: () => {},
+          close: () => {},
+          send: (frame: string) => Queue.offerUnsafe(toUpstream, frame),
+        }));
+        const fiber = yield* h
+          .run((s) => s.stream(client, "p1"))
+          .pipe(Effect.scoped, Effect.provide(upstream), Effect.forkChild);
+        expect(yield* Queue.take(toUpstream)).toContain(start);
+        deliver({ data: ready });
+        expect(yield* Queue.take(toClient)).toBe('{"type":"ready"}');
+        for (const data of previews) deliver({ data });
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"cube","final":false}',
+        );
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"kubectl","final":false}',
+        );
+        yield* Queue.offer(fromClient, '{"type":"endStream"}');
+        expect(yield* Queue.take(toUpstream)).toBe(end);
+        deliver({ data: final });
+        expect(yield* Queue.take(toClient)).toBe(
+          '{"type":"transcript","text":"kubectl.","final":true}',
+        );
+        yield* Fiber.join(fiber);
+      }),
   );
   it.effect("refuses a live socket while live preview is off", () =>
     Effect.gen(function* () {
