@@ -21,7 +21,7 @@ import * as VoiceText from "./VoiceText.fork.ts";
 import { isVoiceRecordingFork } from "./recording.fork.ts";
 import { metaVoiceRequestFork, metaVoiceStreamFork, metaVoiceTranscriptFork } from "./meta.fork.ts";
 import { openAiVoiceStreamFork } from "./openaiRealtime.fork.ts";
-import { relayVoiceStreamFork } from "./realtime.fork.ts";
+import { relayVoiceStreamFork, type VoiceStreamAdapterFork } from "./realtime.fork.ts";
 
 export class VoiceInputError extends Schema.TaggedError<VoiceInputError>()("VoiceInputError", {
   reason: Schema.Literals([
@@ -96,7 +96,6 @@ const decodeStoredSettings = (encoded: string) =>
               legacy.enabled && baseUrl !== null && OPENAI_SHAPED_LEGACY.has(legacy.provider),
             // Meta settings from before streaming URLs were always live.
             live: streamingEndpoint === undefined ? provider === "meta" : streamingEndpoint !== "",
-            extensions: false,
           } as const;
         }),
       ),
@@ -110,7 +109,6 @@ const defaults = {
   baseUrl: "https://api.meta.ai/v1",
   live: true,
   model: "muse-voice-transcribe-1.0",
-  extensions: false,
   apiKey: "",
 } as const;
 
@@ -125,58 +123,39 @@ function voiceInputUrlsFork(config: Pick<VoiceInputConfigFork, "provider" | "bas
 }
 
 /**
- * Project terms as transcription hints: the standard `prompt` always, and Promptletariat's
- * `keywords` and `custom_spelling` when extensions are on. Lines are `term` or `heard, misheard -> Term`.
- * Hints past Promptletariat's limits are dropped, never refused, so dictation keeps working.
+ * Project terms, as lines of `term` or `heard, misheard -> Term`. Terms go out as the standard
+ * `prompt`, a comma list some services decode as hotwords; an entry over four words reads as prose
+ * and disables them all, so it stays out. Spelling rules run here, so every service gets them.
  */
-function voiceVocabularyFork(terms: string, extensions: boolean): VoiceVocabularyFork {
+function voiceTermsFork(terms: string) {
   const canonical = new Set<string>();
-  const spelling: Array<{ from: Array<string>; to: string }> = [];
-  let sources = 0;
+  const rules: Array<{ pattern: RegExp; to: string }> = [];
   for (const line of terms.split("\n")) {
     const [heard, term = heard] = line.split("->").map((part) => part.trim());
     if (!term) continue;
-    canonical.add(term);
-    const from = heard === term ? [] : (heard ?? "").split(",").flatMap((p) => p.trim() || []);
-    if (from.length > 0 && sources + from.length <= 256) {
-      sources += from.length;
-      spelling.push({ from, to: term });
+    if (term.split(/\s+/u).length <= 4) canonical.add(term);
+    if (heard === term) continue;
+    for (const from of (heard ?? "").split(",")) {
+      const words = from.trim().split(/\s+/u).filter(Boolean).map(escapeRegExp);
+      if (words.length > 0)
+        rules.push({
+          pattern: new RegExp(`(?<![\\p{L}\\p{N}])${words.join("\\s+")}(?![\\p{L}\\p{N}])`, "giu"),
+          to: term,
+        });
     }
   }
-  if (canonical.size === 0) return {};
-  // Keywords are decoder hotwords: no angle brackets or NUL, 100 phrases of 128 characters,
-  // and an 8 KiB encoded query.
-  const keywords: Array<string> = [];
+  let prompt = "";
   for (const term of canonical) {
-    if (keywords.length === 100) break;
-    const keyword = term
-      .replace(/[<>\0]/g, "")
-      .trim()
-      .slice(0, 128);
-    if (
-      keyword &&
-      !keywords.includes(keyword) &&
-      hotwordQueryLength([...keywords, keyword]) <= 8192
-    )
-      keywords.push(keyword);
+    const next = prompt ? `${prompt}, ${term}` : term;
+    if (next.length > 4096) break;
+    prompt = next;
   }
   return {
-    prompt: [...canonical].join(", ").slice(0, 4096),
-    ...(extensions && keywords.length > 0 ? { keywords } : {}),
-    ...(extensions && spelling.length > 0 ? { custom_spelling: spelling } : {}),
+    prompt,
+    spell: (text: string) => rules.reduce((out, rule) => out.replace(rule.pattern, rule.to), text),
   };
 }
-const hotwordQueryLength = (words: ReadonlyArray<string>) =>
-  new URLSearchParams(words.map((word): [string, string] => ["hotword", word])).toString().length;
-export interface VoiceVocabularyFork {
-  readonly prompt?: string;
-  readonly keywords?: ReadonlyArray<string>;
-  readonly custom_spelling?: typeof CustomSpelling.Type;
-}
-const CustomSpelling = Schema.Array(
-  Schema.Struct({ from: Schema.Array(Schema.String), to: Schema.String }),
-);
-const encodeCustomSpelling = Schema.encodeSync(Schema.fromJsonString(CustomSpelling));
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class VoiceInput extends Context.Service<
   VoiceInput,
@@ -204,11 +183,11 @@ const make = Effect.gen(function* () {
   const writes = yield* Semaphore.make(1);
   const projectTerms = (projectId: string | undefined) =>
     text.settings.pipe(
-      Effect.map(
-        ({ projects, defaults }) => ((projectId && projects[projectId]) || defaults).terms,
+      Effect.map(({ projects, defaults }) =>
+        voiceTermsFork(((projectId && projects[projectId]) || defaults).terms),
       ),
       // Terms only steer recognition; dictation still works without them.
-      Effect.orElseSucceed(() => ""),
+      Effect.orElseSucceed(() => voiceTermsFork("")),
     );
 
   const read = secrets.get(SECRET_NAME).pipe(
@@ -249,7 +228,6 @@ const make = Effect.gen(function* () {
       baseUrl,
       live: config.live,
       model,
-      extensions: config.extensions,
       apiKey,
     };
     const encoded = yield* Schema.encodeEffect(codec)(saved).pipe(
@@ -269,6 +247,7 @@ const make = Effect.gen(function* () {
     if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
     if (!isVoiceRecordingFork(audio)) return yield* new VoiceInputError({ reason: "audio" });
     const { upload } = voiceInputUrlsFork(config);
+    const { prompt, spell } = yield* projectTerms(projectId);
     let request: HttpClientRequest.HttpClientRequest;
     if (config.provider === "meta") {
       request = metaVoiceRequestFork(upload, config.model, audio);
@@ -277,14 +256,7 @@ const make = Effect.gen(function* () {
       form.set("file", new Blob([new Uint8Array(audio)], { type: "audio/wav" }), "dictation.wav");
       form.set("model", config.model);
       form.set("response_format", "json");
-      const {
-        prompt,
-        keywords = [],
-        custom_spelling,
-      } = voiceVocabularyFork(yield* projectTerms(projectId), config.extensions);
       if (prompt) form.set("prompt", prompt);
-      for (const keyword of keywords) form.append("keywords[]", keyword);
-      if (custom_spelling) form.set("custom_spelling", encodeCustomSpelling(custom_spelling));
       request = HttpClientRequest.post(upload).pipe(HttpClientRequest.bodyFormData(form));
     }
     if (config.apiKey)
@@ -302,7 +274,7 @@ const make = Effect.gen(function* () {
             Effect.map((body) => body.text),
           )
     ).pipe(Effect.mapError((cause) => new VoiceInputError({ reason: "response", cause })));
-    return text.trim();
+    return spell(text.trim());
   });
   return VoiceInput.of({
     settings: read.pipe(Effect.map(publicSettings)),
@@ -312,13 +284,22 @@ const make = Effect.gen(function* () {
         const config = yield* read;
         if (!config.enabled) return yield* new VoiceInputError({ reason: "disabled" });
         if (!config.live) return yield* new VoiceInputError({ reason: "live" });
-        const adapter =
+        const { prompt, spell } = yield* projectTerms(projectId);
+        const wire =
           config.provider === "meta"
             ? metaVoiceStreamFork(config)
-            : openAiVoiceStreamFork(
-                config,
-                voiceVocabularyFork(yield* projectTerms(projectId), config.extensions),
-              );
+            : openAiVoiceStreamFork(config, prompt);
+        const adapter: VoiceStreamAdapterFork = {
+          ...wire,
+          receive: (frame) =>
+            wire
+              .receive(frame)
+              .pipe(
+                Effect.map((update) =>
+                  update?.type === "transcript" ? { ...update, text: spell(update.text) } : update,
+                ),
+              ),
+        };
         const upstream = yield* Socket.makeWebSocket(voiceInputUrlsFork(config).realtime, {
           openTimeout: "10 seconds",
           ...(adapter.headers ? { headers: adapter.headers } : {}),

@@ -33,8 +33,8 @@ If the live stream fails, finishing uploads the recording instead.
 
 **Speech terms:** list names the speech service should recognize under **Text processing**, one per line, per project.
 Add `heard, misheard -> Term` to fix a spelling.
-Terms go out as the standard `prompt` hint; turn on **Promptletariat extensions** to also send them as `keywords` and `custom_spelling`, which OpenAI rejects.
-Meta ignores speech terms; Promptletariat takes up to 100 terms and 256 misheard spellings.
+Terms go out as the standard `prompt` hint, which Meta ignores; a term over four words is left out.
+Spelling fixes apply to every service's transcript.
 
 Base URLs resolve from the selected environment's server: `localhost` means that server's machine.
 Audio stays in memory and is limited to five minutes.

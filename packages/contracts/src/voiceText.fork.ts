@@ -26,7 +26,7 @@ export const VoiceTextConfigFork = Schema.Struct({
   formattingPrompt: prompt,
   contextPrompt: prompt,
   projectContext: Schema.String.check(Schema.isMaxLength(20_000)),
-  /** One term per line; `heard, misheard -> Term` adds a spelling rule. Sent to the speech service. */
+  /** One term per line; `heard, misheard -> Term` adds a spelling rule. Terms are sent as `prompt`. */
   terms: Schema.String.check(Schema.isMaxLength(20_000)).pipe(
     Schema.withDecodingDefault(Effect.succeed("")),
   ),

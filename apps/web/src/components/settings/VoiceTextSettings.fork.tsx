@@ -324,7 +324,7 @@ export function VoiceTextSettingsFork({
           </SettingsRow>
           <SettingsRow
             title="Speech terms"
-            description="Names the speech service should recognize, one per line. Add `heard, misheard -> Term` to fix a spelling. Meta ignores them."
+            description="Names to recognize, one per line, up to four words each. Add `heard, misheard -> Term` to fix a spelling."
           >
             <div className="mt-3 max-w-2xl pb-3.5">
               <Textarea

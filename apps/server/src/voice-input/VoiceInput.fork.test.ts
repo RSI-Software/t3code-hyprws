@@ -39,7 +39,6 @@ const openai: VoiceInputConfigUpdateFork = {
   baseUrl: "http://127.0.0.1:8788/v1",
   live: false,
   model: "nemo",
-  extensions: false,
 };
 const meta = {
   enabled: true,
@@ -47,7 +46,6 @@ const meta = {
   baseUrl: "https://api.meta.ai/v1",
   live: true,
   model: "muse-voice-transcribe-1.0",
-  extensions: false,
 } satisfies VoiceInputConfigUpdateFork;
 const silentSocket = Socket.make({
   reader: Effect.succeed({ pull: Effect.never, upgrade: () => Effect.void }),
@@ -252,58 +250,35 @@ describe("external dictation service", () => {
       expect(body.formData.get("file")).toBeInstanceOf(Blob);
     }),
   );
-  it.effect.each([
-    { extensions: false, keywords: [], spelling: null },
-    {
-      extensions: true,
-      keywords: ["kubectl", "Hyprland", "VecT"],
-      spelling: '[{"from":["cube control","cubectol"],"to":"kubectl"}]',
-    },
-  ])("sends project terms with extensions $extensions", ({ extensions, keywords, spelling }) =>
+  it.effect("sends project terms as the prompt and applies their spelling rules", () =>
     Effect.gen(function* () {
-      const h = harness();
+      const h = harness({ text: " Cube  control, then CUBECTOL and cubectoland. " });
       h.speech.defaults.terms = "shared";
-      h.speech.projects.p1 = { terms: "cube control, cubectol -> kubectl\n\n Hyprland \nVec<T>" };
-      yield* h.run((s) =>
+      h.speech.projects.p1 = {
+        terms: "cube control, cubectol -> kubectl\n\n Hyprland \nVec<T>\nfive words is too long",
+      };
+      const texts = yield* h.run((s) =>
         Effect.gen(function* () {
-          yield* s.configure({ ...openai, extensions });
-          yield* s.transcribe(recording(), "p1");
-          yield* s.transcribe(recording(), "gone");
+          yield* s.configure(openai);
+          return [yield* s.transcribe(recording(), "p1"), yield* s.transcribe(recording(), "gone")];
         }),
       );
       const [project, shared] = h.requests.map((request) =>
         request.body._tag === "FormData" ? request.body.formData : new FormData(),
       );
+      // Only standard fields; one entry over four words would make the list read as prose.
+      expect([...(project?.keys() ?? [])].toSorted()).toEqual([
+        "file",
+        "model",
+        "prompt",
+        "response_format",
+      ]);
       expect(project?.get("prompt")).toBe("kubectl, Hyprland, Vec<T>");
-      expect(project?.getAll("keywords[]")).toEqual(keywords);
-      expect(project?.get("custom_spelling")).toBe(spelling);
       expect(shared?.get("prompt")).toBe("shared");
-    }),
-  );
-  it.effect("drops terms past Promptletariat's hint limits", () =>
-    Effect.gen(function* () {
-      const h = harness();
-      h.speech.defaults.terms = Array.from(
-        { length: 150 },
-        (_, i) => `${"a".repeat(200)}${i}, b${i} -> ${i}${"é".repeat(150)}`,
-      ).join("\n");
-      yield* h.run((s) =>
-        Effect.gen(function* () {
-          yield* s.configure({ ...openai, extensions: true });
-          yield* s.transcribe(recording());
-        }),
-      );
-      const body = h.requests[0]?.body;
-      if (body?._tag !== "FormData") throw new Error("Expected upload");
-      const keywords = body.formData.getAll("keywords[]").map(String);
-      expect(keywords.length).toBeGreaterThan(0);
-      expect(keywords.every((keyword) => keyword.length <= 128)).toBe(true);
-      expect(
-        new URLSearchParams(keywords.map((word): [string, string] => ["hotword", word])).toString()
-          .length,
-      ).toBeLessThanOrEqual(8192);
-      const spelling = JSON.parse(String(body.formData.get("custom_spelling")));
-      expect(spelling.flatMap((rule: { from: Array<string> }) => rule.from)).toHaveLength(256);
+      expect(texts).toEqual([
+        "kubectl, then kubectl and cubectoland.",
+        "Cube  control, then CUBECTOL and cubectoland.",
+      ]);
     }),
   );
   it.effect("retains keys only for the same destination and supports removal", () =>
@@ -386,10 +361,10 @@ describe("external dictation service", () => {
   );
   it.effect.each([
     {
-      config: { ...openai, live: true, extensions: true },
+      config: { ...openai, live: true },
       url: "ws://127.0.0.1:8788/v1/realtime?intent=transcription",
       headers: { authorization: "Bearer stream-key" },
-      start: '"transcription":{"model":"nemo","prompt":"kubectl","keywords":["kubectl"]}',
+      start: '"transcription":{"model":"nemo","prompt":"kubectl"}',
     },
     {
       config: meta,

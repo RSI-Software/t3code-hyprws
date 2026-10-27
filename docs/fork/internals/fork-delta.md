@@ -891,7 +891,7 @@ Cleanup and formatting reuse text generation runners; automatic processing follo
 One base URL per service derives both paths: Meta's ASR wire, or OpenAI's multipart transcription and Realtime for everything else.
 Live preview relays one PCM capture through a shared server core with per-wire adapters: Meta's realtime socket, or OpenAI Realtime transcription for everything else.
 The same capture builds the WAV, so a failed stream falls back to batch upload.
-Project speech terms resolve on the server from the request's project; Promptletariat-only fields stay behind an opt-in because OpenAI rejects unknown parameters.
+Project speech terms resolve on the server from the request's project and go out only as the standard `prompt`; the server applies spelling rules itself, so any OpenAI-compatible service works.
 Mobile remains upstream-owned.
 
 ### Retirement condition

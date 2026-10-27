@@ -24,13 +24,7 @@ const SERVICES_FORK = [
   {
     provider: "openai-compatible",
     label: "OpenAI-compatible",
-    defaults: {
-      provider: "openai-compatible",
-      baseUrl: "",
-      live: false,
-      model: "",
-      extensions: false,
-    },
+    defaults: { provider: "openai-compatible", baseUrl: "", live: false, model: "" },
   },
   {
     provider: "meta",
@@ -40,7 +34,6 @@ const SERVICES_FORK = [
       baseUrl: "https://api.meta.ai/v1",
       live: true,
       model: "muse-voice-transcribe-1.0",
-      extensions: false,
     },
   },
 ] as const;
@@ -60,7 +53,6 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
           baseUrl: settings.baseUrl,
           live: settings.live,
           model: settings.model,
-          extensions: settings.extensions,
         }
       : null);
   const update = (patch: Partial<VoiceInputConfigUpdateFork>) => {
@@ -84,7 +76,6 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
         baseUrl: saved.baseUrl,
         live: saved.live,
         model: saved.model,
-        extensions: saved.extensions,
       });
       window.dispatchEvent(new Event(VOICE_SETTINGS_CHANGED_FORK));
       setMessage("Dictation settings saved.");
@@ -203,22 +194,6 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                     onCheckedChange={(live) => update({ live })}
                   />
                 </div>
-                {form.provider === "openai-compatible" ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="grid gap-0.5">
-                      <Label htmlFor="dictation-extensions-fork">Promptletariat extensions</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Send speech terms as keywords and spelling rules. OpenAI rejects them.
-                      </p>
-                    </div>
-                    <Switch
-                      id="dictation-extensions-fork"
-                      aria-label="Dictation Promptletariat extensions"
-                      checked={form.extensions}
-                      onCheckedChange={(extensions) => update({ extensions })}
-                    />
-                  </div>
-                ) : null}
                 <div className="grid gap-1.5">
                   <Label htmlFor="dictation-key-fork">
                     API key{form.provider === "meta" ? "" : " (optional)"}

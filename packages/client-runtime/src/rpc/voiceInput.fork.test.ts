@@ -37,7 +37,6 @@ const settings = {
   baseUrl: "http://localhost:9000/v1",
   live: false,
   model: "nemo",
-  extensions: false,
   hasApiKey: false,
 };
 
@@ -165,7 +164,6 @@ it.effect("preserves omitted API keys when saving settings", () =>
       baseUrl: settings.baseUrl,
       live: false,
       model: "nemo",
-      extensions: false,
     }).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
     expect(request.method).toBe("POST");
     expect(JSON.parse(String(request.body))).not.toHaveProperty("apiKey");

@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { VoiceVocabularyFork } from "./VoiceInput.fork.ts";
 import { VoiceStreamProtocolErrorFork, type VoiceStreamAdapterFork } from "./realtime.fork.ts";
 
 const RealtimeEvent = Schema.Struct({
@@ -40,7 +39,7 @@ export function upsamplePcmFork() {
  */
 export function openAiVoiceStreamFork(
   config: { model: string; apiKey: string },
-  vocabulary: VoiceVocabularyFork = {},
+  prompt = "",
 ): VoiceStreamAdapterFork {
   const upsample = upsamplePcmFork();
   let preview = "";
@@ -54,7 +53,7 @@ export function openAiVoiceStreamFork(
           audio: {
             input: {
               format: { type: "audio/pcm", rate: 24000 },
-              transcription: { model: config.model, ...vocabulary },
+              transcription: { model: config.model, ...(prompt ? { prompt } : {}) },
               turn_detection: null,
             },
           },
