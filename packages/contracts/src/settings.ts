@@ -405,14 +405,12 @@ export const ClientSettingsSchema = Schema.Struct({
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
   ),
-  // Per-environment accent colors, keyed by environment id. Client-local
-  // rather than server-backed: the color identifies an environment from *this*
-  // client's point of view, so it has to be readable even while that
-  // environment is disconnected, and it should not be dictated to other
-  // clients by whichever backend happens to be primary.
   environmentAccentColors: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
+    // Client-local, not server-backed: the accent identifies an environment from this
+    // client's view, so it stays readable while disconnected and is never dictated to
+    // other clients by whichever backend is primary.
     Schema.withDecodingDefault(Effect.succeed({})),
-  ),
+  ), // fork-hook: backend-attach/environment-accent-colors
   environmentDisplayNames: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),

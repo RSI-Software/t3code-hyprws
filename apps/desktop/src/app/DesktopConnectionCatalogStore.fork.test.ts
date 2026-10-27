@@ -3,7 +3,6 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
@@ -19,7 +18,7 @@ const safeStorageLayer = Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, 
   isEncryptionAvailable: Effect.succeed(true),
   encryptString: (value) => Effect.succeed(textEncoder.encode(`encrypted:${value}`)),
   decryptString: (value) => Effect.succeed(textDecoder.decode(value).slice("encrypted:".length)),
-  selectedStorageBackend: Effect.succeed(Option.none()),
+  selectedStorageBackend: Effect.succeedNone,
 } satisfies ElectronSafeStorage.ElectronSafeStorage["Service"]);
 
 function makeLayer(baseDir: string) {

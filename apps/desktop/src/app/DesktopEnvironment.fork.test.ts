@@ -55,7 +55,7 @@ describe("DesktopEnvironment", () => {
         "/install/resources/app.asar.unpacked/apps/server/dist/client",
       ]);
       // A built unpackaged launch serves the same built client from the
-      // repository tree, not from a packaged appPath (#893).
+      // repository tree, not from a packaged appPath.
       const unpackaged = yield* makeEnvironment({}, { T3CODE_HOME: "/tmp/t3" });
       assert.deepEqual(unpackaged.packagedClientRootCandidates, [
         "/repo/apps/server/dist/client",

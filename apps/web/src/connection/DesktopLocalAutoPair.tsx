@@ -7,12 +7,9 @@ import { isDesktopClientOnlyMode } from "../environments/primary/target";
 import { useEnvironments } from "../state/environments";
 
 /**
- * Decides whether a launch may pair itself, before any server is discovered.
- *
- * Runs once per launch, and only while the saved environment list is empty:
- * a user who removes the environment on purpose is not re-paired behind their
- * back within that session. A managed launch spawned its own server and
- * already owns a same-origin credential, so it never takes this path.
+ * Once per launch, and only while the saved environment list is empty: a user who
+ * removes the environment on purpose is not re-paired behind their back. A managed
+ * launch spawned its own server and owns a same-origin credential, so it never pairs.
  */
 export function shouldAttemptDesktopAutoPair(input: {
   readonly attempted: boolean;
@@ -35,12 +32,10 @@ export function selectDesktopAutoPairTarget(
 }
 
 /**
- * Client-only desktop attaches to a server it did not spawn, so it has no
- * same-origin primary environment and no saved credential on a fresh profile.
- * The pairing link for that server is already reachable — the main process
- * mints one through the bundled `t3 pair` command — so the app pairs itself
- * instead of parking the user on a "paste a pairing link" screen for a server
- * running on the same machine.
+ * Client-only desktop attaches to a server it did not spawn, so a fresh profile has
+ * no same-origin primary or saved credential. The main process mints a pairing link
+ * through the bundled `t3 pair` command, so the app pairs itself instead of asking
+ * the user to paste one for a server on the same machine.
  */
 export function DesktopLocalAutoPair() {
   const { environments, isReady } = useEnvironments();

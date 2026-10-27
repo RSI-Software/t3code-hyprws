@@ -10,7 +10,6 @@ import {
   deriveServerRuntimeStatePath,
   isProcessAlive,
   readPersistedServerRuntimeState,
-  type ServerRuntimeStateVariant,
 } from "@t3tools/shared/serverRuntimeState";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";

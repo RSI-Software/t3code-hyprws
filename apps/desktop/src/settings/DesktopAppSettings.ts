@@ -534,6 +534,13 @@ export const make = Effect.gen(function* () {
       );
     });
 
+  const setBackendModeFork = Effect.fn("desktop.settings.setBackendMode")(function* (
+    mode: DesktopBackendMode,
+  ) {
+    yield* Effect.annotateCurrentSpan({ mode });
+    return yield* persist((settings) => setBackendMode(settings, mode));
+  }); // fork-hook: backend-attach/settings-set-backend-mode
+
   return DesktopAppSettings.of({
     get: SynchronizedRef.get(settingsRef),
     load: Effect.gen(function* () {
@@ -557,10 +564,7 @@ export const make = Effect.gen(function* () {
         return yield* persist((settings) => setMainWindowBounds(settings, bounds, isMaximized));
       },
     ),
-    setBackendMode: (mode) =>
-      persist((settings) => setBackendMode(settings, mode)).pipe(
-        Effect.withSpan("desktop.settings.setBackendMode", { attributes: { mode } }),
-      ),
+    setBackendMode: setBackendModeFork, // fork-hook: backend-attach/settings-set-backend-mode
     setServerExposureMode: Effect.fn("desktop.settings.setServerExposureMode")(function* (mode) {
       yield* Effect.annotateCurrentSpan({ mode });
 
@@ -626,6 +630,12 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
           ] as const;
         });
 
+      const setBackendModeFork = Effect.fn("DesktopAppSettings.setBackendMode")(function (
+        mode: DesktopBackendMode,
+      ) {
+        return update((settings) => setBackendMode(settings, mode));
+      }); // fork-hook: backend-attach/settings-set-backend-mode
+
       return DesktopAppSettings.of({
         get: SynchronizedRef.get(settingsRef),
         load: SynchronizedRef.get(settingsRef),
@@ -634,7 +644,7 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
             return update((settings) => setMainWindowBounds(settings, bounds, isMaximized));
           },
         ),
-        setBackendMode: (mode) => update((settings) => setBackendMode(settings, mode)),
+        setBackendMode: setBackendModeFork, // fork-hook: backend-attach/settings-set-backend-mode
         setServerExposureMode: Effect.fn("DesktopAppSettings.setServerExposureMode")(
           function (mode) {
             return update((settings) => setServerExposureMode(settings, mode));

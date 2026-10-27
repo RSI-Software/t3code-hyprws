@@ -131,8 +131,8 @@ const make = Effect.fn("desktop.backendMode.make")(function* (argv: readonly str
   });
 
   return DesktopBackendMode.of({
-    latch: (configuredMode) =>
-      Effect.try({
+    latch: Effect.fn("DesktopBackendMode.latch")(function* (configuredMode) {
+      const state = yield* Effect.try({
         try: () => resolveDesktopBackendModeState(argv, configuredMode),
         catch: (cause) =>
           isDesktopBackendModeArgumentError(cause)
@@ -141,12 +141,16 @@ const make = Effect.fn("desktop.backendMode.make")(function* (argv: readonly str
                 value: null,
                 reason: "invalid-value",
               }),
-      }).pipe(Effect.tap((state) => Ref.set(stateRef, state))),
+      });
+      yield* Ref.set(stateRef, state);
+      return state;
+    }),
     get: Ref.get(stateRef),
-    resolveExistingServer: (input) =>
-      Ref.updateAndGet(stateRef, (state) =>
+    resolveExistingServer: Effect.fn("DesktopBackendMode.resolveExistingServer")(function* (input) {
+      return yield* Ref.updateAndGet(stateRef, (state) =>
         resolveDesktopBackendModeForExistingServer(state, input),
-      ),
+      );
+    }),
   });
 });
 

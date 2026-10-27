@@ -8,11 +8,9 @@ export interface EnvironmentPresenceScope {
   /** The environment served by the app's own backend, when it has one. */
   readonly primaryEnvironmentId: EnvironmentId | null;
   /**
-   * False when this app can never own a local backend: a client-only desktop
-   * and the hosted static web app only ever talk to backends they paired with,
-   * so every environment they reach is remote. This is deliberately separate
-   * from a null `primaryEnvironmentId`, which a managed app also reports while
-   * its local backend is still registering — there, nothing is remote yet.
+   * False when this app can never own a local backend (client-only desktop, hosted web), so
+   * every environment is remote. Deliberately separate from a null `primaryEnvironmentId`,
+   * which a managed app also reports while its backend registers, when nothing is remote yet.
    */
   readonly ownsLocalEnvironment: boolean;
 }
