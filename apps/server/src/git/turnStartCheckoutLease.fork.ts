@@ -14,14 +14,10 @@ export class TurnStartCheckoutUnresolvedError extends Schema.TaggedError<TurnSta
 }
 
 /**
- * Resolves the checkout a client turn start leases.
- *
- * A worktree removed outside T3 no longer resolves to a repository. There is
- * then no checkout to contend for, so its own path stands in as the lease key
- * and turn start recovers the thread. Dying here instead surfaces as
- * an RPC defect that drops the client's websocket. Every other resolve error
- * becomes a typed turn-start rejection that carries its detail, for the same
- * reason.
+ * Resolves the checkout a client turn start leases. A worktree removed outside T3 no longer
+ * resolves, so its own path stands in as the lease key and turn start recovers the thread.
+ * Every other resolve error becomes a typed turn-start rejection: a defect here would drop the
+ * client's websocket.
  */
 export const resolveTurnCheckoutFork = (
   registry: Pick<VcsDriverRegistry["Service"], "resolve">,

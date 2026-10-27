@@ -1,9 +1,7 @@
 // Fork-only (zmux-estate): keeps thread branches on their checkout's real HEAD.
-// A run that ends on another branch, or a `git switch` made outside T3 while
-// the checkout is idle, moves every idle branch-bound thread sharing that
-// checkout to the new branch. A managed session labels the checkout, not one
-// thread, so drift is reconciled per checkout; an active run anywhere on it
-// defers the whole reconcile.
+// A run ending on another branch, or an outside `git switch` while idle, moves every idle
+// branch-bound thread sharing that checkout. Drift is reconciled per checkout because a managed
+// session labels the checkout; an active run anywhere on it defers the whole reconcile.
 import { CommandId, type OrchestrationV2ThreadShell, type ThreadId } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";

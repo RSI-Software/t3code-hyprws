@@ -79,13 +79,10 @@ const shell = (id: string, worktreePath: string | null, branch: string | null) =
 type WatchNotice = "open" | "close" | "fail";
 
 /**
- * In-memory threads that apply branch updates, and a directory watcher that
- * reports every acquisition and release. `failFirstWatch` makes the first
- * acquisition throw; `refuse` names threads whose update the decider refuses.
- * `lookups` counts project lookups and managed-session reconciles, `snapshots`
- * the shell snapshots read. `nextHeadEvent` waits for the watcher to see HEAD
- * move, `nextReconcile` for a managed-session reconcile, and `nextRefusal` for
- * a refused update; `accept` stops refusing a thread.
+ * In-memory threads that apply branch updates, and a directory watcher that reports every
+ * acquisition and release. `failFirstWatch` makes the first acquisition throw; `refuse` names
+ * threads whose update the decider refuses until `accept`. `lookups` counts project lookups and
+ * managed-session reconciles; the `next*` waiters await a HEAD move, reconcile, or refusal.
  */
 const makeHarness = (
   root: string,

@@ -80,12 +80,10 @@ const hasLiveRun = <E>(readRuns: RunRecords<E>) =>
   readRuns.pipe(Effect.map(({ runs }) => runs.some(isLiveRun)));
 
 /**
- * Refuses a committed checkout move while the thread has a live run. The move
- * service checks idleness before it commits, but a run from a starter outside
- * the client lease can begin in between, and the committed write would detach
- * that run's provider sessions. The service requeues a refused move. Recovery
- * of a removed worktree is the exception: the turn-start gate commits it for
- * the run it is starting.
+ * Refuses a committed checkout move while the thread has a live run: a run from a starter
+ * outside the client lease can begin after the service's idle check, and the write would detach
+ * its provider sessions. The service requeues a refused move. Removed-worktree recovery is
+ * exempt: the turn-start gate commits it for the run it is starting.
  */
 export const refuseCheckoutMoveDuringRunFork = <E, E2>(
   command: OrchestrationV2ServerCommand,

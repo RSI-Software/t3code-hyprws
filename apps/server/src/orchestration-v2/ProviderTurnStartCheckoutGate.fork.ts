@@ -1,8 +1,7 @@
-// Fork-only (zmux-estate): the checkout gate every provider turn start passes,
-// whatever started the run: a client, the queue, MCP, a schedule, a wake or a
-// continuation. It recovers a removed worktree before the session opens and
-// waits out a branch change holding the checkout lease. Wired over the
-// upstream turn-start service through `zmux-estate/turn-start-checkout-gate`.
+// Fork-only (zmux-estate): the checkout gate every provider turn start passes, whatever started
+// the run (client, queue, MCP, schedule, wake, continuation). It recovers a removed worktree
+// before the session opens and waits out a branch change holding the checkout lease. Wired
+// through `zmux-estate/turn-start-checkout-gate`.
 import type { RunId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -63,18 +62,10 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
     });
 
     /**
-     * Detaches the thread's live sessions whose cwd no longer exists, so the
-     * open below starts one in the thread's current checkout. A committed
-     * recovery leaves these detaches to the turn start while a run is live,
-     * whether this gate or a client committed it; a provider fixing its cwd at
-     * open would otherwise reuse the removed directory.
-     *
-     * A session is stale while the thread's committed recovery moved it out of
-     * the session's worktree, even one recreated at the same path before this
-     * gate, and it stays healthy once the thread returns there. The disk check
-     * covers a recovery whose marker a later queued or failed move replaced.
-     * A session shared across threads passes the cwd with every turn, so its
-     * own cwd is never stale.
+     * Detaches the thread's live sessions whose cwd is stale, so the open below starts one in
+     * the current checkout; a provider fixing its cwd at open would reuse the removed directory.
+     * Stale means a committed recovery moved the thread out of it, even if recreated, or it is
+     * gone from disk. A shared session gets the cwd every turn, so it is never stale.
      */
     const detachRecoveredSessions = Effect.fn(
       "ProviderTurnStartCheckoutGateFork.detachRecoveredSessions",
@@ -148,8 +139,9 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
       );
 
     return ProviderTurnStartServiceV2.of({
-      start: (input) =>
-        bestEffort("turn-start worktree recovery failed", recover(input)).pipe(
+      // The wrapped service owns the turn-start span.
+      start: Effect.fnUntraced(function* (input) {
+        return yield* bestEffort("turn-start worktree recovery failed", recover(input)).pipe(
           Effect.andThen(
             bestEffort(
               "turn-start recovered session detach failed",
@@ -160,7 +152,8 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
             bestEffort("turn-start checkout lease wait failed", awaitCheckoutLease(input.threadId)),
           ),
           Effect.andThen(inner.start(input)),
-        ),
+        );
+      }),
     });
   }),
 );

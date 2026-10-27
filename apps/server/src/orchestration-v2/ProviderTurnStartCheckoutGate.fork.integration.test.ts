@@ -1,8 +1,6 @@
-// Fork-only (zmux-estate): a removed-worktree recovery must leave the next turn
-// on a session opened in the recovered checkout. The decider, the effect worker
-// and the turn-start gate run for real; the provider fixes its cwd at session
-// open, as Claude, ACP and Pi do, so a reused session would keep the removed
-// directory.
+// Fork-only (zmux-estate): a removed-worktree recovery must leave the next turn on a session
+// opened in the recovered checkout. The decider, effect worker, and turn-start gate run for real;
+// the provider fixes its cwd at session open, as Claude, ACP and Pi do.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {

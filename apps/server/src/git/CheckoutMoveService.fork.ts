@@ -60,9 +60,11 @@ export class CheckoutMoveServiceFork extends Context.Service<
   }
 >()("t3/git/CheckoutMoveService.fork/CheckoutMoveServiceFork") {}
 
+const isCheckoutMoveValidationError = Schema.is(CheckoutMoveValidationError);
+
 const failureDetail = (cause: Cause.Cause<unknown>): string => {
   const error = Cause.squash(cause);
-  const detail = Schema.is(CheckoutMoveValidationError)(error)
+  const detail = isCheckoutMoveValidationError(error)
     ? error.reason
     : error instanceof Error
       ? error.message

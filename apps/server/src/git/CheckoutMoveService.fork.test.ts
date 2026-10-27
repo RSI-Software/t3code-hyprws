@@ -283,8 +283,9 @@ const makeHarness = (
     };
   });
 
+const isThreadCheckoutMoveError = Schema.is(ThreadCheckoutMoveError);
 const errorDetail = (error: unknown) =>
-  Schema.is(ThreadCheckoutMoveError)(error) ? error.detail : String(error);
+  isThreadCheckoutMoveError(error) ? error.detail : String(error);
 
 describe("CheckoutMoveServiceFork", () => {
   it.effect("moves an idle thread into a worktree and undoes the move", () =>

@@ -138,11 +138,10 @@ export const makeCheckoutRecoveryFork = Effect.gen(function* () {
   }, Effect.provide(services));
 
   /**
-   * Recovers a thread whose recorded worktree no longer exists: recreates it
-   * from the recorded branch, and moves the thread to its project root when
-   * that fails or no branch is recorded. Returns whether the thread moved and
-   * the shell the turn runs on. `duringRun` admits the thread's own starting
-   * run; otherwise a busy thread is left alone.
+   * Recovers a thread whose recorded worktree no longer exists: recreates it from the recorded
+   * branch, else moves the thread to its project root. Returns whether it moved and the shell the
+   * turn runs on. `duringRun` admits the thread's own starting run; otherwise a busy thread is
+   * left alone.
    */
   const recoverRemovedWorktree = Effect.fn("CheckoutRecoveryFork.recoverRemovedWorktree")(
     function* (
