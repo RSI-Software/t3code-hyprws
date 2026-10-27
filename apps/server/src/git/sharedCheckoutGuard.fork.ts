@@ -156,17 +156,18 @@ export const sharedCheckoutWsLayerFork = Layer.mergeAll(
       const withTurnStartLease = yield* makeTurnStartCheckoutLeaseFork;
       return ThreadManagement.ThreadManagementService.of({
         ...inner,
-        dispatch: (command) =>
+        // The wrapped service owns the dispatch span.
+        dispatch: Effect.fnUntraced(function* (command) {
           // Move state is server-resolved; a client may only request a move.
-          command.type === "thread.metadata.update" && command.checkoutMove !== undefined
-            ? Effect.fail(
-                new Orchestrator.OrchestratorCommandRejectedError({
-                  commandId: command.commandId,
-                  commandType: command.type,
-                  cause: "Checkout moves are requested through thread.checkoutMove.request.",
-                }),
-              )
-            : withTurnStartLease(inner, command, inner.dispatch(command)),
+          if (command.type === "thread.metadata.update" && command.checkoutMove !== undefined) {
+            return yield* new Orchestrator.OrchestratorCommandRejectedError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause: "Checkout moves are requested through thread.checkoutMove.request.",
+            });
+          }
+          return yield* withTurnStartLease(inner, command, inner.dispatch(command));
+        }),
       });
     }),
   ),
@@ -177,11 +178,15 @@ export const sharedCheckoutWsLayerFork = Layer.mergeAll(
       const withBranchGuard = yield* makeSharedCheckoutBranchGuardFork;
       return GitWorkflow.GitWorkflowService.of({
         ...inner,
-        createRef: (input) =>
-          input.switchRef === true
+        // The wrapped service owns the ref spans.
+        createRef: Effect.fnUntraced(function* (input) {
+          return yield* input.switchRef === true
             ? withBranchGuard(input.cwd, inner.createRef(input))
-            : inner.createRef(input),
-        switchRef: (input) => withBranchGuard(input.cwd, inner.switchRef(input)),
+            : inner.createRef(input);
+        }),
+        switchRef: Effect.fnUntraced(function* (input) {
+          return yield* withBranchGuard(input.cwd, inner.switchRef(input));
+        }),
       });
     }),
   ),
