@@ -35,11 +35,9 @@ import {
 } from "./GitHubIssueListView.logic";
 
 /**
- * Linear's filter bar, built from the app's own controls. A filter is a row that reads as a
- * sentence — `Label` `is any of` `ui, dx` — with each word a control of its own: the operator is a
- * menu, the values a multi-select combobox, and the row ends in its own remove. New rows come from
- * the `Filter` trigger beside the search field, which offers only the types and labels the fetched
- * issues carry, so no pick can empty the list.
+ * Linear's filter bar from the app's own controls: each row reads as a sentence (`Label`
+ * `is any of` `ui, dx`) with an operator menu, a values combobox, and a remove. The `Filter`
+ * trigger offers only the types and labels the fetched issues carry, so no pick can empty the list.
  */
 
 export interface GitHubIssueFilterProps {

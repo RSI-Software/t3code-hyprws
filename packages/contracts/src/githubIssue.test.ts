@@ -9,6 +9,11 @@ import {
   GitHubIssueRef,
 } from "./githubIssue.ts";
 
+const decodeIssueDetail = Schema.decodeSync(GitHubIssueDetail);
+const decodeIssueRef = Schema.decodeSync(GitHubIssueRef);
+const decodeIssueListInput = Schema.decodeSync(GitHubIssueListInput);
+const decodeIssueListProjectError = Schema.decodeSync(GitHubIssueListProjectError);
+
 const detail = {
   projectId: "project-1",
   projectTitle: "t3code",

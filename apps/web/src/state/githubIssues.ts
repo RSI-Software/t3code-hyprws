@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import {
   createGitHubIssueEnvironmentAtoms,
   mergeGitHubIssueLists,

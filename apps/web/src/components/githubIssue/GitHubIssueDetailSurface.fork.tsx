@@ -1,8 +1,6 @@
-// Fork-owned: the right panel's GitHub issue detail surface for commit
-// `9f92309411` (feat(issues): add GitHub Issues surface scoped to project
-// windows). The upstream `ChatView.tsx` carries only marked hook lines pointing
-// here; the capability probe, the degraded/ghost states, and the sub-issue
-// hand-off live in this module.
+// Fork-owned right-panel GitHub issue detail surface. Upstream `ChatView.tsx` carries only
+// marked hook lines pointing here; the capability probe, the degraded/ghost states, and the
+// sub-issue hand-off live in this module.
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
