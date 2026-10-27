@@ -50,14 +50,9 @@ export const systemForkCiGit = (git: SystemGit): ForkCiGit => ({
   },
 });
 
-// Both fallbacks mean the head has no trunk ancestry to report from: the trunk
-// ref is absent, or the head is the trunk tip itself so the merge base is the
-// head. The parent then stands in, exactly as the workflow shell used to.
-//
-// A sync candidate shares no fork commit with the trunk: its trunk merge base
-// is the old upstream base, a strict ancestor of its own. Every commit above its
-// base is a replayed fork commit, so the range starts at the base, and the
-// stale-delete check, which judges a branch's own commits, has nothing to judge.
+// With no trunk ancestry (no trunk ref, or the head is the trunk tip), the parent stands in.
+// A sync candidate shares no fork commit with the trunk: its trunk merge base is the old upstream
+// base, so its range starts at its own base and the stale-delete check has nothing to judge.
 export const deriveForkCiFlags = (git: ForkCiGit, head: string): ForkCiFlags => {
   const base = git.run(["merge-base", UPSTREAM_MAIN, head]).trim();
   const resolvedHead = git.run(["rev-parse", head]).trim();

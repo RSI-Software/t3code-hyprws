@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-// The release gate: a cut happens only for what the lease push landed, proven
-// green. The release sha must be the current tip of origin/hyprws (so it is
-// what the lease push moved the trunk to) AND that sha must carry a green
-// `hyprws CI` conclusion. A green sha that is no longer the tip, or a tip
-// whose hyprws CI never ran green, cuts nothing. Missing or red means no cut.
+// The release gate: cut only the current origin/hyprws tip (what the lease push landed), and only
+// when that sha carries a green `hyprws CI` conclusion. A green non-tip or a tip without a green
+// run cuts nothing.
 
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
 
