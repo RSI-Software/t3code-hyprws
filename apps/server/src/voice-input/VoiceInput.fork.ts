@@ -290,7 +290,10 @@ const make = Effect.gen(function* () {
   });
   return VoiceInput.of({
     settings: read.pipe(Effect.map(publicSettings)),
-    configure: (input) => writes.withPermits(1)(configure(input)),
+    // `configure` and `transcribe` own their spans.
+    configure: Effect.fnUntraced(function* (input) {
+      return yield* writes.withPermits(1)(configure(input));
+    }),
     stream: Effect.fn("VoiceInput.stream")(
       function* (socket, projectId) {
         const config = yield* read;
@@ -322,15 +325,16 @@ const make = Effect.gen(function* () {
         isVoiceInputError(cause) ? cause : new VoiceInputError({ reason: "upstream", cause }),
       ),
     ),
-    transcribe: (audio, projectId) =>
-      transcribe(audio, projectId).pipe(
+    transcribe: Effect.fnUntraced(function* (audio, projectId) {
+      return yield* transcribe(audio, projectId).pipe(
         Effect.timeout("60 seconds"),
         Effect.mapError((cause) =>
           cause._tag === "TimeoutError"
             ? new VoiceInputError({ reason: "upstream", cause })
             : cause,
         ),
-      ),
+      );
+    }),
   });
 });
 
