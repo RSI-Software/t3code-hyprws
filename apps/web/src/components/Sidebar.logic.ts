@@ -13,12 +13,7 @@ import {
   type ThreadSearchShell,
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
-import type {
-  ContextMenuItem,
-  EnvironmentId,
-  ScopedProjectRef,
-  ThreadId,
-} from "@t3tools/contracts"; // fork-hook: thread-ordering/sidebar-logic-contracts-import
+import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts"; // fork-hook: thread-ordering/sidebar-logic-contracts-import
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";

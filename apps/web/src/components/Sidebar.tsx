@@ -50,7 +50,6 @@ import {
   parseScopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-  scopedProjectKey,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import {

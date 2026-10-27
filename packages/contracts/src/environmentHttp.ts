@@ -47,7 +47,6 @@ import {
 import {
   AuthSessionId,
   DpopFailureReason,
-  ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
