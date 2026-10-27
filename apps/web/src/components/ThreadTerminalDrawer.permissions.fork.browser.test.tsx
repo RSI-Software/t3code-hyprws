@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { nextTerminalAttachSeedState } from "@t3tools/client-runtime/state/terminal";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import type {
   GhosttyTerminalSurface,
@@ -70,7 +70,7 @@ vi.mock(import("../state/use-atom-command"), async (original) => ({
 }));
 vi.mock(import("../state/terminalSessions"), async (original) => ({
   ...(await original()),
-  useAttachedTerminalSession: (() => session) as never,
+  attachedTerminalSessionAtom: (() => sessionAtom) as never,
 }));
 vi.mock(import("~/terminal/ghostty/surface"), async (original) => ({
   ...(await original()),
@@ -103,6 +103,7 @@ const threadRef = {
   threadId: ThreadId.make("thread"),
 };
 const session = { ...nextTerminalAttachSeedState(), status: "running" as const, version: 1 };
+const sessionAtom = Atom.make(session);
 // The mocked modules read `state`, so every test starts by resetting all of it.
 function setup() {
   state.allowed = true;
@@ -132,11 +133,8 @@ function splitView(worktreePath: string | null, attached = true) {
           worktreePath={worktreePath}
           runtimeEnv={{ T3CODE_WORKTREE_PATH: worktreePath ?? "/repo" }}
           onSessionExited={state.otherCommand}
-          focusRequestId={0}
           autoFocus={false}
           visible={attached}
-          resizeEpoch={0}
-          drawerHeight={200}
           keybindings={[]}
           attached={attached}
           restoreFocusOnReattach={false}
@@ -209,11 +207,8 @@ it("sends the attachment id with a resize that passes the target terminal grant 
       terminalLabel="Terminal 1"
       cwd="/repo"
       onSessionExited={state.otherCommand}
-      focusRequestId={0}
       autoFocus={false}
       visible={true}
-      resizeEpoch={0}
-      drawerHeight={200}
       keybindings={[]}
       attached
       restoreFocusOnReattach
