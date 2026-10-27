@@ -208,11 +208,6 @@ export function sidebarListItemId(item: SidebarListItem): string {
   return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
 }
 
-/** Every row and marker in sidebar render order: pinned rows, the active
-    inbox, the optional snoozed shelf, then settled. The row keys must come
-    from the same visible lists the sidebar's thread map resolves from —
-    feeding raw section lists here emits rows for threads the map cannot
-    resolve, e.g. the non-anchor members a collapsed group hides. */
 export function buildSidebarListItems(input: {
   readonly hasNoThreads: boolean;
   readonly pinnedKeys: readonly string[];
