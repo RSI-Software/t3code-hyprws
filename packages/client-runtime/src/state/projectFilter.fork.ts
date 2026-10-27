@@ -64,14 +64,10 @@ export function projectFilterProjectKeys(
 }
 
 /**
- * Follows the filter onto the current groups. An entry whose group still
- * exists takes its members, so new members join. An entry whose key is gone
- * becomes the groups now holding its members, so a grouping change re-maps
- * it. An entry nothing resolves stays selected until the project list is
- * `settled`, because an offline environment cannot prove its project gone;
- * once settled it is dropped. Explicit inclusion stays empty after its last
- * entry disappears; legacy filters return to all.
- * Returns `filter` itself when nothing changed.
+ * Follows the filter onto the current groups: an entry takes its group's members, or the groups
+ * now holding its members once its key is gone. An unresolved entry stays until the list is
+ * `settled`, since an offline environment cannot prove it gone. Emptied explicit inclusion stays
+ * empty; legacy filters return to all. Returns `filter` itself when nothing changed.
  */
 export function reconcileProjectFilter(
   filter: ProjectFilter,

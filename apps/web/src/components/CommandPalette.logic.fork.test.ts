@@ -92,8 +92,7 @@ describe("palette project scope", () => {
     );
     const items = buildThreadActionItems({
       threads,
-      projectTitleById: new Map(),
-      sortOrder: "updated_at",
+      projectByKey: new Map(),
       icon: null,
       runThread: async () => {},
     });
