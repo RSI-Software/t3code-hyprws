@@ -83,11 +83,9 @@ export interface AuthoringGuardInput {
   // line the fork added itself removes nothing upstream wrote, so only lines here count. An absent
   // entry refuses every removal: an unread tree is not evidence the line was the fork's.
   readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
-  // The significant lines each touched upstream file carries in the target
-  // tree, for the hook guard's mirror filter (RSI-Software/t3code-hyprws#1207):
-  // an added line the target already has is a revert, not a fork insertion.
-  // Absent on inputs built before the map existed; the guard then behaves
-  // as it always has.
+  // The significant lines each touched upstream file carries in the target tree, for the hook
+  // guard: an added line the target already has is a revert. Absent on inputs built before the map
+  // existed; the guard then behaves as it always has.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
   readonly replayAddedLines?:
     | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
@@ -95,12 +93,9 @@ export interface AuthoringGuardInput {
   // A commit's own blob for a path, read only when the hook guard would
   // refuse: a marker on an unchanged line still covers the lines it marks.
   readonly readCommittedText?: ((sha: string, path: string) => string | undefined) | undefined;
-  // The target-tree text of each touched upstream test file, plus the
-  // head-tree (scanned-head) text of every fork sibling. Read together,
-  // they let the rule exempt a declared-superseded case structurally —
-  // by the case's own lines — instead of by whole-file line membership,
-  // which cannot tell a shared body line from an upstream one
-  // (RSI-Software/t3code-hyprws#1208).
+  // The target-tree text of each touched upstream test file plus the head-tree text of every fork
+  // sibling, so the rule exempts a declared-superseded case by its own lines, not by whole-file
+  // membership, which cannot tell a shared body line from an upstream one.
   readonly upstreamTestTexts: ReadonlyMap<string, string>;
   // Head-tree text for count-aware removal checks: duplicate upstream text
   // survives when the fork only removes its own appended copy.

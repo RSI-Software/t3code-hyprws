@@ -106,11 +106,9 @@ const shiftIndent = (lines: ReadonlyArray<string>, shift: number): ReadonlyArray
       });
 
 /**
- * Resolve one derived hook against the merged upstream text: intact when the marker survived,
- * otherwise the hook's own lines re-inserted directly after its context anchor. The lines are
- * the fork tip's own bytes, shifted only when the anchor matched by trimmed text: upstream
- * re-indented the neighbourhood, and the verbatim indent would fail the format check. A hook that
- * may span a string literal stays verbatim, since shifting it would change the string.
+ * Resolve one hook against the merged upstream text: intact when its marker survived, else its own
+ * lines re-inserted after its context anchor. Lines shift indent only when the anchor matched by
+ * trimmed text (upstream re-indented); a hook that may span a string literal stays verbatim.
  */
 const resolveHook = (
   merged: string,
