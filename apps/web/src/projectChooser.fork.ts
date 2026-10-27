@@ -1,8 +1,6 @@
-// The window's project chooser (RSI-Software/t3code-hyprws#1352): a small
-// adapter that turns the sidebar's single-select scope combobox into a
-// multi-select over the window's `ProjectFilter`, plus the one open request
-// every other surface (palette, keybinding, Issues and PR scope labels) sends
-// to that same chooser.
+// The window's project chooser: adapts the sidebar's single-select scope combobox into a
+// multi-select over the window's `ProjectFilter`, plus the one open request every other
+// surface (palette, keybinding, Issues and PR scope labels) sends to that same chooser.
 import {
   ALL_PROJECTS_FILTER,
   type ProjectFilter,
@@ -231,10 +229,7 @@ export function openProjectChooser(): boolean {
 }
 
 /** Runs the chooser's keybinding. Returns whether `command` was it, so the caller stops matching. */
-export function runProjectChooserCommandFork(
-  command: string | null,
-  event: KeyboardEvent,
-): boolean {
+function runProjectChooserCommandFork(command: string | null, event: KeyboardEvent): boolean {
   if (command !== "projectFilter.choose") return false;
   if (openProjectChooser()) {
     event.preventDefault();
@@ -242,3 +237,9 @@ export function runProjectChooserCommandFork(
   }
   return true;
 }
+
+/** The chooser's shortcut, for the chat route's command registry. */
+export const projectChooserCommandsFork = {
+  "projectFilter.choose": (event: KeyboardEvent) =>
+    runProjectChooserCommandFork("projectFilter.choose", event),
+};

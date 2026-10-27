@@ -61,7 +61,7 @@ import {
 } from "@t3tools/contracts";
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
-import { ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { ChevronDownIcon, FolderIcon, PlusIcon, SettingsIcon } from "lucide-react"; // fork-hook: workspaces/chooser-icons
 import {
   useEffect,
   useLayoutEffect,
@@ -226,7 +226,6 @@ import {
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   useThreadJumpHintsVisible,
-  type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
 } from "./Sidebar.logic";

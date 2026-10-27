@@ -33,6 +33,7 @@ export function useWindowProjectFilter(
     members: group.memberProjectRefs,
   }));
   const filter = reconcileProjectFilter(stored, groups, settled);
+  // oxlint-disable-next-line t3code/react-effect-budget -- writes the reconciled filter back to the external window filter store.
   useEffect(() => {
     if (filter !== stored) state.set(filter);
   }, [filter, state, stored]);

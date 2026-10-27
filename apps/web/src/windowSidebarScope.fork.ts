@@ -1,26 +1,7 @@
-// Per-window sidebar project filter (RSI-Software/t3code-hyprws#1344,
-// RSI-Software/t3code-hyprws#1351).
-//
-// Upstream persists one `sidebarProjectScopeKey` in the shared UI-state blob,
-// so the last window to change it wins and every window reopens on that value.
-// Each window instead keeps its own `ProjectFilter` record under
-// `<prefix><WindowId>`, read at startup over the shared value. The upstream key
-// mirrors a one-entry filter's key, else `null`; upstream writing a key (a
-// thread's Filter by project) makes a one-entry filter. The multi-select
-// chooser writes the filter itself (`projectChooser.fork.ts`).
-//
-// Desktop keeps the record in localStorage, because an update relaunch
-// restores a window's WindowId and must find its filter:
-//
-// - a window with a record reopens on it (reload, crash reload, update restore);
-// - a window without one starts on its seed project, or all projects when
-//   seeded so, else on the shared value as upstream does (a fresh launch);
-// - a record whose window lock is free and whose stamp is past the restore
-//   horizon, and still free after one grace re-check, belongs to a closed
-//   window and is dropped.
-//
-// Plain web has no WindowId; each tab keeps its record in sessionStorage,
-// which the browser already scopes to the tab and drops when it closes.
+// Per-window sidebar project filter: upstream persists one shared `sidebarProjectScopeKey`, so
+// the last window to change it wins. Each window keeps its own `ProjectFilter` record under
+// `<prefix><WindowId>`: localStorage on desktop, because an update relaunch restores a window's
+// WindowId and must find its filter; sessionStorage per tab on plain web, which has no WindowId.
 import {
   ALL_PROJECTS_FILTER,
   decodeProjectFilter,
