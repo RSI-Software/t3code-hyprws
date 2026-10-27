@@ -7,7 +7,7 @@ describe("dictation recording availability", () => {
   it("allows recording in a capable browser without a desktop bridge", () => {
     vi.stubGlobal("window", { isSecureContext: true });
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => {} } });
-    vi.stubGlobal("AudioWorkletNode", class {});
+    vi.stubGlobal("AudioWorkletNode", vi.fn());
     expect(voiceRecordingUnavailableReasonFork()).toBeNull();
   });
 

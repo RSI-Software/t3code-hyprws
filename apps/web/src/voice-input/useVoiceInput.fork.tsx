@@ -97,6 +97,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
   const controller = session.controller;
   const canOperate = useEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope);
   const latest = useRef(input);
+  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-input ref the external voice session callbacks read.
   useLayoutEffect(() => {
     latest.current = input;
   });
