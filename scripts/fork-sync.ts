@@ -815,13 +815,9 @@ const foldedOwnerMessage = (owner: FoldCommit, fixups: ReadonlyArray<FoldCommit>
 };
 
 /**
- * The link guard: a sync rewrites the trunk directly, so the rebased tip is
- * the only place a dropped link could hide. fork:fold's link guard reads both
- * stacks and refuses the rebase when a pull request an old fork commit cites
- * is cited by no new commit (RSI-Software/t3code-hyprws#1592). A commit the
- * target already carries leaves the rebase on purpose, so its link retires
- * with it: patch-for-patch (an exact upstream backport), or superseded, every
- * path it touched left identical to the target at the new tip.
+ * The link guard: a sync rewrites the trunk directly, so it refuses a rebased tip where a pull
+ * request an old fork commit cites is cited by no new commit. A commit the target already carries
+ * (an exact upstream backport, or every path it touched identical to the target) retires its link.
  */
 export const refuseDroppedLinks = (
   root: string,
