@@ -1,9 +1,7 @@
-// What the window's project filter scopes, and what it never touches
-// (RSI-Software/t3code-hyprws#1353). The filter narrows lists: the sidebar,
-// the palette's thread and project search, and the new-thread picker. It never
-// closes, redirects, or tears down work: a thread outside the filter stays
-// open and offers to add its project, and turns, previews, and terminals are
-// keyed by thread, not by filter.
+// The window's project filter narrows lists (the sidebar, the palette's thread and project
+// search, the new-thread picker). It never closes, redirects, or tears down work: a thread
+// outside the filter stays open and offers to add its project, and turns, previews, and
+// terminals are keyed by thread, not by filter.
 import { scopedProjectKey } from "@t3tools/client-runtime/environment";
 import {
   projectFilterProjectKeys,
@@ -65,15 +63,10 @@ export type FilteredNewThread =
   | { readonly kind: "choose" };
 
 /**
- * Where a new thread goes under the window's filter. `contextProjectRef` is
- * the viewed thread or draft's project, never a fallback default. `direct` is
- * "new thread in the current project" (shift+click, `chat.newLocal`), which
- * names the viewed project explicitly; a plain new thread does not.
- *
- * - All projects: upstream's behavior.
- * - One entry: that entry's project, preferring the viewed member.
- * - Several entries: the viewed project when direct, else the picker. A
- *   member is never picked silently.
+ * `contextProjectRef` is the viewed thread or draft's project, never a fallback default;
+ * `direct` is "new thread in the current project" (shift+click, `chat.newLocal`). All
+ * projects keeps upstream's behavior; one entry picks its project, preferring the viewed
+ * member; several pick the viewed project when direct, else ask: never pick silently.
  */
 export function resolveFilteredNewThread(input: {
   readonly filter: ProjectFilter;

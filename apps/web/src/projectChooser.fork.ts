@@ -192,6 +192,7 @@ const subscribe = (listener: () => void) => {
 
 /** Registers the sidebar's chooser while mounted, so other surfaces can open it. */
 export function useProjectChooserHost(registered: ProjectChooserHost, enabled: boolean): void {
+  // oxlint-disable-next-line t3code/react-effect-budget -- registers this chooser in the module-level host store other surfaces open through.
   useEffect(() => {
     if (!enabled) return;
     setHost(registered);
@@ -215,6 +216,9 @@ export function useProjectChooserHostValue(): ProjectChooserHost | null {
 export function readProjectChooserHost(): ProjectChooserHost | null {
   return host;
 }
+
+/** Notifies on each chooser mount, unmount, and change, outside React (window title). */
+export const subscribeProjectChooserHost = subscribe;
 
 /** The mounted chooser's label; `null` where no chooser serves this window. */
 export function useProjectChooserLabel(): string | null {

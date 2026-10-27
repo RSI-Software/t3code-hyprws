@@ -96,11 +96,10 @@ export function buildProjectChooserActionItemFork(
   };
 }
 
-// The palette under the window's project filter (RSI-Software/t3code-hyprws#1353):
-// thread search, project search, and the new-thread picker show the filter's
-// projects until the user picks "Search all projects", which lasts until the
-// palette closes. Without a chooser (no projects yet, or a route without the
-// sidebar) nothing is scoped.
+// Under the window's project filter, thread search, project search, and the new-thread picker
+// show the filter's projects until the user picks "Search all projects", which lasts until the
+// palette closes. Without a chooser (no projects yet, or a route without the sidebar) nothing
+// is scoped.
 
 // The new-thread picker view `CommandPalette.tsx` pushes.
 const NEW_THREAD_IN_VIEW = "projects";
