@@ -107,6 +107,25 @@ const INITIAL_SCAN: LiteralScan = {
   comment: false,
 };
 
+// A `/` at line start or after one of these characters or keywords on its line opens a regex
+// literal; anywhere else it divides.
+const REGEX_PRECEDER = "(,=:[!&|?{};+-*%<>~^";
+const REGEX_KEYWORD =
+  /\b(?:return|typeof|case|do|else|in|of|void|yield|await|delete|throw|new|instanceof)\s*$/;
+
+/** The index of the `/` closing a regex literal opened at `start`, or -1 when the line never closes it. */
+const regexLiteralEnd = (line: string, start: number): number => {
+  let inClass = false;
+  for (let index = start + 1; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass) return index;
+  }
+  return -1;
+};
+
 const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
   let { depth, quote, lastCode, comment } = start;
   const frames = [...start.frames];
@@ -137,6 +156,19 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
       comment = true;
       index += 1;
       continue;
+    }
+    // A regex literal's quotes and brackets are pattern text, not literals or nesting.
+    if (
+      char === "/" &&
+      (REGEX_PRECEDER.includes(line.slice(0, index).trimEnd().at(-1) ?? "(") ||
+        REGEX_KEYWORD.test(line.slice(0, index)))
+    ) {
+      const end = regexLiteralEnd(line, index);
+      if (end !== -1) {
+        index = end;
+        lastCode = "/";
+        continue;
+      }
     }
     if (char === '"' || char === "'" || char === "`") {
       quote = char;
