@@ -129,19 +129,14 @@ function voiceInputUrlsFork(config: Pick<VoiceInputConfigFork, "provider" | "bas
  */
 function voiceTermsFork(terms: string) {
   const canonical = new Set<string>();
-  const rules: Array<{ pattern: RegExp; to: string }> = [];
+  const spellings = new Map<string, string>();
   for (const line of terms.split("\n")) {
     const [heard, term = heard] = line.split("->").map((part) => part.trim());
     if (!term) continue;
     if (term.split(/\s+/u).length <= 4) canonical.add(term);
     if (heard === term) continue;
     for (const from of (heard ?? "").split(",")) {
-      const words = from.trim().split(/\s+/u).filter(Boolean).map(escapeRegExp);
-      if (words.length > 0)
-        rules.push({
-          pattern: new RegExp(`(?<![\\p{L}\\p{N}])${words.join("\\s+")}(?![\\p{L}\\p{N}])`, "giu"),
-          to: term,
-        });
+      if (from.trim()) spellings.set(spellingKey(from), term);
     }
   }
   let prompt = "";
@@ -150,11 +145,21 @@ function voiceTermsFork(terms: string) {
     if (next.length > 4096) break;
     prompt = next;
   }
+  // One pass, longest alias first, so a replacement is never rescanned by another rule.
+  const heard = [...spellings.keys()]
+    .toSorted((a, b) => b.length - a.length)
+    .map((from) => from.split(" ").map(escapeRegExp).join("\\s+"));
+  const pattern =
+    heard.length > 0
+      ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${heard.join("|")})(?![\\p{L}\\p{N}])`, "giu")
+      : undefined;
   return {
     prompt,
-    spell: (text: string) => rules.reduce((out, rule) => out.replace(rule.pattern, rule.to), text),
+    spell: (text: string) =>
+      pattern ? text.replace(pattern, (match) => spellings.get(spellingKey(match)) ?? match) : text,
   };
 }
+const spellingKey = (text: string) => text.trim().split(/\s+/u).join(" ").toLowerCase();
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class VoiceInput extends Context.Service<
