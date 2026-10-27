@@ -34,16 +34,9 @@ const terminalIdNumber = (terminalId: string): number | null => {
 };
 
 /**
- * Suffix duplicated chip labels so N terminals attached to one zmux session
- * stay distinguishable: `uat-sample/main`, `uat-sample/main·2`, `·3`, ... A
- * lone terminal keeps its unsuffixed chip.
- *
- * Numbering is anchored to the terminal's own id, not its position: the
- * lowest-numbered member of a collision group carries the base unsuffixed and
- * every other member keeps the number of its `term-N` id, so opening or
- * closing siblings never renumbers the survivors. A later terminal can
- * re-take a closed one's id slot (the allocator hands out the lowest unused
- * `term-N`), and with it that index.
+ * Suffix duplicated chip labels (`main`, `main·2`, `·3`) for terminals sharing one zmux session.
+ * Numbers come from each `term-N` id, not position, so closing siblings never renumbers
+ * survivors; the lowest member keeps the bare label.
  */
 export function disambiguateTerminalLabels(
   labelsById: ReadonlyMap<string, string>,

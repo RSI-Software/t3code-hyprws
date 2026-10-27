@@ -1765,7 +1765,7 @@ export default function ThreadTerminalDrawer({
       next.set(terminalId, terminalLabelsById?.get(terminalId) ?? getTerminalLabel(terminalId));
     }
     // Terminals sharing a zmux session all carry the session target as their
-    // label; suffix duplicates so the strip stays readable (#909).
+    // label; suffix duplicates so the strip stays readable.
     return disambiguateTerminalLabels(next);
   })();
 

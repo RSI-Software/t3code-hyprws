@@ -1013,7 +1013,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   }, [props.open]);
 
   // Terminals sharing a zmux session all carry the session target as their
-  // label; suffix duplicates so the strip stays readable (#909).
+  // label; suffix duplicates so the strip stays readable.
   const terminalStripBaseLabels = new Map<string, string>();
   for (const surface of props.surfaces) {
     if (surface.kind !== "terminal") continue;
