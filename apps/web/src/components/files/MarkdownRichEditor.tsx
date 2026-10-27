@@ -30,15 +30,10 @@ interface MarkdownRichEditorProps {
 }
 
 /**
- * Mounts a Milkdown editor into `root` and tears it down on unmount. Replaces
- * `@milkdown/react`, whose dependency closure drags `@milkdown/crepe` (and with it a Vue
- * runtime and CodeMirror) into a React-only app; the binding it provides is this effect.
- *
- * Two deliberate differences from `@milkdown/react`. `editorRef` is set synchronously, so a
- * caller reaching the editor before `create()` resolves gets the instance rather than null;
- * `ready` still gates every action, because the context it reads is only populated after
- * creation. And `ready` stays false when `create()` rejects, so a failed editor never runs a
- * post-creation action; `@milkdown/react` cleared its loading flag either way.
+ * Replaces `@milkdown/react`, whose closure drags a Vue runtime and CodeMirror in. Unlike it,
+ * `editorRef` is set synchronously while `ready` gates every action (the context is populated
+ * only after creation), and `ready` stays false when `create()` rejects, so a failed editor
+ * never runs a post-creation action.
  */
 function useMilkdownEditor(
   rootRef: React.RefObject<HTMLDivElement | null>,
@@ -51,6 +46,7 @@ function useMilkdownEditor(
   const editorRef = useRef<Editor | null>(null);
   const [ready, setReady] = useState(false);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- mounts and tears down the Milkdown/ProseMirror editor on the DOM root.
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -104,6 +100,7 @@ export function MarkdownRichEditor({
   const sourcePathRef = useRef(relativePath);
   const onOpenFileRef = useRef(onOpenFile);
   const themeRef = useRef(theme);
+  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-prop refs the Milkdown plugins read outside React.
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
     cwdRef.current = cwd;
@@ -162,6 +159,7 @@ export function MarkdownRichEditor({
   // so only a different value is new content from disk (refresh, reopen,
   // focus, or an agent edit). Unsaved edits stay in the optimistic file, so
   // they arrive here as the echo and are never replaced.
+  // oxlint-disable-next-line t3code/react-effect-budget -- pushes disk changes of `value` into the Milkdown editor instance.
   useEffect(() => {
     if (!ready || value === lastMarkdownRef.current) return;
     // No try/finally: the React Compiler skips a hook that uses one.
@@ -170,6 +168,7 @@ export function MarkdownRichEditor({
     syncingValueRef.current = false;
   }, [editor, ready, value]);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- pushes the theme into the Milkdown editor view's presentation.
   useEffect(() => {
     if (!ready) return;
     editor.current?.action((ctx) =>
