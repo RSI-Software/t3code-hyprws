@@ -1,19 +1,7 @@
-// Fork-owned post-create step for a thread worktree a V2 launch provisions:
-// bind the checkout's managed zmux session, then run the project's Worktrunk
-// create hooks when the client launched in Worktrunk mode.
-//
-// Each outcome lands on the worktree setup card's checkout stage, the surface
-// that already narrates this launch, and in the server log. The setup card is
-// in-memory, so a failure is also persisted as a run-less `system_notice` turn
-// item: an upstream item type every client already renders as a warning row,
-// which keeps the failure in the thread after a reload. Neither step fails the
-// launch: a worktree without its zmux session or hooks is still a working
-// thread.
-//
-// The services are looked up optionally so the seam adds no requirement to
-// `ThreadLaunchService.layer` and upstream harnesses keep upstream text. The
-// production runtime provides the binder and hook runner through
-// `GitWorkflowLayerLive`, and the event sink through `runtimeLayer.ts`.
+// Fork-owned post-create step for a V2 launch's thread worktree: bind the checkout's managed
+// zmux session, then run Worktrunk create hooks for a Worktrunk-mode launch. Neither fails the
+// launch: a failure lands on the setup card and persists as a run-less `system_notice` turn item
+// so it survives a reload. Services are looked up optionally so upstream harnesses need none.
 import { type ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

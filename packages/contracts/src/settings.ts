@@ -1339,14 +1339,10 @@ export type ServerSettings = typeof ServerSettings.Type;
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = Schema.decodeSync(ServerSettings)({});
 
-/**
- * Fold the retired `zmuxSessions` boolean into `terminalSessionMode`, the
- * single operator setting for zmux integration. A file that opted in with
- * `zmuxSessions: true` keeps managed sessions unless it also pinned an
- * explicit mode; every other shape just loses the dead key. Runs on the raw
- * parsed JSON before schema decode — the file converges on the next write.
- */
 export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
+  // Fold the retired `zmuxSessions` boolean into `terminalSessionMode`: `true` keeps managed
+  // sessions unless a mode is pinned; other shapes just lose the key. Runs on raw JSON before
+  // decode, so the file converges on the next write.
   if (raw === null || typeof raw !== "object" || Array.isArray(raw) || !("zmuxSessions" in raw)) {
     return raw;
   }
@@ -1355,7 +1351,7 @@ export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
     return { ...rest, terminalSessionMode: "zmux" satisfies TerminalSessionMode };
   }
   return rest;
-};
+}; // fork-hook: zmux-estate/legacy-zmux-settings-migration
 
 /**
  * Fork: lift a settings file that stored `defaultThreadEnvMode: "worktrunk"`
