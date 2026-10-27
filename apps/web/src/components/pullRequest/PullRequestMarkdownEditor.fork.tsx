@@ -1,9 +1,6 @@
-// Fork-only: pull-request attachment upload behaviour for commit `1314ebcb28`
-// (fix(web): upload media in pull request descriptions). The upstream
-// `PullRequestMarkdownEditor` carries only marked hook lines pointing here;
-// this module owns the upload state machine, the attach bar UI, and the
-// insertion logic, so the upstream file stays byte-for-byte except for the
-// listed debt lines.
+// Fork-only pull-request attachment upload: this module owns the upload state
+// machine, the attach bar UI, and the insertion logic, so upstream
+// `PullRequestMarkdownEditor` carries only marked hook lines pointing here.
 import type { EnvironmentId, PullRequestRef } from "@t3tools/contracts";
 import { PaperclipIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -57,13 +54,13 @@ export function usePullRequestAttachmentFork(input: {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
 
-  // An upload still in flight when the subject changes, or the editor closes, must not land its
-  // insertion on words it was never started from — and the visible status resets with the seed.
+  // oxlint-disable-next-line t3code/react-effect-budget -- aborts the in-flight upload request when the seed changes or the editor closes, so it never inserts into words it did not start from.
   useEffect(
     () => () => uploadAbortRef.current?.abort(),
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new seed aborts the upload started from the old one.
     [input.value],
   );
+  // The visible upload status resets with the seed.
   const [uploadSeed, setUploadSeed] = useState(input.value);
   if (uploadSeed !== input.value) {
     setUploadSeed(input.value);
