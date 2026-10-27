@@ -27,17 +27,20 @@ const decodeTranscript = Schema.decodeUnknownEffect(VoiceInputTranscriptFork);
 const decodeHttpError = Schema.decodeUnknownEffect(EnvironmentHttpCommonError);
 const decodeVoiceTextError = Schema.decodeUnknownEffect(VoiceTextHttpErrorFork);
 
+const OPERATIONS_FORK = {
+  read: { method: "GET", path: "settings", timeoutMs: 15_000 },
+  save: { method: "POST", path: "settings", timeoutMs: 15_000 },
+  transcribe: { method: "POST", path: "transcribe", timeoutMs: 75_000 },
+  "text-read": { method: "GET", path: "text/settings", timeoutMs: 15_000 },
+  "text-save": { method: "POST", path: "text/settings", timeoutMs: 15_000 },
+  "text-transform": { method: "POST", path: "text/transform", timeoutMs: 200_000 },
+  "text-context": { method: "POST", path: "text/context", timeoutMs: 200_000 },
+} as const;
+
 /** Uses the selected environment's cookies, bearer grant, or refreshed relay proof. */
 const requestVoiceInputFork = Effect.fn(function* <A, E>(
   prepared: PreparedConnection,
-  operation:
-    | "read"
-    | "save"
-    | "transcribe"
-    | "text-read"
-    | "text-save"
-    | "text-transform"
-    | "text-context",
+  operation: keyof typeof OPERATIONS_FORK,
   decode: (value: unknown) => Effect.Effect<A, E>,
   payload?:
     | VoiceInputConfigUpdateFork
@@ -49,7 +52,7 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
   const http = yield* HttpClient.HttpClient;
   const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
   const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
-  const method = operation === "read" || operation === "text-read" ? "GET" : "POST";
+  const { method, path, timeoutMs } = OPERATIONS_FORK[operation];
   let requestUrl = "";
   const response = yield* executeAuthenticatedEnvironmentHttpRequest({
     prepared,
@@ -57,22 +60,11 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
     remoteAuthorization,
     method,
     group: "orchestration",
-    timeoutMs:
-      operation === "transcribe"
-        ? 75_000
-        : operation === "text-transform" || operation === "text-context"
-          ? 200_000
-          : 15_000,
+    timeoutMs,
     url: (urls) => {
       requestUrl = environmentEndpointUrl(
         urls.generateThreadGroupTitle(),
-        `${VOICE_INPUT_ROUTE_FORK}/${
-          operation.startsWith("text-")
-            ? `text/${operation === "text-transform" ? "transform" : operation === "text-context" ? "context" : "settings"}`
-            : operation === "transcribe"
-              ? "transcribe"
-              : "settings"
-        }`,
+        `${VOICE_INPUT_ROUTE_FORK}/${path}`,
       );
       return requestUrl;
     },

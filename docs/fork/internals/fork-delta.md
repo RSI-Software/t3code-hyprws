@@ -888,11 +888,9 @@ Fork-owned contracts, services, adapters, and web/desktop controls.
 Marked imports and mounts are the only upstream seams.
 Settings and API keys use the server secret store; audio is never persisted by T3.
 Cleanup and formatting reuse text generation runners; automatic processing follows transcription completion only.
-The local HTTP contract is a WAV request body and a JSON `{text}` response.
-Other services use the OpenAI-compatible multipart transcription contract.
+One base URL per service derives both paths: Meta's ASR wire, or OpenAI's multipart transcription and Realtime for everything else.
 Live preview relays one PCM capture through a shared server core with per-wire adapters: Meta's realtime socket, or OpenAI Realtime transcription for everything else.
 The same capture builds the WAV, so a failed stream falls back to batch upload.
-Provider stubs refuse execution until implemented.
 Mobile remains upstream-owned.
 
 ### Retirement condition

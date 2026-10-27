@@ -5,7 +5,7 @@ import * as Queue from "effect/Queue";
 import * as Exit from "effect/Exit";
 import * as Socket from "effect/socket/Socket";
 import * as TestClock from "effect/testing/TestClock";
-import { metaRealtimeUrlFork, metaVoiceStreamFork } from "./meta.fork.ts";
+import { metaVoiceStreamFork } from "./meta.fork.ts";
 import { openAiVoiceStreamFork, upsamplePcmFork } from "./openaiRealtime.fork.ts";
 import { relayVoiceStreamFork, type VoiceStreamAdapterFork } from "./realtime.fork.ts";
 
@@ -58,15 +58,6 @@ const ready = (h: Effect.Success<typeof harness>) =>
     expect(yield* h.client.read).toBe('{"type":"ready"}');
   });
 
-it("derives a realtime endpoint on the configured origin", () => {
-  expect(metaRealtimeUrlFork("https://api.meta.ai/v1/asr/transcribe")).toBe(
-    "wss://api.meta.ai/v1/asr/realtime",
-  );
-  expect(metaRealtimeUrlFork("http://localhost:8788/asr/transcribe")).toBe(
-    "ws://localhost:8788/asr/realtime",
-  );
-  expect(() => metaRealtimeUrlFork("https://api.meta.ai/other")).toThrow();
-});
 it.effect("streams PCM and cumulative revisions, then ends on the final transcript", () =>
   Effect.gen(function* () {
     const h = yield* harness;

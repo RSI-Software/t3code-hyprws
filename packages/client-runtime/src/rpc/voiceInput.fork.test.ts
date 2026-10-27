@@ -33,12 +33,11 @@ const prepared: PreparedConnection = {
 };
 const settings = {
   enabled: true,
-  provider: "local",
-  endpoint: "http://localhost:9000/transcribe",
-  streamingEndpoint: "",
-  model: "",
+  provider: "openai-compatible",
+  baseUrl: "http://localhost:9000/v1",
+  live: false,
+  model: "nemo",
   hasApiKey: false,
-  providers: [],
 };
 
 it.effect("refreshes rejected relay credentials and signs the renewed destination", () =>
@@ -157,10 +156,10 @@ it.effect("preserves omitted API keys when saving settings", () =>
     };
     yield* saveVoiceInputSettingsFork(prepared, {
       enabled: true,
-      provider: "local",
-      endpoint: settings.endpoint,
-      streamingEndpoint: "",
-      model: "",
+      provider: "openai-compatible",
+      baseUrl: settings.baseUrl,
+      live: false,
+      model: "nemo",
     }).pipe(Effect.provide(layerRemoteHttpClient(fetchFn)));
     expect(request.method).toBe("POST");
     expect(JSON.parse(String(request.body))).not.toHaveProperty("apiKey");
