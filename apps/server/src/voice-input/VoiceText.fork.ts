@@ -101,6 +101,7 @@ const make = Effect.gen(function* () {
         formattingMinWords: 50,
         recentMessageCount: 0,
         projectContext: "",
+        terms: "",
         ...VOICE_TEXT_STARTER_PROMPTS_FORK,
       },
       projects: {},
@@ -164,8 +165,8 @@ const make = Effect.gen(function* () {
   });
   return VoiceText.of({
     settings,
-    configure: (input) =>
-      writes.withPermits(1)(
+    configure: Effect.fn("VoiceText.configure")(function (input) {
+      return writes.withPermits(1)(
         Effect.gen(function* () {
           const previous = yield* read;
           if (input.projectId) {
@@ -179,7 +180,8 @@ const make = Effect.gen(function* () {
           if (!input.config) return yield* new VoiceTextError({ reason: "settings" });
           return yield* save({ ...previous, defaults: input.config });
         }),
-      ),
+      );
+    }),
     transform: Effect.fn("VoiceText.transform")(function* (input) {
       const saved = yield* settings;
       const config = saved.projects[input.projectId] ?? saved.defaults;
