@@ -1,11 +1,7 @@
-// Fork-owned MCP endpoint for owner-approved clients outside T3
-// (RSI-Software/t3code-hyprws device-auth domain). It is a second MCP server
-// beside upstream's `/mcp`, with its own tool catalog, so provider-session
-// credentials and behavior at `/mcp` stay untouched.
-//
-// Retire it when upstream ships an external MCP client audience with headless
-// sign-in: the fork then provides that audience's authenticator from device
-// grants and keeps only the project and interaction-mode policy.
+// Fork-owned MCP endpoint for owner-approved clients outside T3: a second MCP server beside
+// upstream's `/mcp` with its own tool catalog, so `/mcp` credentials and behavior stay untouched.
+// Retire it when upstream ships an external MCP client audience with headless sign-in, keeping
+// only the device-grant authenticator and the project and interaction-mode policy.
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -164,12 +160,10 @@ const AuthMiddlewareLive = HttpRouter.middleware<{
 }>()(makeAuthMiddleware).layer.pipe(Layer.provide(ExternalMcpGrant.layer));
 
 /**
- * Mounted beside the device grant routes through the marked
- * `device-auth/server-external-mcp` hook. The toolkit registration and the
- * transport both build the memoized MCP server layer, so the whole server is
- * built in one `Layer.fresh` scope: inside it they share a new server, and
- * these tools never join the `/mcp` catalog. Services the tools read still
- * come from the surrounding server.
+ * Mounted beside the device grant routes through the marked `device-auth/server-external-mcp`
+ * hook. The toolkit registration and transport both build the memoized MCP server layer, so one
+ * `Layer.fresh` scope gives them a new shared server and keeps these tools out of the `/mcp`
+ * catalog. Services the tools read still come from the surrounding server.
  */
 const registration = toolkitRegistration(
   ExternalMcpToolkitFork,

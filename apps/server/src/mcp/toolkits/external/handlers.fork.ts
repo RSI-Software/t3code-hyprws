@@ -1,13 +1,7 @@
-// Fork-owned handlers for the external MCP tools: each reads the request's
-// principal and calls one `ExternalMcpServiceFork` method. A refusal is a tool
-// error (`isError: true`) whose text leads with the failure code, since the
-// MCP server reports only the failure's message.
-//
-// Access is declared through upstream's `McpToolAccess`, against the
-// outside-client caller the endpoint's middleware provides, so upstream's
-// read-only and runtime-mode checks run first. The service then applies the
-// grant's project and interaction-mode policy, which upstream's client caller
-// does not model yet.
+// Fork-owned handlers for the external MCP tools: each reads the principal and calls one
+// `ExternalMcpServiceFork` method. A refusal is a tool error whose text leads with the failure
+// code, since the MCP server reports only its message. Upstream's `McpToolAccess` checks run
+// first; the service then applies the grant's project and interaction-mode policy.
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
