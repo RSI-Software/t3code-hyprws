@@ -192,11 +192,7 @@ function makeAdapter(sent: Ref.Ref<ReadonlyArray<SentTurn>>, failResume: Ref.Ref
 const scenario = (
   name: string,
   body: (input: {
-    readonly send: (
-      threadId: ThreadId,
-      text: string,
-      status?: "completed" | "failed",
-    ) => Effect.Effect<void>;
+    readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void>;
     readonly sentTo: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<SentTurn>>;
     readonly replaceNativeThread: (legacy: boolean) => Effect.Effect<void>;
   }) => Effect.Effect<void>,
@@ -214,7 +210,6 @@ const scenario = (
         const send = Effect.fn("ConversationForkNoticeTest.send")(function* (
           threadId: ThreadId,
           text: string,
-          status: "completed" | "failed" = "completed",
         ) {
           const ordinal = (ordinals.get(threadId) ?? 0) + 1;
           ordinals.set(threadId, ordinal);
@@ -243,7 +238,7 @@ const scenario = (
           yield* worker.drain();
           assert.equal(
             (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)?.status,
-            status,
+            "completed",
           );
         });
         // The next turn's resume fails, so T3 starts a new native thread. `legacy` strips native
@@ -303,7 +298,7 @@ const scenario = (
         });
         yield* worker.drain();
         yield* body({
-          send: (threadId, text, status) => Effect.orDie(send(threadId, text, status)),
+          send: (threadId, text) => Effect.orDie(send(threadId, text)),
           sentTo: (threadId) =>
             Ref.get(sent).pipe(
               Effect.map((turns) => turns.filter((turn) => turn.threadId === threadId)),
@@ -333,14 +328,16 @@ describe("conversation fork notice", () => {
   it.live("follows a first /compact on a fresh native thread, leaving the command unchanged", () =>
     scenario("fork-notice-compact", ({ send, sentTo, replaceNativeThread }) =>
       Effect.gen(function* () {
-        // A fork copies no messages, so its very first /compact is refused before any native turn.
-        yield* send(forkId, "/compact", "failed");
+        // A fork's first /compact compacts its inherited history, so the notice waits for "First".
+        yield* send(forkId, "/compact");
         yield* send(forkId, "First");
         yield* replaceNativeThread(false);
         yield* send(forkId, "/compact");
         yield* send(forkId, "After compact");
         yield* send(forkId, "Later");
-        const [first, compact, next, later] = yield* sentTo(forkId);
+        const [inherited, first, compact, next, later] = yield* sentTo(forkId);
+        assert.equal(inherited!.text, "/compact");
+        assert.equal(first!.nativeThreadId, inherited!.nativeThreadId);
         assert.include(first!.text, NOTICE);
         assert.notEqual(compact!.nativeThreadId, first!.nativeThreadId);
         assert.equal(compact!.text, "/compact");
