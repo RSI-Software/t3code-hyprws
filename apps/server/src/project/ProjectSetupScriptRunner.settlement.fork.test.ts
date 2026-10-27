@@ -10,7 +10,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import { expect } from "vite-plus/test";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -124,8 +123,7 @@ const harness = Effect.gen(function* () {
     ServerSettings.layerTest(),
     Layer.mock(ProjectService.ProjectService)({}),
     Layer.mock(ProjectStore.ProjectStoreV2)({
-      get: () =>
-        Effect.succeed(Option.some({ workspaceRoot: fixture.baseDir } as ProjectStore.ProjectRow)),
+      get: () => Effect.succeedSome({ workspaceRoot: fixture.baseDir } as ProjectStore.ProjectRow),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread: () => Effect.succeed(thread) }),
     Layer.mock(Orchestrator.OrchestratorV2)({
