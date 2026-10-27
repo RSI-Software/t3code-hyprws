@@ -1,8 +1,7 @@
-// Fork-owned sidebar thread groups (thread-ordering). A group belongs to one
-// environment and lives in the server's `fork_thread_groups` table, outside the
-// event-sourced thread payload: a group spans threads, while orchestrator
-// commands are keyed to one thread. Only the fork RPCs and MCP tools carry
-// groups, so the upstream app never decodes one.
+// Fork-owned sidebar thread groups (thread-ordering). A group belongs to one environment and
+// lives in the server's `fork_thread_groups` table, outside the event-sourced thread payload,
+// since it spans threads. Only the fork RPCs and MCP tools carry groups, so the upstream app
+// never decodes one.
 import * as Schema from "effect/Schema";
 
 import { ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
