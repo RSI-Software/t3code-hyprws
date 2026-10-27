@@ -1,22 +1,7 @@
-// The fork-hook seam model. A `fork-hook:` marker in an upstream-owned source
-// file is the whole declaration of a seam: there is no hand-kept manifest, and
-// nothing outside the marked source decides whether a hook exists
-// (RSI-Software/t3code-hyprws#1155). `deriveForkHooks` reads the markers at the
-// fork tip and derives every entry the sync walk re-applies.
-//
-// Three marker forms:
-//
-// - a trailing `// fork-hook: <domain>/<name>` on a one-line hook (an import,
-//   a call, a `const`, a property/spread);
-// - `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end *` + `/}`
-//   (the end-marker JSX comment) around a multi-line JSX construct;
-// - a trailing `/* fork-hook: <domain>/<name> */` for one-line hooks in
-//   languages where `//` is not a comment (CSS).
-//
-// A hook is exactly one construct and never removes or modifies an upstream
-// line; `forkHookConstructViolation` is that doctrine as code. An unmatched
-// JSX pair or an unknown domain fails the derivation with `path:line`, and a
-// marker mid-comment marks nothing.
+// The fork-hook seam model: a `fork-hook:` marker in an upstream-owned file is the whole seam
+// declaration; no manifest. Forms: a trailing `// fork-hook: <domain>/<name>` (CSS: `/* ... */`),
+// or `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end *` + `/}` around multi-line JSX.
+// A hook is one construct that never changes an upstream line; a marker mid-comment marks nothing.
 
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
@@ -26,12 +11,9 @@ import * as NodePath from "node:path";
 import { FORK_DOMAINS } from "./fork-trailers.ts";
 
 /**
- * Where the hook sits in its file, derived from the marked span's context at
- * the fork tip: the shortest run of immediately preceding lines that carry no
- * marker of their own and occur exactly once in the file with every marked span
- * removed. Re-apply puts the hook back directly after that run, so the anchor
- * needs no typed kinds — an import block, a collection member and a JSX child
- * are all "after these lines".
+ * Where the hook sits, derived at the fork tip: the shortest run of immediately preceding unmarked
+ * lines that occurs exactly once in the file with every marked span removed. Re-apply puts the hook
+ * back right after that run, so the anchor needs no typed kinds.
  */
 export interface ForkHookAnchor {
   readonly context: ReadonlyArray<string>;
@@ -107,6 +89,25 @@ const INITIAL_SCAN: LiteralScan = {
   comment: false,
 };
 
+// A `/` at line start or after one of these characters or keywords on its line opens a regex
+// literal; anywhere else it divides.
+const REGEX_PRECEDER = "(,=:[!&|?{};+-*%<>~^";
+const REGEX_KEYWORD =
+  /\b(?:return|typeof|case|do|else|in|of|void|yield|await|delete|throw|new|instanceof)\s*$/;
+
+/** The index of the `/` closing a regex literal opened at `start`, or -1 when the line never closes it. */
+const regexLiteralEnd = (line: string, start: number): number => {
+  let inClass = false;
+  for (let index = start + 1; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass) return index;
+  }
+  return -1;
+};
+
 const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
   let { depth, quote, lastCode, comment } = start;
   const frames = [...start.frames];
@@ -137,6 +138,19 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
       comment = true;
       index += 1;
       continue;
+    }
+    // A regex literal's quotes and brackets are pattern text, not literals or nesting.
+    if (
+      char === "/" &&
+      (REGEX_PRECEDER.includes(line.slice(0, index).trimEnd().at(-1) ?? "(") ||
+        REGEX_KEYWORD.test(line.slice(0, index)))
+    ) {
+      const end = regexLiteralEnd(line, index);
+      if (end !== -1) {
+        index = end;
+        lastCode = "/";
+        continue;
+      }
     }
     if (char === '"' || char === "'" || char === "`") {
       quote = char;
@@ -174,17 +188,10 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
 const COMMENT_ONLY = /^(?:\/\/|\/\*|\*(?:\/|$))/;
 
 /**
- * The first line (1-based) of the statement a trailing marker on `markerLine` closes, found by
- * walking backwards: while `()[]{}` brackets or string/template literals are still open, or the
- * previous line neither ends a statement (`;`, `{`, `,` as the last code character outside any
- * literal, or a balanced `}` closing a block) nor is blank or
- * comment-only, the statement continues upward. `null` when the start cannot be proven — the
- * marker sits inside a string or template text, or a stray close leaves the file unbalanced.
- * Pure and line-based; there is deliberately no parser dependency.
- *
- * "Open" is judged against the depth the statement itself ends at, not against the file's top
- * level: a hook inside a function body sits at depth 1 for its whole life, and comparing with 0
- * would walk the span out to the enclosing declaration and swallow upstream lines with it.
+ * The 1-based first line of the statement a trailing marker on `markerLine` closes, walking back
+ * while brackets or literals stay open or the previous line ends no statement; `null` if unproven.
+ * "Open" is judged against the statement's own end depth, not depth 0, or a hook inside a function
+ * body would swallow the enclosing declaration. Line-based; there is deliberately no parser.
  */
 export const statementStartLine = (
   lines: ReadonlyArray<string>,
@@ -305,11 +312,9 @@ export const isWellFormedForkHookKey = (key: string): boolean => {
   );
 };
 
-// The marker-construct doctrine (RSI-Software/t3code-hyprws#1155 folded the
-// authoring guard's classifier in here, next to the parser it judges). A marked
-// line hook must be exactly one of these shapes; the property/spread shape
-// additionally names a fork identifier, the others are structural. `@import` is
-// the CSS spelling of the import construct: a fork sheet is pulled in that way.
+// The marker-construct doctrine: a marked line hook must be exactly one of these shapes. The
+// property/spread shape also names a fork identifier; the others are structural. `@import` is the
+// CSS spelling of the import construct.
 const HOOK_IMPORT = /^\s*(?:@?import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
 const HOOK_SINGLE_CALL =
   /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
