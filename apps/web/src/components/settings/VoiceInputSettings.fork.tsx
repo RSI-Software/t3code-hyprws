@@ -20,6 +20,24 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
+const SERVICES_FORK = [
+  {
+    provider: "openai-compatible",
+    label: "OpenAI-compatible",
+    defaults: { provider: "openai-compatible", baseUrl: "", live: false, model: "" },
+  },
+  {
+    provider: "meta",
+    label: "Meta",
+    defaults: {
+      provider: "meta",
+      baseUrl: "https://api.meta.ai/v1",
+      live: true,
+      model: "muse-voice-transcribe-1.0",
+    },
+  },
+] as const;
+
 export function VoiceInputSettingsFork({ environmentId }: { environmentId: EnvironmentId | null }) {
   const { settings, error: loadError } = useVoiceSettingsFork(environmentId);
   const canWrite = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
@@ -32,8 +50,8 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
       ? {
           enabled: settings.enabled,
           provider: settings.provider,
-          endpoint: settings.endpoint,
-          streamingEndpoint: settings.streamingEndpoint,
+          baseUrl: settings.baseUrl,
+          live: settings.live,
           model: settings.model,
         }
       : null);
@@ -55,22 +73,21 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
       setForm({
         enabled: saved.enabled,
         provider: saved.provider,
-        endpoint: saved.endpoint,
-        streamingEndpoint: saved.streamingEndpoint,
+        baseUrl: saved.baseUrl,
+        live: saved.live,
         model: saved.model,
       });
       window.dispatchEvent(new Event(VOICE_SETTINGS_CHANGED_FORK));
       setMessage("Dictation settings saved.");
     } catch {
-      setMessage("Could not save. Check the endpoint and environment permissions.");
+      setMessage("Could not save. Check the base URL, model, and environment permissions.");
     }
     setSaving(false);
   };
   const hasSavedKey =
     settings?.hasApiKey &&
     form?.provider === settings.provider &&
-    form?.endpoint === settings.endpoint &&
-    form?.streamingEndpoint === settings.streamingEndpoint;
+    form?.baseUrl === settings.baseUrl;
   return (
     <SettingsSection id="voice-input-fork" title="Transcription">
       {!environmentId ? (
@@ -102,7 +119,7 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
             />
             <SettingsRow
               title="Speech service"
-              description="Audio is sent through this environment to the endpoint below."
+              description="Audio is sent through this environment to the service below."
             >
               <div className="grid gap-3 py-3">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -111,15 +128,8 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                     <Select
                       value={form.provider}
                       onValueChange={(value) => {
-                        const provider = settings.providers.find((p) => p.id === value);
-                        if (provider?.available)
-                          update({
-                            provider: provider.id,
-                            endpoint: provider.endpoint,
-                            streamingEndpoint: provider.streamingEndpoint,
-                            model: provider.model,
-                            apiKey: "",
-                          });
+                        const service = SERVICES_FORK.find((s) => s.provider === value);
+                        if (service) update({ ...service.defaults, apiKey: "" });
                       }}
                     >
                       <SelectTrigger
@@ -128,76 +138,61 @@ export function VoiceInputSettingsFork({ environmentId }: { environmentId: Envir
                         aria-label="Dictation speech service"
                       >
                         <SelectValue>
-                          {settings.providers.find((p) => p.id === form.provider)?.label}
+                          {SERVICES_FORK.find((s) => s.provider === form.provider)?.label}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectPopup>
-                        {settings.providers.map((provider) => (
-                          <SelectItem
-                            key={provider.id}
-                            value={provider.id}
-                            disabled={!provider.available}
-                          >
-                            {provider.label}
-                            {provider.available ? "" : " (coming later)"}
+                        {SERVICES_FORK.map((service) => (
+                          <SelectItem key={service.provider} value={service.provider}>
+                            {service.label}
                           </SelectItem>
                         ))}
                       </SelectPopup>
                     </Select>
                   </div>
-                  {form.provider !== "local" || form.streamingEndpoint.trim() ? (
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="dictation-model-fork">Model</Label>
-                      <Input
-                        id="dictation-model-fork"
-                        size="sm"
-                        aria-label="Dictation model"
-                        autoComplete="off"
-                        value={form.model}
-                        onChange={(event) => update({ model: event.target.value })}
-                      />
-                    </div>
-                  ) : null}
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="dictation-model-fork">Model</Label>
+                    <Input
+                      id="dictation-model-fork"
+                      size="sm"
+                      aria-label="Dictation model"
+                      autoComplete="off"
+                      value={form.model}
+                      onChange={(event) => update({ model: event.target.value })}
+                    />
+                  </div>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label htmlFor="dictation-endpoint-fork">Endpoint</Label>
+                  <Label htmlFor="dictation-base-url-fork">Base URL</Label>
                   <Input
-                    id="dictation-endpoint-fork"
+                    id="dictation-base-url-fork"
                     size="sm"
-                    aria-label="Dictation endpoint"
+                    aria-label="Dictation base URL"
                     autoComplete="off"
-                    placeholder={
-                      form.provider === "local"
-                        ? "http://localhost:8000/transcribe"
-                        : "https://your-service/v1/audio/transcriptions"
-                    }
-                    value={form.endpoint}
-                    onChange={(event) => update({ endpoint: event.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {form.provider === "local"
-                      ? "Full transcription URL. Accepts WAV audio and returns text in JSON."
-                      : "Full transcription URL, including the transcription path."}
-                  </p>
-                </div>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="dictation-streaming-endpoint-fork">
-                    Streaming endpoint (optional)
-                  </Label>
-                  <Input
-                    id="dictation-streaming-endpoint-fork"
-                    size="sm"
-                    aria-label="Dictation streaming endpoint"
-                    autoComplete="off"
-                    placeholder="wss://your-service/v1/realtime?intent=transcription"
-                    value={form.streamingEndpoint}
-                    onChange={(event) => update({ streamingEndpoint: event.target.value })}
+                    placeholder="https://api.openai.com/v1"
+                    value={form.baseUrl}
+                    onChange={(event) => update({ baseUrl: event.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">
                     {form.provider === "meta"
-                      ? "Meta's realtime socket. Leave empty to transcribe after Stop."
-                      : "OpenAI Realtime transcription socket for a live preview. Leave empty to transcribe after Stop."}
+                      ? "Meta's API root; T3 adds /asr/transcribe and /asr/realtime."
+                      : "The API root; T3 adds /audio/transcriptions and /realtime."}
                   </p>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="grid gap-0.5">
+                    <Label htmlFor="dictation-live-fork">Live preview</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Show words while you speak. Needs a realtime endpoint; off transcribes after
+                      Stop.
+                    </p>
+                  </div>
+                  <Switch
+                    id="dictation-live-fork"
+                    aria-label="Dictation live preview"
+                    checked={form.live}
+                    onCheckedChange={(live) => update({ live })}
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="dictation-key-fork">

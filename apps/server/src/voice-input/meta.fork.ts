@@ -24,15 +24,6 @@ export const metaVoiceTranscriptFork = (response: HttpClientResponse.HttpClientR
     Effect.map((body) => body.transcript),
   );
 
-/** Meta's realtime endpoint is the upload endpoint's sibling; seeds settings saved without one. */
-export function metaRealtimeUrlFork(endpoint: string) {
-  const url = new URL(endpoint);
-  if (!url.pathname.endsWith("/transcribe")) throw new Error("Invalid Meta endpoint.");
-  url.pathname = url.pathname.replace(/\/transcribe$/, "/realtime");
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
-}
-
 const MetaEvent = Schema.Struct({
   type: Schema.optionalKey(Schema.String),
   sessionId: Schema.optionalKey(Schema.String),
