@@ -394,7 +394,7 @@ Upstream ships rich Markdown editing with safe frontmatter and MDX boundaries, o
 | `scripts/fork-*.ts` and their `fork:*` aliases                                                    | The fork tooling; hand-run ones get an alias                               |
 | [`fork-sync`](../../../.agents/skills/fork-sync/SKILL.md) skill                                   | The sync driver's run and unblock procedure                                |
 | `.github/workflows/hyprws-upstream-sync.yml`                                                      | The sync workflow and its fork-local issue upserts                         |
-| `.github/workflows/hyprws-sync-resolution.yml`                                                    | Reruns the sync once rsi-pr-agent pushes a resolution                      |
+| `.github/workflows/hyprws-sync-resolution.yml`                                                    | On a push to `sync/resolution`, dispatches the trunk's sync                |
 | `.github/pull_request_template.md` trailer block                                                  | Points to `FORK_DOMAINS` for the domain list                               |
 | `.rsi-agent/workflows/*.md`                                                                       | rsi-pr-agent copies of `.macroscope/check-run-agents/`, source SHA in each |
 
