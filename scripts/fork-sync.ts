@@ -39,6 +39,7 @@ import {
   selectNewestReleaseTag,
   SYNC_CANDIDATE_BRANCH,
   SYNC_RESOLUTION_BRANCH,
+  UPSTREAM_REPOSITORY,
 } from "./lib/fork-policy.ts";
 import {
   git,
@@ -1949,6 +1950,14 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
   try {
     // fetch — the tag list, the trunk lease, and the marker all come from the remotes
+    // A fresh clone (the job's, Actions') has no upstream remote; an existing one is the session's.
+    if (gitResult(runner, root, ["remote", "get-url", "upstream"]).status !== 0)
+      git(runner, root, [
+        "remote",
+        "add",
+        "upstream",
+        `https://github.com/${UPSTREAM_REPOSITORY}.git`,
+      ]);
     git(runner, root, ["fetch", "--tags", "--force", "upstream"]);
     git(runner, root, ["fetch", "origin", HYPRWS_BRANCH]);
     const expectedOld = git(runner, root, ["rev-parse", `origin/${HYPRWS_BRANCH}`]);
