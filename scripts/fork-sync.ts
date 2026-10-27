@@ -1892,9 +1892,17 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const mergeBase = (tip: string): string =>
       git(runner, root, ["merge-base", "upstream/main", tip]);
 
-    // target — the named tag, else a valid marker's when the trunk lacks it, else the newest
+    // target — the named tag, else the kept worktree's or a valid marker's when the trunk lacks
+    // it, else the newest: a release cut mid-session never drops the session's resolutions
     step = "target";
     const candidates = releaseTags(runner, root);
+    const keptTag = explicit === null ? readWorktreeState(root)?.tag : undefined;
+    const keptTarget = candidates.find(
+      (candidate) =>
+        candidate.tag === keptTag &&
+        !isAncestor(runner, root, candidate.sha, expectedOld) &&
+        keptWorktreeState(runner, root, candidate, expectedOld) !== null,
+    );
     const markerTarget =
       explicit === null && fetched !== null
         ? candidates.find(
@@ -1902,10 +1910,11 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           )
         : undefined;
     const target =
-      markerTarget !== undefined &&
+      keptTarget ??
+      (markerTarget !== undefined &&
       usableMarker(runner, root, fetched, markerTarget, expectedOld) !== null
         ? markerTarget
-        : resolveTarget(candidates, explicit);
+        : resolveTarget(candidates, explicit));
     resolved = target;
 
     const frame = (partial: Partial<ForkSyncReport>): ForkSyncReport => ({
