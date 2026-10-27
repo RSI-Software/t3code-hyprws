@@ -103,12 +103,10 @@ export const startStackWatch = (input: {
 };
 
 /**
- * Logs the server's memory breakdown at each new high-water mark, so a leak
- * leaves a durable record of which pool grew and when. `external` and
- * `arrayBuffers` grow outside the V8 heap limit; a heap snapshot names what
- * retains them. A burst from a blocked event loop never reaches those, so a
- * worker records the main thread's stacks instead. See
- * RSI-Software/t3code-hyprws#1717.
+ * Logs the server's memory breakdown at each new high-water mark, so a leak leaves a durable
+ * record of which pool grew. `external` and `arrayBuffers` grow outside the V8 heap limit; a
+ * heap snapshot names what retains them. A burst from a blocked event loop never reaches those,
+ * so a worker records the main thread's stacks instead.
  */
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
