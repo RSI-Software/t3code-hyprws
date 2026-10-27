@@ -884,11 +884,9 @@ it.layer(
       );
       yield* Deferred.await(barrierEntered);
 
-      // The retarget holds the thread lock across the adoption window, so the
-      // mid-retarget status is read through the lock-free metadata snapshot
-      // (the same public status a re-keyed attach snapshot reports). The
-      // status is captured first and asserted after the release, so a red run
-      // cannot hang the suite on the held barrier.
+      // The retarget holds the thread lock across adoption, so the mid-retarget status is read
+      // through the lock-free metadata snapshot. It is captured first and asserted after the
+      // release, so a red run cannot hang the suite on the held barrier.
       const midStatus = yield* Effect.gen(function* () {
         const summaries = yield* Ref.make<ReadonlyArray<TerminalSummary>>([]);
         const unsubscribeMetadata = yield* manager.subscribeMetadata((event) =>
@@ -1032,7 +1030,7 @@ it.layer(
   it.effect("follow retarget ensures a first-use destination without touching the source", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFirstUseFixture({
-        ensure: (dir) =>
+        ensure: (_dir) =>
           Effect.succeed({
             status: "ensured",
             workspace: "zmux",
@@ -1076,7 +1074,7 @@ it.layer(
   it.effect("a first-use retarget receipt that mismatches the ensured identity is refused", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFirstUseFixture({
-        ensure: (dir) =>
+        ensure: (_dir) =>
           Effect.succeed({
             status: "ensured",
             workspace: "zmux",
@@ -1150,7 +1148,7 @@ it.layer(
   it.effect("follow retarget into a settled thread never creates a destination session", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFirstUseFixture({
-        ensure: (dir) =>
+        ensure: (_dir) =>
           Effect.succeed({
             status: "ensured",
             workspace: "zmux",

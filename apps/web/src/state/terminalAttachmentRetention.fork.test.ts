@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-
 import {
+  combineTerminalSessionState,
   EMPTY_TERMINAL_BUFFER_STATE,
   nextTerminalAttachSeedState,
   terminalOutputText,
+  type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
+import { Atom, AtomRegistry } from "effect/reactivity";
+
 import {
-  EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-  terminalAttachmentIdentity,
-  updateRetainedTerminalAttachment,
+  retainedTerminalSessionFork,
+  retainTerminalSession,
 } from "./terminalAttachmentRetention.fork";
 
-const buffer = (version: number, value: string) => {
+const session = (version: number, value: string): TerminalSessionState => {
   const byteLength = new TextEncoder().encode(value).byteLength;
-  return {
+  return combineTerminalSessionState(null, {
     ...EMPTY_TERMINAL_BUFFER_STATE,
     output: {
       ...EMPTY_TERMINAL_BUFFER_STATE.output,
@@ -22,163 +23,70 @@ const buffer = (version: number, value: string) => {
       retainedBytes: byteLength,
       nextOffset: value.length,
     },
-    status: "running" as const,
+    status: "running",
     version,
-  };
+  });
 };
 
-describe("retained terminal attachments", () => {
-  it("separates identical thread and split IDs across environments", () => {
-    const terminal = { threadId: ThreadId.make("thread"), terminalId: "split" };
-    const first = terminalAttachmentIdentity({
-      environmentId: EnvironmentId.make("env-a"),
-      terminal,
+const seed = () => combineTerminalSessionState(null, nextTerminalAttachSeedState());
+
+describe("retained terminal sessions", () => {
+  it("keeps the retained buffer while a new stream reports its uninitialized seed", () => {
+    const kept = session(7, "pre-move scrollback");
+    expect(retainTerminalSession(kept, seed())).toBe(kept);
+    const ready = session(1, "fresh session");
+    expect(retainTerminalSession(kept, ready)).toBe(ready);
+    expect(retainTerminalSession(null, seed()).version).toBe(0);
+  });
+
+  it("shows an attach failure over the retained buffer", () => {
+    const kept = session(4, "kept output");
+    const failed = retainTerminalSession(kept, {
+      ...seed(),
+      error: "Exact zmux target could not be attached.",
+      status: "error",
     });
-    const other = terminalAttachmentIdentity({
-      environmentId: EnvironmentId.make("env-b"),
-      terminal,
+    expect(terminalOutputText(failed.output)).toBe("kept output");
+    expect(failed.error).toBe("Exact zmux target could not be attached.");
+  });
+
+  it("releases the live attach while hidden and keeps its last session", () => {
+    const tasks: Array<() => void> = [];
+    const registry = AtomRegistry.make({
+      scheduleTask: (task) => {
+        tasks.push(task);
+        return () => {};
+      },
     });
-    expect(other).not.toBe(first);
-    expect(terminalAttachmentIdentity({ environmentId: null, terminal })).toBeNull();
-    expect(
-      terminalAttachmentIdentity({ environmentId: EnvironmentId.make("env-a"), terminal: null }),
-    ).toBeNull();
-  });
+    const flush = () => {
+      while (tasks.length > 0) tasks.shift()!();
+    };
+    let liveMounts = 0;
+    const output = Atom.make(session(3, "before hide"));
+    const live = Atom.make((get) => {
+      liveMounts += 1;
+      get.addFinalizer(() => (liveMounts -= 1));
+      return get(output);
+    });
+    const retained = retainedTerminalSessionFork(live);
+    const release = registry.mount(retained);
 
-  it("retains one bounded buffer without appending or mutating earlier snapshots", () => {
-    const source = buffer(4, "bounded output");
-    const first = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "terminal",
-      source,
-      null,
-    );
-    const hidden = updateRetainedTerminalAttachment(first, "terminal", null, null);
-    expect(hidden).toBe(first);
-    expect(hidden.value.output).toBe(source.output);
-    const resumed = updateRetainedTerminalAttachment(
-      hidden,
-      "terminal",
-      buffer(1, "resumed"),
-      null,
-    );
-    expect(terminalOutputText(first.value.output)).toBe("bounded output");
-    expect(terminalOutputText(resumed.value.output)).toBe("resumed");
-    expect(source.version).toBe(4);
-  });
+    registry.set(retained, true);
+    expect(liveMounts).toBe(1);
+    expect(terminalOutputText(registry.get(retained).output)).toBe("before hide");
 
-  it("clears a prior attach failure when a new stream supplies data", () => {
-    const failed = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "terminal",
-      null,
-      "attach failed",
-    );
-    const resumed = updateRetainedTerminalAttachment(failed, "terminal", buffer(1, "ready"), null);
-    expect(resumed.error).toBeNull();
-    expect(updateRetainedTerminalAttachment(resumed, null, null, null)).toBe(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-    );
-  });
-  it("resets scrollback when the terminal identity changes", () => {
-    const first = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "env-a/thread-a/terminal-a",
-      buffer(4, "terminal-a"),
-      null,
-    );
-    const changed = updateRetainedTerminalAttachment(
-      first,
-      "env-a/thread-a/terminal-b",
-      null,
-      null,
-    );
+    registry.set(retained, false);
+    flush();
+    expect(liveMounts).toBe(0);
+    expect(terminalOutputText(registry.get(retained).output)).toBe("before hide");
 
-    expect(changed.value).toBe(EMPTY_TERMINAL_BUFFER_STATE);
-    expect(terminalOutputText(changed.value.output)).toBe("");
-  });
+    registry.set(output, seed());
+    registry.set(retained, true);
+    expect(liveMounts).toBe(1);
+    expect(terminalOutputText(registry.get(retained).output)).toBe("before hide");
 
-  it("keeps versions monotonic when a recreated attach stream restarts at version one", () => {
-    const firstSource = buffer(8, "before hide");
-    const first = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "terminal",
-      firstSource,
-      null,
-    );
-    const reattached = updateRetainedTerminalAttachment(
-      first,
-      "terminal",
-      buffer(1, "after reattach"),
-      null,
-    );
-
-    expect(first.value.version).toBe(8);
-    expect(terminalOutputText(reattached.value.output)).toBe("after reattach");
-    expect(reattached.value.version).toBe(9);
-  });
-
-  it("retains an attach error while the demand-gated stream is hidden", () => {
-    const failed = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "terminal",
-      null,
-      "Exact zmux target could not be attached.",
-    );
-    const hidden = updateRetainedTerminalAttachment(failed, "terminal", null, null);
-
-    expect(hidden.error).toBe("Exact zmux target could not be attached.");
-  });
-
-  it("keeps the retained buffer while a re-keyed stream reports its uninitialized seed", () => {
-    const live = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "terminal",
-      buffer(7, "pre-move scrollback"),
-      null,
-    );
-    // A checkout move re-keys the attach query on the launch identity; before
-    // the recreated stream's first snapshot the query reports the
-    // uninitialized seed. That seed must not displace the retained buffer, or
-    // the viewport reads a phantom "closed" and closes the drawer.
-    const rekeyed = updateRetainedTerminalAttachment(
-      live,
-      "terminal",
-      nextTerminalAttachSeedState(),
-      null,
-    );
-    expect(rekeyed).toBe(live);
-    expect(terminalOutputText(rekeyed.value.output)).toBe("pre-move scrollback");
-    expect(rekeyed.value.status).toBe("running");
-
-    // The recreated stream's first real snapshot replaces the buffer and
-    // keeps the public version monotonic.
-    const ready = updateRetainedTerminalAttachment(
-      rekeyed,
-      "terminal",
-      buffer(1, "fresh session"),
-      null,
-    );
-    expect(terminalOutputText(ready.value.output)).toBe("fresh session");
-    expect(ready.value.version).toBe(8);
-  });
-
-  it("ignores the seed after an identity change until a real snapshot arrives", () => {
-    const changed = updateRetainedTerminalAttachment(
-      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
-      "env-a/thread-a/terminal-b",
-      nextTerminalAttachSeedState(),
-      null,
-    );
-    expect(changed.value).toBe(EMPTY_TERMINAL_BUFFER_STATE);
-
-    const ready = updateRetainedTerminalAttachment(
-      changed,
-      "env-a/thread-a/terminal-b",
-      buffer(2, "hello"),
-      null,
-    );
-    expect(terminalOutputText(ready.value.output)).toBe("hello");
-    expect(ready.value.version).toBe(2);
+    registry.set(output, session(1, "after show"));
+    expect(terminalOutputText(registry.get(retained).output)).toBe("after show");
+    release();
   });
 });

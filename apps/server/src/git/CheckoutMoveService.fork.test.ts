@@ -681,12 +681,12 @@ describe("CheckoutMoveServiceFork", () => {
       harness.setBusy(true);
       yield* Effect.gen(function* () {
         const moves = yield* CheckoutMoveServiceFork;
-        const results = yield* Effect.all(
-          [feature, feature].map((requestedPath) =>
+        const results = yield* Effect.forEach(
+          [feature, feature],
+          (requestedPath) =>
             moves
               .request({ threadId, requestedPath, expectedCheckoutRoot: root })
               .pipe(Effect.result),
-          ),
           { concurrency: "unbounded" },
         );
         expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
