@@ -36,13 +36,10 @@ import {
 } from "./SidebarThreadGroup.projection";
 import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 
-// A parentless group mirrors upstream's shelf section header (Snoozed /
-// Settled): label with the count, a hairline, and a chevron. A group with a
-// parent wears its title as a tab on the parent card instead, so the title
-// reads as the parent's and one chevron folds the children both ways; the
-// parent row's surface hook pulls up 1px to close the list gap under the tab. Either
-// renders inside the group's sortable header marker, so it moves with the rows
-// during a drag; the drop layer draws the outline when a row would join it.
+// A parentless group mirrors upstream's shelf section header (label, count, hairline,
+// chevron). A group with a parent wears its title as a tab on the parent card, whose surface
+// hook pulls up 1px to close the gap under the tab. Either renders inside the group's sortable
+// header marker so it moves with the rows during a drag.
 export function SidebarThreadGroupHeader(props: {
   readonly group: SidebarThreadGroup;
   /** False where this client cannot edit the group: actions hide, collapse still works. */
@@ -201,6 +198,7 @@ export function SidebarThreadGroupHeader(props: {
 const STATUS_DOT: Record<SidebarThreadStatus | "done", { label: string; className: string }> = {
   approval: { label: "Approval", className: "bg-warning" },
   input: { label: "Input", className: "bg-indigo-500" },
+  request: { label: "Request", className: "bg-guest" },
   failed: { label: "Failed", className: "bg-error" },
   limited: { label: "Limited", className: "bg-warning" },
   done: { label: "Done", className: "bg-success" },

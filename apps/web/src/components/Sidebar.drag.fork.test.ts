@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { createSidebarCollisionDetection } from "./Sidebar.drag.ts";
-import {
-  sidebarListItemId,
-  sidebarMarkerId,
-  type SidebarListItem,
-  type SidebarSection,
-} from "./Sidebar.logic.ts";
+import { sidebarMarkerId, type SidebarListItem, type SidebarSection } from "./Sidebar.logic.ts";
 import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers.ts";
 
 const thread = (key: string, section: SidebarSection): SidebarListItem => ({
