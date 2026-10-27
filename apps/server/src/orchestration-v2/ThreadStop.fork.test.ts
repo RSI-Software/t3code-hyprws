@@ -1,8 +1,7 @@
 // fork-hook: upstream-fixes/interrupt-request-cleanup
-// Fork-owned: the client's Stop rides run.interrupt (holdQueue), so that path
-// must retire questions stranded by ended runs and runless work, exactly like
-// thread.stop does. Lives in a sibling file because upstream test files only
-// accept appends.
+// The client's Stop rides run.interrupt (holdQueue), so that path must retire questions stranded
+// by ended runs and runless work, like thread.stop. A sibling file, because upstream test files
+// only accept appends.
 
 import { assert, it } from "@effect/vitest";
 import {

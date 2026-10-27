@@ -900,10 +900,9 @@ export const layerWithOptions = (
         );
 
       // fork-hook: upstream-fixes/detach-teardown-retry
-      // Shared native-teardown primitives: the detach verb interrupts owned
-      // running turns inline before ownership removal, and both the verb and
-      // the deferred retry unload the detached native threads under the
-      // attachment lock through these same loops.
+      // Shared native teardown: the detach verb interrupts owned running turns
+      // before ownership removal; the verb and the deferred retry both unload
+      // detached native threads under the attachment lock through these loops.
       const ownedProviderThreadsBySession = (
         projection: {
           readonly providerThreads: ReadonlyArray<OrchestrationV2ProviderThread>;
@@ -1006,13 +1005,9 @@ export const layerWithOptions = (
       };
 
       // fork-hook: upstream-fixes/detach-teardown-retry
-      // A typed thread-record failure during a shared detach removes the
-      // attachment without reading the thread's native work, so the interrupt
-      // and unload cannot run inline. The retry re-reads under the attachment
-      // lock: a same-thread replacement that attaches first keeps its turns
-      // and native state, and a gone runtime or thread row ends the retry.
-      // A typed read failure inside the retry propagates, so the attempt
-      // fails and the shared schedule retries it.
+      // A thread-record failure in shared detach skips the inline teardown. The retry re-reads
+      // under the attachment lock: an earlier replacement keeps its state, a gone runtime or
+      // thread row ends it, and a read failure propagates so the shared schedule retries.
       const retryDetachedThreadTeardown = (input: {
         readonly providerSessionId: ProviderSessionId;
         readonly threadId: ThreadId;
@@ -2630,11 +2625,10 @@ export const layerWithOptions = (
                   entry.loadedProviderThreadKeyByThread,
                 );
                 loadedProviderThreadKeyByThread.delete(input.threadId);
-                // For a plain (workspace-change) detach, the credential id stays
-                // recorded: the thread may re-attach and reuse it, and
-                // releaseEntry revokes it when the provider process finally goes
-                // away. A terminal detach (archive/delete) prunes the record so
-                // nothing vetoes the revocation below.
+                // A plain (workspace-change) detach keeps the credential id for a
+                // re-attach; releaseEntry revokes it with the provider process. A
+                // terminal detach (archive/delete) prunes it so nothing vetoes the
+                // revocation below.
                 const mcpCredentialIdByThread =
                   input.revokeMcpCredential === true
                     ? (() => {

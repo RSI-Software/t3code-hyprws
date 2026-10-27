@@ -1,9 +1,7 @@
 // fork-hook: upstream-fixes/release-detach-fault-tests
-// Fork-owned harness: mirrors the upstream ProviderSessionManager.test.ts
-// composition with fault-injection knobs (flaky release writes, flaky
-// thread-record reads) so deliberate teardown is tested against transient
-// SQL faults. Lives in a sibling file because upstream test files only
-// accept appends.
+// Mirrors upstream's ProviderSessionManager.test.ts with fault-injection knobs (flaky release
+// writes and thread-record reads) to test teardown against transient SQL faults. A sibling file,
+// because upstream test files only accept appends.
 
 import * as NetAddress from "effect/net/NetAddress";
 import * as NodeServices from "@effect/platform-node/NodeServices";
