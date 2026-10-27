@@ -1155,11 +1155,10 @@ const hookLineCounts = (
 };
 
 /**
- * The hook keys whose marked lines the tip carries fewer of than the trunk:
- * a resolution that silently dropped fork behaviour, which typecheck and tests
- * miss. A key the tip's commits carry more `Fork-Hook-Retired: domain/name`
- * trailers for than the trunk's is exempt: a trailer that already landed is a
- * past sync's retirement, and its rebased copy must not exempt the key again.
+ * Hook keys whose marked lines the tip carries fewer of than the trunk: a resolution that silently
+ * dropped fork behaviour, which typecheck and tests miss. A key is exempt only when the tip's
+ * commits carry more `Fork-Hook-Retired: domain/name` trailers for it than the trunk's, so a
+ * landed retirement's rebased copy never exempts the key again.
  */
 export const lostHooks = (
   runner: CommandRunner,
