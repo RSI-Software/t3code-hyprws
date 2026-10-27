@@ -1250,6 +1250,33 @@ const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): Readonly
     .map(({ name, conclusion, url }) => ({ name, conclusion, url }));
 
 /**
+ * Run `vp run fork:ci` on the sync worktree's tip `sha`: the refusal as a
+ * conclusion, or null when green. A session runs it before it hands off and a
+ * land run before its candidate push, so neither hands on a tip CI refuses.
+ */
+const localForkCi = (runner: CommandRunner, root: string, sha: string): string | null => {
+  const worktree = worktreePath(root);
+  // The rebase may have moved the lockfile past what setup installed before
+  // it. Setup itself refuses an unpublished HEAD, so install directly.
+  const install = runner.run("vp", ["i", "--frozen-lockfile", "--", "--yes"], {
+    cwd: worktree,
+    env: verificationEnv(worktree),
+    stream: true,
+  });
+  if (install.status !== 0 || install.error !== undefined)
+    return `skipped: install for the local fork:ci failed (exit ${install.status})`;
+  process.stdout.write(`sync: running vp run fork:ci on ${sha.slice(0, 7)}\n`);
+  const local = runner.run("vp", ["run", "fork:ci"], {
+    cwd: worktree,
+    env: verificationEnv(worktree),
+    stream: true,
+  });
+  return local.status !== 0 || local.error !== undefined
+    ? `skipped: local fork:ci failed (exit ${local.status})`
+    : null;
+};
+
+/**
  * hyprws CI's verdict on `sha`. A sha with a run reuses it; any other runs the local
  * `vp run fork:ci` first, so a refusal costs minutes instead of a CI round, then force-pushes to
  * the candidate branch. Polls until the run completes or a job fails; one that never ends is not green.
@@ -1257,32 +1284,8 @@ const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): Readonly
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
   let latest = latestCiRun(runner, root, sha);
   if (latest === null) {
-    const worktree = worktreePath(root);
-    // The rebase may have moved the lockfile past what setup installed before
-    // it. Setup itself refuses an unpublished HEAD, so install directly.
-    const install = runner.run("vp", ["i", "--frozen-lockfile", "--", "--yes"], {
-      cwd: worktree,
-      env: verificationEnv(worktree),
-      stream: true,
-    });
-    if (install.status !== 0 || install.error !== undefined)
-      return {
-        run: "",
-        conclusion: `skipped: install for the local fork:ci failed (exit ${install.status})`,
-        jobs: [],
-      };
-    process.stdout.write(`sync: running vp run fork:ci on ${sha.slice(0, 7)} before the push\n`);
-    const local = runner.run("vp", ["run", "fork:ci"], {
-      cwd: worktree,
-      env: verificationEnv(worktree),
-      stream: true,
-    });
-    if (local.status !== 0 || local.error !== undefined)
-      return {
-        run: "",
-        conclusion: `skipped: local fork:ci failed (exit ${local.status})`,
-        jobs: [],
-      };
+    const refused = localForkCi(runner, root, sha);
+    if (refused !== null) return { run: "", conclusion: refused, jobs: [] };
     const ref = `refs/heads/${SYNC_CANDIDATE_BRANCH}`;
     // A retry after a push that started no run would push an unchanged ref,
     // which GitHub records as no event; recreate the branch so it fires one.
@@ -2091,7 +2094,26 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     }
     const newSha = finished.tip;
 
-    if (!land)
+    if (!land) {
+      // check — the land run's local battery, so a handed-off tip is one it accepts
+      step = "check";
+      const refused = localForkCi(runner, root, newSha);
+      if (refused !== null)
+        return fail({
+          conflicts: [...rebase.recorded],
+          ci: { run: "", conclusion: refused, jobs: [] },
+          marker: markerReport(finished),
+          decision: {
+            worktree,
+            tip: newSha,
+            paths: [],
+            resume: [
+              `# fix the refusal as tip work in ${worktree}, then rerun:`,
+              `vp run fork:sync ${target.tag}`,
+            ].join("\n"),
+          },
+          error: `${refused} on ${newSha.slice(0, 7)}; hand off only a green tip`,
+        });
       return finish(
         frame({
           outcome: "rebased",
@@ -2109,6 +2131,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           },
         }),
       );
+    }
 
     // ci — hyprws CI on the candidate sha is the one gate before the trunk moves
     step = "ci";
