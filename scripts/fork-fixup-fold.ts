@@ -32,7 +32,7 @@ fixups skips the replay.
 /** The sync rebase's config, minus rerere: the proof must see the raw fold, never a recorded resolution. */
 const REPLAY_CONFIG = [
   "-c",
-  "core.commentChar=auto",
+  "core.commentChar=;",
   "-c",
   "diff.algorithm=histogram",
   "-c",
