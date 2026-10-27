@@ -2000,11 +2000,9 @@ export default function ThreadTerminalDrawer({
       ) : null}
 
       {!hasTerminalSidebar && (
-        // Hover-gated so the idle cluster cannot cover the terminal's first
-        // row or the status line. Opacity (not visibility) keeps the buttons
-        // in Tab order, and focus-within reveals them for keyboard use; the
-        // pointer-events flip keeps the hidden cluster from swallowing clicks
-        // meant for the terminal underneath.
+        // Hover-gated so the idle cluster cannot cover the terminal's first row. Opacity
+        // (not visibility) keeps the buttons in Tab order for focus-within; the
+        // pointer-events flip keeps the hidden cluster from swallowing terminal clicks.
         <div className="pointer-events-none absolute right-2 top-2 z-20 opacity-0 transition-opacity duration-150 group-hover/terminal-actions:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
           <div className="pointer-events-none inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs group-hover/terminal-actions:pointer-events-auto focus-within:pointer-events-auto">
             <TerminalActionButton
