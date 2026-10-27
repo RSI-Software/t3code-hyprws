@@ -161,6 +161,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
     void session.start({
       ownerKey: captured.ownerKey,
       environmentId: captured.environmentId,
+      projectId: captured.projectId,
       label: captured.label,
       route:
         typeof captured.draftTarget === "string"

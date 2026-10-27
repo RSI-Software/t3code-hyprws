@@ -54,12 +54,17 @@ function createDesktopVoiceRuntimeFork() {
         if (unavailableReason) throw new Error(unavailableReason);
         // A failed live preview never costs the recording: Stop uploads the captured WAV instead.
         const live = config.live
-          ? await prepareLiveVoiceFork(prepared, signal, {
-              onPreview: (text) => {
-                if (!signal.aborted) session.previewTranscript(text, navigator.language);
+          ? await prepareLiveVoiceFork(
+              prepared,
+              signal,
+              {
+                onPreview: (text) => {
+                  if (!signal.aborted) session.previewTranscript(text, navigator.language);
+                },
+                onWaiting: setWaiting,
               },
-              onWaiting: setWaiting,
-            }).catch((error: unknown) => {
+              target.projectId,
+            ).catch((error: unknown) => {
               if (signal.aborted) throw error;
               return null;
             })
@@ -75,7 +80,7 @@ function createDesktopVoiceRuntimeFork() {
             signal.throwIfAborted();
             return (
               await runVoiceInputRequestFork(
-                transcribeVoiceInputFork(prepared, recorder.read(uri)),
+                transcribeVoiceInputFork(prepared, recorder.read(uri), target.projectId),
                 signal,
               )
             ).text;

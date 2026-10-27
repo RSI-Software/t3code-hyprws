@@ -12,6 +12,7 @@ function createDraft(ownerKey: string, environmentId = EnvironmentId.make("first
   const target: DesktopVoiceTargetFork = {
     ownerKey,
     environmentId,
+    projectId: null,
     label: ownerKey,
     route: { kind: "server", threadRef: scopeThreadRef(environmentId, ThreadId.make(ownerKey)) },
     readDraft: () =>
