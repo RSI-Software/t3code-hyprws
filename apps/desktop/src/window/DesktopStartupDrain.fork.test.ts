@@ -47,21 +47,14 @@ const projectLink = (name: string): WindowRequest => ({
 const requestKey = (request: WindowRequest): string =>
   request.kind === "project-link" ? `project:${request.ref.projectId}` : request.kind;
 
+const isElectronWindowCreateError = Schema.is(ElectronWindow.ElectronWindowCreateError);
+
 const noopServices: StartupDrainServices = {
   windowSession: {
     capture: () => Effect.void,
     consume: Effect.succeed([]),
   },
 };
-
-interface FakeOpeners {
-  readonly openers: WindowOpeners;
-  readonly opened: Ref.Ref<ReadonlyArray<string>>;
-  /** Release gate each open awaits: the test pauses the drain mid-open. */
-  readonly gate: Deferred.Deferred<void>;
-  /** Set when an open is parked inside the gate. */
-  readonly entered: Deferred.Deferred<void>;
-}
 
 /**
  * Openers that record every open by identity key; create/ensure/reveal all
@@ -254,9 +247,7 @@ describe("DesktopStartupDrain", () => {
         assert.isTrue(exit.cause.reasons.every((reason) => Cause.isFailReason(reason)));
         assert.isTrue(
           exit.cause.reasons.some(
-            (reason) =>
-              Cause.isFailReason(reason) &&
-              Schema.is(ElectronWindow.ElectronWindowCreateError)(reason.error),
+            (reason) => Cause.isFailReason(reason) && isElectronWindowCreateError(reason.error),
           ),
         );
       }
@@ -332,11 +323,8 @@ describe("DesktopStartupDrain", () => {
       yield* drain.queueStartupIntent(projectLink("first"));
       yield* drain.drain(noopServices, () => fakes.openers);
       assert.deepEqual(yield* Ref.get(fakes.opened), ["project:project-first"]);
-      // A backend restart clears readiness; an intent arriving while down
-      // queues, and the next ready transition drains it. Without the
-      // markNotReady re-arm the second drain would read ready and stage
-      // the intent for direct dispatch — bypassing the queue — so assert
-      // the staged result queues and the drain opens it.
+      // Without the markNotReady re-arm, an intent arriving after a backend
+      // restart would read ready and bypass the queue for direct dispatch.
       yield* drain.markNotReady;
       const staged = yield* drain.stageArguments(noopServices, () => projectLink("second"), [
         "t3code",

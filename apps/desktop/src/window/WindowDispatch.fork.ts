@@ -9,22 +9,10 @@ import { isWindowId, type WindowId } from "./WindowId.fork.ts";
 import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
 
 /**
- * Fork-only: every way a window gets opened or focused, answered by one table
- * (RSI-Software/t3code-hyprws#1343).
- *
- * | Request                   | Behavior                                        |
- * | ------------------------- | ----------------------------------------------- |
- * | `new-window`              | Create at `/`, all projects                     |
- * | `open-in-new-window`      | Create at that route, seed the filter           |
- * | `activate`                | Focus the most recent window, else create       |
- * | `project-link`            | Reuse a window showing it, else create filtered |
- * | `focus`                   | Focus if open; never resurrect                  |
- * | `callback`                | Unchanged: reveal or create the primary window  |
- *
- * Clients send `DesktopWindowRequest`, `mod+alt+o` as `project-link`; argv
- * produces the launch rows, a deep link as `project-link` too. The startup
- * drain queues these same requests, so a launch that lands before the
- * backend is ready takes the same row once it drains.
+ * Every way a window opens or focuses: `new-window` creates at `/`; `open-in-new-window`
+ * creates at its route, seeded; `activate` focuses the latest or creates; `project-link`
+ * reuses a window showing it or creates filtered; `focus` never resurrects; `callback`
+ * reveals or creates the primary. The startup drain queues these same requests.
  */
 export type WindowRequest =
   | DesktopWindowRequest

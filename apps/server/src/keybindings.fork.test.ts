@@ -8,11 +8,9 @@ import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import { migrateRenamedKeybindingCommands } from "./keybindings.fork.ts";
 
-// Fork-owned coverage for the window bindings. Upstream removed its
-// default-assignment snapshot in "test(server): remove keybinding default
-// assignment snapshot" (#10065), which is where this assertion used to ride;
-// keeping it in a fork sibling means upstream churn in the shared test file
-// can never take the fork default with it.
+// Fork-owned coverage for the window bindings. Upstream removed the default-assignment snapshot
+// this assertion used to ride on; a fork sibling keeps upstream churn in the shared test file
+// from ever taking the fork default with it.
 describe("fork keybinding defaults", () => {
   const defaultsByCommand = new Map(
     Keybindings.DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),

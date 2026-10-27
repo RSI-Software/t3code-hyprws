@@ -61,7 +61,7 @@ export function isDesktopWindowCommand(
  * stops matching; `resolveProjectRef` names the project `window.openProject`
  * focuses or opens.
  */
-export function runDesktopWindowCommandFork(
+function runDesktopWindowCommandFork(
   command: string | null,
   event: KeyboardEvent,
   resolveProjectRef: () => ScopedProjectRef | null | undefined,

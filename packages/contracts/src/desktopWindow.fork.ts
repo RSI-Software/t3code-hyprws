@@ -10,16 +10,10 @@ import { ScopedProjectRef } from "./environment.ts";
 export const DesktopWindowRoute = Schema.String.check(Schema.isPattern(/^\/(?!\/)/u));
 
 /**
- * The window requests a client may send to the desktop shell
- * (RSI-Software/t3code-hyprws#1343). The remaining launch requests (second
- * launch, OAuth callbacks) never come from a client, so they are not here.
- *
- * - `new-window` opens a window at `/` showing every project.
- * - `open-in-new-window` opens a window at `route`, handing it `seed` as its
- *   project filter.
- * - `project-link` focuses a window showing `ref`, else creates one seeded
- *   with it, the same as a deep link.
- * - `focus` reveals the window with that id, and does nothing once it closed.
+ * Window requests a client may send to the desktop shell. `new-window` opens `/` showing every
+ * project; `open-in-new-window` opens `route` with `seed` as its project filter; `project-link`
+ * focuses a window showing `ref`, else creates one seeded with it; `focus` reveals that window
+ * id, if still open. Second launches and OAuth callbacks never come from a client.
  */
 export const DesktopWindowRequest = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("new-window") }),
