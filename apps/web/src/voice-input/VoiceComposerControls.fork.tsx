@@ -20,6 +20,7 @@ function RecordingWaveformFork({
   const host = useRef<HTMLDivElement>(null);
   const [barCount, setBarCount] = useState(64);
   const [meter, setMeter] = useState({ levels: Array<number>(64).fill(0), seconds: 0 });
+  // oxlint-disable-next-line t3code/react-effect-budget -- samples the recorder's level on an interval timer while recording.
   useEffect(() => {
     if (!recording) return;
     const started = performance.now();
@@ -37,6 +38,7 @@ function RecordingWaveformFork({
     }, 100);
     return () => window.clearInterval(timer);
   }, [recorder, recording]);
+  // oxlint-disable-next-line t3code/react-effect-budget -- observes the waveform host's DOM size to fit the bar count.
   useEffect(() => {
     const element = host.current;
     if (!element) return;
