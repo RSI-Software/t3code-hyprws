@@ -51,8 +51,9 @@ it("autosaves while Rich stays mounted after StrictMode effect replay", async ()
         wordWrap
         onOpenFile={vi.fn()}
         onPendingChange={vi.fn()}
-        children={null}
-      />
+      >
+        {null}
+      </RichMarkdownPreviewBoundary>
     </StrictMode>,
     { router: false },
   );
