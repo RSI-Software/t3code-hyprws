@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone fold tool runs before an Effect runtime exists.
 
-// Folds the fork's ahead commits into one-intent commits. The agent picks the
-// folds and writes the plan; this script only lists the stack, replays a plan
-// onto a detached tip — merge-tree until the first refused block, then the
-// remaining plan as one rebase in a throwaway worktree
-// (scripts/lib/fork-fold-rebase.ts) — proves the new tip against the old one,
-// and publishes a proven fold on the expected-old lease. It holds no fold
-// rules: .agents/skills/fork-fold/SKILL.md carries them.
+// Folds the fork's ahead commits into one-intent commits. The agent writes the plan; this script
+// lists the stack, replays a plan (merge-tree until the first refused block, then a worktree
+// rebase), proves the new tip against the old, and publishes on the expected-old lease. The fold
+// rules live in .agents/skills/fork-fold/SKILL.md.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -495,14 +492,9 @@ export const replay = (
 };
 
 /**
- * Per-commit member guard: each new commit's members are the old commits its
- * `Squashes:` lines name plus the old commit sharing its subject. Finds a
- * `Squashes:` sha the old range never names — neither an old commit nor an
- * earlier fold's member an old commit lists — a new commit with no member, a
- * new commit touching a path no member touched, and an old commit owned by no
- * new commit or by several. An old commit every owner cites under `Squashes:`
- * may split across them: a mover split back into the owners whose blocks it
- * moved.
+ * Per-commit member guard: a new commit's members are the old commits its `Squashes:` lines name
+ * plus the old commit sharing its subject. Flags unknown `Squashes:` shas, memberless commits, paths
+ * no member touched, and old commits owned by none or several, unless every owner cites it.
  */
 export const memberFindings = (old: FoldStack, next: FoldStack): ReadonlyArray<string> => {
   const findings: string[] = [];
