@@ -1,171 +1,113 @@
-// @effect-diagnostics nodeBuiltinImport:off - Resolution data is Git plumbing over the common git dir.
-
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
+// @effect-diagnostics nodeBuiltinImport:off - The marker is Git plumbing over the common git dir.
 
 import { SYNC_RESOLUTION_BRANCH } from "./fork-policy.ts";
-import {
-  git,
-  gitAllow,
-  gitPath,
-  gitResult,
-  lines,
-  runRequire,
-  type CommandRunner,
-} from "./fork-sync-git.ts";
+import { git, gitResult, lines, runRequire, type CommandRunner } from "./fork-sync-git.ts";
+import { FOLD_AMEND_LINE } from "./fork-sync-todo.ts";
 
 /**
- * Resolutions outlive the runner as git data: every CI run starts on a fresh
- * clone, so `.git/rr-cache` and the tip fixups die with it. Each rebase writes
- * them to one parentless commit at `RESOLUTION_REF`; whoever resolved a stop
- * pushes that commit to `sync/resolution`, and the next run imports it before
- * it rebases. The import treats the branch purely as data: it accepts only
- * rerere entries, one mbox, and one list of retired paths, and nothing in it
- * ever executes. Rerere never records a delete/modify stop, so the paths a
- * resolver retired (kept upstream's deletion) travel as that list.
+ * A session hands its rebased tip to the land run as one empty-message marker commit on
+ * `sync/resolution` whose parent is the tip. Trailers name the target tag and lease; a partial
+ * marker's body is the remaining rebase todo. The marker's tree is the lease's: a push runs the
+ * pushed commit's workflow files, and those must be the trunk's, never a resolver's.
  */
 export const RESOLUTION_REF = "refs/fork-sync/resolution";
 const RESOLUTION_REMOTE_REF = `refs/remotes/origin/${SYNC_RESOLUTION_BRANCH}`;
-const RESOLUTION_TAG_TRAILER = "Fork-Sync-Tag";
-const FIXUPS_FILE = "fixups.mbox";
-const RETIRED_FILE = "retired";
-const RERERE_PATH = /^rr-cache\/[0-9a-f]{40,64}\/(?:pre|post)image(?:\.\d+)?$/;
+const TAG_TRAILER = "Fork-Sync-Tag";
+const LEASE_TRAILER = "Fork-Sync-Lease";
+const SHA = /^[0-9a-f]{40}$/;
+const PICK_LINE = /^(?:pick|fixup|squash|fixup -[cC]) ([0-9a-f]{40})(?: .*)?$/;
 
-/** The rerere ids the current stop recorded (`MERGE_RR` holds `<id>[.<n>]\t<path>\0`). */
-export const stopRerereIds = (runner: CommandRunner, worktree: string): ReadonlyArray<string> => {
-  let entries: string;
-  try {
-    entries = NodeFS.readFileSync(gitPath(runner, worktree, "MERGE_RR"), "utf8");
-  } catch {
-    return [];
-  }
-  return entries.split("\0").flatMap((entry) => entry.match(/^([0-9a-f]+)(?:\.\d+)?\t/)?.[1] ?? []);
-};
-
-/** Run git against a scratch index, so building or reading a tree never touches a checkout's. */
-const withScratchIndex = <T>(
-  runner: CommandRunner,
-  root: string,
-  effect: (gitIndexed: (args: ReadonlyArray<string>, input?: string) => string) => T,
-): T => {
-  const index = gitPath(runner, root, "fork-sync-resolution.index");
-  const env = { ...process.env, GIT_INDEX_FILE: index };
-  NodeFS.rmSync(index, { force: true });
-  try {
-    return effect((args, input) =>
-      runRequire(runner, "git", args, {
-        cwd: root,
-        env,
-        ...(input === undefined ? {} : { input }),
-      }),
-    );
-  } finally {
-    NodeFS.rmSync(index, { force: true });
-  }
-};
-
-/**
- * Write `RESOLUTION_REF`: the resolved rerere entries `state` names, the
- * retired paths, plus the tip commits above the finished rebase as
- * `fixups.mbox`. Nothing to carry deletes it.
- */
-export const exportResolution = (
-  runner: CommandRunner,
-  root: string,
-  worktree: string,
-  state: {
-    readonly tag: string;
-    readonly rebased?: string;
-    readonly rerere?: ReadonlyArray<string>;
-    readonly retired?: ReadonlyArray<string>;
-  },
-): void => {
-  const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  // Only resolved entries: an id with no postimage is a stop still waiting.
-  const files = (state.rerere ?? []).flatMap((id) => {
-    let names: ReadonlyArray<string>;
-    try {
-      names = NodeFS.readdirSync(NodePath.join(commonDir, "rr-cache", id));
-    } catch {
-      return [];
-    }
-    if (!names.some((name) => name.startsWith("postimage"))) return [];
-    return names.map((name) => `rr-cache/${id}/${name}`).filter((path) => RERERE_PATH.test(path));
-  });
-  const shas =
-    files.length === 0
-      ? []
-      : lines(
-          git(runner, root, [
-            "hash-object",
-            "-w",
-            "--",
-            ...files.map((path) => NodePath.join(commonDir, path)),
-          ]),
-        );
-  const entries = files.map((path, index) => `100644 ${shas[index]}\t${path}`);
-  const retired = [...new Set(state.retired ?? [])].toSorted();
-  if (retired.length > 0)
-    entries.push(
-      `100644 ${runRequire(runner, "git", ["hash-object", "-w", "--stdin"], { cwd: root, input: `${retired.join("\n")}\n` }).trim()}\t${RETIRED_FILE}`,
-    );
-  if (
-    state.rebased !== undefined &&
-    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status === 0
-  ) {
-    const mbox = runRequire(runner, "git", ["format-patch", "--stdout", `${state.rebased}..HEAD`], {
-      cwd: worktree,
-    });
-    if (mbox !== "")
-      entries.push(
-        `100644 ${runRequire(runner, "git", ["hash-object", "-w", "--stdin"], { cwd: root, input: mbox }).trim()}\t${FIXUPS_FILE}`,
-      );
-  }
-  if (entries.length === 0) {
-    gitAllow(runner, root, ["update-ref", "-d", RESOLUTION_REF]);
-    return;
-  }
-  const tree = withScratchIndex(runner, root, (gitIndexed) => {
-    gitIndexed(["update-index", "--add", "--index-info"], `${entries.join("\n")}\n`);
-    return gitIndexed(["write-tree"]).trim();
-  });
-  const commit = git(runner, root, [
-    "commit-tree",
-    tree,
-    "-m",
-    `fork-sync resolution for ${state.tag}`,
-    "-m",
-    `${RESOLUTION_TAG_TRAILER}: ${state.tag}`,
-  ]);
-  git(runner, root, ["update-ref", RESOLUTION_REF, commit]);
-  process.stdout.write(
-    `sync: resolution data at ${RESOLUTION_REF} (${commit.slice(0, 7)}); push it to ${SYNC_RESOLUTION_BRANCH} to carry it to the next run\n`,
-  );
-};
-
-/** What `origin/sync/resolution` holds for this sync. */
-export interface ImportedResolution {
+export interface Marker {
   readonly commit: string;
-  /** Every imported rerere id: a stop one replays never reaches `MERGE_RR`, yet the next export needs it. */
-  readonly rerere: ReadonlyArray<string>;
-  /** The fixups mbox, only when made for this sync's tag. */
-  readonly fixups: string | null;
-  /** Paths whose upstream deletion a resolver kept; a delete/modify stop on one accepts it. */
-  readonly retired: ReadonlyArray<string>;
+  /** The rebased tip: the marker's parent. */
+  readonly tip: string;
+  readonly tag: string;
+  /** The trunk sha whose fork stack the tip replays. */
+  readonly lease: string;
+  /** The rest of the rebase todo; `null` once the rebase finished. */
+  readonly todo: ReadonlyArray<string> | null;
 }
 
+/** The commits a todo replays, so a resume can refuse one outside its stack. */
+export const todoCommits = (todo: ReadonlyArray<string>): ReadonlyArray<string> =>
+  todo.flatMap((line) => PICK_LINE.exec(line)?.[1] ?? []);
+
+const todoLine = (line: string): boolean => PICK_LINE.test(line) || FOLD_AMEND_LINE.test(line);
+
+const markerMessage = (marker: Omit<Marker, "commit">): string =>
+  [
+    marker.todo === null
+      ? `fork-sync finished ${marker.tag}`
+      : `fork-sync partial ${marker.tag}: ${todoCommits(marker.todo).length} commits left`,
+    "",
+    ...(marker.todo === null ? [] : [...marker.todo, ""]),
+    `${TAG_TRAILER}: ${marker.tag}`,
+    `${LEASE_TRAILER}: ${marker.lease}`,
+    "",
+  ].join("\n");
+
+/** The marker `ref` names, or `null` when it holds anything else. */
+export const readMarker = (runner: CommandRunner, root: string, ref: string): Marker | null => {
+  const shown = gitResult(runner, root, ["show", "-s", "--format=%H %P%n%B", ref]);
+  if (shown.status !== 0 || shown.error !== undefined) return null;
+  const [head = "", subject = "", blank, ...rest] = shown.stdout.replace(/\n+$/, "").split("\n");
+  const [commit = "", tip = "", ...extra] = head.split(" ");
+  const lease = rest.at(-1)?.match(new RegExp(`^${LEASE_TRAILER}: ([0-9a-f]{40})$`))?.[1];
+  const tag = rest.at(-2)?.match(new RegExp(`^${TAG_TRAILER}: (v\\S+)$`))?.[1];
+  if (
+    !SHA.test(tip) ||
+    extra.length > 0 ||
+    blank !== "" ||
+    lease === undefined ||
+    tag === undefined
+  )
+    return null;
+  const body = rest.slice(0, -2).filter((line) => line !== "");
+  if (!subject.startsWith(`fork-sync ${body.length === 0 ? "finished" : "partial"} ${tag}`))
+    return null;
+  if (!body.every(todoLine)) return null;
+  return { commit, tip, tag, lease, todo: body.length === 0 ? null : body };
+};
+
 /**
- * Import `origin/sync/resolution` before the rebase: its rerere entries join
- * the local rr-cache without replacing one, and its fixups return only when
- * they were made for `tag`. Anything but rerere entries, the mbox, and the
- * retired list refuses
- * the run: the branch is data an agent writes, never code the driver trusts.
+ * Write the marker for `tip` at `RESOLUTION_REF`. An unchanged marker, local
+ * or on origin, is reused, so a rerun that changed nothing pushes nothing new.
  */
-export const importResolution = (
+export const writeMarker = (
   runner: CommandRunner,
   root: string,
-  tag: string,
-): ImportedResolution | null => {
+  marker: Omit<Marker, "commit">,
+): Marker => {
+  const same = [RESOLUTION_REF, RESOLUTION_REMOTE_REF]
+    .map((ref) => readMarker(runner, root, ref))
+    .find(
+      (existing) =>
+        existing !== null &&
+        existing.tip === marker.tip &&
+        existing.tag === marker.tag &&
+        existing.lease === marker.lease &&
+        JSON.stringify(existing.todo) === JSON.stringify(marker.todo),
+    );
+  const commit =
+    same?.commit ??
+    runRequire(
+      runner,
+      "git",
+      ["commit-tree", `${marker.lease}^{tree}`, "-p", marker.tip, "-F", "-"],
+      {
+        cwd: root,
+        input: markerMessage(marker),
+      },
+    ).trim();
+  git(runner, root, ["update-ref", RESOLUTION_REF, commit]);
+  return { ...marker, commit };
+};
+
+/**
+ * Fetch `origin/sync/resolution`. No branch, or a branch holding anything but
+ * a marker (the retired resolution-data commits among them), reads as none.
+ */
+export const fetchMarker = (runner: CommandRunner, root: string): Marker | null => {
   const remoteRef = `refs/heads/${SYNC_RESOLUTION_BRANCH}`;
   const listed = gitResult(runner, root, ["ls-remote", "--exit-code", "origin", remoteRef]);
   if (listed.status === 2) return null;
@@ -174,47 +116,42 @@ export const importResolution = (
       `git ls-remote origin ${remoteRef} failed: ${listed.stderr.trim() || listed.error?.message || "no output"}`,
     );
   git(runner, root, ["fetch", "--no-tags", "origin", `+${remoteRef}:${RESOLUTION_REMOTE_REF}`]);
-  const entries = lines(git(runner, root, ["ls-tree", "-r", "--full-tree", RESOLUTION_REMOTE_REF]));
-  const rerere: string[] = [];
-  let fixups: string | null = null;
-  let retired: string | null = null;
-  for (const entry of entries) {
-    const match = /^100644 blob ([0-9a-f]+)\t(.+)$/.exec(entry);
-    const path = match?.[2] ?? entry;
-    if (match !== null && RERERE_PATH.test(path)) rerere.push(path);
-    else if (match !== null && path === FIXUPS_FILE) fixups = match[1] ?? null;
-    else if (match !== null && path === RETIRED_FILE) retired = match[1] ?? null;
-    else
-      throw new Error(
-        `origin/${SYNC_RESOLUTION_BRANCH} holds ${path}, which is not resolution data; only rr-cache entries, ${FIXUPS_FILE}, and ${RETIRED_FILE} import`,
-      );
-  }
-  const commonDir = git(runner, root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const missing = rerere.filter((path) => !NodeFS.existsSync(NodePath.join(commonDir, path)));
-  if (missing.length > 0)
-    withScratchIndex(runner, root, (gitIndexed) => {
-      gitIndexed(["read-tree", RESOLUTION_REMOTE_REF]);
-      gitIndexed(["checkout-index", `--prefix=${commonDir}/`, "--", ...missing]);
-    });
-  const madeFor = git(runner, root, [
-    "log",
-    "-1",
-    `--format=%(trailers:key=${RESOLUTION_TAG_TRAILER},valueonly)`,
-    RESOLUTION_REMOTE_REF,
-  ]);
-  process.stdout.write(
-    `sync: imported ${missing.length} rerere entr${missing.length === 1 ? "y" : "ies"} from origin/${SYNC_RESOLUTION_BRANCH}${fixups !== null && madeFor !== tag ? ` (fixups made for ${madeFor || "no tag"} skipped)` : ""}\n`,
+  const marker = readMarker(runner, root, RESOLUTION_REMOTE_REF);
+  if (marker === null)
+    process.stdout.write(`sync: origin/${SYNC_RESOLUTION_BRANCH} holds no marker; ignoring it\n`);
+  return marker;
+};
+
+/**
+ * The rest of a stopped rebase as a portable todo: the stopped line first,
+ * every commit by its full sha, comments dropped. A line outside the marker
+ * grammar refuses the handoff rather than lose work.
+ */
+export const remainingTodo = (
+  runner: CommandRunner,
+  worktree: string,
+  done: string,
+  todo: string,
+): ReadonlyArray<string> => {
+  const commandLines = (text: string) =>
+    lines(text).filter((line) => /^[a-z]/.test(line) && line !== "noop");
+  const remaining = [...commandLines(done).slice(-1), ...commandLines(todo)];
+  const abbreviated = remaining.flatMap(
+    (line) => /^(?:pick|fixup|squash|fixup -[cC]) ([0-9a-f]{4,40})/.exec(line)?.[1] ?? [],
   );
-  return {
-    commit: git(runner, root, ["rev-parse", RESOLUTION_REMOTE_REF]),
-    rerere: [...new Set(rerere.map((path) => path.split("/")[1]!))],
-    fixups:
-      fixups !== null && madeFor === tag
-        ? runRequire(runner, "git", ["cat-file", "blob", fixups], { cwd: root })
-        : null,
-    retired:
-      retired === null
-        ? []
-        : lines(runRequire(runner, "git", ["cat-file", "blob", retired], { cwd: root })),
-  };
+  const full =
+    abbreviated.length === 0
+      ? []
+      : lines(git(runner, worktree, ["rev-parse", ...abbreviated.map((sha) => `${sha}^{commit}`)]));
+  let next = 0;
+  const expanded = remaining.map((line) =>
+    line.replace(
+      /^(pick|fixup|squash|fixup -[cC]) [0-9a-f]{4,40}/,
+      (_, command: string) => `${command} ${full[next++]}`,
+    ),
+  );
+  const foreign = expanded.find((line) => !todoLine(line));
+  if (foreign !== undefined)
+    throw new Error(`the rebase todo holds '${foreign}', which a partial marker cannot carry`);
+  return expanded;
 };

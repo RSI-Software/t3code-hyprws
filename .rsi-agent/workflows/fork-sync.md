@@ -10,15 +10,14 @@ timeout: 45
 
 # Fork sync resolution
 
-This issue is the `hyprws` sync attention issue: a sync stopped on a seam neither rerere nor hook re-apply resolves, or its candidate failed CI.
-Its title names the target tag; its body names each manual path and the blocking commit, or each red job.
+This issue is the `hyprws` sync attention issue: a sync stopped on a seam the driver cannot resolve, a carried trunk commit conflicted, or its candidate failed CI.
+Its title names the target tag; its body names each manual path and blocking commit, the commits left, or each red job.
 
-The `fork-sync` skill owns every step and rule; follow it, and copy nothing from memory.
-Its "Job mode" section is this job's procedure, from a clean clone to `HEAD` at the resolution export.
+The `fork-sync` skill owns every step and rule; follow its procedure and its Job section, and copy nothing from memory.
 
-- **Resolve:** by the skill's Conflict section
-- **Unsure:** decide per Job mode; never block
+- **Hand off:** `HEAD` at the marker; `committed`
+- **Unsure:** decide per the skill; never block
 - **Verify:** summary ends with what to test
-- **Partial:** safe on `sync/resolution`; see Budget
-- **Never push `hyprws`:** the driver is its writer
+- **Partial:** fine; hand off before the budget
+- **Never push `hyprws`:** the land run writes it
 - **Never post:** to `pingdotgg/t3code`
