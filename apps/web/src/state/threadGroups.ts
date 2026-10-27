@@ -16,7 +16,6 @@ import { createThreadGroupEnvironmentAtoms } from "@t3tools/client-runtime/state
 import {
   applyThreadGroupMutationFork,
   EnvironmentId,
-  type ThreadGroupFork,
   type ThreadGroupMutationFork,
   type ThreadGroupsSnapshotFork,
   ThreadId,

@@ -1,11 +1,10 @@
 import type { SidebarThreadGroup } from "../state/threadGroups";
 import type { SidebarListItem, SidebarListMarker } from "./Sidebar.logic";
 
-// A thread group is a span of the sidebar's one sortable list: a header
-// marker followed by the group's visible members. The header is a sortable
-// item like upstream's section markers, so it shifts with the rows during a
-// drag. The span has no end marker: in the flattened tree a row's depth, not a
-// boundary item, says whether it belongs to the group above it.
+// A thread group is a span of the sidebar's one sortable list: a header marker, sortable like
+// upstream's section markers so it shifts with the rows during a drag, then its visible
+// members. No end marker: in the flattened tree a row's depth says whether it belongs to the
+// group above it.
 
 const HEADER_PREFIX = "thread-group\0";
 

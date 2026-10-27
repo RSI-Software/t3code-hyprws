@@ -1,8 +1,7 @@
-// Fork-only (thread-ordering): the environment's sidebar thread groups. They
-// live in the fork table `fork_thread_groups` rather than the event-sourced
-// thread payload, since one group spans threads and orchestrator commands are
-// keyed to one thread. Clients follow `changes`; agents reach the same service
-// through the MCP group tools and the launch tools.
+// Fork-only (thread-ordering): the environment's sidebar thread groups, kept in the fork table
+// `fork_thread_groups` rather than the event-sourced thread payload, since a group spans threads
+// and orchestrator commands are keyed to one thread. Clients follow `changes`; agents use the
+// MCP group and launch tools.
 import {
   applyThreadGroupMutationFork,
   type ThreadGroupFork,
@@ -244,9 +243,12 @@ const make = Effect.gen(function* () {
     changes: SubscriptionRef.changes(ref),
     mutate,
     groupOf,
-    list: (caller) =>
-      Effect.flatMap(SubscriptionRef.get(ref), (snapshot) => describe(snapshot, caller)),
-    edit: (edit, caller) => Effect.flatMap(mutate(edit), (snapshot) => describe(snapshot, caller)),
+    list: Effect.fn("ThreadGroupsServiceFork.list")(function* (caller) {
+      return yield* describe(yield* SubscriptionRef.get(ref), caller);
+    }),
+    edit: Effect.fn("ThreadGroupsServiceFork.edit")(function* (edit, caller) {
+      return yield* describe(yield* mutate(edit), caller);
+    }),
     prepareLaunch,
   });
 });
