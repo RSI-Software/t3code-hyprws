@@ -730,7 +730,7 @@ function TerminalSessionViewport({
     void retargetTerminal();
   }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) => {
-    return writeToRunningTerminalFork(terminalSession.status, () =>
+    return writeToRunningTerminalFork(readTerminalSession().status, () =>
       runTerminalWrite({
         environmentId,
         input: { threadId, terminalId, attachmentId, data },
@@ -765,6 +765,7 @@ function TerminalSessionViewport({
         }, 0);
       }
       if (version > 0) synchronizedStatusRef.current = status;
+      terminal.input.readOnly = !hasTerminalWriteAccess() || status !== "running"; // fork-hook: zmux-estate/failed-terminal-readonly
     },
   );
   const openLinkInPreview = useEffectEvent(
@@ -774,6 +775,8 @@ function TerminalSessionViewport({
 
   useLayoutEffect(() => {
     if (terminalRef.current) terminalRef.current.input.readOnly = !canOperateTerminal;
+    if (terminalRef.current && readTerminalSession().status !== "running")
+      terminalRef.current.input.readOnly = true; // fork-hook: zmux-estate/failed-terminal-readonly
     if (canOperateTerminal && visibleRef.current)
       consumePendingTerminalFocus(threadRef, terminalId);
   }, [canOperateTerminal, terminalId, threadRef]);
