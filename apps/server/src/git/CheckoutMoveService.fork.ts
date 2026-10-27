@@ -165,11 +165,9 @@ const make = Effect.gen(function* () {
         const workspaceRoot = yield* workspaceRootOf(owned);
         const toProjectRoot =
           workspaceRoot !== undefined && (yield* samePath(destination.checkoutRoot, workspaceRoot));
-        // One update moves the thread; the decider detaches its provider
-        // sessions, so the next turn starts in the destination. A turn from
-        // a starter outside the client lease (queue, MCP, schedule, wake)
-        // can still begin after the idle check: the decider then refuses
-        // the commit and the move waits for that run.
+        // One update moves the thread and detaches its provider sessions. A turn from a
+        // starter outside the client lease (queue, MCP, schedule, wake) can still begin after
+        // the idle check: the decider then refuses the commit and the move waits for that run.
         yield* writeMove(
           owned,
           {
