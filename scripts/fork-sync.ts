@@ -1389,8 +1389,8 @@ const latestCiRun = (runner: CommandRunner, root: string, sha: string): CiRun | 
     ) as ReadonlyArray<CiRun>
   )[0] ?? null;
 
-/** The run's finished jobs; a job still running has no verdict to report. */
-const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): ReadonlyArray<CiJob> =>
+/** A completed run's jobs. */
+const runJobs = (runner: CommandRunner, root: string, run: CiRun): ReadonlyArray<CiJob> =>
   (
     JSON.parse(
       runRequire(
@@ -1399,10 +1399,8 @@ const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): Readonly
         ["run", "view", String(run.databaseId), "--repo", FORK_REPOSITORY, "--json", "jobs"],
         { cwd: root, timeout: CI_READ_TIMEOUT_MS },
       ),
-    ) as { readonly jobs: ReadonlyArray<CiJob & { readonly status: string }> }
-  ).jobs
-    .filter((job) => job.status === "completed")
-    .map(({ name, conclusion, url }) => ({ name, conclusion, url }));
+    ) as { readonly jobs: ReadonlyArray<CiJob> }
+  ).jobs.map(({ name, conclusion, url }) => ({ name, conclusion, url }));
 
 /**
  * Run `vp run fork:ci` on the sync worktree's tip `sha`: the refusal as a
@@ -1436,7 +1434,7 @@ const localForkCi = (runner: CommandRunner, root: string, sha: string): string |
  * rerun by hand, reuses it. Any other sha runs the local fork:ci first, so a
  * lint, ledger, fold, or scan refusal costs minutes instead of a CI round,
  * and is then force-pushed to the candidate branch. The driver polls until
- * the run completes or a job fails, and a run that never starts or never
+ * the run completes, and a run that never starts or never
  * finishes is not green.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
@@ -1454,16 +1452,14 @@ export const candidateCi = (runner: CommandRunner, root: string, sha: string): C
   }
   const started = performance.now();
   for (let waited = 0; ; waited += CI_POLL_SECONDS) {
-    if (latest !== null) {
-      const jobs = finishedJobs(runner, root, latest);
-      // One failed job already decides the verdict; the rest only delay the fix.
-      if (latest.status === "completed" || jobs.some((job) => job.conclusion === "failure"))
-        return {
-          run: latest.url,
-          conclusion: latest.status === "completed" ? latest.conclusion : "failure",
-          jobs,
-        };
-    }
+    // Waits out the whole run: the report must name every red job, or each
+    // fix round finds only the next one.
+    if (latest?.status === "completed")
+      return {
+        run: latest.url,
+        conclusion: latest.conclusion,
+        jobs: runJobs(runner, root, latest),
+      };
     // Wall time counts slow GitHub reads; the sleep count bounds a faked sleep.
     const elapsed = Math.max(waited, (performance.now() - started) / 1000);
     if (elapsed >= (latest === null ? CI_START_SECONDS : CI_TIMEOUT_SECONDS))
