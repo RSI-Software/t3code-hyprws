@@ -24,11 +24,9 @@ const launcherCandidates = Effect.gen(function* () {
 });
 
 /**
- * Points every `install.sh` launcher owned by this home at the runtime a
- * client update just handed to the service launcher, as `t3 update` does for
- * the launcher it was started through. A launcher for another home, a plain
- * copy, or a failed write is left alone: the server update itself must not
- * fail over the PATH convenience link.
+ * Points every `install.sh` launcher this home owns at the runtime a client update just handed
+ * the service launcher, as `t3 update` does. A launcher for another home, a plain copy, or a
+ * failed write is left alone: the server update must not fail over the PATH convenience link.
  */
 const repointLaunchers = Effect.fn("cloud.server_self_update.repoint_launchers")(function* (
   baseDir: string,
