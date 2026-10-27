@@ -1,9 +1,7 @@
-// Fork-owned: the per-environment merged query with a per-environment error
-// list, for commit `9f92309411` (feat(issues): add GitHub Issues surface scoped
-// to project windows). The upstream `pullRequests.ts` keeps the single-error
-// view the pull-request pages need; the GitHub Issues hub needs every failing
-// environment, so this sibling mirrors the upstream query with an `errors`
-// array instead of a single `error` string. Nothing upstream imports this file.
+// Fork-owned merged query with a per-environment error list. Upstream `pullRequests.ts`
+// keeps the single-error view the pull-request pages need; the GitHub Issues hub needs every
+// failing environment, so this sibling mirrors that query with an `errors` array. Nothing
+// upstream imports this file.
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";

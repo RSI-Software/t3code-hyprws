@@ -2,13 +2,9 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /**
- * Fork-owned columns, added after the upstream migration sequence has run.
- *
- * Upstream numbers its migrations sequentially, so a fork migration in that
- * sequence collides with the next upstream release and a database migrated by
- * either build skips the other's step. Fork columns instead land through this
- * idempotent pass: each one is checked with `PRAGMA table_info` and added when
- * missing, whatever the migration table says.
+ * Fork-owned columns, added after the upstream migration sequence has run. A numbered fork
+ * migration would collide with the next upstream release, so this idempotent pass checks each
+ * column with `PRAGMA table_info` and adds it when missing, whatever the migration table says.
  */
 const FORK_COLUMNS: ReadonlyArray<{
   readonly table: string;

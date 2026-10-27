@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import { SourceControlProviderKind } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { pullRequestHostOf, type ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { Atom } from "effect/reactivity";
 import { useState } from "react";
 
@@ -83,7 +83,7 @@ function LinkGitHubIssueDialog({
       (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
     return repository === null
       ? null
-      : { host: pullRequestHostOf(identity, SourceControlProviderKind.make("github")), repository };
+      : { host: sourceControlClients.changeRequestHost(identity, "github"), repository };
   })();
   const resolved = resolveGitHubIssueReference(reference, ownProject);
 

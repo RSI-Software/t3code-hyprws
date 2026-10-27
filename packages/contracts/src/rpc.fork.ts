@@ -1,9 +1,6 @@
-// Fork-only: pull-request attachment RPC registrations for commit `1314ebcb28`
-// (fix(web): upload media in pull request descriptions). The upstream `rpc.ts`
-// carries only marked spread/import hooks pointing here, per the side-table +
-// spread precedent (`environment.fork.ts`). The method-name strings live here
-// rather than referencing `WS_METHODS`, because importing `rpc.ts` from a
-// top-level sibling would read `WS_METHODS` before its initialisation.
+// Fork-only: pull-request attachment RPC registrations, spread into upstream `rpc.ts` through
+// marked hooks. The method names are literals rather than `WS_METHODS`, because importing
+// `rpc.ts` from a top-level sibling would read `WS_METHODS` before its initialisation.
 import * as Rpc from "effect/rpc/Rpc";
 import * as Schema from "effect/Schema";
 

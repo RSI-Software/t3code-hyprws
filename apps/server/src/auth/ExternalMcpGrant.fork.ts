@@ -75,8 +75,8 @@ export const recordExternalMcpGrant = (input: {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   return ExternalMcpGrantStore.of({
-    getBySession: (sessionId) =>
-      sql<{ readonly policyJson: string; readonly clientLabel: string | null }>`
+    getBySession: Effect.fn("ExternalMcpGrantStore.getBySession")(function (sessionId) {
+      return sql<{ readonly policyJson: string; readonly clientLabel: string | null }>`
         SELECT policy_json AS "policyJson", client_label AS "clientLabel"
         FROM auth_external_mcp_grants
         WHERE session_id = ${sessionId}
@@ -92,8 +92,8 @@ const make = Effect.gen(function* () {
               ),
         ),
         Effect.mapError((cause) => new ExternalMcpGrantStoreError({ cause })),
-        Effect.withSpan("ExternalMcpGrantStore.getBySession"),
-      ),
+      );
+    }),
   });
 });
 
