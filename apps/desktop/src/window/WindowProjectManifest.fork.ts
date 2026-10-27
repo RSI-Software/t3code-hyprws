@@ -1,16 +1,8 @@
 /**
- * Which projects each claimed Hyprland client shows, for tools outside the app.
- *
- * A provider process knows its project and checkout, never its window. A tool
- * that must act on "the window this work lives in" (CDP targeting, placing a
- * browser beside it) joins this file by compositor address instead of guessing
- * from titles, which carry user-editable display names and truncate at three.
- *
- * One file per app process, `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json`,
- * replaced atomically on every change and removed on a clean quit, best-effort.
- * A crashed or interrupted process leaves its file behind; readers only consult
- * the file for a pid that still owns a live client, so a stale one is never
- * joined.
+ * Projects each claimed Hyprland client shows, for outside tools to join by
+ * compositor address instead of guessing from titles. One atomically replaced
+ * `$XDG_RUNTIME_DIR/t3code/windows-<pid>.json` per process; readers consult it
+ * only for a pid that still owns a live client, so a stale file is never joined.
  */
 import { DesktopWindowProjectScope } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

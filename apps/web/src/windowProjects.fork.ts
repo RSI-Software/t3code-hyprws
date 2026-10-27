@@ -67,11 +67,10 @@ export function windowProjectScope(
 }
 
 /**
- * The scope to publish, or `null` while a member's checkout is still unknown:
- * a partial scope would turn its window away. Only an unknown member waits for
- * every environment to settle, so one unreachable environment never holds back
- * a window that does not show it. A seed project still pending is what the
- * window shows (`windowLandingProjects`).
+ * `null` while a member's checkout is unknown: a partial scope would turn its window
+ * away. Only an unknown member waits for every environment to settle, so one unreachable
+ * environment never holds back a window that does not show it. A pending seed project
+ * is what the window shows (`windowLandingProjects`).
  */
 export function publishedWindowScope(input: {
   readonly filter: ProjectFilter;
@@ -99,7 +98,7 @@ export function publishedWindowScope(input: {
  * Publishes this window's scope whenever it changes; a no-op off desktop. Reads
  * the window's own filter, which holds with or without the sidebar mounted.
  */
-export function usePublishWindowProjectsFork(
+function usePublishWindowProjectsFork(
   bridge: DesktopBridge | undefined = window.desktopBridge,
 ): void {
   const state = windowProjectFilterState();
@@ -116,10 +115,17 @@ export function usePublishWindowProjectsFork(
   })();
   const windowId = bridge?.windowId;
   const publish = bridge?.publishWindowProjects;
+  // oxlint-disable-next-line t3code/react-effect-budget -- publishes the window's project scope to the desktop main process over IPC.
   useEffect(() => {
     if (payload === null || windowId === undefined || publish === undefined) return;
     void publish({ windowId, scope: JSON.parse(payload) as DesktopWindowProjectScope }).catch(
       () => undefined,
     );
   }, [payload, publish, windowId]);
+}
+
+/** Mounts the publisher in the root route. */
+export function WindowProjectsPublishFork(): null {
+  usePublishWindowProjectsFork();
+  return null;
 }

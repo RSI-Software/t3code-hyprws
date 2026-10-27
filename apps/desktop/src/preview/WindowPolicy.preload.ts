@@ -10,11 +10,9 @@ export type PreviewCapableDesktopBridge = DesktopBridge & {
 };
 
 /**
- * The bridge members a desktop window needs on top of the upstream bridge:
- * which window this is, the project filter it was seeded with, whether it is
- * still demanded, how to open another one, and how to report what it shows.
- * They are optional in the contract, so the upstream bridge literal stays
- * exactly as upstream wrote it and this is the only place the fork adds to it.
+ * The fork's desktop-window bridge members. They are optional in the contract,
+ * so the upstream bridge literal stays as upstream wrote it and this is the
+ * only place the fork adds to it.
  */
 export type ProjectWindowCapabilities = Required<
   Pick<

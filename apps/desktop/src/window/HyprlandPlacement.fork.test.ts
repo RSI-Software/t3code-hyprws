@@ -68,8 +68,9 @@ describe("HyprlandPlacement", () => {
       });
       const knownAddresses = new Set<string>();
 
-      yield* Effect.all(
-        mapped.map(({ windowId, title }) => placement.claim(windowId, title, { knownAddresses })),
+      yield* Effect.forEach(
+        mapped,
+        ({ windowId, title }) => placement.claim(windowId, title, { knownAddresses }),
         { concurrency: "unbounded" },
       );
 
