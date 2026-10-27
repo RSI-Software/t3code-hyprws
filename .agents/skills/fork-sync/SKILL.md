@@ -51,6 +51,7 @@ Never edit a report; a rerun supersedes it.
 | `rebased`         | 0    | [tip work](#tip-work), then [hand off](#hand-off) |
 | `blocked`         | 1    | [resolve](#resolve) the seams                     |
 | `failed` `carry`  | 1    | [resolve](#resolve) the pick                      |
+| `failed` `check`  | 1    | fix it as [tip work](#tip-work), rerun            |
 | `failed` other    | 1    | fix the remote, tag, or `error`; rerun            |
 
 ## Procedure
@@ -114,7 +115,8 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
 - **Owner:** newest fork commit on those lines
 - **Find it:** `vp run fork:fixup-fold`
 - **Unmarked fork line:** the fixup marks it
-- **Local checks:** `vp run fork:ci`, `vp test run`
+- **Local checks:** each rerun runs `fork:ci`
+  - Focused tests: `vp test run`
 - **Gate:** candidate CI in the land run
 
 Run `vp test run` inside the package.
