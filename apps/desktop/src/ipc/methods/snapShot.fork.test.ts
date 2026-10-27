@@ -35,7 +35,7 @@ const windowLayer = (registered: Electron.BrowserWindow | null) =>
   Layer.succeed(
     ElectronWindow.ElectronWindow,
     ElectronWindow.ElectronWindow.of({
-      main: Effect.succeed(Option.some(hubWindow)),
+      main: Effect.succeedSome(hubWindow),
       windowIdFor: (window: Electron.BrowserWindow) =>
         Effect.succeed(window === registered ? Option.some(projectWindowId) : Option.none()),
     } as ElectronWindow.ElectronWindow["Service"]),
