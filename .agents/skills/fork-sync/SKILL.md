@@ -172,7 +172,6 @@ The `rsi:fork-sync` label starts it on the attention issue.
 No human reviews it: candidate CI gates the landing.
 
 ```sh
-git remote get-url upstream || git remote add upstream https://github.com/pingdotgg/t3code.git
 mkdir -p /tmp/fork-bin && ln -sf "$PWD/node_modules/.bin/vp" /tmp/fork-bin/vp
 PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag>
 ```
@@ -186,8 +185,8 @@ PATH=/tmp/fork-bin:$PATH vp run fork:sync <tag>
 
 The summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
-**One checkout.** The job's disk holds one install, about 8 GiB.
-Never clone, copy, or add a worktree.
+**Disk.** The job's disk holds one install, about 8 GiB.
+The driver's kept worktree is the only other checkout; never clone, copy, add another, or run a second install.
 
 **Budget.** The job has 45 minutes, and a killed job saves nothing.
 
