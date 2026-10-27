@@ -355,16 +355,10 @@ export const buildGuardInput = (
 };
 
 /**
- * The target-tree text of every upstream file a warned commit touches —
- * nothing else, so a scan stays proportional to the commits it warns about.
- * One reader serves both rules that measure a patch against the target:
- * upstream-test selects the removed test lines, the hook guard the changed
- * lines of marker-capable source. Without the test side the append-only
- * rule would also refuse the repair it asks for: deleting the fork's own
- * line out of an upstream test file is a removal too. Without the hook
- * side the guard would refuse the repair it cannot name: restoring
- * upstream's own text byte for byte reads as a fork insertion
- * (RSI-Software/t3code-hyprws#1207).
+ * The target-tree text of every upstream file a warned commit touches, so a scan stays proportional.
+ * Upstream-test reads removed test lines against it and the hook guard changed source lines; without
+ * it each would refuse its own repair (deleting a fork line from an upstream test, or restoring
+ * upstream's text byte for byte).
  */
 const readUpstreamLines = (
   git: GitReader,
@@ -389,12 +383,9 @@ const readUpstreamLines = (
 };
 
 /**
- * The target-tree text of every upstream test file a warned commit removes a
- * test line from or adds a test opener to — the same path set
- * `readUpstreamLines` selects for the test side, plus the full text. The
- * declared-superseded exemption compares structurally by case, and the
- * restored-opener exemption by count, so both need the text, not just the
- * line set (RSI-Software/t3code-hyprws#1208).
+ * The target-tree text of every upstream test file a warned commit removes a test line from or
+ * adds an opener to. The declared-superseded exemption compares by case and the restored-opener
+ * exemption by count, so both need the text, not just the line set.
  */
 const readUpstreamTestTexts = (
   git: GitReader,
@@ -410,12 +401,9 @@ const readUpstreamTestTexts = (
 };
 
 /**
- * The head-tree (scanned-head) text of the fork sibling for every touched
- * upstream test file. Read from the head tree, never the working tree, so
- * the exemption cannot go stale against the commit being scanned: an
- * uncommitted declaration excuses nothing, the same way the additive
- * gate's reader works. A sibling unreadable at the head excuses
- * nothing, because an unread tree is not evidence of a replacement case.
+ * The head-tree text of the fork sibling for every touched upstream test file. Read from the head,
+ * never the working tree, so an uncommitted declaration excuses nothing; an unreadable sibling
+ * excuses nothing either, because an unread tree is no evidence of a replacement case.
  */
 const readSiblingTexts = (
   git: GitReader,
@@ -426,14 +414,9 @@ const readSiblingTexts = (
   readTexts(git, head, [...upstreamTestTexts.keys()].map(forkTestSibling));
 
 /**
- * The supersedes declarations of every fork sibling at the scanned
- * head, judged against the target tree. Siblings are read from the head
- * tree (`show <head>:<path>`), never the working tree, so the check stays
- * proportional to the scan's own refs — including the CI case where the
- * checkout is the synthetic merge commit. A sibling whose counterpart is
- * absent from the head tree is skipped: fork-only tests with no upstream
- * file carry no divergence. An unreadable blob leaves the declaration
- * refused, because an unread tree is not evidence the named case exists.
+ * Every fork sibling's supersedes declarations at the scanned head, judged against the target tree.
+ * Siblings read from the head tree, never the working tree, so CI's synthetic merge checkout works.
+ * A sibling whose counterpart the head lacks is skipped; an unreadable blob leaves it refused.
  */
 export const readSupersedesAssessment = (
   git: GitReader,
@@ -477,11 +460,9 @@ export const readSupersedesAssessment = (
   // Absent from the target tree: the assessment refuses the naming
   // declaration. No entry is the signal.
   const upstreamTexts = readTexts(git, range.target, needed);
-  // Merge-base texts for the same paths: the rename check compares the
-  // base against the assessed tree, so an in-place upstream rename the
-  // sibling still carries under the base title reads as undeclared. An
-  // unreadable base blob leaves no entry; the old title-sharing rule
-  // stands for that path.
+  // Merge-base texts for the same paths: the rename check compares base against the assessed tree,
+  // so an in-place upstream rename the sibling still carries under the base title reads as
+  // undeclared. An unreadable base blob leaves no entry, and the old title-sharing rule stands.
   const baseTexts = readTexts(git, range.base, needed);
   const assessment = assessForkSupersedes(siblingTexts, upstreamTexts, baseTexts);
   return {
