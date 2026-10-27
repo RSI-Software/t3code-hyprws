@@ -1,8 +1,6 @@
-// Fork-owned: the sidebar's "open project window" desktop bridge action
-// (feat(web): open project windows from hub actions). The upstream
-// `Sidebar.tsx` carries only marked hook lines pointing here: the bridge
-// probe, the open-window callback, the rendered button, and the settings
-// button's desktop-aware class name.
+// Fork-owned sidebar "open project window" desktop bridge action. Upstream `Sidebar.tsx`
+// carries only marked hook lines pointing here: the bridge probe, the open-window callback,
+// the rendered button, and the settings button's desktop-aware class name.
 import { type MouseEvent as ReactMouseEvent } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 
