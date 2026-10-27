@@ -1,15 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - The sync driver runs this resolver before any Effect runtime exists.
 
-// The license-list resolver the sync's stop loop runs on a conflicted
-// `third-party-licenses.config.json` (RSI-Software/t3code-hyprws#1488).
-//
-// The config is authored input: `vp run licenses:sync` reads it and never
-// reproduces it, so no generator can rebuild a conflicted copy. Both sides
-// append entries to the same arrays instead, which is a union keyed on each
-// entry's `name`, or its `repositoryUrl` when it has no name. Every array keeps
-// upstream's order, then the fork's additions in the fork's order. A key both
-// sides changed, a delete of an entry the other side changed, or an entry
-// without a unique key refuses.
+// Resolves a conflicted `third-party-licenses.config.json` in the sync's stop loop. The config is
+// authored input no generator rebuilds, so arrays union on each entry's `name` (else its
+// `repositoryUrl`), upstream's order first, then the fork's additions. A key both sides changed, a
+// delete of an entry the other side changed, or an entry without a unique key refuses.
 
 import * as NodeUtil from "node:util";
 
