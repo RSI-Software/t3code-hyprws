@@ -31,11 +31,6 @@ function isConversationForkFork(thread: OrchestrationV2AppThread) {
   );
 }
 
-/** Initial generation is for a new conversation, never a copied one. Explicit regeneration stays available. */
-export function allowsInitialConversationTitleFork(thread: OrchestrationV2AppThread) {
-  return !isConversationForkFork(thread);
-}
-
 /**
  * Tells a fork's agent who it is once per native conversation: on its first turn, and again
  * whenever T3 replaces the native thread. Later turns already carry it in native history.
