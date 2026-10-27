@@ -1123,6 +1123,67 @@ export const finishRebase = (
   return writeMarker(runner, root, { tip, tag: target.tag, lease, todo: null });
 };
 
+/** The trailer a tip commit carries to retire a hook the target made obsolete. */
+export const HOOK_RETIRED_TRAILER = "Fork-Hook-Retired";
+
+/** Marked lines per hook key in `ref`'s tree. */
+const hookLineCounts = (
+  runner: CommandRunner,
+  root: string,
+  ref: string,
+): ReadonlyMap<string, number> => {
+  // Exit 1 is no match; anything else is a read failure.
+  const result = gitResult(runner, root, [
+    "grep",
+    "-h",
+    "-o",
+    "-E",
+    "fork-hook:[[:space:]]*[A-Za-z0-9_-]+/[A-Za-z0-9_-]+",
+    ref,
+    "--",
+    "apps",
+    "packages",
+  ]);
+  if (result.status !== 0 && result.status !== 1)
+    throw new Error(`git grep for fork hooks failed on ${ref}: ${result.stderr.trim()}`);
+  const counts = new Map<string, number>();
+  for (const marker of lines(result.stdout)) {
+    const key = marker.replace(/^fork-hook:\s*/, "");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+};
+
+/**
+ * The hook keys whose marked lines the tip carries fewer of than the trunk:
+ * a resolution that silently dropped fork behaviour, which typecheck and tests
+ * miss. A key a commit above the merge base retires with a
+ * `Fork-Hook-Retired: domain/name` trailer is exempt.
+ */
+export const lostHooks = (
+  runner: CommandRunner,
+  root: string,
+  trunk: string,
+  tip: string,
+): ReadonlyArray<string> => {
+  const before = hookLineCounts(runner, root, trunk);
+  const after = hookLineCounts(runner, root, tip);
+  const since = git(runner, root, ["merge-base", trunk, tip]);
+  const retired = new Set(
+    lines(
+      git(runner, root, [
+        "log",
+        `--format=%(trailers:key=${HOOK_RETIRED_TRAILER},valueonly)`,
+        `${since}..${tip}`,
+      ]),
+    ),
+  );
+  return [...before]
+    .filter(([key, count]) => (after.get(key) ?? 0) < count && !retired.has(key))
+    .map(([key, count]) => `${key} (${count}→${after.get(key) ?? 0})`)
+    .toSorted();
+};
+
 const VERIFICATION_ENV_KEYS = new Set([
   // Vite+'s `node_modules/.bin/vp` shim exports an absolute NODE_PATH into the
   // store of the checkout it belongs to; inherited, it pins module resolution
@@ -2093,6 +2154,26 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       });
     }
     const newSha = finished.tip;
+
+    // hooks — every fork hook the trunk marks survives on the tip, or a tip commit retires it
+    step = "hooks";
+    const lost = lostHooks(runner, root, expectedOld, newSha);
+    if (lost.length > 0)
+      return fail({
+        conflicts: [...rebase.recorded],
+        marker: markerReport(finished),
+        decision: {
+          worktree: land ? "" : worktree,
+          tip: newSha,
+          paths: [],
+          resume: [
+            `# restore each hook as tip work, or retire one the target made obsolete with a`,
+            `# '${HOOK_RETIRED_TRAILER}: <domain/name>' trailer on a tip commit; then rerun:`,
+            `vp run fork:sync ${target.tag}`,
+          ].join("\n"),
+        },
+        error: `${lost.length} fork hook(s) lost marked lines against ${expectedOld.slice(0, 7)}: ${lost.join(", ")}`,
+      });
 
     if (!land) {
       // check — the land run's local battery, so a handed-off tip is one it accepts
