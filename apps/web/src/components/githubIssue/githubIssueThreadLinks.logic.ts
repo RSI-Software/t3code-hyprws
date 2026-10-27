@@ -1,5 +1,5 @@
 import type { ThreadIssueKey } from "@t3tools/contracts";
-import { threadPullRequestKeysEqual } from "@t3tools/shared/threadPullRequests";
+import { threadPullRequestKeysEqual } from "@t3tools/client-runtime/thread-pull-requests";
 
 /** An issue a thread can link: its host-level key and the address it opens at. */
 export interface GitHubIssueLinkTarget extends ThreadIssueKey {

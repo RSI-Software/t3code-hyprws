@@ -1,8 +1,6 @@
-// Fork-owned: the command-palette "Go to Issues" entry for commit `9f92309411`
-// (feat(issues): add GitHub Issues surface scoped to project windows). The
-// upstream `CommandPalette.tsx` carries only marked hook lines pointing here;
-// the capability probe, the navigation command, and the action item are built
-// in this module.
+// Fork-owned command-palette "Go to Issues" entry. Upstream `CommandPalette.tsx` carries only
+// marked hook lines pointing here; the capability probe, the navigation command, and the
+// action item are built in this module.
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { projectFilterProjectKeys } from "@t3tools/client-runtime/state/project-filter";
 import { CircleDotIcon, LinkIcon, ListFilterIcon, SearchIcon } from "lucide-react";
