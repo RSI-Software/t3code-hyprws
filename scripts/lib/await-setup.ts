@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - preloaded before the entry's imports resolve, so only Node built-ins exist.
 
-// A preload (`node --import`) that waits for the background worktree setup of
-// the checkout it runs in (`vp run` starts at the repo root). T3 marks a thread's
-// workspace ready while `scripts/setup-worktree.ts` still installs; an entry
-// started then fails on unresolved imports instead of naming the cause. A
-// preload runs before the entry's imports resolve.
+// A preload (`node --import`) that waits for the background worktree setup of the checkout it runs
+// in (`vp run` starts at the repo root). T3 marks a workspace ready while `scripts/setup-worktree.ts`
+// still installs, and an entry started then fails on unresolved imports without naming the cause.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
