@@ -41,6 +41,7 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
     ? (settings?.projects[input.projectId] ?? settings?.defaults)
     : null;
   const latest = useRef({ input, config, canOperate });
+  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-input ref that async voice text requests read after render.
   useLayoutEffect(() => {
     latest.current = { input, config, canOperate };
   });
@@ -71,6 +72,7 @@ export function useVoiceTextFork(input: VoiceTextInputFork) {
     pending.current = null;
     setPhase(null);
   };
+  // oxlint-disable-next-line t3code/react-effect-budget -- aborts the in-flight voice text request when the scope changes or the hook unmounts.
   useEffect(() => {
     requestScope.current = scopeKey;
     skipAutomatic.current = true;

@@ -19,6 +19,7 @@ function useVoiceSettingsQueryFork<A, E>(
     settings: A;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- fetches voice settings from the server and refetches on settings-change and window focus DOM events.
   useEffect(() => {
     if (!prepared || !canRead) return;
     let active = true;

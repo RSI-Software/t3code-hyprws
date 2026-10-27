@@ -50,6 +50,7 @@ export function VoiceTextSettingsFork({
   const [busy, setBusy] = useState<"save" | "context" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
+  // oxlint-disable-next-line t3code/react-effect-budget -- aborts the in-flight voice text settings request on unmount.
   useEffect(() => () => request.current?.abort(), []);
   const form =
     edited ?? (projectId ? settings?.projects[projectId] : undefined) ?? settings?.defaults;
