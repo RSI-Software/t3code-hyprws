@@ -18,8 +18,23 @@ import * as NodeURL from "node:url";
 /** The environment variable carrying `[fixup sha, owner sha]` pairs, oldest fixup first, as JSON. */
 export const FIXUP_OWNERS_ENV = "FORK_SYNC_FIXUP_OWNERS";
 
-/** The environment variable carrying `[owner sha, folded message file]` pairs, as JSON. */
+/** The environment variable carrying the owner shas with a folded message file, as JSON. */
 export const FOLD_MESSAGES_ENV = "FORK_SYNC_FOLD_MESSAGES";
+
+/** Where an owner's folded message lives, under the rebasing worktree's git dir. */
+export const foldMessagePath = (owner: string): string => `fork-sync-folds/${owner}.msg`;
+
+/**
+ * The amend an owner with a folded message takes. It names the message by git
+ * path, not by absolute path, so a todo saved in a partial marker resumes in
+ * any checkout that wrote the same message files.
+ */
+const foldAmend = (owner: string): string =>
+  `exec git commit --amend --no-verify -F "$(git rev-parse --git-path ${foldMessagePath(owner)})"`;
+
+/** One fold amend line, as a saved todo must spell it. */
+export const FOLD_AMEND_LINE =
+  /^exec git commit --amend --no-verify -F "\$\(git rev-parse --git-path fork-sync-folds\/[0-9a-f]{40}\.msg\)"$/;
 
 const TODO_LINE = /^(?:pick|p|fixup|f|squash|s) ([0-9a-f]{4,40})(.*)$/;
 
@@ -33,7 +48,7 @@ const TODO_LINE = /^(?:pick|p|fixup|f|squash|s) ([0-9a-f]{4,40})(.*)$/;
 export const placeFixups = (
   todo: string,
   pairs: ReadonlyArray<readonly [fixup: string, owner: string]>,
-  folds: ReadonlyMap<string, string> = new Map(),
+  folds: ReadonlySet<string> = new Set(),
 ): string => {
   const lines = todo.split("\n");
   const shaOf = (line: string): string | undefined => TODO_LINE.exec(line)?.[1];
@@ -48,12 +63,8 @@ export const placeFixups = (
     const [, sha = "", rest = ""] = TODO_LINE.exec(lines[at] ?? "") ?? [];
     return [{ owner, at, line: `fixup ${sha}${rest}` }];
   });
-  const amendAfter = (owner: string): string | undefined => {
-    const path = folds.get(owner);
-    return path === undefined
-      ? undefined
-      : `exec git commit --amend --no-verify -F ${shellQuote(path)}`;
-  };
+  const amendAfter = (owner: string): string | undefined =>
+    folds.has(owner) ? foldAmend(owner) : undefined;
   const placed = lines.filter((_, index) => !moved.some((entry) => entry.at === index));
   return placed
     .flatMap((line) => {
@@ -71,7 +82,7 @@ export const placeFixups = (
     .join("\n");
 };
 
-const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
+export const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 
 /** `GIT_SEQUENCE_EDITOR` running this module on the todo git hands it. */
 export const sequenceEditor = (): string =>
@@ -84,9 +95,7 @@ const run = (args: ReadonlyArray<string>): number => {
     return 2;
   }
   const pairs = JSON.parse(process.env[FIXUP_OWNERS_ENV] ?? "[]") as Array<[string, string]>;
-  const folds = new Map(
-    JSON.parse(process.env[FOLD_MESSAGES_ENV] ?? "[]") as Array<[string, string]>,
-  );
+  const folds = new Set(JSON.parse(process.env[FOLD_MESSAGES_ENV] ?? "[]") as Array<string>);
   NodeFS.writeFileSync(path, placeFixups(NodeFS.readFileSync(path, "utf8"), pairs, folds));
   return 0;
 };

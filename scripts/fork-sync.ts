@@ -1,43 +1,45 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver bootstraps Git before any Effect runtime exists.
 
-// One driver, one run, one exit code, one report. `fork:sync [<tag>] [--dry-run]`
-// walks one upstream release tag end to end: target, fetch, rebase, ci, push,
-// blocked, report. There is no state machine, no gates, no lanes, and no modes —
-// a rerun of the same command is always the next move.
+// One driver, one procedure. `fork:sync [<tag>]` is a session: it rebases the
+// fork onto one upstream release tag and hands the tip on as a marker commit on
+// `sync/resolution` (scripts/lib/fork-sync-resolution.ts). `fork:sync --land`
+// runs only in the hyprws upstream sync workflow: it takes the marker's tip, or
+// rebases itself when there is none, proves the tip on candidate CI, and
+// lease-pushes the trunk. A human session and an rsi-pr-agent job follow the
+// same steps; a rerun of the same command is always the next move.
 //
-// The sync worktree is the carrier between runs. A run records its tag, target
-// sha, lease, and every stop's conflict rows beside it; a rerun on the same
-// three adopts the kept worktree — continuing a resolved rebase, or taking a
-// finished HEAD with any reshape extras committed there — and reports every
-// stop so far. A red candidate or a green dry run keeps it too, so a fix
-// commits there and the real run publishes the tip CI proved. A different tag
-// or a moved lease recreates it. A new worktree runs the repo's own worktree
-// setup step, so a stop already has dependencies.
+// The sync worktree is the carrier between runs of one session. A run records
+// its tag, target sha, lease, and every stop's conflict rows beside it; a rerun
+// on the same tag and target adopts it while its lease is still in the trunk,
+// continuing a resolved rebase or taking a finished HEAD with its tip work.
+// Without one, a valid marker starts the worktree at its tip, resuming a
+// partial marker's saved todo. A moved trunk never restarts the rebase: the
+// finished tip cherry-picks the commits the trunk gained since the lease.
 //
-// | Step    | Fails when                                         |
-// | ------- | -------------------------------------------------- |
-// | target  | the named target is not a release tag on upstream  |
-// | fetch   | the fetch errors                                   |
-// | rebase  | a conflict neither rerere nor hook re-apply fixes  |
-// | ci      | hyprws CI is not green on the candidate tip        |
-// | push    | the expected-old lease is refused                  |
-// | blocked | `gh` refuses the write                             |
+// | Step    | Fails when                                          |
+// | ------- | --------------------------------------------------- |
+// | target  | the named target is not a release tag on upstream   |
+// | fetch   | the fetch errors                                    |
+// | rebase  | a conflict neither hook re-apply nor regeneration fixes |
+// | carry   | a trunk commit since the lease conflicts on the tip |
+// | ci      | hyprws CI is not green on the candidate tip         |
+// | push    | the expected-old lease is refused                   |
+// | blocked | `gh` refuses the write                              |
 //
-// A failed run — target, fetch, ci, push, or a crash — files one issue the
-// way a blocked run files its block issue: keyed by the failing step and the
-// target tag (the trunk sha before a tag resolves), refreshed by a rerun with
-// the same failure, closed by the next clean run.
+// Only a land run writes issues. A blocked or failed land run files one issue
+// keyed by the failing step and the target tag, refreshed by a rerun with the
+// same failure, closed by the next clean run.
 //
 // The typed report at `.t3/fork-sync/<tag>.json` is the only run authority; the
 // Markdown this prints is output, never read back. Publication goes through
 // plain `gh`, and nothing is ever posted to upstream.
 //
-// The trunk moves only to a sha hyprws CI already passed: the driver pushes
-// the rebased tip to the candidate branch, waits for the CI run on that exact
-// sha, and lease-pushes the same sha. CI is the one check authority: the
-// local `vp run fork:ci` before a candidate push only refuses what CI would
-// refuse sooner, and a green preflight never stands in for the run.
+// The trunk moves only to a sha hyprws CI already passed: the land run pushes
+// the tip to the candidate branch, waits for the CI run on that exact sha, and
+// lease-pushes the same sha. CI is the one check authority: the local
+// `vp run fork:ci` before a candidate push only refuses what CI would refuse
+// sooner, and a green preflight never stands in for the run.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -82,16 +84,22 @@ import {
   realRunner,
   runRequire,
   type CommandRunner,
-  type CommandSpec,
 } from "./lib/fork-sync-git.ts";
 import {
-  exportResolution,
-  importResolution,
+  fetchMarker,
+  remainingTodo,
   RESOLUTION_REF,
-  stopRerereIds,
-  type ImportedResolution,
+  todoCommits,
+  writeMarker,
+  type Marker,
 } from "./lib/fork-sync-resolution.ts";
-import { FIXUP_OWNERS_ENV, FOLD_MESSAGES_ENV, sequenceEditor } from "./lib/fork-sync-todo.ts";
+import {
+  FIXUP_OWNERS_ENV,
+  FOLD_MESSAGES_ENV,
+  foldMessagePath,
+  sequenceEditor,
+  shellQuote,
+} from "./lib/fork-sync-todo.ts";
 import { splitTrailerBlock } from "./lib/fork-trailers.ts";
 
 const SYNC_DIR = ".t3/fork-sync";
@@ -99,14 +107,15 @@ const WORKTREE_DIR = "worktree";
 /** The attention issue keeps the governed label and outcome-shaped legacy titles. */
 const BLOCK_LABEL = "ci";
 /**
- * A blocked stop or a red candidate also starts rsi-pr-agent's
- * `.rsi-agent/workflows/fork-sync.md`; an unchanged body never relabels, so
- * one stop gets one job per target.
+ * A blocked stop, a red candidate, or a conflicting carry also starts
+ * rsi-pr-agent's `.rsi-agent/workflows/fork-sync.md`, which consumes the
+ * label; an unchanged body never relabels, so a job that made no progress
+ * starts no other.
  */
 const AGENT_LABEL = "rsi:fork-sync";
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
-const REPORT_SCHEMA = "fork.sync-report.v2";
+const REPORT_SCHEMA = "fork.sync-report.v3";
 
 /** Stable per step and target, so a rerun refreshes the issue without renaming it. */
 const syncIssueTitle = (outcome: "blocked" | "failed", step: string, key: string): string =>
@@ -126,19 +135,11 @@ const trunkSha = (runner: CommandRunner, root: string): string => {
     : "unknown";
 };
 
-/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, a carried retirement, regeneration, or a manual resolution. */
-export const ConflictVia = Schema.Literals([
-  "hook",
-  "manual",
-  "net-zero-delete",
-  "retired",
-  "regenerate",
-]);
+/** How a conflict row resolved: hook re-apply, an accepted net-zero delete, regeneration, or a manual resolution. */
+export const ConflictVia = Schema.Literals(["hook", "manual", "net-zero-delete", "regenerate"]);
 
 /** The recorded reason when an upstream deletion meets a net-zero fork edit. */
 export const NET_ZERO_REASON = "upstream deleted; fork edit is net-zero";
-/** The recorded reason when an upstream deletion meets a path a resolver retired. */
-export const RETIRED_REASON = "upstream deleted; retired by sync/resolution";
 
 export const ConflictRow = Schema.Struct({
   /** Repo-relative path of the conflicted file. */
@@ -155,20 +156,20 @@ export const ConflictRow = Schema.Struct({
   hooksReapplied: Schema.Array(Schema.String),
   /** Why hook re-apply refused the path; set on `manual` rows that carried hooks. */
   refuseReason: Schema.optionalKey(Schema.String),
-  /** Why an automatic rule resolved the path; set on `net-zero-delete`, `retired`, and `regenerate` rows. */
+  /** Why an automatic rule resolved the path; set on `net-zero-delete` and `regenerate` rows. */
   reason: Schema.optionalKey(Schema.String),
 });
 export interface ConflictRow extends Schema.Schema.Type<typeof ConflictRow> {}
 
 /**
- * The typed decision route a stopped run or a green dry run leaves behind.
- * Recovery reads this — resolve the named paths in the named worktree, continue
- * the rebase, rerun; after a green dry run, the real run publishes the kept tip.
+ * The typed decision route a session or a red land run leaves behind. Recovery
+ * reads this: resolve the named paths in the named worktree and rerun, or hand
+ * the marker on.
  */
 export const DecisionRoute = Schema.Struct({
   /** The detached worktree holding the stopped rebase or kept tip; `""` when nothing to resume. */
   worktree: Schema.String,
-  /** The rebased tip a red candidate or a green dry run left in the worktree; trunk did not move. */
+  /** The rebased tip the run left in the worktree; trunk did not move. */
   tip: Schema.optionalKey(Schema.String),
   /** The paths resolved by hand there. */
   paths: Schema.Array(Schema.String),
@@ -207,10 +208,30 @@ export const BlockClosure = Schema.Struct({
 });
 export interface BlockClosure extends Schema.Schema.Type<typeof BlockClosure> {}
 
+/** The marker a run wrote or landed from. */
+export const MarkerReport = Schema.Struct({
+  commit: Schema.String,
+  tip: Schema.String,
+  lease: Schema.String,
+  finished: Schema.Boolean,
+  /** Fork commits the partial marker's todo still replays; 0 once finished. */
+  remaining: Schema.Number,
+});
+export interface MarkerReport extends Schema.Schema.Type<typeof MarkerReport> {}
+
+const markerReport = (marker: Marker): MarkerReport => ({
+  commit: marker.commit,
+  tip: marker.tip,
+  lease: marker.lease,
+  finished: marker.todo === null,
+  remaining: marker.todo === null ? 0 : todoCommits(marker.todo).length,
+});
+
 export const ForkSyncReport = Schema.Struct({
   schema: Schema.Literal(REPORT_SCHEMA),
-  outcome: Schema.Literals(["applied", "already-applied", "blocked", "failed"]),
-  dryRun: Schema.Boolean,
+  /** `rebased` ends a session; only a land run reaches `applied`. */
+  outcome: Schema.Literals(["applied", "already-applied", "rebased", "blocked", "failed"]),
+  land: Schema.Boolean,
   startedAt: Schema.String,
   finishedAt: Schema.String,
   repository: Schema.String,
@@ -233,7 +254,7 @@ export const ForkSyncReport = Schema.Struct({
   decision: DecisionRoute,
   blocked: Schema.NullOr(
     Schema.Struct({
-      /** The open issue carrying the block; `null` when unfiled or dry-run. */
+      /** The open issue carrying the block; `null` when unfiled or a session. */
       issue: Schema.NullOr(Schema.Number),
       title: Schema.String,
       blockingSha: Schema.String,
@@ -244,7 +265,7 @@ export const ForkSyncReport = Schema.Struct({
   /** The one failure issue a non-blocked failed run files; `null` otherwise. */
   failure: Schema.NullOr(
     Schema.Struct({
-      /** The open issue carrying the failure; `null` when unfiled or dry-run. */
+      /** The open issue carrying the failure; `null` when unfiled or a session. */
       issue: Schema.NullOr(Schema.Number),
       title: Schema.String,
       /** The failing step; names the issue and keys its marker. */
@@ -255,6 +276,8 @@ export const ForkSyncReport = Schema.Struct({
       publishedVia: Schema.NullOr(Schema.Literal("gh")),
     }),
   ),
+  /** The marker this run wrote, or the one a land run read; `null` when neither. */
+  marker: Schema.NullOr(MarkerReport),
   push: Schema.Struct({ pushed: Schema.Boolean, detail: Schema.String }),
   error: Schema.NullOr(Schema.String),
 });
@@ -336,6 +359,10 @@ export const resolveTarget = (
 };
 
 /**
+ * `core.commentChar=;`: fork messages open lines with `#1592`, which `#` would
+ * strip, and `auto` leaves git's `#` fold template in the message when a
+ * conflicting fixup continues with `GIT_EDITOR=true`. No fork line opens with `;`.
+ *
  * `maintenance.auto=false`: every `git commit` the sequencer runs would
  * otherwise detach a `git maintenance run --auto` whose `rerere gc` holds
  * MERGE_RR.lock while the next pick conflicts, and the rebase dies on that lock
@@ -343,7 +370,7 @@ export const resolveTarget = (
  */
 const REBASE_CONFIG = [
   "-c",
-  "core.commentChar=auto",
+  "core.commentChar=;",
   "-c",
   "diff.algorithm=histogram",
   "-c",
@@ -356,22 +383,20 @@ export const worktreePath = (root: string): string => NodePath.join(root, SYNC_D
 
 /**
  * What the kept sync worktree was built for and what it carries between runs.
- * A rerun adopts it only when tag, target, and lease match exactly.
+ * A rerun adopts it while tag and target match and its lease is still in the
+ * trunk; a trunk that moved since is carried, never rebased again.
  */
 const WorktreeState = Schema.Struct({
   tag: Schema.String,
   targetSha: Schema.String,
+  /** The trunk sha whose fork stack the worktree replays; the carry advances it. */
   lease: Schema.String,
   /** Every stop's rows so far, so the run that finishes the rebase reports them all. */
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
-  /** Where the rebase finished; commits above it are tip work a recreated worktree carries. */
+  /** Where the rebase finished; commits above it are tip work. */
   rebased: Schema.optionalKey(Schema.String),
-  /** The rerere ids to export: every stop's, plus every imported one, since a replay records none. */
-  rerere: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** The paths a resolver retired, plus every imported one: rerere records no delete/modify stop. */
-  retired: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** The `sync/resolution` commit this worktree imported; a moved branch refuses adoption. */
-  resolution: Schema.optionalKey(Schema.String),
+  /** A carry in flight: the trunk sha it moves the lease to, and HEAD before it picked. */
+  carry: Schema.optionalKey(Schema.Struct({ trunk: Schema.String, from: Schema.String })),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -382,7 +407,6 @@ const worktreeStatePath = (root: string): string =>
 const writeWorktreeState = (root: string, state: WorktreeState): void =>
   NodeFS.writeFileSync(worktreeStatePath(root), `${JSON.stringify(state, null, 2)}\n`);
 
-/** The kept worktree's state when it was built for `expected`'s tag, target, and lease. */
 const readWorktreeState = (root: string): WorktreeState | null => {
   try {
     return decodeWorktreeState(JSON.parse(NodeFS.readFileSync(worktreeStatePath(root), "utf8")));
@@ -391,16 +415,21 @@ const readWorktreeState = (root: string): WorktreeState | null => {
   }
 };
 
+const isAncestor = (runner: CommandRunner, root: string, ancestor: string, of: string): boolean =>
+  gitResult(runner, root, ["merge-base", "--is-ancestor", ancestor, of]).status === 0;
+
+/** The kept worktree's state when it was built for `target` and its lease is still in `trunk`. */
 const keptWorktreeState = (
   runner: CommandRunner,
   root: string,
-  expected: WorktreeState,
+  target: ReleaseTag,
+  trunk: string,
 ): WorktreeState | null => {
   const state = readWorktreeState(root);
   if (state === null) return null;
-  return state.tag === expected.tag &&
-    state.targetSha === expected.targetSha &&
-    state.lease === expected.lease &&
+  return state.tag === target.tag &&
+    state.targetSha === target.sha &&
+    isAncestor(runner, root, state.lease, trunk) &&
     gitResult(runner, worktreePath(root), ["rev-parse", "--verify", "HEAD"]).status === 0
     ? state
     : null;
@@ -447,53 +476,6 @@ const runWorktreeSetup = (runner: CommandRunner, root: string, worktree: string)
   });
 };
 
-/**
- * Tip commits a dropped worktree held, oldest first, waiting to apply to the
- * new rebase. Refs keep them reachable and recorded through a failed setup, a
- * conflicting pick, or a killed run; they go only once the carry lands.
- */
-const CARRY_REFS = "refs/fork-sync/carry/";
-
-const carriedCommits = (runner: CommandRunner, root: string): ReadonlyArray<string> =>
-  lines(
-    git(runner, root, ["for-each-ref", "--sort=refname", "--format=%(objectname)", CARRY_REFS]),
-  );
-
-/** Replace the carry in one ref transaction, so no crash leaves part of it. */
-const writeCarry = (runner: CommandRunner, root: string, commits: ReadonlyArray<string>): void => {
-  const refs = commits.map((_, index) => `${CARRY_REFS}${String(index).padStart(4, "0")}`);
-  const stale = lines(
-    git(runner, root, ["for-each-ref", "--format=%(refname)", CARRY_REFS]),
-  ).filter((ref) => !refs.includes(ref));
-  const input = [
-    ...stale.map((ref) => `delete ${ref}\n`),
-    ...refs.map((ref, index) => `update ${ref} ${commits[index]}\n`),
-  ].join("");
-  if (input !== "") runRequire(runner, "git", ["update-ref", "--stdin"], { cwd: root, input });
-};
-
-/**
- * Before a moved lease or a new tag drops the worktree to rebase from scratch,
- * the tip commits above its finished rebase (the fixups a red candidate
- * needed) become the carry. They already hold any earlier carry that landed;
- * one still picking, or not yet started, stays as it is.
- */
-const saveTipCommits = (runner: CommandRunner, root: string): void => {
-  const state = readWorktreeState(root);
-  const worktree = worktreePath(root);
-  // The ancestry check runs first: it also fails, without throwing, on a
-  // worktree an earlier removal already took.
-  if (
-    state?.rebased === undefined ||
-    gitResult(runner, worktree, ["merge-base", "--is-ancestor", state.rebased, "HEAD"]).status !==
-      0 ||
-    pickInProgress(runner, worktree)
-  )
-    return;
-  const tip = lines(git(runner, worktree, ["rev-list", "--reverse", `${state.rebased}..HEAD`]));
-  if (tip.length > 0) writeCarry(runner, root, tip);
-};
-
 const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
   gitResult(runner, worktree, ["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).status === 0 ||
   NodeFS.existsSync(
@@ -501,77 +483,70 @@ const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
   );
 
 /**
- * Apply the carry above the finished rebase. A stopped pick stays for the
- * operator to resolve and `git add`; the rerun continues it. A HEAD already
- * above the rebase with no pick running means the carry landed by hand.
+ * Cherry-pick the trunk commits since the lease onto the finished tip, so a
+ * trunk that moved during a long session never restarts the rebase. `carry`
+ * records the pick before it starts: a stopped pick stays for the operator to
+ * resolve and `git add`, and the rerun continues it; a HEAD that never moved
+ * picks again, and one moved by hand counts as landed. A commit the tip already
+ * holds, or one resolved to no change, stays as an empty commit so its pull
+ * request link survives.
  */
-const applyCarry = (
+export const carryTrunk = (
   runner: CommandRunner,
   root: string,
-  worktree: string,
-  rebased: string,
-): void => {
-  const carry = carriedCommits(runner, root);
-  if (carry.length === 0) return;
+  state: WorktreeState,
+  trunk: string,
+): WorktreeState => {
+  const worktree = worktreePath(root);
   const env = { ...process.env, GIT_EDITOR: "true" };
-  let args: ReadonlyArray<string> | null = null;
-  if (pickInProgress(runner, worktree)) args = ["cherry-pick", "--continue"];
-  else if (git(runner, worktree, ["rev-parse", "HEAD"]) === rebased) {
-    process.stdout.write(`sync: carrying ${carry.length} tip commit(s) onto the new rebase\n`);
-    args = ["cherry-pick", ...carry];
-  }
-  if (args !== null) {
+  const pick = (args: ReadonlyArray<string>): void => {
     const picked = runner.run("git", [...REBASE_CONFIG, ...args], { cwd: worktree, env });
     if (picked.status !== 0 || picked.error !== undefined)
       throw new Error(
-        `a tip commit carried from the dropped sync worktree stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
+        `a trunk commit carried onto the rebased tip stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
       );
+  };
+  const head = (): string => git(runner, worktree, ["rev-parse", "HEAD"]);
+  let current = state;
+  if (current.carry !== undefined) {
+    const { carry, ...rest } = current;
+    let landed = true;
+    if (pickInProgress(runner, worktree)) {
+      const stopped =
+        gitResult(runner, worktree, ["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).status ===
+        0;
+      const staged = gitResult(runner, worktree, ["diff", "--cached", "--quiet"]).status !== 0;
+      const unmerged = git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]) !== "";
+      if (stopped && !staged && !unmerged)
+        pick(["commit", "--quiet", "--allow-empty", "--no-edit", "-C", "CHERRY_PICK_HEAD"]);
+      if (pickInProgress(runner, worktree)) pick(["cherry-pick", "--continue"]);
+    } else landed = head() !== carry.from;
+    current = landed ? { ...rest, lease: carry.trunk } : rest;
+    writeWorktreeState(root, current);
   }
-  writeCarry(runner, root, []);
+  if (current.lease === trunk) return current;
+  const commits = lines(
+    git(runner, root, ["rev-list", "--reverse", "--no-merges", `${current.lease}..${trunk}`]),
+  );
+  current = { ...current, carry: { trunk, from: head() } };
+  writeWorktreeState(root, current);
+  if (commits.length > 0) {
+    process.stdout.write(`sync: carrying ${commits.length} trunk commit(s) onto the rebased tip\n`);
+    pick(["cherry-pick", "--keep-redundant-commits", ...commits]);
+  }
+  const { carry: _carried, ...rest } = current;
+  current = { ...rest, lease: trunk };
+  writeWorktreeState(root, current);
+  return current;
 };
 
 /**
- * Drop the sync worktree and its state; the carry refs outlive it. The state
- * goes first, so a killed removal never leaves state naming a missing worktree.
+ * Drop the sync worktree and its state. The state goes first, so a killed
+ * removal never leaves state naming a missing worktree.
  */
 const dropWorktree = (runner: CommandRunner, root: string): void => {
   NodeFS.rmSync(worktreeStatePath(root), { force: true });
   gitAllow(runner, root, ["worktree", "remove", "--force", worktreePath(root)]);
-};
-
-/**
- * Apply the imported fixups above a rebase this run finished, as `applyCarry`
- * does the carry: a stopped `git am` stays for the operator to resolve and
- * `git add`; the rerun continues it. A worktree finished earlier already holds
- * them: adoption pins the import it was built with.
- */
-const applyFixups = (
-  runner: CommandRunner,
-  worktree: string,
-  rebased: string,
-  finished: boolean,
-  mbox: string | null,
-): void => {
-  const env = { ...process.env, GIT_EDITOR: "true" };
-  let spec: CommandSpec;
-  let args: ReadonlyArray<string>;
-  if (NodeFS.existsSync(gitPath(runner, worktree, "rebase-apply"))) {
-    args = ["am", "--continue"];
-    spec = { cwd: worktree, env };
-  } else if (mbox === null) {
-    return;
-  } else if (!finished || git(runner, worktree, ["rev-parse", "HEAD"]) !== rebased) {
-    return;
-  } else {
-    process.stdout.write(`sync: applying the fixups from origin/${SYNC_RESOLUTION_BRANCH}\n`);
-    args = ["am", "--3way"];
-    spec = { cwd: worktree, env, input: mbox };
-  }
-  const applied = runner.run("git", [...REBASE_CONFIG, ...args], spec);
-  if (applied.status !== 0 || applied.error !== undefined)
-    throw new Error(
-      `a fixup from origin/${SYNC_RESOLUTION_BRANCH} stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
-    );
 };
 
 /**
@@ -937,97 +912,98 @@ export const refuseDroppedLinks = (
 };
 
 /**
- * Rebase `oldSha` onto `target` in a detached worktree. A fork landing that
- * amends a fork commit is titled `fixup! <subject>`, with ` (#N)` appended
- * when squash-landed; the rebase runs interactive with `--autosquash` and a
- * sequence editor that places each resolved fixup under its owner, so the
- * fixup folds into the commit it names and the series never carries
- * fix-of-fix (RSI-Software/t3code-hyprws#1179, RSI-Software/t3code-hyprws#1508). A squash-landed fixup keeps its PR
- * link: the editor appends an `exec` that amends the folded owner with the
- * `Squashes:` rendering fork:fold writes (RSI-Software/t3code-hyprws#1591, RSI-Software/t3code-hyprws#1592), and the link
- * guard refuses the rebased tip when it dropped a link. Hook re-apply
- * re-inserts the marked fork hooks a conflicted file declares. A delete/modify
- * whose deletion is on the upstream side and whose fork edit nets to zero
- * against the base the fork stack sits on accepts the deletion outright. A
- * path in `REGENERATION_ROUTES` regenerates once every other path in the stop
- * has resolved (RSI-Software/t3code-hyprws#1488). Any path left standing after
- * those stops the run; its rows name the fork commit, the upstream commit, and
- * the worktree the rebase resumes in.
+ * Rebase the fork stack above `target` (the commits `lease` carries) in the
+ * sync worktree. A fork landing that amends a fork commit is titled
+ * `fixup! <subject>`, with ` (#N)` appended when squash-landed; the rebase runs
+ * interactive with `--autosquash` and a sequence editor that places each
+ * resolved fixup under its owner, so the fixup folds into the commit it names
+ * and the series never carries fix-of-fix (RSI-Software/t3code-hyprws#1179,
+ * RSI-Software/t3code-hyprws#1508). A squash-landed fixup keeps its PR link:
+ * the editor appends an `exec` that amends the folded owner with the
+ * `Squashes:` rendering fork:fold writes (RSI-Software/t3code-hyprws#1591,
+ * RSI-Software/t3code-hyprws#1592), and the link guard refuses the rebased tip
+ * when it dropped a link. Hook re-apply re-inserts the marked fork hooks a
+ * conflicted file declares. A delete/modify whose deletion is on the upstream
+ * side and whose fork edit nets to zero against the base the fork stack sits
+ * on accepts the deletion outright. A path in `REGENERATION_ROUTES`
+ * regenerates once every other path in the stop has resolved
+ * (RSI-Software/t3code-hyprws#1488). Any path left standing after those stops
+ * the run; its rows name the fork commit, the upstream commit, and the
+ * worktree the rebase resumes in.
  *
- * A kept worktree built for the same tag, target, and lease is adopted
- * instead: a rebase in progress re-enters the stop loop, so unresolved paths
- * block again and resolved ones continue; a finished HEAD is taken as the
- * rebased tip as long as it contains the target.
+ * `start` picks how the replay begins: `fresh` rebases the worktree's trunk
+ * checkout; `adopted` re-enters a rebase in progress, so unresolved paths
+ * block again and resolved ones continue, or takes a finished HEAD; a saved
+ * todo resumes a partial marker's rebase on its tip.
  *
- * A delete/modify a resolver settled by keeping upstream's deletion leaves
- * the path out of the index, where rerere never looks: each stop records such
- * paths in `retired`, and a later replay accepts the same deletion again.
- *
- * `conflicts` collects this run's rows, `rerere` each stop's rerere ids, and
- * `retired` each stop's retired paths as they happen; `rebaseOnto` owns all three.
+ * `conflicts` collects this run's rows as they happen; `rebaseOnto` owns it.
  */
 const replayOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
-  oldSha: string,
-  adopted: boolean,
+  lease: string,
+  start: ReplayStart,
   conflicts: ConflictRow[],
-  rerere: string[],
-  retired: string[],
 ): RebaseOutcome => {
   const worktree = worktreePath(root);
-  // The fork stack above `target` sits on this upstream commit — for a normal
+  // The fork stack above `target` sits on this upstream commit, for a normal
   // run the previous release tag. Net-zero compares the fork trunk to it from
   // real refs, once per run, never from the worktree.
-  const baseSha = git(runner, root, ["merge-base", target.sha, oldSha]);
-  const stack = readStack(systemFoldGit(root), target.sha, oldSha);
+  const baseSha = git(runner, root, ["merge-base", target.sha, lease]);
+  const stack = readStack(systemFoldGit(root), target.sha, lease);
   const fixups = resolveFixups(stack.commits);
   if (fixups.refusals.length > 0) throw new Error(fixups.refusals.join("; "));
   // Each owner absorbing a squash-landed fixup amends its folded message after
   // the rebase writes it, so the fixup's PR link survives as a `Squashes:`
-  // member line. The message files live in the worktree's git dir: an exec
-  // line a rerun's kept todo still holds must find its file.
-  const foldDir = git(runner, worktree, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-path",
-    "fork-sync-folds",
-  ]);
-  NodeFS.mkdirSync(foldDir, { recursive: true });
-  const foldFiles = [...foldSyncMessages(stack.commits, fixups.owners)].map(([owner, message]) => {
-    const path = NodePath.join(foldDir, `${owner}.msg`);
+  // member line. The exec line names the file by git path, so the same stack
+  // writes the same files for a todo resumed in another checkout.
+  const folds = [...foldSyncMessages(stack.commits, fixups.owners)].map(([owner, message]) => {
+    const path = gitPath(runner, worktree, foldMessagePath(owner));
+    NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
     NodeFS.writeFileSync(path, message);
-    return [owner, path] as const;
+    return owner;
   });
   const editorEnv = {
     ...process.env,
     GIT_EDITOR: "true",
     GIT_SEQUENCE_EDITOR: sequenceEditor(),
     [FIXUP_OWNERS_ENV]: JSON.stringify(fixups.owners),
-    [FOLD_MESSAGES_ENV]: JSON.stringify(foldFiles),
+    [FOLD_MESSAGES_ENV]: JSON.stringify(folds),
   };
-  const rebaseArgs = ["rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha];
   const forkCommitCount = Number(
-    git(runner, root, ["rev-list", "--count", `${target.sha}..${oldSha}`]),
+    git(runner, root, ["rev-list", "--count", `${target.sha}..${lease}`]),
   );
-  const rebaseInProgress = (): boolean =>
-    NodeFS.existsSync(
-      git(runner, worktree, ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"]),
-    );
-  if (adopted && !rebaseInProgress()) {
+  if (start === "adopted" && !rebaseInProgress(runner, worktree)) {
     const head = git(runner, worktree, ["rev-parse", "HEAD"]);
-    if (gitResult(runner, root, ["merge-base", "--is-ancestor", target.sha, head]).status !== 0)
+    if (!isAncestor(runner, root, target.sha, head))
       throw new Error(
-        `the kept sync worktree at ${worktree} holds ${head.slice(0, 7)}, which does not contain ${target.tag}; reset it to a rebased tip and rerun`,
+        `the kept sync worktree at ${worktree} holds ${head.slice(0, 7)}, which does not contain ${target.tag}; delete ${worktreeStatePath(root)} and rerun`,
       );
-    refuseDroppedLinks(root, target, oldSha, head);
     return { status: "applied", newSha: head, conflicts: [] };
   }
-  // An adopted rebase in progress enters the stop loop as if it had just stopped.
-  let status: CommandResult = adopted
-    ? { status: 1, stdout: "", stderr: "" }
-    : runner.run("git", [...REBASE_CONFIG, ...rebaseArgs], { cwd: worktree, env: editorEnv });
+  let status: CommandResult;
+  if (start === "adopted") {
+    // A rebase in progress enters the stop loop as if it had just stopped.
+    status = { status: 1, stdout: "", stderr: "" };
+  } else if (start === "fresh") {
+    status = runner.run(
+      "git",
+      [...REBASE_CONFIG, "rebase", "-i", "--autosquash", "--rerere-autoupdate", target.sha],
+      { cwd: worktree, env: editorEnv },
+    );
+  } else {
+    // An empty `--onto HEAD HEAD` rebase whose todo the editor replaces with
+    // the saved one. The leading `exec true` lets a saved todo open on a
+    // `fixup`, which git refuses as a todo's first command.
+    const todoFile = gitPath(runner, worktree, "fork-sync-resume.todo");
+    NodeFS.writeFileSync(todoFile, ["exec true", ...start.resume, ""].join("\n"));
+    status = runner.run(
+      "git",
+      [...REBASE_CONFIG, "rebase", "-i", "--rerere-autoupdate", "--onto", "HEAD", "HEAD"],
+      { cwd: worktree, env: { ...editorEnv, GIT_SEQUENCE_EDITOR: `cp ${shellQuote(todoFile)}` } },
+    );
+  }
   let stops = 0;
   while (status.status !== 0) {
     stops += 1;
@@ -1037,27 +1013,6 @@ const replayOnto = (
       throw new Error(
         `git rebase failed without a stop: ${status.stderr.trim() || status.stdout.trim() || "no output"}`,
       );
-    rerere.push(...stopRerereIds(runner, worktree));
-    const modified = lines(
-      git(runner, worktree, [
-        "diff-tree",
-        "--no-commit-id",
-        "--name-only",
-        "-r",
-        "--diff-filter=MT",
-        "REBASE_HEAD",
-      ]),
-    );
-    if (modified.length > 0) {
-      const tracked = new Set(lines(git(runner, worktree, ["ls-files", "--", ...modified])));
-      retired.push(
-        ...modified.filter(
-          (path) =>
-            !tracked.has(path) &&
-            gitResult(runner, root, ["cat-file", "-e", `${target.sha}:${path}`]).status !== 0,
-        ),
-      );
-    }
     const forkCommit = git(runner, worktree, ["rev-parse", "REBASE_HEAD"]);
     const forkSubject = git(runner, worktree, ["log", "-1", "--format=%s", "REBASE_HEAD"]);
     const unmerged = lines(git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]));
@@ -1073,17 +1028,16 @@ const replayOnto = (
       }
       // Delete/modify with the deletion on the upstream (rebase base) side:
       // when the fork trunk's final blob for the path equals the base blob,
-      // the fork edit is net-zero and the deletion is accepted outright, as
-      // it is for a path a resolver already retired. Any other delete/modify
-      // shape falls through to hook re-apply, which refuses it, and then to
-      // a manual row.
+      // the fork edit is net-zero and the deletion is accepted outright. Any
+      // other delete/modify shape falls through to hook re-apply, which
+      // refuses it, and then to a manual row.
       const upstreamDeleted =
         stageContent(runner, worktree, 2, path) === null &&
         stageContent(runner, worktree, 3, path) !== null;
       const netZero =
         upstreamDeleted &&
-        gitResult(runner, root, ["diff", "--quiet", baseSha, oldSha, "--", path]).status === 0;
-      if (netZero || (upstreamDeleted && retired.includes(path))) {
+        gitResult(runner, root, ["diff", "--quiet", baseSha, lease, "--", path]).status === 0;
+      if (netZero) {
         git(runner, worktree, ["rm", "--quiet", "--", path]);
         conflicts.push({
           path,
@@ -1091,9 +1045,9 @@ const replayOnto = (
           forkSubject,
           upstreamCommit: touch.sha,
           upstreamSubject: touch.subject,
-          via: netZero ? "net-zero-delete" : "retired",
+          via: "net-zero-delete",
           hooksReapplied: [],
-          reason: netZero ? NET_ZERO_REASON : RETIRED_REASON,
+          reason: NET_ZERO_REASON,
         });
         continue;
       }
@@ -1157,100 +1111,105 @@ const replayOnto = (
       env: editorEnv,
     });
   }
-  const newSha = git(runner, worktree, ["rev-parse", "HEAD"]);
-  refuseDroppedLinks(root, target, oldSha, newSha);
-  return {
-    status: "applied",
-    newSha,
-    conflicts,
-  };
+  return { status: "applied", newSha: git(runner, worktree, ["rev-parse", "HEAD"]), conflicts };
 };
+
+type ReplayStart = "fresh" | "adopted" | { readonly resume: ReadonlyArray<string> };
+
+const rebaseInProgress = (runner: CommandRunner, worktree: string): boolean =>
+  NodeFS.existsSync(gitPath(runner, worktree, "rebase-merge"));
 
 /** A sync rebase as the run sees it: this run's replay plus what the kept worktree carries. */
 export type SyncRebase = RebaseOutcome & {
   /** Every stop's rows, earlier runs on the same kept worktree included, in stop order. */
   readonly recorded: ReadonlyArray<ConflictRow>;
+  /** The partial marker a blocked rebase wrote; `null` once the rebase finished. */
+  readonly marker: Marker | null;
 };
 
 /**
- * Rebase `oldSha` onto `target` in the kept sync worktree (see `replayOnto`).
- * A new worktree runs the repo's setup step before the rebase starts, so a
- * stop has dependencies. Each stop's rows persist beside the worktree as they
- * are recorded, so the run that finishes the rebase still reports them.
- * `imported` (from `sync/resolution`) joins the exported rerere ids and
- * retired paths, and its
- * fixups apply above a rebase this run finishes; every outcome exports the
- * resolution data for the next run.
+ * Rebase onto `target` in the sync worktree (see `replayOnto`), starting from
+ * the kept worktree, else from `marker`, else fresh from `trunk`. A new
+ * worktree runs the repo's setup step before the rebase starts, so a stop has
+ * dependencies. Each stop's rows persist beside the worktree as they are
+ * recorded, so the run that finishes the rebase still reports them. A blocked
+ * rebase writes the partial marker another checkout resumes from.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
   root: string,
   target: ReleaseTag,
-  oldSha: string,
-  imported: ImportedResolution | null = null,
+  trunk: string,
+  marker: Marker | null,
 ): SyncRebase => {
   const worktree = worktreePath(root);
-  const expected: WorktreeState = { tag: target.tag, targetSha: target.sha, lease: oldSha };
-  let state = keptWorktreeState(runner, root, expected);
-  const adopted = state !== null;
-  // A kept worktree imported one resolution; another one (but this checkout's
-  // own export) would meet stops and tip work it never saw.
-  if (
-    state !== null &&
-    imported !== null &&
-    imported.commit !== state.resolution &&
-    imported.commit !==
-      gitResult(runner, root, ["rev-parse", "--verify", "--quiet", RESOLUTION_REF]).stdout.trim()
-  )
-    throw new Error(
-      `origin/${SYNC_RESOLUTION_BRANCH} moved to ${imported.commit.slice(0, 7)} since the kept sync worktree imported it; drop ${worktreeStatePath(root)} and rerun to start fresh`,
-    );
+  let state = keptWorktreeState(runner, root, target, trunk);
+  let start: ReplayStart = "adopted";
   if (state === null) {
-    saveTipCommits(runner, root);
     dropWorktree(runner, root);
     git(runner, root, ["worktree", "prune"]);
-    git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, oldSha]);
+    git(runner, root, ["worktree", "add", "--quiet", "--detach", worktree, marker?.tip ?? trunk]);
     runWorktreeSetup(runner, root, worktree);
-    state = expected;
+    if (marker !== null)
+      process.stdout.write(
+        `sync: starting from marker ${marker.commit.slice(0, 7)} on ${marker.tip.slice(0, 7)}${marker.todo === null ? "" : `, ${todoCommits(marker.todo).length} fork commit(s) left`}\n`,
+      );
+    state = {
+      tag: target.tag,
+      targetSha: target.sha,
+      lease: marker?.lease ?? trunk,
+      ...(marker !== null && marker.todo === null ? { rebased: marker.tip } : {}),
+    };
+    start = marker === null ? "fresh" : marker.todo === null ? "adopted" : { resume: marker.todo };
+  } else if (state.rebased === undefined && !rebaseInProgress(runner, worktree)) {
+    // Its rebase never started, or finished outside a run: HEAD proves neither.
+    throw new Error(
+      `the kept sync worktree at ${worktree} holds no rebase this run can trust; delete ${worktreeStatePath(root)} and rerun`,
+    );
   }
-  state = imported === null ? state : { ...state, resolution: imported.commit };
   writeWorktreeState(root, state);
   const carried = state.conflicts ?? [];
   const conflicts: ConflictRow[] = [];
-  const rerere: string[] = [...(imported?.rerere ?? [])];
-  const retired: string[] = [...(state.retired ?? []), ...(imported?.retired ?? [])];
   let outcome: RebaseOutcome;
   try {
-    outcome = replayOnto(runner, root, target, oldSha, adopted, conflicts, rerere, retired);
+    outcome = replayOnto(runner, root, target, state.lease, start, conflicts);
   } finally {
-    state = {
-      ...state,
-      conflicts: mergeStops(carried, conflicts),
-      rerere: [...new Set([...(state.rerere ?? []), ...rerere])],
-      retired: [...new Set(retired)],
-    };
+    state = { ...state, conflicts: mergeStops(carried, conflicts) };
     writeWorktreeState(root, state);
   }
   const recorded = mergeStops(carried, outcome.conflicts);
   if (outcome.status === "blocked") {
-    exportResolution(runner, root, worktree, state);
-    return { ...outcome, recorded };
+    const read = (name: string): string =>
+      NodeFS.readFileSync(gitPath(runner, worktree, `rebase-merge/${name}`), "utf8");
+    const partial = writeMarker(runner, root, {
+      tip: git(runner, worktree, ["rev-parse", "HEAD"]),
+      tag: target.tag,
+      lease: state.lease,
+      todo: remainingTodo(runner, worktree, read("done"), read("git-rebase-todo")),
+    });
+    return { ...outcome, recorded, marker: partial };
   }
-  // Only the run that finishes the rebase records it: an adopted finished
-  // worktree's HEAD already holds tip work above it.
-  const finished = state.rebased === undefined;
-  // Before `rebased` persists, so every rerun refuses again until one is dropped.
-  if (finished && imported?.fixups != null && carriedCommits(runner, root).length > 0)
-    throw new Error(
-      `tip commits carried from the dropped sync worktree meet fixups from origin/${SYNC_RESOLUTION_BRANCH}; delete the ${CARRY_REFS} refs or the branch, then rerun`,
-    );
-  const rebased = state.rebased ?? outcome.newSha;
-  state = { ...state, rebased };
-  writeWorktreeState(root, state);
-  applyCarry(runner, root, worktree, rebased);
-  applyFixups(runner, worktree, rebased, finished, imported?.fixups ?? null);
-  exportResolution(runner, root, worktree, state);
-  return { ...outcome, newSha: git(runner, worktree, ["rev-parse", "HEAD"]), recorded };
+  if (state.rebased === undefined) writeWorktreeState(root, { ...state, rebased: outcome.newSha });
+  return { ...outcome, recorded, marker: null };
+};
+
+/**
+ * Close a finished rebase: carry the trunk commits since the lease, refuse a
+ * tip that dropped a pull request link, and write the finished marker. A
+ * carried commit that conflicts throws with the worktree left mid-pick.
+ */
+export const finishRebase = (
+  runner: CommandRunner,
+  root: string,
+  target: ReleaseTag,
+  trunk: string,
+): Marker => {
+  const state = readWorktreeState(root);
+  if (state === null) throw new Error(`no sync worktree state at ${worktreeStatePath(root)}`);
+  const { lease } = carryTrunk(runner, root, state, trunk);
+  const tip = git(runner, worktreePath(root), ["rev-parse", "HEAD"]);
+  refuseDroppedLinks(root, target, lease, tip);
+  return writeMarker(runner, root, { tip, tag: target.tag, lease, todo: null });
 };
 
 const VERIFICATION_ENV_KEYS = new Set([
@@ -1380,8 +1339,8 @@ const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): Readonly
     .map(({ name, conclusion, url }) => ({ name, conclusion, url }));
 
 /**
- * hyprws CI's verdict on `sha`. A sha with a run already — a dry run's proven
- * tip, or a red run rerun by hand — reuses it. Any other sha runs the local
+ * hyprws CI's verdict on `sha`. A sha with a run already, such as a red run
+ * rerun by hand, reuses it. Any other sha runs the local
  * `vp run fork:ci` in the sync worktree first, so a lint, ledger, fold, or
  * scan refusal costs minutes instead of a CI round, and is then force-pushed
  * to the candidate branch. The driver polls until the run completes or a job
@@ -1558,12 +1517,35 @@ export const attentionIssueBody = (report: ForkSyncReport, previous?: string): s
   const cell = (value: string): string =>
     `\`${value.replaceAll("\\", "\\\\").replaceAll("|", "\\|")}\``;
   const blocked = report.blocked!;
+  const partial = report.marker;
+  if (report.conflicts.length === 0 && partial !== null && !partial.finished)
+    return [
+      `Origin: hyprws sync run onto ${report.target.tag}; \`vp run fork:sync ${report.target.tag}\`.`,
+      "",
+      `A sync session handed off a partial rebase of \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\`: ${partial.remaining} fork commit${partial.remaining === 1 ? "" : "s"} left. A partial marker never lands.`,
+      "",
+      "## Resume",
+      "",
+      "The next run resumes from the marker on `sync/resolution`.",
+      "",
+      "```bash",
+      `vp run fork:sync ${report.target.tag}`,
+      "```",
+      "",
+      ...standingSection(previous, {
+        date: report.startedAt.slice(0, 10),
+        subject: report.target.tag,
+        detail: `partial ${partial.commit.slice(0, 7)} (${partial.remaining} left)`,
+      }),
+      "",
+      blockingShaMarker(blocked.blockingSha),
+    ].join("\n");
   // Earlier stops' rows lead the table; the subject is the blocking commit's.
   const blocking = report.conflicts.find((row) => row.upstreamCommit === blocked.blockingSha);
   return [
     `Origin: hyprws sync run onto ${report.target.tag}; \`vp run fork:sync ${report.target.tag}\`.`,
     "",
-    `A sync run rebased \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\` and stopped at a seam neither rerere nor hook re-apply resolves.`,
+    `A sync run rebased \`${HYPRWS_BRANCH}\` onto \`${report.target.tag}\` and stopped at a seam neither hook re-apply nor regeneration resolves.`,
     "",
     `Blocking upstream commit: ${cell(`${blocked.blockingSha} ${blocking?.upstreamSubject ?? ""}`)}`,
     "",
@@ -1788,7 +1770,9 @@ export const publishAttention = (
       runner,
       root,
       stop.title,
-      key === "blocked" || report.failure?.step === "ci" ? [AGENT_LABEL] : [],
+      key === "blocked" || report.failure?.step === "ci" || report.failure?.step === "carry"
+        ? [AGENT_LABEL]
+        : [],
       (previous) => attentionIssueBody(report, previous),
     );
     return {
@@ -1843,13 +1827,19 @@ export const renderReport = (report: ForkSyncReport): string => {
   const head = {
     applied: "✅ applied",
     "already-applied": "✅ already applied",
+    rebased: "🔀 rebased",
     blocked: "🛑 blocked",
     failed: "❌ failed",
   }[report.outcome];
   const rows = [
-    `Run: ${head}${report.dryRun ? " (dry run)" : ""} — ${report.target.tag}@${report.target.sha.slice(0, 7)}`,
+    `Run: ${head}${report.land ? " (land)" : ""} — ${report.target.tag}@${report.target.sha.slice(0, 7)}`,
     `Trunk: ${report.trunk.before.slice(0, 7)} → ${report.trunk.after === null ? "unchanged" : report.trunk.after.slice(0, 7)}`,
     `Lease: origin/${HYPRWS_BRANCH} at ${report.lease.expectedOld.slice(0, 7)}`,
+    ...(report.marker === null
+      ? []
+      : [
+          `Marker: ${report.marker.commit.slice(0, 7)} on ${report.marker.tip.slice(0, 7)}, ${report.marker.finished ? "finished" : `partial (${report.marker.remaining} left)`}`,
+        ]),
     `Report: ${SYNC_DIR}/${report.target.tag}.json`,
   ];
   const blocks =
@@ -1912,7 +1902,44 @@ export interface RunOptions {
   readonly now?: () => Date;
 }
 
-const USAGE = "usage: vp run fork:sync [<tag>] [--dry-run]";
+const USAGE = "usage: vp run fork:sync [<tag>] [--land]";
+
+/** The session's hand-off of the marker it wrote. */
+const HANDOFF = `git push --force origin ${RESOLUTION_REF}:refs/heads/${SYNC_RESOLUTION_BRANCH}`;
+
+/**
+ * The fetched marker when it can start this run: same tag, a lease still in
+ * the trunk, the lease's tree, a tip on the target, and a todo inside the
+ * lease's fork stack.
+ * Anything else is ignored with the reason, and the run rebases fresh.
+ */
+const usableMarker = (
+  runner: CommandRunner,
+  root: string,
+  marker: Marker | null,
+  target: ReleaseTag,
+  trunk: string,
+): Marker | null => {
+  if (marker === null) return null;
+  const stack = (): ReadonlySet<string> =>
+    new Set(lines(git(runner, root, ["rev-list", `${target.sha}..${marker.lease}`])));
+  const tree = (rev: string): string => git(runner, root, ["rev-parse", `${rev}^{tree}`]);
+  const why =
+    marker.tag !== target.tag
+      ? `it targets ${marker.tag}`
+      : !isAncestor(runner, root, marker.lease, trunk)
+        ? `its lease ${marker.lease.slice(0, 7)} is not in origin/${HYPRWS_BRANCH}`
+        : tree(marker.commit) !== tree(marker.lease)
+          ? "its tree is not its lease's, so its push ran workflow files the trunk never carried"
+          : !isAncestor(runner, root, target.sha, marker.tip)
+            ? `its tip ${marker.tip.slice(0, 7)} does not contain ${target.tag}`
+            : marker.todo !== null && todoCommits(marker.todo).some((sha) => !stack().has(sha))
+              ? "its todo names a commit outside its fork stack"
+              : null;
+  if (why === null) return marker;
+  process.stdout.write(`sync: ignoring marker ${marker.commit.slice(0, 7)}: ${why}\n`);
+  return null;
+};
 
 export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): number => {
   const runner = options.runner ?? realRunner;
@@ -1920,13 +1947,19 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   const startedAt = now();
   let parsed;
   try {
-    parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--dry-run"] });
+    parsed = parseArgs(argv, { positionals: { min: 0, max: 1 }, flags: ["--land"] });
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`);
     return 1;
   }
+  const land = parsed.flags.has("--land");
+  if (land && process.env.GITHUB_ACTIONS !== "true") {
+    process.stderr.write(
+      "fork:sync --land runs only in the hyprws upstream sync workflow; a session rebases and hands off the marker\n",
+    );
+    return 1;
+  }
   const root = mainCheckout(runner, options.root ?? process.cwd());
-  const dryRun = parsed.flags.has("--dry-run");
   const explicit = parsed.positionals[0] ?? null;
   // The failing step names the failure issue; it advances as the run does.
   let step = "fetch";
@@ -1937,24 +1970,40 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   const finish = (report: ForkSyncReport): number => {
     const path = writeReport(root, report);
     process.stdout.write(`${renderReport(report)}\n${path}\n`);
-    return report.error === null &&
-      (report.outcome === "applied" || report.outcome === "already-applied")
+    return report.error === null && report.outcome !== "blocked" && report.outcome !== "failed"
       ? 0
       : 1;
   };
 
   try {
-    // fetch — the tag list and the trunk lease both come from the remotes
+    // fetch — the tag list, the trunk lease, and the marker all come from the remotes
     git(runner, root, ["fetch", "--tags", "--force", "upstream"]);
     git(runner, root, ["fetch", "origin", HYPRWS_BRANCH]);
     const expectedOld = git(runner, root, ["rev-parse", `origin/${HYPRWS_BRANCH}`]);
+    const fetched = fetchMarker(runner, root);
     const mergeBase = (tip: string): string =>
       git(runner, root, ["merge-base", "upstream/main", tip]);
+
+    // target — the named tag, else a valid marker's when the trunk lacks it, else the newest
+    step = "target";
+    const candidates = releaseTags(runner, root);
+    const markerTarget =
+      explicit === null && fetched !== null
+        ? candidates.find(
+            ({ tag, sha }) => tag === fetched.tag && !isAncestor(runner, root, sha, expectedOld),
+          )
+        : undefined;
+    const target =
+      markerTarget !== undefined &&
+      usableMarker(runner, root, fetched, markerTarget, expectedOld) !== null
+        ? markerTarget
+        : resolveTarget(candidates, explicit);
+    resolved = target;
 
     const frame = (partial: Partial<ForkSyncReport>): ForkSyncReport => ({
       schema: REPORT_SCHEMA,
       outcome: "failed",
-      dryRun,
+      land,
       startedAt: startedAt.toISOString(),
       finishedAt: now().toISOString(),
       repository: FORK_REPOSITORY,
@@ -1968,54 +2017,56 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       decision: emptyDecision(),
       blocked: null,
       failure: null,
+      marker: null,
       push: { pushed: false, detail: "" },
       error: null,
       ...partial,
     });
 
-    // target — a tag the fork already sits on exits clean with `already applied`,
-    // after closing the stale sync issues a previous run left open
-    step = "target";
-    const target = resolveTarget(releaseTags(runner, root), explicit);
-    resolved = target;
-
     /**
-     * A failed run files one issue the way a blocked one does: the report
-     * persists first, the issue upserts beside it, and a dry run never files.
+     * Persist a red report; a land run then files it as the attention issue
+     * beside it. A session never writes an issue.
      */
-    const fail = (partial: Partial<ForkSyncReport>): number => {
-      const failure: ForkSyncReport["failure"] = {
-        issue: null,
-        title: syncIssueTitle("failed", step, target.tag),
-        step,
-        key: target.tag,
-        publishError: null,
-        publishedVia: null,
-      };
-      const failed = frame({ ...partial, failure });
-      writeReport(root, failed);
-      process.stdout.write(`${renderReport(failed)}\n`);
-      if (dryRun) return 1;
-      const published = publishAttention(runner, root, failed);
+    const publish = (report: ForkSyncReport): number => {
+      writeReport(root, report);
+      process.stdout.write(`${renderReport(report)}\n`);
+      if (!land) return 1;
+      const published = publishAttention(runner, root, report);
       const path = writeReport(root, published);
+      const stop = published.blocked ?? published.failure;
       process.stdout.write(
-        published.failure?.publishError !== null && published.failure?.publishError !== undefined
-          ? `failure publication failed: ${published.failure.publishError}\n${path}\n`
+        stop?.publishError !== null && stop?.publishError !== undefined
+          ? `attention publication failed: ${stop.publishError}\n${path}\n`
           : `${path}\n`,
       );
       return 1;
     };
 
+    const fail = (partial: Partial<ForkSyncReport>): number =>
+      publish(
+        frame({
+          ...partial,
+          failure: {
+            issue: null,
+            title: syncIssueTitle("failed", step, target.tag),
+            step,
+            key: target.tag,
+            publishError: null,
+            publishedVia: null,
+          },
+        }),
+      );
+
     /**
-     * The one close pass every clean outcome shares: the trunk resolved the
-     * stale sync issues — block and failure alike — so none can hold. This runs
-     * before the report writes, so a refused close lands in the typed report
-     * and the summary instead of dying as a hidden note on stderr.
+     * The one close pass every clean land outcome shares: the trunk resolved
+     * the stale sync issues, block and failure alike, so none can hold. This
+     * runs before the report writes, so a refused close lands in the typed
+     * report and the summary instead of dying as a hidden note on stderr.
      */
     const closeStaleBlocks = (
       resolvedSha: string,
     ): { readonly closed: ReadonlyArray<BlockClosure>; readonly error: string | null } => {
-      if (dryRun) return { closed: [], error: null };
+      if (!land) return { closed: [], error: null };
       let closed: ReadonlyArray<BlockClosure> = [];
       let failure: string | null = null;
       try {
@@ -2036,9 +2087,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       };
     };
 
-    if (
-      gitResult(runner, root, ["merge-base", "--is-ancestor", target.sha, expectedOld]).status === 0
-    ) {
+    if (isAncestor(runner, root, target.sha, expectedOld)) {
       const close = closeStaleBlocks(expectedOld);
       return finish(
         frame({
@@ -2049,155 +2098,165 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
         }),
       );
     }
+    const marker = usableMarker(runner, root, fetched, target, expectedOld);
+    const worktree = worktreePath(root);
+    const blockedStop = (blockingSha: string): ForkSyncReport["blocked"] => ({
+      issue: null,
+      title: syncIssueTitle("blocked", "rebase", target.tag),
+      blockingSha,
+      publishError: null,
+      publishedVia: null,
+    });
+
+    // A partial marker never lands: the attention issue names the work left.
+    if (land && marker !== null && marker.todo !== null) {
+      const remaining = todoCommits(marker.todo).length;
+      return publish(
+        frame({
+          outcome: "blocked",
+          marker: markerReport(marker),
+          decision: { worktree: "", paths: [], resume: `vp run fork:sync ${target.tag}` },
+          blocked: blockedStop(marker.tip),
+          error: `partial marker ${marker.commit.slice(0, 7)}: ${remaining} fork commit${remaining === 1 ? "" : "s"} left`,
+        }),
+      );
+    }
 
     // rebase
     step = "rebase";
-    const rebase = rebaseOnto(
-      runner,
-      root,
-      target,
-      expectedOld,
-      importResolution(runner, root, target.tag),
-    );
-
+    const rebase = rebaseOnto(runner, root, target, expectedOld, marker);
     if (rebase.status === "blocked") {
       // This run's rows: earlier stops' manual paths are already resolved.
       const manualPaths = rebase.conflicts
         .filter((row) => row.via === "manual")
         .map((row) => row.path);
       const blockingSha = blockingShaOf(rebase.conflicts) ?? target.sha;
-      const worktree = worktreePath(root);
-      // decisions persist before any comment posts
-      const blockedReport = frame({
-        outcome: "blocked",
+      return publish(
+        frame({
+          outcome: "blocked",
+          conflicts: [...rebase.recorded],
+          marker: rebase.marker === null ? null : markerReport(rebase.marker),
+          decision: {
+            worktree,
+            paths: manualPaths,
+            // The rerun continues the rebase itself, so every later stop still
+            // gets hook re-apply and regeneration before a human sees it.
+            resume: [
+              `git -C ${worktree} add -- ${manualPaths.map((path) => `"${path}"`).join(" ")}`,
+              `vp run fork:sync ${target.tag}`,
+              ...(land ? [] : [`# or hand off the partial: ${HANDOFF}`]),
+            ].join("\n"),
+          },
+          blocked: blockedStop(blockingSha),
+          error: `blocked by ${blockingSha.slice(0, 7)}: ${manualPaths.length} path${manualPaths.length === 1 ? "" : "s"} neither hook re-apply nor regeneration resolves`,
+        }),
+      );
+    }
+
+    // carry — the trunk commits since the lease, then the finished marker
+    step = "carry";
+    let finished: Marker;
+    try {
+      finished = finishRebase(runner, root, target, expectedOld);
+    } catch (error) {
+      return fail({
         conflicts: [...rebase.recorded],
         decision: {
           worktree,
-          paths: manualPaths,
-          // The rerun continues the rebase itself, so every later stop still
-          // gets rerere, hook re-apply, and regeneration before a human sees it.
+          paths: [],
           resume: [
-            `git -C ${worktree} add -- ${manualPaths.map((path) => `"${path}"`).join(" ")}`,
-            `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
+            `# resolve the pick in ${worktree}, git add it, then rerun:`,
+            `vp run fork:sync ${target.tag}`,
           ].join("\n"),
         },
-        blocked: {
-          issue: null,
-          title: syncIssueTitle("blocked", "rebase", target.tag),
-          blockingSha,
-          publishError: null,
-          publishedVia: null,
-        },
-        error: `blocked by ${blockingSha.slice(0, 7)}: ${manualPaths.length} path${manualPaths.length === 1 ? "" : "s"} neither rerere nor hook re-apply resolves`,
+        error: error instanceof Error ? error.message : String(error),
       });
-      writeReport(root, blockedReport);
-      process.stdout.write(`${renderReport(blockedReport)}\n`);
-      if (dryRun) {
-        process.stdout.write(`${attentionIssueBody(blockedReport)}\n`);
-        return 1;
-      }
-      const published = publishAttention(runner, root, blockedReport);
-      const path = writeReport(root, published);
-      process.stdout.write(
-        published.blocked?.publishError !== null && published.blocked?.publishError !== undefined
-          ? `block publication failed: ${published.blocked.publishError}\n${path}\n`
-          : `${path}\n`,
-      );
-      return 1;
     }
-    const newSha = rebase.newSha;
+    const newSha = finished.tip;
+
+    if (!land)
+      return finish(
+        frame({
+          outcome: "rebased",
+          trunk: { before: expectedOld, after: newSha },
+          conflicts: [...rebase.recorded],
+          marker: markerReport(finished),
+          decision: {
+            worktree,
+            tip: newSha,
+            paths: [],
+            resume: [
+              `# commit tip work in ${worktree} and rerun once; then hand off:`,
+              HANDOFF,
+            ].join("\n"),
+          },
+        }),
+      );
 
     // ci — hyprws CI on the candidate sha is the one gate before the trunk moves
     step = "ci";
     const ci = candidateCi(runner, root, newSha);
     if (ci.conclusion !== "success") {
-      // The worktree stays: it carries the red tip and any fix committed there.
-      const worktree = worktreePath(root);
       const red = redJobs(ci).map((job) => job.name);
       return fail({
         conflicts: [...rebase.recorded],
         ci,
+        marker: markerReport(finished),
         decision: {
-          worktree,
+          worktree: "",
           tip: newSha,
           paths: [],
           resume: [
-            `# fix the red job in ${worktree} and commit there; a flake reruns in place once the run completes:`,
+            "# a session adopts the finished marker; fix the red job at its tip, rerun, and hand off:",
             ...(ci.run === ""
               ? []
               : [
-                  `#   gh run rerun ${ci.run.split("/").at(-1)} --failed --repo ${FORK_REPOSITORY}`,
+                  `#   a flake: gh run rerun ${ci.run.split("/").at(-1)} --failed --repo ${FORK_REPOSITORY}`,
                 ]),
-            `vp run fork:sync ${target.tag}${dryRun ? " --dry-run" : ""}`,
+            `vp run fork:sync ${target.tag}`,
           ].join("\n"),
         },
         error: `hyprws CI ${ci.conclusion} on candidate ${newSha.slice(0, 7)}${red.length === 0 ? "" : `: ${red.join(", ")}`}${ci.run === "" ? "" : ` (${ci.run})`}`,
       });
     }
 
-    // push — the documented expected-old lease; a dry run reaches applied without it
+    // push — the documented expected-old lease
     step = "push";
-    if (dryRun) {
-      // The worktree stays: the real run on the same tag and lease adopts the
-      // proven tip instead of rebasing again, since rerere replays resolutions
-      // but not the tip fixups committed after them (RSI-Software/t3code-hyprws#1495).
-      const worktree = worktreePath(root);
-      return finish(
-        frame({
-          outcome: "applied",
-          trunk: { before: expectedOld, after: newSha },
-          conflicts: [...rebase.recorded],
-          ci,
-          decision: {
-            worktree,
-            tip: newSha,
-            paths: [],
-            resume: `vp run fork:sync ${target.tag}`,
-          },
-          push: { pushed: false, detail: "dry run" },
-        }),
-      );
-    }
     const pushed = gitResult(runner, root, [
       "push",
       "origin",
       `${newSha}:${HYPRWS_BRANCH}`,
       `--force-with-lease=${HYPRWS_BRANCH}:${expectedOld}`,
     ]);
-    if (pushed.status !== 0 || pushed.error !== undefined) {
-      // The worktree stays: a rerun on the same lease adopts the green tip, and
-      // a moved lease rebases again and carries the tip commits over.
-      const worktree = worktreePath(root);
+    if (pushed.status !== 0 || pushed.error !== undefined)
       return fail({
         conflicts: [...rebase.recorded],
         ci,
+        marker: markerReport(finished),
         decision: {
-          worktree,
+          worktree: "",
           tip: newSha,
           paths: [],
           resume: `vp run fork:sync ${target.tag}`,
         },
         error: `push refused: ${pushed.stderr.trim() || pushed.error?.message || "unknown"}`,
       });
-    }
     dropWorktree(runner, root);
     followTrunk(runner, root, expectedOld, newSha);
 
-    // a clean run closes the block issues it made stale, whether the rebase
-    // moved the trunk or the trunk already sat on the target
     const close = closeStaleBlocks(newSha);
-    const report = finish(
+    return finish(
       frame({
         outcome: "applied",
         trunk: { before: expectedOld, after: newSha },
         conflicts: [...rebase.recorded],
         ci,
+        marker: markerReport(finished),
         push: { pushed: true, detail: `${newSha.slice(0, 7)} → origin/${HYPRWS_BRANCH}` },
         closedBlocks: [...close.closed],
         ...(close.error === null ? {} : { error: close.error }),
       }),
     );
-    return report;
   } catch (error) {
     const message =
       error instanceof UsageError || error instanceof Error ? error.message : String(error);
@@ -2211,7 +2270,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       const report: ForkSyncReport = {
         schema: REPORT_SCHEMA,
         outcome: "failed",
-        dryRun,
+        land,
         startedAt: startedAt.toISOString(),
         finishedAt: now().toISOString(),
         repository: FORK_REPOSITORY,
@@ -2232,10 +2291,11 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
           publishError: null,
           publishedVia: null,
         },
+        marker: null,
         push: { pushed: false, detail: "" },
         error: message,
       };
-      if (dryRun) {
+      if (!land) {
         if (tag === "") return 1;
         return finish(report);
       }
