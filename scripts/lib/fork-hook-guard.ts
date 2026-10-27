@@ -39,11 +39,9 @@ export interface HookGuardInput {
   readonly files: ReadonlyArray<string>;
   readonly changedLines: ReadonlyMap<string, HookGuardChange>;
   readonly upstreamFiles: ReadonlySet<string>;
-  // The significant lines each touched upstream file carries in the target
-  // tree (RSI-Software/t3code-hyprws#1207). An added line the target already
-  // has is a revert, not a fork insertion, so it is dropped before the
-  // unmarked/code filtering. An absent entry refuses every addition, because
-  // an unread tree is not evidence the line was upstream's.
+  // The significant lines each touched upstream file carries in the target tree. An added line the
+  // target already has is a revert, not a fork insertion, so it drops before filtering. An absent
+  // entry refuses every addition: an unread tree is not evidence the line was upstream's.
   readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
   // Added lines from this commit's unique same-subject pre-replay counterpart,
   // keyed by path. Occurrences matching after trimming are historical
