@@ -5,13 +5,10 @@ import { git, gitResult, lines, runRequire, type CommandRunner } from "./fork-sy
 import { FOLD_AMEND_LINE } from "./fork-sync-todo.ts";
 
 /**
- * A session hands its rebased tip to the landing run as one marker commit on
- * `sync/resolution`: an empty-message carrier whose parent is the tip. Its
- * trailers name the target tag and the lease (the trunk sha whose stack the
- * tip replays); a partial marker's body is the rest of the rebase todo, so the
- * next session resumes where this one stopped. The marker's tree is the
- * lease's: a push runs the workflow files of the pushed commit, and those must
- * be the trunk's, never a resolver's.
+ * A session hands its rebased tip to the land run as one empty-message marker commit on
+ * `sync/resolution` whose parent is the tip. Trailers name the target tag and lease; a partial
+ * marker's body is the remaining rebase todo. The marker's tree is the lease's: a push runs the
+ * pushed commit's workflow files, and those must be the trunk's, never a resolver's.
  */
 export const RESOLUTION_REF = "refs/fork-sync/resolution";
 const RESOLUTION_REMOTE_REF = `refs/remotes/origin/${SYNC_RESOLUTION_BRANCH}`;

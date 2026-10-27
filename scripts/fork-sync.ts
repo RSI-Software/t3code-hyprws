@@ -1,45 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver bootstraps Git before any Effect runtime exists.
 
-// One driver, one procedure. `fork:sync [<tag>]` is a session: it rebases the
-// fork onto one upstream release tag and hands the tip on as a marker commit on
-// `sync/resolution` (scripts/lib/fork-sync-resolution.ts). `fork:sync --land`
-// runs only in the hyprws upstream sync workflow: it takes the marker's tip, or
-// rebases itself when there is none, proves the tip on candidate CI, and
-// lease-pushes the trunk. A human session and an rsi-pr-agent job follow the
-// same steps; a rerun of the same command is always the next move.
-//
-// The sync worktree is the carrier between runs of one session. A run records
-// its tag, target sha, lease, and every stop's conflict rows beside it; a rerun
-// on the same tag and target adopts it while its lease is still in the trunk,
-// continuing a resolved rebase or taking a finished HEAD with its tip work.
-// Without one, a valid marker starts the worktree at its tip, resuming a
-// partial marker's saved todo. A moved trunk never restarts the rebase: the
-// finished tip cherry-picks the commits the trunk gained since the lease.
-//
-// | Step    | Fails when                                          |
-// | ------- | --------------------------------------------------- |
-// | target  | the named target is not a release tag on upstream   |
-// | fetch   | the fetch errors                                    |
-// | rebase  | a conflict neither hook re-apply nor regeneration fixes |
-// | carry   | a trunk commit since the lease conflicts on the tip |
-// | ci      | hyprws CI is not green on the candidate tip         |
-// | push    | the expected-old lease is refused                   |
-// | blocked | `gh` refuses the write                              |
-//
-// Only a land run writes issues. A blocked or failed land run files one issue
-// keyed by the failing step and the target tag, refreshed by a rerun with the
-// same failure, closed by the next clean run.
-//
-// The typed report at `.t3/fork-sync/<tag>.json` is the only run authority; the
-// Markdown this prints is output, never read back. Publication goes through
-// plain `gh`, and nothing is ever posted to upstream.
-//
-// The trunk moves only to a sha hyprws CI already passed: the land run pushes
-// the tip to the candidate branch, waits for the CI run on that exact sha, and
-// lease-pushes the same sha. CI is the one check authority: the local
-// `vp run fork:ci` before a candidate push only refuses what CI would refuse
-// sooner, and a green preflight never stands in for the run.
+// `fork:sync [<tag>]` rebases the fork onto one upstream release tag in the kept sync worktree and
+// hands the tip on as a `sync/resolution` marker; rerunning the same command is always the next move.
+// `fork:sync --land` (sync workflow only) moves the trunk only to a sha hyprws CI passed, by lease
+// push, and files or closes one issue per failing step. `.t3/fork-sync/<tag>.json` is the authority.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -282,6 +247,7 @@ export const ForkSyncReport = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 });
 export interface ForkSyncReport extends Schema.Schema.Type<typeof ForkSyncReport> {}
+const decodeForkSyncReport = Schema.decodeSync(ForkSyncReport);
 
 const emptyDecision = (): DecisionRoute => ({ worktree: "", paths: [], resume: "" });
 
@@ -309,7 +275,7 @@ export const reportPath = (root: string, tag: string): string =>
 
 /** Prove the report against its schema, then persist it. Decisions hit disk before any post. */
 const writeReport = (root: string, report: ForkSyncReport): string => {
-  Schema.decodeUnknownSync(ForkSyncReport)(report);
+  decodeForkSyncReport(report);
   const path = reportPath(root, report.target.tag);
   NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
   NodeFS.writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
@@ -359,14 +325,10 @@ export const resolveTarget = (
 };
 
 /**
- * `core.commentChar=;`: fork messages open lines with `#1592`, which `#` would
- * strip, and `auto` leaves git's `#` fold template in the message when a
- * conflicting fixup continues with `GIT_EDITOR=true`. No fork line opens with `;`.
- *
- * `maintenance.auto=false`: every `git commit` the sequencer runs would
- * otherwise detach a `git maintenance run --auto` whose `rerere gc` holds
- * MERGE_RR.lock while the next pick conflicts, and the rebase dies on that lock
- * after clearing REBASE_HEAD but before recording the stop.
+ * `core.commentChar=;` (no fork line opens with `;`): fork lines open with `#1592`, which `#` strips,
+ * and `auto` leaves git's fold template in when a conflicting fixup continues with `GIT_EDITOR=true`.
+ * `maintenance.auto=false`: an auto maintenance's `rerere gc` holds MERGE_RR.lock while the next
+ * pick conflicts, and the rebase dies on that lock before recording the stop.
  */
 const REBASE_CONFIG = [
   "-c",
@@ -483,13 +445,10 @@ const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
   );
 
 /**
- * Cherry-pick the trunk commits since the lease onto the finished tip, so a
- * trunk that moved during a long session never restarts the rebase. `carry`
- * records the pick before it starts: a stopped pick stays for the operator to
- * resolve and `git add`, and the rerun continues it; a HEAD that never moved
- * picks again, and one moved by hand counts as landed. A commit the tip already
- * holds, or one resolved to no change, stays as an empty commit so its pull
- * request link survives.
+ * Cherry-pick the trunk commits since the lease onto the finished tip, so a moved trunk never
+ * restarts the rebase. A pick is recorded before it starts: a stopped pick waits for the operator
+ * and the rerun continues it; an unmoved HEAD picks again, one moved by hand counts as landed. A
+ * pick the tip already holds stays as an empty commit so its pull request link survives.
  */
 export const carryTrunk = (
   runner: CommandRunner,
@@ -550,11 +509,9 @@ const dropWorktree = (runner: CommandRunner, root: string): void => {
 };
 
 /**
- * Move local hyprws to the pushed tip when it still sits at the lease, so the
- * next worktree does not start from a trunk the sync replaced. Checked out
- * somewhere (usually the main checkout), `reset --keep` moves that tree too
- * and only when its tracked files are clean. Anything else keeps the branch and
- * prints why: the push already succeeded, so this never fails the run.
+ * Move local hyprws to the pushed tip when it still sits at the lease, so the next worktree does
+ * not start from a replaced trunk. Where checked out, `reset --keep` moves that tree too, only when
+ * its tracked files are clean. Anything else keeps the branch and says why; this never fails the run.
  */
 const followTrunk = (runner: CommandRunner, root: string, old: string, next: string): void => {
   const keep = (why: string): void => {
@@ -912,31 +869,10 @@ export const refuseDroppedLinks = (
 };
 
 /**
- * Rebase the fork stack above `target` (the commits `lease` carries) in the
- * sync worktree. A fork landing that amends a fork commit is titled
- * `fixup! <subject>`, with ` (#N)` appended when squash-landed; the rebase runs
- * interactive with `--autosquash` and a sequence editor that places each
- * resolved fixup under its owner, so the fixup folds into the commit it names
- * and the series never carries fix-of-fix (RSI-Software/t3code-hyprws#1179,
- * RSI-Software/t3code-hyprws#1508). A squash-landed fixup keeps its PR link:
- * the editor appends an `exec` that amends the folded owner with the
- * `Squashes:` rendering fork:fold writes (RSI-Software/t3code-hyprws#1591,
- * RSI-Software/t3code-hyprws#1592), and the link guard refuses the rebased tip
- * when it dropped a link. Hook re-apply re-inserts the marked fork hooks a
- * conflicted file declares. A delete/modify whose deletion is on the upstream
- * side and whose fork edit nets to zero against the base the fork stack sits
- * on accepts the deletion outright. A path in `REGENERATION_ROUTES`
- * regenerates once every other path in the stop has resolved
- * (RSI-Software/t3code-hyprws#1488). Any path left standing after those stops
- * the run; its rows name the fork commit, the upstream commit, and the
- * worktree the rebase resumes in.
- *
- * `start` picks how the replay begins: `fresh` rebases the worktree's trunk
- * checkout; `adopted` re-enters a rebase in progress, so unresolved paths
- * block again and resolved ones continue, or takes a finished HEAD; a saved
- * todo resumes a partial marker's rebase on its tip.
- *
- * `conflicts` collects this run's rows as they happen; `rebaseOnto` owns it.
+ * Rebase the fork stack above `target` in the sync worktree, folding each fixup under its owner
+ * with a `Squashes:` amend. A conflict tries hook re-apply, an upstream delete of a net-zero fork
+ * edit, then `REGENERATION_ROUTES`; anything left stops the run. `start` is fresh, adopted (re-enter
+ * a rebase or take a finished HEAD), or a saved todo; `conflicts` collects rows for `rebaseOnto`.
  */
 const replayOnto = (
   runner: CommandRunner,
@@ -1026,11 +962,9 @@ const replayOnto = (
         regenerable.set(path, touch);
         continue;
       }
-      // Delete/modify with the deletion on the upstream (rebase base) side:
-      // when the fork trunk's final blob for the path equals the base blob,
-      // the fork edit is net-zero and the deletion is accepted outright. Any
-      // other delete/modify shape falls through to hook re-apply, which
-      // refuses it, and then to a manual row.
+      // A delete/modify deleted on the upstream side is accepted outright when the fork trunk's final
+      // blob equals the base blob (a net-zero fork edit). Other shapes fall through to hook re-apply,
+      // which refuses them, then to a manual row.
       const upstreamDeleted =
         stageContent(runner, worktree, 2, path) === null &&
         stageContent(runner, worktree, 3, path) !== null;
@@ -1128,12 +1062,9 @@ export type SyncRebase = RebaseOutcome & {
 };
 
 /**
- * Rebase onto `target` in the sync worktree (see `replayOnto`), starting from
- * the kept worktree, else from `marker`, else fresh from `trunk`. A new
- * worktree runs the repo's setup step before the rebase starts, so a stop has
- * dependencies. Each stop's rows persist beside the worktree as they are
- * recorded, so the run that finishes the rebase still reports them. A blocked
- * rebase writes the partial marker another checkout resumes from.
+ * Rebase onto `target` (see `replayOnto`) from the kept worktree, else `marker`, else fresh from
+ * `trunk`. A new worktree runs setup first so a stop has dependencies. Each stop's rows persist as
+ * recorded, and a blocked rebase writes the partial marker another checkout resumes from.
  */
 export const rebaseOnto = (
   runner: CommandRunner,
@@ -1339,12 +1270,9 @@ const finishedJobs = (runner: CommandRunner, root: string, run: CiRun): Readonly
     .map(({ name, conclusion, url }) => ({ name, conclusion, url }));
 
 /**
- * hyprws CI's verdict on `sha`. A sha with a run already, such as a red run
- * rerun by hand, reuses it. Any other sha runs the local
- * `vp run fork:ci` in the sync worktree first, so a lint, ledger, fold, or
- * scan refusal costs minutes instead of a CI round, and is then force-pushed
- * to the candidate branch. The driver polls until the run completes or a job
- * fails, and a run that never starts or never finishes is not green.
+ * hyprws CI's verdict on `sha`. A sha with a run reuses it; any other runs the local
+ * `vp run fork:ci` first, so a refusal costs minutes instead of a CI round, then force-pushes to
+ * the candidate branch. Polls until the run completes or a job fails; one that never ends is not green.
  */
 export const candidateCi = (runner: CommandRunner, root: string, sha: string): CandidateCi => {
   let latest = latestCiRun(runner, root, sha);
