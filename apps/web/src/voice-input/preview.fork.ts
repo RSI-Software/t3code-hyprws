@@ -67,6 +67,7 @@ export function useVoicePreviewEditorFork(
   editor: Editor | null,
   preview: VoicePreviewFork | null | undefined,
 ) {
+  // oxlint-disable-next-line t3code/react-effect-budget -- dispatches the voice preview into the external TipTap/ProseMirror editor view.
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     presentVoicePreviewFork(editor, preview ?? null);
