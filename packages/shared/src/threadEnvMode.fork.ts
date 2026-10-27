@@ -99,11 +99,9 @@ export function replaceWireThreadEnvModeFields(fields: {
 }
 
 /**
- * Fork: applies a project-scope patch's thread-env-mode fields onto a
- * project settings override object in place. The pair replaces wholesale so
- * a stale `...Fork` sibling never survives, and a resolved null (the
- * "Inherit" picker) removes the override pair rather than storing a bare
- * null, matching how every other project-scoped key drops on a null patch.
+ * Fork: applies a project-scope patch's thread-env-mode fields onto a project settings override
+ * in place. The pair replaces wholesale so a stale `...Fork` sibling never survives, and a
+ * resolved null ("Inherit") removes the pair, as other project-scoped keys drop on a null patch.
  */
 export function patchProjectThreadEnvModeOverride(
   next: Record<string, unknown>,

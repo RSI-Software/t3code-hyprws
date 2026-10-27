@@ -1,8 +1,6 @@
-// Fork-owned: the worktrunk-aware workspace mode row
-// (fix(web): carry the fork thread-env mode through the project-scope path).
-// The upstream `ProjectDefaultsSettings.tsx` carries only marked hook lines
-// pointing here: the decoded mode hook, the reset action, and the select
-// control.
+// Fork-owned worktrunk-aware workspace mode row. Upstream `ProjectDefaultsSettings.tsx`
+// carries only marked hook lines pointing here: the decoded mode hook, the reset action,
+// and the select control.
 import type { ReactNode } from "react";
 import { DEFAULT_SERVER_SETTINGS, type UnifiedSettings } from "@t3tools/contracts";
 import type { StoredThreadEnvMode } from "@t3tools/shared/threadEnvMode.fork";

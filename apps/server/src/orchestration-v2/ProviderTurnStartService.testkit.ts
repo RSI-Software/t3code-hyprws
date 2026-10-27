@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts"; // fork-hook: worktrunk-hooks/turn-start-testkit-layer
 
 export const layer = Layer.merge(
   Layer.mock(GitWorkflow.GitWorkflowService)({
@@ -54,6 +55,13 @@ export const layerRealGit = GitWorkflow.layer.pipe(
       ServerSettings.layerTest(),
     ),
   ),
+  Layer.provide(
+    Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+      isWorktrunkWorktree: () => Effect.succeed(false),
+      runCreateHooks: () =>
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    }),
+  ), // fork-hook: worktrunk-hooks/turn-start-testkit-layer
   Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer))),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(VcsProcess.layer),

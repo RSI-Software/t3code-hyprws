@@ -8,11 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { CheckIcon, ChevronRightIcon, LayersIcon } from "lucide-react";
 import * as Equal from "effect/Equal";
-import {
-  fromWireThreadEnvModeFields,
-  isWorktreeEnvMode,
-  type StoredThreadEnvMode,
-} from "@t3tools/shared/threadEnvMode.fork";
+import { isWorktreeEnvMode, type StoredThreadEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/inheritance-env-mode-import
 
 import { cn } from "../../lib/utils";
 import type { EnvironmentPresentation } from "../../state/environments";
@@ -28,7 +24,6 @@ import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import type { ProjectOverrideEntry, ScopedSettingsTarget } from "./scopedSettings";
 import { isProjectScopedSettingKey } from "./scopedSettings";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
-import { displaySettingInheritanceInputs } from "./SettingInheritance.fork"; // fork-hook: worktrunk-hooks/env-mode-inheritance-import
 
 interface InheritanceLayer {
   readonly key: "project" | "environment" | "t3.json" | "built-in";

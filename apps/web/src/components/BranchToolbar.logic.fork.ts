@@ -21,11 +21,10 @@ export interface UnusableWorktreeRebindFork {
 }
 
 /**
- * Fork: the rebind for a branch picked while the thread's worktree is gone, or
- * `null` when the worktree is usable and upstream's selection runs. Such a pick
- * never runs a checkout move (it would resolve the dead worktree and fail) and
- * never switches the project checkout: the branch's own worktree is reused,
- * the root's branch rebinds to the root, and any other branch gets a worktree.
+ * Fork: the rebind for a branch picked while the thread's worktree is gone, or `null`
+ * when it is usable. Never runs a checkout move (it would resolve the dead worktree and
+ * fail) or switches the project checkout: the branch's own worktree is reused, the
+ * root's branch rebinds to the root, and any other branch gets a worktree.
  */
 export function resolveUnusableWorktreeRebindFork(input: {
   hasServerThread: boolean;

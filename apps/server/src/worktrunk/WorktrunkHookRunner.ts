@@ -63,15 +63,10 @@ export interface WorktrunkPostRemoveHookInput {
 }
 
 /**
- * Runs the project's Worktrunk lifecycle hooks around a worktree T3 Code
- * created in Worktrunk mode, so the worktree matches one made with
- * `wt switch --create`. `runCreateHooks` marks the worktree first, and
- * `isWorktrunkWorktree` reads that marker so removal runs the matching hooks
- * only for a worktree that started this way. Every hook runs headless through
- * `wt hook <type> --yes`; `pre-*` hooks block and `post-start` returns once
- * `wt` has detached its hooks, exactly as the `wt` commands do. `.config/wt.toml`
- * and the `wt` binary gate every call; a skipped hook leaves upstream
- * behaviour untouched.
+ * Runs the project's Worktrunk lifecycle hooks around a worktree T3 Code created in Worktrunk
+ * mode, matching `wt switch --create`. `runCreateHooks` marks the worktree so removal runs hooks
+ * only for one that started this way. Hooks run headless via `wt hook <type> --yes`; a missing
+ * `.config/wt.toml` or `wt` binary skips the call and leaves upstream behaviour untouched.
  */
 export class WorktrunkHookRunner extends Context.Service<
   WorktrunkHookRunner,

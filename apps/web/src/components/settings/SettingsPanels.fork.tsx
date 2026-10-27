@@ -1,9 +1,5 @@
-// Fork-owned seam for the external workspace symlinks settings row
-// (RSI-Software/t3code-hyprws#951, reshaping 565594bd75).
-//
-// Everything the fork renders for this setting lives here: the General-panel
-// row mounts `ExternalSymlinksSettingsRowFork` through one marked JSX hook in
-// `SettingsPanels.tsx`, and the restore-label entry comes from
+// Fork seam for the external workspace symlinks settings row, mounted through one
+// marked JSX hook in `SettingsPanels.tsx`; the restore label comes from
 // `externalSymlinksRestoreLabelFork`. The row is server-scoped: the policy is
 // server-authoritative, so one toggle covers every project on the server.
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
