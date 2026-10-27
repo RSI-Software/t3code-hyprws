@@ -676,11 +676,9 @@ export const resolverText = (route: RegenerationRoute): string =>
   "generator" in route ? commandText("vp", route.generator) : `merge by ${route.by}`;
 
 /**
- * Resolve one generated path and stage it. A generator route restores the
- * path from `HEAD` (the target plus the fork commits already replayed) and
- * reruns its generator over the resolved sources; a merge route merges the
- * conflict's stages and formats the result. Returns the failure detail, or
- * `null` once staged.
+ * Resolve and stage one generated path. A generator route restores it from `HEAD` (the target plus
+ * the fork commits replayed so far) and reruns its generator; a merge route merges the stages and
+ * formats. Returns the failure detail, or `null` once staged.
  */
 const regenerate = (
   runner: CommandRunner,
