@@ -47,11 +47,10 @@ export function withProviderSessionIdentity(
 const SERVER_RUNTIME_ENV = ["T3CODE_PORT", "T3CODE_HOST", "T3CODE_MODE", "T3CODE_NO_BROWSER"];
 
 /**
- * Removes inherited session identity, server runtime settings, and desktop
- * launcher settings once the server config is resolved. Providers (including
- * in-process SDKs) and terminals inherit this environment: none should name a
- * parent thread, target this server's port, or receive desktop placement and
- * CDP settings. Electron keeps its own launcher environment in its separate process.
+ * Removes inherited session identity, server runtime settings, and desktop launcher settings
+ * once the server config is resolved. Providers, including in-process SDKs, and terminals inherit
+ * this environment; none should name a parent thread, target this server's port, or receive
+ * desktop placement and CDP settings.
  */
 export const stripInheritedProviderEnvironment = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
