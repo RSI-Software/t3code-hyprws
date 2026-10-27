@@ -5,13 +5,10 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-// The rich Markdown editor is the fork's only Milkdown consumer, and every
-// package it declares widens `pnpm-lock.yaml` — the fork's one regenerable path,
-// and a rebase stop of its own. `@milkdown/kit` re-exports the granular packages
-// and `@milkdown/react` pulls `@milkdown/crepe`, so either one drags a Vue
-// runtime and CodeMirror into a React-only app and hundreds of lockfile lines
-// into the fork delta. The binding `@milkdown/react` provides is one effect,
-// kept in MarkdownRichEditor.tsx.
+// Every Milkdown package the rich editor declares widens `pnpm-lock.yaml`, a rebase stop of
+// its own. `@milkdown/kit` and `@milkdown/react` (via `@milkdown/crepe`) drag a Vue runtime
+// and CodeMirror into a React-only app and hundreds of lockfile lines into the fork delta;
+// the one effect `@milkdown/react` provides is kept in MarkdownRichEditor.tsx.
 const APP_ROOT = NodePath.resolve(import.meta.dirname, "../../..");
 const SOURCE_ROOT = NodePath.join(APP_ROOT, "src");
 const BOUNDARY = "src/components/files";
