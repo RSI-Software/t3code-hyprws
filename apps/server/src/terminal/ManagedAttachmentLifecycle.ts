@@ -129,11 +129,10 @@ export function transitionManagedAttachment(
         commands: [{ type: "suspend" }],
       };
     case "settle-released": {
-      // Settlement releases a settled thread's managed attachments regardless
-      // of demand, so its lane's session can be cleaned up without a visible
-      // T3 viewer holding it. The demand counter is left alone: a stale
-      // release decrements a suspended attachment harmlessly, and the next
-      // demand-added resumes through the normal attach path.
+      // Settlement releases a settled thread's managed attachments regardless of demand, so its
+      // lane's session can be cleaned up without a visible viewer holding it. The demand counter
+      // is left alone: a stale release decrements a suspended attachment harmlessly, and the
+      // next demand-added resumes through the normal attach path.
       if (
         state.phase === "unmanaged" ||
         state.phase === "suspended" ||

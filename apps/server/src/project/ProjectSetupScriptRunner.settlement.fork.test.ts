@@ -147,14 +147,27 @@ const harness = Effect.gen(function* () {
   );
   const reactor = yield* makeSettledLaneReactor.pipe(Effect.provide(dependencies));
   const runner = yield* ProjectSetupScriptRunner.make.pipe(Effect.provide(dependencies));
+  // The runner types once the shell's line editor starts, so the fake shell signals it.
   const runHook = (trigger: "setup" | "settle" = "settle") =>
-    runner.runForThread({
-      threadId,
-      projectId,
-      project,
-      worktreePath: process.cwd(),
-      trigger,
-      observeCompletion: {},
+    Effect.gen(function* () {
+      const run = yield* runner.runForThread({
+        threadId,
+        projectId,
+        project,
+        worktreePath: process.cwd(),
+        trigger,
+        observeCompletion: {},
+      });
+      const shell = fixture.ptyAdapter.processes.at(-1)!;
+      const typed = Promise.withResolvers<void>();
+      const write = shell.write.bind(shell);
+      shell.write = (data) => {
+        write(data);
+        typed.resolve();
+      };
+      shell.emitData("fixture$ \x1b[?2004h");
+      yield* Effect.promise(() => typed.promise);
+      return run;
     });
   const finishHook = (
     run: ProjectSetupScriptRunner.ProjectSetupScriptRunnerResult,
