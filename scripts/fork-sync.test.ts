@@ -508,6 +508,12 @@ it("ignores a marker for another tag, another tree, or a lease the trunk dropped
       marker.commit,
       `its lease ${marker.lease.slice(0, 7)} is not in origin/hyprws`,
     );
+
+    // with no tag named, a marker the run ignores never picks its older tag
+    const newest = capture(() => run([], { runner: exec().runner, root: f.root }));
+    assert.strictEqual(newest.value, 0);
+    assert.include(newest.output, `ignoring marker ${marker.commit.slice(0, 7)}`);
+    assert.match(newest.output, /Run: .* v1\.0\.1-nightly\.20260901\.1@/);
   });
 });
 
@@ -707,6 +713,37 @@ it("carries a trunk that moved after the lease onto the finished tip, through a 
     assert.isFalse(
       rerun.calls.some(({ command, args }) => command === "git" && args.includes("rebase")),
     );
+  });
+});
+
+it("restarts a carry killed before it picked, keeping a commit the tip already holds", () => {
+  withFixture(CLEAN, (f) => {
+    const commit = (cwd: string, file: string, subject: string): void => {
+      NodeFS.writeFileSync(NodePath.join(cwd, file), "same\n");
+      f.git(["add", file], cwd);
+      f.git(["commit", "--quiet", "-m", subject], cwd);
+    };
+    session(f);
+    commit(f.worktree, "dup.txt", "tip dup");
+    commit(f.root, "dup.txt", "trunk dup (#77)");
+    commit(f.root, "extra.txt", "trunk extra");
+    f.git(["push", "--quiet", "origin", "hyprws"], f.root);
+    const trunk = f.git(["rev-parse", "hyprws"], f.root);
+
+    const statePath = NodePath.join(f.root, ".t3", "fork-sync", "worktree.json");
+    const state = JSON.parse(NodeFS.readFileSync(statePath, "utf8"));
+    const from = f.git(["rev-parse", "HEAD"], f.worktree);
+    NodeFS.writeFileSync(statePath, JSON.stringify({ ...state, carry: { trunk, from } }));
+
+    assert.strictEqual(session(f).value, 0);
+    const report = readReport(f.root, "v1.0.0");
+    assert.strictEqual(report.marker?.lease, trunk);
+    const tip = report.trunk.after!;
+    assert.deepEqual(f.git(["log", "-3", "--format=%s", tip], f.root).split("\n"), [
+      "trunk extra",
+      "trunk dup (#77)",
+      "tip dup",
+    ]);
   });
 });
 

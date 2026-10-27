@@ -395,8 +395,8 @@ const WorktreeState = Schema.Struct({
   conflicts: Schema.optionalKey(Schema.Array(ConflictRow)),
   /** Where the rebase finished; commits above it are tip work. */
   rebased: Schema.optionalKey(Schema.String),
-  /** The trunk sha a cherry-pick in progress carries the lease to. */
-  carry: Schema.optionalKey(Schema.String),
+  /** A carry in flight: the trunk sha it moves the lease to, and HEAD before it picked. */
+  carry: Schema.optionalKey(Schema.Struct({ trunk: Schema.String, from: Schema.String })),
 });
 interface WorktreeState extends Schema.Schema.Type<typeof WorktreeState> {}
 const decodeWorktreeState = Schema.decodeUnknownSync(WorktreeState);
@@ -486,8 +486,10 @@ const pickInProgress = (runner: CommandRunner, worktree: string): boolean =>
  * Cherry-pick the trunk commits since the lease onto the finished tip, so a
  * trunk that moved during a long session never restarts the rebase. `carry`
  * records the pick before it starts: a stopped pick stays for the operator to
- * resolve and `git add`, and the rerun continues it; one finished by hand
- * counts as landed.
+ * resolve and `git add`, and the rerun continues it; a HEAD that never moved
+ * picks again, and one moved by hand counts as landed. A commit the tip already
+ * holds, or one resolved to no change, stays as an empty commit so its pull
+ * request link survives.
  */
 export const carryTrunk = (
   runner: CommandRunner,
@@ -504,22 +506,33 @@ export const carryTrunk = (
         `a trunk commit carried onto the rebased tip stops on a conflict in ${worktree}; resolve it, git add, then rerun`,
       );
   };
+  const head = (): string => git(runner, worktree, ["rev-parse", "HEAD"]);
   let current = state;
   if (current.carry !== undefined) {
-    if (pickInProgress(runner, worktree)) pick(["cherry-pick", "--continue"]);
     const { carry, ...rest } = current;
-    current = { ...rest, lease: carry };
+    let landed = true;
+    if (pickInProgress(runner, worktree)) {
+      const stopped =
+        gitResult(runner, worktree, ["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).status ===
+        0;
+      const staged = gitResult(runner, worktree, ["diff", "--cached", "--quiet"]).status !== 0;
+      const unmerged = git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"]) !== "";
+      if (stopped && !staged && !unmerged)
+        pick(["commit", "--quiet", "--allow-empty", "--no-edit", "-C", "CHERRY_PICK_HEAD"]);
+      if (pickInProgress(runner, worktree)) pick(["cherry-pick", "--continue"]);
+    } else landed = head() !== carry.from;
+    current = landed ? { ...rest, lease: carry.trunk } : rest;
     writeWorktreeState(root, current);
   }
   if (current.lease === trunk) return current;
   const commits = lines(
     git(runner, root, ["rev-list", "--reverse", "--no-merges", `${current.lease}..${trunk}`]),
   );
-  current = { ...current, carry: trunk };
+  current = { ...current, carry: { trunk, from: head() } };
   writeWorktreeState(root, current);
   if (commits.length > 0) {
     process.stdout.write(`sync: carrying ${commits.length} trunk commit(s) onto the rebased tip\n`);
-    pick(["cherry-pick", ...commits]);
+    pick(["cherry-pick", "--keep-redundant-commits", ...commits]);
   }
   const { carry: _carried, ...rest } = current;
   current = { ...rest, lease: trunk };
@@ -1971,15 +1984,20 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const mergeBase = (tip: string): string =>
       git(runner, root, ["merge-base", "upstream/main", tip]);
 
-    // target — the named tag, else the marker's when the trunk lacks it, else the newest
+    // target — the named tag, else a valid marker's when the trunk lacks it, else the newest
     step = "target";
     const candidates = releaseTags(runner, root);
-    const target =
-      (explicit === null && fetched !== null
+    const markerTarget =
+      explicit === null && fetched !== null
         ? candidates.find(
             ({ tag, sha }) => tag === fetched.tag && !isAncestor(runner, root, sha, expectedOld),
           )
-        : undefined) ?? resolveTarget(candidates, explicit);
+        : undefined;
+    const target =
+      markerTarget !== undefined &&
+      usableMarker(runner, root, fetched, markerTarget, expectedOld) !== null
+        ? markerTarget
+        : resolveTarget(candidates, explicit);
     resolved = target;
 
     const frame = (partial: Partial<ForkSyncReport>): ForkSyncReport => ({
