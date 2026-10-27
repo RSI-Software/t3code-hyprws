@@ -1,4 +1,9 @@
 import type { Preferences } from "../../persistence/imperative";
+import {
+  getCachedTerminalGridSize,
+  type TerminalGridSize,
+  type TerminalUiStateTarget,
+} from "./terminalUiState";
 
 export type TerminalCheckoutMode = "follow" | "pin";
 
@@ -26,4 +31,12 @@ export function updateTerminalCheckoutMode(
   if (mode === "pin") terminalCheckoutModes[key] = "pin";
   else delete terminalCheckoutModes[key];
   return { terminalCheckoutModes };
+}
+
+/** A follow-mode reopen attaches at the last measured grid, else the first attach's. */
+export function followGridSizeFork(
+  target: TerminalUiStateTarget,
+  fallback: TerminalGridSize,
+): TerminalGridSize {
+  return getCachedTerminalGridSize(target) ?? fallback;
 }

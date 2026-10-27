@@ -1471,6 +1471,8 @@ function joinHistoryFileName(threadPart: string, terminalPart: string | null): s
 function toSessionKey(threadId: string, terminalId: string, attachmentId?: string | null): string {
   return JSON.stringify([threadId, terminalId, attachmentId ?? null]);
 }
+const SessionKey = Schema.Tuple([Schema.String, Schema.String, Schema.NullOr(Schema.String)]); // fork-hook: zmux-estate/persist-history-key
+const decodeSessionKey = Schema.decodeOption(Schema.fromJsonString(SessionKey)); // fork-hook: zmux-estate/persist-history-key
 
 function shouldExcludeTerminalEnvKey(key: string): boolean {
   const normalizedKey = key.toUpperCase();

@@ -11,7 +11,7 @@ import {
   resolveTerminalWindowDemand,
   shouldForwardThreadTerminalShortcut,
   shouldRestoreTerminalFocusAfterResume,
-  terminalOutputCursorForLifecycle,
+  lifecycleCursorFork,
 } from "./ThreadTerminalDrawer";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
@@ -122,8 +122,10 @@ describe("terminal session generations", () => {
   it("forces a full renderer reset when the attached PTY generation changes", () => {
     const cursor = { generation: 4, resetVersion: 7, offset: 99 };
 
-    expect(terminalOutputCursorForLifecycle(cursor, 2, 2)).toBe(cursor);
-    expect(terminalOutputCursorForLifecycle(cursor, 2, 3)).toEqual({
+    expect(lifecycleCursorFork(cursor, { lifecycleVersion: 2 }, { lifecycleVersion: 2 })).toBe(
+      cursor,
+    );
+    expect(lifecycleCursorFork(cursor, { lifecycleVersion: 2 }, { lifecycleVersion: 3 })).toEqual({
       generation: -1,
       resetVersion: -1,
       offset: 0,

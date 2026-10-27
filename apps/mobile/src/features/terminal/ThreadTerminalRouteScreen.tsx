@@ -28,6 +28,7 @@ import type { AppBarMenuItem as ScreenHeaderMenuItem } from "../../components/ui
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useAtomMount } from "@effect/atom-react";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect } from "react"; // fork-hook: zmux-estate/terminal-checkout-hooks
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -106,6 +107,7 @@ import {
 } from "./terminalInput";
 import { createTerminalPasteSession } from "./terminalPaste";
 import { cacheTerminalGridSize, getCachedTerminalGridSize } from "./terminalUiState";
+import { useLocalKnownSessionsFork } from "./localTerminalSessions.fork"; // fork-hook: zmux-estate/local-known-sessions
 import {
   loadOrCreateAgentAwarenessDeviceId,
   loadPreferences,
@@ -117,6 +119,7 @@ import {
   updateTerminalCheckoutMode,
   type TerminalCheckoutMode,
 } from "./terminalCheckoutMode";
+import { followGridSizeFork } from "./terminalCheckoutMode"; // fork-hook: zmux-estate/terminal-checkout-follow-grid
 
 function TerminalHeader(props: {
   readonly subtitle: string;
@@ -359,8 +362,9 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   // made once, from the first session list that has one, so the terminal shown
   // does not change under the user as sessions come and go.
   const [bootstrapTerminalId, setBootstrapTerminalId] = useState<string | null>(null);
+  const localSessionsFork = useLocalKnownSessionsFork(knownSessions.sessions); // fork-hook: zmux-estate/local-known-sessions
   const runningSession = knownSessions.sessions
-    ? (pickRunningTerminalSessionForBootstrap(knownSessions.sessions) ??
+    ? (pickRunningTerminalSessionForBootstrap(localSessionsFork) ?? // fork-hook: zmux-estate/local-known-sessions
       (access.canOperate ? null : (knownSessions.sessions[0] ?? null)))
     : null;
   if (
@@ -466,11 +470,13 @@ function ThreadTerminal(props: {
     isPending: sessionsPending,
     error: sessionsError,
   } = props.knownSessions;
+  const localKnownSessions = useLocalKnownSessionsFork(knownSessions); // fork-hook: zmux-estate/local-known-sessions
   const insets = useSafeAreaInsets();
   const nativeColumnMetrics = useNativeColumnLayoutMetrics();
   const navigation = useNavigation();
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const clearTerminal = useAtomCommand(terminalEnvironment.clear, "terminal clear");
+  const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open"); // fork-hook: zmux-estate/terminal-checkout-open
   const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
     reportFailure: false,
   });
@@ -507,15 +513,16 @@ function ThreadTerminal(props: {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A setup retry reloads the device id. // fork-hook: zmux-estate/terminal-setup-retry
   }, [terminalSetupAttempt]);
   const terminalDeviceId = terminalDeviceState.id;
   const attachmentId =
     terminalDeviceId === null ? null : boundedTerminalAttachmentId(terminalDeviceId, terminalId);
   const checkoutModeKey = terminalCheckoutModeKey({
-    environmentId: routeEnvironmentIdRaw ?? "",
+    environmentId: routeEnvironmentId ?? "",
     threadId: routeThreadIdRaw ?? "",
     terminalId,
-  });
+  }); // fork-hook: zmux-estate/terminal-checkout-mode-key
   const [checkoutModeState, setCheckoutModeState] = useState<{
     readonly key: string;
     readonly mode: TerminalCheckoutMode;
@@ -573,6 +580,7 @@ function ThreadTerminal(props: {
     return () => {
       active = false;
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A setup retry reloads the checkout mode. // fork-hook: zmux-estate/terminal-setup-retry
   }, [checkoutModeKey, terminalSetupAttempt]);
   const {
     isReady: hasResolvedFontPreference,
@@ -585,8 +593,8 @@ function ThreadTerminal(props: {
   const fontSize = appearance.terminalFontSize;
   const terminalKey = `${selectedThread.environmentId}:${selectedThread.id}:${terminalId}`;
   const activeKnownSession = useMemo(
-    () => localKnownSessions.find((session) => session.target.terminalId === terminalId) ?? null,
-    [localKnownSessions, terminalId],
+    () => localKnownSessions.find((session) => session.target.terminalId === terminalId) ?? null, // fork-hook: zmux-estate/local-known-sessions
+    [localKnownSessions, terminalId], // fork-hook: zmux-estate/local-known-sessions
   );
   const hasTerminalTarget = props.hasExplicitTerminalId || activeKnownSession !== null;
   const [pendingLaunch] = useState<PendingTerminalLaunch | null>(() =>
@@ -638,6 +646,9 @@ function ThreadTerminal(props: {
   const surfaceRef = useRef<TerminalSurfaceHandle>(null);
   const [keyboardFocusRequest, setKeyboardFocusRequest] = useState(0);
   const [pendingModifier, setPendingModifier] = useState<PendingModifier | null>(null);
+  const followMove = { mode: checkoutMode, move: selectedThread.checkoutMove }; // fork-hook: zmux-estate/terminal-follow-location
+  const followsCheckout = hasResolvedCheckoutMode && shouldFollowCommittedCheckout(followMove); // fork-hook: zmux-estate/terminal-follow-location
+  const sessionLocation = followsCheckout ? null : (activeKnownSession?.state.summary ?? null); // fork-hook: zmux-estate/terminal-follow-location
   const launchLocation = useInitialTerminalLaunchLocation({
     targetKey: terminalKey,
     pendingLaunch,
@@ -647,8 +658,8 @@ function ThreadTerminal(props: {
     hasLoadedSessions: knownSessions !== null,
     location: selectedThreadProject?.workspaceRoot
       ? {
-          terminalLocation: activeKnownSession?.state.summary ?? null,
-          activeSessionLocation: activeKnownSession?.state.summary ?? null,
+          terminalLocation: sessionLocation, // fork-hook: zmux-estate/terminal-follow-location
+          activeSessionLocation: sessionLocation, // fork-hook: zmux-estate/terminal-follow-location
           workspaceRoot: selectedThreadProject.workspaceRoot,
           threadShellWorktreePath: selectedThread.worktreePath ?? null,
           threadDetailWorktreePath: selectedThreadDetailWorktreePath,
@@ -657,7 +668,11 @@ function ThreadTerminal(props: {
   });
   const terminalAttachInput = useMemo(
     () =>
-      launchLocation !== null && hasResolvedFontPreference && isEnvironmentReady
+      launchLocation !== null &&
+      hasResolvedFontPreference &&
+      isEnvironmentReady &&
+      attachmentId !== null && // fork-hook: zmux-estate/terminal-checkout-attach-gate
+      hasResolvedCheckoutMode // fork-hook: zmux-estate/terminal-checkout-attach-gate
         ? {
             threadId: selectedThread.id,
             terminalId,
@@ -777,7 +792,7 @@ function ThreadTerminal(props: {
   const terminalMenuSessions = useMemo<ReadonlyArray<TerminalMenuSession>>(
     () =>
       buildTerminalMenuSessions({
-        knownSessions: localKnownSessions,
+        knownSessions: localKnownSessions, // fork-hook: zmux-estate/local-known-sessions
         workspaceRoot: selectedThreadProject?.workspaceRoot ?? null,
         currentSession: {
           terminalId,
@@ -790,7 +805,7 @@ function ThreadTerminal(props: {
       }),
     [
       cwd,
-      localKnownSessions,
+      localKnownSessions, // fork-hook: zmux-estate/local-known-sessions
       selectedThreadProject?.workspaceRoot,
       terminal.hasRunningSubprocess,
       terminal.summary,
@@ -813,6 +828,7 @@ function ThreadTerminal(props: {
       input: {
         threadId: selectedThread.id,
         terminalId,
+        ...(attachmentId ? { attachmentId } : {}), // fork-hook: zmux-estate/terminal-write-attachment
         data,
       },
     });
@@ -958,6 +974,10 @@ function ThreadTerminal(props: {
       )
         return;
       const cwd = selectedThread.worktreePath ?? selectedThreadProject.workspaceRoot;
+      const gridSizeFork = followGridSizeFork(
+        { environmentId: selectedThread.environmentId, threadId: selectedThread.id, terminalId },
+        initialAttachGridSize,
+      ); // fork-hook: zmux-estate/terminal-checkout-follow-grid
       const result = await openTerminal({
         environmentId: selectedThread.environmentId,
         input: {
@@ -966,8 +986,8 @@ function ThreadTerminal(props: {
           attachmentId,
           cwd,
           worktreePath: selectedThread.worktreePath,
-          cols: lastGridSize.cols,
-          rows: lastGridSize.rows,
+          cols: gridSizeFork.cols, // fork-hook: zmux-estate/terminal-checkout-follow-grid
+          rows: gridSizeFork.rows, // fork-hook: zmux-estate/terminal-checkout-follow-grid
         },
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -982,8 +1002,7 @@ function ThreadTerminal(props: {
     checkoutMode,
     checkoutModeKey,
     checkoutMoveControlsLocked,
-    lastGridSize.cols,
-    lastGridSize.rows,
+    initialAttachGridSize,
     openTerminal,
     selectedThread,
     selectedThreadProject,
@@ -1094,11 +1113,11 @@ function ThreadTerminal(props: {
       void retryEnvironment(routeEnvironmentId);
     }
   };
-  const handleRetryTerminalSetup = useCallback(() => {
+  const handleRetryTerminalSetup = () => {
     setTerminalDeviceState({ id: null, error: null });
     setCheckoutModeState({ key: checkoutModeKey, mode: "follow", resolved: false, error: null });
     setTerminalSetupAttempt((attempt) => attempt + 1);
-  }, [checkoutModeKey]);
+  }; // fork-hook: zmux-estate/terminal-setup-retry
 
   if (!selectedThreadProject?.workspaceRoot) {
     return (

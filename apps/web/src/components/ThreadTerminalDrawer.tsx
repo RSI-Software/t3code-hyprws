@@ -279,15 +279,15 @@ export function synchronizeTerminalSession(
   return nextCursor;
 }
 
-export function terminalOutputCursorForLifecycle(
+export function lifecycleCursorFork(
   cursor: TerminalOutputCursor,
-  previousLifecycleVersion: number,
-  currentLifecycleVersion: number,
+  previous: Pick<TerminalSessionState, "lifecycleVersion">,
+  current: Pick<TerminalSessionState, "lifecycleVersion">,
 ): TerminalOutputCursor {
-  return previousLifecycleVersion === currentLifecycleVersion
+  return previous.lifecycleVersion === current.lifecycleVersion
     ? cursor
     : INITIAL_TERMINAL_OUTPUT_CURSOR;
-}
+} // fork-hook: zmux-estate/terminal-lifecycle-output
 
 function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor {
   if (typeof document === "undefined") return fallback;
@@ -870,6 +870,8 @@ function TerminalSessionViewport({
           const previous = previousSession;
           previousSession = session;
           synchronizeTerminalStatus(terminal, session.status, session.version);
+          if (previous.lifecycleVersion !== session.lifecycleVersion) terminal.resetSession(""); // fork-hook: zmux-estate/terminal-selection-reset
+          outputCursorRef.current = lifecycleCursorFork(outputCursorRef.current, previous, session); // fork-hook: zmux-estate/terminal-lifecycle-output
           outputCursorRef.current = synchronizeTerminalSession(
             terminal,
             previous,
