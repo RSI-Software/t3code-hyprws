@@ -21,6 +21,7 @@ Without a named tag it targets a valid [marker](#resolution-marker)'s tag the tr
 It folds each `fixup! <subject>` landing into the one fork commit it names, a squash landing's trailing ` (#N)` included, and refuses a fixup naming none or several.
 It rewords only an owner that absorbs a squash-landed fixup: the fixup's PR link joins its `Squashes:` list, rendered the way fork:fold renders one.
 The rebase refuses a rebased tip that dropped any PR link, except from a commit the target carries: patch-for-patch, or superseded with every path it touched identical to the target.
+Typecheck and tests miss a dropped hook, so the `hooks` step counts marked lines per key; a tip commit's `Fork-Hook-Retired: domain/name` trailer retires a hook the target made obsolete.
 
 | Step    | Does                                           | Fails when               |
 | ------- | ---------------------------------------------- | ------------------------ |
@@ -28,6 +29,8 @@ The rebase refuses a rebased tip that dropped any PR link, except from a commit 
 | target  | named, kept, marker's, or newest tag           | not a release tag        |
 | rebase  | `git rebase -i --autosquash <tag>`             | a seam no resolver fixes |
 | carry   | cherry-picks trunk commits since the lease     | a pick conflicts         |
+| hooks   | each trunk hook keeps its marked lines         | a hook lost lines        |
+| check   | session: `vp run fork:ci` on the tip           | the battery is red       |
 | ci      | land: [candidate CI](#candidate-ci) on the tip | the run is not green     |
 | push    | land: `--force-with-lease=hyprws:<lease>`      | lease refused            |
 | blocked | land: one attention issue per red run          | `gh` refuses the write   |

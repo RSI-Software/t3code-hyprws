@@ -14,6 +14,7 @@ import {
   closeBlocks,
   failureMarker,
   foldSyncMessages,
+  lostHooks,
   refuseDroppedLinks,
   resolveFixups,
   publishAttention,
@@ -628,6 +629,23 @@ it("refuses a session's hand-off while the local fork:ci battery is red on its t
     assert.strictEqual(report.failure?.step, "check");
     assert.strictEqual(report.ci?.conclusion, "skipped: local fork:ci failed (exit 1)");
     assert.notInclude(report.decision.resume, "sync/resolution");
+  });
+});
+
+it("names a hook the tip carries fewer marked lines of, unless a tip commit retires it", () => {
+  withFixture(CLEAN, (f) => {
+    const write = (lines: ReadonlyArray<string>, message: string): string => {
+      NodeFS.mkdirSync(NodePath.join(f.root, "apps"), { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(f.root, "apps", "a.ts"), lines.join("\n"));
+      f.git(["add", "apps"], f.root);
+      f.git(["commit", "--quiet", "-m", message], f.root);
+      return f.git(["rev-parse", "HEAD"], f.root);
+    };
+    const trunk = write(["a(); // fork-hook: d/call", "b(); // fork-hook: d/call"], "hook");
+    const tip = write(["a(); // fork-hook: d/call"], "drop one");
+    assert.deepStrictEqual(lostHooks(realRunner, f.root, trunk, tip), ["d/call (2→1)"]);
+    const retired = write(["a();"], "retire\n\nFork-Hook-Retired: d/call");
+    assert.deepStrictEqual(lostHooks(realRunner, f.root, trunk, retired), []);
   });
 });
 
