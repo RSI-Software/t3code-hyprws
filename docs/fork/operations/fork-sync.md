@@ -48,10 +48,10 @@ The land run pushes the trunk directly, so no pull request runs `hyprws CI` befo
 - **Run:** the full `hyprws CI` push run on that sha
 - **Reuse:** a sha with a run reuses it
 - **Gate:** new sha passes `vp run fork:ci` first
-- **Wait:** returns at the first failed job
+- **Wait:** the whole run, so every red job shows
 - **Red:** no run in 5 minutes, or none in an hour
 - **Push:** only the sha the run passed, leased
-- **On red:** `hyprws` stays; `ci.jobs` names jobs
+- **On red:** `hyprws` stays; `ci.jobs` names each
 - **Scope:** `fork:ci` scans from the new base
 - **Skipped:** stale-delete
 
