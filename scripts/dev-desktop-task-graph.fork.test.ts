@@ -4,14 +4,9 @@ import * as NodeFS from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 
 /**
- * The desktop development launch clobbered this checkout's shared client
- * outputs through one task-graph edge: the desktop `dev` tasks pulled in
- * `t3#build`, which cleans `apps/server/dist` (taking `dist/client` with it)
- * and copies a loopback-baked `apps/web/dist` over `apps/server/dist/client`.
- * Nothing in a dev desktop launch consumes a built client (the renderer is
- * the Vite dev server), so those tasks now depend on `t3#dev:bundle`, which
- * refreshes `dist/bin.mjs` in place without cleaning and without the web
- * build. These assertions pin that shape so the edge cannot creep back.
+ * Desktop `dev` tasks once pulled in `t3#build`, which cleans `apps/server/dist` and copies a
+ * loopback-baked web build over its client. A dev desktop launch consumes no built client, so they
+ * depend on `t3#dev:bundle` instead; these assertions keep that edge from creeping back.
  */
 
 function readRepoFile(relativePath: string): string {
