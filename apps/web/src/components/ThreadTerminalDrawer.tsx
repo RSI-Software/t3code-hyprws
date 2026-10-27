@@ -654,8 +654,6 @@ function TerminalSessionViewport({
   }); // fork-hook: zmux-estate/checkout-launch-identity
   const launchIdentityRef = useRef<string | null>(null); // fork-hook: zmux-estate/retarget-on-mount
   const hasHandledExitRef = useRef(false);
-  const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
-  const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
   const restoreFocusAfterAttachRef = useRef(false);
   const wasAttachedRef = useRef(attached);
   const selectionActionRequestIdRef = useRef(0);

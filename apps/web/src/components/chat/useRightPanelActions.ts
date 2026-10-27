@@ -1,4 +1,3 @@
-import { noteTerminalFocusIntentFork } from "../ChatView.focus.fork"; // fork-hook: upstream-fixes/terminal-focus-import
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { ThreadPreviewState } from "../../previewStateStore";
 import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
@@ -206,7 +205,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       setActivePreviewTab(activeThreadRef, surface.resourceId);
     }
     if (surface.kind === "terminal") {
-      noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
       focusTerminal(activeThreadRef, surface.activeTerminalId);
     }
     if (surface.kind === "diff" && !diffOpen) {

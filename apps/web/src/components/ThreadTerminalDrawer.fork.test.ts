@@ -13,10 +13,6 @@ import {
   shouldRestoreTerminalFocusAfterResume,
   terminalOutputCursorForLifecycle,
 } from "./ThreadTerminalDrawer";
-import {
-  shouldFocusTerminalOnAttachFork,
-  shouldHandleTerminalFocusRequest,
-} from "./ThreadTerminalDrawer.fork";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
     key: "x",
@@ -117,42 +113,6 @@ describe("terminal focus requests", () => {
         status: "running",
         restoreRequested: false,
         focusPending: true,
-      }),
-    ).toBe(false);
-  });
-  it("handles a non-zero request once when a fresh viewport becomes ready", () => {
-    expect(
-      shouldHandleTerminalFocusRequest({
-        focusOnRequest: true,
-        focusRequestId: 4,
-        handledFocusRequestId: 0,
-      }),
-    ).toBe(true);
-    expect(
-      shouldHandleTerminalFocusRequest({
-        focusOnRequest: true,
-        focusRequestId: 4,
-        handledFocusRequestId: 4,
-      }),
-    ).toBe(false);
-  });
-  it("focuses on attach only when a request is pending", () => {
-    expect(shouldFocusTerminalOnAttachFork(false)).toBe(false);
-    expect(shouldFocusTerminalOnAttachFork(true)).toBe(true);
-  });
-  it("never focuses for the zero no-request sentinel", () => {
-    expect(
-      shouldHandleTerminalFocusRequest({
-        focusOnRequest: true,
-        focusRequestId: 0,
-        handledFocusRequestId: 0,
-      }),
-    ).toBe(false);
-    expect(
-      shouldHandleTerminalFocusRequest({
-        focusOnRequest: true,
-        focusRequestId: 0,
-        handledFocusRequestId: 4,
       }),
     ).toBe(false);
   });
