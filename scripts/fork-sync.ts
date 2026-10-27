@@ -1157,8 +1157,9 @@ const hookLineCounts = (
 /**
  * The hook keys whose marked lines the tip carries fewer of than the trunk:
  * a resolution that silently dropped fork behaviour, which typecheck and tests
- * miss. A key a commit above the merge base retires with a
- * `Fork-Hook-Retired: domain/name` trailer is exempt.
+ * miss. A key the tip's commits carry more `Fork-Hook-Retired: domain/name`
+ * trailers for than the trunk's is exempt: a trailer that already landed is a
+ * past sync's retirement, and its rebased copy must not exempt the key again.
  */
 export const lostHooks = (
   runner: CommandRunner,
@@ -1169,17 +1170,21 @@ export const lostHooks = (
   const before = hookLineCounts(runner, root, trunk);
   const after = hookLineCounts(runner, root, tip);
   const since = git(runner, root, ["merge-base", trunk, tip]);
-  const retired = new Set(
-    lines(
-      git(runner, root, [
-        "log",
-        `--format=%(trailers:key=${HOOK_RETIRED_TRAILER},valueonly)`,
-        `${since}..${tip}`,
-      ]),
-    ),
-  );
+  const retirements = (ref: string): ReadonlyMap<string, number> => {
+    const counts = new Map<string, number>();
+    const log = git(runner, root, [
+      "log",
+      `--format=%(trailers:key=${HOOK_RETIRED_TRAILER},valueonly)`,
+      `${since}..${ref}`,
+    ]);
+    for (const key of lines(log)) counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  };
+  const landed = retirements(trunk);
+  const declared = retirements(tip);
+  const retired = (key: string): boolean => (declared.get(key) ?? 0) > (landed.get(key) ?? 0);
   return [...before]
-    .filter(([key, count]) => (after.get(key) ?? 0) < count && !retired.has(key))
+    .filter(([key, count]) => (after.get(key) ?? 0) < count && !retired(key))
     .map(([key, count]) => `${key} (${count}→${after.get(key) ?? 0})`)
     .toSorted();
 };
