@@ -8,6 +8,11 @@ import {
 } from "@t3tools/contracts";
 
 import { stackedThreadToast, toastManager } from "./components/ui/toast";
+import {
+  resolveThreadActionProjectRef,
+  type ChatThreadActionContext,
+} from "./lib/chatThreadActions";
+import type { CommandHandler, CommandHandlers } from "./shortcuts/dispatcher";
 
 export type DesktopProjectWindowBridge = DesktopBridge & {
   readonly requestWindow: NonNullable<DesktopBridge["requestWindow"]>;
@@ -73,6 +78,19 @@ export function runDesktopWindowCommandFork(
   event.stopPropagation();
   requestDesktopWindow(bridge, request);
   return true;
+}
+
+/** The chat route's window shortcuts; the project is the viewed thread's, read at event time. */
+export function desktopWindowCommandsFork(
+  readContext: () => ChatThreadActionContext,
+): CommandHandlers {
+  const run =
+    (command: "window.new" | "window.openProject"): CommandHandler =>
+    (event) =>
+      runDesktopWindowCommandFork(command, event, () =>
+        resolveThreadActionProjectRef(readContext()),
+      );
+  return { "window.new": run("window.new"), "window.openProject": run("window.openProject") };
 }
 
 /** Whether the running client can open a desktop window, read at menu-open time. */

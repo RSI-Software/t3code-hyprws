@@ -1,14 +1,7 @@
-// One-way migration for composer drafts saved under the retired project routes
-// (RSI-Software/t3code-hyprws#1347).
-//
-// A window opened on `#/project/<env>/<project>/…` persisted its drafts under
-// `<key>:project:<env>:<project>`, and its per-window bucket under that name plus
-// `:window:<token>`. Those routes now redirect to ordinary ones, so the store only
-// reads `<key>`. Before it hydrates, each project bucket folds into its route-free
-// counterpart: the shared bucket into `<key>`, a window bucket into
-// `<key>:window:<token>`, where the window draft scope finds and adopts it.
-// Existing entries win and sources only fill gaps, so no draft text is dropped.
-// The destination is written before a source is removed.
+// One-way migration: retired `#/project/<env>/<project>/…` routes saved drafts under
+// `<key>:project:<env>:<project>` (plus `:window:<token>`). Before hydration each folds into
+// its route-free `<key>` or `<key>:window:<token>`. Existing entries win and sources only
+// fill gaps, and the destination is written before a source is removed, so no text is lost.
 
 type StringStorage = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 

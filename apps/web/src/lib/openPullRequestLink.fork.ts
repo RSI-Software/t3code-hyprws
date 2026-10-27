@@ -1,29 +1,17 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { MouseEvent } from "react";
 import type { useNavigate } from "@tanstack/react-router";
-import type { ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
+import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-request-links";
 
 import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell } from "../state/entities";
 
 /**
- * Upstream's `findProjectOnChangeRequestHost`, passed in by its caller: importing it back from
- * `./openPullRequestLink` would form a cycle that deadlocks tests mocking that module with
- * `importOriginal`.
- */
-export type FindProjectOnHostFork = (
-  projects: ReadonlyArray<EnvironmentProject>,
-  link: ChangeRequestLink,
-) => EnvironmentProject | undefined;
-
-/**
- * Fork: the preferred-project policy for GitHub links, without a second
- * project resolver. Upstream's `findProjectOnChangeRequestHost` stays the only
- * matcher; the fork's preference is expressed by ordering the candidate list
- * so the window's active project sorts first before the call — its own
- * repository still wins inside the resolver, and the host-wide fallback now
- * meets the preferred project before any other checkout on the host.
+ * Fork: GitHub links prefer the window's project without a second resolver. Upstream's
+ * `findProjectOnChangeRequestHost` stays the only matcher; the active project sorts first in
+ * its candidate list, so its own repository still wins and the host-wide fallback meets the
+ * preferred project before any other checkout on the host.
  */
 
 function repositoryIdentityOf(project: EnvironmentProject): string | null {
@@ -53,12 +41,14 @@ function orderProjectsPreferredFirstFork(
  * otherwise any project checked out from that host.
  */
 export function findProjectPreferredFork(
-  findProjectOnHost: FindProjectOnHostFork,
   projects: ReadonlyArray<EnvironmentProject>,
-  link: ChangeRequestLink,
+  link: Parameters<typeof findProjectOnChangeRequestHost>[1],
   preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  return findProjectOnHost(orderProjectsPreferredFirstFork(projects, preferredProjectId), link);
+  return findProjectOnChangeRequestHost(
+    orderProjectsPreferredFirstFork(projects, preferredProjectId),
+    link,
+  );
 }
 
 /** The identity's own spelling of the repository when the link refers to it. */
@@ -67,6 +57,15 @@ export function linkedRepositoryFork(project: EnvironmentProject, repository: st
   return projectRepository?.toLowerCase() === repository.toLowerCase()
     ? projectRepository
     : repository;
+}
+
+/** Change request links prefer the thread's project and borrow a host checkout outside the panel too. */
+export function linkPreferenceFork(resolvedThreadRef: ScopedThreadRef | undefined): {
+  readonly projectId?: ProjectId | undefined;
+  readonly lendHostProject?: boolean;
+} {
+  const projectId = resolvedThreadRef ? readThreadShell(resolvedThreadRef)?.projectId : undefined;
+  return { projectId, lendHostProject: true };
 }
 
 export interface GitHubIssueLink {
@@ -113,28 +112,18 @@ export interface OpenGitHubIssueLinkInput {
   >;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly navigate: ReturnType<typeof useNavigate>;
-  readonly findProjectOnHost: FindProjectOnHostFork;
 }
 
 /**
- * Claim a GitHub issue link for the in-app issue surface, or leave it alone.
- * Everything here — parsing, the project-window or hub candidate list, the
- * preferred-project ordering through `findProjectPreferredFork`, the right
- * panel open, and the scoped route fallback — is fork-owned; the upstream
- * handler carries only the one marked claim line.
+ * Claim a GitHub issue link for the in-app issue surface, or leave it alone. Parsing,
+ * candidate ordering through `findProjectPreferredFork`, the right panel open, and the
+ * scoped route fallback are fork-owned; the upstream handler carries one marked claim line.
  */
 export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boolean {
   const parsedIssue = parseGitHubIssueUrl(accept.targetUrl);
   if (parsedIssue === null) return false;
-  const {
-    event,
-    resolvedThreadRef,
-    allProjects,
-    serverConfigs,
-    primaryEnvironmentId,
-    navigate,
-    findProjectOnHost,
-  } = accept;
+  const { event, resolvedThreadRef, allProjects, serverConfigs, primaryEnvironmentId, navigate } =
+    accept;
   const readsIssues = (environmentId: EnvironmentId) =>
     serverConfigs.get(environmentId)?.environment.capabilities.githubIssues === true;
   const projects = resolvedThreadRef
@@ -149,12 +138,7 @@ export function openGitHubIssueLinkFork(accept: OpenGitHubIssueLinkInput): boole
   const preferredProjectId = resolvedThreadRef
     ? readThreadShell(resolvedThreadRef)?.projectId
     : undefined;
-  const issueProject = findProjectPreferredFork(
-    findProjectOnHost,
-    projects,
-    parsedIssue,
-    preferredProjectId,
-  );
+  const issueProject = findProjectPreferredFork(projects, parsedIssue, preferredProjectId);
   if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
   event.preventDefault();
   event.stopPropagation();

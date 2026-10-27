@@ -1,8 +1,7 @@
-// Fork-owned: which projects each server is asked about when the list shows a
-// window's filter (RSI-Software/t3code-hyprws#1347). Upstream's split counts a
-// server's projects to decide whether its read needs a project filter at all;
-// with a window filter the listed projects are a subset, so the count has to
-// come from every project the server holds, or the filter is always dropped.
+// Fork-owned: which projects each server is asked about under a window filter. Upstream's
+// split counts a server's projects to decide whether its read needs a project filter; with a
+// window filter the listed projects are a subset, so the count must come from every project
+// the server holds, or the filter is always dropped.
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 import {

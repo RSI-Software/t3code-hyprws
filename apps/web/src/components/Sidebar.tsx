@@ -1090,9 +1090,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
-  const selectedProjectScopeItem =
-    projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
-    projectScopeItems[0]!;
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectChooser.items, // fork-hook: workspaces/chooser-items
     query: projectScopeMenuState.query,

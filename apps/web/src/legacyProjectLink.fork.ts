@@ -1,8 +1,6 @@
-// Old project-window links (RSI-Software/t3code-hyprws#1347). The project
-// route family is gone; a `/project/<environment>/<project>/…` link, whether
-// typed, bookmarked, deep-linked, or restored from a window manifest as a hash
-// route, lands on the ordinary route it meant. Stateless: it reads only the
-// link, never the window or its filter.
+// The project route family is gone; a `/project/<environment>/<project>/…` link, whether
+// typed, bookmarked, deep-linked, or restored from a window manifest as a hash route, lands
+// on the ordinary route it meant. Stateless: it reads only the link, never the window.
 
 type LegacySearch = Readonly<Record<string, unknown>>;
 

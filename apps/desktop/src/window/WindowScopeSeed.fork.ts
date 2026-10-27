@@ -1,16 +1,8 @@
 /**
- * The project a new window's sidebar scope starts on (RSI-Software/t3code-hyprws#1344).
- *
- * Main passes it as a preload argument to a window it creates for one project
- * (Open in New Window, a v1 restore entry), and the renderer applies it only
- * while that window has no scope of its own. Electron replays the argument on
- * every reload, so the renderer, not main, decides when a seed is spent.
- *
- * Without a seed a new window inherits the last scope any window chose, as
- * upstream does; `"all-projects"` opts a window out of that inheritance.
- *
- * Kept free of package imports so the sandboxed preload can use it; see
- * `WindowId.fork.ts` for why.
+ * A new window's starting sidebar scope, passed as a preload argument. Electron
+ * replays it on every reload, so the renderer applies it only while the window
+ * has no scope of its own; `"all-projects"` opts out of inheriting the last
+ * scope. No package imports, so the sandboxed preload can use it.
  */
 const WINDOW_SCOPE_SEED_PRELOAD_ARGUMENT = "--t3code-window-scope-seed";
 

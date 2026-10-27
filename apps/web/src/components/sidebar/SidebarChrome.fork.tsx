@@ -1,8 +1,6 @@
-// Fork-owned: the sidebar's GitHub Issues utility entry for commit
-// `9f92309411` (feat(issues): add GitHub Issues surface scoped to project
-// windows). The upstream `SidebarChrome.tsx` carries only marked hook lines
-// pointing here: the capability probe, the navigation callback, the footer
-// page detection, and the rendered entry.
+// Fork-owned sidebar GitHub Issues entry. Upstream `SidebarChrome.tsx` carries only marked
+// hook lines pointing here: the capability probe, the navigation callback, the footer page
+// detection, and the rendered entry.
 
 import type { useNavigate } from "@tanstack/react-router";
 
