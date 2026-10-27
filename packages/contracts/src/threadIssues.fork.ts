@@ -1,8 +1,6 @@
-// Fork-owned thread ↔ GitHub issue links (RSI-Software/t3code-hyprws#1431), shaped
-// like the thread ↔ pull request links in `orchestrationV2.ts`. That upstream file
-// carries only marked hooks that spread the schemas below into its app thread,
-// thread shell and command unions. Issue changes ride the upstream
-// `thread.metadata-updated` event, whose payload is the whole thread, so the fork
+// Fork-owned thread ↔ GitHub issue links, shaped like the pull request links in
+// `orchestrationV2.ts`, which spreads these schemas in through marked hooks. Issue changes ride
+// the upstream `thread.metadata-updated` event, whose payload is the whole thread, so the fork
 // adds no event type an upstream client would reject.
 import * as Schema from "effect/Schema";
 

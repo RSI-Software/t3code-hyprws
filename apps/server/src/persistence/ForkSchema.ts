@@ -94,16 +94,10 @@ const FORK_TABLES = [
 ] as const;
 
 /**
- * Shipped-nightly repair for fork nightlies
- * `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded the fork column
- * as numbered migration row `(48, "ProjectionThreadCheckoutMove")`.
- *
- * The Migrator only runs migrations with an id above the latest recorded id,
- * so that stale fork row would make upstream's real 048
- * (`ProjectionThreadBranchPullRequest`) skip: latest id 48 is not below 48.
- * Delete exactly that row before `runMigrations` so upstream's guarded 048
- * runs. Checkout moves now ride on the V2 thread payload, so no fork column
- * replaces it; databases that already carry `checkout_move_json` keep it unread.
+ * Repairs fork nightlies `v0.0.39-hyprws-nightly.20260906.337`–`.341`, which recorded
+ * migration row `(48, "ProjectionThreadCheckoutMove")`. The Migrator runs only ids above the
+ * latest recorded one, so that row would skip upstream's real 048: delete exactly it before
+ * `runMigrations`. Databases that already carry `checkout_move_json` keep that column unread.
  */
 export const repairStaleForkMigrationRow = Effect.fn("repairStaleForkMigrationRow")(function* () {
   const sql = yield* SqlClient.SqlClient;

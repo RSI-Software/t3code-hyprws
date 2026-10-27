@@ -1,8 +1,7 @@
-// Fork-only reverse lookup for thread ↔ GitHub issue links
-// (RSI-Software/t3code-hyprws#1431), mirroring upstream's pull request
-// `linkedThreads.ts`: links live in the V2 thread payload's `issues` array.
-// The key is host-qualified, so one issue linked from two projects answers
-// with both threads; deleted threads are never returned.
+// Fork-only reverse lookup for thread ↔ GitHub issue links, mirroring upstream's pull request
+// `linkedThreads.ts`: links live in the V2 thread payload's `issues` array. The key is
+// host-qualified, so one issue linked from two projects answers with both threads; deleted
+// threads are never returned.
 import {
   GitHubIssueOperationError,
   PullRequestLinkedThreadsResult,

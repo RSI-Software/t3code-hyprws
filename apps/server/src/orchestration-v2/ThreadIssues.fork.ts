@@ -1,10 +1,7 @@
-// Fork-owned thread ↔ GitHub issue links on Orchestrator V2
-// (RSI-Software/t3code-hyprws#1431). Links live on the app thread itself, so the
-// V2 projector stores them inside the thread payload with no table of their own.
-// `Orchestrator.ts` routes the three issue commands here through marked hooks;
-// each accepted command emits the upstream `thread.metadata-updated` event, whose
-// payload is the whole thread, so no upstream client ever receives a fork-only
-// event type. Links never settle a thread.
+// Fork-owned thread ↔ GitHub issue links on Orchestrator V2, stored inside the thread payload.
+// `Orchestrator.ts` routes the three issue commands here through marked hooks; each emits the
+// upstream `thread.metadata-updated` event with the whole thread, so no upstream client receives
+// a fork-only event type. Links never settle a thread.
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2DomainEvent,
@@ -15,7 +12,7 @@ import type {
 import {
   normalizeThreadPullRequestKey,
   threadPullRequestKeysEqual,
-} from "@t3tools/shared/threadPullRequests";
+} from "../sourceControl/threadPullRequests.ts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 

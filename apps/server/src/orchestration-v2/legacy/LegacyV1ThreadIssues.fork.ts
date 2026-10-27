@@ -1,8 +1,6 @@
-// Fork-owned V1 → V2 import of thread ↔ GitHub issue links
-// (RSI-Software/t3code-hyprws#1431). V1 kept them in the fork table
-// `projection_thread_issues`; V2 keeps them on the thread payload. The shell
-// import calls this once per startup through one `github-issues/*` hook, after
-// every thread it imports already exists in the V2 projection.
+// Fork-owned V1 → V2 import of thread ↔ GitHub issue links: V1 kept them in the fork table
+// `projection_thread_issues`, V2 on the thread payload. The shell import calls this once per
+// startup through one `github-issues/*` hook, after every imported thread exists in V2.
 import {
   EventId,
   OrchestrationV2AppThreadJson,
