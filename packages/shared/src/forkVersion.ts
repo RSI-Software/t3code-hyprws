@@ -46,12 +46,10 @@ export function forkCliReleaseChannelOf(version: string): "nightly" | undefined 
 }
 
 /**
- * True when the version-skew check should compare two versions in full rather
- * than by `major.minor.patch`: both are fork releases on the same channel.
- * Fork stables share a core across `hyprws.<n>` builds and fork nightlies
- * never carry upstream's `nightly` identifier, so upstream's core-only rule
- * would read `0.0.43-hyprws.3` against `0.0.43-hyprws.2` as equal. A fork
- * stable against a fork nightly keeps upstream's core comparison.
+ * True when the version-skew check should compare full versions: both are fork releases on the
+ * same channel. Upstream's core-only rule would read `0.0.43-hyprws.3` against `0.0.43-hyprws.2`
+ * as equal, since fork builds share a core. A fork stable against a fork nightly keeps upstream's
+ * core comparison.
  */
 export function forkComparesFullVersions(clientVersion: string, serverVersion: string): boolean {
   return (

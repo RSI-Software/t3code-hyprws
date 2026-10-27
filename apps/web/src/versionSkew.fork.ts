@@ -5,11 +5,9 @@
 import { isForkServiceVersion } from "@t3tools/shared/forkVersion";
 
 /**
- * `manualServerUpdateCommand` is only reached when the connected server
- * reports no self-update capability (see `resolveServerSelfUpdateCapability`).
- * A fork server has no npm package for `npx t3@<version>` to fetch, so a fork
- * version gets `t3 update <version>`, which installs the fork release on the
- * host through the `t3` the fork installer put there.
+ * Reached only when the server reports no self-update capability. A fork server has no npm
+ * package for `npx t3@<version>`, so a fork version gets `t3 update <version>`, which installs
+ * the fork release through the `t3` the fork installer put on the host.
  */
 export function forkManualServerUpdateCommand(targetVersion: string): string | null {
   if (!isForkServiceVersion(targetVersion)) return null;
