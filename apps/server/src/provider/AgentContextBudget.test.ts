@@ -47,6 +47,7 @@ import { DocumentText } from "./DocumentText.ts";
 import { EnvironmentThemeService } from "../environmentTheme.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
+import { subtractForkContextOverhead } from "./agentContextOverhead.fork.ts"; // fork-hook: fork-meta/context-budget-import
 import { forkToolHandlerServices } from "./agentContextBudget.fork.ts"; // fork-hook: thread-ordering/context-budget-import
 
 // Registration only stores tool definitions, so the handlers' services are never called.
@@ -153,6 +154,7 @@ it.effect("agent context matches the committed budget", () =>
       ),
     };
 
+    subtractForkContextOverhead(measured); // fork-hook: fork-meta/context-budget-accounting
     expect(
       measured,
       "Set agentContextBudget.json to the measured values. Before you cut text to fit, run the evals that cover it (evals/README.md).",
