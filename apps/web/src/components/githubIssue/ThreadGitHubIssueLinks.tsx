@@ -35,7 +35,7 @@ export function ThreadGitHubIssueLinks({ threadRef }: { readonly threadRef: Scop
   const [pending, setPending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const loaded = thread !== null;
-  // Opening the panel rereads stale links once per thread per mount; the server skips fresh ones.
+  // oxlint-disable-next-line t3code/react-effect-budget -- asks the server to reread stale GitHub links once per thread per mount; it skips fresh ones.
   useEffect(() => {
     if (!loaded) return;
     void sync({
