@@ -1,11 +1,9 @@
 import { projectFileRevision } from "@t3tools/contracts";
 
-// Stale-write guard (RSI-Software/t3code-hyprws#1761): the disk revision each
-// unsaved draft started from, keyed by the file's optimistic atom. A save sends
-// it so the server refuses to replace a newer disk version. An entry without a
-// revision skips the check: the panel never showed disk contents, or the user
-// chose to overwrite. A saved or reloaded draft holds SETTLED until the next
-// edit, so an editor still holding it cannot resend it unchecked.
+// Stale-write guard: the disk revision each unsaved draft started from, sent on save
+// so the server refuses to replace a newer disk version. No revision skips the check
+// (disk contents never shown, or the user chose to overwrite). A saved or reloaded draft
+// holds SETTLED until the next edit, so a stale editor cannot resend it unchecked.
 const SETTLED = Symbol("settled");
 // Weak keys: a closed file's atom and its settled entry can be collected.
 const draftBases = new WeakMap<object, string | undefined | typeof SETTLED>();

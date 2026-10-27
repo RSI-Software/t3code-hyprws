@@ -1,14 +1,7 @@
-// Fork-owned seam for the global external-workspace-symlink policy
-// (RSI-Software/t3code-hyprws#951, reshaping 565594bd75).
-//
-// Upstream's read resolver hard-blocks any path whose resolved target leaves
-// the workspace root. The fork adds a server-authoritative opt-in: when the
-// `followExternalWorkspaceSymlinks` server setting is enabled, reads may cross
-// symlinks whose targets are outside the root. The settings service is looked
-// up optionally so the seam adds no requirement to `WorkspaceFileSystem.layer`
-// — upstream files and test harnesses keep upstream text, and the production
-// wiring in `server.ts` provides the service through one marked hook. Without
-// the service (or on a settings error) the containment guard stays closed.
+// Fork seam: reads may cross symlinks whose targets leave the workspace root only when the
+// `followExternalWorkspaceSymlinks` server setting is on. The settings service is looked up
+// optionally so `WorkspaceFileSystem.layer` gains no requirement; `server.ts` provides it through
+// one marked hook. Without it, or on a settings error, the containment guard stays closed.
 import { type ProjectWriteFileInput, projectFileRevision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
