@@ -12,16 +12,10 @@ import {
   type SidebarThreadGroupSpan,
 } from "./SidebarThreadGroup.markers";
 
-// Group membership follows dnd-kit's sortable-tree example with a maximum
-// depth of 1. The sidebar list is the flattened tree: a group header and every
-// plain active thread sit at depth 0, a group's members at depth 1. While a row
-// is lifted, the horizontal pointer offset picks its depth at the slot it would
-// land in, bounded by its neighbours: the row above decides whether nesting is
-// possible, the row below whether it is required. Depth 1 nests under the
-// nearest depth-0 row above, which joins that group or, for a plain thread,
-// creates one; a member projected to depth 0 leaves its group there.
-// A group's parent sits flush at depth 0, still a member. Right under a
-// group's header, depth 0 makes the lifted row that group's parent.
+// Membership follows dnd-kit's sortable-tree example at max depth 1: headers, group parents,
+// and plain threads sit at depth 0, members at 1. A lifted row's pointer offset picks its depth,
+// bounded by the row above (can it nest) and below (must it). Depth 1 joins or creates the
+// nearest depth-0 row's group, depth 0 leaves it, and right under a header makes the parent.
 
 /** How far a member card sits right of a plain one: the rail's margin, border,
     and padding. One step of this width changes the projected depth. */
