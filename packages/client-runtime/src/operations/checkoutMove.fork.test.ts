@@ -51,6 +51,7 @@ const makeSupervisor = Effect.fn("TestCheckoutMoveCommand.makeSupervisor")(funct
     client,
     initialConfig: Effect.never,
     subscribeServerConfig: (input) => client.subscribeServerConfig(input),
+    inboundFrames: Effect.succeed(0),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
