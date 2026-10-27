@@ -68,7 +68,7 @@ it("fails an untagged tip through the delta check, before the scan", () => {
   }
 });
 
-it("runs delta, stale-delete, scan, check, and suite in order when every step passes", () => {
+it("runs delta, stale-delete, fixup fold, merge-tree, scan, check, and suite in order when every step passes", () => {
   const { root, head, base } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
@@ -83,6 +83,7 @@ it("runs delta, stale-delete, scan, check, and suite in order when every step pa
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:stale-delete", "--base", `${head}^`, "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
+      ["bash", "scripts/fork-merge-tree.sh", head],
       [
         "vp",
         "run",
@@ -116,11 +117,12 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
       return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
     };
     assert.strictEqual(run([], root, step), 1);
-    const [delta, staleDelete, fixupFold, scan, check] = calls;
-    assert.strictEqual(calls.length, 5);
+    const [delta, staleDelete, fixupFold, mergeTree, scan, check] = calls;
+    assert.strictEqual(calls.length, 6);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(mergeTree?.[0], "bash");
     assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(check, ["vp", "check"]);
   } finally {
@@ -145,9 +147,10 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
       return 0;
     };
     assert.strictEqual(run([], root, step), 0);
-    assert.deepStrictEqual(calls.slice(0, 3), [
+    assert.deepStrictEqual(calls.slice(0, 4), [
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
+      ["bash", "scripts/fork-merge-tree.sh", head],
       [
         "vp",
         "run",
