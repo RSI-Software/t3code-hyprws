@@ -206,6 +206,7 @@ function useServerUpdateDetail(state: Exclude<ServerUpdateState, { status: "idle
     state.stage === "resuming" &&
     state.restartStartedAt !== undefined;
   const [now, setNow] = useState(Date.now);
+  // oxlint-disable-next-line t3code/react-effect-budget -- A wall clock ticks the restart. // fork-hook: upstream-fixes/server-update-progress-clock
   useEffect(() => {
     if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
