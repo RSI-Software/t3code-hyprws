@@ -132,14 +132,9 @@ jobs:
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
 
-  # Merge-tree conflict gate: is this head harder to rebase than the
-  # trunk? `git merge-tree --write-tree upstream/main <ref>` lists every
-  # path whose merge back into live upstream/main conflicts. Running it
-  # for the PR head and for origin/hyprws separates conflicts the branch
-  # introduces (head-only paths red the job and land in the step summary)
-  # from conflicts the trunk already carries (base-inherited paths stay
-  # silent). Replaces the old advisory rebase scan, which blamed the
-  # branch for upstream landing on a shared file.
+  # Merge-tree conflict gate: head-only conflicts against live upstream/main
+  # red the job; scripts/fork-merge-tree.sh, which fork:ci also runs, owns
+  # the rule.
   merge-tree:
     name: merge-tree
     runs-on: ubuntu-latest
@@ -161,37 +156,7 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git 2>/dev/null || true
           git fetch --no-tags upstream main
           git fetch --no-tags origin hyprws
-          set +e
-          git merge-tree --write-tree --name-only --no-messages upstream/main "$HEAD_SHA" > "$RUNNER_TEMP/head-conflicts.txt"
-          head_code=$?
-          git merge-tree --write-tree --name-only --no-messages upstream/main origin/hyprws > "$RUNNER_TEMP/base-conflicts.txt"
-          base_code=$?
-          set -e
-          # 0 is clean, 1 is conflicts; anything else is a broken
-          # invocation that must fail loudly rather than pass silent.
-          if [ "$head_code" -ne 0 ] && [ "$head_code" -ne 1 ]; then
-            echo "merge-tree for head failed (exit $head_code)" >&2
-            exit "$head_code"
-          fi
-          if [ "$base_code" -ne 0 ] && [ "$base_code" -ne 1 ]; then
-            echo "merge-tree for origin/hyprws failed (exit $base_code)" >&2
-            exit "$base_code"
-          fi
-          tail -n +2 "$RUNNER_TEMP/head-conflicts.txt" | sort -u > "$RUNNER_TEMP/head-paths.txt"
-          tail -n +2 "$RUNNER_TEMP/base-conflicts.txt" | sort -u > "$RUNNER_TEMP/base-paths.txt"
-          comm -23 "$RUNNER_TEMP/head-paths.txt" "$RUNNER_TEMP/base-paths.txt" > "$RUNNER_TEMP/head-only.txt"
-          if [ -s "$RUNNER_TEMP/head-only.txt" ]; then
-            {
-              printf '## Merge-tree conflicts introduced by this head\n\n'
-              printf 'These paths conflict against `upstream/main` for this head but not for `origin/hyprws`:\n\n```\n'
-              cat "$RUNNER_TEMP/head-only.txt"
-              printf '```\n'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "head-only merge-tree conflicts:" >&2
-            cat "$RUNNER_TEMP/head-only.txt" >&2
-            exit 1
-          fi
-          echo "merge-tree clean: no head-only conflicts"
+          bash scripts/fork-merge-tree.sh "$HEAD_SHA"
 
   # Everything except `t3` (apps/server), `web`, and the fork's own
   # scripts suite; see upstream ci.yml for why `--parallel` is safe here.

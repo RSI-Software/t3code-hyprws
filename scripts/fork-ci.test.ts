@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import { run, type ForkCiStep } from "./fork-ci.ts";
 
 const forkDeltaScript = NodePath.join(import.meta.dirname, "fork-delta.ts");
+const mergeTreeScript = NodePath.join(import.meta.dirname, "fork-merge-tree.sh");
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync(
@@ -68,7 +69,7 @@ it("fails an untagged tip through the delta check, before the scan", () => {
   }
 });
 
-it("runs delta, stale-delete, scan, check, and suite in order when every step passes", () => {
+it("runs delta, stale-delete, fixup fold, merge-tree, scan, check, and suite in order when every step passes", () => {
   const { root, head, base } = untaggedFixture();
   try {
     const calls: Array<ReadonlyArray<string>> = [];
@@ -83,6 +84,7 @@ it("runs delta, stale-delete, scan, check, and suite in order when every step pa
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:stale-delete", "--base", `${head}^`, "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
+      ["bash", "scripts/fork-merge-tree.sh", head],
       [
         "vp",
         "run",
@@ -116,11 +118,12 @@ it("fails a misformatted file through vp check, reformatting nothing", () => {
       return command === "vp" && args.length === 1 && args[0] === "check" ? 1 : 0;
     };
     assert.strictEqual(run([], root, step), 1);
-    const [delta, staleDelete, fixupFold, scan, check] = calls;
-    assert.strictEqual(calls.length, 5);
+    const [delta, staleDelete, fixupFold, mergeTree, scan, check] = calls;
+    assert.strictEqual(calls.length, 6);
     assert.deepStrictEqual(delta?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(staleDelete?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(fixupFold?.slice(0, 2), ["vp", "run"]);
+    assert.deepStrictEqual(mergeTree?.[0], "bash");
     assert.deepStrictEqual(scan?.slice(0, 2), ["vp", "run"]);
     assert.deepStrictEqual(check, ["vp", "check"]);
   } finally {
@@ -145,9 +148,10 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
       return 0;
     };
     assert.strictEqual(run([], root, step), 0);
-    assert.deepStrictEqual(calls.slice(0, 3), [
+    assert.deepStrictEqual(calls.slice(0, 4), [
       ["vp", "run", "fork:delta", "--check", "--head", head],
       ["vp", "run", "fork:fixup-fold", "--base", base, "--head", head],
+      ["bash", "scripts/fork-merge-tree.sh", head],
       [
         "vp",
         "run",
@@ -163,6 +167,56 @@ it("skips stale-delete on a sync candidate and scans from its base", () => {
         "--no-typecheck",
       ],
     ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a head-only merge-tree conflict and stops before the scan", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-ci-test-"));
+  const commit = (files: Record<string, string>, message: string): string => {
+    for (const [name, text] of Object.entries(files)) {
+      NodeFS.writeFileSync(NodePath.join(root, name), text);
+    }
+    git(root, ["add", "."]);
+    git(root, ["commit", "--quiet", "-m", message]);
+    return git(root, ["rev-parse", "HEAD"]);
+  };
+  try {
+    git(root, ["init", "--quiet", "--initial-branch", "main"]);
+    const base = commit({ "a.txt": "a\n", "b.txt": "b\n" }, "base");
+    git(root, [
+      "update-ref",
+      "refs/remotes/upstream/main",
+      commit({ "a.txt": "a up\n", "b.txt": "b up\n" }, "upstream"),
+    ]);
+    git(root, ["checkout", "--quiet", "--detach", base]);
+    // The trunk already conflicts on b.txt: carried, so never the head's fault.
+    const trunk = commit({ "b.txt": "b fork\n" }, "trunk");
+    git(root, ["update-ref", "refs/remotes/origin/hyprws", trunk]);
+    const runWith = (head: string): { code: number; calls: Array<string> } => {
+      git(root, ["checkout", "--quiet", "--detach", head]);
+      const calls: Array<string> = [];
+      const step: ForkCiStep = (command, args, cwd) => {
+        calls.push(command === "bash" ? "merge-tree" : (args[1] ?? command));
+        if (command !== "bash") return 0;
+        return (
+          NodeChildProcess.spawnSync("bash", [mergeTreeScript, ...args.slice(1)], { cwd }).status ??
+          1
+        );
+      };
+      return { code: run([], root, step), calls };
+    };
+
+    git(root, ["checkout", "--quiet", "--detach", trunk]);
+    const clean = runWith(commit({ "c.txt": "c\n" }, "fork addition"));
+    assert.strictEqual(clean.code, 0);
+    assert.include(clean.calls, "fork:scan");
+
+    git(root, ["checkout", "--quiet", "--detach", trunk]);
+    const refused = runWith(commit({ "a.txt": "a fork\n" }, "fork edit on an upstream line"));
+    assert.strictEqual(refused.code, 1);
+    assert.strictEqual(refused.calls.at(-1), "merge-tree");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
