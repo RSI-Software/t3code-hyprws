@@ -48,6 +48,7 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
     | VoiceTextConfigureFork
     | VoiceTextTransformFork
     | VoiceTextContextFork,
+  search?: Record<string, string>,
 ) {
   const http = yield* HttpClient.HttpClient;
   const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
@@ -66,6 +67,7 @@ const requestVoiceInputFork = Effect.fn(function* <A, E>(
         urls.generateThreadGroupTitle(),
         `${VOICE_INPUT_ROUTE_FORK}/${path}`,
       );
+      if (search) requestUrl += `?${new URLSearchParams(search)}`;
       return requestUrl;
     },
     request: Effect.fn("voiceInput.request")(function* ({ headers }) {
@@ -104,8 +106,19 @@ export const saveVoiceInputSettingsFork = (
   prepared: PreparedConnection,
   input: VoiceInputConfigUpdateFork,
 ) => requestVoiceInputFork(prepared, "save", decodeSettings, input);
-export const transcribeVoiceInputFork = (prepared: PreparedConnection, wav: Uint8Array) =>
-  requestVoiceInputFork(prepared, "transcribe", decodeTranscript, wav);
+/** The project selects its speech-service terms. */
+export const transcribeVoiceInputFork = (
+  prepared: PreparedConnection,
+  wav: Uint8Array,
+  projectId: string | null,
+) =>
+  requestVoiceInputFork(
+    prepared,
+    "transcribe",
+    decodeTranscript,
+    wav,
+    projectId ? { projectId } : undefined,
+  );
 
 export const readVoiceTextSettingsFork = (prepared: PreparedConnection) =>
   requestVoiceInputFork(prepared, "text-read", Schema.decodeUnknownEffect(VoiceTextSettingsFork));

@@ -16,13 +16,15 @@ import { routes } from "./http.fork.ts";
 const harness = (scopes: EnvironmentAuth.AuthenticatedSession["scopes"], authenticated = true) =>
   Effect.gen(function* () {
     let calls = 0;
+    const projects: Array<string | undefined> = [];
     const service = VoiceInput.VoiceInput.of({
       settings: Effect.die("not used"),
       configure: () => Effect.die("not used"),
       stream: () => Effect.die("not used"),
-      transcribe: () =>
+      transcribe: (_, projectId) =>
         Effect.sync(() => {
           calls++;
+          projects.push(projectId);
           return "words";
         }),
     });
@@ -48,12 +50,18 @@ const harness = (scopes: EnvironmentAuth.AuthenticatedSession["scopes"], authent
             : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError()),
       }),
     );
-    const { handler, dispose } = HttpRouter.toWebHandler(routes(service), { disableLogger: true });
+    const { handler, dispose } = HttpRouter.toWebHandler(routes(service), {
+      disableLogger: true,
+    });
     yield* Effect.addFinalizer(() => Effect.promise(dispose));
-    return { calls: () => calls, handler: (request: Request) => handler(request, context) };
+    return {
+      calls: () => calls,
+      projects,
+      handler: (request: Request) => handler(request, context),
+    };
   });
-const upload = (body = new Uint8Array([1]), contentType = "audio/wav") =>
-  new Request(`http://env.local${VOICE_INPUT_ROUTE_FORK}/transcribe`, {
+const upload = (body = new Uint8Array([1]), contentType = "audio/wav", search = "") =>
+  new Request(`http://env.local${VOICE_INPUT_ROUTE_FORK}/transcribe${search}`, {
     method: "POST",
     headers: { "content-type": contentType },
     body,
@@ -78,6 +86,14 @@ describe("dictation HTTP boundary", () => {
         expect(response.status).toBe(status);
         expect(h.calls()).toBe(0);
       }),
+  );
+  it.effect("passes the dictating project", () =>
+    Effect.gen(function* () {
+      const h = yield* harness([AuthOrchestrationOperateScope]);
+      for (const search of ["?projectId=p1", ""])
+        yield* Effect.promise(() => h.handler(upload(undefined, undefined, search)));
+      expect(h.projects).toEqual(["p1", undefined]);
+    }),
   );
   it.effect("refuses unauthenticated audio", () =>
     Effect.gen(function* () {
