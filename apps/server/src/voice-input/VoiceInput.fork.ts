@@ -78,10 +78,11 @@ const LegacySettings = Schema.Struct({
   apiKey: Schema.String,
 });
 const codec = Schema.fromJsonString(StoredSettings);
+const decodeLegacySettings = Schema.decodeEffect(Schema.fromJsonString(LegacySettings));
 const decodeStoredSettings = (encoded: string) =>
   Schema.decodeEffect(codec)(encoded).pipe(
     Effect.catch(() =>
-      Schema.decodeEffect(Schema.fromJsonString(LegacySettings))(encoded).pipe(
+      decodeLegacySettings(encoded).pipe(
         Effect.map(({ endpoint, streamingEndpoint, ...legacy }) => {
           const provider = legacy.provider === "meta" ? "meta" : "openai-compatible";
           const baseUrl = apiRootFork(
