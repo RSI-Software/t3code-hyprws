@@ -199,7 +199,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
       ? { sendDisabledReason: "Finish or cancel text processing before sending." }
       : {},
     presented,
-    live: Boolean(settings?.streamingEndpoint),
+    live: settings?.live ?? false,
     toolbar: (
       <>
         <span className="sr-only" role="status">
