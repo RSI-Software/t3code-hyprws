@@ -80,6 +80,8 @@ Resolve each path in that worktree by verdict, then `git add` it.
 - **Marked fork hook:** goes back verbatim
 - **Net-zero fork edit:** upstream's delete stands
 - **Replayed commit:** never adapt; hook guard
+  - Adds no line its original lacked
+  - A broken build is tip work, not resolution
 - **[Regenerable][regen]:** regenerates on rerun
 
 [regen]: ../../../docs/fork/operations/fork-sync.md#regenerable-files
@@ -104,6 +106,11 @@ To fold it sooner, run [fork-fold](../fork-fold/SKILL.md) now.
 Adaptation the candidate needs (build or test fixes, ports) commits at the tip of the kept worktree.
 
 - **One commit per owner:** per [Reshape][reshape]
+- **Iterate:** amend that owner's fixup
+  - The guard reads each commit alone
+  - A second fixup never clears the first
+- **Comment-only line:** never in an upstream file
+  - Move the code into a `.fork.ts` helper
 - **Owner:** newest fork commit on those lines
 - **Find it:** `vp run fork:fixup-fold`
 - **Unmarked fork line:** the fixup marks it
