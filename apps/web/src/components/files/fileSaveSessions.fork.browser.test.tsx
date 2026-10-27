@@ -1,7 +1,7 @@
 import { render, fakeTimers } from "../../../test/render";
 import { EnvironmentId, ProjectWriteFileError, projectFileRevision } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/reactivity";
+import { Atom, AsyncResult } from "effect/reactivity";
 import { StrictMode, useEffect } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -17,11 +17,12 @@ vi.mock(import("../ui/toast"), async (original) => {
 vi.mock(import("~/state/session"), async (original) => ({
   ...(await original()),
   readEnvironmentScope: () => true,
-  useEnvironmentScope: () => true,
+  sessionHasScope: () => true,
+  environmentSession: { sessionStateAtom: () => Atom.make(null) } as never,
 }));
-vi.mock(import("~/state/use-atom-command"), async (original) => ({
+vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
   ...(await original()),
-  useAtomCommand: (() => writeFile) as never,
+  runAtomCommand: ((...args: unknown[]) => writeFile(args[2])) as never,
 }));
 vi.mock(import("./projectFilesQueryState"), async (original) => ({
   ...(await original()),
@@ -35,7 +36,7 @@ import {
   optimisticFileAtom,
   setProjectFileQueryData,
 } from "./projectFilesQueryState";
-import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
 
 const environmentId = EnvironmentId.make("stale-write-guard");
 const onPendingChange = vi.fn();
@@ -82,9 +83,9 @@ function showLoadedFile(contents: string) {
 async function openEditor() {
   let change: (contents: string) => void = () => {};
   function FileSurface() {
-    const coordinator = useFileSaveCoordinator(props);
+    useFileSaveSession(props, onPendingChange);
     useEffect(() => {
-      change = (contents) => coordinator.change(contents);
+      change = (contents) => changeFileSaveSession(props, contents);
     });
     return null;
   }

@@ -78,6 +78,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
       return;
     }
 
+    this.clearTimer(); // fork-hook: upstream-fixes/file-save-drain-timer
     this.saving = true;
     const contents = this.latestContents;
     const revision = this.latestRevision;
