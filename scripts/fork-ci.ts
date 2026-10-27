@@ -11,8 +11,8 @@
 // and the scripts workspace suite runs whole, the way the Test Scripts job
 // does, so a local green run cannot be greener than CI
 // (RSI-Software/t3code-hyprws#1148). Scope: the Fork ledger delta check,
-// the Fork stale-delete check, the Fork fixup fold check, the Fork rebase
-// scan, the `vp check` step, and the Test Scripts job of hyprws-ci.yml. The
+// the Fork stale-delete check, the Fork fixup fold check, the merge-tree
+// job, the Fork rebase scan, the `vp check` step, and the Test Scripts job of hyprws-ci.yml. The
 // advisory Body job's squash-body check needs the pull-request body, and
 // knip, typecheck, the desktop build, the product test jobs, and the release
 // and sync workflows run separately.
@@ -35,16 +35,18 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
   4. vp run fork:fixup-fold --base <upstream base> --head <head>: every
      fixup! commit folds into the commit it names, proved by a replay
      from the upstream base in a throwaway worktree (scripts/fork-fixup-fold.ts)
-  5. vp run fork:scan with exactly those flags (--no-typecheck included),
+  5. bash scripts/fork-merge-tree.sh <head>: no path conflicts against the
+     fetched upstream/main that origin/hyprws merges cleanly
+  6. vp run fork:scan with exactly those flags (--no-typecheck included),
      which carries the additive gate: files, migrations, tests
      intact (scripts/lib/fork-additive-gate.ts), the hook guard (marked
      insertions only, scripts/lib/fork-hook-guard.ts) and the
      replaced-export / upstream-test authoring findings
      (scripts/fork-scan-authoring.ts)
-  6. vp check, the exact form the workflow's Check step runs
+  7. vp check, the exact form the workflow's Check step runs
      (scripts/fork-ci.ts never passes --fix: the fixer reformats files
      outside branch scope on this trunk)
-  7. the whole @t3tools/scripts test suite
+  8. the whole @t3tools/scripts test suite
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -121,6 +123,12 @@ export const run = (
     return 1;
   }
 
+  const mergeTree = step("bash", ["scripts/fork-merge-tree.sh", flags.head], root);
+  if (mergeTree !== 0) {
+    process.stderr.write("fork:ci: merge-tree check failed; fix above before pushing\n");
+    return 1;
+  }
+
   const scan = step("vp", ["run", "fork:scan", ...forkScanArguments(flags)], root);
   if (scan !== 0) {
     process.stderr.write("fork:ci: rebase scan failed; fix above before pushing\n");
@@ -140,7 +148,7 @@ export const run = (
   }
 
   process.stdout.write(
-    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, rebase scan, vp check, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, merge-tree check, rebase scan, vp check, and scripts suite are green on this head\n",
   );
   return 0;
 };
