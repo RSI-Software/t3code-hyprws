@@ -1,11 +1,7 @@
-// Fork-owned delegated rounds (RSI-Software/t3code-hyprws#1652). A parent
-// continues one app-owned delegated task instead of delegating a fresh child
-// per round, so the child keeps its own context. `delegated_task.request`
-// with `continueTaskId` reopens the same task row on the current parent run
-// and sends the round's brief to the child thread; the upstream finalize path
-// then delivers one result per round, keyed by the child run that produced it.
-// Archiving the child thread releases it: continuation refuses an archived or
-// deleted child, and unarchiving makes it continuable again.
+// Fork-owned delegated rounds: a parent continues one delegated task instead of delegating a
+// fresh child per round, so the child keeps its context. `delegated_task.request` with
+// `continueTaskId` reopens the task row on the current parent run and sends the brief to the
+// child; finalize delivers one result per round. An archived or deleted child is not continuable.
 import {
   isOrchestrationV2WorkActive,
   type MessageId,
