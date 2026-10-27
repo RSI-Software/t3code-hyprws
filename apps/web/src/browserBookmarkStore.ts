@@ -251,6 +251,7 @@ export function useBrowserBookmarks(
 }
 
 export function useBrowserBookmarkStorageSync(): void {
+  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to cross-window `storage` DOM events to rehydrate the persisted store.
   useEffect(() => {
     const syncFromOtherWindow = (event: StorageEvent) => {
       if (event.key !== BROWSER_BOOKMARK_STORAGE_KEY) return;

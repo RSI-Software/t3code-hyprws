@@ -423,7 +423,7 @@ export function PreviewView({
       projectKey: browserProjectKey,
       scope,
       url,
-      title: navTitle ?? undefined,
+      title: navStatus._tag === "Success" ? navStatus.title : undefined,
     });
   }; // fork-hook: browser-bookmarks/scope-change
 
