@@ -20,11 +20,9 @@ const ABSENT_PRIMARY_SIGNATURE = "primary-absent";
 let primarySeenAtMs: number | undefined;
 
 /**
- * The cached primary to keep inside the grace of the last good sighting. A
- * different environment can return at the same URL, so the kept entry's
- * signature is cleared: every later poll with a target re-runs descriptor
- * discovery, and the registry refreshes it in place only when the
- * environment id still matches.
+ * The cached primary to keep inside the grace of the last good sighting. A different
+ * environment can return at the same URL, so the kept signature is cleared: later polls
+ * re-run descriptor discovery, refreshing in place only when the environment id matches.
  */
 export function primaryToKeepThroughAbsenceFork<Entry extends { readonly signature: string }>(
   previous: ReadonlyMap<string, Entry>,
@@ -39,13 +37,10 @@ export function primaryToKeepThroughAbsenceFork<Entry extends { readonly signatu
 }
 
 /**
- * Runs after the upstream primary poll. Removal clears caches, drafts, and
- * the open route, so a successful read that left no primary registered (the
- * target vanished, or rediscovery failed transiently) right after a good
- * sighting is treated as a restart (RSI-Software/t3code-hyprws#1706): the
- * registration stays and the env shows offline. Past the grace the server is
- * really gone and the poll removes it as upstream does. Failed reads stay
- * with upstream, which already retains the cached primary.
+ * Removal clears caches, drafts, and the open route, so a successful poll that left no
+ * primary right after a good sighting is treated as a restart: the registration stays
+ * and shows offline. Past the grace the poll removes it as upstream does; failed reads
+ * stay with upstream, which already retains the cached primary.
  */
 export function keepPrimaryThroughAbsenceFork<
   Entry extends { readonly signature: string; readonly registration: Registration },
