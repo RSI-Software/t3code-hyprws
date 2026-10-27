@@ -1,8 +1,6 @@
-// Fork-owned GitHub issue surfaces for the right panel (RSI-Software/t3code-hyprws#959).
-// The upstream store carries only marked hook lines; the surface shape, the
-// persistence migration, the active-surface fallback, and the open action all
-// live here. Types arrive as structural mirrors so nothing runtime-shared
-// cycles back through the upstream module.
+// Fork-owned GitHub issue surfaces for the right panel; the upstream store carries only
+// marked hook lines. Types arrive as structural mirrors so nothing runtime-shared cycles back
+// through the upstream module.
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
