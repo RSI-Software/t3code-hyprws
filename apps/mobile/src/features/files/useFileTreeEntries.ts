@@ -10,6 +10,10 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { useDebouncedValue } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
+import {
+  ignoredFileTreeVisibilityFork,
+  useIgnoredFileTreeCacheFork,
+} from "./ignoredFileTreeCache.fork"; // fork-hook: workspace-files/mobile-tree-ignored-import
 
 function createDirectories() {
   return {
@@ -105,7 +109,8 @@ export function useFileTreeEntries(input: {
   readonly searchQuery: string;
   readonly includeIgnored?: boolean; // fork-hook: workspace-files/mobile-tree-ignored-input
 }) {
-  const { cwd, environmentId, includeIgnored } = input;
+  const { cwd, environmentId } = input;
+  const ignoredVisibilityFork = ignoredFileTreeVisibilityFork(input.includeIgnored); // fork-hook: workspace-files/mobile-tree-ignored-refresh
   const searching = input.searchQuery.trim().length > 0;
   const query = input.searchQuery.trim().slice(0, 256);
   const debouncedQuery = useDebouncedValue(query, 200);
@@ -113,9 +118,7 @@ export function useFileTreeEntries(input: {
     cwd !== null && environmentId !== null
       ? projectEnvironment.listEntries({
           environmentId,
-          // fork-hook: workspace-files/mobile-tree-ignored-root — always an explicit
-          // boolean: the server hides ignored children only on an explicit false.
-          input: { cwd, directoryPath: "", includeIgnored: includeIgnored === true },
+          input: { cwd, directoryPath: "", ...ignoredVisibilityFork },
         }) // fork-hook: workspace-files/mobile-tree-ignored-root
       : null,
   );
@@ -205,23 +208,7 @@ export function useFileTreeEntries(input: {
   const updateDirectories = (
     update: (current: ReturnType<typeof createDirectories>) => ReturnType<typeof createDirectories>,
   ) => setDirectories((current) => (current.target === target ? update(current) : current));
-  // fork-hook: workspace-files/mobile-tree-ignored-refresh — a preference flip
-  // invalidates cached children so already-expanded folders refetch with the new
-  // visibility instead of serving the previous listing, and aborts in-flight
-  // requests so a stale response cannot repopulate the cleared caches.
-  const loadedPreference = useRef(includeIgnored);
-  // oxlint-disable-next-line t3code/react-effect-budget -- The preference prop drives a refetch. // fork-hook: workspace-files/mobile-tree-ignored-refresh
-  useEffect(() => {
-    if (loadedPreference.current === includeIgnored) return;
-    loadedPreference.current = includeIgnored;
-    refreshVersion.current++;
-    for (const controller of directories.pending.values()) controller.abort();
-    directories.pending.clear();
-    directories.entries.clear();
-    directories.requested.clear();
-    directories.errors.clear();
-    render();
-  }, [directories, includeIgnored]);
+  useIgnoredFileTreeCacheFork(input.includeIgnored, setCache, createDirectories); // fork-hook: workspace-files/mobile-tree-ignored-refresh
   const loadDirectory = (directoryPath: string, refresh = false) => {
     const requests = getRequests(requestsByTarget.current, target);
     if (
@@ -243,7 +230,7 @@ export function useFileTreeEntries(input: {
     });
     const atom = projectEnvironment.listEntries({
       environmentId,
-      input: { cwd, directoryPath, includeIgnored: includeIgnored === true },
+      input: { cwd, directoryPath, ...ignoredVisibilityFork },
     }); // fork-hook: workspace-files/mobile-tree-ignored-directory
     appAtomRegistry.refresh(atom);
     return executeAtomQuery(appAtomRegistry, atom, {
@@ -505,7 +492,10 @@ export function useFileTreeEntries(input: {
     const queries =
       cwd !== null && environmentId !== null
         ? [
-            projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } }),
+            projectEnvironment.listEntries({
+              environmentId,
+              input: { cwd, directoryPath: "", ...ignoredVisibilityFork },
+            }), // fork-hook: workspace-files/mobile-tree-ignored-root
             ...(searching && !missingRoot
               ? [
                   projectEnvironment.searchEntries({

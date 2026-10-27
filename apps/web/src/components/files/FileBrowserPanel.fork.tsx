@@ -2,7 +2,17 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { updateClientSettings, useClientSettings } from "~/hooks/useSettings";
+import {
+  getClientSettings,
+  subscribeClientSettings,
+  updateClientSettings,
+} from "~/hooks/useSettings";
+import { bindIgnoredFilesPreferenceFork, useShowIgnoredFiles } from "./ignoredFilesPreference.fork";
+
+bindIgnoredFilesPreferenceFork({
+  getSnapshot: () => getClientSettings().showIgnoredFiles === true,
+  subscribe: subscribeClientSettings,
+});
 
 export function ShowIgnoredFilesButton(props: { shown: boolean; onToggle: () => void }) {
   const action = props.shown ? "Hide ignored files" : "Show ignored files";
@@ -26,15 +36,6 @@ export function ShowIgnoredFilesButton(props: { shown: boolean; onToggle: () => 
       <TooltipPopup>{action}</TooltipPopup>
     </Tooltip>
   );
-}
-
-/**
- * The show-ignored-files client setting as an explicit boolean. The lazy directory
- * entries hook reads it, so its upstream signature stays unchanged and every
- * entries input carries `includeIgnored` (false when hiding).
- */
-export function useShowIgnoredFiles(): boolean {
-  return useClientSettings((settings) => settings.showIgnoredFiles) === true;
 }
 
 /**

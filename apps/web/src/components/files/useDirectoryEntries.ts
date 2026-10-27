@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { environmentCatalog } from "~/connection/catalog";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
-import { useShowIgnoredFiles } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
+import { useShowIgnoredFiles } from "./ignoredFilesPreference.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   // fork-hook: workspace-files/file-browser-ignored-listing — the show-ignored preference rides the entries input
