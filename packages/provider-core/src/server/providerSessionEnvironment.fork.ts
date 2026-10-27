@@ -5,32 +5,10 @@ import * as Effect from "effect/Effect";
 import type { ProviderAdapterV2SessionRuntime } from "./ProviderAdapter.ts";
 
 /**
- * Environment variables every provider subprocess receives so tooling the
- * agent runs (shells, browser grounders, window resolvers) can name the
- * T3 Code project and thread that own it. The ids name the work, not a
- * window: any desktop window may show that thread.
- *
- * Only a process that serves exactly one app thread can carry the identity.
- * Orchestrator V2 adapters, by how each one runs its provider:
- *
- * - Claude, Pi, and the ACP agents (Grok, registry agents, Antigravity) spawn
- *   one process per session and receive the identity.
- * - OpenCode 1.x spawns one server per session and receives it; a configured
- *   external `serverUrl` is a server T3 never spawns.
- * - Codex and OpenCode 2.x run one process per instance that every thread
- *   shares, so that process receives neither id: a shared process cannot name
- *   one thread, and naming none beats misattributing work.
- * - Codex carries the identity per thread instead, through
- *   `shell_environment_policy.set` in the config overrides of `thread/start`,
- *   `thread/resume` and `thread/fork` (see `codexThreadIdentityConfig`). In
- *   codex-rs 0.159.3 that policy reaches the agent's exec/shell tool commands
- *   (`core/src/unified_exec/process_manager.rs`) and user `!` commands
- *   (`core/src/tasks/user_shell.rs`). It does not reach hooks, which replay the
- *   app-server's own environment (`hooks/src/registry.rs`), MCP stdio servers,
- *   which start from a fixed allowlist of it (`rmcp-client/src/utils.rs`), or a
- *   thread already running when the overrides arrive, which Codex ignores.
- * - Cursor runs its SDK agent inside the T3 server process, and the local SDK
- *   takes no environment, so it is not supported.
+ * Environment variables every provider subprocess receives so tooling the agent runs can name
+ * the owning T3 Code project and thread. Only a process serving exactly one app thread carries
+ * them: shared processes (Codex, OpenCode 2.x) get neither id, Codex sets them per thread through
+ * `codexThreadIdentityConfig`, and in-process Cursor is unsupported.
  */
 const PROVIDER_SESSION_IDENTITY_ENV = {
   projectId: "T3CODE_PROJECT_ID",

@@ -24,13 +24,10 @@ interface HarnessIdentityEnvKeys {
 }
 
 /**
- * Environment variables a coding-agent CLI sets to describe its own run,
- * keyed by the provider driver kind that owns them. Tooling an agent runs
- * reads these to name the harness it is running under, so a provider spawned
- * from a host that carries another provider's markers must not inherit them.
- *
- * Credentials (`ANTHROPIC_API_KEY`, `XAI_API_KEY`) are deliberately absent:
- * they belong to the user, not to a harness run, and any provider may use them.
+ * Environment variables a coding-agent CLI sets to describe its own run, keyed by the owning
+ * provider driver kind. A provider spawned from another provider's host must not inherit them.
+ * Credentials (`ANTHROPIC_API_KEY`, `XAI_API_KEY`) are absent: they belong to the user, and any
+ * provider may use them.
  */
 const HARNESS_IDENTITY_ENV: Readonly<Record<string, HarnessIdentityEnvKeys>> = {
   claudeAgent: { exact: ["CLAUDECODE"], prefixes: ["CLAUDE_"] },
@@ -60,12 +57,9 @@ function isForeignHarnessIdentityEnvKey(key: string, ownDriverKind?: string): bo
 }
 
 /**
- * Removes every harness identity variable that belongs to a provider other
- * than `ownDriverKind`. Omit `ownDriverKind` to remove all of them, which is
- * what a spawn seam wants when the caller layers the target provider's own
- * environment back on top.
- *
- * `T3CODE_*` session identity is not harness identity and is always kept.
+ * Removes every harness identity variable owned by a provider other than `ownDriverKind`. Omit
+ * `ownDriverKind` to remove all of them, for a spawn seam that layers the target provider's own
+ * environment back on top. `T3CODE_*` session identity is not harness identity and is kept.
  */
 export function stripForeignHarnessIdentityEnv(
   environment: Readonly<Record<string, string | undefined>>,
