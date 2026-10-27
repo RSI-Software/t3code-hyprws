@@ -4,7 +4,11 @@ import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense, type ReactNode } from "react";
 
 import { isMarkdownPreviewFile } from "./filePreviewMode";
-import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import {
+  changeFileSaveSession,
+  flushFileSaveSessionFork,
+  useFileSaveSession,
+} from "./fileSaveSessions";
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
@@ -118,7 +122,7 @@ interface RichMarkdownPreviewBoundaryProps {
 }
 
 function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
-  const saveCoordinator = useFileSaveCoordinator(props);
+  useFileSaveSession(props, props.onPendingChange);
 
   return (
     <Suspense
@@ -129,7 +133,7 @@ function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
       }
     >
       <MarkdownRichEditor
-        onSave={saveCoordinator.flush}
+        onSave={() => flushFileSaveSessionFork(props)}
         value={props.contents}
         cwd={props.cwd}
         relativePath={props.relativePath}
@@ -145,7 +149,7 @@ function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
             currentContents,
             setOptimistic: (contents) =>
               setProjectFileQueryData(props.environmentId, props.cwd, props.relativePath, contents),
-            save: (contents) => saveCoordinator.change(contents),
+            save: (contents) => changeFileSaveSession(props, contents),
           });
         }}
       />

@@ -1,5 +1,5 @@
 import { EnvironmentId } from "@t3tools/contracts";
-import { AsyncResult } from "effect/reactivity";
+import { Atom, AsyncResult } from "effect/reactivity";
 import { StrictMode } from "react";
 import { expect, it, vi } from "vite-plus/test";
 
@@ -20,9 +20,13 @@ const { writeFile } = state;
 vi.mock("~/state/projects", () => ({ projectEnvironment: { writeFile: {} } }));
 vi.mock("~/state/session", () => ({
   readEnvironmentScope: () => true,
-  useEnvironmentScope: () => true,
+  sessionHasScope: () => true,
+  environmentSession: { sessionStateAtom: () => Atom.make(null) },
 }));
-vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => writeFile }));
+vi.mock("@t3tools/client-runtime/state/runtime", async (original) => ({
+  ...(await original()),
+  runAtomCommand: (...args: unknown[]) => writeFile(args[2]),
+}));
 vi.mock("./projectFilesQueryState", () => ({
   clearProjectFileQueryData: vi.fn(),
   confirmProjectFileQueryData: () => true,

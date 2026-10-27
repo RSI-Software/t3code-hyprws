@@ -1,4 +1,12 @@
 import { useEffect, type RefObject } from "react";
+import { flushFileSaveSessionFork, type FileSaveTarget } from "./fileSaveSessions";
+
+export function useSourceFileSaveShortcutFork(
+  root: RefObject<HTMLElement | null>,
+  target: FileSaveTarget,
+) {
+  useFileEditorSaveShortcutFork(root, () => flushFileSaveSessionFork(target));
+}
 
 const SAVE_SURFACE_ATTRIBUTE = "data-file-editor-save";
 
