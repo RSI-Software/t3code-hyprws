@@ -54,7 +54,7 @@ export function usePullRequestAttachmentFork(input: {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- aborts the in-flight upload request when the seed changes or the editor closes, so it never inserts into words it did not start from.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- aborts the in-flight upload request when the seed changes or the editor closes, so it never inserts into words it did not start from.
   useEffect(
     () => () => uploadAbortRef.current?.abort(),
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A new seed aborts the upload started from the old one.
