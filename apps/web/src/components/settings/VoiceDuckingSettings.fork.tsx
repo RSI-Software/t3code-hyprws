@@ -125,7 +125,7 @@ export function VoiceDuckingSettingsFork() {
       setDevices(outputs);
       setRefreshing(false);
     });
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to storage, ducking-change, and window focus DOM events to reload settings and speaker outputs.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to storage, ducking-change, and window focus DOM events to reload settings and speaker outputs.
   useEffect(() => {
     void refresh();
     const reload = () => setSettings(readVoiceDuckingFork());
