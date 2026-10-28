@@ -62,9 +62,10 @@ export function splitLegacyThreadGroupsFork(pending: unknown, environmentId: Env
       id: group.id,
       title: group.title,
       threadIds,
-      ...(parent !== undefined && inEnvironment(parent)
-        ? { parentThreadId: parseScopedThreadKey(parent)!.threadId }
-        : {}),
+      parentThreadId:
+        parent !== undefined && inEnvironment(parent)
+          ? parseScopedThreadKey(parent)!.threadId
+          : threadIds[0]!,
     };
     return [{ imported, collapsed: group.collapsed === true }];
   });
