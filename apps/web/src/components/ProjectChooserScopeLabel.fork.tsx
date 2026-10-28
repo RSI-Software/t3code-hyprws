@@ -13,11 +13,12 @@ export function ProjectChooserScopeLabelFork() {
     <Button
       size="sm"
       variant="outline"
-      aria-label={`Choose projects (${label})`}
+      aria-label={`Choose window projects (${label})`}
       onClick={() => openProjectChooser()}
     >
       <FolderIcon />
-      {label}
+      <span className="shrink-0">Window:</span>
+      <span className="max-w-32 truncate">{label.replace(/^Projects: /, "")}</span>
     </Button>
   );
 }
