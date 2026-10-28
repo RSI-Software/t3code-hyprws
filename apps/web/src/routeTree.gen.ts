@@ -16,8 +16,6 @@ import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
-import { Route as SettingsTerminalRouteImport } from './routes/settings.terminal'
-import { Route as SettingsDictationRouteImport } from './routes/settings.dictation'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ProjectSplatRouteImport } from './routes/project.$'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
@@ -27,6 +25,7 @@ import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatIssuesRouteImport } from './routes/_chat.issues'
 import { Route as ChatSettingsWorktreesRouteImport } from './routes/_chat.settings.worktrees'
 import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings.threads'
+import { Route as ChatSettingsTerminalRouteImport } from './routes/_chat.settings.terminal'
 import { Route as ChatSettingsStorageRouteImport } from './routes/_chat.settings.storage'
 import { Route as ChatSettingsSourceControlRouteImport } from './routes/_chat.settings.source-control'
 import { Route as ChatSettingsSnapShotRouteImport } from './routes/_chat.settings.snap-shot'
@@ -40,6 +39,7 @@ import { Route as ChatSettingsKeybindingsRouteImport } from './routes/_chat.sett
 import { Route as ChatSettingsIntegrationsRouteImport } from './routes/_chat.settings.integrations'
 import { Route as ChatSettingsGeneralRouteImport } from './routes/_chat.settings.general'
 import { Route as ChatSettingsDiffsRouteImport } from './routes/_chat.settings.diffs'
+import { Route as ChatSettingsDictationRouteImport } from './routes/_chat.settings.dictation'
 import { Route as ChatSettingsDiagnosticsRouteImport } from './routes/_chat.settings.diagnostics'
 import { Route as ChatSettingsDevicesRouteImport } from './routes/_chat.settings.devices'
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
@@ -87,16 +87,6 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
-const SettingsTerminalRoute = SettingsTerminalRouteImport.update({
-  id: '/settings/terminal',
-  path: '/settings/terminal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsDictationRoute = SettingsDictationRouteImport.update({
-  id: '/settings/dictation',
-  path: '/settings/dictation',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   id: '/projects/$projectKey',
   path: '/projects/$projectKey',
@@ -140,6 +130,11 @@ const ChatSettingsWorktreesRoute = ChatSettingsWorktreesRouteImport.update({
 const ChatSettingsThreadsRoute = ChatSettingsThreadsRouteImport.update({
   id: '/threads',
   path: '/threads',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
+const ChatSettingsTerminalRoute = ChatSettingsTerminalRouteImport.update({
+  id: '/terminal',
+  path: '/terminal',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
 const ChatSettingsStorageRoute = ChatSettingsStorageRouteImport.update({
@@ -209,6 +204,11 @@ const ChatSettingsGeneralRoute = ChatSettingsGeneralRouteImport.update({
 const ChatSettingsDiffsRoute = ChatSettingsDiffsRouteImport.update({
   id: '/diffs',
   path: '/diffs',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
+const ChatSettingsDictationRoute = ChatSettingsDictationRouteImport.update({
+  id: '/dictation',
+  path: '/dictation',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
 const ChatSettingsDiagnosticsRoute = ChatSettingsDiagnosticsRouteImport.update({
@@ -287,8 +287,6 @@ export interface FileRoutesByFullPath {
   '/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
-  '/settings/dictation': typeof SettingsDictationRoute
-  '/settings/terminal': typeof SettingsTerminalRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/settings/about': typeof ChatSettingsAboutRoute
@@ -301,6 +299,7 @@ export interface FileRoutesByFullPath {
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
+  '/settings/dictation': typeof ChatSettingsDictationRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -314,6 +313,7 @@ export interface FileRoutesByFullPath {
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/settings/storage': typeof ChatSettingsStorageRoute
+  '/settings/terminal': typeof ChatSettingsTerminalRoute
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
 }
@@ -330,8 +330,6 @@ export interface FileRoutesByTo {
   '/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
-  '/settings/dictation': typeof SettingsDictationRoute
-  '/settings/terminal': typeof SettingsTerminalRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -345,6 +343,7 @@ export interface FileRoutesByTo {
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
+  '/settings/dictation': typeof ChatSettingsDictationRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -358,6 +357,7 @@ export interface FileRoutesByTo {
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/settings/storage': typeof ChatSettingsStorageRoute
+  '/settings/terminal': typeof ChatSettingsTerminalRoute
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
 }
@@ -376,8 +376,6 @@ export interface FileRoutesById {
   '/_chat/usage': typeof ChatUsageRoute
   '/project/$': typeof ProjectSplatRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
-  '/settings/dictation': typeof SettingsDictationRoute
-  '/settings/terminal': typeof SettingsTerminalRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -391,6 +389,7 @@ export interface FileRoutesById {
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
   '/_chat/settings/devices': typeof ChatSettingsDevicesRoute
   '/_chat/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
+  '/_chat/settings/dictation': typeof ChatSettingsDictationRoute
   '/_chat/settings/diffs': typeof ChatSettingsDiffsRoute
   '/_chat/settings/general': typeof ChatSettingsGeneralRoute
   '/_chat/settings/integrations': typeof ChatSettingsIntegrationsRoute
@@ -404,6 +403,7 @@ export interface FileRoutesById {
   '/_chat/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/_chat/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/_chat/settings/storage': typeof ChatSettingsStorageRoute
+  '/_chat/settings/terminal': typeof ChatSettingsTerminalRoute
   '/_chat/settings/threads': typeof ChatSettingsThreadsRoute
   '/_chat/settings/worktrees': typeof ChatSettingsWorktreesRoute
 }
@@ -423,8 +423,6 @@ export interface FileRouteTypes {
     | '/usage'
     | '/project/$'
     | '/projects/$projectKey'
-    | '/settings/dictation'
-    | '/settings/terminal'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/settings/about'
@@ -437,6 +435,7 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
+    | '/settings/dictation'
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/integrations'
@@ -450,6 +449,7 @@ export interface FileRouteTypes {
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/settings/terminal'
     | '/settings/threads'
     | '/settings/worktrees'
   fileRoutesByTo: FileRoutesByTo
@@ -466,8 +466,6 @@ export interface FileRouteTypes {
     | '/usage'
     | '/project/$'
     | '/projects/$projectKey'
-    | '/settings/dictation'
-    | '/settings/terminal'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -481,6 +479,7 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
+    | '/settings/dictation'
     | '/settings/diffs'
     | '/settings/general'
     | '/settings/integrations'
@@ -494,6 +493,7 @@ export interface FileRouteTypes {
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/settings/terminal'
     | '/settings/threads'
     | '/settings/worktrees'
   id:
@@ -511,8 +511,6 @@ export interface FileRouteTypes {
     | '/_chat/usage'
     | '/project/$'
     | '/projects/$projectKey'
-    | '/settings/dictation'
-    | '/settings/terminal'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -526,6 +524,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/connections'
     | '/_chat/settings/devices'
     | '/_chat/settings/diagnostics'
+    | '/_chat/settings/dictation'
     | '/_chat/settings/diffs'
     | '/_chat/settings/general'
     | '/_chat/settings/integrations'
@@ -539,6 +538,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/snap-shot'
     | '/_chat/settings/source-control'
     | '/_chat/settings/storage'
+    | '/_chat/settings/terminal'
     | '/_chat/settings/threads'
     | '/_chat/settings/worktrees'
   fileRoutesById: FileRoutesById
@@ -552,8 +552,6 @@ export interface RootRouteChildren {
   WelcomeRoute: typeof WelcomeRoute
   ProjectSplatRoute: typeof ProjectSplatRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
-  SettingsDictationRoute: typeof SettingsDictationRoute
-  SettingsTerminalRoute: typeof SettingsTerminalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -606,20 +604,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
-    }
-    '/settings/terminal': {
-      id: '/settings/terminal'
-      path: '/settings/terminal'
-      fullPath: '/settings/terminal'
-      preLoaderRoute: typeof SettingsTerminalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/dictation': {
-      id: '/settings/dictation'
-      path: '/settings/dictation'
-      fullPath: '/settings/dictation'
-      preLoaderRoute: typeof SettingsDictationRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/projects/$projectKey': {
       id: '/projects/$projectKey'
@@ -682,6 +666,13 @@ declare module '@tanstack/react-router' {
       path: '/threads'
       fullPath: '/settings/threads'
       preLoaderRoute: typeof ChatSettingsThreadsRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
+    '/_chat/settings/terminal': {
+      id: '/_chat/settings/terminal'
+      path: '/terminal'
+      fullPath: '/settings/terminal'
+      preLoaderRoute: typeof ChatSettingsTerminalRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
     '/_chat/settings/storage': {
@@ -773,6 +764,13 @@ declare module '@tanstack/react-router' {
       path: '/diffs'
       fullPath: '/settings/diffs'
       preLoaderRoute: typeof ChatSettingsDiffsRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
+    '/_chat/settings/dictation': {
+      id: '/_chat/settings/dictation'
+      path: '/dictation'
+      fullPath: '/settings/dictation'
+      preLoaderRoute: typeof ChatSettingsDictationRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
     '/_chat/settings/diagnostics': {
@@ -873,6 +871,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
   ChatSettingsDevicesRoute: typeof ChatSettingsDevicesRoute
   ChatSettingsDiagnosticsRoute: typeof ChatSettingsDiagnosticsRoute
+  ChatSettingsDictationRoute: typeof ChatSettingsDictationRoute
   ChatSettingsDiffsRoute: typeof ChatSettingsDiffsRoute
   ChatSettingsGeneralRoute: typeof ChatSettingsGeneralRoute
   ChatSettingsIntegrationsRoute: typeof ChatSettingsIntegrationsRoute
@@ -886,6 +885,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsSnapShotRoute: typeof ChatSettingsSnapShotRoute
   ChatSettingsSourceControlRoute: typeof ChatSettingsSourceControlRoute
   ChatSettingsStorageRoute: typeof ChatSettingsStorageRoute
+  ChatSettingsTerminalRoute: typeof ChatSettingsTerminalRoute
   ChatSettingsThreadsRoute: typeof ChatSettingsThreadsRoute
   ChatSettingsWorktreesRoute: typeof ChatSettingsWorktreesRoute
 }
@@ -901,6 +901,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,
   ChatSettingsDevicesRoute: ChatSettingsDevicesRoute,
   ChatSettingsDiagnosticsRoute: ChatSettingsDiagnosticsRoute,
+  ChatSettingsDictationRoute: ChatSettingsDictationRoute,
   ChatSettingsDiffsRoute: ChatSettingsDiffsRoute,
   ChatSettingsGeneralRoute: ChatSettingsGeneralRoute,
   ChatSettingsIntegrationsRoute: ChatSettingsIntegrationsRoute,
@@ -914,6 +915,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsSnapShotRoute: ChatSettingsSnapShotRoute,
   ChatSettingsSourceControlRoute: ChatSettingsSourceControlRoute,
   ChatSettingsStorageRoute: ChatSettingsStorageRoute,
+  ChatSettingsTerminalRoute: ChatSettingsTerminalRoute,
   ChatSettingsThreadsRoute: ChatSettingsThreadsRoute,
   ChatSettingsWorktreesRoute: ChatSettingsWorktreesRoute,
 }
@@ -955,8 +957,6 @@ const rootRouteChildren: RootRouteChildren = {
   WelcomeRoute: WelcomeRoute,
   ProjectSplatRoute: ProjectSplatRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
-  SettingsDictationRoute: SettingsDictationRoute,
-  SettingsTerminalRoute: SettingsTerminalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
