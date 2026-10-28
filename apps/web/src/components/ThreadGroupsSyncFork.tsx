@@ -17,7 +17,7 @@ function EnvironmentThreadGroupsSync(props: { readonly environmentId: Environmen
   const { data } = useEnvironmentQuery(
     threadGroupEnvironment.groups({ environmentId: props.environmentId, input: {} }),
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- pushes the environment's thread-groups query snapshot into the external thread-group store.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes the environment's thread-groups query snapshot into the external thread-group store.
   useEffect(() => {
     if (data !== null) receiveThreadGroupsSnapshotFork(props.environmentId, data);
   }, [data, props.environmentId]);
@@ -31,7 +31,7 @@ export function ThreadGroupsSyncFork() {
     (environmentId) =>
       configs.get(environmentId)?.environment.capabilities.threadGroupsFork === true,
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- prunes the external thread-group store to served environments; renders only when environments or configs change.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- prunes the external thread-group store to served environments; renders only when environments or configs change.
   useEffect(() => retainThreadGroupEnvironmentsFork(new Set(served)));
   return served.map((environmentId) => (
     <EnvironmentThreadGroupsSync key={environmentId} environmentId={environmentId} />
