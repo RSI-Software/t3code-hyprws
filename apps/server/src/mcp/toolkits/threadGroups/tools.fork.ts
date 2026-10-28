@@ -36,7 +36,7 @@ const ThreadGroupListTool = Tool.make("t3_thread_group_list", {
 
 const ThreadGroupUpdateTool = Tool.make("t3_thread_group_update", {
   description:
-    'Change the sidebar thread groups every client of this environment shows. Pass one change as edit. type="set-membership" moves threadIds into target {type:"existing",groupId}, a {type:"new",title} group of at least two threads, or out of any group with {type:"none"}. A group\'s parent shows first with the rest under it: a new group\'s first thread, or the joining thread with asParent. type="rename" retitles a group, "set-parent" picks another member, "remove" dissolves it without touching its threads. A thread belongs to at most one group; a group left with fewer than two threads dissolves, and a leaving parent hands over to the next member. Returns every group after the change.',
+    'Change the sidebar thread groups every client of this environment shows. Pass one change as edit. type="set-membership" moves threadIds into target {type:"existing",groupId}, a {type:"new",title} group of at least two threads, or out of groups with {type:"none"}. Groups lead with a parent: a new group\'s first thread, or a joining thread with asParent. type="rename" retitles a group, "set-parent" picks another member, "remove" dissolves it, threads kept. A thread is in at most one group; a group under two threads dissolves, and a leaving parent passes to the next member. Returns every group after the change.',
   // MCP needs an object root, so the edit union sits under one key.
   parameters: Schema.Struct({ edit: ThreadGroupEditFork }),
   success: ThreadGroupsDescribedFork,
