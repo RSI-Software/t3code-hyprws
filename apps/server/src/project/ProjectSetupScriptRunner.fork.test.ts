@@ -16,6 +16,7 @@ import {
   refreshPersistedSetupScripts,
 } from "./ProjectSetupScriptRunner.ts";
 import * as ProjectService from "./ProjectService.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 const generatedSetupScripts = [
   {
@@ -162,6 +163,9 @@ const testLayer = (
       }),
     ),
     Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(
+      Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
+    ),
     Layer.provide(settings),
   );
 
