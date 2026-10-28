@@ -33,7 +33,7 @@ export function useWindowProjectFilter(
     members: group.memberProjectRefs,
   }));
   const filter = reconcileProjectFilter(stored, groups, settled);
-  // oxlint-disable-next-line t3code/react-effect-budget -- writes the reconciled filter back to the external window filter store.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the reconciled filter back to the external window filter store.
   useEffect(() => {
     if (filter !== stored) state.set(filter);
   }, [filter, state, stored]);
@@ -50,7 +50,7 @@ export function useWindowProjectFilter(
 
 /** Runs `onChange` after every write to this window's filter. */
 export function useWindowProjectFilterChange(onChange: () => void) {
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to the external window filter store.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the external window filter store.
   useEffect(() => windowProjectFilterState().subscribe(onChange), [onChange]);
 }
 
