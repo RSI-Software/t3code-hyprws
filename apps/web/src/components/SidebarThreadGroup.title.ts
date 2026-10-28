@@ -266,7 +266,7 @@ export function useThreadGroupTitlesFork(
   generate: ThreadGroupTitleDeps<EnvironmentThreadShell>["generate"],
 ) {
   const owner = appThreadGroupTitles();
-  // oxlint-disable-next-line t3code/react-effect-budget -- binds the title generator into the app-wide external title-request owner.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- binds the title generator into the app-wide external title-request owner.
   useEffect(() => owner.bind({ generate }), [owner, generate]);
   const generatingGroupIds = useSyncExternalStore(owner.subscribe, owner.generating);
   return {
