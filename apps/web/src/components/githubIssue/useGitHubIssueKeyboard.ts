@@ -94,7 +94,7 @@ export function useGitHubIssueKeyboard({
       if (!event.repeat) copyIssueLink(openIssueUrl);
     }
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to document `keydown` DOM events for page-level shortcuts.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document `keydown` DOM events for page-level shortcuts.
   useEffect(() => {
     if (!page) return;
     const onKeyDown = (event: KeyboardEvent) => onPageShortcut(event);
