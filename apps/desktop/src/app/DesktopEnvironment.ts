@@ -47,6 +47,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly appDataDirectory: string;
     readonly baseDir: string;
     readonly stateDir: string;
+    readonly devElectronUserData: Option.Option<string>; // fork-hook: upstream-fixes/dev-electron-user-data
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
     readonly savedEnvironmentRegistryPath: string;
@@ -196,6 +197,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     isPackaged: input.isPackaged,
     isDevelopment,
     devToolsEnabled: config.devToolsEnabled, // fork-hook: multi-window/devtools-enabled
+    devElectronUserData: isDevelopment ? config.devElectronUserData : Option.none(), // fork-hook: upstream-fixes/dev-electron-user-data
     appVersion: input.appVersion,
     appPath: input.appPath,
     resourcesPath,

@@ -89,19 +89,38 @@ function killChildTreeByPid(pid, signal) {
   NodeChildProcess.spawnSync("pkill", [`-${signal}`, "-P", String(pid)], { stdio: "ignore" });
 }
 
+// A pidfile, not a pattern: only an Electron this checkout started is ever stopped.
+const devAppPidFile = NodePath.join(
+  desktopDir,
+  "node_modules",
+  ".cache",
+  "t3code-dev-electron.pid",
+);
+
 function cleanupStaleDevApps() {
-  if (hostPlatform === "win32") {
+  if (hostPlatform !== "linux") {
     return;
   }
 
-  const escapedDesktopDir = desktopDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  NodeChildProcess.spawnSync(
-    "pkill",
-    ["-f", "--", `(^| )--t3code-dev-root=${escapedDesktopDir}( |$)`],
-    {
-      stdio: "ignore",
-    },
-  );
+  let pid;
+  try {
+    pid = Number.parseInt(NodeFS.readFileSync(devAppPidFile, "utf8"), 10);
+    if (NodeFS.realpathSync(`/proc/${pid}/cwd`) !== NodeFS.realpathSync(desktopDir)) {
+      return;
+    }
+  } catch {
+    return;
+  }
+  killChildTreeByPid(pid, "KILL");
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {}
+}
+
+function recordDevApp(pid) {
+  if (typeof pid !== "number") return;
+  NodeFS.mkdirSync(NodePath.dirname(devAppPidFile), { recursive: true });
+  NodeFS.writeFileSync(devAppPidFile, `${pid}\n`);
 }
 
 function startApp() {
@@ -123,6 +142,7 @@ function startApp() {
   });
 
   currentApp = app;
+  recordDevApp(app.pid);
 
   app.once("error", () => {
     if (currentApp === app) {
@@ -170,7 +190,6 @@ async function stopApp() {
     app.once("exit", finish);
     app.kill("SIGTERM");
     killChildTreeByPid(app.pid, "TERM");
-    cleanupStaleDevApps();
 
     setTimeout(() => {
       if (settled) {
@@ -179,7 +198,6 @@ async function stopApp() {
 
       app.kill("SIGKILL");
       killChildTreeByPid(app.pid, "KILL");
-      cleanupStaleDevApps();
       finish();
     }, forcedShutdownTimeoutMs).unref();
   });
