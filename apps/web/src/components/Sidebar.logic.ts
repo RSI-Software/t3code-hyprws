@@ -22,7 +22,6 @@ import {
   type EnvironmentId,
   type ThreadId,
 } from "@t3tools/contracts";
-import type { ContextMenuItem, EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import {
@@ -720,8 +719,7 @@ export type SidebarThreadGroupContextMenuId =
   | "move-to-group"
   | `move-to-group:${string}`
   | "move-out-of-group"
-  | "set-group-parent"
-  | "clear-group-parent"; // fork-hook: thread-ordering/group-menu-id
+  | "set-group-parent"; // fork-hook: thread-ordering/group-menu-id
 
 export function isSidebarThreadGroupContextMenuId(
   id: string,
@@ -731,7 +729,6 @@ export function isSidebarThreadGroupContextMenuId(
     id === "move-to-group" ||
     id === "move-out-of-group" ||
     id === "set-group-parent" ||
-    id === "clear-group-parent" ||
     id.startsWith("move-to-group:")
   );
 } // fork-hook: upstream-fixes/split-session-permissions
@@ -779,9 +776,10 @@ export function buildThreadGroupMembershipContextMenuItems(input: {
             icon: "folder",
             separatorBefore: availableGroups.length === 0,
           },
-          input.isGroupParent
-            ? { id: "clear-group-parent" as const, label: "Clear group parent" }
-            : { id: "set-group-parent" as const, label: "Set as group parent" },
+          // A parent steps down by promoting another member.
+          ...(input.isGroupParent
+            ? []
+            : [{ id: "set-group-parent" as const, label: "Set as group parent" }]),
         ]),
   ];
 } // fork-hook: thread-ordering/group-menu-items
