@@ -33,6 +33,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as ExternalMcpService from "./external/ExternalMcpService.fork.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
@@ -674,6 +675,7 @@ const inThread = (harness: ReturnType<typeof makeHarness>) =>
           Layer.mock(ProjectService.ProjectService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
         ),
       ),
     ),

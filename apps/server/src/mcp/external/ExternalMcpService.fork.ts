@@ -53,13 +53,12 @@ import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import {
   listItemFromShellFork,
-  resolveInteractionMode,
-  resolveRuntimeMode,
   threadDetailFork,
   threadManagementFailureFork,
   threadRunFork,
   timelineItemFork,
 } from "../OrchestratorMcpService.ts";
+import { resolveInteractionMode, resolveRuntimeMode } from "../delegatedTaskModes.ts";
 import {
   assertWaitTarget,
   type McpThreadReadResult,
@@ -712,7 +711,7 @@ const make = Effect.gen(function* () {
         runId: result.run?.id ?? null,
         status: result.run?.status ?? "idle",
         timedOut: result.timedOut,
-        pendingRequestCount: result.pendingRequestCount,
+        pendingRequestCount: result.pendingRequestCount ?? 0,
         work,
       } satisfies McpThreadWaitResult;
     }),

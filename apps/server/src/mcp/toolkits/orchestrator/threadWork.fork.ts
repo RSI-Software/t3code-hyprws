@@ -25,6 +25,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import type { OrchestratorToolkit } from "./tools.ts";
+import { threadNotFound } from "../../threadAccess.ts";
 
 const loadShell = (
   threads: ThreadManagementService.ThreadManagementServiceShape,
@@ -34,12 +35,7 @@ const loadShell = (
     Effect.mapError(OrchestratorMcpService.threadManagementFailureFork),
     Effect.filterOrElse(
       (shell): shell is OrchestrationV2ThreadShell => shell !== null && shell.deletedAt === null,
-      () =>
-        OrchestratorMcpService.threadNotFound(
-          threads,
-          threadId,
-          `Thread ${threadId} was not found.`,
-        ),
+      () => threadNotFound(threads, threadId, `Thread ${threadId} was not found.`),
     ),
   );
 
