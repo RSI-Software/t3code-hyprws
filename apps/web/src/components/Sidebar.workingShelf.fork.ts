@@ -2,11 +2,38 @@ import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environ
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import type { SidebarListItem } from "./Sidebar.logic";
+import {
+  insertSidebarThreadGroupMarkersFork,
+  type SidebarThreadGroupSpan,
+} from "./SidebarThreadGroup.markers";
 
-// Upstream builds the sidebar's rows inline; the fork's buildSidebarListItems
-// replaces that, so it re-emits upstream's Working shelf between the active
-// inbox and the snoozed shelf: the header whenever a thread is working, rows
-// only for the shelf's visible threads.
+export function applySidebarThreadGroupsFork(
+  items: SidebarListItem[],
+  input: {
+    readonly activeKeys: readonly string[] | null;
+    readonly workingKeys: readonly string[] | undefined;
+    readonly activeGroups: readonly SidebarThreadGroupSpan[];
+  },
+): void {
+  for (const [section, keys, marker] of [
+    ["active", input.activeKeys, "active-placeholder"],
+    ["working", input.workingKeys ?? [], "working-header"],
+  ] as const) {
+    if (keys === null) continue;
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item = items[index]!;
+      if (item.kind === "thread" && item.section === section) items.splice(index, 1);
+    }
+    const index = items.findIndex((item) => item.kind === "marker" && item.marker === marker);
+    if (index !== -1)
+      items.splice(
+        index + 1,
+        0,
+        ...keys.map((key): SidebarListItem => ({ kind: "thread", key, section })),
+      );
+  }
+  insertSidebarThreadGroupMarkersFork(items, input.activeGroups);
+}
 
 /** The Working shelf's visible row keys, or undefined when nothing is working. */
 export function sidebarWorkingShelfKeysFork(

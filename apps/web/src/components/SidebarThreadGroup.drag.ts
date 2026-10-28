@@ -6,7 +6,8 @@ import {
   type SidebarThreadGroup,
   type SidebarThreadGroupMembershipTarget,
 } from "../state/threadGroups";
-import type { SidebarDropTarget, SidebarListItem } from "./Sidebar.logic";
+import { resolveSidebarDropTarget, type SidebarListItem } from "./Sidebar.logic";
+type SidebarDropTarget = NonNullable<ReturnType<typeof resolveSidebarDropTarget>>;
 import type { SidebarThreadGroupSpan } from "./SidebarThreadGroup.markers";
 import {
   isSidebarThreadGroupSlotValidFork,
