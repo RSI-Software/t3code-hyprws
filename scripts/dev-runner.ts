@@ -755,6 +755,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
       ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
       : "";
   const baseDir = env.T3CODE_HOME ?? (yield* DEFAULT_T3_HOME);
+  // Each worktree's dev Electron keeps its own profile instead of the shared one.
+  if (worktreeHome !== undefined && baseDir === worktreeHome) {
+    env.T3CODE_DEV_ELECTRON_USER_DATA ??= (yield* Path.Path).join(worktreeHome, "electron");
+  }
 
   yield* Effect.logInfo(
     `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,

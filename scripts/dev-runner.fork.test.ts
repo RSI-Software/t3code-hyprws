@@ -104,4 +104,14 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
       assert.equal(env?.T3CODE_PORT, "3773");
     }),
   );
+  it.effect("gives worktree dev Electron its own profile unless one is set", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeWorktree;
+      const own = yield* spawnedEnv({ cwd });
+      assert.equal(own?.T3CODE_DEV_ELECTRON_USER_DATA, NodePath.join(cwd, ".t3", "electron"));
+      const preset = { T3CODE_DEV_ELECTRON_USER_DATA: "/tmp/mine" };
+      const kept = yield* spawnedEnv({ cwd, ambient: preset });
+      assert.equal(kept?.T3CODE_DEV_ELECTRON_USER_DATA, "/tmp/mine");
+    }).pipe(Effect.scoped),
+  );
 });
