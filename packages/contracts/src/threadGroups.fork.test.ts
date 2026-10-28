@@ -35,6 +35,15 @@ describe("thread group parents", () => {
     });
     expect(rejoined).toEqual({ groups: [{ ...group, threadIds: [b, c, a], parentThreadId: b }] });
   });
+
+  it("keeps a group when every member moves back into it", () => {
+    const reordered = apply({
+      type: "set-membership",
+      threadIds: [c, a, b],
+      target: { type: "existing", groupId: "g", asParent: true },
+    });
+    expect(reordered).toEqual({ groups: [{ ...group, threadIds: [c, a, b], parentThreadId: c }] });
+  });
 });
 
 describe("thread group title generation HTTP contract", () => {

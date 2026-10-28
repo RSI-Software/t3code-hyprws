@@ -2,8 +2,6 @@ import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environ
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import type { SidebarThreadGroup } from "../state/threadGroups";
-import { buildSidebarThreadGroupLayout } from "./Sidebar.logic";
-import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span";
 
 // Upstream's Working shelf takes each working thread out of the inbox. A group
 // moves whole instead, following its parent: a working parent carries the group
@@ -28,21 +26,4 @@ export function regroupWorkingShelfFork<
   const onShelf = (thread: T) => shelved.get(keyOf(thread)) ?? isWorking.has(keyOf(thread));
   active.splice(0, active.length, ...inbox.filter((thread) => !onShelf(thread)));
   working.splice(0, working.length, ...inbox.filter(onShelf));
-}
-
-/** The shelf's group layout, its rendered threads, and its group spans. */
-export function workingShelfGroupsFork<T>(
-  threads: readonly T[],
-  groups: readonly SidebarThreadGroup[],
-  getKey: (thread: T) => string,
-) {
-  const layout = buildSidebarThreadGroupLayout({ threads, groups, getId: getKey });
-  const visibleThreads = layout.flatMap((item) =>
-    item.kind === "thread"
-      ? [item.thread]
-      : item.group.collapsed
-        ? item.threads.slice(0, 1)
-        : item.threads,
-  );
-  return { layout, visibleThreads, spans: sidebarThreadGroupSpansFork(layout, getKey) };
 }

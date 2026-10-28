@@ -115,10 +115,10 @@ import * as threadGroupsFork from "../state/threadGroups"; // fork-hook: thread-
 import { SidebarThreadGroupDropLayerFork, SidebarThreadGroupHeader } from "./SidebarThreadGroup"; // fork-hook: thread-ordering/group-header-import
 import { useSidebarThreadGroupDragFork } from "./SidebarThreadGroup.drag"; // fork-hook: thread-ordering/group-drag-import
 import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; // fork-hook: thread-ordering/group-span-marker-import
-import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
+import { sidebarThreadGroupLayoutFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
 import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
 import { sidebarWorkingShelfKeysFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
-import { regroupWorkingShelfFork, workingShelfGroupsFork } from "./Sidebar.groupWorking.fork"; // fork-hook: thread-ordering/group-working-import
+import { regroupWorkingShelfFork } from "./Sidebar.groupWorking.fork"; // fork-hook: thread-ordering/group-working-import
 import { SortableSidebarMarker } from "./sidebar/SidebarListMarkers"; // fork-hook: thread-ordering/group-marker-import
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
@@ -201,7 +201,6 @@ import {
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
   buildSidebarListItems,
-  buildSidebarThreadGroupLayout,
   buildThreadGroupMembershipContextMenuItems,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
@@ -1227,30 +1226,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     routeRowThreadKey,
     threadGroups, // fork-hook: thread-ordering/group-working-input
   });
-  const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
-    threads: activeThreads,
-    groups: threadGroups,
-    getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-  }); // fork-hook: thread-ordering/group-layout
-  // Collapsed groups hide their members from every list the sidebar derives:
-  // the drop order, the sortable ids, and the rendered rows all read this.
-  const visibleActiveThreads = activeThreadGroupLayout.flatMap((item) =>
-    item.kind === "thread"
-      ? [item.thread]
-      : // A collapsed group keeps its first member in the list as the
-        // header's anchor: the row is replaced by the header, so the group
-        // holds one stable slot in the drop order either way.
-        item.group.collapsed
-        ? item.threads.slice(0, 1)
-        : item.threads,
-  ); // fork-hook: thread-ordering/visible-active-threads
-  const activeThreadGroupSpans = sidebarThreadGroupSpansFork(activeThreadGroupLayout, (thread) =>
-    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-  ); // fork-hook: thread-ordering/group-spans-layout
-  const workingShelfGroups = workingShelfGroupsFork(visibleWorkingThreads, threadGroups, (thread) =>
-    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  const threadGroupKey = (thread: EnvironmentThreadShell) =>
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)); // fork-hook: thread-ordering/group-key
+  const activeThreadGroups = sidebarThreadGroupLayoutFork(
+    activeThreads,
+    threadGroups,
+    threadGroupKey,
+  ); // fork-hook: thread-ordering/group-layout
+  const workingShelfGroups = sidebarThreadGroupLayoutFork(
+    visibleWorkingThreads,
+    threadGroups,
+    threadGroupKey,
   ); // fork-hook: thread-ordering/group-working-layout
-  const threadGroupSpans = [...activeThreadGroupSpans, ...workingShelfGroups.spans]; // fork-hook: thread-ordering/group-working-spans
+  const threadGroupSpans = [...activeThreadGroups.spans, ...workingShelfGroups.spans]; // fork-hook: thread-ordering/group-working-spans
 
   const activeGroupByThreadKey = (() => {
     const byKey = new Map<
@@ -1262,7 +1250,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         readonly isParent: boolean;
       }
     >();
-    for (const item of [...activeThreadGroupLayout, ...workingShelfGroups.layout]) {
+    for (const item of [...activeThreadGroups.layout, ...workingShelfGroups.layout]) {
       if (item.kind !== "group") continue;
       item.threads.forEach((thread, index) => {
         byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
@@ -1842,9 +1830,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedKeys: pinnedThreads.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     ),
-    // Active rows come from visibleActiveThreads, the same list threadByKey
-    // resolves from, so a collapsed group emits only its anchor.
-    activeKeys: visibleActiveThreads.map((thread) =>
+    // Active rows come from the group layout's visible threads, so a collapsed
+    // group emits only its anchor.
+    activeKeys: activeThreadGroups.visibleThreads.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     ),
     workingKeys: sidebarWorkingShelfKeysFork(workingThreads, workingShelfGroups.visibleThreads), // fork-hook: thread-ordering/working-shelf-keys
@@ -1895,7 +1883,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   }, [listMotionPass]);
   const threadGroupDragFork = useSidebarThreadGroupDragFork({
     items: sidebarListItems,
-    spans: activeThreadGroupSpans,
+    spans: activeThreadGroups.spans,
     threadByKey,
     setMembership: setThreadGroupMembership,
     canGroup: (threadKeys, groupKey) => {

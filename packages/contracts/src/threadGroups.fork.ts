@@ -187,25 +187,19 @@ function setMembership(
   ) {
     return { error: new ThreadGroupExistsErrorFork({ groupId: target.groupId }) };
   }
-  let next = groups.flatMap((group): ThreadGroupFork[] => {
-    const threadIds = group.threadIds.filter((threadId) => !movingIds.has(threadId));
+  const next = groups.flatMap((group): ThreadGroupFork[] => {
+    const kept = group.threadIds.filter((threadId) => !movingIds.has(threadId));
     // A parent that leaves hands the group to the first remaining member.
-    const parentThreadId = threadIds.includes(group.parentThreadId)
-      ? group.parentThreadId
-      : threadIds[0];
-    return parentThreadId === undefined ? [] : [{ ...group, threadIds, parentThreadId }];
+    const keptParent = kept.includes(group.parentThreadId) ? group.parentThreadId : kept[0];
+    if (target.type === "existing" && group.id === target.groupId) {
+      const parentThreadId = target.asParent ? moving[0]! : (keptParent ?? group.parentThreadId);
+      return [{ ...group, threadIds: [...kept, ...moving], parentThreadId }];
+    }
+    return keptParent === undefined
+      ? []
+      : [{ ...group, threadIds: kept, parentThreadId: keptParent }];
   });
-  if (target.type === "existing") {
-    next = next.map((group) =>
-      group.id === target.groupId
-        ? {
-            ...group,
-            threadIds: [...group.threadIds, ...moving],
-            parentThreadId: target.asParent ? moving[0]! : group.parentThreadId,
-          }
-        : group,
-    );
-  } else if (target.type === "new") {
+  if (target.type === "new") {
     next.push({
       id: target.groupId ?? newGroupId(),
       title: target.title,

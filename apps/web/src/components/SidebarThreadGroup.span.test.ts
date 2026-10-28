@@ -86,6 +86,27 @@ describe("thread group span projection", () => {
     expect(strategy({ ...args, index: ids.indexOf("m1") })?.y).toBe(header?.y);
   });
 
+  it("leaves a Working group under its own header while an Active row moves", () => {
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: ["o1", "o2"],
+      workingKeys: ["m1", "m2"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+      activeGroups: [
+        { groupKey: GROUP_KEY, group, threads: [], visibleKeys: ["m1", "m2"], parentKey: "m1" },
+      ],
+    });
+    const { strategy, args, ids } = project(items, "o2", "o1");
+    const at = (id: string) => strategy({ ...args, index: ids.indexOf(id) });
+    const shelf = at(sidebarMarkerId("working-header"));
+    expect(shelf?.scaleY).toBe(1);
+    expect(at(HEADER)).toMatchObject({ y: shelf?.y, scaleY: 1 });
+    expect(at("m1")?.y).toBe(shelf?.y);
+  });
+
   it("records the slot it opens for the lifted row", () => {
     const items = listWithTopGroup();
     const { strategy, args, ids } = project(items, "o1", HEADER);

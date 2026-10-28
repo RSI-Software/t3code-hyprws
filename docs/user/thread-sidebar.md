@@ -112,11 +112,12 @@ their default order until the server is updated.
 While dragging an active thread, move it one step right to nest it under the row above.
 Under a group, it joins that group; under a plain thread, the two start a new group.
 Move a group member left to take it out; a group disappears when fewer than two threads remain.
-Drop a thread flush left directly under a group's header to make it the group's parent: it sits unindented, with the other members indented under it.
-Move the parent right to make it an ordinary member again; **Set as group parent** in a member's menu does the same as the drop.
+Every group has a parent, at first the thread that started it: it sits unindented, with the other members indented under it.
+Drop a thread flush left directly under a group's header, or choose **Set as group parent** in a member's menu, to make it the parent.
+Move the parent right, or out of the group, and the next member leads.
 The group a drop would join is outlined, and a shadow shows where the thread lands.
 Pinned threads stay out of groups; a group can hold threads from any project on the same server.
-A group with a parent wears its title as a tab on the parent; click the tab to collapse the group to the parent alone, and again to expand.
+The parent wears the group's title as a tab; click the tab to collapse the group to the parent alone, and again to expand.
 Collapsed, the tab shows up to six status dots, most urgent first, then `+N` for the rest; hover or focus the tab to list every hidden thread's status.
 Groups can be collapsed, renamed, regenerated, or dissolved from their header.
 Generated group names use the same title-generation setting as thread titles.
@@ -147,6 +148,9 @@ says it is waiting on. A dev server or other process an agent leaves running doe
 there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
+
+A group follows its parent: while the parent works, the whole group sits in Working.
+A working child under an idle parent stays in the active list, shrunk to one line.
 
 This is on by default. Turn it off with **Settings → General → Working section** on web and desktop,
 or **Settings → General → Working section** on iOS and Android. Each device keeps its own
