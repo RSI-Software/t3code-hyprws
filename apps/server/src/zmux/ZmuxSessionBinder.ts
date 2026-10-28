@@ -247,10 +247,26 @@ const failureDetail = Effect.fn("ZmuxSessionBinder.failureDetail")(function* (
     .join("; ");
 });
 
+/** Worktree dev servers default this on: seeded projects point at the developer's live sessions. */
+export const zmuxDisabledByEnv = (env: NodeJS.ProcessEnv) => env.T3CODE_ZMUX_DISABLED === "1";
+
 const make = Effect.gen(function* () {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const hostEnvironment = yield* HostProcess.Environment;
+  if (zmuxDisabledByEnv(hostEnvironment)) {
+    const disabled = Effect.fn("ZmuxSessionBinder.disabled")(() =>
+      Effect.succeed({ status: "disabled" } as const),
+    );
+    return ZmuxSessionBinder.of({
+      bind: disabled,
+      ensure: disabled,
+      reconcileExisting: disabled,
+      resolve: disabled,
+      prepareUnbind: disabled,
+      unbind: disabled,
+    });
+  }
   const path = yield* Path.Path;
   const fileSystem = yield* FileSystem.FileSystem;
   const crypto = yield* Crypto.Crypto;
