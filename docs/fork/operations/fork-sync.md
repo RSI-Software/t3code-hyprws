@@ -253,8 +253,9 @@ Add the `merge_group` trigger before requiring a queue in the ruleset.
 
 ### Upstream workflows and merge settings
 
-Keep only the five `hyprws-*.yml` workflows enabled.
+Keep only the `hyprws-*.yml` workflows enabled.
 Disable every other workflow with `gh workflow disable`; they expect upstream secrets and runners.
+A sync can add an upstream workflow, which arrives enabled: disable it, or adapt it as a `hyprws-*.yml` copy.
 
 ```bash
 gh repo edit RSI-Software/t3code-hyprws \
