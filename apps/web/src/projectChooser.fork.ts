@@ -28,7 +28,9 @@ export interface ProjectChooserState<Group extends ProjectChooserGroup> {
   /** All projects when unscoped, otherwise the selected project items. */
   // Mutable because Base UI's multiple Combobox value prop takes a plain array.
   readonly value: ProjectChooserItem[];
-  /** The header's name for the filter: "Projects: All", one name, or "N selected". */
+  /** The filter's scope: "All", one name, or "N selected". */
+  readonly scope: string;
+  /** The header's name for the filter: "Projects: " and the scope. */
   readonly label: string;
   /** The window title's name for the filter: selected names, or `null` for all projects. */
   readonly titleLabel: string | null;
@@ -92,18 +94,20 @@ export function projectChooserState<Group extends ProjectChooserGroup>(
   const excluding = filter.mode === "exclude";
   const emptySelection = count === 0 && filter.mode === "include";
   const only = count === 1 ? value[0] : undefined;
+  const scope = emptySelection
+    ? "None"
+    : count === 0
+      ? "All"
+      : excluding
+        ? `All except ${count}`
+        : only !== undefined
+          ? only.label
+          : `${count} selected`;
   return {
     items,
     value,
-    label: emptySelection
-      ? "Projects: None"
-      : count === 0
-        ? "Projects: All"
-        : excluding
-          ? `Projects: All except ${count}`
-          : only !== undefined
-            ? `Projects: ${only.label}`
-            : `Projects: ${count} selected`,
+    scope,
+    label: `Projects: ${scope}`,
     titleLabel: emptySelection
       ? "No projects"
       : count === 0
@@ -168,6 +172,7 @@ export function showOnlyProjectFilter(group: ProjectChooserGroup): ProjectFilter
 // route without the sidebar), so nothing else scopes to the filter either.
 export interface ProjectChooserHost {
   readonly open: () => void;
+  readonly scope: string;
   readonly label: string;
   readonly titleLabel: string | null;
   readonly filter: ProjectFilter;
@@ -223,6 +228,11 @@ export const subscribeProjectChooserHost = subscribe;
 /** The mounted chooser's label; `null` where no chooser serves this window. */
 export function useProjectChooserLabel(): string | null {
   return useProjectChooserHostValue()?.label ?? null;
+}
+
+/** The mounted chooser's scope; `null` where no chooser serves this window. */
+export function useProjectChooserScope(): string | null {
+  return useProjectChooserHostValue()?.scope ?? null;
 }
 
 /** Opens the sidebar's chooser. Returns whether one was there to open. */

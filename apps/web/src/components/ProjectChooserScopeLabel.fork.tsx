@@ -3,21 +3,22 @@
 // filter and opens the sidebar's chooser.
 import { FolderIcon } from "lucide-react";
 
-import { openProjectChooser, useProjectChooserLabel } from "../projectChooser.fork";
+import { openProjectChooser, useProjectChooserScope } from "../projectChooser.fork";
 import { Button } from "./ui/button";
 
 export function ProjectChooserScopeLabelFork() {
-  const label = useProjectChooserLabel();
-  if (label === null) return null;
+  const scope = useProjectChooserScope();
+  if (scope === null) return null;
   return (
     <Button
       size="sm"
       variant="outline"
-      aria-label={`Choose projects (${label})`}
+      aria-label={`Choose window projects (${scope})`}
       onClick={() => openProjectChooser()}
     >
       <FolderIcon />
-      {label}
+      <span className="shrink-0">Window:</span>
+      <span className="max-w-32 truncate">{scope}</span>
     </Button>
   );
 }
