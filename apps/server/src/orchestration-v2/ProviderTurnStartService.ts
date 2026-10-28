@@ -940,7 +940,19 @@ export const layer: Layer.Layer<
             return handoffBudget({
               tokenCap,
               modelContextWindow,
-              userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+              userText: appendConversationForkContextFork(
+                restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                conversationForkContextFork(
+                  projection.thread,
+                  conversationForkNoticeOwedFork(projection, {
+                    sameNativeThread,
+                    acceptedAttempts,
+                    nativeInputRunIds,
+                    legacyInputRunIds,
+                  }),
+                ),
+                isCompactionCommandMessage(message),
+              ), // fork-hook: upstream-fixes/conversation-fork-context-budget
               attachments: message.attachments,
               providerThread: budgetProviderThread,
               nativeContextEstimate:
