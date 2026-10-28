@@ -28,7 +28,7 @@ import type { AppBarMenuItem as ScreenHeaderMenuItem } from "../../components/ui
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useAtomMount } from "@effect/atom-react";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useCallback, useEffect } from "react"; // fork-hook: zmux-estate/terminal-checkout-hooks
+import { useCallback } from "react"; // fork-hook: zmux-estate/terminal-checkout-hooks
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -108,13 +108,9 @@ import {
 import { createTerminalPasteSession } from "./terminalPaste";
 import { cacheTerminalGridSize, getCachedTerminalGridSize } from "./terminalUiState";
 import { useLocalKnownSessionsFork } from "./localTerminalSessions.fork"; // fork-hook: zmux-estate/local-known-sessions
+import { updatePreferences } from "../../persistence/imperative"; // fork-hook: zmux-estate/terminal-setup-preferences-import
+import { useTerminalSetupPreferencesFork } from "./terminalSetupPreferences.fork"; // fork-hook: zmux-estate/terminal-setup-preferences-import
 import {
-  loadOrCreateAgentAwarenessDeviceId,
-  loadPreferences,
-  updatePreferences,
-} from "../../persistence/imperative";
-import {
-  readTerminalCheckoutMode,
   terminalCheckoutModeKey,
   updateTerminalCheckoutMode,
   type TerminalCheckoutMode,
@@ -497,38 +493,16 @@ function ThreadTerminal(props: {
     setCaptureRequest(captureSequenceRef.current);
   };
   const [terminalSetupAttempt, setTerminalSetupAttempt] = useState(0);
-  const [terminalDeviceState, setTerminalDeviceState] = useState<{
-    readonly id: string | null;
-    readonly error: string | null;
-  }>({ id: null, error: null });
-  useEffect(() => {
-    let active = true;
-    void loadOrCreateAgentAwarenessDeviceId()
-      .then((deviceId) => {
-        if (active) setTerminalDeviceState({ id: deviceId, error: null });
-      })
-      .catch((error: unknown) => {
-        if (active) setTerminalDeviceState({ id: null, error: errorMessage(error) });
-      });
-    return () => {
-      active = false;
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A setup retry reloads the device id. // fork-hook: zmux-estate/terminal-setup-retry
-  }, [terminalSetupAttempt]);
-  const terminalDeviceId = terminalDeviceState.id;
-  const attachmentId =
-    terminalDeviceId === null ? null : boundedTerminalAttachmentId(terminalDeviceId, terminalId);
   const checkoutModeKey = terminalCheckoutModeKey({
     environmentId: routeEnvironmentId ?? "",
     threadId: routeThreadIdRaw ?? "",
     terminalId,
   }); // fork-hook: zmux-estate/terminal-checkout-mode-key
-  const [checkoutModeState, setCheckoutModeState] = useState<{
-    readonly key: string;
-    readonly mode: TerminalCheckoutMode;
-    readonly resolved: boolean;
-    readonly error: string | null;
-  }>({ key: checkoutModeKey, mode: "follow", resolved: false, error: null });
+  const { terminalDeviceState, setTerminalDeviceState, checkoutModeState, setCheckoutModeState } =
+    useTerminalSetupPreferencesFork(checkoutModeKey, terminalSetupAttempt); // fork-hook: zmux-estate/terminal-setup-preferences
+  const terminalDeviceId = terminalDeviceState.id; // fork-hook: zmux-estate/terminal-setup-preferences
+  const attachmentId =
+    terminalDeviceId === null ? null : boundedTerminalAttachmentId(terminalDeviceId, terminalId); // fork-hook: zmux-estate/terminal-setup-preferences
   const checkoutMode =
     checkoutModeState.key === checkoutModeKey ? checkoutModeState.mode : "follow";
   const hasResolvedCheckoutMode =
@@ -554,34 +528,6 @@ function ThreadTerminal(props: {
   const undoUnavailable =
     selectedThread?.checkoutMove?.status === "committed" &&
     staleUndoRequestId === selectedThread.checkoutMove.requestId;
-  useEffect(() => {
-    let active = true;
-    void loadPreferences()
-      .then((preferences) => {
-        if (active) {
-          setCheckoutModeState({
-            key: checkoutModeKey,
-            mode: readTerminalCheckoutMode(preferences, checkoutModeKey),
-            resolved: true,
-            error: null,
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setCheckoutModeState({
-            key: checkoutModeKey,
-            mode: "follow",
-            resolved: false,
-            error: errorMessage(error),
-          });
-        }
-      });
-    return () => {
-      active = false;
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A setup retry reloads the checkout mode. // fork-hook: zmux-estate/terminal-setup-retry
-  }, [checkoutModeKey, terminalSetupAttempt]);
   const {
     isReady: hasResolvedFontPreference,
     appearance,
@@ -1002,6 +948,7 @@ function ThreadTerminal(props: {
     checkoutMode,
     checkoutModeKey,
     checkoutMoveControlsLocked,
+    setCheckoutModeState, // fork-hook: zmux-estate/terminal-setup-preferences
     initialAttachGridSize,
     openTerminal,
     selectedThread,
