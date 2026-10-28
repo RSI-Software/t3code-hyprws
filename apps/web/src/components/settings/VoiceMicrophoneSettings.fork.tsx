@@ -25,7 +25,7 @@ export function VoiceMicrophoneSettingsFork() {
         setError("Could not list microphones. Check microphone access in your system settings."),
     );
   };
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to the mediaDevices `devicechange` DOM event.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the mediaDevices `devicechange` DOM event.
   useEffect(() => {
     void refresh();
     navigator.mediaDevices?.addEventListener("devicechange", refresh);
