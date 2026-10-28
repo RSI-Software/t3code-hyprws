@@ -2,9 +2,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - This pre-pull-request battery runs before an Effect runtime exists.
 
 // The local pre-pull-request battery, each check as hyprws-ci.yml runs it so local green is never
-// greener than CI: the Fork ledger delta, stale-delete, and fixup fold checks, the merge-tree job,
-// the rebase scan (flags from scripts/lib/fork-ci-flags.ts), knip, read-only `vp check` (never
-// `--fix`), typecheck, and the whole scripts suite. Body, builds, and product tests run apart.
+// greener than CI; HELP lists the steps. Body, builds, browser tests, and the non-fork product
+// tests run apart.
 
 import { deriveForkCiFlags, forkScanArguments, systemForkCiGit } from "./lib/fork-ci-flags.ts";
 import { runCommand } from "./lib/fork-command.ts";
@@ -38,6 +37,8 @@ Runs what the fork's pull-request CI jobs run, in CI's own shape:
      outside branch scope on this trunk)
   9. vp run typecheck, the Check job's typecheck step
   10. the whole @t3tools/scripts test suite
+  11. every app and package *.fork.test.ts(x) from the repo root, which
+      hands each file to its package's config (browser tests excluded)
 
 Stops at the first failing step. Never runs the Body job's squash-body
 check, nor the release or sync workflows.
@@ -140,8 +141,31 @@ export const run = (
     }
   }
 
+  // The fork's own contracts against upstream drift (a sync candidate's usual red), about 90 s;
+  // desktop's tests need Electron installed first, as CI's test jobs do.
+  const forkTests = git
+    .run([
+      "ls-files",
+      "--full-name",
+      "--",
+      ...["apps", "packages"].flatMap((dir) =>
+        ["ts", "tsx"].map((ext) => `:(top,glob)${dir}/**/*.fork.test.${ext}`),
+      ),
+    ])
+    .split("\n")
+    .filter((path) => path.length > 0);
+  // An empty file list would run every test.
+  if (
+    forkTests.length > 0 &&
+    (step("vp", ["run", "--filter", "@t3tools/desktop", "ensure:electron"], root) !== 0 ||
+      step("vp", ["test", "run", ...forkTests], root) !== 0)
+  ) {
+    process.stderr.write("fork:ci: fork tests failed; fix above before pushing\n");
+    return 1;
+  }
+
   process.stdout.write(
-    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, merge-tree check, rebase scan, knip, vp check, typecheck, and scripts suite are green on this head\n",
+    "fork:ci: ok; the delta check, stale-delete check, fixup fold check, merge-tree check, rebase scan, knip, vp check, typecheck, scripts suite, and fork tests are green on this head\n",
   );
   return 0;
 };

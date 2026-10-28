@@ -69,9 +69,19 @@ it("fails an untagged tip through the delta check, before the scan", () => {
   }
 });
 
-it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typecheck, and suite in order when every step passes", () => {
+it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typecheck, suite, and fork tests in order when every step passes", () => {
   const { root, head, base } = untaggedFixture();
   try {
+    // Only app and package fork unit tests run; browser tests and vendored copies stay out.
+    for (const path of [
+      "apps/server/src/watch.fork.test.ts",
+      "apps/web/src/save.fork.browser.test.tsx",
+      ".repos/vendor/src/copy.fork.test.ts",
+    ]) {
+      NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(root, path), "");
+    }
+    git(root, ["add", "."]);
     const calls: Array<ReadonlyArray<string>> = [];
     const step: ForkCiStep = (command, args) => {
       calls.push([command, ...args]);
@@ -101,6 +111,8 @@ it("runs delta, stale-delete, fixup fold, merge-tree, scan, knip, check, typeche
       ["vp", "check"],
       ["vp", "run", "typecheck"],
       ["vp", "run", "--filter", "@t3tools/scripts", "test"],
+      ["vp", "run", "--filter", "@t3tools/desktop", "ensure:electron"],
+      ["vp", "test", "run", "apps/server/src/watch.fork.test.ts"],
     ]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
