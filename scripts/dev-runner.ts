@@ -706,6 +706,9 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   }
 
   const worktreePath = yield* resolveGitWorktreePath(yield* HostProcess.WorkingDirectory);
+  // Like T3CODE_HOME below, an ambient T3CODE_PORT belongs to the live install;
+  // a worktree derives its own port. `--port` still wins.
+  const port = input.port ?? (worktreePath ? undefined : yield* optionalPortConfig("T3CODE_PORT"));
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
@@ -716,7 +719,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   const { serverOffset, webOffset } = yield* resolveModePortOffsets({
     mode: input.mode,
     startOffset: offset,
-    hasExplicitServerPort: input.port !== undefined,
+    hasExplicitServerPort: port !== undefined,
     hasExplicitDevUrl: input.devUrl !== undefined,
     checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
   });
@@ -743,7 +746,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
     logWebSocketEvents: input.logWebSocketEvents,
     host: input.host,
-    port: input.port,
+    port,
     devUrl: input.devUrl,
   });
 
@@ -937,8 +940,11 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   port: Flag.Int("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Server port override (forwards to T3CODE_PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("T3CODE_PORT")),
+    Flag.withDescription(
+      "Server port override (forwards to T3CODE_PORT). Outside a worktree an ambient T3CODE_PORT is the default.",
+    ),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined),
   ),
   devUrl: Flag.String("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),
