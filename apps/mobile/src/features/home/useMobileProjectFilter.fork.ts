@@ -71,7 +71,7 @@ export function useMobileProjectFilter(
     () => reconcileProjectFilter(stored, groups, settled),
     [groups, settled, stored],
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- writes the reconciled filter back to the persisted device preferences store
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the reconciled filter back to the persisted device preferences store
   useEffect(() => {
     if (loaded && filter !== stored) savePreferences({ projectFilter: filter });
   }, [filter, loaded, savePreferences, stored]);
@@ -89,7 +89,7 @@ export function useMobileProjectFilter(
   }, [projectGroupingMode, projects, scopeKey, selectedEnvironmentId]);
 
   const seenExposed = useRef<string | null>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- pushes filter changes into the caller-owned upstream selected-project state
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes filter changes into the caller-owned upstream selected-project state
   useEffect(() => {
     if (!loaded || exposedKey === seenExposed.current) return;
     seenExposed.current = exposedKey;
