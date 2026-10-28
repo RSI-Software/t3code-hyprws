@@ -133,8 +133,8 @@ Rerun once after tip work so the marker covers it.
 ## Hand off
 
 Every rerun writes `refs/fork-sync/resolution`: finished once the rebase ends, partial at every block.
-A finished marker predates the `hooks` and `check` steps: hand off only after a green run.
-A partial hand-off is fine; the next session or job resumes from it.
+A finished marker predates the `hooks` and `check` steps: hand it off after a green run, or red when the budget ends.
+The land run refuses a red tip and keeps the marker; the next session or job resumes from it, partial or finished.
 
 **Session:**
 
@@ -194,7 +194,7 @@ The driver's kept worktree is the only other checkout; never clone, copy, add an
 **Budget.** The job has 45 minutes, and a killed job saves nothing.
 
 - **Clock:** `date -u` at start and at every stop
-- **About 30 minutes gone:** hand off the partial
+- **30 minutes gone:** rerun, hand off the marker
 - **No progress:** same marker, so no new job
 
 ## Never
