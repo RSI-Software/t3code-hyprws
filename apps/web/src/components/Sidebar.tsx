@@ -118,6 +118,7 @@ import { parseSidebarThreadGroupMarker } from "./SidebarThreadGroup.markers"; //
 import { sidebarThreadGroupSpansFork } from "./SidebarThreadGroup.span"; // fork-hook: thread-ordering/group-span-import
 import { useThreadGroupTitlesFork } from "./SidebarThreadGroup.title"; // fork-hook: thread-ordering/group-titles-import
 import { sidebarWorkingShelfKeysFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
+import { regroupWorkingShelfFork, workingShelfGroupsFork } from "./Sidebar.groupWorking.fork"; // fork-hook: thread-ordering/group-working-import
 import { SortableSidebarMarker } from "./sidebar/SidebarListMarkers"; // fork-hook: thread-ordering/group-marker-import
 import { readLocalApi } from "../localApi";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
@@ -355,6 +356,7 @@ interface SidebarThreadPartitionInput {
   readonly serverConfigs: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>;
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly workingShelfEnabled: boolean;
+  readonly threadGroups: readonly SidebarThreadGroup[]; // fork-hook: thread-ordering/group-working-input
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -415,6 +417,7 @@ function useSidebarThreads(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
+  readonly threadGroups: readonly SidebarThreadGroup[]; // fork-hook: thread-ordering/group-working-input
 }) {
   const {
     projectScopeKey,
@@ -465,6 +468,7 @@ function useSidebarThreads(input: {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
+    threadGroups: input.threadGroups, // fork-hook: thread-ordering/group-working-input
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -630,6 +634,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       ).push(thread);
     }
   }
+  if (workingShelfEnabled) regroupWorkingShelfFork(active, working, input.threadGroups); // fork-hook: thread-ordering/group-working-partition
   // Capability gates dragging only; mixed server versions must preserve the same pinned order across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = workingShelfEnabled
@@ -1220,6 +1225,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
+    threadGroups, // fork-hook: thread-ordering/group-working-input
   });
   const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
     threads: activeThreads,
@@ -1241,6 +1247,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const activeThreadGroupSpans = sidebarThreadGroupSpansFork(activeThreadGroupLayout, (thread) =>
     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
   ); // fork-hook: thread-ordering/group-spans-layout
+  const workingShelfGroups = workingShelfGroupsFork(visibleWorkingThreads, threadGroups, (thread) =>
+    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+  ); // fork-hook: thread-ordering/group-working-layout
+  const threadGroupSpans = [...activeThreadGroupSpans, ...workingShelfGroups.spans]; // fork-hook: thread-ordering/group-working-spans
 
   const activeGroupByThreadKey = (() => {
     const byKey = new Map<
@@ -1252,7 +1262,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         readonly isParent: boolean;
       }
     >();
-    for (const item of activeThreadGroupLayout) {
+    for (const item of [...activeThreadGroupLayout, ...workingShelfGroups.layout]) {
       if (item.kind !== "group") continue;
       item.threads.forEach((thread, index) => {
         byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
@@ -1837,7 +1847,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     activeKeys: visibleActiveThreads.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     ),
-    workingKeys: sidebarWorkingShelfKeysFork(workingThreads, visibleWorkingThreads), // fork-hook: thread-ordering/working-shelf-keys
+    workingKeys: sidebarWorkingShelfKeysFork(workingThreads, workingShelfGroups.visibleThreads), // fork-hook: thread-ordering/working-shelf-keys
     hasSnoozedThreads: snoozedThreads.length > 0,
     snoozedVisibleKeys: visibleSnoozedThreads.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1845,7 +1855,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledKeys: renderedSettledThreads.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     ),
-    activeGroups: activeThreadGroupSpans, // fork-hook: thread-ordering/group-span-items
+    activeGroups: threadGroupSpans, // fork-hook: thread-ordering/group-span-items
   }); // fork-hook: thread-ordering/sidebar-list-items
   // Preserve the list while streamed updates leave order unchanged to retain row memoization.
   const sidebarListItemsKey = sidebarListItemsFresh
@@ -2663,10 +2673,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           setThreadGroupParent(currentGroup.id, threadKey);
           return;
         } // fork-hook: thread-ordering/group-menu-action
-        if (currentGroup && clicked.value === "clear-group-parent") {
-          setThreadGroupParent(currentGroup.id, null);
-          return;
-        } // fork-hook: upstream-fixes/split-session-permissions
         if (isSidebarThreadGroupContextMenuId(clicked.value)) return; // fork-hook: upstream-fixes/split-session-permissions
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
@@ -3262,7 +3268,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                        groupState?: { grouped?: boolean; parent?: boolean }, // fork-hook: thread-ordering/group-row-state
+                        groupState?: { grouped?: boolean; parent?: boolean; compact?: boolean }, // fork-hook: thread-ordering/group-row-state
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -3304,6 +3310,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             isPinned={thread.pinnedAt != null}
                             grouped={groupState?.grouped}
                             groupParent={groupState?.parent} // fork-hook: thread-ordering/group-parent
+                            groupCompact={groupState?.compact} // fork-hook: thread-ordering/group-compact
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3390,9 +3397,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         if (item.kind === "thread") {
                           const thread = threadByKey.get(item.key)!;
                           const groupEntry =
-                            item.section === "active"
+                            item.section === "active" || item.section === "working"
                               ? activeGroupByThreadKey.get(item.key)
-                              : undefined;
+                              : undefined; // fork-hook: thread-ordering/group-member-entry
                           const groupKey = groupEntry?.group.id ?? null; // fork-hook: thread-ordering/group-drag-dissolving
                           // A pair losing a member falls below the two-thread
                           // minimum, so the header and the indent leave with the
@@ -3414,6 +3421,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 grouped:
                                   groupEntry !== undefined && !isDissolving && !groupEntry.isParent,
                                 parent: groupEntry?.isParent === true && !isDissolving,
+                                // Home under an idle parent, a working child keeps to one line.
+                                compact:
+                                  item.section === "active" && groupEntry?.isParent === false,
                               }, // fork-hook: thread-ordering/group-member-state
                             ),
                           );
@@ -3421,7 +3431,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         }
                         const threadGroupMarkerFork = parseSidebarThreadGroupMarker(item.marker); // fork-hook: thread-ordering/group-span-marker-parse
                         if (threadGroupMarkerFork !== null) {
-                          const span = activeThreadGroupSpans.find(
+                          const span = threadGroupSpans.find(
                             (candidate) => candidate.groupKey === threadGroupMarkerFork.groupKey,
                           );
                           if (span === undefined) continue;

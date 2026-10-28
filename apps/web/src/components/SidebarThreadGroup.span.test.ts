@@ -9,7 +9,13 @@ import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 const GROUP_KEY = "group-1";
 const HEADER_MARKER = sidebarThreadGroupHeaderMarker(GROUP_KEY);
 const HEADER = sidebarMarkerId(HEADER_MARKER);
-const group = { id: "group-1", title: "Related", threadIds: ["m1", "m2"], collapsed: false };
+const group = {
+  id: "group-1",
+  title: "Related",
+  threadIds: ["m1", "m2"],
+  parentThreadId: "m1",
+  collapsed: false,
+};
 
 /** The top of the active section is a group; `o1` is an ungrouped row below it. */
 function listWithTopGroup() {

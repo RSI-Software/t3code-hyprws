@@ -14,8 +14,8 @@ export const ThreadGroupFork = Schema.Struct({
   title: TrimmedNonEmptyString,
   /** At least two; a thread belongs to at most one group. */
   threadIds: Schema.Array(ThreadId),
-  /** A member shown first, with the rest indented under it. Visual only. */
-  parentThreadId: Schema.optionalKey(ThreadId),
+  /** The member that leads the group: shown first, with the rest under it. */
+  parentThreadId: ThreadId,
 });
 export type ThreadGroupFork = typeof ThreadGroupFork.Type;
 
@@ -40,8 +40,6 @@ export const ThreadGroupMembershipTargetFork = Schema.Union([
     /** Client-chosen so an optimistic update can name the group; generated when absent. */
     groupId: Schema.optionalKey(ThreadGroupIdFork),
     title: TrimmedNonEmptyString,
-    /** The first thread becomes the new group's parent. */
-    asParent: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({ type: Schema.Literal("none") }),
 ]);
@@ -66,7 +64,7 @@ export const ThreadGroupEditFork = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("set-parent"),
     groupId: ThreadGroupIdFork,
-    parentThreadId: Schema.NullOr(ThreadId),
+    parentThreadId: ThreadId,
   }),
   Schema.Struct({ type: Schema.Literal("remove"), groupId: ThreadGroupIdFork }),
 ]);
@@ -95,7 +93,7 @@ export const ThreadGroupsDescribedFork = Schema.Struct({
     Schema.Struct({
       id: ThreadGroupIdFork,
       title: Schema.String,
-      parentThreadId: Schema.NullOr(ThreadId),
+      parentThreadId: ThreadId,
       threads: Schema.Array(Schema.Struct({ threadId: ThreadId, title: Schema.String })),
     }),
   ),
@@ -164,7 +162,8 @@ export type ThreadGroupMutationResultFork =
   | { readonly groups: ReadonlyArray<ThreadGroupFork> }
   | { readonly error: ThreadGroupErrorFork };
 
-/** Moves the threads out of every group, then into the target. Groups under two members dissolve. */
+/** Moves the threads out of every group, then into the target. Groups under two members
+    dissolve; a new group's first thread leads it. */
 function setMembership(
   groups: ReadonlyArray<ThreadGroupFork>,
   threadIds: ReadonlyArray<ThreadId>,
@@ -188,14 +187,13 @@ function setMembership(
   ) {
     return { error: new ThreadGroupExistsErrorFork({ groupId: target.groupId }) };
   }
-  let next = groups.map((group): ThreadGroupFork => {
-    const { parentThreadId, ...rest } = group;
-    return {
-      ...rest,
-      threadIds: group.threadIds.filter((threadId) => !movingIds.has(threadId)),
-      // A parent that leaves its group stops leading it.
-      ...(parentThreadId === undefined || movingIds.has(parentThreadId) ? {} : { parentThreadId }),
-    };
+  let next = groups.flatMap((group): ThreadGroupFork[] => {
+    const threadIds = group.threadIds.filter((threadId) => !movingIds.has(threadId));
+    // A parent that leaves hands the group to the first remaining member.
+    const parentThreadId = threadIds.includes(group.parentThreadId)
+      ? group.parentThreadId
+      : threadIds[0];
+    return parentThreadId === undefined ? [] : [{ ...group, threadIds, parentThreadId }];
   });
   if (target.type === "existing") {
     next = next.map((group) =>
@@ -203,7 +201,7 @@ function setMembership(
         ? {
             ...group,
             threadIds: [...group.threadIds, ...moving],
-            ...(target.asParent ? { parentThreadId: moving[0]! } : {}),
+            parentThreadId: target.asParent ? moving[0]! : group.parentThreadId,
           }
         : group,
     );
@@ -212,7 +210,7 @@ function setMembership(
       id: target.groupId ?? newGroupId(),
       title: target.title,
       threadIds: moving,
-      ...(target.asParent ? { parentThreadId: moving[0]! } : {}),
+      parentThreadId: moving[0]!,
     });
   }
   return { groups: next.filter((group) => group.threadIds.length >= 2) };
@@ -231,13 +229,12 @@ function importGroups(
     if (threadIds.length < 2) continue;
     for (const id of threadIds) grouped.add(id);
     groupIds.add(candidate.id);
-    const { parentThreadId, ...rest } = candidate;
     next.push({
-      ...rest,
+      ...candidate,
       threadIds,
-      ...(parentThreadId !== undefined && threadIds.includes(parentThreadId)
-        ? { parentThreadId }
-        : {}),
+      parentThreadId: threadIds.includes(candidate.parentThreadId)
+        ? candidate.parentThreadId
+        : threadIds[0]!,
     });
   }
   return next;
@@ -277,11 +274,8 @@ export function applyThreadGroupMutationFork(
         expected.threadIds.some((threadId) => !group.threadIds.includes(threadId)));
     if (!stale) next = { ...group, title: mutation.title };
   } else {
-    const { parentThreadId: _previous, ...rest } = group;
-    if (mutation.parentThreadId === null) {
-      next = rest;
-    } else if (group.threadIds.includes(mutation.parentThreadId)) {
-      next = { ...rest, parentThreadId: mutation.parentThreadId };
+    if (group.threadIds.includes(mutation.parentThreadId)) {
+      next = { ...group, parentThreadId: mutation.parentThreadId };
     } else {
       return {
         error: new ThreadGroupParentNotMemberErrorFork({

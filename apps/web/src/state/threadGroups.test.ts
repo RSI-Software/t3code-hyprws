@@ -67,7 +67,12 @@ describe("thread group store", () => {
       receiveThreadGroupsSnapshotFork(env, snapshot(1, []));
       expect(server.sent()).toBe(2);
     });
-    const local = { id: "local", title: "Local", threadIds: ["c", "d"] } as never;
+    const local = {
+      id: "local",
+      title: "Local",
+      threadIds: [ThreadId.make("c"), ThreadId.make("d")],
+      parentThreadId: ThreadId.make("c"),
+    };
     await server.answer(1, { _tag: "Success", value: snapshot(2, [local]) });
     await vi.waitFor(() => expect(shown()).toEqual(["env:local Local"]));
 
@@ -85,6 +90,7 @@ describe("thread group store", () => {
       id: "g1",
       title: "New group",
       threadIds: [ThreadId.make("a"), ThreadId.make("b")],
+      parentThreadId: ThreadId.make("a"),
     };
     receiveThreadGroupsSnapshotFork(env, snapshot(4, [g1]));
     renameThreadGroup("env:g1", "Named");
