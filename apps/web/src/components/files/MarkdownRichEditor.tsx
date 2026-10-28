@@ -46,7 +46,7 @@ function useMilkdownEditor(
   const editorRef = useRef<Editor | null>(null);
   const [ready, setReady] = useState(false);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- mounts and tears down the Milkdown/ProseMirror editor on the DOM root.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mounts and tears down the Milkdown/ProseMirror editor on the DOM root.
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -100,7 +100,7 @@ export function MarkdownRichEditor({
   const sourcePathRef = useRef(relativePath);
   const onOpenFileRef = useRef(onOpenFile);
   const themeRef = useRef(theme);
-  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-prop refs the Milkdown plugins read outside React.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the latest-prop refs the Milkdown plugins read outside React.
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
     cwdRef.current = cwd;
@@ -159,7 +159,7 @@ export function MarkdownRichEditor({
   // so only a different value is new content from disk (refresh, reopen,
   // focus, or an agent edit). Unsaved edits stay in the optimistic file, so
   // they arrive here as the echo and are never replaced.
-  // oxlint-disable-next-line t3code/react-effect-budget -- pushes disk changes of `value` into the Milkdown editor instance.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes disk changes of `value` into the Milkdown editor instance.
   useEffect(() => {
     if (!ready || value === lastMarkdownRef.current) return;
     // No try/finally: the React Compiler skips a hook that uses one.
@@ -168,7 +168,7 @@ export function MarkdownRichEditor({
     syncingValueRef.current = false;
   }, [editor, ready, value]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- pushes the theme into the Milkdown editor view's presentation.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes the theme into the Milkdown editor view's presentation.
   useEffect(() => {
     if (!ready) return;
     editor.current?.action((ctx) =>
