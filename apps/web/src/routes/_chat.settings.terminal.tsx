@@ -12,4 +12,6 @@ function TerminalSettingsRoute() {
   );
 }
 
-export const Route = createFileRoute("/settings/terminal")({ component: TerminalSettingsRoute });
+export const Route = createFileRoute("/_chat/settings/terminal")({
+  component: TerminalSettingsRoute,
+});
