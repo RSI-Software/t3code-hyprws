@@ -5,7 +5,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { useEffect } from "react";
 
 import { useServerConfigs } from "../state/entities";
-import { useEnvironmentIds } from "../state/environments";
+import { useEnvironments } from "../state/environments";
 import { useEnvironmentQuery } from "../state/query";
 import {
   receiveThreadGroupsSnapshotFork,
@@ -25,7 +25,8 @@ function EnvironmentThreadGroupsSync(props: { readonly environmentId: Environmen
 }
 
 export function ThreadGroupsSyncFork() {
-  const environmentIds = useEnvironmentIds();
+  const { environments } = useEnvironments();
+  const environmentIds = environments.map((environment) => environment.environmentId);
   const configs = useServerConfigs();
   const served = environmentIds.filter(
     (environmentId) =>
