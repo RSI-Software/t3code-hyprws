@@ -2,6 +2,7 @@ import { defaultValueCtx, Editor, rootCtx } from "@milkdown/core";
 import { getMarkdown } from "@milkdown/utils";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 import { markdownEditorPresentation } from "./markdownEditorPresentation";
 import { markdownPipeline } from "./markdownPipeline";
 
@@ -30,6 +31,7 @@ describe("markdown rich editor pipeline", () => {
   });
 
   it("renders interactive tasks, workspace chips, and code chrome", async () => {
+    await getSyntaxHighlighterPromise("ts");
     const root = document.createElement("div");
     const openFile = vi.fn();
     const editor = await markdownPipeline(
