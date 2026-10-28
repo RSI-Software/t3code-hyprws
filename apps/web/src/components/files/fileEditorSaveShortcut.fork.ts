@@ -43,7 +43,7 @@ export function useFileEditorSaveShortcutFork(
   root: RefObject<HTMLElement | null>,
   save: () => void,
 ) {
-  // oxlint-disable-next-line t3code/react-effect-budget -- installs a capture-phase keydown DOM listener on the editor root.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs a capture-phase keydown DOM listener on the editor root.
   useEffect(() => {
     if (root.current) return installFileEditorSaveShortcutFork(root.current, save);
   }, [root, save]);
