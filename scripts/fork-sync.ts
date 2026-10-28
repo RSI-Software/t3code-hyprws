@@ -2202,7 +2202,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
               `vp run fork:sync ${target.tag}`,
             ].join("\n"),
           },
-          error: `${refused} on ${newSha.slice(0, 7)}; hand off only a green tip`,
+          error: `${refused} on ${newSha.slice(0, 7)}; fix it at the tip, or hand off the marker to keep the work`,
         });
       return finish(
         frame({
