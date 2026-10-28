@@ -7,7 +7,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 
-import { readEnvironmentSupportsActiveReorder } from "../state/entities.ts";
+import { readEnvironmentServerConfigLoaded } from "../state/entities.ts";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 // Type-only: a value import cycles through the host and deadlocks its `importOriginal` mocks.
 import type { ThreadActiveReorderUnsupportedError } from "./useThreadActions.ts";
@@ -39,7 +39,7 @@ export function reorderActiveThreadFork(input: {
   orderKey: ActiveThreadOrderKey,
 ) => Promise<AtomCommandResult<unknown, unknown>> {
   return async (target: ScopedThreadRef, orderKey: ActiveThreadOrderKey) => {
-    if (!readEnvironmentSupportsActiveReorder(target.environmentId)) {
+    if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
           new input.unsupportedError({
