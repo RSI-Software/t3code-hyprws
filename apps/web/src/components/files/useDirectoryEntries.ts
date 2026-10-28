@@ -3,6 +3,7 @@ import { useAtomMount, useAtomSubscribe } from "@effect/atom-react";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import { useEffect, useRef, useState } from "react";
+import { useIgnoredListingInvalidationFork } from "./ignoredListingInvalidation.fork"; // fork-hook: workspace-files/file-browser-ignored-listing-import
 
 import { environmentCatalog } from "~/connection/catalog";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -126,11 +127,7 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   });
   // fork-hook: workspace-files/file-browser-ignored-listing — a preference flip invalidates the
   // per-directory caches so every visited folder refetches with (or without) ignored entries.
-  const loadedPreference = useRef(includeIgnored);
-  // oxlint-disable-next-line t3code/react-effect-budget -- The preference store drives a refetch. // fork-hook: workspace-files/file-browser-ignored-listing
-  useEffect(() => {
-    if (loadedPreference.current === includeIgnored) return;
-    loadedPreference.current = includeIgnored;
+  useIgnoredListingInvalidationFork(includeIgnored, () => {
     generation.current++; // fork-hook: workspace-files/file-browser-ignored-fence
     loaded.current.clear();
     requested.current.clear();
@@ -140,7 +137,7 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
     setErrors(new Map());
     active.current = true;
     void load("");
-  }, [includeIgnored, load]);
+  }); // fork-hook: workspace-files/file-browser-ignored-listing
 
   const entries: ProjectEntry[] = [];
   const visit = (path: string) => {

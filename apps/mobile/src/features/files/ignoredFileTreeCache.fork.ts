@@ -17,7 +17,7 @@ export function useIgnoredFileTreeCacheFork<D extends Selection>(
   createDirectories: () => D,
 ): void {
   const previous = useRef(includeIgnored);
-  // oxlint-disable-next-line t3code/react-effect-budget -- visibility changes invalidate external listing targets before consumers load children.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- visibility changes invalidate external listing targets before consumers load children.
   useLayoutEffect(() => {
     if (previous.current === includeIgnored) return;
     previous.current = includeIgnored;
