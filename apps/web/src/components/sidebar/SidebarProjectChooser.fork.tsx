@@ -65,6 +65,7 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
   const open = () => openLatest.current();
   const registered = {
     open,
+    scope: state.scope,
     label: state.label,
     titleLabel: state.titleLabel,
     filter,
