@@ -164,7 +164,7 @@ Fork-only paths need no granularity curation.
 ### Fold to stay tight
 
 Fold the ahead commits to one PR-sized intent each: a feature absorbs its fixes and resolutions, so a seam conflicts once per replay, not once per commit.
-The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it.
+The [`fork-fold`](../../../.agents/skills/fork-fold/SKILL.md) skill runs it inside a sync session, so the fold lands through the sync marker.
 Replay sees each commit, not the net, so an upstream line one commit deletes and a later one restores conflicts on every rebase; [`fork:stale-delete`](../../../scripts/lib/fork-stale-delete.ts) refuses that pair in `fork:ci`.
 Fold commits that share one owning intent or cancel each other's upstream hunks, never only because they share a domain.
 A cancelling pair across domains cannot share a plan line: drop both hunks by hand at the fold, and `prove` checks the tree.
