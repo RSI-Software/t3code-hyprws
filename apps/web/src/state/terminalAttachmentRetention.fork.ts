@@ -49,7 +49,7 @@ export function useTerminalAttachDemandFork(
   attached: boolean,
 ): void {
   // Mounted here so the demand outlives the write whichever registry the caller mounts in.
-  // oxlint-disable-next-line t3code/react-effect-budget -- syncs the prop into the shared registry
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- syncs the prop into the shared registry
   useEffect(() => {
     const release = appAtomRegistry.mount(session);
     appAtomRegistry.set(session, attached);
