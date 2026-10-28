@@ -232,8 +232,16 @@ describe("file-save stale-write guard", () => {
 
     toast.mock.calls[0]![0].data.secondaryActionProps.onClick();
     await using _reopened = await editLoadedFile("# Readme fresh\n");
+    const freshSaveConfirmed = Promise.withResolvers<void>();
+    confirmFile.mockImplementationOnce(() => {
+      freshSaveConfirmed.resolve();
+      return true;
+    });
+    writeFile.mockResolvedValueOnce(AsyncResult.success({ relativePath: "file.txt" }));
     inFlight.resolve(diskChanged);
-    await vi.runAllTimersAsync();
+    // Reload also starts discovery retries; draining all timers can run those forever.
+    await vi.advanceTimersByTimeAsync(500);
+    await freshSaveConfirmed.promise;
     expect(writeFile.mock.calls.map(([request]) => request.input.contents)).toEqual([
       "# Readme edited\n",
       "# Readme edited twice\n",
