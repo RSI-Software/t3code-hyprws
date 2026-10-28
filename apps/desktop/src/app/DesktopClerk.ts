@@ -127,8 +127,6 @@ export const make = Effect.gen(function* () {
     return true;
   };
   yield* electronApp.on("open-url", (event: { preventDefault: () => void }, url: string) => {
-    if (launch.openUrl(event, url, [startProviderAuthHandoff, resumeProviderAuth, openAppLink]))
-      return; // fork-hook: multi-window/launch-arguments
     if (handleOpenUrl(url)) event.preventDefault();
   });
 
@@ -221,6 +219,7 @@ export const make = Effect.gen(function* () {
         return true;
       };
       handleOpenUrl = (url) =>
+        launch.openUrl(url, [startProviderAuthHandoff, resumeProviderAuth, openAppLink]) || // fork-hook: multi-window/launch-arguments
         startProviderAuthHandoff(url) ||
         resumeProviderAuth(url) ||
         openWebLink(url) ||

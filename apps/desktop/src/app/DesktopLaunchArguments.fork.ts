@@ -42,13 +42,8 @@ const makeDesktopLaunchArguments = () => {
       /** True when the launch opened as a window instead of revealing main. */
       secondInstance: (argv: readonly string[]) => open("second-instance", argv),
       /** Leaves web links to upstream; claims application deep links. */
-      openUrl: (
-        event: { readonly preventDefault: () => void },
-        url: string,
-        authHandlers: ReadonlyArray<(url: string) => boolean>,
-      ) => {
+      openUrl: (url: string, authHandlers: ReadonlyArray<(url: string) => boolean>) => {
         if (!openArguments || !/^t3code(?:-dev)?:\/\//i.test(url)) return false;
-        event.preventDefault();
         if (authHandlers.some((handle) => handle(url))) return true;
         return open("open-url", [url]);
       },

@@ -71,17 +71,14 @@ describe("DesktopClerk", () => {
         Effect.sync(() => void opened.push([...argv])),
       );
       const router = yield* desktopLaunchArguments.router;
-      const event = { preventDefault: vi.fn() };
       const auth = vi.fn(() => false);
       for (const url of ["https://example.com", "http://example.com", "file:///page.html"]) {
-        assert.isFalse(router.openUrl(event, url, [auth]));
+        assert.isFalse(router.openUrl(url, [auth]));
       }
-      assert.equal(event.preventDefault.mock.calls.length, 0);
       assert.equal(auth.mock.calls.length, 0);
-      assert.isTrue(router.openUrl(event, "t3code://app/project/env/project", [auth]));
+      assert.isTrue(router.openUrl("t3code://app/project/env/project", [auth]));
       yield* Effect.yieldNow;
       assert.deepEqual(opened, [["t3code://app/project/env/project"]]);
-      assert.equal(event.preventDefault.mock.calls.length, 1);
     }),
   );
   beforeEach(() => {
@@ -111,6 +108,11 @@ describe("DesktopClerk", () => {
           openedArguments.push([...argv]);
         }),
       );
+      const earlyPreventDefault = vi.fn();
+      listeners.get("open-url")?.(
+        { preventDefault: earlyPreventDefault },
+        "t3code-dev://app/project/env/buffered",
+      );
       const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
       listeners.get("second-instance")?.({}, [
         "/repo/apps/desktop/node_modules/electron/dist/electron",
@@ -124,7 +126,9 @@ describe("DesktopClerk", () => {
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
       assert.deepEqual(registeredEvents, ["second-instance", "open-url", "open-file"]);
+      assert.equal(earlyPreventDefault.mock.calls.length, 1);
       assert.deepEqual(openedArguments, [
+        ["t3code-dev://app/project/env/buffered"],
         [
           "/repo/apps/desktop/node_modules/electron/dist/electron",
           "--no-sandbox",
