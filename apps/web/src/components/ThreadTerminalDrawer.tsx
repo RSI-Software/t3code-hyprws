@@ -111,6 +111,7 @@ import {
   registerTerminalFocusTarget,
 } from "../lib/terminalFocus";
 import { useReattachFocusFork } from "./terminalReattachFocus.fork"; // fork-hook: zmux-estate/terminal-reattach-focus
+import { useTerminalRetargetEffectFork } from "./terminalRetargetEffect.fork"; // fork-hook: upstream-fixes/terminal-retarget-effect-import
 import {
   resolveTerminalFontPreference,
   resolveTerminalFontSizePreference,
@@ -713,12 +714,10 @@ function TerminalSessionViewport({
     (listener: (session: TerminalSessionState) => void) =>
       appAtomRegistry.subscribe(terminalSessionAtom, listener),
   );
-  useEffect(() => {
-    if (launchIdentityRef.current === launchIdentity || !attached) return;
-    launchIdentityRef.current = launchIdentity;
+  useTerminalRetargetEffectFork(attached, launchIdentity, launchIdentityRef, () => {
     if (!hasTerminalWriteAccess()) return; // fork-hook: upstream-fixes/split-session-permissions
     void retargetTerminal();
-  }, [attached, launchIdentity]);
+  }); // fork-hook: upstream-fixes/terminal-retarget-effect
   const writeTerminal = useEffectEvent((data: string) => {
     return writeToRunningTerminalFork(readTerminalSession().status, () =>
       runTerminalWrite({

@@ -71,7 +71,7 @@ export function useReattachFocusFork(
   containerRef: RefObject<HTMLElement | null>,
 ) {
   const [controller] = useState(() => createReattachFocusFork(attached));
-  // oxlint-disable-next-line t3code/react-effect-budget -- Reads DOM focus as the zmux attachment detaches.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads DOM focus as the zmux attachment detaches.
   useEffect(() => {
     controller.attach(attached, restoreOnReattach, containerRef.current);
   }, [attached, containerRef, controller, restoreOnReattach]);
