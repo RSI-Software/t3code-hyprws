@@ -16,8 +16,20 @@ const LED_KEY = "led";
 const OPEN_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(OPEN_KEY));
 const SHUT_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(SHUT_KEY));
 const LED_HEADER = sidebarMarkerId(sidebarThreadGroupHeaderMarker(LED_KEY));
-const open = { id: "open", title: "Open", threadIds: ["m1", "m2"], collapsed: false };
-const shut = { id: "shut", title: "Shut", threadIds: ["c1", "c2"], collapsed: true };
+const open = {
+  id: "open",
+  title: "Open",
+  threadIds: ["m1", "m2"],
+  parentThreadId: "m1",
+  collapsed: false,
+};
+const shut = {
+  id: "shut",
+  title: "Shut",
+  threadIds: ["c1", "c2"],
+  parentThreadId: "c1",
+  collapsed: true,
+};
 const led = {
   id: "led",
   title: "Led",
@@ -25,6 +37,7 @@ const led = {
   parentThreadId: "l1",
   collapsed: true,
 };
+// Open and shut render as when their parents sort out of view, under a plain header.
 const spans = [
   { groupKey: OPEN_KEY, group: open, threads: [], visibleKeys: ["m1", "m2"], parentKey: null },
   { groupKey: SHUT_KEY, group: shut, threads: [], visibleKeys: ["c1"], parentKey: null },
