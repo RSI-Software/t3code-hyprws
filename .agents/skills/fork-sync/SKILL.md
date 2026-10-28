@@ -84,6 +84,7 @@ Resolve each path in that worktree by verdict, then `git add` it.
 - **Net-zero fork edit:** upstream's delete stands
 - **Replayed commit:** never adapt; hook guard
   - Adds no line its original lacked
+  - Never a later fork commit's text
   - A broken build is tip work, not resolution
 - **[Regenerable][regen]:** regenerates on rerun
 
@@ -117,6 +118,7 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
 - **Owner:** newest fork commit on those lines
 - **Find it:** `vp run fork:fixup-fold`
 - **Unmarked fork line:** the fixup marks it
+  - Replayed commit: [replay fresh](#replay-fresh)
 - **Lost hook:** restore it at the tip
   - Target carries it: drop its leftovers
   - Trailer: `Fork-Hook-Retired: domain/name`
@@ -130,6 +132,20 @@ Run `vp test run` inside the package.
 Rerun once after tip work so the marker covers it.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
+
+## Replay fresh
+
+A `fork:ci` hook finding in a replayed commit means its resolution adapted it.
+A tip `fixup!` never clears it; only a new replay does.
+
+- **Session:** drop marker and kept worktree; rerun
+- **Job:** report the finding; never hand off
+
+```bash
+git push origin --delete sync/resolution
+rm .t3/fork-sync/worktree.json   # main checkout
+vp run fork:sync
+```
 
 ## Fold
 
