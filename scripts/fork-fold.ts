@@ -3,8 +3,8 @@
 
 // Folds the fork's ahead commits into one-intent commits. The agent writes the plan; this script
 // lists the stack, replays a plan (merge-tree until the first refused block, then a worktree
-// rebase), proves the new tip against the old, and publishes on the expected-old lease. The fold
-// rules live in .agents/skills/fork-fold/SKILL.md.
+// rebase), and proves the new tip against the old. A fork:sync marker lands the fold, so the land
+// run stays the only trunk writer. The fold rules live in .agents/skills/fork-fold/SKILL.md.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -27,7 +27,6 @@ import {
 import { bodyProse, forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
 
 export type { FoldBlock, FoldCommit, FoldGit, FoldStack, PlanLine };
-import { HYPRWS_BRANCH, HYPRWS_REF } from "./lib/fork-policy.ts";
 
 const HELP = `Usage: vp run fork:fold <command> [options]
 
@@ -35,7 +34,6 @@ Commands:
   list [--json]            Ahead commits grouped by Fork-Domain, with files
   apply <plan.tsv>         Replay the plan onto a detached tip; prints the tip sha
   prove <old> <new>        Member and link guards, tree-equal, fork:delta --check, fork:scan on <new>
-  publish <old> <new>      Prove, push the expected-old lease, move local hyprws
 
 Options:
   --base <ref>   Upstream base (default: upstream/main)
@@ -57,10 +55,8 @@ resolves to the old head on both paths; only an upstream-owned conflict stops.
 Each stop names the worktree; resolve and rerun the same apply command to
 continue.
 
-Publish refuses unless local hyprws is at <old> with a clean hyprws worktree,
-proves, then pushes origin with --force-with-lease=hyprws:<old> — the <old>
-resolved at the start, never a re-fetched sha — and only on push exit 0 moves
-local hyprws to <new>.
+fork:fold never writes hyprws. Fold inside a fork:sync session: move its kept
+worktree to the proven tip, rerun fork:sync, and hand off the marker.
 
 Exit 0 passes, 1 fails, 2 is usage.
 `;
@@ -612,77 +608,6 @@ const prove = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newR
   return 0;
 };
 
-/**
- * The worktree with hyprws checked out — usually the main checkout — or
- * undefined when checked out nowhere, so there is no worktree tree to dirty.
- */
-const trunkWorktree = (git: FoldGit): string | undefined => {
-  for (const block of git.text(["worktree", "list", "--porcelain"]).split("\n\n")) {
-    const [head = "", ...rest] = block.split("\n");
-    if (head.startsWith("worktree ") && rest.includes(`branch ${HYPRWS_REF}`))
-      return head.slice("worktree ".length);
-  }
-  return undefined;
-};
-
-/**
- * Publishes a proven fold: the local trunk must sit at <old> on a clean tree,
- * the fold must prove, then the push carries the expected-old lease — the
- * <old> sha resolved here, never a re-fetched one — so a remote that moved
- * since the run started refuses while the local branch stays untouched.
- */
-const publish = (git: FoldGit, step: ProveStep, base: string, oldRef: string, newRef: string) => {
-  const old = git.text(["rev-parse", "--verify", `${oldRef}^{commit}`]);
-  const next = git.text(["rev-parse", "--verify", `${newRef}^{commit}`]);
-  const local = git.text(["rev-parse", "--verify", `${HYPRWS_REF}^{commit}`]);
-  if (local !== old) {
-    process.stderr.write(
-      `refused: local ${HYPRWS_BRANCH} is at ${local.slice(0, 10)}, not ${old.slice(0, 10)}\n`,
-    );
-    return 1;
-  }
-  // The tree that matters is the one where hyprws is checked out — usually the
-  // main checkout — not whichever checkout invoked publish. Checked out
-  // nowhere leaves no worktree tree to dirty, so the check is skipped.
-  const trunkTree = trunkWorktree(git);
-  if (trunkTree !== undefined) {
-    const status = git.result(["-C", trunkTree, "status", "--porcelain"]);
-    if (status.status !== 0 || status.stdout.trim().length > 0) {
-      process.stderr.write(`refused: the ${HYPRWS_BRANCH} worktree is not clean\n${status.stdout}`);
-      return 1;
-    }
-  }
-  if (prove(git, step, base, old, next) !== 0) return 1;
-  const pushed = step("git", [
-    "push",
-    "origin",
-    `${next}:${HYPRWS_BRANCH}`,
-    `--force-with-lease=${HYPRWS_BRANCH}:${old}`,
-  ]);
-  const pushDetail = `${pushed.stdout}${pushed.stderr}`.trim();
-  if (pushDetail.length > 0) process.stdout.write(`${pushDetail}\n`);
-  if (pushed.status !== 0) {
-    process.stderr.write(
-      `refused: origin did not accept the lease ${HYPRWS_BRANCH}:${old.slice(0, 10)}; local ${HYPRWS_BRANCH} kept\n`,
-    );
-    return 1;
-  }
-  // hyprws is usually checked out in the main checkout; moving the ref under a
-  // checkout is safe only because prove guarantees the fold is tree-equal, so
-  // the worktree, index, and any state at <old> read identically at <new>.
-  const moved = git.result(["update-ref", HYPRWS_REF, next, old]);
-  if (moved.status !== 0) {
-    process.stderr.write(
-      `failed: local ${HYPRWS_BRANCH} moved during publish: ${moved.stderr.trim()}\n`,
-    );
-    return 1;
-  }
-  process.stdout.write(
-    `published: ${next.slice(0, 10)} → origin/${HYPRWS_BRANCH} on lease ${old.slice(0, 10)}; local ${HYPRWS_BRANCH} moved\n`,
-  );
-  return 0;
-};
-
 export const run = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
@@ -748,11 +673,6 @@ export const run = (
       const args = parseArgs(rest, { values: ["--base"], positionals: 2 });
       const [oldRef = "", newRef = ""] = args.positionals;
       return prove(git, step, args.values.get("--base") ?? "upstream/main", oldRef, newRef);
-    }
-    if (subcommand === "publish") {
-      const args = parseArgs(rest, { values: ["--base"], positionals: 2 });
-      const [oldRef = "", newRef = ""] = args.positionals;
-      return publish(git, step, args.values.get("--base") ?? "upstream/main", oldRef, newRef);
     }
     throw new UsageError(`unknown command: ${subcommand}`);
   } catch (error) {
