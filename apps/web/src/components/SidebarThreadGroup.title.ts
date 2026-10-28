@@ -118,7 +118,7 @@ function createThreadGroupTitleRequests<T extends TitleThread>(deps: ThreadGroup
     const group = currentGroup(groupId);
     if (group === undefined) return;
     const byKey = new Map(deps.readThreads().map((thread) => [deps.keyOf(thread), thread]));
-    const parent = group.parentThreadId === undefined ? undefined : byKey.get(group.parentThreadId);
+    const parent = byKey.get(group.parentThreadId);
     const members = group.threadIds.flatMap((threadId) =>
       threadId === group.parentThreadId ? [] : (byKey.get(threadId) ?? []),
     );
