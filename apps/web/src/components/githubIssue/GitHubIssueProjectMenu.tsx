@@ -49,7 +49,7 @@ export function GitHubIssueProjectMenu({
           <Button
             size="sm"
             variant="outline"
-            aria-label="Filter GitHub issues by project"
+            aria-label="Filter this issue list by project"
             className="min-w-0 max-w-44 justify-between"
           />
         }
@@ -60,8 +60,9 @@ export function GitHubIssueProjectMenu({
           ) : (
             <LayersIcon aria-hidden className="size-4 shrink-0" />
           )}
+          <span className={cn("shrink-0", ISSUE_CONTROL_LABEL)}>List:</span>
           <span className={cn("min-w-0 truncate", ISSUE_CONTROL_LABEL)}>
-            {selected?.title ?? "All projects"}
+            {selected?.title ?? "All"}
           </span>
         </span>
         <ChevronDownIcon aria-hidden className="-mr-px size-4 shrink-0" />
@@ -76,7 +77,7 @@ export function GitHubIssueProjectMenu({
           <MenuRadioItem value={ALL_PROJECTS_VALUE} closeOnClick>
             <ProjectRowLabel>
               <LayersIcon aria-hidden className="size-4 shrink-0" />
-              <span className="min-w-0 truncate">All projects</span>
+              <span className="min-w-0 truncate">All in window</span>
             </ProjectRowLabel>
           </MenuRadioItem>
           {projects.map((project) => (
