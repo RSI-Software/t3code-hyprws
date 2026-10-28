@@ -125,7 +125,10 @@ const harness = Effect.gen(function* () {
     Layer.mock(ProjectStore.ProjectStoreV2)({
       get: () => Effect.succeedSome({ workspaceRoot: fixture.baseDir } as ProjectStore.ProjectRow),
     }),
-    Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread: () => Effect.succeed(thread) }),
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({
+      getThread: () => Effect.succeed(thread),
+      getThreadShell: () => Effect.succeed(null),
+    }),
     Layer.mock(Orchestrator.OrchestratorV2)({
       getShellSnapshot: () =>
         Effect.succeed({ threads: [thread] } as unknown as OrchestrationV2ThreadShellSnapshot),
