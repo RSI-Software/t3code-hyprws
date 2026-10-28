@@ -25,7 +25,7 @@ export function useOpenDrawerComposerFocusFork(
   const shouldFocus = useEffectEvent(
     () => drawerOpen && shouldAutoFocusComposerOnThreadChange(document.activeElement),
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- schedules a DOM focus on the next animation frame after thread navigation.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a DOM focus on the next animation frame after thread navigation.
   useEffect(() => {
     if (!threadKey || !shouldFocus()) return;
     const frame = window.requestAnimationFrame(focusComposer);
