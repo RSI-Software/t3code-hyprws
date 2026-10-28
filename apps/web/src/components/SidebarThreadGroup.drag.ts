@@ -59,7 +59,7 @@ export function useSidebarThreadGroupDragFork<T>(input: {
 
   const activeId = drag?.activeId ?? null;
   const originX = drag?.originX ?? null;
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to document `pointermove` DOM events while a group drag is active.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document `pointermove` DOM events while a group drag is active.
   useEffect(() => {
     if (activeId === null || originX === null) return;
     // Pointer-rate: write only when the pointer crosses into another step.
