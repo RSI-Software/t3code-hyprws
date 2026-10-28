@@ -759,6 +759,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   if (worktreeHome !== undefined && baseDir === worktreeHome) {
     env.T3CODE_DEV_ELECTRON_USER_DATA ??= (yield* Path.Path).join(worktreeHome, "electron");
   }
+  if (baseDir === worktreeHome) env.T3CODE_ZMUX_DISABLED ??= "1"; // fork-hook: zmux-estate/dev-runner-zmux-disabled
 
   yield* Effect.logInfo(
     `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,
