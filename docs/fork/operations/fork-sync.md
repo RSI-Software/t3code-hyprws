@@ -57,7 +57,7 @@ The land run pushes the trunk directly, so no pull request runs `hyprws CI` befo
 
 A candidate replays every fork commit, so stale-delete has nothing new to judge.
 
-`fork-fold` publishes only a tree-equal fold, so it inherits the same guarantee.
+A `fork-fold` fold lands through the same marker and gate, so the land run stays the only trunk writer.
 
 ## Local trunk
 
