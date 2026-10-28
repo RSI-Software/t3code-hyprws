@@ -96,7 +96,7 @@ export function GitHubIssueDetailPanel({
   // spends another read.
   const issueKey = `${environmentId}:${reference.projectId}:${reference.repository.toLowerCase()}#${reference.number}`;
   const refreshOnOpen = useEffectEvent(() => query.refresh());
-  // oxlint-disable-next-line t3code/react-effect-budget -- asks the server, which reads GitHub uncached, to refresh the shared detail query once per opened issue.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server, which reads GitHub uncached, to refresh the shared detail query once per opened issue.
   useEffect(() => {
     refreshOnOpen();
   }, [
