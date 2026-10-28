@@ -24,7 +24,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { CircleArrowUpIcon } from "lucide-react";
 import { type ComponentProps, useRef, useState } from "react";
-import { useEffect } from "react"; // fork-hook: upstream-fixes/server-update-progress-clock
+import { useServerUpdateClockFork } from "./serverUpdateClock.fork"; // fork-hook: upstream-fixes/server-update-progress-clock
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -205,13 +205,7 @@ function useServerUpdateDetail(state: Exclude<ServerUpdateState, { status: "idle
     state.status === "running" &&
     state.stage === "resuming" &&
     state.restartStartedAt !== undefined;
-  const [now, setNow] = useState(Date.now);
-  // oxlint-disable-next-line t3code/react-effect-budget -- A wall clock ticks the restart. // fork-hook: upstream-fixes/server-update-progress-clock
-  useEffect(() => {
-    if (!ticking) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [ticking]);
+  const now = useServerUpdateClockFork(ticking); // fork-hook: upstream-fixes/server-update-progress-clock
   if (state.status === "failed") return state.message;
   if (state.status === "completed") return `Updated to t3@${state.targetVersion}.`;
   const elapsed = serverUpdateRestartElapsedSeconds(state, now);
