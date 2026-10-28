@@ -37,8 +37,8 @@ export interface SidebarThreadGroup {
   title: string;
   threadIds: string[];
   collapsed: boolean;
-  /** A member shown first, with the rest indented under it. Visual only. */
-  parentThreadId?: string;
+  /** The member that leads the group: shown first, with the rest under it. */
+  parentThreadId: string;
 }
 
 export type SidebarThreadGroupMembershipTarget =
@@ -130,9 +130,7 @@ function flatten(state: ThreadGroupsState): SidebarThreadGroup[] {
         title: group.title,
         threadIds: group.threadIds.map(threadKey),
         collapsed: state.collapsed[key] === true,
-        ...(group.parentThreadId === undefined
-          ? {}
-          : { parentThreadId: threadKey(group.parentThreadId) }),
+        parentThreadId: threadKey(group.parentThreadId),
       };
     });
   });
@@ -321,15 +319,14 @@ export function renameThreadGroup(key: string, title: string) {
   mutate(group.environmentId, { type: "rename", groupId: group.localId, title: trimmed });
 }
 
-export function setThreadGroupParent(key: string, parentThreadKey: string | null) {
+export function setThreadGroupParent(key: string, parentThreadKey: string) {
   const group = parseKey(key);
-  if (group === null) return;
-  const parent = parentThreadKey === null ? null : parseScopedThreadKey(parentThreadKey);
-  if (parent !== null && parent.environmentId !== group.environmentId) return;
+  const parent = parseScopedThreadKey(parentThreadKey);
+  if (group === null || parent === null || parent.environmentId !== group.environmentId) return;
   mutate(group.environmentId, {
     type: "set-parent",
     groupId: group.localId,
-    parentThreadId: parent?.threadId ?? null,
+    parentThreadId: parent.threadId,
   });
 }
 
