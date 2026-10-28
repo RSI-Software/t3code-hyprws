@@ -67,7 +67,7 @@ const startGroup = ThreadGroups.ThreadGroupsServiceFork.pipe(
     groups.mutate({
       type: "set-membership",
       threadIds: [orchestrator, first],
-      target: { type: "new", groupId: "g1", title: "Work", asParent: true },
+      target: { type: "new", groupId: "g1", title: "Work" },
     }),
   ),
 );

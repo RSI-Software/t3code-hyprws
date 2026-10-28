@@ -47,7 +47,8 @@ export function insertSidebarThreadGroupMarkersFork(
   }
   const wrapped: SidebarListItem[] = [];
   for (const item of items) {
-    const active = item.kind === "thread" && item.section === "active";
+    const active =
+      item.kind === "thread" && (item.section === "active" || item.section === "working");
     const opens = active ? openers.get(item.key) : undefined;
     if (opens !== undefined)
       wrapped.push({ kind: "marker", marker: sidebarThreadGroupHeaderMarker(opens) });

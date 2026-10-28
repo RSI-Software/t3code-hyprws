@@ -69,8 +69,14 @@ const thread = (key: string, projectId = "p-a"): Thread => ({
 function harness() {
   let threads = [thread("a1"), thread("a2"), thread("b1", "p-b"), thread("b2", "p-b")];
   let groups: SidebarThreadGroup[] = [
-    { id: "g", title: "New group", threadIds: ["a1", "a2"], collapsed: false },
-    { id: "h", title: "Other", threadIds: ["b1", "b2"], collapsed: false },
+    {
+      id: "g",
+      title: "New group",
+      threadIds: ["a1", "a2"],
+      parentThreadId: "a1",
+      collapsed: false,
+    },
+    { id: "h", title: "Other", threadIds: ["b1", "b2"], parentThreadId: "b1", collapsed: false },
   ];
   const calls: {
     readonly projectId: string;
@@ -189,7 +195,7 @@ describe("createThreadGroupTitleOwner", () => {
     h.clickRetry();
     expect(h.open.size).toBe(0);
     expect(h.calls).toHaveLength(2);
-    expect(h.calls[1]!.memberTitles).toEqual(["Thread a1", "Thread a2"]);
+    expect(h.calls[1]).toMatchObject({ parentTitle: "Thread a1", memberTitles: ["Thread a2"] });
     await h.settle(AsyncResult.success({ title: "Named" }));
     expect(h.groups()[0]!.title).toBe("Named");
   });
@@ -289,6 +295,9 @@ describe("createThreadGroupTitleOwner", () => {
     // Settings unmounts the sidebar; a thread is renamed before Retry.
     h.retitle("a1", "Renamed thread");
     h.clickRetry();
-    expect(h.calls[1]!.memberTitles).toEqual(["Renamed thread", "Thread a2"]);
+    expect(h.calls[1]).toMatchObject({
+      parentTitle: "Renamed thread",
+      memberTitles: ["Thread a2"],
+    });
   });
 });

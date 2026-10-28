@@ -38,7 +38,11 @@ describe("legacy thread groups", () => {
       here,
     );
     expect(share).toEqual([
-      { imported: { id: "mixed", title: "Mixed", threadIds: ["a", "b"] }, collapsed: true },
+      {
+        // Its parent stayed in the other environment, so the first member leads here.
+        imported: { id: "mixed", title: "Mixed", threadIds: ["a", "b"], parentThreadId: "a" },
+        collapsed: true,
+      },
     ]);
     expect(remaining).toEqual([
       {

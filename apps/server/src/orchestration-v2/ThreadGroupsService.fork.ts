@@ -91,13 +91,17 @@ const decodeGroup = Schema.decodeSync(ThreadGroupForkSchema);
 /** Compares snapshots by value, so a no-op mutation neither writes nor notifies. */
 const encodeGroups = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ThreadGroupForkSchema)));
 
-const rowToGroup = (row: ThreadGroupRow): ThreadGroupFork =>
-  decodeGroup({
+const rowToGroup = (row: ThreadGroupRow): ThreadGroupFork => {
+  const threadIds = decodeThreadIds(row.thread_ids_json);
+  // Rows written before every group had a parent fall back to the first member.
+  const parent = threadIds.find((threadId) => threadId === row.parent_thread_id);
+  return decodeGroup({
     id: row.group_id,
     title: row.title,
-    threadIds: decodeThreadIds(row.thread_ids_json),
-    ...(row.parent_thread_id === null ? {} : { parentThreadId: row.parent_thread_id }),
+    threadIds,
+    parentThreadId: parent ?? threadIds[0]!,
   });
+};
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -123,7 +127,7 @@ const make = Effect.gen(function* () {
           position,
           title: group.title,
           thread_ids_json: encodeThreadIds(group.threadIds),
-          parent_thread_id: group.parentThreadId ?? null,
+          parent_thread_id: group.parentThreadId,
         })}`;
       }
     },
@@ -189,7 +193,7 @@ const make = Effect.gen(function* () {
         Effect.map((members) => ({
           id: group.id,
           title: group.title,
-          parentThreadId: group.parentThreadId ?? null,
+          parentThreadId: group.parentThreadId,
           threads: members.flatMap((shell) =>
             shell === null || shell.deletedAt !== null
               ? []

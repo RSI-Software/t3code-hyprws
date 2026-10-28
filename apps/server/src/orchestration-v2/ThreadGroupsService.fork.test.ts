@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import { ensureForkSchema } from "../persistence/ForkSchema.ts";
@@ -49,7 +50,7 @@ database("ThreadGroupsServiceFork", (it) => {
           yield* service.mutate({
             type: "set-membership",
             threadIds: [a, b],
-            target: { type: "new", groupId: "g1", title: "Orchestrator", asParent: true },
+            target: { type: "new", groupId: "g1", title: "Orchestrator" },
           });
           yield* service.mutate({
             type: "set-membership",
@@ -63,7 +64,7 @@ database("ThreadGroupsServiceFork", (it) => {
         Effect.gen(function* () {
           const service = yield* ThreadGroups.ThreadGroupsServiceFork;
           const before = yield* service.snapshot;
-          // The parent leaving stops it leading; the group keeps two members.
+          // The parent leaving hands the lead to the next member.
           const afterParentLeaves = yield* service.mutate({
             type: "set-membership",
             threadIds: [a],
@@ -81,7 +82,7 @@ database("ThreadGroupsServiceFork", (it) => {
         { id: "g1", title: "Orchestrator", threadIds: [a, b, c], parentThreadId: a },
       ]);
       assert.deepStrictEqual(reloaded.afterParentLeaves.groups, [
-        { id: "g1", title: "Orchestrator", threadIds: [b, c] },
+        { id: "g1", title: "Orchestrator", threadIds: [b, c], parentThreadId: b },
       ]);
       assert.deepStrictEqual(reloaded.dissolved.groups, []);
     }),
@@ -148,16 +149,40 @@ database("ThreadGroupsServiceFork import", (it) => {
         const imported = yield* service.mutate({
           type: "import",
           groups: [
-            { id: "g1", title: "Same id", threadIds: [c, d] },
+            { id: "g1", title: "Same id", threadIds: [c, d], parentThreadId: c },
             { id: "g2", title: "Grouped or dead", threadIds: [b, c, deleted], parentThreadId: b },
             { id: "g3", title: "Local", threadIds: [c, missing, d], parentThreadId: missing },
           ],
         });
         assert.deepStrictEqual(imported.groups, [
-          { id: "g1", title: "Server", threadIds: [a, b] },
-          { id: "g3", title: "Local", threadIds: [c, d] },
+          { id: "g1", title: "Server", threadIds: [a, b], parentThreadId: a },
+          { id: "g3", title: "Local", threadIds: [c, d], parentThreadId: c },
         ]);
       }),
     ),
+  );
+});
+
+database("ThreadGroupsServiceFork legacy rows", (it) => {
+  it.effect("leads a group saved without a parent with its first member", () =>
+    Effect.gen(function* () {
+      yield* ensureForkSchema();
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO fork_thread_groups ${sql.insert({
+        group_id: "g1",
+        position: 0,
+        title: "Legacy",
+        thread_ids_json: JSON.stringify([b, a]),
+        parent_thread_id: null,
+      })}`;
+      const snapshot = yield* withService(
+        Effect.gen(function* () {
+          return yield* (yield* ThreadGroups.ThreadGroupsServiceFork).snapshot;
+        }),
+      );
+      assert.deepStrictEqual(snapshot.groups, [
+        { id: "g1", title: "Legacy", threadIds: [b, a], parentThreadId: b },
+      ]);
+    }),
   );
 });

@@ -9,7 +9,13 @@ import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
 const GROUP_KEY = "group-1";
 const HEADER_MARKER = sidebarThreadGroupHeaderMarker(GROUP_KEY);
 const HEADER = sidebarMarkerId(HEADER_MARKER);
-const group = { id: "group-1", title: "Related", threadIds: ["m1", "m2"], collapsed: false };
+const group = {
+  id: "group-1",
+  title: "Related",
+  threadIds: ["m1", "m2"],
+  parentThreadId: "m1",
+  collapsed: false,
+};
 
 /** The top of the active section is a group; `o1` is an ungrouped row below it. */
 function listWithTopGroup() {
@@ -78,6 +84,27 @@ describe("thread group span projection", () => {
     expect(header?.scaleY).toBe(1);
     expect(header?.y).toBeGreaterThan(0);
     expect(strategy({ ...args, index: ids.indexOf("m1") })?.y).toBe(header?.y);
+  });
+
+  it("leaves a Working group under its own header while an Active row moves", () => {
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: ["o1", "o2"],
+      workingKeys: ["m1", "m2"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+      activeGroups: [
+        { groupKey: GROUP_KEY, group, threads: [], visibleKeys: ["m1", "m2"], parentKey: "m1" },
+      ],
+    });
+    const { strategy, args, ids } = project(items, "o2", "o1");
+    const at = (id: string) => strategy({ ...args, index: ids.indexOf(id) });
+    const shelf = at(sidebarMarkerId("working-header"));
+    expect(shelf?.scaleY).toBe(1);
+    expect(at(HEADER)).toMatchObject({ y: shelf?.y, scaleY: 1 });
+    expect(at("m1")?.y).toBe(shelf?.y);
   });
 
   it("records the slot it opens for the lifted row", () => {
