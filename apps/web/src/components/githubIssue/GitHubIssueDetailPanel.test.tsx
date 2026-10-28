@@ -28,6 +28,7 @@ const emptyDraft: ComposerThreadDraftState = {
   previewAnnotations: [],
   reviewComments: [],
   threadContexts: [],
+  environmentContexts: [],
   modelSelectionByProvider: {},
   activeProvider: null,
   runtimeMode: null,
