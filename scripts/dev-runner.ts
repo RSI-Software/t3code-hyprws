@@ -706,6 +706,9 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   }
 
   const worktreePath = yield* resolveGitWorktreePath(yield* HostProcess.WorkingDirectory);
+  // Like T3CODE_HOME below, an ambient T3CODE_PORT belongs to the live install;
+  // a worktree derives its own port. `--port` still wins.
+  const port = input.port ?? (worktreePath ? undefined : yield* optionalPortConfig("T3CODE_PORT"));
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
@@ -716,7 +719,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   const { serverOffset, webOffset } = yield* resolveModePortOffsets({
     mode: input.mode,
     startOffset: offset,
-    hasExplicitServerPort: input.port !== undefined,
+    hasExplicitServerPort: port !== undefined,
     hasExplicitDevUrl: input.devUrl !== undefined,
     checkPortAvailability: makeDefaultCheckPortAvailability(input.host),
   });
@@ -743,7 +746,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
     logWebSocketEvents: input.logWebSocketEvents,
     host: input.host,
-    port: input.port,
+    port,
     devUrl: input.devUrl,
   });
 
@@ -752,6 +755,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
       ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
       : "";
   const baseDir = env.T3CODE_HOME ?? (yield* DEFAULT_T3_HOME);
+  // Each worktree's dev Electron keeps its own profile instead of the shared one.
+  if (worktreeHome !== undefined && baseDir === worktreeHome) {
+    env.T3CODE_DEV_ELECTRON_USER_DATA ??= (yield* Path.Path).join(worktreeHome, "electron");
+  }
 
   yield* Effect.logInfo(
     `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${baseDir}`,
@@ -865,16 +872,16 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     shell: spawnCommand.shell,
   } as const;
   const child = yield* ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-    stdin: "inherit",
+    // A background process group must not read the terminal (SIGTTIN).
+    stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
     env,
     extendEnv: false,
     shell: spawnCommand.shell,
-    // Keep Vite+ in the same process group so terminal signals (Ctrl+C)
-    // reach it directly. Effect defaults to detached: true on non-Windows,
-    // which would put the runner in a new group and require manual forwarding.
-    detached: false,
+    // Vite+ does not forward signals to its tasks, so the runner owns a process
+    // group and its interrupt (Ctrl+C, SIGTERM) terminates the whole tree.
+    detached: true,
     forceKillAfter: "1500 millis",
   }).pipe(
     Effect.mapError(
@@ -887,7 +894,24 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     ),
   );
 
-  const exitCode = yield* child.exitCode.pipe(
+  // `vp run` forwards no signals and its shim survives behind a node task runner, so a
+  // stopped `vp run dev*` orphans the runner's parent or grandparent; end with either so
+  // the scope tears the group down. The grandparent check reads /proc (Linux only).
+  const fs = yield* FileSystem.FileSystem;
+  const ancestry = Effect.suspend(() => {
+    const parent = process.ppid;
+    return fs.readFileString(`/proc/${parent}/stat`).pipe(
+      Effect.map((stat) => `${parent}:${stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]}`),
+      Effect.orElseSucceed(() => `${parent}`),
+    );
+  });
+  const initialAncestry = yield* ancestry;
+  const parentGone = Effect.gen(function* () {
+    while ((yield* ancestry) === initialAncestry) yield* Effect.sleep("1 second");
+    return 143;
+  });
+
+  const exitCode = yield* Effect.raceFirst(child.exitCode, parentGone).pipe(
     Effect.mapError(
       (cause) =>
         new DevRunnerProcessError({
@@ -937,8 +961,11 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   port: Flag.Int("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Server port override (forwards to T3CODE_PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("T3CODE_PORT")),
+    Flag.withDescription(
+      "Server port override (forwards to T3CODE_PORT). Outside a worktree an ambient T3CODE_PORT is the default.",
+    ),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined),
   ),
   devUrl: Flag.String("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),
@@ -986,6 +1013,8 @@ const cliRuntimeLayer = Layer.mergeAll(
 );
 
 if (import.meta.main) {
+  // A closed terminal sends SIGHUP, which the detached child group never sees.
+  process.once("SIGHUP", () => process.kill(process.pid, "SIGTERM"));
   Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
     Effect.scoped,
     Effect.provide(cliRuntimeLayer),
