@@ -52,7 +52,7 @@ export function useSidebarProjectChooserFork<Group extends ProjectChooserGroup>(
   };
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const openLatest = useRef(() => {});
-  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-callback ref behind the stable opener registered in the external chooser host store.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the latest-callback ref behind the stable opener registered in the external chooser host store.
   useLayoutEffect(() => {
     openLatest.current = () => {
       // The chooser sits in the sidebar header, so a hidden sidebar shows first.

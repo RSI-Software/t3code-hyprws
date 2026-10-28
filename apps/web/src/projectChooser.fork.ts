@@ -192,7 +192,7 @@ const subscribe = (listener: () => void) => {
 
 /** Registers the sidebar's chooser while mounted, so other surfaces can open it. */
 export function useProjectChooserHost(registered: ProjectChooserHost, enabled: boolean): void {
-  // oxlint-disable-next-line t3code/react-effect-budget -- registers this chooser in the module-level host store other surfaces open through.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this chooser in the module-level host store other surfaces open through.
   useEffect(() => {
     if (!enabled) return;
     setHost(registered);
