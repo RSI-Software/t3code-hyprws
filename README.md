@@ -84,12 +84,24 @@ https://github.com/user-attachments/assets/78f1f4b6-1162-4498-b5ca-95542e40f15f
 ### Desktop dictation
 
 - **Speak:** record into an editable draft
-- **Live:** Meta words appear while you speak
+- **Live:** words appear while you speak
+- **Services:** Meta or any OpenAI Realtime endpoint
+- **Terms:** per-project names and spelling fixes
+- **Cleanup:** optional cleanup and formatting
 - **Finish:** commit, review, then send
 - **Cancel:** keep the original draft
 - [Guide](docs/fork/user/dictation.md)
 
-https://github.com/user-attachments/assets/28ce39fe-31ac-44c8-99a8-7ddc51327a4b
+https://github.com/user-attachments/assets/7e122ae4-4e82-42ec-9782-6026f34d1ba7
+
+<details>
+<summary>More clips</summary>
+
+**Speech terms for a project**
+
+![Dictation settings list a project's speech terms](https://github.com/user-attachments/assets/5131e649-35ef-4bac-b8dd-2b68bbc6a5bc)
+
+</details>
 
 ### Rich Markdown editing
 
@@ -114,7 +126,7 @@ https://github.com/user-attachments/assets/4dc25fb0-3ed7-4cc2-9eee-d5b34eb3cd57
 - **Attach:** terminals join the checkout session
 - **Worktrees:** new ones join the same session
 - **Shared:** visible from T3 Code and the CLI
-- **Enable:** **Terminal session** in Appearance
+- **Default:** zmux or plain, in Settings → Terminal
 - [Guide](docs/fork/user/managed-terminals.md)
 
 https://github.com/user-attachments/assets/3fa4a68f-a189-4ca8-98d5-416e8c9eb4fd
@@ -164,10 +176,24 @@ https://github.com/user-attachments/assets/9d21df4b-8a5f-425e-9a59-2de67b2e7520
 
 ### Threads
 
-- **Group:** related active threads in the sidebar
+- **Group:** drag a thread under another
+- **Title:** each group names its shared subject
+- **Parent:** leads the group; its title is a tab
+- **Working:** a working parent carries the group
+- **Projects:** one group spans several
+- **Agents:** group threads through MCP tools
 - **Fork:** continue a copy on the same provider
 
-https://github.com/user-attachments/assets/532802d4-4ddc-473e-b337-4f2c5906d3f8
+https://github.com/user-attachments/assets/dfb1fa2f-1d93-4bfa-bc83-c1d36261a9f1
+
+<details>
+<summary>More clips</summary>
+
+**A working parent carries its group to Working**
+
+https://github.com/user-attachments/assets/93618826-3a1d-4c86-bc89-3202b406af39
+
+</details>
 
 ### Delegated follow-up rounds
 
