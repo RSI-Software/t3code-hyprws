@@ -115,7 +115,7 @@ function usePublishWindowProjectsFork(
   })();
   const windowId = bridge?.windowId;
   const publish = bridge?.publishWindowProjects;
-  // oxlint-disable-next-line t3code/react-effect-budget -- publishes the window's project scope to the desktop main process over IPC.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the window's project scope to the desktop main process over IPC.
   useEffect(() => {
     if (payload === null || windowId === undefined || publish === undefined) return;
     void publish({ windowId, scope: JSON.parse(payload) as DesktopWindowProjectScope }).catch(
