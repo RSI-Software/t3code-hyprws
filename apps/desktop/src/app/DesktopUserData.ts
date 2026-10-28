@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option"; // fork-hook: upstream-fixes/dev-electron-user-data
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
@@ -36,7 +37,10 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     readonly appDataDirectory: string;
     readonly isDevelopment: boolean;
     readonly platform: NodeJS.Platform;
+    readonly devElectronUserData?: Option.Option<string>; // fork-hook: upstream-fixes/dev-electron-user-data
   }) {
+    if (input.devElectronUserData && Option.isSome(input.devElectronUserData))
+      return input.devElectronUserData.value; // fork-hook: upstream-fixes/dev-electron-user-data
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const names = input.isDevelopment
