@@ -97,7 +97,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
   const controller = session.controller;
   const canOperate = useEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope);
   const latest = useRef(input);
-  // oxlint-disable-next-line t3code/react-effect-budget -- refreshes the latest-input ref the external voice session callbacks read.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the latest-input ref the external voice session callbacks read.
   useLayoutEffect(() => {
     latest.current = input;
   });
@@ -122,7 +122,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
     cancel: cancelText,
     blocksSubmission: textBlocksSubmission,
   } = textActions;
-  // oxlint-disable-next-line t3code/react-effect-budget -- attaches this composer to the external voice session as its draft owner.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches this composer to the external voice session as its draft owner.
   useLayoutEffect(
     () =>
       session.attach(
@@ -134,7 +134,7 @@ export function useDesktopVoiceInputFork(composerInput: DesktopVoiceInputFork) {
       ),
     [session, input.ownerKey, processTranscript, transcriptionCommitted],
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to capture-phase document `keydown` DOM events for Escape cancel.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to capture-phase document `keydown` DOM events for Escape cancel.
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
       if (
