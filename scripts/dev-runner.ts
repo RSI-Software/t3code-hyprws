@@ -868,16 +868,16 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     shell: spawnCommand.shell,
   } as const;
   const child = yield* ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-    stdin: "inherit",
+    // A background process group must not read the terminal (SIGTTIN).
+    stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
     env,
     extendEnv: false,
     shell: spawnCommand.shell,
-    // Keep Vite+ in the same process group so terminal signals (Ctrl+C)
-    // reach it directly. Effect defaults to detached: true on non-Windows,
-    // which would put the runner in a new group and require manual forwarding.
-    detached: false,
+    // Vite+ does not forward signals to its tasks, so the runner owns a process
+    // group and its interrupt (Ctrl+C, SIGTERM) terminates the whole tree.
+    detached: true,
     forceKillAfter: "1500 millis",
   }).pipe(
     Effect.mapError(
@@ -890,7 +890,24 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     ),
   );
 
-  const exitCode = yield* child.exitCode.pipe(
+  // `vp run` forwards no signals and its shim survives behind a node task runner, so a
+  // stopped `vp run dev*` orphans the runner's parent or grandparent; end with either so
+  // the scope tears the group down. The grandparent check reads /proc (Linux only).
+  const fs = yield* FileSystem.FileSystem;
+  const ancestry = Effect.suspend(() => {
+    const parent = process.ppid;
+    return fs.readFileString(`/proc/${parent}/stat`).pipe(
+      Effect.map((stat) => `${parent}:${stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]}`),
+      Effect.orElseSucceed(() => `${parent}`),
+    );
+  });
+  const initialAncestry = yield* ancestry;
+  const parentGone = Effect.gen(function* () {
+    while ((yield* ancestry) === initialAncestry) yield* Effect.sleep("1 second");
+    return 143;
+  });
+
+  const exitCode = yield* Effect.raceFirst(child.exitCode, parentGone).pipe(
     Effect.mapError(
       (cause) =>
         new DevRunnerProcessError({
@@ -992,6 +1009,8 @@ const cliRuntimeLayer = Layer.mergeAll(
 );
 
 if (import.meta.main) {
+  // A closed terminal sends SIGHUP, which the detached child group never sees.
+  process.once("SIGHUP", () => process.kill(process.pid, "SIGTERM"));
   Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
     Effect.scoped,
     Effect.provide(cliRuntimeLayer),
