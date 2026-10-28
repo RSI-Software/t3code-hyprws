@@ -72,6 +72,7 @@ const make = Effect.gen(function* () {
         interactionMode: requestedMode(input.interactionMode),
       }),
       (input) => withPrincipal((principal) => service.createThread(principal, input)),
+      { refused: "create a thread through external MCP" },
     ),
     t3_external_thread_send: McpToolAccess.writesThreads(
       (input) => [input.threadId],
