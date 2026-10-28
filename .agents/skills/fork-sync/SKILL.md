@@ -60,7 +60,8 @@ Never edit a report; a rerun supersedes it.
 1. Run `vp run fork:sync [<tag>]`
 2. Stopped: [resolve](#resolve), then rerun
 3. `rebased`: commit [tip work](#tip-work), rerun
-4. [Hand off](#hand-off) the marker
+4. Green, with budget left: [fold](#fold), rerun
+5. [Hand off](#hand-off) the marker
 
 Never `git rebase --continue`, `git cherry-pick --continue`, or script a resolver.
 The rerun continues with every automatic resolver, and the report keeps only stops a run saw.
@@ -101,7 +102,7 @@ A carried trunk commit conflicts like a seam: resolve, `git add`, rerun.
 
 [hook]: ../../../docs/fork/internals/fork-delta.md#marking-a-hook
 
-To fold it sooner, run [fork-fold](../fork-fold/SKILL.md) now.
+To fold it sooner, [fold](#fold) this session.
 
 ## Tip work
 
@@ -129,6 +130,12 @@ Run `vp test run` inside the package.
 Rerun once after tip work so the marker covers it.
 
 [reshape]: ../../../docs/fork/operations/fork-sync.md#reshape
+
+## Fold
+
+After a green run, fold the stack in the kept worktree per [fork-fold](../fork-fold/SKILL.md).
+The fold is tree-equal, so the rerun that follows adopts it, and the marker hands it to the land run.
+Skip it when the budget is short; the next sync folds further.
 
 ## Hand off
 
@@ -190,10 +197,12 @@ The summary ends with `Verify:` and those items: behaviour to exercise once the 
 
 **Disk.** The job's disk holds one install, about 8 GiB.
 The driver's kept worktree is the only other checkout; never clone, copy, add another, or run a second install.
+The one exception: `fork:fold apply`'s own rebase worktree, which holds no install.
 
 **Budget.** The job has 45 minutes, and a killed job saves nothing.
 
 - **Clock:** `date -u` at start and at every stop
+- **Fold:** start one only before 20 minutes gone
 - **30 minutes gone:** rerun, hand off the marker
 - **No progress:** same marker, so no new job
 
