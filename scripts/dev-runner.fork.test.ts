@@ -114,4 +114,14 @@ it.layer(NodeServices.layer)("dev-runner (fork)", (it) => {
       assert.equal(kept?.T3CODE_DEV_ELECTRON_USER_DATA, "/tmp/mine");
     }).pipe(Effect.scoped),
   );
+  it.effect("disables zmux for worktree state unless opted back in", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeWorktree;
+      assert.equal((yield* spawnedEnv({ cwd }))?.T3CODE_ZMUX_DISABLED, "1");
+      const optIn = { T3CODE_ZMUX_DISABLED: "0" };
+      assert.equal((yield* spawnedEnv({ cwd, ambient: optIn }))?.T3CODE_ZMUX_DISABLED, "0");
+      const explicit = yield* spawnedEnv({ cwd, t3Home: "/tmp/explicit-home" });
+      assert.isUndefined(explicit?.T3CODE_ZMUX_DISABLED);
+    }).pipe(Effect.scoped),
+  );
 });
