@@ -2981,7 +2981,7 @@ const make = Effect.gen(function* () {
         runId: result.run?.id ?? null,
         status,
         timedOut: result.timedOut,
-        pendingRequestCount: result.pendingRequestCount,
+        pendingRequestCount: result.pendingRequestCount ?? 0, // fork-hook: device-auth/thread-wait-request-count
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined
           ? {}

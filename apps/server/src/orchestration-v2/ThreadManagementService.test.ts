@@ -342,6 +342,7 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
                 ({
                   thread: { id: threadId, projectId, deletedAt: null },
                   runs,
+                  runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
                   messages: [],
                   subagents,
                   providerThreads: [],
@@ -412,6 +413,7 @@ it.effect("waitForThread settles delegated work on a thread rolled back past its
             Effect.succeed({
               thread: { id: threadId, projectId, deletedAt: null },
               runs: [rolledBack],
+              runtimeRequests: [], // fork-hook: device-auth/thread-wait-fixtures
               messages: [],
               subagents: [],
               providerThreads: [],
