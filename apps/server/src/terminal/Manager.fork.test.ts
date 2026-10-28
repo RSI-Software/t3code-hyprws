@@ -8,6 +8,7 @@ import {
   type TerminalSessionSnapshot,
   type TerminalSummary,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -146,6 +147,29 @@ it.layer(
       yield* manager.open(openInput({ worktreePath: process.cwd(), sessionModeFork: "zmux" }));
       yield* manager.open(openInput({ terminalId: "term-2", worktreePath: process.cwd() }));
       expect(ptyAdapter.spawnInputs.map((spawn) => spawn.shell)).toEqual(["zmux", "/bin/bash"]);
+    }),
+  );
+  it.effect("opens a plain shell for every request when zmux is disabled", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const disabled = { ...process.env, T3CODE_ZMUX_DISABLED: "1" };
+      yield* manager
+        .open(openInput({ worktreePath: process.cwd() }))
+        .pipe(Effect.provideService(HostProcess.Environment, disabled));
+      yield* manager
+        .open(
+          openInput({ terminalId: "term-2", worktreePath: process.cwd(), sessionModeFork: "zmux" }),
+        )
+        .pipe(Effect.provideService(HostProcess.Environment, disabled));
+      expect(processRunner.inputs).toEqual([]);
+      expect(ptyAdapter.spawnInputs.map((spawn) => spawn.shell)).toEqual([
+        "/bin/bash",
+        "/bin/bash",
+      ]);
     }),
   );
   it.effect("uses fresh activity when deciding whether an unmanaged terminal can retarget", () =>
