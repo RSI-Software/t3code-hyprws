@@ -502,14 +502,15 @@ When a tag ships upstream's external MCP client audience (`pingdotgg/t3code#1522
 
 ### Shape
 
-| Item                                              | Role                                                             |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
-| `.github/workflows/hyprws-ci.yml`                 | Checks, tests, trailer check, desktop build                      |
-| `.github/workflows/hyprws-body.yml`               | Advisory body checks: citations, squash trailers                 |
-| `.github/workflows/hyprws-release.yml`            | Human-cut stable releases plus a prerelease per `hyprws` landing |
-| `scripts/fork-release-version.ts`                 | Resolves channel metadata and the previous tag in that channel   |
-| `scripts/build-desktop-artifact.ts`               | Derives the update feed from `GITHUB_REPOSITORY`                 |
-| `apps/desktop/src/updates/updateChannels.fork.ts` | Maps a nightly tag to the `hyprws-nightly` updater channel       |
+| Item                                                | Role                                                             |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| `.github/workflows/hyprws-ci.yml`                   | Checks, tests, trailer check, desktop build                      |
+| `.github/workflows/hyprws-body.yml`                 | Advisory body checks: citations, squash trailers                 |
+| `.github/workflows/hyprws-release.yml`              | Human-cut stable releases plus a prerelease per `hyprws` landing |
+| `.github/workflows/hyprws-agent-context-budget.yml` | Upstream's budget check, compared against the PR base            |
+| `scripts/fork-release-version.ts`                   | Resolves channel metadata and the previous tag in that channel   |
+| `scripts/build-desktop-artifact.ts`                 | Derives the update feed from `GITHUB_REPOSITORY`                 |
+| `apps/desktop/src/updates/updateChannels.fork.ts`   | Maps a nightly tag to the `hyprws-nightly` updater channel       |
 
 Stable tags are `vX.Y.Z-hyprws.N`; nightlies are `vX.Y.Z-hyprws-nightly.YYYYMMDD.N`, with a six-hour changed-head check as fallback.
 `hyprws-release.yml` omits upstream's `concurrency.queue: max`, because one pending slot supersedes builds the newest commit already contains.
