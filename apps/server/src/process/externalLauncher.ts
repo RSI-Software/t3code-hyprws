@@ -123,51 +123,12 @@ const CommandLookupEnvConfig = Config.all({
   "ProgramFiles(x86)": Config.String("ProgramFiles(x86)").pipe(Config.option),
 }).pipe(Config.map(compactEnv));
 
-const SESSION_DISPLAY_ENV_KEYS = new Set([
-  "DISPLAY",
-  "WAYLAND_DISPLAY",
-  "XAUTHORITY",
-  "XDG_CURRENT_DESKTOP",
-  "XDG_SESSION_TYPE",
-]);
-
-// A systemd user service started at boot predates the desktop session, so it never sees the
-// display; the user manager does once the session imports it, so read it at launch time.
-const readSessionDisplayEnv = Effect.fn("externalLauncher.readSessionDisplayEnv")(function* (
-  env: NodeJS.ProcessEnv,
-): Effect.fn.Return<NodeJS.ProcessEnv, never, ChildProcessSpawner.ChildProcessSpawner> {
-  const platform = yield* HostProcess.Platform;
-  if (platform !== "linux" || hasGraphicalLinuxSession(env) || env.WSL_DISTRO_NAME !== undefined) {
-    return {};
-  }
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  return yield* spawner
-    .string(
-      ChildProcess.make("systemctl", ["--user", "show-environment"], {
-        stdin: "ignore",
-        stderr: "ignore",
-      }),
-    )
-    .pipe(
-      Effect.map((output) =>
-        Object.fromEntries(
-          output.split("\n").flatMap((line) => {
-            const separator = line.indexOf("=");
-            const key = line.slice(0, separator);
-            return separator > 0 && SESSION_DISPLAY_ENV_KEYS.has(key)
-              ? [[key, line.slice(separator + 1)]]
-              : [];
-          }),
-        ),
-      ),
-      Effect.timeout("2 seconds"),
-      Effect.orElseSucceed(() => ({})),
-    );
-});
-
+// Fork: the boot service's file-manager entry also needs the session display.
 const readBrowserLaunchEnv = Effect.gen(function* () {
-  const env = yield* BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
-  return { ...env, ...(yield* readSessionDisplayEnv(env)) };
+  const env: NodeJS.ProcessEnv = yield* BrowserLaunchEnvConfig.pipe(
+    Effect.orElseSucceed(() => ({})),
+  );
+  return hasGraphicalLinuxSession(env) ? env : { ...env, ...(yield* readGraphicalSessionEnv()) };
 });
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
