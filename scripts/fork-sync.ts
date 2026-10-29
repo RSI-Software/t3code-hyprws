@@ -78,6 +78,8 @@ const BLOCK_LABEL = "ci";
  * label as the job starts.
  */
 const AGENT_LABEL = "rsi:fork-sync";
+/** Failed steps a job fixes at the tip of the finished marker. */
+const AGENT_STEPS: ReadonlySet<string> = new Set(["carry", "hooks", "ci"]);
 /**
  * Every labelling write stamps its time. An unlabelled issue whose body has not
  * moved since then holds a job that failed or made no progress; once the job
@@ -1766,9 +1768,7 @@ export const publishAttention = (
       runner,
       root,
       stop.title,
-      key === "blocked" || report.failure?.step === "ci" || report.failure?.step === "carry"
-        ? [AGENT_LABEL]
-        : [],
+      key === "blocked" || AGENT_STEPS.has(report.failure?.step ?? "") ? [AGENT_LABEL] : [],
       report.startedAt,
       (previous) => attentionIssueBody(report, previous),
     );
