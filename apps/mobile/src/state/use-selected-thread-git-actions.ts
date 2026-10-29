@@ -108,11 +108,11 @@ export function useSelectedThreadGitActions() {
         ),
       );
     }
-    const checkoutMove = checkoutMoveRequestFork(thread, nextState, selectedThreadProject); // fork-hook: zmux-estate/checkout-move-request
+    const checkoutMove = checkoutMoveRequestFork(thread, nextState, selectedThreadProject); // fork-hook: zmux-estate/mobile-checkout-move
     if (checkoutMove) {
       // A new worktree moves through the server, so the thread's sessions follow it.
       return moveThreadCheckout({ environmentId: thread.environmentId, input: checkoutMove });
-    } // fork-hook: zmux-estate/checkout-move-update-result
+    } // fork-hook: zmux-estate/mobile-checkout-move-result
     return updateThreadMetadata({
       environmentId: thread.environmentId,
       input: {
@@ -233,12 +233,15 @@ export function useSelectedThreadGitActions() {
     // Git already changed; refresh even if metadata updates fail so the sheet shows the current branch.
     const checkoutMoveRequested =
       input.nextThreadState !== undefined &&
-      checkoutMoveRequestFork(input.thread, input.nextThreadState, selectedThreadProject) !==
-        null; // fork-hook: zmux-estate/checkout-move-request
-    const updateResult = input.nextThreadState
+      checkoutMoveRequestFork(input.thread, input.nextThreadState, selectedThreadProject) !== null; // fork-hook: zmux-estate/mobile-checkout-move
+    const updateResult: AtomCommandResult<unknown, unknown> = input.nextThreadState
       ? await updateThreadGitContext(input.thread, input.nextThreadState)
-      : AsyncResult.success(undefined);
+      : AsyncResult.success(undefined); // fork-hook: zmux-estate/mobile-checkout-move-result
     branchState.refresh();
+    if (checkoutMoveRequested)
+      return AsyncResult.isFailure(updateResult)
+        ? AsyncResult.failure(updateResult.cause)
+        : AsyncResult.success(undefined); // fork-hook: zmux-estate/mobile-checkout-move-result
     await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
     return AsyncResult.isFailure(updateResult)
       ? AsyncResult.failure(updateResult.cause)
@@ -432,4 +435,4 @@ function checkoutMoveRequestFork(
       thread.worktreePath ??
       project.workspaceRoot,
   };
-} // fork-hook: zmux-estate/checkout-move-request
+} // fork-hook: zmux-estate/mobile-checkout-move
