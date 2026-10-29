@@ -16,6 +16,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
+import { colorSwatchStyle } from "./colorSwatch.fork";
 import { htmlContainerSchema, isBalancedHtml } from "./markdownHtml.fork";
 import { imageView, resolveWorkspaceImage, type WorkspaceImageUrl } from "./markdownImages.fork";
 import { markdownMathViews } from "./markdownMath.fork";
@@ -554,6 +555,45 @@ function syntaxHighlighting(theme: MarkdownEditorPresentationOptions["theme"]) {
   );
 }
 
+function swatchDecorations(doc: ProseNode): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, position) => {
+    if (!node.isText || !node.marks.some((mark) => mark.type.name === "inlineCode")) return;
+    const style = colorSwatchStyle(node.text ?? "");
+    if (!style) return;
+    decorations.push(
+      Decoration.widget(
+        position + node.nodeSize,
+        () => {
+          const swatch = document.createElement("span");
+          swatch.style.cssText = style;
+          return swatch;
+        },
+        { key: style, side: -1, marks: node.marks },
+      ),
+    );
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+function colorSwatches() {
+  return $prose(
+    () =>
+      new Plugin<DecorationSet>({
+        state: {
+          init: (_config, state) => swatchDecorations(state.doc),
+          apply: (transaction, previous) =>
+            transaction.docChanged ? swatchDecorations(transaction.doc) : previous,
+        },
+        props: {
+          decorations(state) {
+            return this.getState(state);
+          },
+        },
+      }),
+  );
+}
+
 export function markdownEditorPresentation(
   options: MarkdownEditorPresentationOptions,
 ): MilkdownPlugin[] {
@@ -568,6 +608,7 @@ export function markdownEditorPresentation(
     ),
     linkView(options),
     syntaxHighlighting(options.theme),
+    colorSwatches(),
     ...markdownMathViews(),
   ];
 }
