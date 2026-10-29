@@ -1514,6 +1514,23 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
   error: "hyprws CI failure on candidate 1111111: Check",
 });
 
+it.each([
+  ["carry", true],
+  ["hooks", true],
+  ["ci", true],
+  ["push", false],
+] as const)("a failure at %s labels the job: %s", (step, labelled) => {
+  const recording = exec({
+    gh: (args) =>
+      args[1] === "create"
+        ? ok("https://github.com/RSI-Software/t3code-hyprws/issues/9\n")
+        : ok("[]"),
+  });
+  publishAttention(recording.runner, "/tmp", failedReport(step, "v1.0.0"));
+  const create = recording.calls.find(({ args }) => args[0] === "issue" && args[1] === "create");
+  assert.strictEqual(create?.args.includes("rsi:fork-sync"), labelled);
+});
+
 it.each(["blocked", "failed"] as const)(
   "adopts the newest legacy %s issue across red kinds and closes on green",
   (kind) => {
