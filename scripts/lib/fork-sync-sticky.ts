@@ -17,7 +17,13 @@ export type DriverState =
   | { readonly kind: "rebasing" }
   | { readonly kind: "ci" | "landing"; readonly candidate: string }
   | { readonly kind: "landed"; readonly sha: string }
-  | { readonly kind: "blocked" | "failed"; readonly step: string; readonly detail: string };
+  | {
+      readonly kind: "blocked" | "failed";
+      readonly step: string;
+      readonly detail: string;
+      /** The candidate's hyprws CI run, when one ran. */
+      readonly ci: string | null;
+    };
 
 export interface DriverRun {
   readonly tag: string;
@@ -46,7 +52,8 @@ const stateLine = (state: DriverState): string => {
         state.detail.length > DETAIL_LIMIT
           ? `${state.detail.slice(0, DETAIL_LIMIT)}…`
           : state.detail;
-      return `${state.kind === "blocked" ? "🛑" : "❌"} **${state.kind}** at \`${state.step}\`: ${detail}`;
+      const ci = state.ci === null ? "" : ` · [ci run](${state.ci})`;
+      return `${state.kind === "blocked" ? "🛑" : "❌"} **${state.kind}** at \`${state.step}\`: ${detail}${ci}`;
     }
   }
 };

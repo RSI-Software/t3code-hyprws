@@ -1990,6 +1990,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     kind: report.blocked !== null ? "blocked" : "failed",
     step: report.failure?.step ?? "rebase",
     detail: report.error ?? "",
+    ci: report.ci?.run || null,
   });
 
   const finish = (report: ForkSyncReport): number => {
