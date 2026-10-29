@@ -451,18 +451,19 @@ describe("an upstream client reading a fork server", () => {
       payload: {
         settings: {
           defaultThreadEnvMode: "worktree",
-          projectSettingsOverrides: { [project.id]: { defaultThreadEnvMode: "worktree" } },
+          projectSettingsOverrides: {
+            [project.id]: {
+              defaultThreadEnvMode: "worktree",
+              defaultThreadEnvModeFork: "worktrunk",
+            },
+          },
         },
       },
     });
+    // Upstream retains unknown project override keys, but still drops unknown global settings.
+    expect(decoded).not.toHaveProperty("payload.settings.defaultThreadEnvModeFork");
     const wire = JSON.stringify(decoded);
-    for (const key of [
-      "Fork",
-      "worktrunk",
-      "terminalSessionMode",
-      "zmuxAutoSessions",
-      "githubIssueHandoff",
-    ]) {
+    for (const key of ["terminalSessionMode", "zmuxAutoSessions", "githubIssueHandoff"]) {
       expect(wire).not.toContain(key);
     }
   });
