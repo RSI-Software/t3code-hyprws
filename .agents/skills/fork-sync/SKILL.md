@@ -189,6 +189,7 @@ The attention issue names each red job instead of a seam.
 4. Fix at the tip per [Tip work](#tip-work)
 5. Rerun, then hand off
 
+- **Lost hooks:** restore per [Tip work](#tip-work)
 - **Flake:** `gh run rerun --failed`; rerun sync
 - **Never started:** check the mirror token
 - **Never:** weaken a check
