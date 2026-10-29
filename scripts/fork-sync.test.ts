@@ -1705,27 +1705,47 @@ it("rewrites the one standing issue for a new target and supersedes older open o
   );
 });
 
-it("makes no write when the live title and body already match the render", () => {
+it("relabels an unchanged body once, only after the job budget has passed", () => {
   const report = blockedReport("5".repeat(40));
-  const recording = exec({
-    gh: () =>
-      ok(
-        JSON.stringify([
-          {
-            number: 11,
-            title: report.blocked!.title,
-            body: attentionIssueBody(report),
-          },
-        ]),
-      ),
-  });
-  const published = publishAttention(recording.runner, "/tmp", report);
-  assert.strictEqual(published.blocked?.issue, 11);
-  assert.strictEqual(published.blocked?.publishError, null);
-  // the list is the only write: no create, no edit
-  assert.strictEqual(
-    recording.calls.some(({ args }) => args[0] === "issue" && args[1] !== "list"),
-    false,
+  const publish = (stamp: string, labels: ReadonlyArray<string>) => {
+    const writes: Array<{ readonly args: ReadonlyArray<string>; readonly body: string }> = [];
+    const recording = exec({
+      gh: (args) => {
+        if (args[1] !== "list") {
+          writes.push({
+            args,
+            body: NodeFS.readFileSync(args[args.indexOf("--body-file") + 1] ?? "", "utf8"),
+          });
+          return ok();
+        }
+        return ok(
+          JSON.stringify([
+            {
+              number: 11,
+              title: report.blocked!.title,
+              body: `${attentionIssueBody(report)}\n${stamp}`,
+              labels: labels.map((name) => ({ name })),
+            },
+          ]),
+        );
+      },
+    });
+    const published = publishAttention(recording.runner, "/tmp", report);
+    assert.strictEqual(published.blocked?.publishError, null);
+    return writes;
+  };
+  // still labelled, or a job may still be running: no write
+  assert.deepStrictEqual(publish("", ["ci", "rsi:fork-sync"]), []);
+  assert.deepStrictEqual(publish("<!-- agent-labelled:2026-09-21T09:00:00.000Z -->", ["ci"]), []);
+  // the job's label is gone and the body never moved: one retry
+  const [retry, ...rest] = publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z -->", ["ci"]);
+  assert.deepStrictEqual(rest, []);
+  assert.strictEqual(retry!.args[retry!.args.indexOf("--add-label") + 1], "rsi:fork-sync");
+  assert.include(retry!.body, "<!-- agent-labelled:2026-09-21T10:00:00.000Z retried -->");
+  // the retry missed too: a human decides
+  assert.deepStrictEqual(
+    publish("<!-- agent-labelled:2026-09-21T07:00:00.000Z retried -->", ["ci"]),
+    [],
   );
 });
 
@@ -1739,6 +1759,7 @@ it("makes no write when a stray gh-bot attest footer and machine title suffix de
             number: 11,
             title: `${report.blocked!.title} [🔔#3]`,
             body: `${attentionIssueBody(report)}\n<!-- gh-bot:attest sha256:aaaa -->\n<!-- gh-bot:edit-attest sha256:bbbb -->\n`,
+            labels: [{ name: "rsi:fork-sync" }],
           },
         ]),
       ),
