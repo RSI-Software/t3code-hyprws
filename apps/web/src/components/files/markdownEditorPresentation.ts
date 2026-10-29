@@ -1,13 +1,12 @@
 import type { MilkdownPlugin } from "@milkdown/ctx";
 import type { Node as ProseNode } from "@milkdown/prose/model";
-import { Plugin, PluginKey } from "@milkdown/prose/state";
+import { Plugin, PluginKey, TextSelection } from "@milkdown/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/prose/view";
 import { codeBlockSchema, htmlSchema, linkSchema } from "@milkdown/preset-commonmark";
 import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
 import { scopeMarkdownCss } from "@t3tools/shared/markdownStyledHtml.fork";
 import DOMPurify from "dompurify";
-import { Tokenizer, TokenizerMode } from "parse5";
 
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
@@ -17,6 +16,12 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
+import { colorSwatchStyle } from "./colorSwatch.fork";
+import { htmlContainerSchema, isBalancedHtml } from "./markdownHtml.fork";
+import { imageView, resolveWorkspaceImage, type WorkspaceImageUrl } from "./markdownImages.fork";
+import { markdownMathViews } from "./markdownMath.fork";
+import { renderMermaid } from "./markdownMermaid.fork";
+import { codeBlockTitle } from "./markdownSyntax.fork";
 import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
 // The chat file-mention chip look, owned here because the editor decorates raw DOM and
@@ -29,6 +34,7 @@ interface MarkdownEditorPresentationOptions {
   readonly sourcePath: { current: string };
   readonly onOpenFile: { current: (relativePath: string) => void };
   readonly theme: { current: "light" | "dark" };
+  readonly imageUrl: { current: WorkspaceImageUrl };
 }
 
 interface HighlightState {
@@ -123,7 +129,7 @@ function taskListItemView() {
 }
 
 function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
-  return $view(codeBlockSchema.node, () => (initialNode) => {
+  return $view(codeBlockSchema.node, () => (initialNode, view, getPos) => {
     let node = initialNode;
     const dom = document.createElement("div");
     dom.className = "t3-markdown-editor__codeblock";
@@ -148,11 +154,13 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
     pre.append(contentDOM);
     header.append(languageLabel, copyButton);
     dom.append(header, pre);
+    const diagram = isMermaid(node) ? mermaidPreview(dom, view, getPos) : null;
+    diagram?.render(node.textContent);
 
     const renderLanguage = () => {
       const language = String(node.attrs["language"] || "text");
       dom.dataset["language"] = language;
-      languageText.textContent = language;
+      languageText.textContent = codeBlockTitle(String(node.attrs["meta"] ?? "")) ?? language;
       languageLabel.querySelector("svg")?.remove();
       const icon = iconElement(syntheticFileNameForLanguageId(language), theme.current);
       if (icon) languageLabel.prepend(icon);
@@ -172,117 +180,82 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
       dom,
       contentDOM,
       update(nextNode) {
-        if (nextNode.type !== node.type) return false;
-        const languageChanged = nextNode.attrs["language"] !== node.attrs["language"];
+        if (nextNode.type !== node.type || isMermaid(nextNode) !== isMermaid(node)) return false;
+        const labelChanged =
+          nextNode.attrs["language"] !== node.attrs["language"] ||
+          nextNode.attrs["meta"] !== node.attrs["meta"];
         node = nextNode;
-        if (languageChanged) renderLanguage();
+        if (labelChanged) renderLanguage();
+        diagram?.render(node.textContent);
         return true;
       },
       stopEvent(event) {
-        return event.target === copyButton;
+        return (
+          event.target === copyButton || diagram?.element.contains(event.target as Node) === true
+        );
       },
       ignoreMutation(mutation) {
-        return header.contains(mutation.target);
+        return (
+          header.contains(mutation.target) || diagram?.element.contains(mutation.target) === true
+        );
+      },
+      destroy() {
+        diagram?.destroy();
       },
     };
   });
 }
 
-const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
+const isMermaid = (node: ProseNode) => node.attrs["language"] === "mermaid";
 
-const VOID_HTML_TAGS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "source",
-  "track",
-  "wbr",
-]);
+// Shows the diagram, and its source only while the caret is in it (see markdownMathViews).
+function mermaidPreview(dom: HTMLElement, view: EditorView, getPos: () => number | undefined) {
+  const element = document.createElement("div");
+  element.className = "t3-markdown-editor__codeblock-diagram";
+  element.contentEditable = "false";
+  dom.append(element);
+  dom.classList.add("t3-markdown-editor__codeblock--diagram");
 
-const OPTIONAL_END_HTML_TAGS = new Set([
-  "p",
-  "li",
-  "dt",
-  "dd",
-  "option",
-  "optgroup",
-  "tr",
-  "td",
-  "th",
-  "thead",
-  "tbody",
-  "tfoot",
-  "colgroup",
-  "caption",
-  "rt",
-  "rp",
-]);
+  element.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    const position = getPos();
+    if (position === undefined) return;
+    const end = position + view.state.doc.nodeAt(position)!.nodeSize - 1;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end)));
+    view.focus();
+  });
 
-// The tree builder, not the tokenizer, switches into raw-text states, so the scanner must too.
-const RAW_TEXT_MODES: ReadonlyMap<string, Tokenizer["state"]> = new Map([
-  ["iframe", TokenizerMode.RAWTEXT],
-  ["noembed", TokenizerMode.RAWTEXT],
-  ["noframes", TokenizerMode.RAWTEXT],
-  ["noscript", TokenizerMode.RAWTEXT],
-  ["plaintext", TokenizerMode.PLAINTEXT],
-  ["script", TokenizerMode.SCRIPT_DATA],
-  ["style", TokenizerMode.RAWTEXT],
-  ["textarea", TokenizerMode.RCDATA],
-  ["title", TokenizerMode.RCDATA],
-  ["xmp", TokenizerMode.RAWTEXT],
-]);
-
-const EOF_PARSE_ERRORS = new Set([
-  "eof-in-tag",
-  "eof-in-comment",
-  "eof-in-doctype",
-  "eof-in-cdata",
-]);
-
-// Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
-function isBalancedHtml(value: string): boolean {
-  const open: string[] = [];
-  let balanced = true;
-  const ignore = () => {};
-  const tokenizer: Tokenizer = new Tokenizer(
-    {},
-    {
-      onStartTag({ tagName, selfClosing }) {
-        const mode = RAW_TEXT_MODES.get(tagName);
-        if (mode !== undefined) tokenizer.state = mode;
-        if (!selfClosing && !VOID_HTML_TAGS.has(tagName)) open.push(tagName);
-      },
-      onEndTag({ tagName }) {
-        while (
-          open.length > 0 &&
-          open.at(-1) !== tagName &&
-          OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)
-        ) {
-          open.pop();
-        }
-        if (open.pop() !== tagName) balanced = false;
-      },
-      onParseError({ code }) {
-        if (EOF_PARSE_ERRORS.has(code)) balanced = false;
-      },
-      onComment: ignore,
-      onDoctype: ignore,
-      onEof: ignore,
-      onCharacter: ignore,
-      onNullCharacter: ignore,
-      onWhitespaceCharacter: ignore,
+  let source: string | null = null;
+  let cleanup = () => {};
+  let timer: number | undefined;
+  const draw = (next: string) => {
+    cleanup();
+    element.replaceChildren();
+    cleanup = renderMermaid(element, next, (invalid) => {
+      element.classList.toggle("is-invalid", invalid);
+    });
+  };
+  const render = (next: string) => {
+    const trimmed = next.trim();
+    if (trimmed === source) return;
+    const first = source === null;
+    source = trimmed;
+    window.clearTimeout(timer);
+    // Typing re-lays the diagram out, so wait for a pause.
+    if (first) draw(trimmed);
+    else timer = window.setTimeout(() => draw(trimmed), 250);
+  };
+  return {
+    element,
+    render,
+    destroy() {
+      window.clearTimeout(timer);
+      cleanup();
     },
-  );
-  tokenizer.write(value, true);
-  return balanced && open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
+  };
 }
+
+const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
 
 // Top-layer attributes would let an island escape `contain: paint` and cover the app.
 const TOP_LAYER_ATTRIBUTES = [
@@ -294,47 +267,70 @@ const TOP_LAYER_ATTRIBUTES = [
   "interestfor",
 ];
 
-function renderedHtml(value: string): DocumentFragment | null {
+// `contain: paint` needs a block box, so inline islands drop every hook styles could position.
+const INLINE_FORBIDDEN_ATTRIBUTES = [...TOP_LAYER_ATTRIBUTES, "class", "id", "style"];
+
+function renderedHtml(
+  value: string,
+  inline: boolean,
+  options: MarkdownEditorPresentationOptions,
+): DocumentFragment | null {
   if (!isBalancedHtml(value)) return null;
   const fragment = DOMPurify.sanitize(value, {
     RETURN_DOM_FRAGMENT: true,
     FORCE_BODY: true,
-    FORBID_ATTR: TOP_LAYER_ATTRIBUTES,
+    FORBID_ATTR: inline ? INLINE_FORBIDDEN_ATTRIBUTES : TOP_LAYER_ATTRIBUTES,
+    FORBID_TAGS: inline ? ["style"] : [],
   });
   if (!fragment.hasChildNodes()) return null;
   fragment.querySelectorAll("style").forEach((style) => {
     style.textContent = scopeMarkdownCss(style.textContent ?? "", `.${HTML_SCOPE_CLASS_NAME}`);
   });
+  const directory = documentDirectory(options.cwd.current, options.sourcePath.current);
+  fragment.querySelectorAll("img").forEach((image) => {
+    resolveWorkspaceImage(image, directory, options.imageUrl.current);
+  });
   return fragment;
 }
 
+/** Anchors and forms in non-editable HTML would navigate the app window. */
+function blockNavigation(dom: HTMLElement, editable?: HTMLElement) {
+  dom.addEventListener("click", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("a") : null;
+    if (anchor && !editable?.contains(anchor)) event.preventDefault();
+  });
+  dom.addEventListener("submit", (event) => event.preventDefault());
+}
+
 /**
- * Renders a block of raw HTML (the sole content of its paragraph) as a sanitized island; inline
- * tags stay source text. Every island's content is an `@scope` root for every island's styles,
+ * Renders balanced raw HTML as a sanitized island, inline when it shares its paragraph; a lone
+ * open or close tag stays source text. Every island's content is an `@scope` root for every island's styles,
  * so a `<style>` block reaches markup in later blocks. The outer element is outside every scope,
  * so its `contain: paint` keeps fixed-position content from covering the app.
  */
-function htmlView() {
+function htmlView(options: MarkdownEditorPresentationOptions) {
   return $view(htmlSchema.node, () => (node, editorView, getPos) => {
     const value = String(node.attrs["value"] ?? "");
     const position = getPos();
     const parent =
       typeof position === "number" ? editorView.state.doc.resolve(position).parent : null;
-    const fragment = parent?.childCount === 1 ? renderedHtml(value) : null;
+    const inline = parent?.childCount !== 1;
+    const fragment = renderedHtml(value, inline, options);
     const dom = document.createElement("span");
     dom.dataset["type"] = "html";
-    if (fragment) {
+    if (fragment && inline) {
+      dom.className = "t3-markdown-editor__html--inline";
+      dom.append(fragment);
+    } else if (fragment) {
       const content = document.createElement("span");
       content.className = HTML_SCOPE_CLASS_NAME;
       content.append(fragment);
       dom.className = "t3-markdown-editor__html";
       dom.style.contain = "paint";
       dom.append(content);
-      // Anchors and forms in a non-editable island would navigate the app window.
-      dom.addEventListener("click", (event) => {
-        if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
-      });
-      dom.addEventListener("submit", (event) => event.preventDefault());
+    }
+    if (fragment) {
+      blockNavigation(dom);
     } else {
       dom.textContent = value;
     }
@@ -343,6 +339,54 @@ function htmlView() {
       dom,
       update: (nextNode) => nextNode.type === node.type && nextNode.attrs["value"] === value,
       ignoreMutation: () => true,
+    };
+  });
+}
+
+/** Renders a split HTML block's tags around its editable Markdown, e.g. a `<details>` summary. */
+function htmlContainerView(options: MarkdownEditorPresentationOptions) {
+  return $view(htmlContainerSchema.node, () => (node) => {
+    const dom = document.createElement("div");
+    dom.className = "t3-markdown-editor__html";
+    dom.style.contain = "paint";
+    const contentDOM = document.createElement("div");
+    const open = String(node.attrs["open"]);
+    const close = String(node.attrs["close"]);
+    const fragment = renderedHtml(open + close, false, options);
+    const element = fragment?.childElementCount === 1 ? fragment.firstElementChild : null;
+    if (fragment && element) {
+      for (const child of Array.from(element.childNodes)) {
+        const chrome = child instanceof HTMLElement ? child : document.createElement("span");
+        if (chrome !== child) {
+          child.replaceWith(chrome);
+          chrome.append(child);
+        }
+        chrome.contentEditable = "false";
+      }
+      element.append(contentDOM);
+      const content = document.createElement("div");
+      content.className = HTML_SCOPE_CLASS_NAME;
+      content.append(fragment);
+      dom.append(content);
+      blockNavigation(dom, contentDOM);
+    } else {
+      const source = (value: string) =>
+        Object.assign(document.createElement("div"), {
+          textContent: value,
+          contentEditable: "false",
+        });
+      dom.append(source(open), contentDOM, source(close));
+    }
+    return {
+      dom,
+      contentDOM,
+      update: (nextNode) =>
+        nextNode.type === node.type &&
+        nextNode.attrs["open"] === open &&
+        nextNode.attrs["close"] === close,
+      // Toggling a `<details>` changes its attributes, outside the editable content.
+      ignoreMutation: (mutation) =>
+        mutation.type !== "selection" && !contentDOM.contains(mutation.target),
     };
   });
 }
@@ -517,15 +561,61 @@ function syntaxHighlighting(theme: MarkdownEditorPresentationOptions["theme"]) {
   );
 }
 
+function swatchDecorations(doc: ProseNode): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, position) => {
+    if (!node.isText || !node.marks.some((mark) => mark.type.name === "inlineCode")) return;
+    const style = colorSwatchStyle(node.text ?? "");
+    if (!style) return;
+    decorations.push(
+      Decoration.widget(
+        position + node.nodeSize,
+        () => {
+          const swatch = document.createElement("span");
+          swatch.style.cssText = style;
+          return swatch;
+        },
+        { key: style, side: -1, marks: node.marks },
+      ),
+    );
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+function colorSwatches() {
+  return $prose(
+    () =>
+      new Plugin<DecorationSet>({
+        state: {
+          init: (_config, state) => swatchDecorations(state.doc),
+          apply: (transaction, previous) =>
+            transaction.docChanged ? swatchDecorations(transaction.doc) : previous,
+        },
+        props: {
+          decorations(state) {
+            return this.getState(state);
+          },
+        },
+      }),
+  );
+}
+
 export function markdownEditorPresentation(
   options: MarkdownEditorPresentationOptions,
 ): MilkdownPlugin[] {
   return [
     taskListItemView(),
     codeBlockView(options.theme),
-    htmlView(),
+    htmlView(options),
+    htmlContainerView(options),
+    imageView(
+      () => documentDirectory(options.cwd.current, options.sourcePath.current),
+      options.imageUrl,
+    ),
     linkView(options),
     syntaxHighlighting(options.theme),
+    colorSwatches(),
+    ...markdownMathViews(),
   ];
 }
 
