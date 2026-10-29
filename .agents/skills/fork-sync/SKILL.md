@@ -220,7 +220,7 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 - **Clock:** `date -u` at start and at every stop
 - **Fold:** start one only before 20 minutes gone
 - **30 minutes gone:** rerun, hand off the marker
-- **No progress:** same marker, so no new job
+- **No progress:** one retry, then a human
 
 ## Never
 
