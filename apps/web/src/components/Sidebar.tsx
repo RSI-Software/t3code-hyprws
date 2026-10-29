@@ -962,6 +962,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const generateThreadGroupTitle = useAtomCommand(threadGroupEnvironment.generateTitle, {
+    reportFailure: false,
+  }); // fork-hook: upstream-fixes/thread-group-title-command
   const threadGroupTitlesFork = useThreadGroupTitlesFork(generateThreadGroupTitle); // fork-hook: thread-ordering/group-titles
   const { requestThreadGroupTitle, regenerateThreadGroupTitle, generatingGroupIds } =
     threadGroupTitlesFork; // fork-hook: thread-ordering/group-titles-bind

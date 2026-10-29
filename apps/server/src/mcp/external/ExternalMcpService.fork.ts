@@ -14,6 +14,7 @@ import * as Stream from "effect/Stream";
 
 import {
   type AuthSessionId,
+  type EnvironmentId,
   CommandId,
   ExternalMcpSettlementResultFork,
   isProviderAvailable,
@@ -59,6 +60,7 @@ import {
   timelineItemFork,
 } from "../OrchestratorMcpService.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "../delegatedTaskModes.ts";
+import type { McpInvocationScope } from "../McpInvocationContext.ts";
 import {
   assertWaitTarget,
   type McpThreadReadResult,
@@ -98,6 +100,23 @@ export interface ExternalMcpPrincipal {
   readonly expiresAt: DateTime.DateTime | null;
   readonly policy: ExternalMcpPolicy;
 }
+
+export const externalMcpClientScopeFork = (
+  principal: ExternalMcpPrincipal,
+  environmentId: EnvironmentId,
+  issuedAt: number,
+): McpInvocationScope => ({
+  environmentId,
+  requestNamespace: `client:${principal.sessionId}`,
+  thread: undefined,
+  client: {
+    sessionId: principal.sessionId,
+    label: principal.clientLabel ?? "External MCP client",
+    access: principal.policy.coordinate ? principal.policy.maxRuntimeMode : "read-only",
+  },
+  capabilities: new Set(["orchestration"]),
+  issuedAt,
+});
 
 export class ExternalMcpPrincipalFork extends Context.Service<
   ExternalMcpPrincipalFork,
@@ -297,9 +316,12 @@ const make = Effect.gen(function* () {
   const ledger = yield* makeExternalMcpRequestLedger;
 
   // Thread links carry the environment id, like the orchestrator toolkit's.
-  const threadViewContext = Effect.fn("ExternalMcpService.threadViewContext")(function* () {
+  const threadViewContext = Effect.fn("ExternalMcpService.threadViewContext")(function* (
+    principal: ExternalMcpPrincipal,
+  ) {
     const environmentId = yield* environment.getEnvironmentId;
-    return { environmentId, nowMs: yield* Clock.currentTimeMillis };
+    const nowMs = yield* Clock.currentTimeMillis;
+    return { scope: externalMcpClientScopeFork(principal, environmentId, nowMs), nowMs };
   });
 
   const loadProject = Effect.fn("ExternalMcpService.loadProject")(function* (
@@ -603,9 +625,12 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(threadManagementFailureFork));
       const statuses = input.statuses === undefined ? null : new Set(input.statuses);
       const titleContains = input.titleContains?.toLocaleLowerCase();
-      const context = yield* threadViewContext();
+      const context = yield* threadViewContext(principal);
       const filtered = projectThreads
-        .map((shell) => ({ shell, thread: listItemFromShellFork(shell, context.nowMs) }))
+        .map((shell) => ({
+          shell,
+          thread: listItemFromShellFork(context.scope, shell, context.nowMs),
+        }))
         .filter(({ thread }) => statuses === null || statuses.has(thread.status))
         .filter(({ thread }) => input.settled === undefined || thread.settled === input.settled)
         .filter(
@@ -631,7 +656,7 @@ const make = Effect.gen(function* () {
     readThread: Effect.fn("ExternalMcpService.readThread")(function* (principal, input) {
       const target = yield* loadThread(principal, input.threadId);
       const { shell, work } = yield* currentWork(principal, input.threadId);
-      const context = yield* threadViewContext();
+      const context = yield* threadViewContext(principal);
       const maxChars = input.maxCharsPerItem ?? DEFAULT_THREAD_ITEM_MAX_CHARS;
       const timeline = yield* threadManagement
         .getTimelinePage(input.threadId, {
@@ -661,7 +686,7 @@ const make = Effect.gen(function* () {
       );
       return {
         thread: {
-          ...threadDetailFork(target, timeline.totalItems, shell, context.nowMs),
+          ...threadDetailFork(context.scope, target, timeline.totalItems, shell, context.nowMs),
           work,
         },
         recentRuns: target.runs
