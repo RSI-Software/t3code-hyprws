@@ -38,3 +38,4 @@ export default function MathTypeset(props: { tex: string; display: boolean; fall
   // KaTeX escapes the TeX it renders, and `trust: false` keeps it from emitting links or attributes.
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
+export { typeset }; // fork-hook: markdown-editing/editor-math-typeset
