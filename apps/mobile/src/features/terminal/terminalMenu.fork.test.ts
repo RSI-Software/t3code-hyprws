@@ -37,6 +37,8 @@ function makeKnownSession(input: {
       terminalId: input.terminalId,
     },
     state: {
+      ...EMPTY_TERMINAL_BUFFER_STATE,
+      pid: input.status === "running" ? 123 : null,
       summary: input.cwd
         ? {
             threadId: "thread-1",
@@ -58,7 +60,6 @@ function makeKnownSession(input: {
             ...(input.status === "suspended" ? { attachmentStatus: "suspended" as const } : {}),
           }
         : null,
-      output: EMPTY_TERMINAL_BUFFER_STATE.output,
       status: input.status,
       error: null,
       hasRunningSubprocess: false,
