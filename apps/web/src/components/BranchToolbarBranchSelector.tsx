@@ -232,7 +232,7 @@ export function BranchToolbarBranchSelector({
         expectedCheckoutRoot: input.expectedCheckoutRoot,
         ...(input.reverseOfRequestId ? { reverseOfRequestId: input.reverseOfRequestId } : {}),
       },
-    }); // fork-hook: zmux-estate/checkout-move-request
+    }); // fork-hook: zmux-estate/web-checkout-move-request
     if (result._tag === "Failure") setCheckoutMoveSubmission(null);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
