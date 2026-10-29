@@ -36,6 +36,8 @@ describe("markdown rich editor pipeline", () => {
       "> [!TIP]\n>\n> Spaced.\n",
       "> [!WARNING]\n>\n> ### Heading\n",
       'H<sub>2</sub>O, <abbr title="Markup">HTML</abbr>, <b><i>x</i></b> and <kbd>\n',
+      "<details>\n<summary>More</summary>\n\n- Markdown **inside**\n\n</details>\n",
+      '<div align="center">\n\n<div>\n\nNested\n\n</div>\n\n</div>\n',
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });
@@ -123,7 +125,7 @@ describe("markdown rich editor pipeline", () => {
         ctx.set(rootCtx, root);
         ctx.set(
           defaultValueCtx,
-          "- [ ] Ship it\n\n[README](../../README.md) $x^2$ <kbd>Ctrl</kbd> <kbd>\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
+          "- [ ] Ship it\n\n[README](../../README.md) $x^2$ <kbd>Ctrl</kbd> <kbd>\n\n<details open>\n<summary>More</summary>\n\n**Inside**\n\n</details>\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
         );
       }),
     )
@@ -158,6 +160,9 @@ describe("markdown rich editor pipeline", () => {
     expect(
       html.map((island) => island.querySelector("kbd")?.textContent ?? island.textContent),
     ).toEqual(["Ctrl", "<kbd>"]);
+    const details = root.querySelector(".t3-markdown-editor__html details[open]");
+    expect(details?.querySelector('summary[contenteditable="false"]')?.textContent).toBe("More");
+    expect(details?.querySelector("strong")?.textContent).toBe("Inside");
 
     const codeBlock = root.querySelector<HTMLElement>(
       '.t3-markdown-editor__codeblock[data-language="ts"]',

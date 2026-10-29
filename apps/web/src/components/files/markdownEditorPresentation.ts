@@ -7,7 +7,6 @@ import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
 import { scopeMarkdownCss } from "@t3tools/shared/markdownStyledHtml.fork";
 import DOMPurify from "dompurify";
-import { Tokenizer, TokenizerMode } from "parse5";
 
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
@@ -17,6 +16,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
+import { htmlContainerSchema, isBalancedHtml } from "./markdownHtml.fork";
 import { markdownMathViews } from "./markdownMath.fork";
 import { renderMermaid } from "./markdownMermaid.fork";
 import { codeBlockTitle } from "./markdownSyntax.fork";
@@ -254,100 +254,6 @@ function mermaidPreview(dom: HTMLElement, view: EditorView, getPos: () => number
 
 const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
 
-const VOID_HTML_TAGS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "source",
-  "track",
-  "wbr",
-]);
-
-const OPTIONAL_END_HTML_TAGS = new Set([
-  "p",
-  "li",
-  "dt",
-  "dd",
-  "option",
-  "optgroup",
-  "tr",
-  "td",
-  "th",
-  "thead",
-  "tbody",
-  "tfoot",
-  "colgroup",
-  "caption",
-  "rt",
-  "rp",
-]);
-
-// The tree builder, not the tokenizer, switches into raw-text states, so the scanner must too.
-const RAW_TEXT_MODES: ReadonlyMap<string, Tokenizer["state"]> = new Map([
-  ["iframe", TokenizerMode.RAWTEXT],
-  ["noembed", TokenizerMode.RAWTEXT],
-  ["noframes", TokenizerMode.RAWTEXT],
-  ["noscript", TokenizerMode.RAWTEXT],
-  ["plaintext", TokenizerMode.PLAINTEXT],
-  ["script", TokenizerMode.SCRIPT_DATA],
-  ["style", TokenizerMode.RAWTEXT],
-  ["textarea", TokenizerMode.RCDATA],
-  ["title", TokenizerMode.RCDATA],
-  ["xmp", TokenizerMode.RAWTEXT],
-]);
-
-const EOF_PARSE_ERRORS = new Set([
-  "eof-in-tag",
-  "eof-in-comment",
-  "eof-in-doctype",
-  "eof-in-cdata",
-]);
-
-// Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
-function isBalancedHtml(value: string): boolean {
-  const open: string[] = [];
-  let balanced = true;
-  const ignore = () => {};
-  const tokenizer: Tokenizer = new Tokenizer(
-    {},
-    {
-      onStartTag({ tagName, selfClosing }) {
-        const mode = RAW_TEXT_MODES.get(tagName);
-        if (mode !== undefined) tokenizer.state = mode;
-        if (!selfClosing && !VOID_HTML_TAGS.has(tagName)) open.push(tagName);
-      },
-      onEndTag({ tagName }) {
-        while (
-          open.length > 0 &&
-          open.at(-1) !== tagName &&
-          OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)
-        ) {
-          open.pop();
-        }
-        if (open.pop() !== tagName) balanced = false;
-      },
-      onParseError({ code }) {
-        if (EOF_PARSE_ERRORS.has(code)) balanced = false;
-      },
-      onComment: ignore,
-      onDoctype: ignore,
-      onEof: ignore,
-      onCharacter: ignore,
-      onNullCharacter: ignore,
-      onWhitespaceCharacter: ignore,
-    },
-  );
-  tokenizer.write(value, true);
-  return balanced && open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
-}
-
 // Top-layer attributes would let an island escape `contain: paint` and cover the app.
 const TOP_LAYER_ATTRIBUTES = [
   "popover",
@@ -417,6 +323,53 @@ function htmlView() {
       dom,
       update: (nextNode) => nextNode.type === node.type && nextNode.attrs["value"] === value,
       ignoreMutation: () => true,
+    };
+  });
+}
+
+/** Renders a split HTML block's tags around its editable Markdown, e.g. a `<details>` summary. */
+function htmlContainerView() {
+  return $view(htmlContainerSchema.node, () => (node) => {
+    const dom = document.createElement("div");
+    dom.className = "t3-markdown-editor__html";
+    dom.style.contain = "paint";
+    const contentDOM = document.createElement("div");
+    const open = String(node.attrs["open"]);
+    const close = String(node.attrs["close"]);
+    const fragment = renderedHtml(open + close, false);
+    const element = fragment?.childElementCount === 1 ? fragment.firstElementChild : null;
+    if (fragment && element) {
+      for (const child of Array.from(element.childNodes)) {
+        const chrome = child instanceof HTMLElement ? child : document.createElement("span");
+        if (chrome !== child) {
+          child.replaceWith(chrome);
+          chrome.append(child);
+        }
+        chrome.contentEditable = "false";
+      }
+      element.append(contentDOM);
+      const content = document.createElement("div");
+      content.className = HTML_SCOPE_CLASS_NAME;
+      content.append(fragment);
+      dom.append(content);
+    } else {
+      const source = (value: string) =>
+        Object.assign(document.createElement("div"), {
+          textContent: value,
+          contentEditable: "false",
+        });
+      dom.append(source(open), contentDOM, source(close));
+    }
+    return {
+      dom,
+      contentDOM,
+      update: (nextNode) =>
+        nextNode.type === node.type &&
+        nextNode.attrs["open"] === open &&
+        nextNode.attrs["close"] === close,
+      // Toggling a `<details>` changes its attributes, outside the editable content.
+      ignoreMutation: (mutation) =>
+        mutation.type !== "selection" && !contentDOM.contains(mutation.target),
     };
   });
 }
@@ -598,6 +551,7 @@ export function markdownEditorPresentation(
     taskListItemView(),
     codeBlockView(options.theme),
     htmlView(),
+    htmlContainerView(),
     linkView(options),
     syntaxHighlighting(options.theme),
     ...markdownMathViews(),
