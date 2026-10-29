@@ -183,6 +183,39 @@ describe("markdown rich editor pipeline", () => {
     }
   });
 
+  it("keeps split HTML links and forms from navigating the app", async () => {
+    const root = document.createElement("div");
+    const editor = await markdownPipeline(
+      Editor.make().config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(
+          defaultValueCtx,
+          '<form action="/away">\n<a href="/away">Away</a>\n\nInside\n\n</form>\n',
+        );
+      }),
+    )
+      .use(
+        markdownEditorPresentation({
+          cwd: { current: "/workspace" },
+          sourcePath: { current: "README.md" },
+          onOpenFile: { current: () => undefined },
+          theme: { current: "dark" },
+          imageUrl: { current: async () => null },
+        }),
+      )
+      .create();
+    try {
+      const form = root.querySelector(".t3-markdown-editor__html form");
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+      const submit = new SubmitEvent("submit", { bubbles: true, cancelable: true });
+      form?.querySelector("a")?.dispatchEvent(click);
+      form?.dispatchEvent(submit);
+      expect([click.defaultPrevented, submit.defaultPrevented]).toEqual([true, true]);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("renders interactive tasks, workspace chips, math, and code chrome", async () => {
     await getSyntaxHighlighterPromise("ts");
     const root = document.createElement("div");

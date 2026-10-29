@@ -293,6 +293,15 @@ function renderedHtml(
   return fragment;
 }
 
+/** Anchors and forms in non-editable HTML would navigate the app window. */
+function blockNavigation(dom: HTMLElement, editable?: HTMLElement) {
+  dom.addEventListener("click", (event) => {
+    const anchor = event.target instanceof Element ? event.target.closest("a") : null;
+    if (anchor && !editable?.contains(anchor)) event.preventDefault();
+  });
+  dom.addEventListener("submit", (event) => event.preventDefault());
+}
+
 /**
  * Renders balanced raw HTML as a sanitized island, inline when it shares its paragraph; a lone
  * open or close tag stays source text. Every island's content is an `@scope` root for every island's styles,
@@ -321,11 +330,7 @@ function htmlView(options: MarkdownEditorPresentationOptions) {
       dom.append(content);
     }
     if (fragment) {
-      // Anchors and forms in a non-editable island would navigate the app window.
-      dom.addEventListener("click", (event) => {
-        if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
-      });
-      dom.addEventListener("submit", (event) => event.preventDefault());
+      blockNavigation(dom);
     } else {
       dom.textContent = value;
     }
@@ -363,6 +368,7 @@ function htmlContainerView(options: MarkdownEditorPresentationOptions) {
       content.className = HTML_SCOPE_CLASS_NAME;
       content.append(fragment);
       dom.append(content);
+      blockNavigation(dom, contentDOM);
     } else {
       const source = (value: string) =>
         Object.assign(document.createElement("div"), {
