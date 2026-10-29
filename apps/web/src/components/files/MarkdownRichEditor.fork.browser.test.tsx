@@ -37,3 +37,35 @@ describe("rich Markdown editor disk changes", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe("rich Markdown editor raw HTML", () => {
+  it("renders a styled HTML block as a scoped, sanitized island", async () => {
+    const onChange = vi.fn();
+    const html = [
+      "<style>",
+      "#poster .chip{color:rgb(1, 2, 3)}",
+      "} body{color:rgb(4, 5, 6)} @scope{",
+      "</style>",
+      '<div id="poster"><span class="chip" onclick="alert(1)">Chip</span><script>alert(1)</script></div>',
+    ].join("\n");
+    await using screen = await render(
+      editor(`# Doc\n\n${html}\n\nPress <kbd>K</kbd>\n`, onChange),
+      {
+        router: false,
+      },
+    );
+    const { container } = screen;
+    const chip = await vi.waitFor(() => {
+      const element = container.querySelector<HTMLElement>("#poster .chip");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    expect(getComputedStyle(chip).color).toBe("rgb(1, 2, 3)");
+    expect(getComputedStyle(document.body).color).not.toBe("rgb(4, 5, 6)");
+    expect(chip.hasAttribute("onclick")).toBe(false);
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.textContent).toContain("<kbd>");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});

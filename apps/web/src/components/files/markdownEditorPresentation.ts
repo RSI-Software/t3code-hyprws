@@ -2,9 +2,11 @@ import type { MilkdownPlugin } from "@milkdown/ctx";
 import type { Node as ProseNode } from "@milkdown/prose/model";
 import { Plugin, PluginKey } from "@milkdown/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/prose/view";
-import { codeBlockSchema, linkSchema } from "@milkdown/preset-commonmark";
+import { codeBlockSchema, htmlSchema, linkSchema } from "@milkdown/preset-commonmark";
 import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
+import { scopeMarkdownCss } from "@t3tools/shared/markdownStyledHtml.fork";
+import DOMPurify from "dompurify";
 
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
@@ -185,6 +187,58 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
   });
 }
 
+const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
+
+// Open-only fragments such as `<details>` sanitize to nothing visible; they keep the source text.
+function renderedHtml(value: string): DocumentFragment | null {
+  const fragment = DOMPurify.sanitize(value, { RETURN_DOM_FRAGMENT: true, FORCE_BODY: true });
+  if (!fragment.textContent?.trim() && !fragment.querySelector("img, svg, hr, video, picture")) {
+    return null;
+  }
+  fragment.querySelectorAll("style").forEach((style) => {
+    style.textContent = scopeMarkdownCss(style.textContent ?? "", `.${HTML_SCOPE_CLASS_NAME}`);
+  });
+  return fragment;
+}
+
+/**
+ * Renders a block of raw HTML (the sole content of its paragraph) as a sanitized island; inline
+ * tags stay source text. Every island's content is an `@scope` root for every island's styles,
+ * so a `<style>` block reaches markup in later blocks. The outer element is outside every scope,
+ * so its `contain: paint` keeps fixed-position content from covering the app.
+ */
+function htmlView() {
+  return $view(htmlSchema.node, () => (node, editorView, getPos) => {
+    const value = String(node.attrs["value"] ?? "");
+    const position = getPos();
+    const parent =
+      typeof position === "number" ? editorView.state.doc.resolve(position).parent : null;
+    const fragment = parent?.childCount === 1 ? renderedHtml(value) : null;
+    const dom = document.createElement("span");
+    dom.dataset["type"] = "html";
+    if (fragment) {
+      const content = document.createElement("span");
+      content.className = HTML_SCOPE_CLASS_NAME;
+      content.append(fragment);
+      dom.className = "t3-markdown-editor__html";
+      dom.style.contain = "paint";
+      dom.append(content);
+      // Anchors in a non-editable island would navigate the app window.
+      dom.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
+      });
+    } else {
+      dom.textContent = value;
+    }
+
+    return {
+      dom,
+      update: (nextNode) => nextNode.type === node.type && nextNode.attrs["value"] === value,
+      ignoreMutation: () => true,
+    };
+  });
+}
+
 function linkView(options: MarkdownEditorPresentationOptions) {
   return $view(linkSchema.mark, () => (initialMark) => {
     let mark = initialMark;
@@ -361,6 +415,7 @@ export function markdownEditorPresentation(
   return [
     taskListItemView(),
     codeBlockView(options.theme),
+    htmlView(),
     linkView(options),
     syntaxHighlighting(options.theme),
   ];
