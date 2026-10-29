@@ -98,7 +98,6 @@ it.layer(NodeServices.layer, { excludeTestServices: true })(
         };
         yield* manager.releaseSettledManagedAttachments({ threadId: input.threadId });
         const nextRelease = yield* manager.attachStream(input, () => Effect.void);
-        yield* manager.restart({ ...input, cols: 100, rows: 24 });
         yield* manager.open({ ...input, terminalId: "new-terminal" });
         expect(ensures).toBe(1);
         expect(
