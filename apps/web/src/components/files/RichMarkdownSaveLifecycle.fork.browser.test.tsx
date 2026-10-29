@@ -18,9 +18,11 @@ const state = vi.hoisted(() => {
 });
 const { writeFile } = state;
 vi.mock("~/state/projects", () => ({ projectEnvironment: { writeFile: {} } }));
+vi.mock("~/state/filesystem", () => ({ useFilesystemReadAccess: () => ({ canReadFiles: false }) }));
 vi.mock("~/state/session", () => ({
   readEnvironmentScope: () => true,
   sessionHasScope: () => true,
+  usePreparedConnection: () => ({ _tag: "None" }),
   environmentSession: { sessionStateAtom: () => Atom.make(null) },
 }));
 vi.mock("@t3tools/client-runtime/state/runtime", async (original) => ({
