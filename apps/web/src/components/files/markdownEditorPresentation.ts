@@ -2,9 +2,12 @@ import type { MilkdownPlugin } from "@milkdown/ctx";
 import type { Node as ProseNode } from "@milkdown/prose/model";
 import { Plugin, PluginKey } from "@milkdown/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/prose/view";
-import { codeBlockSchema, linkSchema } from "@milkdown/preset-commonmark";
+import { codeBlockSchema, htmlSchema, linkSchema } from "@milkdown/preset-commonmark";
 import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
+import { scopeMarkdownCss } from "@t3tools/shared/markdownStyledHtml.fork";
+import DOMPurify from "dompurify";
+import { Tokenizer, TokenizerMode } from "parse5";
 
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
@@ -185,6 +188,165 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
   });
 }
 
+const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";
+
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "source",
+  "track",
+  "wbr",
+]);
+
+const OPTIONAL_END_HTML_TAGS = new Set([
+  "p",
+  "li",
+  "dt",
+  "dd",
+  "option",
+  "optgroup",
+  "tr",
+  "td",
+  "th",
+  "thead",
+  "tbody",
+  "tfoot",
+  "colgroup",
+  "caption",
+  "rt",
+  "rp",
+]);
+
+// The tree builder, not the tokenizer, switches into raw-text states, so the scanner must too.
+const RAW_TEXT_MODES: ReadonlyMap<string, Tokenizer["state"]> = new Map([
+  ["iframe", TokenizerMode.RAWTEXT],
+  ["noembed", TokenizerMode.RAWTEXT],
+  ["noframes", TokenizerMode.RAWTEXT],
+  ["noscript", TokenizerMode.RAWTEXT],
+  ["plaintext", TokenizerMode.PLAINTEXT],
+  ["script", TokenizerMode.SCRIPT_DATA],
+  ["style", TokenizerMode.RAWTEXT],
+  ["textarea", TokenizerMode.RCDATA],
+  ["title", TokenizerMode.RCDATA],
+  ["xmp", TokenizerMode.RAWTEXT],
+]);
+
+const EOF_PARSE_ERRORS = new Set([
+  "eof-in-tag",
+  "eof-in-comment",
+  "eof-in-doctype",
+  "eof-in-cdata",
+]);
+
+// Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
+function isBalancedHtml(value: string): boolean {
+  const open: string[] = [];
+  let balanced = true;
+  const ignore = () => {};
+  const tokenizer: Tokenizer = new Tokenizer(
+    {},
+    {
+      onStartTag({ tagName, selfClosing }) {
+        const mode = RAW_TEXT_MODES.get(tagName);
+        if (mode !== undefined) tokenizer.state = mode;
+        if (!selfClosing && !VOID_HTML_TAGS.has(tagName)) open.push(tagName);
+      },
+      onEndTag({ tagName }) {
+        while (
+          open.length > 0 &&
+          open.at(-1) !== tagName &&
+          OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)
+        ) {
+          open.pop();
+        }
+        if (open.pop() !== tagName) balanced = false;
+      },
+      onParseError({ code }) {
+        if (EOF_PARSE_ERRORS.has(code)) balanced = false;
+      },
+      onComment: ignore,
+      onDoctype: ignore,
+      onEof: ignore,
+      onCharacter: ignore,
+      onNullCharacter: ignore,
+      onWhitespaceCharacter: ignore,
+    },
+  );
+  tokenizer.write(value, true);
+  return balanced && open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
+}
+
+// Top-layer attributes would let an island escape `contain: paint` and cover the app.
+const TOP_LAYER_ATTRIBUTES = [
+  "popover",
+  "popovertarget",
+  "popovertargetaction",
+  "command",
+  "commandfor",
+  "interestfor",
+];
+
+function renderedHtml(value: string): DocumentFragment | null {
+  if (!isBalancedHtml(value)) return null;
+  const fragment = DOMPurify.sanitize(value, {
+    RETURN_DOM_FRAGMENT: true,
+    FORCE_BODY: true,
+    FORBID_ATTR: TOP_LAYER_ATTRIBUTES,
+  });
+  if (!fragment.hasChildNodes()) return null;
+  fragment.querySelectorAll("style").forEach((style) => {
+    style.textContent = scopeMarkdownCss(style.textContent ?? "", `.${HTML_SCOPE_CLASS_NAME}`);
+  });
+  return fragment;
+}
+
+/**
+ * Renders a block of raw HTML (the sole content of its paragraph) as a sanitized island; inline
+ * tags stay source text. Every island's content is an `@scope` root for every island's styles,
+ * so a `<style>` block reaches markup in later blocks. The outer element is outside every scope,
+ * so its `contain: paint` keeps fixed-position content from covering the app.
+ */
+function htmlView() {
+  return $view(htmlSchema.node, () => (node, editorView, getPos) => {
+    const value = String(node.attrs["value"] ?? "");
+    const position = getPos();
+    const parent =
+      typeof position === "number" ? editorView.state.doc.resolve(position).parent : null;
+    const fragment = parent?.childCount === 1 ? renderedHtml(value) : null;
+    const dom = document.createElement("span");
+    dom.dataset["type"] = "html";
+    if (fragment) {
+      const content = document.createElement("span");
+      content.className = HTML_SCOPE_CLASS_NAME;
+      content.append(fragment);
+      dom.className = "t3-markdown-editor__html";
+      dom.style.contain = "paint";
+      dom.append(content);
+      // Anchors and forms in a non-editable island would navigate the app window.
+      dom.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
+      });
+      dom.addEventListener("submit", (event) => event.preventDefault());
+    } else {
+      dom.textContent = value;
+    }
+
+    return {
+      dom,
+      update: (nextNode) => nextNode.type === node.type && nextNode.attrs["value"] === value,
+      ignoreMutation: () => true,
+    };
+  });
+}
+
 function linkView(options: MarkdownEditorPresentationOptions) {
   return $view(linkSchema.mark, () => (initialMark) => {
     let mark = initialMark;
@@ -361,6 +523,7 @@ export function markdownEditorPresentation(
   return [
     taskListItemView(),
     codeBlockView(options.theme),
+    htmlView(),
     linkView(options),
     syntaxHighlighting(options.theme),
   ];
