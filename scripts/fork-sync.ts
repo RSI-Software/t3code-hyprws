@@ -81,11 +81,11 @@ const AGENT_LABEL = "rsi:fork-sync";
 /**
  * Every labelling write stamps its time. An unlabelled issue whose body has not
  * moved since then holds a job that failed or made no progress; once the job
- * budget has surely passed, that body relabels once, and a second miss waits
- * for a human.
+ * budget (45 min run, 12 min push) has surely passed, that body relabels once,
+ * and a second miss waits for a human.
  */
 const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
-const AGENT_RETRY_AFTER_MS = 2 * 60 * 60 * 1000;
+const AGENT_RETRY_AFTER_MS = 75 * 60 * 1000;
 const agentStamp = (at: string, retried: boolean): string =>
   `<!-- agent-labelled:${at}${retried ? " retried" : ""} -->`;
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
