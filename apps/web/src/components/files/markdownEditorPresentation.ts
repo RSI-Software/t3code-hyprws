@@ -1,6 +1,6 @@
 import type { MilkdownPlugin } from "@milkdown/ctx";
 import type { Node as ProseNode } from "@milkdown/prose/model";
-import { Plugin, PluginKey } from "@milkdown/prose/state";
+import { Plugin, PluginKey, TextSelection } from "@milkdown/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/prose/view";
 import { codeBlockSchema, htmlSchema, linkSchema } from "@milkdown/preset-commonmark";
 import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
@@ -18,6 +18,7 @@ import {
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
 import { markdownMathViews } from "./markdownMath.fork";
+import { renderMermaid } from "./markdownMermaid.fork";
 import { codeBlockTitle } from "./markdownSyntax.fork";
 import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
@@ -125,7 +126,7 @@ function taskListItemView() {
 }
 
 function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
-  return $view(codeBlockSchema.node, () => (initialNode) => {
+  return $view(codeBlockSchema.node, () => (initialNode, view, getPos) => {
     let node = initialNode;
     const dom = document.createElement("div");
     dom.className = "t3-markdown-editor__codeblock";
@@ -150,6 +151,8 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
     pre.append(contentDOM);
     header.append(languageLabel, copyButton);
     dom.append(header, pre);
+    const diagram = isMermaid(node) ? mermaidPreview(dom, view, getPos) : null;
+    diagram?.render(node.textContent);
 
     const renderLanguage = () => {
       const language = String(node.attrs["language"] || "text");
@@ -174,22 +177,79 @@ function codeBlockView(theme: MarkdownEditorPresentationOptions["theme"]) {
       dom,
       contentDOM,
       update(nextNode) {
-        if (nextNode.type !== node.type) return false;
+        if (nextNode.type !== node.type || isMermaid(nextNode) !== isMermaid(node)) return false;
         const labelChanged =
           nextNode.attrs["language"] !== node.attrs["language"] ||
           nextNode.attrs["meta"] !== node.attrs["meta"];
         node = nextNode;
         if (labelChanged) renderLanguage();
+        diagram?.render(node.textContent);
         return true;
       },
       stopEvent(event) {
-        return event.target === copyButton;
+        return (
+          event.target === copyButton || diagram?.element.contains(event.target as Node) === true
+        );
       },
       ignoreMutation(mutation) {
-        return header.contains(mutation.target);
+        return (
+          header.contains(mutation.target) || diagram?.element.contains(mutation.target) === true
+        );
+      },
+      destroy() {
+        diagram?.destroy();
       },
     };
   });
+}
+
+const isMermaid = (node: ProseNode) => node.attrs["language"] === "mermaid";
+
+// Shows the diagram, and its source only while the caret is in it (see markdownMathViews).
+function mermaidPreview(dom: HTMLElement, view: EditorView, getPos: () => number | undefined) {
+  const element = document.createElement("div");
+  element.className = "t3-markdown-editor__codeblock-diagram";
+  element.contentEditable = "false";
+  dom.append(element);
+  dom.classList.add("t3-markdown-editor__codeblock--diagram");
+
+  element.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    const position = getPos();
+    if (position === undefined) return;
+    const end = position + view.state.doc.nodeAt(position)!.nodeSize - 1;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end)));
+    view.focus();
+  });
+
+  let source: string | null = null;
+  let cleanup = () => {};
+  let timer: number | undefined;
+  const draw = (next: string) => {
+    cleanup();
+    element.replaceChildren();
+    cleanup = renderMermaid(element, next, (invalid) => {
+      element.classList.toggle("is-invalid", invalid);
+    });
+  };
+  const render = (next: string) => {
+    const trimmed = next.trim();
+    if (trimmed === source) return;
+    const first = source === null;
+    source = trimmed;
+    window.clearTimeout(timer);
+    // Typing re-lays the diagram out, so wait for a pause.
+    if (first) draw(trimmed);
+    else timer = window.setTimeout(() => draw(trimmed), 250);
+  };
+  return {
+    element,
+    render,
+    destroy() {
+      window.clearTimeout(timer);
+      cleanup();
+    },
+  };
 }
 
 const HTML_SCOPE_CLASS_NAME = "t3-markdown-editor__html-content";

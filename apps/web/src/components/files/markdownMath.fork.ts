@@ -118,7 +118,7 @@ function mathView(schema: typeof mathInlineSchema | typeof mathBlockSchema, disp
         // KaTeX escapes the TeX it renders, and `trust: false` keeps it from emitting links.
         if (html) rendered.innerHTML = html;
         else rendered.textContent = next || "Empty equation";
-        dom.classList.toggle("is-invalid", !html);
+        rendered.classList.toggle("is-invalid", !html);
       });
     };
     render();
@@ -150,7 +150,7 @@ function mathView(schema: typeof mathInlineSchema | typeof mathBlockSchema, disp
   });
 }
 
-// Shows a formula's source while the selection is inside it, and the typeset formula otherwise.
+// Shows a formula's or diagram's source while the selection is inside it, and the render otherwise.
 const mathEditing = $prose(
   () =>
     new Plugin({
@@ -159,7 +159,10 @@ const mathEditing = $prose(
           const { selection } = state;
           const selected = selection instanceof NodeSelection ? selection.node : null;
           const node = selected ?? selection.$from.parent;
-          if (!node.type.name.startsWith("math_")) return null;
+          const rendered =
+            node.type.name.startsWith("math_") ||
+            (node.type.name === "code_block" && node.attrs["language"] === "mermaid");
+          if (!rendered) return null;
           const position = selected ? selection.from : selection.$from.before();
           return DecorationSet.create(state.doc, [
             Decoration.node(position, position + node.nodeSize, { class: "is-editing" }),

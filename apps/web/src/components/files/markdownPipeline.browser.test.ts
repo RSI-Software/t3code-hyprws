@@ -44,6 +44,39 @@ describe("markdown rich editor pipeline", () => {
     expect(await roundTrip(markdown)).toBe(markdown);
   });
 
+  it("draws Mermaid and math, and reports invalid source", async () => {
+    const root = document.createElement("div");
+    const editor = await markdownPipeline(
+      Editor.make().config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(
+          defaultValueCtx,
+          "```mermaid\nflowchart LR\n  A --> B\n```\n\n```mermaid\nflowchart LR\n  A --> -->\n```\n\n$$\n\\frac{\n$$\n",
+        );
+      }),
+    )
+      .use(
+        markdownEditorPresentation({
+          cwd: { current: "/workspace" },
+          sourcePath: { current: "README.md" },
+          onOpenFile: { current: () => undefined },
+          theme: { current: "dark" },
+        }),
+      )
+      .create();
+    try {
+      const [valid, invalid] = root.querySelectorAll(".t3-markdown-editor__codeblock--diagram");
+      await vi.waitFor(() => {
+        expect(valid?.querySelector(".t3-markdown-editor__codeblock-diagram svg")).not.toBeNull();
+        expect(invalid?.querySelector(".is-invalid")?.textContent).toContain("Parse error");
+        expect(root.querySelector(".t3-markdown-editor__math .is-invalid")).not.toBeNull();
+      });
+      expect(root.querySelectorAll(".t3-markdown-editor__codeblock--diagram")[1]).toBe(invalid);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("turns quotes into GitHub alerts and back", async () => {
     await using root = Object.assign(document.body.appendChild(document.createElement("div")), {
       [Symbol.asyncDispose]: async () => root.remove(),
