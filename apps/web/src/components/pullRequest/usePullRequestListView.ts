@@ -35,7 +35,6 @@ import {
 } from "./pullRequestList.logic";
 import type { PullRequestExpectedHost } from "./PullRequestListFilters";
 import type { PullRequestListPreferences, PullRequestListSort } from "./pullRequestListPreferences";
-import { assignProjectsToEnvironments } from "./pullRequestProjectAssignment.logic";
 import { pullRequestFilterProjects } from "@t3tools/client-runtime/pull-request-project-filter";
 import { useWindowListProjects } from "../../windowProjectFilter.fork"; // fork-hook: workspaces/list-page-window-filter-import
 import { pullRequestEnvironmentQueriesFork } from "./pullRequestWindowQueries.fork"; // fork-hook: workspaces/list-page-window-filter-import
