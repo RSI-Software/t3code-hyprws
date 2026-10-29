@@ -245,7 +245,8 @@ The workflow uses its own `GITHUB_TOKEN` with `actions: read` and `issues: write
 ### Which events run the fork matrix
 
 The `hyprws` ruleset requires two `hyprws-ci.yml` contexts: `CI` and `merge-tree`.
-`CI` fails unless every other job passed, or skipped because `Changes` found it unaffected; pushes run every job.
+`CI` fails unless every other job passed, or skipped because `Changes` found it unaffected.
+Pushes run every job, except a `hyprws` push of a commit whose `sync/candidate` run passed: it skips them all.
 `hyprws-body.yml` stays advisory: no ruleset requires its `Body` context.
 It runs on a pull request opened, pushed to, or reopened, on a push to a fork trunk, release branch, or `sync/candidate`, and on `merge_group`.
 

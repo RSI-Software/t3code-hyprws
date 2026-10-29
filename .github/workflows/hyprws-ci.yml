@@ -36,12 +36,17 @@ permissions:
 
 jobs:
   # Upstream's gate: .github/scripts/ci-changes.cjs maps a pull request's files
-  # to affected packages and fails open. Pushes and merge groups run every job.
+  # to affected packages and fails open. Pushes and merge groups run every job,
+  # except a hyprws push of a sha this workflow already passed on sync/candidate.
   changes:
     name: Changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     outputs:
+      reuse: ${{ steps.reuse.outputs.reuse }}
       typecheck: ${{ steps.detect.outputs.typecheck }}
       build: ${{ steps.detect.outputs.build }}
       test: ${{ steps.detect.outputs.test }}
@@ -49,6 +54,20 @@ jobs:
       test_web: ${{ steps.detect.outputs.test_web }}
       test_server: ${{ steps.detect.outputs.test_server }}
     steps:
+      # `fork:sync` lands only a sha whose candidate push ran every job here,
+      # with this same workflow file. A failed lookup runs everything.
+      - name: Reuse a green sync/candidate run
+        id: reuse
+        if: github.event_name == 'push' && github.ref == 'refs/heads/hyprws'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hyprws-ci.yml/runs?head_sha=$GITHUB_SHA&branch=sync/candidate&event=push&status=success" --jq .total_count) || runs=0
+          if [[ "$runs" -gt 0 ]]; then
+            echo "hyprws CI already passed $GITHUB_SHA on sync/candidate; skipping every job."
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -68,10 +87,10 @@ jobs:
 
   # The fork ledger, knip, and format checks always run; typecheck and the
   # desktop build run only when `changes` says a package needs them.
-  lint:
-    name: Lint and Build
+  check:
+    name: Check
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -176,6 +195,8 @@ jobs:
   # the rule.
   merge-tree:
     name: merge-tree
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -205,7 +226,7 @@ jobs:
   test:
     name: Test
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -272,7 +293,7 @@ jobs:
   test_web:
     name: Test Web
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' && needs.changes.outputs.test_web != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -307,6 +328,8 @@ jobs:
   # which `changes` treats as inert.
   test_scripts:
     name: Test Scripts
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -344,11 +367,12 @@ jobs:
 
   # apps/server runs its files one at a time; sharding spreads them over
   # runners instead of workers, exactly as upstream does. Shards gate their
-  # steps, not the job: a skipped matrix job reports an unexpanded name.
+  # steps, not the job: a skipped matrix job reports an unexpanded name, which
+  # only a reused push run may do.
   test_server:
     name: Test Server ${{ matrix.shard }}
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -386,7 +410,7 @@ jobs:
   ci:
     name: CI
     if: ${{ always() }}
-    needs: [changes, lint, test, test_web, test_scripts, test_server, merge-tree]
+    needs: [changes, check, test, test_web, test_scripts, test_server, merge-tree]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -398,4 +422,5 @@ jobs:
           echo "$RESULTS" | jq -e '.changes.outputs as $gates
             | all(to_entries[];
                 .value.result == "success"
-                or (.value.result == "skipped" and $gates[.key] == "false"))' > /dev/null
+                or (.value.result == "skipped"
+                  and ($gates.reuse == "true" or $gates[.key] == "false")))' > /dev/null
