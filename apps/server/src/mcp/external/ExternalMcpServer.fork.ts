@@ -2,7 +2,6 @@
 // upstream's `/mcp` with its own tool catalog, so `/mcp` credentials and behavior stay untouched.
 // Retire it when upstream ships an external MCP client audience with headless sign-in, keeping
 // only the device-grant authenticator and the project and interaction-mode policy.
-import type { EnvironmentId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -54,29 +53,6 @@ type PrincipalHttpEffect = Effect.Effect<
   Types.unhandled,
   ExternalMcpService.ExternalMcpPrincipalFork | McpInvocationContext.McpInvocationContext
 >;
-
-/**
- * The grant as upstream's outside-client caller, so `McpToolAccess` checks it
- * as it checks an OAuth client at `/mcp`: a grant without `coordinate` is
- * read-only, and one with it is capped at its runtime mode. The grant's
- * project and interaction-mode policy stays with `ExternalMcpServiceFork`.
- */
-const clientScope = (
-  principal: ExternalMcpService.ExternalMcpPrincipal,
-  environmentId: EnvironmentId,
-  issuedAt: number,
-): McpInvocationContext.McpInvocationScope => ({
-  environmentId,
-  requestNamespace: `client:${principal.sessionId}`,
-  thread: undefined,
-  client: {
-    sessionId: principal.sessionId,
-    label: principal.clientLabel ?? "External MCP client",
-    access: principal.policy.coordinate ? principal.policy.maxRuntimeMode : "read-only",
-  },
-  capabilities: new Set<McpInvocationContext.McpCapability>(["orchestration"]),
-  issuedAt,
-});
 
 /**
  * Admits only a proof-bound device-grant session that carries an MCP grant.
@@ -136,7 +112,7 @@ const makeAuthMiddleware = Effect.gen(function* () {
       Effect.option,
     );
     if (Option.isNone(principal)) return unauthorized;
-    const scope = clientScope(
+    const scope = ExternalMcpService.externalMcpClientScopeFork(
       principal.value,
       yield* environment.getEnvironmentId,
       yield* Clock.currentTimeMillis,
