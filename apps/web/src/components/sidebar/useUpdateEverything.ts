@@ -42,6 +42,7 @@ const UPDATE_RESTART_DELAY_MS = 5_000;
 export function isHostedByThisApp(
   environment: ReturnType<typeof useEnvironments>["environments"][number],
 ) {
+  if (isElectron && isAttachedPrimaryTarget(environment.entry.target)) return false; // fork-hook: backend-attach/update-everything-hosted
   return (
     isElectron &&
     (environment.entry.target._tag === "PrimaryConnectionTarget" ||
@@ -79,6 +80,7 @@ export function useUpdateEverything(
     ? { ...collectChannelSwitchTargets(machines, channelSwitch), waitForNpm: [] }
     : collectServerUpdateTargets(machines, targetVersion, localUpdateVersion !== null);
   const fork = isForkServiceVersion(targetVersion); // fork-hook: distribution/update-everything-npm-gate-fork (fork releases install from GitHub)
+  if (fork) waitForNpm.splice(0); // fork-hook: distribution/update-everything-npm-gate
   const published = useNpmReleasePublished(waitForNpm.length > 0 ? targetVersion : null);
   const servers = published
     ? behindServers
