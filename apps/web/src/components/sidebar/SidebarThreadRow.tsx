@@ -710,7 +710,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
-  const groupCompactFork = props.groupCompact === true && status === "working"; // fork-hook: thread-ordering/group-compact
+  const groupCompactFork =
+    props.groupCompact === true && (status === "working" || status === "waiting"); // fork-hook: thread-ordering/group-compact
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -1227,6 +1228,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     : "flex h-9 items-center gap-2.5 px-2.5",
                   // Lines titles up with the folder name, past its chevron and icon.
                   inFolder && "ps-9",
+                  props.grouped && "ml-2 border-l border-sidebar-border/70 pl-1.5", // fork-hook: thread-ordering/group-snoozed-rail
                 )}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
