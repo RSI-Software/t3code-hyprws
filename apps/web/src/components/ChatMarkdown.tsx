@@ -457,6 +457,7 @@ function useChatMarkdownState({
   renderContextReference,
   headingLevelOffset = 0,
   sourceControlMedia = false,
+  styledHtml = false, // fork-hook: markdown-editing/file-preview-math-prop
 }: ChatMarkdownProps) {
   const resolvedTheme = useRenderedAppearance();
   const markdownRef = useRef<HTMLElement>(null);
@@ -898,6 +899,7 @@ function useChatMarkdownState({
     inlineCodeFileLinkMetaByText,
     inline,
     mathEnabled,
+    ...(styledHtml && { mathEnabled: true }), // fork-hook: markdown-editing/file-preview-math
     isStreaming,
     linkTargetPreference,
     markdownFileLinkMetaByHref,
