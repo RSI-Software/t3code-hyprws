@@ -237,6 +237,8 @@ interface RecoveryCase {
   readonly recreatedBeforeGate?: boolean;
   /** One session, opened in the worktree, serves this and a second thread. */
   readonly sharedSession?: boolean;
+  /** The second turn is a provider wake, as a finished background task starts. */
+  readonly wake?: boolean;
   readonly closedOnCommit: number;
   readonly sessions: {
     readonly opened: ReadonlyArray<Checkout>;
@@ -355,6 +357,20 @@ const recoveries: ReadonlyArray<RecoveryCase> = [
     },
     timeline: noticeInRecoveredTurn,
   },
+  // A wake turn replays the reply its session buffered, so the session survives
+  // it, and the next turn opens in the root.
+  {
+    recovery: "turn-start gate, on a provider wake turn",
+    client: "none",
+    wake: true,
+    closedOnCommit: 0,
+    sessions: {
+      opened: ["feature", "root"],
+      turns: ["feature", "feature", "root"],
+      closed: 1,
+    },
+    timeline: [...noticeInRecoveredTurn, ...turn(3)],
+  },
   // The worktree comes back at the same path and the thread returns to it, as
   // an MCP worktree handoff does: later turns keep the session they open there.
   {
@@ -379,6 +395,7 @@ it.live.each(recoveries)(
     returns,
     recreatedBeforeGate,
     sharedSession,
+    wake,
     closedOnCommit,
     sessions,
     timeline,
@@ -393,7 +410,7 @@ it.live.each(recoveries)(
         const feature = `${base}/feature`;
         yield* git(root, ["worktree", "add", "-b", "feature", feature]);
         const threadId = ThreadId.make(
-          `thread:worktree-recovery:${client}:${laterMove}:${returns}:${recreatedBeforeGate}:${sharedSession}`,
+          `thread:worktree-recovery:${client}:${laterMove}:${returns}:${recreatedBeforeGate}:${sharedSession}:${wake}`,
         );
         const log = yield* Ref.make<SessionLog>({ opened: [], turns: [], closed: 0, unloaded: 0 });
         const registry = ProviderAdapterRegistry.layerSingle(
@@ -416,11 +433,11 @@ it.live.each(recoveries)(
 
           const settleRun = (afterSequence: number, runThreadId = threadId) =>
             settleRunOn(runThreadId, afterSequence);
-          const send = (text: string, sendThreadId = threadId) =>
+          const send = (text: string, sendThreadId = threadId, fromProvider = false) =>
             orchestrator.dispatch({
               type: "message.dispatch",
-              createdBy: "user",
-              creationSource: "web",
+              createdBy: fromProvider ? "agent" : "user",
+              creationSource: fromProvider ? "provider" : "web",
               commandId: CommandId.make(`command:worktree-recovery:${text}`),
               threadId: sendThreadId,
               messageId: MessageId.make(`message:worktree-recovery:${text}`),
@@ -462,7 +479,7 @@ it.live.each(recoveries)(
             yield* worker.drain();
             assert.equal((yield* Ref.get(log)).closed, closedOnCommit);
           }
-          yield* send("second");
+          yield* send("second", threadId, wake === true);
           if (client === "while-starting") {
             assert.isTrue((yield* recoverAsClient(idle!)).moved);
             assert.equal((yield* Ref.get(log)).closed, closedOnCommit);
@@ -489,6 +506,11 @@ it.live.each(recoveries)(
           );
           if (recreatedBeforeGate === true) yield* recreate;
           yield* settleRun(secondTurn);
+          if (wake === true) {
+            const turn = yield* eventSink.latestSequence();
+            yield* send("third");
+            yield* settleRun(turn);
+          }
           if (recreatedBeforeGate === true) {
             const turn = yield* eventSink.latestSequence();
             yield* send("third");
@@ -561,7 +583,7 @@ it.live.each(recoveries)(
           Effect.provide(
             layerWithRegistry(
               {
-                name: `worktree-recovery-${client}-${laterMove}-${returns}-${recreatedBeforeGate}-${sharedSession}`,
+                name: `worktree-recovery-${client}-${laterMove}-${returns}-${recreatedBeforeGate}-${sharedSession}-${wake}`,
               },
               registry,
               {
