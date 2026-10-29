@@ -71,7 +71,7 @@ describe("DesktopUpdates fork update channels", () => {
   });
 
   it.effect("offers a fork nightly to a user on the nightly channel", () => {
-    const harness = makeHarness();
+    const harness = makeHarness({ appVersion: "0.0.43-hyprws-nightly.20260928.775" });
     return Effect.scoped(
       Effect.gen(function* () {
         const updates = yield* DesktopUpdates.DesktopUpdates;
