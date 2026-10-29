@@ -167,6 +167,48 @@ const wheelZoom = (listener: Listener | undefined, direction: "in" | "out") =>
   });
 
 describe("fork preview manager zoom and window close", () => {
+  effectIt.effect("reapplies native zoom only to the owning window's guests", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        let firstZoom = 1;
+        let secondZoom = 1;
+        const guests = new Map([
+          [
+            42,
+            Object.assign(makeTestPreviewWebContents(vi.fn(), 42), {
+              setZoomFactor: (zoom: number) => {
+                firstZoom = zoom;
+              },
+            }),
+          ],
+          [
+            43,
+            Object.assign(makeTestPreviewWebContents(vi.fn(), 43), {
+              setZoomFactor: (zoom: number) => {
+                secondZoom = zoom;
+              },
+            }),
+          ],
+        ]);
+        fromId.mockImplementation((id) => guests.get(id ?? -1) ?? null);
+        const first = yield* manager.forWindow("00000000-0000-4000-8000-000000000001" as WindowId);
+        const second = yield* manager.forWindow("00000000-0000-4000-8000-000000000002" as WindowId);
+        yield* first.createTab("shared-tab", { zoomFactor: 1.25 });
+        yield* second.createTab("shared-tab", { zoomFactor: 0.8 });
+        yield* first.registerWebview("shared-tab", 42);
+        yield* second.registerWebview("shared-tab", 43);
+        firstZoom = 2;
+        secondZoom = 2;
+        yield* first.reapplyZoom();
+        expect(firstZoom).toBe(1.25);
+        expect(secondZoom).toBe(2);
+        yield* second.reapplyZoom();
+        expect(firstZoom).toBe(1.25);
+        expect(secondZoom).toBe(0.8);
+      }),
+    ),
+  );
+
   effectIt.effect("honors guest wheel zoom through the tab-owned state", () =>
     withManager((manager) =>
       Effect.gen(function* () {
@@ -280,11 +322,11 @@ describe("fork preview manager zoom and window close", () => {
         setZoomFactor.mockImplementation(() => {
           restoreOrder.push("guest");
         });
-        yield* manager.preserveGuestZooms(() => {
+        yield* Effect.sync(() => {
           restoreOrder.push("embedder");
           expect(setZoomFactor).not.toHaveBeenCalled();
-          queueMicrotask(() => restoreOrder.push("microtask"));
         });
+        yield* manager.reapplyZoom();
 
         expect(restoreOrder).toEqual(["embedder", "guest"]);
         expect(setZoomFactor).toHaveBeenCalledTimes(1);
