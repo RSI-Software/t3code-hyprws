@@ -137,14 +137,18 @@ Rerun once after tip work so the marker covers it.
 
 A `fork:ci` hook finding in a replayed commit means its resolution adapted it.
 A tip `fixup!` never clears it; only a new replay does.
+The new replay resolves that seam with the original's lines only; the build fix is [tip work](#tip-work).
 
-- **Session:** drop marker and kept worktree; rerun
-- **Job:** report the finding; never hand off
+- **Past the marker:** drop the kept worktree; rerun
+- **In the marker:** also delete `sync/resolution`
+  - Job: report it; never hand off
+- **Job:** one fresh replay; a second one reports
 
 ```bash
-git push origin --delete sync/resolution
-rm .t3/fork-sync/worktree.json   # main checkout
-vp run fork:sync
+git merge-base --is-ancestor <sha> origin/sync/resolution   # exit 0: in the marker
+git push origin --delete sync/resolution                     # in the marker, session only
+rm .t3/fork-sync/worktree.json                               # main checkout
+vp run fork:sync [<tag>]
 ```
 
 ## Fold
