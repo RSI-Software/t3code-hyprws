@@ -54,6 +54,7 @@ import { shortcutModifierStore } from "../shortcutModifierState";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import type { SidebarThreadGroup } from "../state/threadGroups"; // fork-hook: thread-ordering/group-type-import
+import { normalizeGroupedSidebarThreadDropFork } from "./Sidebar.groupSections.fork"; // fork-hook: thread-ordering/group-drop-import
 import { pushSidebarWorkingShelfFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-rows-import
 import {
   insertSidebarThreadGroupMarkersFork,
@@ -411,7 +412,9 @@ export function planSidebarThreadDrop(input: {
   readonly activeKeysById: ReadonlyMap<string, string | null | undefined>;
   readonly activeReorderableKeys?: ReadonlySet<string>;
   readonly activeTimeOrdered?: boolean;
+  readonly keepInheritedPin?: boolean; // fork-hook: thread-ordering/group-drop-input
 }): SidebarThreadDropPlan {
+  input = normalizeGroupedSidebarThreadDropFork(input); // fork-hook: thread-ordering/group-drop-input
   const {
     activeKey,
     activeSection,
