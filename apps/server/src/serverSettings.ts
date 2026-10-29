@@ -1,7 +1,5 @@
 import {
   DEFAULT_SERVER_SETTINGS,
-  migrateLegacyForkThreadEnvModeSettings,
-  migrateLegacyZmuxSettings,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -60,7 +58,10 @@ import {
   sourceControlHostSecretName,
 } from "./sourceControl/sourceControlHostSecrets.ts";
 import { foldLegacyWorktrunkEnvModeFork } from "./serverSettings.fork.ts"; // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode-import
+import { migrateLegacyForkThreadEnvModeSettings } from "@t3tools/contracts"; // fork-hook: worktrunk-hooks/legacy-settings-import
 
+import { migrateLegacyZmuxSettings } from "@t3tools/contracts"; // fork-hook: zmux-estate/legacy-settings-import
+import { migrateLegacySettingsJsonFork } from "./serverSettingsMigration.fork.ts"; // fork-hook: zmux-estate/persisted-server-settings
 import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./settingsSecrets.ts";
 
 export {
@@ -360,35 +361,6 @@ function migrateLegacySourceControlSettings(
 const HISTORY_RESTORED_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
   ["cursor", "grok", "opencode"].map((driver) => ProviderDriverKind.make(driver)),
 );
-const PersistedServerSettings = Schema.Struct({
-  ...ServerSettings.fields,
-  responseStreamingMode: PersistedResponseStreamingMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
-  ),
-  projectSettingsOverrides: Schema.Record(
-    ProjectId,
-    Schema.Struct({
-      ...ProjectSettingsOverrides.fields,
-      responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
-    }),
-  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-}); // fork-hook: zmux-estate/persisted-server-settings
-// Two-step decode: lenient JSON to unknown, legacy-key migration, then the
-// settings schema. The migration must see the raw object — a composed
-// string-to-struct schema would drop retired keys before it could fold them.
-const LenientUnknownJson = fromLenientJson(Schema.Unknown);
-const decodeLenientUnknownJsonExit = Schema.decodeUnknownExit(LenientUnknownJson);
-const decodeServerSettingsExit = Schema.decodeUnknownExit(PersistedServerSettings); // fork-hook: zmux-estate/decode-server-settings
-const decodeServerSettingsJsonExit = (raw: string) => {
-  const parsed = decodeLenientUnknownJsonExit(raw);
-  if (parsed._tag === "Failure") {
-    return parsed;
-  }
-  return decodeServerSettingsExit(
-    migrateLegacyForkThreadEnvModeSettings(migrateLegacyZmuxSettings(parsed.value)),
-  );
-};
-
 function migrateLegacyProviderSettings(
   settings: ServerSettings,
   legacyProviders: Readonly<Record<string, unknown>>,
@@ -631,6 +603,8 @@ const make = Effect.gen(function* () {
   );
 
   const readRawConfig = fs.readFileString(settingsPath).pipe(
+    migrateLegacySettingsJsonFork(migrateLegacyZmuxSettings), // fork-hook: zmux-estate/decode-server-settings
+    migrateLegacySettingsJsonFork(migrateLegacyForkThreadEnvModeSettings), // fork-hook: worktrunk-hooks/legacy-settings-json
     Effect.mapError(
       (cause) =>
         new ServerSettingsError({

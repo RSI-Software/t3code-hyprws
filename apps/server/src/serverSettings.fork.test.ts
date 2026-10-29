@@ -27,9 +27,34 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* fileSystem.writeFileString(serverConfig.settingsPath, '{"zmuxSessions":true}');
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        `{
+          // Legacy settings still accept comments and trailing commas.
+          "zmuxSessions": true,
+          "responseStreamingMode": "token",
+          "projectSettingsOverrides": {
+            "project-a": { "responseStreamingMode": "token", "addedByNewerServer": 3 },
+          },
+        }`,
+      );
       const settings = yield* serverSettings.getSettings;
       assert.strictEqual(settings.terminalSessionMode, "zmux");
+      assert.strictEqual(settings.responseStreamingMode, "paragraph");
+      const projectId = ProjectId.make("project-a");
+      yield* serverSettings.updateSettings({
+        projectSettingsOverrides: {
+          [projectId]: { ...settings.projectSettingsOverrides[projectId], defaultAutoPull: false },
+        },
+      });
+      const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
+      assert.deepEqual(persisted.projectSettingsOverrides, {
+        [projectId]: {
+          responseStreamingMode: "paragraph",
+          defaultAutoPull: false,
+          addedByNewerServer: 3,
+        },
+      });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
   it.effect("keeps an explicit terminal session mode over the legacy zmuxSessions flag", () =>
