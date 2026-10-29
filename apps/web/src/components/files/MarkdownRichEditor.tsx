@@ -15,6 +15,7 @@ import {
   markdownEditorPresentation,
   refreshMarkdownEditorPresentation,
 } from "./markdownEditorPresentation";
+import type { WorkspaceImageUrl } from "./markdownImages.fork";
 import { markdownPipeline } from "./markdownPipeline";
 import "./markdown-rich-editor.css";
 
@@ -27,6 +28,7 @@ interface MarkdownRichEditorProps {
   readonly onOpenFile: (relativePath: string) => void;
   readonly theme: "light" | "dark";
   readonly wordWrap: boolean;
+  readonly imageUrl: WorkspaceImageUrl;
 }
 
 /**
@@ -89,6 +91,7 @@ export function MarkdownRichEditor({
   onOpenFile,
   theme,
   wordWrap,
+  imageUrl,
 }: MarkdownRichEditorProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   useFileEditorSaveShortcutFork(rootRef, onSave);
@@ -100,6 +103,7 @@ export function MarkdownRichEditor({
   const sourcePathRef = useRef(relativePath);
   const onOpenFileRef = useRef(onOpenFile);
   const themeRef = useRef(theme);
+  const imageUrlRef = useRef(imageUrl);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the latest-prop refs the Milkdown plugins read outside React.
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -107,6 +111,7 @@ export function MarkdownRichEditor({
     sourcePathRef.current = relativePath;
     onOpenFileRef.current = onOpenFile;
     themeRef.current = theme;
+    imageUrlRef.current = imageUrl;
   });
 
   const { editor, ready } = useMilkdownEditor(rootRef, (root) => {
@@ -150,6 +155,7 @@ export function MarkdownRichEditor({
           sourcePath: sourcePathRef,
           onOpenFile: onOpenFileRef,
           theme: themeRef,
+          imageUrl: imageUrlRef,
         }),
       )
       .use(publishChanges);
