@@ -1,5 +1,8 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { snoozeWakeLabel } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  snoozeWakeLabel,
+  threadRaisedHandWhileSnoozed,
+} from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import type { SidebarThreadGroup } from "../state/threadGroups";
@@ -82,6 +85,25 @@ export function inheritedSidebarSnoozePropsFork(
 ) {
   const until = owners.get(threadKey)?.snoozedUntil;
   return until == null ? {} : { snoozeWakeLabelText: snoozeWakeLabel(until, { now }) };
+}
+
+/** Snoozed parents carry their quiet members, so forward navigation must skip them. */
+export function groupSnoozeCarryKeysFork(
+  threadKey: string,
+  groups: readonly SidebarThreadGroup[],
+  threadByKey: ReadonlyMap<string, Parameters<typeof threadRaisedHandWhileSnoozed>[0]>,
+  coParkingKeys?: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const carried = groups
+    .filter(
+      (group) => group.parentThreadId === threadKey || coParkingKeys?.has(group.parentThreadId),
+    )
+    .flatMap((group) => group.threadIds)
+    .filter((key) => {
+      const thread = threadByKey.get(key);
+      return thread === undefined || !threadRaisedHandWhileSnoozed(thread);
+    });
+  return new Set([...(coParkingKeys ?? []), threadKey, ...carried]);
 }
 
 /** Independent child placement must not move its group ahead of its parent. */

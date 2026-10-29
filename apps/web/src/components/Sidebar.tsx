@@ -124,6 +124,7 @@ import {
 } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
 import {
   anchorSidebarGroupsFork,
+  groupSnoozeCarryKeysFork,
   inheritedSidebarSnoozeOwnersFork,
   inheritedSidebarSnoozePropsFork,
   regroupSidebarSectionsFork,
@@ -2046,7 +2047,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKeys: hasProjectFolders ? null : activeThreadGroups.visibleThreads.map(threadGroupKey),
       snoozedKeys: snoozedThreadGroupsFork.visibleThreads.map(threadGroupKey), // fork-hook: thread-ordering/group-snoozed-visible
       workingKeys: workingShelfKeysFork,
-      activeGroups: hasProjectFolders ? [] : threadGroupSpans, // fork-hook: thread-ordering/group-span-items
+      activeGroups: hasProjectFolders
+        ? [...pinnedThreadGroups.spans, ...snoozedThreadGroupsFork.spans]
+        : threadGroupSpans, // fork-hook: thread-ordering/group-span-items
     }); // fork-hook: thread-ordering/sidebar-list-items
     return items;
   })();
@@ -2342,6 +2345,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return { status: "skipped" } as const;
     }
     snoozingThreadKeysRef.current.add(threadKey);
+    const coSnoozingKeys = groupSnoozeCarryKeysFork(
+      threadKey,
+      threadGroups,
+      threadByKeyRef.current,
+      opts.coSnoozingKeys,
+    ); // fork-hook: thread-ordering/group-snooze-navigation
+    opts = { ...opts, coSnoozingKeys }; // fork-hook: thread-ordering/group-snooze-navigation
     const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
     const result = await snoozeThread(threadRef, preset.snoozedUntil);
     snoozingThreadKeysRef.current.delete(threadKey);

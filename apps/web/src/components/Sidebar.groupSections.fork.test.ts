@@ -1,8 +1,10 @@
+import type { ThreadSnoozeShell } from "@t3tools/client-runtime/state/thread-settled";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   anchorSidebarGroupsFork,
+  groupSnoozeCarryKeysFork,
   inheritedSidebarSnoozeOwnersFork,
   regroupSidebarSectionsFork,
 } from "./Sidebar.groupSections.fork";
@@ -166,5 +168,27 @@ describe("planGroupedSidebarThreadDropFork", () => {
     expect(
       planGroupedSidebarThreadDropFork({ ...input, activeKey: "c", activePinned: false }),
     ).toMatchObject({ kind: "pin", order: ["o", "p", "c"] });
+  });
+});
+
+describe("groupSnoozeCarryKeysFork", () => {
+  it("skips every snoozing parent's quiet members, but not one asking for attention", () => {
+    const quiet = new Map();
+    expect(groupSnoozeCarryKeysFork("env:p", [group], quiet, new Set(["env:o"]))).toEqual(
+      new Set(["env:o", "env:p", "env:c"]),
+    );
+    const second = {
+      ...group,
+      id: "env:h",
+      threadIds: ["env:q", "env:d"],
+      parentThreadId: "env:q",
+    };
+    expect(groupSnoozeCarryKeysFork("env:p", [group, second], quiet, new Set(["env:q"]))).toEqual(
+      new Set(["env:q", "env:p", "env:c", "env:d"]),
+    );
+    const asking = new Map([
+      ["env:c", { hasPendingApprovals: true, hasPendingUserInput: false } as ThreadSnoozeShell],
+    ]);
+    expect(groupSnoozeCarryKeysFork("env:p", [group], asking)).toEqual(new Set(["env:p"]));
   });
 });
