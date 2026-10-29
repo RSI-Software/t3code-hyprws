@@ -274,3 +274,13 @@
 .t3-markdown-editor__prose.ProseMirror-focused {
   outline: none;
 }
+
+.t3-markdown-editor__html,
+.t3-markdown-editor__html-content {
+  display: block;
+}
+
+.t3-markdown-editor__html.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
