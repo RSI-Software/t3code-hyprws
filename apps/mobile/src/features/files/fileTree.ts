@@ -4,7 +4,7 @@ export interface FileTreeNode {
   readonly path: string;
   readonly name: string;
   readonly kind: ProjectEntry["kind"];
-  readonly ignored: boolean;
+  readonly ignored?: boolean; // fork-hook: workspace-files/mobile-file-tree-ignored
   readonly children: ReadonlyArray<FileTreeNode>;
 }
 
