@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
+import { DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { migrateRenamedKeybindingCommands } from "./keybindings.fork.ts";
 
 // Fork-owned coverage for the window bindings. Upstream removed the default-assignment snapshot
@@ -13,7 +14,7 @@ import { migrateRenamedKeybindingCommands } from "./keybindings.fork.ts";
 // from ever taking the fork default with it.
 describe("fork keybinding defaults", () => {
   const defaultsByCommand = new Map(
-    Keybindings.DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
+    DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
   );
 
   it("ships the window bindings", () => {
@@ -22,16 +23,16 @@ describe("fork keybinding defaults", () => {
   });
 
   it("gives New Window a chord no other default uses", () => {
-    const owners = Keybindings.DEFAULT_KEYBINDINGS.filter(
-      (binding) => binding.key === "mod+shift+w",
-    ).map((binding) => binding.command);
+    const owners = DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+shift+w").map(
+      (binding) => binding.command,
+    );
     assert.deepEqual(owners, ["window.new"]);
   });
 
   it("gives the project chooser a chord no other default uses", () => {
-    const owners = Keybindings.DEFAULT_KEYBINDINGS.filter(
-      (binding) => binding.key === "mod+alt+f",
-    ).map((binding) => binding.command);
+    const owners = DEFAULT_KEYBINDINGS.filter((binding) => binding.key === "mod+alt+f").map(
+      (binding) => binding.command,
+    );
     assert.deepEqual(owners, ["projectFilter.choose"]);
   });
 });
