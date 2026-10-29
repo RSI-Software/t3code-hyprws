@@ -226,18 +226,18 @@ const OPTIONAL_END_HTML_TAGS = new Set([
 ]);
 
 // The tree builder, not the tokenizer, switches into raw-text states, so the scanner must too.
-const RAW_TEXT_MODES: Readonly<Record<string, Tokenizer["state"]>> = {
-  iframe: TokenizerMode.RAWTEXT,
-  noembed: TokenizerMode.RAWTEXT,
-  noframes: TokenizerMode.RAWTEXT,
-  noscript: TokenizerMode.RAWTEXT,
-  plaintext: TokenizerMode.PLAINTEXT,
-  script: TokenizerMode.SCRIPT_DATA,
-  style: TokenizerMode.RAWTEXT,
-  textarea: TokenizerMode.RCDATA,
-  title: TokenizerMode.RCDATA,
-  xmp: TokenizerMode.RAWTEXT,
-};
+const RAW_TEXT_MODES: ReadonlyMap<string, Tokenizer["state"]> = new Map([
+  ["iframe", TokenizerMode.RAWTEXT],
+  ["noembed", TokenizerMode.RAWTEXT],
+  ["noframes", TokenizerMode.RAWTEXT],
+  ["noscript", TokenizerMode.RAWTEXT],
+  ["plaintext", TokenizerMode.PLAINTEXT],
+  ["script", TokenizerMode.SCRIPT_DATA],
+  ["style", TokenizerMode.RAWTEXT],
+  ["textarea", TokenizerMode.RCDATA],
+  ["title", TokenizerMode.RCDATA],
+  ["xmp", TokenizerMode.RAWTEXT],
+]);
 
 const EOF_PARSE_ERRORS = new Set([
   "eof-in-tag",
@@ -255,7 +255,7 @@ function isBalancedHtml(value: string): boolean {
     {},
     {
       onStartTag({ tagName, selfClosing }) {
-        const mode = RAW_TEXT_MODES[tagName];
+        const mode = RAW_TEXT_MODES.get(tagName);
         if (mode !== undefined) tokenizer.state = mode;
         if (!selfClosing && !VOID_HTML_TAGS.has(tagName)) open.push(tagName);
       },

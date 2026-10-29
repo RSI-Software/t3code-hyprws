@@ -54,9 +54,10 @@ describe("rich Markdown editor raw HTML", () => {
     const form =
       '<form id="form" action="/elsewhere"><textarea id="note"><div></textarea><button id="go">Go</button></form>';
     const quoted = '<div id="quoted" title="<textarea>"><textarea></textarea></div>';
+    const inherited = '<div id="inherited"><constructor>x</constructor></div>';
     await using screen = await render(
       editor(
-        `# Doc\n\n${html}\n\n${bar}\n\n${list}\n\n${form}\n\n${quoted}\n\nPress <kbd>K</kbd>\n`,
+        `# Doc\n\n${html}\n\n${bar}\n\n${list}\n\n${form}\n\n${quoted}\n\n${inherited}\n\nPress <kbd>K</kbd>\n`,
         onChange,
       ),
       {
@@ -80,6 +81,7 @@ describe("rich Markdown editor raw HTML", () => {
     expect(container.querySelectorAll("#list li")).toHaveLength(2);
     expect(container.querySelector<HTMLTextAreaElement>("#note")?.value).toBe("<div>");
     expect(container.querySelector("#quoted textarea")).not.toBeNull();
+    expect(container.querySelector("#inherited")?.textContent).toBe("x");
     let submitPrevented = false;
     const onSubmit = (event: Event) => {
       submitPrevented = event.defaultPrevented;
