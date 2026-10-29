@@ -224,6 +224,10 @@ const OPTIONAL_END_HTML_TAGS = new Set([
   "rp",
 ]);
 
+// Raw-text and RCDATA elements may contain tag-like text, so they are skipped whole.
+const RAW_TEXT_HTML_PATTERN =
+  /<!--[\s\S]*?-->|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?<\/\1\s*>/gi;
+
 // Quoted attribute values may contain `>` or tag-like text.
 const HTML_TAG_PATTERN =
   /<(\/?)([a-z][\w-]*)(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*\s*(\/?)>/gi;
@@ -231,7 +235,7 @@ const HTML_TAG_PATTERN =
 // Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
 function isBalancedHtml(value: string): boolean {
   const open: string[] = [];
-  const markup = value.replace(/<!--[\s\S]*?-->|<(script|style)\b[\s\S]*?<\/\1\s*>/gi, "");
+  const markup = value.replace(RAW_TEXT_HTML_PATTERN, "");
   for (const [, closing, name, selfClosing] of markup.matchAll(HTML_TAG_PATTERN)) {
     const tag = name!.toLowerCase();
     if (VOID_HTML_TAGS.has(tag) || selfClosing) continue;
