@@ -6,6 +6,7 @@ import { gfm } from "@milkdown/preset-gfm";
 
 import { markdownAlerts } from "./markdownAlerts.fork";
 import { frontmatterRemark, frontmatterSchema } from "./markdownFrontmatter";
+import { markdownHighlight } from "./markdownHighlight.fork";
 import { markdownHtml } from "./markdownHtml.fork";
 import { markdownMath } from "./markdownMath.fork";
 import { codeBlockMetaSchema } from "./markdownSyntax.fork";
@@ -30,6 +31,7 @@ export function markdownPipeline(editor: Editor): Editor {
     .use(markdownMath)
     .use(markdownAlerts)
     .use(markdownHtml)
+    .use(markdownHighlight)
     .use(bulletListSpreadFix)
     .use(listItemSpreadFix)
     .use(frontmatterRemark)

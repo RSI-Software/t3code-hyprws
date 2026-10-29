@@ -38,6 +38,7 @@ describe("markdown rich editor pipeline", () => {
       'H<sub>2</sub>O, <abbr title="Markup">HTML</abbr>, <b><i>x</i></b> and <kbd>\n',
       "<details>\n<summary>More</summary>\n\n- Markdown **inside**\n\n</details>\n",
       '<div align="center">\n\n<div>\n\nNested\n\n</div>\n\n</div>\n',
+      "==Marked== ==**bold**== and a == b == c\n",
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });

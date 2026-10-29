@@ -290,12 +290,6 @@
   font-size: 0.8em;
 }
 
-.t3-markdown-editor__prose mark {
-  border-radius: 0.15rem;
-  background: color-mix(in srgb, var(--color-yellow-400) 40%, transparent);
-  color: inherit;
-}
-
 .t3-markdown-editor__prose sup[data-type="footnote_reference"] {
   color: var(--primary);
   font-size: 0.75em;
