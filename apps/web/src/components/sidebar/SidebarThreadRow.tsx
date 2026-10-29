@@ -1424,6 +1424,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             className={cn(
               "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
               (metaLineEmpty || groupCompactFork) && "h-auto", // fork-hook: thread-ordering/group-compact
+              groupCompactFork && "[&>div.mt-0\\.5]:hidden", // fork-hook: thread-ordering/group-compact
             )}
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
