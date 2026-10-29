@@ -4,7 +4,10 @@ import type { SortingStrategy } from "@dnd-kit/sortable";
 import { createSidebarSortingStrategy } from "./Sidebar.drag";
 import { buildSidebarListItems, sidebarListItemId, sidebarMarkerId } from "./Sidebar.logic";
 import { sidebarThreadGroupHeaderMarker } from "./SidebarThreadGroup.markers";
-import { sidebarProjectedLayoutFork } from "./SidebarThreadGroup.span";
+import {
+  sidebarProjectedLayoutFork,
+  sidebarThreadGroupLayoutFork,
+} from "./SidebarThreadGroup.span";
 
 const GROUP_KEY = "group-1";
 const HEADER_MARKER = sidebarThreadGroupHeaderMarker(GROUP_KEY);
@@ -39,6 +42,38 @@ function listWithTopGroup() {
 }
 
 describe("thread group spans", () => {
+  it("does not render a shelf group for independently pinned children without their parent", () => {
+    const layout = sidebarThreadGroupLayoutFork(
+      ["m2", "m3"],
+      [{ ...group, threadIds: ["m1", "m2", "m3"] }],
+      (key) => key,
+      true,
+    );
+    expect(layout.spans).toEqual([]);
+    expect(layout.visibleThreads).toEqual(["m2", "m3"]);
+  });
+
+  it("keeps a collapsed pinned group's header and parent together", () => {
+    const collapsed = { ...group, collapsed: true };
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: ["m1"],
+      activeKeys: ["o1"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+      activeGroups: [
+        { groupKey: group.id, group: collapsed, threads: [], visibleKeys: ["m1"], parentKey: "m1" },
+      ],
+    });
+    expect(items.slice(0, 4).map(sidebarListItemId)).toEqual([
+      sidebarMarkerId("pinned-header"),
+      HEADER,
+      "m1",
+      sidebarMarkerId("pinned-divider"),
+    ]);
+  });
+
   it("puts the group's header marker before its visible rows", () => {
     expect(listWithTopGroup().map(sidebarListItemId)).toEqual([
       sidebarMarkerId("pinned-header"),
@@ -105,6 +140,24 @@ describe("thread group span projection", () => {
     expect(shelf?.scaleY).toBe(1);
     expect(at(HEADER)).toMatchObject({ y: shelf?.y, scaleY: 1 });
     expect(at("m1")?.y).toBe(shelf?.y);
+  });
+
+  it("preserves a pinned group's header during an Active reorder", () => {
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: ["m1", "m2"],
+      activeKeys: ["o1", "o2"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+      activeGroups: [
+        { groupKey: group.id, group, threads: [], visibleKeys: ["m1", "m2"], parentKey: "m1" },
+      ],
+    });
+    const { strategy, args, ids } = project(items, "o2", "o1");
+    const at = (id: string) => strategy({ ...args, index: ids.indexOf(id) });
+    expect(at(HEADER)).toMatchObject({ y: 0, scaleY: 1 });
+    expect(at("m1")).toMatchObject({ y: 0, scaleY: 1 });
   });
 
   it("records the slot it opens for the lifted row", () => {
