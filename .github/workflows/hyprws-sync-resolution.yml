@@ -6,11 +6,17 @@ name: hyprws sync resolution
 # trunk tree, so this file is always one the trunk carried. The job holds no
 # secret and only dispatches on hyprws, the one ref the hyprws-sync
 # environment deploys to; the dispatched run queues behind any sync in flight.
+#
+# A job that ends without a push (failed, blocked, unchanged) leaves only its
+# sticky comment, so a settled rsi-pr-agent sticky also reruns the sync. An
+# issue_comment runs the default branch's file, which is hyprws.
 
 on:
   push:
     branches:
       - sync/resolution
+  issue_comment:
+    types: [created, edited]
 
 permissions: {}
 
@@ -19,6 +25,12 @@ jobs:
     name: Rerun the upstream sync
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: >-
+      github.event_name == 'push' || (
+        github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
+        contains(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
+        !contains(github.event.comment.body, '**running**') &&
+        !contains(github.event.comment.body, '**pushing**'))
     permissions:
       actions: write
     steps:

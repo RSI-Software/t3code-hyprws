@@ -142,6 +142,8 @@ Anything else on the branch, such as the old parentless resolution data, is igno
 
 **Rerun:** a push to `sync/resolution` runs `hyprws-sync-resolution.yml`, which dispatches `hyprws-upstream-sync.yml` on `hyprws`.
 A session pushes it with `git push --force origin refs/fork-sync/resolution:refs/heads/sync/resolution`; rsi-pr-agent pushes the job's `HEAD`.
+A job that settles without a push reruns it too: its rsi-pr-agent sticky leaving `running` or `pushing` fires the same workflow.
+A pod killed mid-job leaves the sticky at `running`; the schedule covers that.
 
 ### The land run
 
