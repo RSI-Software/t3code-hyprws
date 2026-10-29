@@ -31,6 +31,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -122,51 +123,12 @@ const CommandLookupEnvConfig = Config.all({
   "ProgramFiles(x86)": Config.String("ProgramFiles(x86)").pipe(Config.option),
 }).pipe(Config.map(compactEnv));
 
-const SESSION_DISPLAY_ENV_KEYS = new Set([
-  "DISPLAY",
-  "WAYLAND_DISPLAY",
-  "XAUTHORITY",
-  "XDG_CURRENT_DESKTOP",
-  "XDG_SESSION_TYPE",
-]);
-
-// A systemd user service started at boot predates the desktop session, so it never sees the
-// display; the user manager does once the session imports it, so read it at launch time.
-const readSessionDisplayEnv = Effect.fn("externalLauncher.readSessionDisplayEnv")(function* (
-  env: NodeJS.ProcessEnv,
-): Effect.fn.Return<NodeJS.ProcessEnv, never, ChildProcessSpawner.ChildProcessSpawner> {
-  const platform = yield* HostProcess.Platform;
-  if (platform !== "linux" || hasGraphicalLinuxSession(env) || env.WSL_DISTRO_NAME !== undefined) {
-    return {};
-  }
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  return yield* spawner
-    .string(
-      ChildProcess.make("systemctl", ["--user", "show-environment"], {
-        stdin: "ignore",
-        stderr: "ignore",
-      }),
-    )
-    .pipe(
-      Effect.map((output) =>
-        Object.fromEntries(
-          output.split("\n").flatMap((line) => {
-            const separator = line.indexOf("=");
-            const key = line.slice(0, separator);
-            return separator > 0 && SESSION_DISPLAY_ENV_KEYS.has(key)
-              ? [[key, line.slice(separator + 1)]]
-              : [];
-          }),
-        ),
-      ),
-      Effect.timeout("2 seconds"),
-      Effect.orElseSucceed(() => ({})),
-    );
-});
-
+// Fork: the boot service's file-manager entry also needs the session display.
 const readBrowserLaunchEnv = Effect.gen(function* () {
-  const env = yield* BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
-  return { ...env, ...(yield* readSessionDisplayEnv(env)) };
+  const env: NodeJS.ProcessEnv = yield* BrowserLaunchEnvConfig.pipe(
+    Effect.orElseSucceed(() => ({})),
+  );
+  return hasGraphicalLinuxSession(env) ? env : { ...env, ...(yield* readGraphicalSessionEnv()) };
 });
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
@@ -717,6 +679,56 @@ const launchEditor = Effect.fn("externalLauncher.launchEditor")(function* (
   yield* launchEditorProcess(launch);
 });
 
+const GRAPHICAL_SESSION_ENV_KEYS: ReadonlySet<string> = new Set([
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XAUTHORITY",
+]);
+
+// The user manager's environment over D-Bus. `systemctl show-environment` would
+// shell-quote values with spaces as $'...', while this JSON carries them raw.
+const decodeManagerEnvironment = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ data: Schema.Array(Schema.String) })),
+);
+
+// Boot services miss the desktop environment imported later into the systemd user manager.
+const readGraphicalSessionEnv = Effect.fn("externalLauncher.readGraphicalSessionEnv")(
+  function* () {
+    const hostEnv = yield* HostProcess.Environment;
+    if ((yield* HostProcess.Platform) !== "linux" || hasGraphicalLinuxSession(hostEnv)) {
+      return {};
+    }
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const output = yield* spawner.string(
+      ChildProcess.make(
+        "busctl",
+        [
+          "--user",
+          "--json=short",
+          "get-property",
+          "org.freedesktop.systemd1",
+          "/org/freedesktop/systemd1",
+          "org.freedesktop.systemd1.Manager",
+          "Environment",
+        ],
+        { stdin: "ignore", stderr: "ignore" },
+      ),
+    );
+    const { data } = yield* decodeManagerEnvironment(output);
+    return Object.fromEntries(
+      data.flatMap((line) => {
+        const separator = line.indexOf("=");
+        const key = line.slice(0, separator);
+        return separator > 0 && GRAPHICAL_SESSION_ENV_KEYS.has(key)
+          ? [[key, line.slice(separator + 1)]]
+          : [];
+      }),
+    );
+  },
+  Effect.timeout("2 seconds"),
+  Effect.orElseSucceed((): NodeJS.ProcessEnv => ({})),
+);
+
 const launchAndUnref = Effect.fn("externalLauncher.launchAndUnref")(function* (
   launch: ProcessLaunch,
   onError: (cause: unknown) => ExternalLauncherError,
@@ -726,7 +738,7 @@ const launchAndUnref = Effect.fn("externalLauncher.launchAndUnref")(function* (
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = yield* HostProcess.Environment;
   const command = ChildProcess.make(launch.command, launch.args, {
     ...launch.options,
-    env: { ...env, ...(yield* readSessionDisplayEnv(env)) },
+    env: { ...env, ...launch.options.env },
     extendEnv: false,
   });
 
@@ -780,6 +792,7 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
       options: {
         detached: launch.detached ?? true,
         shell: spawnCommand.shell,
+        env: yield* readGraphicalSessionEnv(),
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
