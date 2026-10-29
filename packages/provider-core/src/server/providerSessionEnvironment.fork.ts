@@ -20,6 +20,13 @@ export interface ProviderSessionIdentity {
   readonly threadId?: string | undefined;
 }
 
+export const providerSessionEnvironmentOptionsFork = (
+  baseEnv: NodeJS.ProcessEnv | undefined,
+  identity: ProviderSessionIdentity,
+): { readonly environment?: NodeJS.ProcessEnv } => ({
+  environment: withProviderSessionIdentity(baseEnv, identity),
+});
+
 /**
  * Returns `baseEnv` (or the server's own env) with the session identity
  * applied. Ids the session does not know are removed rather than left alone:

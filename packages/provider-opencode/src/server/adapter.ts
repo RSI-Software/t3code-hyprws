@@ -57,7 +57,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
-import { withProviderSessionIdentity } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/opencode-session-identity-import
+import { providerSessionEnvironmentOptionsFork } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/opencode-session-identity-import
 import {
   structuralProtocolMethod,
   summarizeNativeProtocolPayload,
@@ -933,7 +933,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? host.paths.cwd;
-        const forkSessionEnvironment = withProviderSessionIdentity(options.environment, input); // fork-hook: upstream-fixes/opencode-session-identity
+        const forkSessionEnvironment = providerSessionEnvironmentOptionsFork(
+          options.environment,
+          input,
+        ); // fork-hook: upstream-fixes/opencode-session-identity
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
@@ -942,7 +945,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             ? { serverPassword: options.settings.serverPassword }
             : {}),
           environment: options.environment,
-          environment: forkSessionEnvironment, // fork-hook: upstream-fixes/opencode-session-identity-env
+          ...forkSessionEnvironment, // fork-hook: upstream-fixes/opencode-session-identity-env
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
