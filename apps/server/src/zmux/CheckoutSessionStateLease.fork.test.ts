@@ -27,6 +27,7 @@ import * as ProviderEventIngestor from "../orchestration-v2/ProviderEventIngesto
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectEnrichment from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -65,6 +66,12 @@ const testLayer = Layer.mergeAll(
   ProjectService.layer.pipe(Layer.provide(dependencies)),
   ProviderEventIngestor.layer.pipe(
     Layer.provide(dependencies),
+    Layer.provide(
+      Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+        // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
+        getInstance: () => Effect.succeed(undefined),
+      }),
+    ),
     Layer.provide(
       Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveBranchName: () => Effect.succeed(null) }),
     ),

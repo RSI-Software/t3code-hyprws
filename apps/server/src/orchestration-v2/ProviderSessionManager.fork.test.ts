@@ -44,6 +44,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as CommandOutputHub from "./CommandOutputHub.ts";
@@ -253,6 +254,10 @@ const layerTest = (input: {
         IdAllocator.layer,
         layerTestStores,
         ThreadCommandExecutor.layer,
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
+          getInstance: () => Effect.succeed(undefined),
+        }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({
           resolveBranchName: () => Effect.succeed(null),
         }),

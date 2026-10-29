@@ -33,6 +33,7 @@ import * as Stream from "effect/Stream";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -350,6 +351,10 @@ function fixture(gate: "snapshot" | "cascade" | "nested" | "model") {
           ingestionProjections,
           IdAllocator.layer,
           ThreadCommandExecutor.layer,
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
+            getInstance: () => Effect.succeed(undefined),
+          }),
           Layer.mock(GitVcsDriver.GitVcsDriver)({
             resolveBranchName: () => Effect.succeed(null),
           }),
