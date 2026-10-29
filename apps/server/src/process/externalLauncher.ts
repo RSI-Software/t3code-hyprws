@@ -120,7 +120,13 @@ const CommandLookupEnvConfig = Config.all({
   "ProgramFiles(x86)": Config.String("ProgramFiles(x86)").pipe(Config.option),
 }).pipe(Config.map(compactEnv));
 
-const readBrowserLaunchEnv = BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
+// Fork: the boot service's file-manager entry also needs the session display.
+const readBrowserLaunchEnv = Effect.gen(function* () {
+  const env: NodeJS.ProcessEnv = yield* BrowserLaunchEnvConfig.pipe(
+    Effect.orElseSucceed(() => ({})),
+  );
+  return hasGraphicalLinuxSession(env) ? env : { ...env, ...(yield* readGraphicalSessionEnv()) };
+});
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
 function parseTargetPathAndPosition(target: string): Option.Option<TargetPathAndPosition> {
