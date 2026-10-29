@@ -20,12 +20,12 @@ afterEach(async () => {
 const latest = Math.max(...migrationManifest.map(([id]) => id));
 
 it.each([
-  [latest, false],
-  [latest - 1, true],
-  [null, true],
-  [latest + 1, undefined],
-  ["invalid", undefined],
-] as const)("reports migration state for applied id %s", async (applied, pending) => {
+  [latest, "ready", false],
+  [latest - 1, "ready", true],
+  [null, "ready", true],
+  [latest + 1, "blocked", undefined],
+  ["invalid", "ready", undefined],
+] as const)("reports migration state for applied id %s", async (applied, status, pending) => {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-preflight-fork-"));
   roots.push(root);
   const databasePath = NodePath.join(root, "state.sqlite");
@@ -40,7 +40,7 @@ it.each([
   }
   const before = await NodeFSP.readFile(databasePath);
   const result = runServicePreflight({ databasePath, launcherProtocol: SERVICE_LAUNCHER_PROTOCOL });
-  expect(result.status).toBe("ready");
+  expect(result.status).toBe(status);
   expect(result.status === "ready" ? result.pendingMigrationsFork : undefined).toBe(pending);
   expect(await NodeFSP.readFile(databasePath)).toEqual(before);
   expect(await NodeFSP.readdir(root)).toEqual(["state.sqlite"]);
@@ -52,13 +52,20 @@ it.each(["missing", "corrupt", "missing-table"])("fails safe for a %s database",
   const databasePath = NodePath.join(root, "state.sqlite");
   if (kind === "corrupt") await NodeFSP.writeFile(databasePath, "not a sqlite database");
   if (kind === "missing-table") new NodeSqlite.DatabaseSync(databasePath).close();
-  expect(
-    runServicePreflight({ databasePath, launcherProtocol: SERVICE_LAUNCHER_PROTOCOL }),
-  ).toEqual({
-    status: "ready",
-    version: expect.any(String),
-    launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
-  });
+  const result = runServicePreflight({ databasePath, launcherProtocol: SERVICE_LAUNCHER_PROTOCOL });
+  expect(result).toEqual(
+    kind === "corrupt"
+      ? {
+          status: "blocked",
+          version: expect.any(String),
+          reason: expect.stringContaining("Could not read this database"),
+        }
+      : {
+          status: "ready",
+          version: expect.any(String),
+          launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
+        },
+  );
   if (kind === "missing")
     await expect(NodeFSP.stat(databasePath)).rejects.toMatchObject({ code: "ENOENT" });
 });
