@@ -1,7 +1,6 @@
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   AuthOrchestrationOperateScope,
-  buildRemoteOpenUrl,
   EditorId,
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
@@ -10,6 +9,7 @@ import { memo, use, useRef } from "react";
 import { BackgroundThreadContext } from "./backgroundThread";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { OPEN_FAVORITE_EDITOR_ATTRIBUTE } from "./OpenInPickerShortcut";
+import { buildRemoteOpenUrlInOwnWindow } from "../../remoteOpen.fork";
 import { usePreferredEditor } from "../../editorPreferences";
 import { editorLabelForPlatform } from "../../editorLabels";
 import {
@@ -248,7 +248,7 @@ export const OpenInPicker = memo(function OpenInPicker({
     if (!editor) return false;
     if (remote.mode === "remote-unavailable") return false;
     if (remote.mode === "remote-links") {
-      const url = buildRemoteOpenUrl({
+      const url = buildRemoteOpenUrlInOwnWindow({
         editor,
         ...remote.host,
         absolutePath: openInCwd,
