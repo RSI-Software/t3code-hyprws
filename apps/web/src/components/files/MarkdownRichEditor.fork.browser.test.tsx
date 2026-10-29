@@ -57,7 +57,7 @@ describe("rich Markdown editor raw HTML", () => {
     const inherited = '<div id="inherited"><constructor>x</constructor></div>';
     await using screen = await render(
       editor(
-        `# Doc\n\n${html}\n\n${bar}\n\n${list}\n\n${form}\n\n${quoted}\n\n${inherited}\n\nPress <kbd>K</kbd>\n`,
+        `# Doc\n\n${html}\n\n${bar}\n\n${list}\n\n${form}\n\n${quoted}\n\n${inherited}\n\nPress <kbd style="position:fixed">K</kbd>\n`,
         onChange,
       ),
       {
@@ -90,7 +90,9 @@ describe("rich Markdown editor raw HTML", () => {
     document.addEventListener("submit", onSubmit, { once: true });
     container.querySelector<HTMLButtonElement>("#go")!.click();
     expect(submitPrevented).toBe(true);
-    expect(container.textContent).toContain("<kbd>");
+    const key = container.querySelector(".t3-markdown-editor__html--inline > kbd");
+    expect(key?.textContent).toBe("K");
+    expect(key?.hasAttribute("style")).toBe(false);
     expect(onChange).not.toHaveBeenCalled();
   });
 });

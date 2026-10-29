@@ -35,6 +35,7 @@ describe("markdown rich editor pipeline", () => {
       "> [!NOTE]\n> Read **this** first.\n",
       "> [!TIP]\n>\n> Spaced.\n",
       "> [!WARNING]\n>\n> ### Heading\n",
+      'H<sub>2</sub>O, <abbr title="Markup">HTML</abbr>, <b><i>x</i></b> and <kbd>\n',
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });
@@ -122,7 +123,7 @@ describe("markdown rich editor pipeline", () => {
         ctx.set(rootCtx, root);
         ctx.set(
           defaultValueCtx,
-          "- [ ] Ship it\n\n[README](../../README.md) $x^2$\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
+          "- [ ] Ship it\n\n[README](../../README.md) $x^2$ <kbd>Ctrl</kbd> <kbd>\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
         );
       }),
     )
@@ -152,6 +153,11 @@ describe("markdown rich editor pipeline", () => {
     expect(fileLink?.querySelector("svg")).not.toBeNull();
     fileLink?.click();
     expect(openFile).toHaveBeenCalledWith("README.md");
+
+    const html = [...root.querySelectorAll('[data-type="html"]')];
+    expect(
+      html.map((island) => island.querySelector("kbd")?.textContent ?? island.textContent),
+    ).toEqual(["Ctrl", "<kbd>"]);
 
     const codeBlock = root.querySelector<HTMLElement>(
       '.t3-markdown-editor__codeblock[data-language="ts"]',
