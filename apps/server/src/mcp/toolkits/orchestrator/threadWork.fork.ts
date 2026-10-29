@@ -29,13 +29,14 @@ import { threadNotFound } from "../../threadAccess.ts";
 
 const loadShell = (
   threads: ThreadManagementService.ThreadManagementServiceShape,
+  scope: McpInvocationContext.McpInvocationScope,
   threadId: ThreadId,
 ) =>
   threads.getThreadShell(threadId).pipe(
     Effect.mapError(OrchestratorMcpService.threadManagementFailureFork),
     Effect.filterOrElse(
       (shell): shell is OrchestrationV2ThreadShell => shell !== null && shell.deletedAt === null,
-      () => threadNotFound(threads, threadId, `Thread ${threadId} was not found.`),
+      () => threadNotFound(threads, scope, threadId, `Thread ${threadId} was not found.`),
     ),
   );
 
@@ -46,13 +47,13 @@ export const listThreadsFork = Effect.fn("OrchestratorMcpThreadWork.listThreads"
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const result = yield* service.listThreads(scope, input);
-  const shells = yield* threads
-    .listProjectThreads({
-      projectId: result.projectId,
-      includeSubagents: input.includeSubagents !== false,
+  const snapshot = yield* threads
+    .getShellSnapshot({
+      location: "active",
+      threadIds: result.threads.map((thread) => thread.threadId),
     })
     .pipe(Effect.mapError(OrchestratorMcpService.threadManagementFailureFork));
-  const shellById = new Map(shells.map((shell) => [shell.id, shell]));
+  const shellById = new Map(snapshot.threads.map((shell) => [shell.id, shell]));
   // A row deleted between the two reads drops out rather than reporting stale work.
   const rows = yield* Effect.forEach(
     result.threads,
@@ -74,7 +75,7 @@ export const readThreadFork = Effect.fn("OrchestratorMcpThreadWork.readThread")(
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const result = yield* service.readThread(scope, input);
-  const work = yield* workOf(threads, yield* loadShell(threads, input.threadId));
+  const work = yield* workOf(threads, yield* loadShell(threads, scope, input.threadId));
   return { ...result, thread: { ...result.thread, work } } satisfies McpThreadReadResult;
 });
 
@@ -100,7 +101,7 @@ export const waitForThreadFork = Effect.fn("OrchestratorMcpThreadWork.waitForThr
     }
     return yield* waitForWork(
       threads,
-      (threadId) => loadShell(threads, threadId),
+      (threadId) => loadShell(threads, scope, threadId),
       input.threadId,
       Math.min(
         OrchestratorMcpService.maxWaitTimeoutMsFork,
@@ -111,7 +112,7 @@ export const waitForThreadFork = Effect.fn("OrchestratorMcpThreadWork.waitForThr
   const service = yield* OrchestratorMcpService.OrchestratorMcpService;
   const result = yield* service.waitForThread(scope, runWait);
   // The run's outcome stands; work reports what still runs after it.
-  const work = yield* workOf(threads, yield* loadShell(threads, input.threadId));
+  const work = yield* workOf(threads, yield* loadShell(threads, scope, input.threadId));
   return { ...result, work } satisfies McpThreadWaitResult;
 });
 
