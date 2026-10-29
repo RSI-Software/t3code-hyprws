@@ -59,6 +59,7 @@ import {
   writeMarker,
   type Marker,
 } from "./lib/fork-sync-resolution.ts";
+import { driverSticky, type DriverState } from "./lib/fork-sync-sticky.ts";
 import {
   FIXUP_OWNERS_ENV,
   FOLD_MESSAGES_ENV,
@@ -1708,6 +1709,16 @@ const normalisedBody = (body: string): string =>
     .join("\n")
     .trim();
 
+/** Open attention issues of either legacy kind, newest first. */
+const openAttentionIssues = (github: GitHub): ReadonlyArray<OpenBlockIssue> =>
+  [
+    ...new Map(
+      [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE]
+        .flatMap((phrase) => github.list(phrase))
+        .map((issue) => [issue.number, issue]),
+    ).values(),
+  ].sort((left, right) => right.number - left.number);
+
 /**
  * Adopt the newest open issue of either legacy kind as the one attention
  * issue. Carry its recent runs forward and close surplus issues with a pointer.
@@ -1725,13 +1736,7 @@ const upsertStandingIssue = (
   const github = githubClient(runner, root, labels);
   const stamped = (body: string, retried: boolean): string =>
     labels.length === 0 ? body : `${body}\n${agentStamp(now, retried)}`;
-  const [standing, ...superseded] = [
-    ...new Map(
-      [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE]
-        .flatMap((phrase) => github.list(phrase))
-        .map((issue) => [issue.number, issue]),
-    ).values(),
-  ].sort((left, right) => right.number - left.number);
+  const [standing, ...superseded] = openAttentionIssues(github);
   if (standing === undefined)
     return withBodyFile(stamped(render(), false), (bodyPath) => ({
       issue: github.create(title, bodyPath),
@@ -1963,6 +1968,29 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
   // The resolved target, kept for the catch: it keys the failure issue when a
   // crash lands after the target resolved.
   let resolved: ReleaseTag | null = null;
+  // A land run's live status on the open attention issue; set once the target resolves.
+  let status: ((state: DriverState, issue?: number | null) => void) | null = null;
+  const startStatus = (tag: string, picked: string | null) => {
+    const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repo, GITHUB_RUN_ID: id } = process.env;
+    return driverSticky(
+      runner,
+      root,
+      {
+        tag,
+        startedAt,
+        picked,
+        url: server && repo && id ? `${server}/${repo}/actions/runs/${id}` : null,
+      },
+      () => openAttentionIssues(githubClient(runner, root))[0]?.number ?? null,
+      now,
+    );
+  };
+  /** The end state of a red report, posted to the issue it published. */
+  const statusOf = (report: ForkSyncReport): DriverState => ({
+    kind: report.blocked !== null ? "blocked" : "failed",
+    step: report.failure?.step ?? "rebase",
+    detail: report.error ?? "",
+  });
 
   const finish = (report: ForkSyncReport): number => {
     const path = writeReport(root, report);
@@ -2048,6 +2076,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       const published = publishAttention(runner, root, report);
       const path = writeReport(root, published);
       const stop = published.blocked ?? published.failure;
+      status?.(statusOf(published), stop?.issue ?? null);
       process.stdout.write(
         stop?.publishError !== null && stop?.publishError !== undefined
           ? `attention publication failed: ${stop.publishError}\n${path}\n`
@@ -2113,6 +2142,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       );
     }
     const marker = usableMarker(runner, root, fetched, target, expectedOld);
+    if (land) {
+      status = startStatus(target.tag, marker?.commit ?? null);
+      status({ kind: "rebasing" });
+    }
     const worktree = worktreePath(root);
     const blockedStop = (blockingSha: string): ForkSyncReport["blocked"] => ({
       issue: null,
@@ -2249,6 +2282,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // ci — hyprws CI on the candidate sha is the one gate before the trunk moves
     step = "ci";
+    status?.({ kind: "ci", candidate: newSha });
     const ci = candidateCi(runner, root, newSha);
     if (ci.conclusion !== "success") {
       const red = redJobs(ci).map((job) => job.name);
@@ -2276,6 +2310,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     // push — the documented expected-old lease
     step = "push";
+    status?.({ kind: "landing", candidate: newSha });
     const pushed = gitResult(runner, root, [
       "push",
       "origin",
@@ -2298,6 +2333,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     dropWorktree(runner, root);
     followTrunk(runner, root, expectedOld, newSha);
 
+    status?.({ kind: "landed", sha: newSha });
     const close = closeStaleBlocks(newSha);
     return finish(
       frame({
@@ -2366,6 +2402,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       writeReport(root, report);
       process.stdout.write(`${renderReport(report)}\n`);
       const published = publishAttention(runner, root, report);
+      (status ?? startStatus(tag, null))(statusOf(published), published.failure?.issue ?? null);
       const path = writeReport(root, published);
       process.stdout.write(
         published.failure?.publishError !== null && published.failure?.publishError !== undefined

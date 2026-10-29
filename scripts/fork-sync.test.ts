@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - The sync driver is Git plumbing; fixtures need real repositories.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - The sync driver is Git plumbing; fixtures need real repositories and fixed clocks.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -28,6 +28,7 @@ import {
   type ForkSyncReport,
 } from "./fork-sync.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
+import { driverSticky } from "./lib/fork-sync-sticky.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import { realRunner, type CommandRunner } from "./lib/fork-sync-git.ts";
 import { FOLD_MESSAGES_ENV, placeFixups, sequenceEditor } from "./lib/fork-sync-todo.ts";
@@ -1514,6 +1515,47 @@ const failedReport = (step: string, key: string): ForkSyncReport => ({
   error: "hyprws CI failure on candidate 1111111: Check",
 });
 
+it("edits one driver status comment in place across a run's states", () => {
+  let comments = "";
+  const recording = exec({
+    gh: (args) => {
+      if (args[0] !== "api") return ok("[]");
+      if (args.includes("--paginate")) return ok(comments);
+      if (args.includes("PATCH")) return ok("{}");
+      comments = "55\n";
+      return ok("55\n");
+    },
+  });
+  const run = { tag: "v1.0.0", startedAt: new Date(0), picked: null, url: null };
+  const writes = () =>
+    recording.calls.filter(({ args }) => args.some((arg) => arg.startsWith("body=")));
+  driverSticky(
+    recording.runner,
+    "/tmp",
+    run,
+    () => null,
+    () => new Date(0),
+  )({ kind: "rebasing" });
+  assert.lengthOf(writes(), 0, "no open issue: nothing to post on");
+  for (const _ of [0, 1]) {
+    const post = driverSticky(
+      recording.runner,
+      "/tmp",
+      run,
+      () => 7,
+      () => new Date(60_000),
+    );
+    post({ kind: "rebasing" });
+    post({ kind: "ci", candidate: "a".repeat(40) });
+    post({ kind: "landed", sha: "b".repeat(40) });
+  }
+  assert.deepStrictEqual(
+    writes().map(({ args }) => (args.includes("PATCH") ? "edit" : "create")),
+    ["create", "edit", "edit", "edit", "edit", "edit"],
+  );
+  assert.include(writes().at(-1)!.args, "repos/RSI-Software/t3code-hyprws/issues/comments/55");
+});
+
 it.each([
   ["carry", true],
   ["hooks", true],
@@ -1972,7 +2014,24 @@ it("files one governed failure issue when hyprws CI is red on the candidate", ()
       recording.calls
         .filter(({ args }) => args[0] === "issue" && args[1] === "list")
         .map(({ args }) => args[args.indexOf("--search") + 1]),
-      ['"hyprws sync blocked" in:title', '"hyprws sync failed" in:title'],
+      // the driver status looks once at start, then the publish adopts or files
+      [
+        '"hyprws sync blocked" in:title',
+        '"hyprws sync failed" in:title',
+        '"hyprws sync blocked" in:title',
+        '"hyprws sync failed" in:title',
+      ],
+    );
+    // no issue was open while it ran, so the end state is the status's one write
+    const statusWrites = recording.calls.filter(
+      ({ command, args }) =>
+        command === "gh" && args[0] === "api" && args.some((arg) => arg.startsWith("body=")),
+    );
+    assert.strictEqual(statusWrites.length, 1);
+    assert.include(statusWrites[0]!.args, "repos/RSI-Software/t3code-hyprws/issues/42/comments");
+    assert.match(
+      statusWrites[0]!.args.find((arg) => arg.startsWith("body=")) ?? "",
+      /^body=<!-- hyprws:sync-driver -->\n[^]*❌ \*\*failed\*\* at `ci`: hyprws CI failure on candidate [0-9a-f]{7}: Test Server 2/,
     );
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `ci` step/);

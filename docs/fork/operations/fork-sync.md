@@ -169,6 +169,8 @@ A blocked run, or one failed at `carry`, `hooks`, or `ci`, also adds `rsi:fork-s
 An unchanged body relabels once, 75 minutes after its last label (the 45-minute job plus its push), so a job that failed or made no progress gets one retry; a second miss waits for a human.
 A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
 A refused publication or close lands in the report and fails the run.
+A land run also keeps one driver comment, marked `<!-- hyprws:sync-driver -->`, on the open issue: it shows the run's state (rebasing, ci, landing, then landed, blocked, or failed) and is edited in place at each step.
+It never starts a job: `hyprws-sync-resolution.yml` reacts only to rsi-pr-agent's comments.
 Sessions never publish or close issues.
 
 Never post a sync issue to `pingdotgg/t3code`.
