@@ -7,6 +7,7 @@ import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 import { $prose, $view } from "@milkdown/utils";
 import { scopeMarkdownCss } from "@t3tools/shared/markdownStyledHtml.fork";
 import DOMPurify from "dompurify";
+import { Tokenizer, TokenizerMode } from "parse5";
 
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
@@ -224,31 +225,63 @@ const OPTIONAL_END_HTML_TAGS = new Set([
   "rp",
 ]);
 
-// Raw-text and RCDATA elements may contain tag-like text, so they are skipped whole.
-const RAW_TEXT_HTML_PATTERN =
-  /<!--[\s\S]*?-->|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?<\/\1\s*>/gi;
+// The tree builder, not the tokenizer, switches into raw-text states, so the scanner must too.
+const RAW_TEXT_MODES: Readonly<Record<string, Tokenizer["state"]>> = {
+  iframe: TokenizerMode.RAWTEXT,
+  noembed: TokenizerMode.RAWTEXT,
+  noframes: TokenizerMode.RAWTEXT,
+  noscript: TokenizerMode.RAWTEXT,
+  plaintext: TokenizerMode.PLAINTEXT,
+  script: TokenizerMode.SCRIPT_DATA,
+  style: TokenizerMode.RAWTEXT,
+  textarea: TokenizerMode.RCDATA,
+  title: TokenizerMode.RCDATA,
+  xmp: TokenizerMode.RAWTEXT,
+};
 
-// Quoted attribute values may contain `>` or tag-like text.
-const HTML_TAG_PATTERN =
-  /<(\/?)([a-z][\w-]*)(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*\s*(\/?)>/gi;
+const EOF_PARSE_ERRORS = new Set([
+  "eof-in-tag",
+  "eof-in-comment",
+  "eof-in-doctype",
+  "eof-in-cdata",
+]);
 
 // Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
 function isBalancedHtml(value: string): boolean {
   const open: string[] = [];
-  const markup = value.replace(RAW_TEXT_HTML_PATTERN, "");
-  for (const [, closing, name, selfClosing] of markup.matchAll(HTML_TAG_PATTERN)) {
-    const tag = name!.toLowerCase();
-    if (VOID_HTML_TAGS.has(tag) || selfClosing) continue;
-    if (!closing) {
-      open.push(tag);
-      continue;
-    }
-    while (open.length > 0 && open.at(-1) !== tag && OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)) {
-      open.pop();
-    }
-    if (open.pop() !== tag) return false;
-  }
-  return open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
+  let balanced = true;
+  const ignore = () => {};
+  const tokenizer: Tokenizer = new Tokenizer(
+    {},
+    {
+      onStartTag({ tagName, selfClosing }) {
+        const mode = RAW_TEXT_MODES[tagName];
+        if (mode !== undefined) tokenizer.state = mode;
+        if (!selfClosing && !VOID_HTML_TAGS.has(tagName)) open.push(tagName);
+      },
+      onEndTag({ tagName }) {
+        while (
+          open.length > 0 &&
+          open.at(-1) !== tagName &&
+          OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)
+        ) {
+          open.pop();
+        }
+        if (open.pop() !== tagName) balanced = false;
+      },
+      onParseError({ code }) {
+        if (EOF_PARSE_ERRORS.has(code)) balanced = false;
+      },
+      onComment: ignore,
+      onDoctype: ignore,
+      onEof: ignore,
+      onCharacter: ignore,
+      onNullCharacter: ignore,
+      onWhitespaceCharacter: ignore,
+    },
+  );
+  tokenizer.write(value, true);
+  return balanced && open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
 }
 
 // Top-layer attributes would let an island escape `contain: paint` and cover the app.
