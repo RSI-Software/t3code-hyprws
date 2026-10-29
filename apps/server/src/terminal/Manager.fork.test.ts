@@ -109,7 +109,7 @@ it.layer(
       });
     }),
   );
-  it.effect("keeps a requested plain shell through reattach, restart, and checkout follow", () =>
+  it.effect("keeps a requested plain shell through reattach and checkout follow", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
       const { manager, ptyAdapter, baseDir, join } = yield* createManager(5, {
@@ -122,19 +122,18 @@ it.layer(
       yield* manager.open(input);
       const release = yield* manager.attachStream(input, () => Effect.void);
       yield* Effect.addFinalizer(() => Effect.sync(release));
-      yield* manager.restart({ ...input, cols: 100, rows: 24 });
       const destination = join(baseDir, "destination");
       yield* (yield* FileSystem.FileSystem).makeDirectory(destination);
       yield* manager.open({ ...input, cwd: destination, worktreePath: destination });
       expect(processRunner.inputs).toEqual([]);
-      expect(ptyAdapter.spawnInputs).toHaveLength(3);
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
       expect(ptyAdapter.spawnInputs.every((spawn) => spawn.shell === "/bin/bash")).toBe(true);
-      expect(ptyAdapter.spawnInputs[2]?.cwd).toBe(destination);
+      expect(ptyAdapter.spawnInputs[1]?.cwd).toBe(destination);
       yield* manager.open(
         openInput({ attachmentId: "managed-viewer", worktreePath: process.cwd() }),
       );
       expect(processRunner.inputs.length).toBeGreaterThan(0);
-      expect(ptyAdapter.spawnInputs[3]?.shell).toBe("zmux");
+      expect(ptyAdapter.spawnInputs[2]?.shell).toBe("zmux");
     }),
   );
   it.effect("opens a requested zmux shell when the default is a plain shell", () =>
@@ -225,12 +224,14 @@ it.layer(
       });
 
       expect(sourceProcess.killSignals).toEqual([]);
-      expect(sourceProcess.resizeCalls).toEqual([{ cols: 132, rows: 40 }]);
+      expect(sourceProcess.resizeCalls).toEqual([]);
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
       expect(preserved).toMatchObject({
         attachmentId: "viewer-a",
         cwd: source,
         worktreePath: source,
+        cols: input.cols,
+        rows: input.rows,
         pid: sourceProcess.pid,
         status: "running",
       });
@@ -1907,12 +1908,6 @@ it.layer(
         { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID },
         () => Effect.void,
       );
-      expect(ptyAdapter.spawnInputs.at(-1)?.shell).toBe("zmux");
-      yield* manager.restart({
-        ...openInput({ threadId: "thread-1", worktreePath: process.cwd() }),
-        cols: 100,
-        rows: 24,
-      });
       expect(ptyAdapter.spawnInputs.at(-1)?.shell).toBe("zmux");
       release();
     }).pipe(Effect.provide(TestClock.layer())),
