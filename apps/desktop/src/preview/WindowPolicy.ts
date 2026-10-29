@@ -4,7 +4,6 @@ import type {
   DesktopPreviewPointerEvent,
   DesktopPreviewOpenLinkEvent,
   DesktopPreviewRecordingArtifact,
-  DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
   DesktopPreviewScreenshotArtifact,
   DesktopPreviewTabDefaults,
@@ -120,7 +119,6 @@ type OwnedOpenLinkListener = (
   owner: PreviewOwner,
   event: DesktopPreviewOpenLinkEvent,
 ) => Effect.Effect<void>;
-type RecordingFrameListener = (frame: DesktopPreviewRecordingFrame) => Effect.Effect<void>;
 type RecordingInputListener = (event: DesktopPreviewRecordingInputEvent) => Effect.Effect<void>;
 export type OwnedStateListener = (
   owner: PreviewOwner,
@@ -130,10 +128,6 @@ export type OwnedStateListener = (
 export type OwnedPointerEventListener = (
   owner: PreviewOwner,
   event: DesktopPreviewPointerEvent,
-) => Effect.Effect<void>;
-export type OwnedRecordingFrameListener = (
-  owner: PreviewOwner,
-  frame: DesktopPreviewRecordingFrame,
 ) => Effect.Effect<void>;
 export type OwnedRecordingInputListener = (
   owner: PreviewOwner,
@@ -151,9 +145,6 @@ export interface OwnedPreviewOperations extends PreviewWindowManager {
   ) => Effect.Effect<void, never, Scope.Scope>;
   readonly subscribePointerEvents: (
     listener: PointerEventListener,
-  ) => Effect.Effect<void, never, Scope.Scope>;
-  readonly subscribeRecordingFrames: (
-    listener: RecordingFrameListener,
   ) => Effect.Effect<void, never, Scope.Scope>;
   readonly subscribeRecordingInputs: (
     listener: RecordingInputListener,
@@ -179,7 +170,7 @@ const subscribe = <A>(ref: Ref.Ref<ReadonlySet<A>>, listener: A) =>
   ).pipe(Effect.asVoid);
 
 const deliverOwned = <A>(
-  kind: "state-change" | "recording-frame" | "recording-input" | "pointer-event" | "open-link",
+  kind: "state-change" | "recording-input" | "pointer-event" | "open-link",
   listeners: ReadonlySet<A>,
   deliver: (listener: A) => Effect.Effect<void>,
 ) =>
@@ -212,9 +203,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   const ownedStateListenersRef = yield* Ref.make<ReadonlySet<OwnedStateListener>>(new Set());
   const ownedOpenLinkListenersRef = yield* Ref.make<ReadonlySet<OwnedOpenLinkListener>>(new Set());
   const ownedPointerListenersRef = yield* Ref.make<ReadonlySet<OwnedPointerEventListener>>(
-    new Set(),
-  );
-  const ownedRecordingListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingFrameListener>>(
     new Set(),
   );
   const ownedRecordingInputListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingInputListener>>(
@@ -256,15 +244,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
             Ref.get(ownedPointerListenersRef).pipe(
               Effect.flatMap((listeners) =>
                 deliverOwned("pointer-event", listeners, (listener) => listener(owner, event)),
-              ),
-            ),
-          )
-          .pipe(Effect.provideService(Scope.Scope, scope)),
-        operations
-          .subscribeRecordingFrames((frame) =>
-            Ref.get(ownedRecordingListenersRef).pipe(
-              Effect.flatMap((listeners) =>
-                deliverOwned("recording-frame", listeners, (listener) => listener(owner, frame)),
               ),
             ),
           )
@@ -442,8 +421,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       ),
     subscribeOwnedPointerEvents: (listener: OwnedPointerEventListener) =>
       subscribe(ownedPointerListenersRef, listener),
-    subscribeOwnedRecordingFrames: (listener: OwnedRecordingFrameListener) =>
-      subscribe(ownedRecordingListenersRef, listener),
     subscribeOwnedRecordingInputs: (listener: OwnedRecordingInputListener) =>
       subscribe(ownedRecordingInputListenersRef, listener),
     subscribeStateChanges: (listener: StateListener) =>
@@ -453,10 +430,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     subscribePointerEvents: (listener: PointerEventListener) =>
       subscribe(ownedPointerListenersRef, (owner, event) =>
         owner === APP_PREVIEW_OWNER ? listener(event) : Effect.void,
-      ),
-    subscribeRecordingFrames: (listener: RecordingFrameListener) =>
-      subscribe(ownedRecordingListenersRef, (owner, frame) =>
-        owner === APP_PREVIEW_OWNER ? listener(frame) : Effect.void,
       ),
     subscribeRecordingInputs: (listener: RecordingInputListener) =>
       subscribe(ownedRecordingInputListenersRef, (owner, input) =>
@@ -492,7 +465,6 @@ export const windowManagerExtension = (
   | "subscribeOwnedStateChanges"
   | "subscribeOwnedPointerEvents"
   | "subscribeOwnedOpenLinks"
-  | "subscribeOwnedRecordingFrames"
   | "subscribeOwnedRecordingInputs"
 > &
   Partial<Pick<PreviewManager["Service"], "prepareWebview">> => ({
@@ -504,7 +476,6 @@ export const windowManagerExtension = (
   subscribeOwnedStateChanges: ownership.subscribeOwnedStateChanges,
   subscribeOwnedPointerEvents: ownership.subscribeOwnedPointerEvents,
   subscribeOwnedOpenLinks: ownership.subscribeOwnedOpenLinks,
-  subscribeOwnedRecordingFrames: ownership.subscribeOwnedRecordingFrames,
   subscribeOwnedRecordingInputs: ownership.subscribeOwnedRecordingInputs,
 });
 
@@ -540,7 +511,6 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
     manager: PreviewManager["Service"],
     channels: {
       readonly stateChange: string;
-      readonly recordingFrame: string;
       readonly recordingInput: string;
       readonly pointerEvent: string;
       readonly openLink: string;
@@ -558,9 +528,6 @@ export const installEventForwarding = Effect.fn("PreviewWindowPolicy.installEven
       );
     yield* manager.subscribeOwnedStateChanges((owner, tabId, state) =>
       send(owner, channels.stateChange, tabId, state),
-    );
-    yield* manager.subscribeOwnedRecordingFrames((owner, frame) =>
-      send(owner, channels.recordingFrame, frame),
     );
     yield* manager.subscribeOwnedRecordingInputs((owner, input) =>
       send(owner, channels.recordingInput, input),
