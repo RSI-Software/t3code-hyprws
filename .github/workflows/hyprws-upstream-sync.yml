@@ -23,7 +23,8 @@ on:
     branches:
       - hyprws
   schedule:
-    - cron: "17 */6 * * *"
+    # every 15 min while the sync loop is under test; hourly after
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
