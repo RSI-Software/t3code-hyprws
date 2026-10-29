@@ -8,7 +8,8 @@ name: hyprws sync resolution
 # environment deploys to; the dispatched run queues behind any sync in flight.
 #
 # A job that ends without a push (failed, blocked, unchanged) leaves only its
-# sticky comment, so a settled rsi-pr-agent sticky also reruns the sync. An
+# sticky comment, so a settled rsi-pr-agent sticky also reruns the sync; a
+# pushed sticky is skipped because its push already did. An
 # issue_comment runs the default branch's file, which is hyprws.
 
 on:
@@ -30,7 +31,8 @@ jobs:
         github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
         contains(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
         !contains(github.event.comment.body, '**running**') &&
-        !contains(github.event.comment.body, '**pushing**'))
+        !contains(github.event.comment.body, '**pushing**') &&
+        !contains(github.event.comment.body, '**pushed**'))
     permissions:
       actions: write
     steps:
