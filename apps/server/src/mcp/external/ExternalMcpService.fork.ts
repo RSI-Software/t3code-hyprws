@@ -605,7 +605,10 @@ const make = Effect.gen(function* () {
       const titleContains = input.titleContains?.toLocaleLowerCase();
       const context = yield* threadViewContext();
       const filtered = projectThreads
-        .map((shell) => ({ shell, thread: listItemFromShellFork(shell, context.nowMs) }))
+        .map((shell) => ({
+          shell,
+          thread: listItemFromShellFork(context.environmentId, shell, context.nowMs),
+        }))
         .filter(({ thread }) => statuses === null || statuses.has(thread.status))
         .filter(({ thread }) => input.settled === undefined || thread.settled === input.settled)
         .filter(
@@ -661,7 +664,13 @@ const make = Effect.gen(function* () {
       );
       return {
         thread: {
-          ...threadDetailFork(target, timeline.totalItems, shell, context.nowMs),
+          ...threadDetailFork(
+            context.environmentId,
+            target,
+            timeline.totalItems,
+            shell,
+            context.nowMs,
+          ),
           work,
         },
         recentRuns: target.runs
