@@ -75,10 +75,19 @@ const BLOCK_LABEL = "ci";
 /**
  * A blocked stop, a red candidate, or a conflicting carry also starts
  * rsi-pr-agent's `.rsi-agent/workflows/fork-sync.md`, which consumes the
- * label; an unchanged body never relabels, so a job that made no progress
- * starts no other.
+ * label as the job starts.
  */
 const AGENT_LABEL = "rsi:fork-sync";
+/**
+ * Every labelling write stamps its time. An unlabelled issue whose body has not
+ * moved since then holds a job that failed or made no progress; once the job
+ * budget has surely passed, that body relabels once, and a second miss waits
+ * for a human.
+ */
+const AGENT_STAMP_PATTERN = /^<!-- agent-labelled:(\S+)( retried)? -->$/m;
+const AGENT_RETRY_AFTER_MS = 2 * 60 * 60 * 1000;
+const agentStamp = (at: string, retried: boolean): string =>
+  `<!-- agent-labelled:${at}${retried ? " retried" : ""} -->`;
 const BLOCK_TITLE_PHRASE = '"hyprws sync blocked" in:title';
 const FAILURE_TITLE_PHRASE = '"hyprws sync failed" in:title';
 const REPORT_SCHEMA = "fork.sync-report.v3";
@@ -1553,6 +1562,7 @@ export interface OpenBlockIssue {
   readonly number: number;
   readonly title: string;
   readonly body: string;
+  readonly labels?: ReadonlyArray<{ readonly name: string }>;
 }
 
 /**
@@ -1597,7 +1607,7 @@ export const githubClient = (
           titlePhrase,
           ...repo,
           "--json",
-          "number,title,body",
+          "number,title,body,labels",
         ],
         { cwd: root },
       ),
@@ -1683,15 +1693,15 @@ const withBodyFile = <T>(body: string, effect: (path: string) => T): T => {
 };
 
 /**
- * Normalise an issue body for the no-write comparison: strip any stray
- * `gh-bot:` attest footer line (`<!-- gh-bot:attest … -->`,
+ * Normalise an issue body for the no-write comparison: strip the agent stamp
+ * and any stray `gh-bot:` attest footer line (`<!-- gh-bot:attest … -->`,
  * `<!-- gh-bot:edit-attest … -->`) left over on an issue an older ghb-filed
  * run created, trim trailing whitespace per line, then trim the whole.
  */
 const normalisedBody = (body: string): string =>
   body
     .split("\n")
-    .filter((line) => !/^<!-- gh-bot:.*-->\s*$/.test(line))
+    .filter((line) => !/^<!-- (?:gh-bot:|agent-labelled:).*-->\s*$/.test(line))
     .map((line) => line.replace(/\s+$/, ""))
     .join("\n")
     .trim();
@@ -1699,16 +1709,20 @@ const normalisedBody = (body: string): string =>
 /**
  * Adopt the newest open issue of either legacy kind as the one attention
  * issue. Carry its recent runs forward and close surplus issues with a pointer.
- * The typed report stays authoritative; an unchanged body makes no write.
+ * The typed report stays authoritative; an unchanged body makes no write
+ * unless its one agent retry is due.
  */
 const upsertStandingIssue = (
   runner: CommandRunner,
   root: string,
   title: string,
   labels: ReadonlyArray<string>,
+  now: string,
   render: (previous?: string) => string,
 ): { readonly issue: number | null; readonly publishedVia: "gh" } => {
   const github = githubClient(runner, root, labels);
+  const stamped = (body: string, retried: boolean): string =>
+    labels.length === 0 ? body : `${body}\n${agentStamp(now, retried)}`;
   const [standing, ...superseded] = [
     ...new Map(
       [BLOCK_TITLE_PHRASE, FAILURE_TITLE_PHRASE]
@@ -1717,15 +1731,24 @@ const upsertStandingIssue = (
     ).values(),
   ].sort((left, right) => right.number - left.number);
   if (standing === undefined)
-    return withBodyFile(render(), (bodyPath) => ({
+    return withBodyFile(stamped(render(), false), (bodyPath) => ({
       issue: github.create(title, bodyPath),
       publishedVia: "gh",
     }));
   const body = render(standing.body);
+  const stamp = AGENT_STAMP_PATTERN.exec(standing.body);
+  const retryDue =
+    labels.length > 0 &&
+    !(standing.labels ?? []).some(({ name }) => name === AGENT_LABEL) &&
+    stamp?.[2] === undefined &&
+    (stamp === null || Date.parse(now) - Date.parse(stamp[1]!) >= AGENT_RETRY_AFTER_MS);
   // the machine title suffix never matches the render, so the decision is on
   // the normalised body alone
-  if (normalisedBody(standing.body) !== normalisedBody(body))
-    withBodyFile(body, (bodyPath) => github.edit(standing.number, title, bodyPath));
+  const drifted = normalisedBody(standing.body) !== normalisedBody(body);
+  if (drifted || retryDue)
+    withBodyFile(stamped(body, !drifted), (bodyPath) =>
+      github.edit(standing.number, title, bodyPath),
+    );
   for (const issue of superseded) github.close(issue.number, `Superseded by #${standing.number}.`);
   return { issue: standing.number, publishedVia: "gh" };
 };
@@ -1746,6 +1769,7 @@ export const publishAttention = (
       key === "blocked" || report.failure?.step === "ci" || report.failure?.step === "carry"
         ? [AGENT_LABEL]
         : [],
+      report.startedAt,
       (previous) => attentionIssueBody(report, previous),
     );
     return {
