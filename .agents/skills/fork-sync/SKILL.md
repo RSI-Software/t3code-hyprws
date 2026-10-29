@@ -121,7 +121,9 @@ Adaptation the candidate needs (build or test fixes, ports) commits at the tip o
   - Replayed commit: [replay fresh](#replay-fresh)
 - **Lost hook:** restore it at the tip
   - Target carries it: drop its leftovers
+  - Target deleted its code: retire it
   - Trailer: `Fork-Hook-Retired: domain/name`
+  - One commit may carry many trailers
 - **Merge-tree:** path conflicts with upstream
   - Move the hook lines off its changed lines
 - **Local checks:** each rerun runs `fork:ci`
@@ -216,6 +218,13 @@ A live one holds the job open and can rewrite the marker after the bundle.
 
 The summary ends with `Verify:` and those items: behaviour to exercise once the sync lands.
 
+**Lost hooks first.** Clear every lost hook in one batch before any type or test work:
+
+1. List: the `hooks` error names each key and trunk
+2. Find: `git grep -n 'fork-hook: <key>' <trunk>`
+3. Group by upstream file; fix a group at once
+4. Rerun once, after the whole batch
+
 **Disk.** The job's disk holds one install, about 8 GiB.
 The driver's kept worktree is the only other checkout; never clone, copy, add another, or run a second install.
 The one exception: `fork:fold apply`'s own rebase worktree, which holds no install.
@@ -224,7 +233,8 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 
 - **Clock:** `date -u` at start and at every stop
 - **Fold:** start one only before 20 minutes gone
-- **30 minutes gone:** rerun, hand off the marker
+- **Work:** to the wrap-up steer; never stop early
+- **Steer, or 35 minutes gone:** rerun, hand off
 - **No progress:** one retry, then a human
 
 ## Never
