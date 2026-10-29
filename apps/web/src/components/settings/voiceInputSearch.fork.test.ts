@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { searchSettings } from "./settingsSearch";
 
-vi.mock("~/env", () => ({ isElectron: false }));
+vi.mock("~/env", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/env")>()),
+  isElectron: false,
+}));
 
 describe("browser dictation settings search", () => {
   it.each(["dictation", "cleanup", "formatting", "project context", "prompt model"])(
