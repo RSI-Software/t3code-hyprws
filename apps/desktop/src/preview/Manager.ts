@@ -3615,9 +3615,6 @@ export class PreviewManager extends Context.Service<
         event: DesktopPreviewOpenLinkEvent,
       ) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-open-links-type
-    readonly subscribeOwnedRecordingFrames: (
-      listener: PreviewWindowPolicy.OwnedRecordingFrameListener,
-    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-frames-type
     readonly subscribeOwnedRecordingInputs: (
       listener: PreviewWindowPolicy.OwnedRecordingInputListener,
     ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-inputs-type
@@ -3628,9 +3625,6 @@ export class PreviewManager extends Context.Service<
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;
-  const ownedRecordingInputListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingInputListener>>(
-    new Set(),
-  ); // fork-hook: multi-window/recording-input-listeners-ref
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const downloadSessions = new WeakSet<Electron.Session>();
