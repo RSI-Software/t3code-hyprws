@@ -835,6 +835,11 @@ it.effect.skipIf(windowsHost)("does not open Zed with the OpenZFS zed daemon on 
           spawnResult: (command) => (command.args[0] === "--version" ? { exitCode: 1 } : undefined),
         }),
       ),
+      Effect.provideService(HostProcess.Environment, {
+        HOME: home,
+        PATH: binDir,
+        DISPLAY: ":0",
+      }), // fork-hook: upstream-fixes/zed-session-fixture
     );
     assert.isTrue(Exit.isFailure(exit));
     if (Exit.isFailure(exit)) {
