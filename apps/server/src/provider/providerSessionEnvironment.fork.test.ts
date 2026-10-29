@@ -15,6 +15,7 @@ import {
   providerSessionProjectId,
   stripInheritedProviderEnvironment,
   withoutProviderSessionIdentity,
+  withProviderSessionIdentity,
   withSessionIdentityWhenKnown,
   withThreadProjects,
 } from "@t3tools/provider-core/server/providerSessionEnvironment.fork";
@@ -33,12 +34,24 @@ describe("provider session identity helpers", () => {
   });
 
   it("leaves a spawn without a session as built", () => {
+    const original = { ...leaked };
     expect(withSessionIdentityWhenKnown(leaked, undefined)).toBe(leaked);
+    expect(withSessionIdentityWhenKnown(leaked, { threadId })).toEqual({
+      PATH: "/bin",
+      T3CODE_THREAD_ID: "thread-1",
+    });
     expect(withSessionIdentityWhenKnown(leaked, { threadId, projectId })).toEqual({
       PATH: "/bin",
       T3CODE_PROJECT_ID: "project-1",
       T3CODE_THREAD_ID: "thread-1",
     });
+    expect(leaked).toEqual(original);
+  });
+
+  it("falls back to the server process environment", () => {
+    const env = withProviderSessionIdentity(undefined, { threadId });
+    expect(env.PATH).toBe(process.env.PATH);
+    expect(env.T3CODE_THREAD_ID).toBe("thread-1");
   });
 
   it("picks only the identity from a session input", () => {
