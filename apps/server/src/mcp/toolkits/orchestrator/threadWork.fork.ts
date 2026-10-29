@@ -48,7 +48,7 @@ export const listThreadsFork = Effect.fn("OrchestratorMcpThreadWork.listThreads"
   const result = yield* service.listThreads(scope, input);
   const shells = yield* threads
     .listProjectThreads({
-      projectId: result.projectId,
+      ...(result.projectId === null ? {} : { projectId: result.projectId }),
       includeSubagents: input.includeSubagents !== false,
     })
     .pipe(Effect.mapError(OrchestratorMcpService.threadManagementFailureFork));
