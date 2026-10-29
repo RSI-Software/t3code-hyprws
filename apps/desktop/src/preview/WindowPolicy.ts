@@ -67,7 +67,6 @@ export interface PreviewWindowManager {
   readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
   readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly setColorScheme: (
     tabId: string,
@@ -307,7 +306,6 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       zoomIn: (tabId) => authorized(tabId, operations.zoomIn(tabId)),
       zoomOut: (tabId) => authorized(tabId, operations.zoomOut(tabId)),
       resetZoom: (tabId) => authorized(tabId, operations.resetZoom(tabId)),
-      preserveGuestZooms: operations.preserveGuestZooms,
       reapplyZoom: operations.reapplyZoom,
       hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
       setColorScheme: (tabId, colorScheme) =>
@@ -461,7 +459,6 @@ export const windowManagerExtension = (
   | "setWindow"
   | "disposeWindow"
   | "forWindow"
-  | "preserveGuestZooms"
   | "subscribeOwnedStateChanges"
   | "subscribeOwnedPointerEvents"
   | "subscribeOwnedOpenLinks"
@@ -472,7 +469,6 @@ export const windowManagerExtension = (
   disposeWindow: ownership.disposeWindow,
   forWindow: ownership.forWindow,
   prepareWebview: ownership.prepareWebview,
-  preserveGuestZooms: ownership.app.preserveGuestZooms,
   subscribeOwnedStateChanges: ownership.subscribeOwnedStateChanges,
   subscribeOwnedPointerEvents: ownership.subscribeOwnedPointerEvents,
   subscribeOwnedOpenLinks: ownership.subscribeOwnedOpenLinks,
