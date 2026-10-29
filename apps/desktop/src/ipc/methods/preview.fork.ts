@@ -70,7 +70,6 @@ export const installOwnedEventForwarding = Effect.fn(
     yield* PreviewManager.PreviewManager,
     {
       stateChange: IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL,
-      recordingFrame: IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL,
       recordingInput: IpcChannels.PREVIEW_RECORDING_INPUT_CHANNEL,
       pointerEvent: IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL,
       openLink: IpcChannels.PREVIEW_OPEN_LINK_CHANNEL,

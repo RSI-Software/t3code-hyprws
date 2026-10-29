@@ -46,7 +46,6 @@ export const desktopEnvironmentLayerFork = (
 /** The per-window preview event forwarding startup installs. */
 export const previewOwnedForwardingFork = {
   subscribeOwnedStateChanges: () => Effect.void,
-  subscribeOwnedRecordingFrames: () => Effect.void,
   subscribeOwnedRecordingInputs: () => Effect.void,
   subscribeOwnedPointerEvents: () => Effect.void,
   subscribeOwnedOpenLinks: () => Effect.void,
