@@ -1990,7 +1990,6 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     kind: report.blocked !== null ? "blocked" : "failed",
     step: report.failure?.step ?? "rebase",
     detail: report.error ?? "",
-    ci: report.ci?.run || null,
   });
 
   const finish = (report: ForkSyncReport): number => {
@@ -2145,7 +2144,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
     const marker = usableMarker(runner, root, fetched, target, expectedOld);
     if (land) {
       status = startStatus(target.tag, marker?.commit ?? null);
-      status({ kind: "rebasing" });
+      status({ kind: marker === null ? "rebasing" : "adopting" });
     }
     const worktree = worktreePath(root);
     const blockedStop = (blockingSha: string): ForkSyncReport["blocked"] => ({

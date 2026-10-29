@@ -2029,12 +2029,10 @@ it("files one governed failure issue when hyprws CI is red on the candidate", ()
     );
     assert.strictEqual(statusWrites.length, 1);
     assert.include(statusWrites[0]!.args, "repos/RSI-Software/t3code-hyprws/issues/42/comments");
-    const status = statusWrites[0]!.args.find((arg) => arg.startsWith("body=")) ?? "";
     assert.match(
-      status,
+      statusWrites[0]!.args.find((arg) => arg.startsWith("body=")) ?? "",
       /^body=<!-- hyprws:sync-driver -->\n[^]*❌ \*\*failed\*\* at `ci`: hyprws CI failure on candidate [0-9a-f]{7}: Test Server 2/,
     );
-    assert.include(status, ` · [ci run](${RUN_URL})`);
     const body = issueBodies[0] ?? "";
     assert.match(body, /failed at the `ci` step/);
     assert.match(body, /```\nhyprws CI failure on candidate [0-9a-f]{7}: Test Server 2 \(https:/);

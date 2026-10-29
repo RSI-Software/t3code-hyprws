@@ -12,18 +12,14 @@ import { runRequire, type CommandRunner } from "./fork-sync-git.ts";
  * one never triggers a run; keep its gate on that author.
  */
 export const DRIVER_STICKY_MARKER = "<!-- hyprws:sync-driver -->";
+/** The land run posts with the workflow's `github.token`; a foreign marker comment is never edited. */
+const DRIVER_LOGIN = "github-actions[bot]";
 
 export type DriverState =
-  | { readonly kind: "rebasing" }
+  | { readonly kind: "rebasing" | "adopting" }
   | { readonly kind: "ci" | "landing"; readonly candidate: string }
   | { readonly kind: "landed"; readonly sha: string }
-  | {
-      readonly kind: "blocked" | "failed";
-      readonly step: string;
-      readonly detail: string;
-      /** The candidate's hyprws CI run, when one ran. */
-      readonly ci: string | null;
-    };
+  | { readonly kind: "blocked" | "failed"; readonly step: string; readonly detail: string };
 
 export interface DriverRun {
   readonly tag: string;
@@ -39,7 +35,8 @@ const short = (sha: string): string => `\`${sha.slice(0, 7)}\``;
 const stateLine = (state: DriverState): string => {
   switch (state.kind) {
     case "rebasing":
-      return "**rebasing**";
+    case "adopting":
+      return `**${state.kind}**`;
     case "ci":
       return `**ci** on \`${SYNC_CANDIDATE_BRANCH}\` ${short(state.candidate)}`;
     case "landing":
@@ -52,8 +49,7 @@ const stateLine = (state: DriverState): string => {
         state.detail.length > DETAIL_LIMIT
           ? `${state.detail.slice(0, DETAIL_LIMIT)}…`
           : state.detail;
-      const ci = state.ci === null ? "" : ` · [ci run](${state.ci})`;
-      return `${state.kind === "blocked" ? "🛑" : "❌"} **${state.kind}** at \`${state.step}\`: ${detail}${ci}`;
+      return `${state.kind === "blocked" ? "🛑" : "❌"} **${state.kind}** at \`${state.step}\`: ${detail}`;
     }
   }
 };
@@ -99,7 +95,7 @@ export const driverSticky = (
           "--paginate",
           `repos/${FORK_REPOSITORY}/issues/${issue}/comments`,
           "--jq",
-          `.[] | select(.body | startswith("${DRIVER_STICKY_MARKER}")) | .id`,
+          `.[] | select(.user.login == "${DRIVER_LOGIN}" and (.body | startswith("${DRIVER_STICKY_MARKER}"))) | .id`,
         ]);
         comment = { issue, id: /^\d+$/m.exec(found)?.[0] ?? null };
       }
