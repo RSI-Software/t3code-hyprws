@@ -19,8 +19,14 @@ export function sidebarThreadGroupLayoutFork<T>(
   threads: readonly T[],
   groups: readonly SidebarThreadGroup[],
   getKey: (thread: T) => string,
+  requireParent = false,
 ) {
-  const layout = buildSidebarThreadGroupLayout({ threads, groups, getId: getKey });
+  const keys = new Set(threads.map(getKey));
+  const layout = buildSidebarThreadGroupLayout({
+    threads,
+    groups: requireParent ? groups.filter((group) => keys.has(group.parentThreadId)) : groups,
+    getId: getKey,
+  });
   const visibleThreads: T[] = [];
   const spans: SidebarThreadGroupSpan<T>[] = [];
   for (const item of layout) {
@@ -75,12 +81,30 @@ export function projectSidebarThreadGroupSpansFork(
   const moved = moveSidebarListItem(items, input.activeIndex, input.overIndex);
   // Working rows never take a drop, so the Working run keeps its order; it is
   // projected only to keep its group headers.
-  for (const opener of ["pinned-divider", "working-header"] as const) {
+  for (const opener of [
+    "pinned-header",
+    "pinned-divider",
+    "working-header",
+    "snoozed-header",
+  ] as const) {
     const source = sectionBounds(moved, opener);
     const target = sectionBounds(projected, opener);
     if (!source || !target) continue;
     const run = moved.slice(...source).flatMap((item): SidebarListItem[] => {
-      if (item === active) return [{ ...active, section: "active" }];
+      if (item === active)
+        return [
+          {
+            ...active,
+            section:
+              opener === "pinned-header"
+                ? "pinned"
+                : opener === "snoozed-header"
+                  ? "snoozed"
+                  : opener === "working-header"
+                    ? "working"
+                    : "active",
+          },
+        ];
       if (item.kind === "marker" && !isGroupMarker(item)) return [];
       const index = indices.get(sidebarListItemId(item));
       return index !== undefined && rects[index] !== undefined ? [item] : [];
@@ -100,7 +124,7 @@ function isGroupMarker(item: SidebarListItem): boolean {
 /** A section's slots: after its opening marker, before the next shelf header. */
 function sectionBounds(
   items: readonly SidebarListItem[],
-  opener: "pinned-divider" | "working-header",
+  opener: "pinned-header" | "pinned-divider" | "working-header" | "snoozed-header",
 ): readonly [number, number] | null {
   const start = items.findIndex((item) => item.kind === "marker" && item.marker === opener) + 1;
   if (start === 0) return null;
@@ -108,7 +132,8 @@ function sectionBounds(
     (item, index) =>
       index >= start &&
       item.kind === "marker" &&
-      (item.marker === "working-header" ||
+      (item.marker === "pinned-divider" ||
+        item.marker === "working-header" ||
         item.marker === "snoozed-header" ||
         item.marker === "settled-header"),
   );

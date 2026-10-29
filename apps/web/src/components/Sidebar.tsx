@@ -28,6 +28,7 @@ import {
   canSnooze,
   effectiveSnoozed,
   threadWokeAt,
+  threadRaisedHandWhileSnoozed, // fork-hook: thread-ordering/group-snooze-attention
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
   asLaunchingThread,
@@ -118,7 +119,13 @@ import {
   sidebarWorkingShelfKeysFork,
   applySidebarThreadGroupsFork,
 } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
-import { regroupWorkingShelfFork } from "./Sidebar.groupWorking.fork"; // fork-hook: thread-ordering/group-working-import
+import {
+  anchorSidebarGroupsFork,
+  groupSnoozeCarryKeysFork,
+  inheritedSidebarSnoozeOwnersFork,
+  inheritedSidebarSnoozePropsFork,
+  regroupSidebarSectionsFork,
+} from "./Sidebar.groupSections.fork"; // fork-hook: thread-ordering/group-working-import
 import { SortableSidebarMarker } from "./sidebar/SidebarListMarkers"; // fork-hook: thread-ordering/group-marker-import
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
@@ -640,7 +647,7 @@ function useSidebarThreads(input: {
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
     snoozedThreadKeys: new Set(snoozedThreads.map(threadShellKey)),
     sectionByThreadKey,
-    pinnedKeys: pinnedThreads.map(threadShellKey),
+    pinnedKeys: pinnedThreads.filter((thread) => thread.pinnedAt != null).map(threadShellKey), // fork-hook: thread-ordering/group-pinned-keys
     activeKeys: activeThreads.map(threadShellKey),
     pinnedKeysById: new Map(
       threads.map((thread) => [threadShellKey(thread), thread.pinOrderKey ?? null] as const),
@@ -715,7 +722,14 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
       ).push(thread);
     }
   }
-  if (workingShelfEnabled) regroupWorkingShelfFork(active, working, input.threadGroups); // fork-hook: thread-ordering/group-working-partition
+  regroupSidebarSectionsFork(active, working, input.threadGroups, pinned, workingShelfEnabled, {
+    snoozed,
+    canInheritSnooze: (thread) => !threadRaisedHandWhileSnoozed(thread),
+  }); // fork-hook: thread-ordering/group-working-partition
+  const inheritedSnoozes = inheritedSidebarSnoozeOwnersFork(snoozed, input.threadGroups, (thread) =>
+    effectiveSnoozed(thread, { now: preciseNow }),
+  ); // fork-hook: thread-ordering/group-snooze-drag
+  for (const key of inheritedSnoozes.keys()) draggableThreadKeys.delete(key); // fork-hook: thread-ordering/group-snooze-drag
   // Availability gates dragging only; sorting must stay consistent across clients.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
   const sortedActive = sortActiveBySend
@@ -1425,17 +1439,43 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const threadGroupKey = (thread: EnvironmentThreadShell) =>
     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)); // fork-hook: thread-ordering/group-key
+  const shelvedParentKeysFork = new Set([...pinnedThreads, ...snoozedThreads].map(threadGroupKey)); // fork-hook: thread-ordering/group-section-owners
+  const inboxGroupsFork = threadGroups.filter(
+    (group) => !shelvedParentKeysFork.has(group.parentThreadId),
+  ); // fork-hook: thread-ordering/group-section-owners
+  const snoozeOwnersFork = inheritedSidebarSnoozeOwnersFork(
+    snoozedThreads,
+    threadGroups,
+    (thread) => effectiveSnoozed(thread, { now: snoozeNow }),
+  ); // fork-hook: thread-ordering/group-snooze-owners
   const activeThreadGroups = sidebarThreadGroupLayoutFork(
     activeThreads,
-    threadGroups,
+    inboxGroupsFork,
     threadGroupKey,
   ); // fork-hook: thread-ordering/group-layout
-  const workingShelfGroups = sidebarThreadGroupLayoutFork(
-    visibleWorkingThreads,
+  const pinnedThreadGroups = sidebarThreadGroupLayoutFork(
+    anchorSidebarGroupsFork(pinnedThreads, threadGroups, threadGroupKey),
     threadGroups,
     threadGroupKey,
+    true,
+  ); // fork-hook: thread-ordering/group-pinned-layout
+  const snoozedThreadGroupsFork = sidebarThreadGroupLayoutFork(
+    anchorSidebarGroupsFork(visibleSnoozedThreads, threadGroups, threadGroupKey),
+    threadGroups,
+    threadGroupKey,
+    true,
+  ); // fork-hook: thread-ordering/group-snoozed-layout
+  const workingShelfGroups = sidebarThreadGroupLayoutFork(
+    visibleWorkingThreads,
+    inboxGroupsFork,
+    threadGroupKey,
   ); // fork-hook: thread-ordering/group-working-layout
-  const threadGroupSpans = [...activeThreadGroups.spans, ...workingShelfGroups.spans]; // fork-hook: thread-ordering/group-working-spans
+  const threadGroupSpans = [
+    ...pinnedThreadGroups.spans,
+    ...activeThreadGroups.spans,
+    ...workingShelfGroups.spans,
+    ...snoozedThreadGroupsFork.spans,
+  ]; // fork-hook: thread-ordering/group-working-spans
 
   const activeGroupByThreadKey = (() => {
     const byKey = new Map<
@@ -1447,7 +1487,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         readonly isParent: boolean;
       }
     >();
-    for (const item of [...activeThreadGroups.layout, ...workingShelfGroups.layout]) {
+    for (const item of [
+      ...pinnedThreadGroups.layout,
+      ...activeThreadGroups.layout,
+      ...workingShelfGroups.layout,
+      ...snoozedThreadGroupsFork.layout,
+    ]) {
       if (item.kind !== "group") continue;
       item.threads.forEach((thread, index) => {
         byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), {
@@ -1782,6 +1827,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const attemptResetOrder = attemptResetThreadOrderFork(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
   const forkThreadDispatch = useThreadForkDispatchFork(); // fork-hook: thread-fork/sidebar-dispatch-hook
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
+    const owner = snoozeOwnersFork.get(scopedThreadKey(threadRef)); // fork-hook: thread-ordering/group-snooze-owner
+    if (owner !== undefined) threadRef = scopeThreadRef(owner.environmentId, owner.id); // fork-hook: thread-ordering/group-snooze-owner
     void (async () => {
       const result = await unsnoozeThread(threadRef);
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
@@ -2084,9 +2131,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     items.push({ kind: "marker", marker: "settled-placeholder" });
     items.push(...settledRows);
     applySidebarThreadGroupsFork(items, {
+      pinnedKeys: pinnedThreadGroups.visibleThreads.map(threadGroupKey), // fork-hook: thread-ordering/group-pinned-visible
       activeKeys: hasProjectFolders ? null : activeThreadGroups.visibleThreads.map(threadGroupKey),
+      snoozedKeys: snoozedThreadGroupsFork.visibleThreads.map(threadGroupKey), // fork-hook: thread-ordering/group-snoozed-visible
       workingKeys: workingShelfKeysFork,
-      activeGroups: hasProjectFolders ? [] : threadGroupSpans, // fork-hook: thread-ordering/group-span-items
+      activeGroups: hasProjectFolders
+        ? [...pinnedThreadGroups.spans, ...snoozedThreadGroupsFork.spans]
+        : threadGroupSpans, // fork-hook: thread-ordering/group-span-items
     }); // fork-hook: thread-ordering/sidebar-list-items
     return items;
   })();
@@ -2138,7 +2189,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   }, [listMotionPass, shelfExpansionKey]);
   const threadGroupDragFork = useSidebarThreadGroupDragFork({
     items: sidebarListItems,
-    spans: activeThreadGroups.spans,
+    spans: [
+      ...pinnedThreadGroups.spans,
+      ...activeThreadGroups.spans,
+      ...snoozedThreadGroupsFork.spans,
+    ], // fork-hook: thread-ordering/group-pinned-drag
     threadByKey,
     setMembership: setThreadGroupMembership,
     canGroup: (threadKeys, groupKey) => {
@@ -2256,6 +2311,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
       activeTimeOrdered: workingShelfEnabled,
+      keepInheritedPin:
+        threadGroupDragFork.projection?.parent?.kind === "group" &&
+        threadGroupDragFork.projection.parent.groupKey ===
+          activeGroupByThreadKey.get(activeKey)?.group.id, // fork-hook: thread-ordering/group-pinned-drop-plan
     });
     if (plan.kind === "none") return;
     if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
@@ -2382,6 +2441,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return { status: "skipped" } as const;
     }
     snoozingThreadKeysRef.current.add(threadKey);
+    const coSnoozingKeys = groupSnoozeCarryKeysFork(
+      threadKey,
+      threadGroups,
+      threadByKeyRef.current,
+      opts.coSnoozingKeys,
+    ); // fork-hook: thread-ordering/group-snooze-navigation
+    opts = { ...opts, coSnoozingKeys }; // fork-hook: thread-ordering/group-snooze-navigation
     const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
     const result = await snoozeThread(threadRef, preset.snoozedUntil);
     snoozingThreadKeysRef.current.delete(threadKey);
@@ -2839,7 +2905,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
         ); // fork-hook: thread-ordering/group-menu-state
         const groups =
-          activeThreadKeys.includes(threadKey) &&
+          (activeThreadKeys.includes(threadKey) || activeGroupByThreadKey.has(threadKey)) &&
           threadGroupsFork.canGroupThreadsFork([threadKey]) &&
           canOperateThreads([thread])
             ? threadGroupsFork.environmentThreadGroupsFork(threadGroups, thread.environmentId)
@@ -3653,6 +3719,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
+                        const inheritedSnoozePropsFork = inheritedSidebarSnoozePropsFork(
+                          threadKey,
+                          snoozeOwnersFork,
+                          new Date().toISOString(),
+                        ); // fork-hook: thread-ordering/group-snooze-label
                         const isCard =
                           section === "active" || section === "pinned" || section === "working";
                         const rowVariant = folderRow
@@ -3714,6 +3785,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   })
                                 : null
                             }
+                            {...inheritedSnoozePropsFork} /* fork-hook: thread-ordering/group-snooze-label */
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             revealRef={
@@ -3783,7 +3855,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           // Folders draw active rows in their own place below.
                           if (projectFolders !== null && item.section === "active") continue;
                           const groupEntry =
-                            item.section === "active" || item.section === "working"
+                            item.section === "pinned" ||
+                            item.section === "active" ||
+                            item.section === "working" ||
+                            item.section === "snoozed"
                               ? activeGroupByThreadKey.get(item.key)
                               : undefined; // fork-hook: thread-ordering/group-member-entry
                           const groupKey = groupEntry?.group.id ?? null; // fork-hook: thread-ordering/group-drag-dissolving
