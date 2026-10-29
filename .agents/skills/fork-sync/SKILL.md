@@ -234,7 +234,11 @@ The one exception: `fork:fold apply`'s own rebase worktree, which holds no insta
 - **Clock:** `date -u` at start and at every stop
 - **Fold:** start one only before 20 minutes gone
 - **Work:** to the wrap-up steer; never stop early
-- **Steer, or 35 minutes gone:** rerun, hand off
+- **Steer, or 35 minutes gone:** wrap up
+  1. Commit tip work as it is
+  2. One rerun; it writes the marker before `check`
+  3. Hand off, even if the cut stops that rerun
+- **After the steer:** no tests, typecheck, or amend
 - **No progress:** one retry, then a human
 
 ## Never
