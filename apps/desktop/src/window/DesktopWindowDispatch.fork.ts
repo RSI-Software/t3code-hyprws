@@ -77,19 +77,16 @@ export const makeEnsureIdentityFork = Effect.fn("desktop.window.makeEnsureIdenti
   });
 });
 
-// Preserve only this embedder's guests; other windows keep independent preview zoom.
-export const makeWindowGuestZoomsFork = Effect.gen(function* () {
+export const makeWindowPreviewFork = Effect.gen(function* () {
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const previewManager = yield* PreviewManager.PreviewManager;
-  return Effect.fn("desktop.window.preserveWindowGuestZoomsFork")(function* (
+  return Effect.fn("desktop.window.previewForWindowFork")(function* (
     window: Electron.BrowserWindow,
-    updateZoom: () => void,
   ) {
     const windowId = yield* electronWindow.windowIdFor(window);
-    const manager = Option.isSome(windowId)
+    return Option.isSome(windowId)
       ? yield* previewManager.forWindow(windowId.value)
       : previewManager;
-    yield* manager.preserveGuestZooms(updateZoom);
   });
 });
 
