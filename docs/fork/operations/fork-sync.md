@@ -164,7 +164,7 @@ Its title names the step and target, so reruns never rename it; its body carries
 The newest open `ci` issue matching `hyprws sync blocked` or `hyprws sync failed` is adopted, including legacy issues.
 Older matches close with a one-line pointer to the kept issue; only no match files a new one.
 A blocked run, or one failed at `ci` or `carry`, also adds `rsi:fork-sync` on create or rewrite, which starts rsi-pr-agent's `fork-sync` workflow; any other failure never does.
-An unchanged body relabels once, two hours after its last label, so a job that failed or made no progress gets one retry; a second miss waits for a human.
+An unchanged body relabels once, 75 minutes after its last label (the 45-minute job plus its push), so a job that failed or made no progress gets one retry; a second miss waits for a human.
 A clean run (applied or already-applied) closes open matches with `gh issue close --reason completed --comment "Resolved by hyprws <sha>"`.
 A refused publication or close lands in the report and fails the run.
 Sessions never publish or close issues.
