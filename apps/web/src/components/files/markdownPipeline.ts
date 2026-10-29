@@ -4,6 +4,7 @@ import { history } from "@milkdown/plugin-history";
 import { commonmark } from "@milkdown/preset-commonmark";
 import { gfm } from "@milkdown/preset-gfm";
 
+import { markdownAlerts } from "./markdownAlerts.fork";
 import { frontmatterRemark, frontmatterSchema } from "./markdownFrontmatter";
 import { markdownMath } from "./markdownMath.fork";
 import { codeBlockMetaSchema } from "./markdownSyntax.fork";
@@ -26,6 +27,7 @@ export function markdownPipeline(editor: Editor): Editor {
     .use(gfm)
     .use(codeBlockMetaSchema)
     .use(markdownMath)
+    .use(markdownAlerts)
     .use(bulletListSpreadFix)
     .use(listItemSpreadFix)
     .use(frontmatterRemark)

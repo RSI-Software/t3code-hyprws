@@ -329,3 +329,47 @@
   font-family: var(--font-mono);
   font-size: 0.875em;
 }
+
+.t3-markdown-editor__prose blockquote[data-alert] {
+  border-left-color: color-mix(in srgb, var(--alert-color) 70%, transparent);
+  color: var(--foreground);
+}
+
+.t3-markdown-editor__prose blockquote[data-alert="note"] {
+  --alert-color: var(--color-blue-500);
+}
+
+.t3-markdown-editor__prose blockquote[data-alert="tip"] {
+  --alert-color: var(--color-emerald-500);
+}
+
+.t3-markdown-editor__prose blockquote[data-alert="important"] {
+  --alert-color: var(--color-purple-500);
+}
+
+.t3-markdown-editor__prose blockquote[data-alert="warning"] {
+  --alert-color: var(--color-amber-500);
+}
+
+.t3-markdown-editor__prose blockquote[data-alert="caution"] {
+  --alert-color: var(--color-red-500);
+}
+
+.t3-markdown-editor__alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--alert-color);
+  font-weight: 500;
+  user-select: none;
+}
+
+.t3-markdown-editor__alert-title svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.t3-markdown-editor__alert-body > :first-child {
+  margin-top: 0.25rem;
+}

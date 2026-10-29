@@ -1,6 +1,8 @@
-import { defaultValueCtx, Editor, rootCtx } from "@milkdown/core";
+import { defaultValueCtx, Editor, editorViewCtx, rootCtx } from "@milkdown/core";
+import { TextSelection } from "@milkdown/prose/state";
 import { getMarkdown } from "@milkdown/utils";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
 import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 import { markdownEditorPresentation } from "./markdownEditorPresentation";
@@ -30,6 +32,9 @@ describe("markdown rich editor pipeline", () => {
       '```ts title="app.ts"\nconst ready = true;\n```\n',
       "Inline $e^{i\\pi} + 1 = 0$ costs $5.\n",
       "$$\n\\int_0^1 x\\,dx = \\tfrac{1}{2}\n$$\n",
+      "> [!NOTE]\n> Read **this** first.\n",
+      "> [!TIP]\n>\n> Spaced.\n",
+      "> [!WARNING]\n>\n> ### Heading\n",
     ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });
@@ -37,6 +42,42 @@ describe("markdown rich editor pipeline", () => {
   it("keeps tight lists and task lists tight", async () => {
     const markdown = "- first\n- second\n\nParagraph.\n\n- [ ] open\n- [x] done\n";
     expect(await roundTrip(markdown)).toBe(markdown);
+  });
+
+  it("turns quotes into GitHub alerts and back", async () => {
+    await using root = Object.assign(document.body.appendChild(document.createElement("div")), {
+      [Symbol.asyncDispose]: async () => root.remove(),
+    });
+    const editor = await markdownPipeline(
+      Editor.make().config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(defaultValueCtx, "> [!NOTE]\n> Read this.\n\n> Plain\n");
+      }),
+    ).create();
+    try {
+      const title = root.querySelector('blockquote[data-alert="note"] > [contenteditable="false"]');
+      expect(title?.textContent).toBe("Note");
+      expect(title?.querySelector("svg")).not.toBeNull();
+
+      const view = editor.action((ctx) => ctx.get(editorViewCtx));
+      const caretAt = (text: string) => {
+        view.state.doc.descendants((node, position) => {
+          if (node.isText && node.text === text) {
+            view.dispatch(
+              view.state.tr.setSelection(TextSelection.create(view.state.doc, position)),
+            );
+          }
+        });
+        view.focus();
+      };
+      caretAt("Read this.");
+      await userEvent.keyboard("{Backspace}");
+      caretAt("Plain");
+      await userEvent.keyboard("[[!TIP] ");
+      expect(editor.action(getMarkdown())).toBe("> Read this.\n\n> [!TIP]\n> Plain\n");
+    } finally {
+      await editor.destroy();
+    }
   });
 
   it("renders interactive tasks, workspace chips, math, and code chrome", async () => {
