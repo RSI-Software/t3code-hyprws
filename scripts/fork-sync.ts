@@ -2132,6 +2132,10 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
 
     if (isAncestor(runner, root, target.sha, expectedOld)) {
       const close = closeStaleBlocks(expectedOld);
+      // A no-op run posts nothing, except to settle the comment on an issue it just closed.
+      const settle = startStatus(target.tag, null);
+      for (const { issue, refusal } of close.closed)
+        if (refusal === null) settle({ kind: "landed", sha: expectedOld }, issue);
       return finish(
         frame({
           outcome: "already-applied",
@@ -2392,6 +2396,7 @@ export const run = (argv: ReadonlyArray<string>, options: RunOptions = {}): numb
       if (tag === "") {
         // No tag keys a report; the attention issue carries the run instead.
         const published = publishAttention(runner, root, report);
+        startStatus(key, null)(statusOf(published), published.failure?.issue ?? null);
         if (
           published.failure?.publishError !== null &&
           published.failure?.publishError !== undefined

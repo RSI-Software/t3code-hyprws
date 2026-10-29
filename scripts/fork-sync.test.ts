@@ -1554,6 +1554,16 @@ it("edits one driver status comment in place across a run's states", () => {
     ["create", "edit", "edit", "edit", "edit", "edit"],
   );
   assert.include(writes().at(-1)!.args, "repos/RSI-Software/t3code-hyprws/issues/comments/55");
+  const denied = exec({ gh: () => refused("Resource not accessible by integration") });
+  using stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  driverSticky(
+    denied.runner,
+    "/tmp",
+    run,
+    () => 7,
+    () => new Date(0),
+  )({ kind: "rebasing" });
+  assert.match(String(stderr.mock.calls[0]?.[0]), /driver status not posted: .*not accessible/);
 });
 
 it.each([
@@ -2120,6 +2130,12 @@ it("files a failure issue keyed by the trunk sha when the run crashes before a t
     assert.strictEqual(created[0]?.title, `hyprws sync failed at fetch (${head.slice(0, 7)})`);
     assert.include(created[0]?.body ?? "", failureMarker("fetch", head));
     assert.include(created[0]?.body ?? "", "network unreachable");
+    const status = recording.calls.find(({ args }) => args.some((arg) => arg.startsWith("body=")));
+    assert.include(status?.args ?? [], "repos/RSI-Software/t3code-hyprws/issues/44/comments");
+    assert.match(
+      status?.args.find((arg) => arg.startsWith("body=")) ?? "",
+      /❌ \*\*failed\*\* at `fetch`: .*network unreachable/,
+    );
   });
 });
 
@@ -2239,7 +2255,7 @@ it("an already-applied session performs no issue operations", () => {
 
 it("an already-applied run also closes its open block issues unaided", () => {
   withFixture(alreadyAppliedFixture, (f) => {
-    const { runner } = exec({
+    const recording = exec({
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "close") {
           assert.match(
@@ -2251,7 +2267,7 @@ it("an already-applied run also closes its open block issues unaided", () => {
         return openBlocksPerPhrase(args);
       },
     });
-    const applied = capture(() => land(["v1.0.0"], { runner, root: f.root }));
+    const applied = capture(() => land(["v1.0.0"], { runner: recording.runner, root: f.root }));
     assert.strictEqual(applied.value, 0);
     const report = readReport(f.root, "v1.0.0");
     assert.strictEqual(report.outcome, "already-applied");
@@ -2259,6 +2275,9 @@ it("an already-applied run also closes its open block issues unaided", () => {
     assert.strictEqual(report.error, null);
     assert.deepStrictEqual(report.closedBlocks, [{ issue: 1164, refusal: null }]);
     assert.match(applied.output, /- ✅ closed block #1164/);
+    const status = recording.calls.find(({ args }) => args.some((arg) => arg.startsWith("body=")));
+    assert.include(status?.args ?? [], "repos/RSI-Software/t3code-hyprws/issues/1164/comments");
+    assert.match(status?.args.find((arg) => arg.startsWith("body=")) ?? "", /✅ \*\*landed\*\*/);
   });
 });
 
