@@ -3,7 +3,14 @@ import { PenLine, type IconNode } from "lucide";
 import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense, type ReactNode } from "react";
 
+import { resolveAssetUrl } from "~/assets/assetUrls";
+import { assetEnvironment } from "~/state/assets";
+import { useFilesystemReadAccess } from "~/state/filesystem";
+import { usePreparedConnection } from "~/state/session";
+import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
+
 import { isMarkdownPreviewFile } from "./filePreviewMode";
+import type { WorkspaceImageUrl } from "./markdownImages.fork";
 import {
   changeFileSaveSession,
   flushFileSaveSessionFork,
@@ -121,8 +128,26 @@ interface RichMarkdownPreviewBoundaryProps {
   readonly children: ReactNode;
 }
 
+function useWorkspaceImageUrl(environmentId: EnvironmentId, cwd: string): WorkspaceImageUrl {
+  const { canReadFiles } = useFilesystemReadAccess(environmentId);
+  const connection = usePreparedConnection(environmentId);
+  const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
+  const createUrl = useAtomQueryRunner(assetEnvironment.createUrl, { reportFailure: false });
+  return async (path) => {
+    if (!canReadFiles || httpBaseUrl === null) return null;
+    const result = await createUrl({
+      environmentId,
+      input: { resource: { _tag: "draft-workspace-file", cwd, path } },
+    });
+    return result._tag === "Success"
+      ? resolveAssetUrl(httpBaseUrl, result.value.relativeUrl)
+      : null;
+  };
+}
+
 function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
   useFileSaveSession(props, props.onPendingChange);
+  const imageUrl = useWorkspaceImageUrl(props.environmentId, props.cwd);
 
   return (
     <Suspense
@@ -140,6 +165,7 @@ function RichMarkdownEditorSurface(props: RichMarkdownPreviewBoundaryProps) {
         onOpenFile={props.onOpenFile}
         theme={props.theme}
         wordWrap={props.wordWrap}
+        imageUrl={imageUrl}
         onChange={(nextContents) => {
           const currentContents =
             getOptimisticProjectFileQueryData(props.environmentId, props.cwd, props.relativePath)
