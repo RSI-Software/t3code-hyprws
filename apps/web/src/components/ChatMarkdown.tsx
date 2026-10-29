@@ -117,6 +117,7 @@ import {
 } from "./chat/externalLinkContextMenu";
 import { SharedTooltipTrigger } from "./ui/shared-tooltip";
 import { useGitHubDestinationLinkFork } from "./chat/GitHubDestinationLink.fork"; // fork-hook: github-issues/chat-markdown-github-destination-import
+import { withStyledHtml } from "@t3tools/shared/markdownStyledHtml.fork"; // fork-hook: markdown-editing/chat-markdown-styled-html-import
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { recordVisitForThread } from "../browserHistoryStore";
@@ -257,6 +258,7 @@ interface ChatMarkdownProps {
   className?: string;
   lineBreaks?: boolean;
   parseRawHtml?: boolean;
+  styledHtml?: boolean; // fork-hook: markdown-editing/chat-markdown-styled-html-prop
   onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   onRunShellCommand?: ((command: string) => void) | undefined;
   imageBaseDir?: string | undefined;
@@ -442,6 +444,10 @@ function safeUrl(value: string): string {
     : "";
 }
 
+const CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS = withStyledHtml(
+  CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
+); // fork-hook: markdown-editing/chat-markdown-styled-html-plugins
+
 function markdownUrlTransform(href: string) {
   if (parseAssistantCitationHref(href)) return href;
   if (parseComposerContextHref(href)) return href;
@@ -596,6 +602,7 @@ function useChatMarkdownState(
     renderContextReference,
     headingLevelOffset = 0,
     sourceControlMedia = false,
+    styledHtml = false, // fork-hook: markdown-editing/file-preview-math-prop
     sourceControlMediaRepository,
   }: ChatMarkdownProps,
   streamingBlocks: ReadonlyArray<string> | null,
@@ -1105,6 +1112,7 @@ function useChatMarkdownState(
     inlineCodeFileLinkMetaByText,
     inline,
     mathEnabled,
+    ...(styledHtml && { mathEnabled: true }), // fork-hook: markdown-editing/file-preview-math
     isStreaming,
     linkTargetPreference,
     markdownFileLinkMetaByHref,
@@ -2158,6 +2166,9 @@ function ChatMarkdown({
             key={index}
             text={source}
             markdown={markdown}
+            {...(props.styledHtml && parseRawHtml
+              ? { rehypePlugins: CHAT_MARKDOWN_STYLED_HTML_REHYPE_PLUGINS }
+              : {})} // fork-hook: markdown-editing/chat-markdown-styled-html-select
             // Every block before the last is finished, so its parse can be reused.
             cache={!props.isStreaming || index < blocks.length - 1}
           />
