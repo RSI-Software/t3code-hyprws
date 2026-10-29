@@ -50,8 +50,10 @@ describe("rich Markdown editor raw HTML", () => {
       '<div id="poster"><span class="chip" onclick="alert(1)">Chip</span><b popover>Pop</b><script>alert(1)</script></div>',
     ].join("\n");
     const bar = '<div id="bar" style="height:6px;background:rgb(7, 8, 9)"></div>';
+    const list = '<ul id="list" title="<b>"><li>One<li>Two</ul>';
+    const form = '<form id="form" action="/elsewhere"><button id="go">Go</button></form>';
     await using screen = await render(
-      editor(`# Doc\n\n${html}\n\n${bar}\n\nPress <kbd>K</kbd>\n`, onChange),
+      editor(`# Doc\n\n${html}\n\n${bar}\n\n${list}\n\n${form}\n\nPress <kbd>K</kbd>\n`, onChange),
       {
         router: false,
       },
@@ -70,6 +72,15 @@ describe("rich Markdown editor raw HTML", () => {
     expect(container.querySelector("[popover]")).toBeNull();
     expect(getComputedStyle(document.body).getPropertyValue("--t3-probe")).toBe("");
     expect(container.querySelector("#bar")).not.toBeNull();
+    expect(container.querySelectorAll("#list li")).toHaveLength(2);
+    let submitPrevented = false;
+    const onSubmit = (event: Event) => {
+      submitPrevented = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener("submit", onSubmit, { once: true });
+    container.querySelector<HTMLButtonElement>("#go")!.click();
+    expect(submitPrevented).toBe(true);
     expect(container.textContent).toContain("<kbd>");
     expect(onChange).not.toHaveBeenCalled();
   });

@@ -205,19 +205,46 @@ const VOID_HTML_TAGS = new Set([
   "wbr",
 ]);
 
+const OPTIONAL_END_HTML_TAGS = new Set([
+  "p",
+  "li",
+  "dt",
+  "dd",
+  "option",
+  "optgroup",
+  "tr",
+  "td",
+  "th",
+  "thead",
+  "tbody",
+  "tfoot",
+  "colgroup",
+  "caption",
+  "rt",
+  "rp",
+]);
+
+// Quoted attribute values may contain `>` or tag-like text.
+const HTML_TAG_PATTERN =
+  /<(\/?)([a-z][\w-]*)(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*\s*(\/?)>/gi;
+
 // Markdown splits `<details>` and similar blocks at blank lines; a half keeps its source text.
 function isBalancedHtml(value: string): boolean {
   const open: string[] = [];
   const markup = value.replace(/<!--[\s\S]*?-->|<(script|style)\b[\s\S]*?<\/\1\s*>/gi, "");
-  for (const [, closing, name, selfClosing] of markup.matchAll(
-    /<(\/?)([a-z][\w-]*)\b[^>]*?(\/?)>/gi,
-  )) {
+  for (const [, closing, name, selfClosing] of markup.matchAll(HTML_TAG_PATTERN)) {
     const tag = name!.toLowerCase();
     if (VOID_HTML_TAGS.has(tag) || selfClosing) continue;
-    if (!closing) open.push(tag);
-    else if (open.pop() !== tag) return false;
+    if (!closing) {
+      open.push(tag);
+      continue;
+    }
+    while (open.length > 0 && open.at(-1) !== tag && OPTIONAL_END_HTML_TAGS.has(open.at(-1)!)) {
+      open.pop();
+    }
+    if (open.pop() !== tag) return false;
   }
-  return open.length === 0;
+  return open.every((tag) => OPTIONAL_END_HTML_TAGS.has(tag));
 }
 
 // Top-layer attributes would let an island escape `contain: paint` and cover the app.
@@ -266,10 +293,11 @@ function htmlView() {
       dom.className = "t3-markdown-editor__html";
       dom.style.contain = "paint";
       dom.append(content);
-      // Anchors in a non-editable island would navigate the app window.
+      // Anchors and forms in a non-editable island would navigate the app window.
       dom.addEventListener("click", (event) => {
         if (event.target instanceof Element && event.target.closest("a")) event.preventDefault();
       });
+      dom.addEventListener("submit", (event) => event.preventDefault());
     } else {
       dom.textContent = value;
     }
