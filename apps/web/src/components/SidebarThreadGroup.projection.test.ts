@@ -71,6 +71,81 @@ function drop(activeId: string, overId: string, steps: number) {
 }
 
 describe("thread group depth projection", () => {
+  it("keeps a snoozed parent's group when dragged back to Active", () => {
+    const span = {
+      groupKey: OPEN_KEY,
+      group: open,
+      threads: [],
+      visibleKeys: ["m1", "m2"],
+      parentKey: "m1",
+    };
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: ["o1"],
+      hasSnoozedThreads: true,
+      snoozedVisibleKeys: ["m1", "m2"],
+      settledKeys: [],
+      activeGroups: [span],
+    });
+    expect(items).toContainEqual({
+      kind: "marker",
+      marker: sidebarThreadGroupHeaderMarker(OPEN_KEY),
+    });
+    const snoozedTree = sidebarThreadGroupTreeFork({ items, spans: [span] });
+    const projection = projectSidebarThreadGroupDepthFork(snoozedTree, "m1", "o1", 0)!;
+    expect(resolveSidebarThreadGroupDropFork(snoozedTree, projection, newGroup)).toBeNull();
+  });
+
+  function pinnedGroupDrop(activeId: string, overId: string, steps = 0, pinned = true) {
+    const group = { ...open, collapsed: false };
+    const span = {
+      groupKey: group.id,
+      group,
+      threads: group.threadIds,
+      visibleKeys: group.threadIds,
+      parentKey: "m1",
+    };
+    const pinnedTree = sidebarThreadGroupTreeFork({
+      items: buildSidebarListItems({
+        hasNoThreads: false,
+        pinnedKeys: pinned ? ["m1", "m2", "p1"] : ["p1"],
+        activeKeys: pinned ? ["o1"] : ["m1", "m2", "o1"],
+        hasSnoozedThreads: false,
+        snoozedVisibleKeys: [],
+        settledKeys: [],
+        activeGroups: [span],
+      }),
+      spans: [span],
+    });
+    const projection = projectSidebarThreadGroupDepthFork(pinnedTree, activeId, overId, steps)!;
+    return {
+      projection,
+      drop: resolveSidebarThreadGroupDropFork(pinnedTree, projection, newGroup),
+      dissolving: sidebarThreadGroupDissolvingFork(pinnedTree, projection),
+    };
+  }
+
+  it("keeps parent membership when pinning, unpinning or reordering its group", () => {
+    expect(pinnedGroupDrop("m1", sidebarMarkerId("pinned-header"), 0, false)).toMatchObject({
+      drop: null,
+      dissolving: null,
+    });
+    expect(pinnedGroupDrop("m1", sidebarMarkerId("active-placeholder"))).toMatchObject({
+      drop: null,
+      dissolving: null,
+    });
+    expect(pinnedGroupDrop("m1", "p1")).toMatchObject({ drop: null, dissolving: null });
+  });
+
+  it("lets an inherited child leave its pinned group", () => {
+    expect(pinnedGroupDrop("m2", sidebarMarkerId("active-placeholder"))).toMatchObject({
+      drop: { threadIds: ["m2"], target: { kind: "none" } },
+      dissolving: OPEN_KEY,
+    });
+    expect(pinnedGroupDrop("m2", "m2")).toMatchObject({ drop: null, dissolving: null });
+  });
+
   it("starts a group when a plain thread nests under the thread above", () => {
     expect(drop("o2", "o2", 0).drop).toBeNull();
     const nested = drop("o2", "o2", 1);

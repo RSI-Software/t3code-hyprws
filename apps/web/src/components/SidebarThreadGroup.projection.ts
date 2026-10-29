@@ -79,7 +79,10 @@ export function sidebarThreadGroupTreeFork(input: {
       continue;
     }
     const thread = { section: item.section };
-    const member = item.section === "active" ? memberOf.get(item.key) : undefined;
+    const member =
+      item.section === "active" || item.section === "pinned" || item.section === "snoozed"
+        ? memberOf.get(item.key)
+        : undefined;
     if (member !== undefined) {
       const depth = leaders.has(item.key) ? 0 : 1;
       nodes.set(id, { depth, group: member, hidden: hidden.has(item.key), parent: member, thread });
@@ -127,9 +130,11 @@ function slotFor(
   const above = neighbour(overIndex, -1);
   const below = neighbour(overIndex, 1);
   const parent = above?.parent ?? null;
-  // A pinned thread never enters a group: pinning and grouping are separate
-  // shelves, and the Active divider above the first slot offers no parent.
-  const canNest = parent !== null && active.thread.section !== "pinned";
+  const canNest =
+    parent !== null &&
+    (section === "active"
+      ? active.thread.section !== "pinned"
+      : section === "pinned" && active.group === parent);
   // The span continues below the slot, or the lifted row is the collapsed
   // group's parent, its only row in view.
   const inSpan = (group: GroupParent) => below?.group === group || active.group === group;
@@ -211,7 +216,22 @@ export function resolveSidebarThreadGroupDropFork(
   const leads = own !== null && active?.depth === 0;
   const threadIds = [projection.activeId];
   const parent = projection.parent;
-  if (parent === null) return own === null ? null : { threadIds, target: { kind: "none" } };
+  if (parent === null) {
+    const destination = resolveSidebarDropTarget(
+      tree.items,
+      projection.activeId,
+      projection.overId,
+    )?.section;
+    // Pinning, unpinning and reordering a parent carries its existing group.
+    if (
+      leads &&
+      (destination === "pinned" ||
+        (destination === "active" &&
+          (active?.thread?.section === "pinned" || active?.thread?.section === "snoozed")))
+    )
+      return null;
+    return own === null ? null : { threadIds, target: { kind: "none" } };
+  }
   if (parent.kind === "thread")
     return {
       threadIds: [parent.key, projection.activeId],
