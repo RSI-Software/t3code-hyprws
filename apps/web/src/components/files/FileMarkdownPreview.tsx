@@ -3,6 +3,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { maskMarkdownFrontmatter } from "@t3tools/shared/markdownFrontmatter";
+import { FILE_PREVIEW_MARKDOWN_EXTENSIONS } from "./filePreviewMarkdown.fork"; // fork-hook: markdown-editing/file-preview-syntax
 
 export function FileMarkdownPreview(props: {
   readonly cwd: string;
@@ -32,6 +33,8 @@ export function FileMarkdownPreview(props: {
       threadRef={props.threadRef}
       workspaceMutationId={props.workspaceMutationId}
       className={props.className ?? "mx-auto max-w-4xl px-6 py-5"}
+      styledHtml // fork-hook: markdown-editing/file-preview-styled-html
+      extensions={FILE_PREVIEW_MARKDOWN_EXTENSIONS} // fork-hook: markdown-editing/file-preview-syntax
       onTaskListChange={props.onTaskListChange}
     />
   );
