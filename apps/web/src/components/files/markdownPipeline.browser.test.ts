@@ -26,7 +26,11 @@ describe("markdown rich editor pipeline", () => {
   });
 
   it("preserves GitHub syntax the editor renders", async () => {
-    const markdown = '```ts title="app.ts"\nconst ready = true;\n```\n';
+    const markdown = [
+      '```ts title="app.ts"\nconst ready = true;\n```\n',
+      "Inline $e^{i\\pi} + 1 = 0$ costs $5.\n",
+      "$$\n\\int_0^1 x\\,dx = \\tfrac{1}{2}\n$$\n",
+    ].join("\n");
     expect(await roundTrip(markdown)).toBe(markdown);
   });
 
@@ -35,7 +39,7 @@ describe("markdown rich editor pipeline", () => {
     expect(await roundTrip(markdown)).toBe(markdown);
   });
 
-  it("renders interactive tasks, workspace chips, and code chrome", async () => {
+  it("renders interactive tasks, workspace chips, math, and code chrome", async () => {
     await getSyntaxHighlighterPromise("ts");
     const root = document.createElement("div");
     const openFile = vi.fn();
@@ -44,7 +48,7 @@ describe("markdown rich editor pipeline", () => {
         ctx.set(rootCtx, root);
         ctx.set(
           defaultValueCtx,
-          "- [ ] Ship it\n\n[README](../../README.md)\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
+          "- [ ] Ship it\n\n[README](../../README.md) $x^2$\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
         );
       }),
     )
@@ -85,6 +89,7 @@ describe("markdown rich editor pipeline", () => {
       "const ready = true;\nconst done = false;",
     );
     await vi.waitFor(() => {
+      expect(root.querySelector(".t3-markdown-editor__math-rendered .katex")).not.toBeNull();
       expect(
         [...(codeBlock?.querySelectorAll('code span[style*="color"]') ?? [])].some(
           (token) => token.textContent === "false",

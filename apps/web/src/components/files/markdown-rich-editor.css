@@ -284,3 +284,48 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+.t3-markdown-editor__math--inline:not(.is-editing) > .t3-markdown-editor__math-source,
+.t3-markdown-editor__math--inline.is-editing > .t3-markdown-editor__math-rendered,
+.t3-markdown-editor__math--block:not(.is-editing) > .t3-markdown-editor__math-source {
+  display: none;
+}
+
+.t3-markdown-editor__math-rendered {
+  cursor: text;
+}
+
+.t3-markdown-editor__math--block {
+  margin-block: 0.75rem;
+}
+
+.t3-markdown-editor__math--block > .t3-markdown-editor__math-rendered {
+  overflow-x: auto;
+  padding-block: 0.25rem;
+  text-align: center;
+}
+
+.t3-markdown-editor__math-source {
+  border-radius: 0.35rem;
+  background: var(--code-background);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.t3-markdown-editor__math--block > .t3-markdown-editor__math-source {
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.75rem;
+  white-space: pre-wrap;
+}
+
+.t3-markdown-editor__math--inline > .t3-markdown-editor__math-source::before,
+.t3-markdown-editor__math--inline > .t3-markdown-editor__math-source::after {
+  content: "$";
+  color: var(--muted-foreground);
+}
+
+.t3-markdown-editor__math.is-invalid > .t3-markdown-editor__math-rendered {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}

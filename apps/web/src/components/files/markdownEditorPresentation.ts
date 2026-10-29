@@ -17,6 +17,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
+import { markdownMathViews } from "./markdownMath.fork";
 import { codeBlockTitle } from "./markdownSyntax.fork";
 import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
@@ -529,6 +530,7 @@ export function markdownEditorPresentation(
     htmlView(),
     linkView(options),
     syntaxHighlighting(options.theme),
+    ...markdownMathViews(),
   ];
 }
 
