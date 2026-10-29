@@ -14,6 +14,7 @@ function editor(value: string, onChange: (markdown: string) => void) {
       onOpenFile={() => undefined}
       theme="dark"
       wordWrap
+      imageUrl={async () => null}
     />
   );
 }

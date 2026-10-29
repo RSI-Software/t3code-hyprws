@@ -296,6 +296,46 @@
   color: inherit;
 }
 
+.t3-markdown-editor__prose sup[data-type="footnote_reference"] {
+  color: var(--primary);
+  font-size: 0.75em;
+}
+
+.t3-markdown-editor__prose sup[data-type="footnote_reference"]::before {
+  content: "[";
+}
+
+.t3-markdown-editor__prose sup[data-type="footnote_reference"]::after {
+  content: "]";
+}
+
+.t3-markdown-editor__prose dl[data-type="footnote_definition"] {
+  display: flex;
+  gap: 0.5rem;
+  margin-block: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.t3-markdown-editor__prose dl[data-type="footnote_definition"] > dt {
+  flex: none;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.t3-markdown-editor__prose dl[data-type="footnote_definition"] > dt::after {
+  content: ".";
+}
+
+.t3-markdown-editor__prose dl[data-type="footnote_definition"] > dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.t3-markdown-editor__prose dl[data-type="footnote_definition"] > dd > p {
+  margin-block: 0;
+}
+
 .t3-markdown-editor__html.ProseMirror-selectednode,
 .t3-markdown-editor__html--inline.ProseMirror-selectednode {
   outline: 2px solid var(--ring);

@@ -64,6 +64,7 @@ describe("markdown rich editor pipeline", () => {
           sourcePath: { current: "README.md" },
           onOpenFile: { current: () => undefined },
           theme: { current: "dark" },
+          imageUrl: { current: async () => null },
         }),
       )
       .create();
@@ -75,6 +76,43 @@ describe("markdown rich editor pipeline", () => {
         expect(root.querySelector(".t3-markdown-editor__math .is-invalid")).not.toBeNull();
       });
       expect(root.querySelectorAll(".t3-markdown-editor__codeblock--diagram")[1]).toBe(invalid);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("loads workspace images through minted URLs", async () => {
+    const root = document.createElement("div");
+    const pixel = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+    const imageUrl = vi.fn(async (path: string) => (path.endsWith("icon.png") ? pixel : null));
+    const editor = await markdownPipeline(
+      Editor.make().config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(
+          defaultValueCtx,
+          '![Icon](icon.png) ![Remote](https://example.com/r.png)\n\n<img src="../logo.png">\n',
+        );
+      }),
+    )
+      .use(
+        markdownEditorPresentation({
+          cwd: { current: "/workspace" },
+          sourcePath: { current: "docs/user/showcase.md" },
+          onOpenFile: { current: () => undefined },
+          theme: { current: "dark" },
+          imageUrl: { current: imageUrl },
+        }),
+      )
+      .create();
+    try {
+      const [icon, remote, logo] = root.querySelectorAll("img");
+      expect(imageUrl.mock.calls).toEqual([
+        ["/workspace/docs/user/icon.png"],
+        ["/workspace/docs/user/../logo.png"],
+      ]);
+      expect(remote?.getAttribute("src")).toBe("https://example.com/r.png");
+      expect(logo?.hasAttribute("src")).toBe(false);
+      await vi.waitFor(() => expect(icon?.getAttribute("src")).toBe(pixel));
     } finally {
       await editor.destroy();
     }
@@ -135,6 +173,7 @@ describe("markdown rich editor pipeline", () => {
           sourcePath: { current: "docs/user/showcase.md" },
           onOpenFile: { current: openFile },
           theme: { current: "dark" },
+          imageUrl: { current: async () => null },
         }),
       )
       .create();

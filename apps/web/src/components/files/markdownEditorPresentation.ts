@@ -17,6 +17,7 @@ import {
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
 import { htmlContainerSchema, isBalancedHtml } from "./markdownHtml.fork";
+import { imageView, resolveWorkspaceImage, type WorkspaceImageUrl } from "./markdownImages.fork";
 import { markdownMathViews } from "./markdownMath.fork";
 import { renderMermaid } from "./markdownMermaid.fork";
 import { codeBlockTitle } from "./markdownSyntax.fork";
@@ -32,6 +33,7 @@ interface MarkdownEditorPresentationOptions {
   readonly sourcePath: { current: string };
   readonly onOpenFile: { current: (relativePath: string) => void };
   readonly theme: { current: "light" | "dark" };
+  readonly imageUrl: { current: WorkspaceImageUrl };
 }
 
 interface HighlightState {
@@ -267,7 +269,11 @@ const TOP_LAYER_ATTRIBUTES = [
 // `contain: paint` needs a block box, so inline islands drop every hook styles could position.
 const INLINE_FORBIDDEN_ATTRIBUTES = [...TOP_LAYER_ATTRIBUTES, "class", "id", "style"];
 
-function renderedHtml(value: string, inline: boolean): DocumentFragment | null {
+function renderedHtml(
+  value: string,
+  inline: boolean,
+  options: MarkdownEditorPresentationOptions,
+): DocumentFragment | null {
   if (!isBalancedHtml(value)) return null;
   const fragment = DOMPurify.sanitize(value, {
     RETURN_DOM_FRAGMENT: true,
@@ -279,6 +285,10 @@ function renderedHtml(value: string, inline: boolean): DocumentFragment | null {
   fragment.querySelectorAll("style").forEach((style) => {
     style.textContent = scopeMarkdownCss(style.textContent ?? "", `.${HTML_SCOPE_CLASS_NAME}`);
   });
+  const directory = documentDirectory(options.cwd.current, options.sourcePath.current);
+  fragment.querySelectorAll("img").forEach((image) => {
+    resolveWorkspaceImage(image, directory, options.imageUrl.current);
+  });
   return fragment;
 }
 
@@ -288,14 +298,14 @@ function renderedHtml(value: string, inline: boolean): DocumentFragment | null {
  * so a `<style>` block reaches markup in later blocks. The outer element is outside every scope,
  * so its `contain: paint` keeps fixed-position content from covering the app.
  */
-function htmlView() {
+function htmlView(options: MarkdownEditorPresentationOptions) {
   return $view(htmlSchema.node, () => (node, editorView, getPos) => {
     const value = String(node.attrs["value"] ?? "");
     const position = getPos();
     const parent =
       typeof position === "number" ? editorView.state.doc.resolve(position).parent : null;
     const inline = parent?.childCount !== 1;
-    const fragment = renderedHtml(value, inline);
+    const fragment = renderedHtml(value, inline, options);
     const dom = document.createElement("span");
     dom.dataset["type"] = "html";
     if (fragment && inline) {
@@ -328,7 +338,7 @@ function htmlView() {
 }
 
 /** Renders a split HTML block's tags around its editable Markdown, e.g. a `<details>` summary. */
-function htmlContainerView() {
+function htmlContainerView(options: MarkdownEditorPresentationOptions) {
   return $view(htmlContainerSchema.node, () => (node) => {
     const dom = document.createElement("div");
     dom.className = "t3-markdown-editor__html";
@@ -336,7 +346,7 @@ function htmlContainerView() {
     const contentDOM = document.createElement("div");
     const open = String(node.attrs["open"]);
     const close = String(node.attrs["close"]);
-    const fragment = renderedHtml(open + close, false);
+    const fragment = renderedHtml(open + close, false, options);
     const element = fragment?.childElementCount === 1 ? fragment.firstElementChild : null;
     if (fragment && element) {
       for (const child of Array.from(element.childNodes)) {
@@ -550,8 +560,12 @@ export function markdownEditorPresentation(
   return [
     taskListItemView(),
     codeBlockView(options.theme),
-    htmlView(),
-    htmlContainerView(),
+    htmlView(options),
+    htmlContainerView(options),
+    imageView(
+      () => documentDirectory(options.cwd.current, options.sourcePath.current),
+      options.imageUrl,
+    ),
     linkView(options),
     syntaxHighlighting(options.theme),
     ...markdownMathViews(),
