@@ -61,15 +61,31 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
       });
     });
 
+    const isProviderWakeRun = Effect.fn("ProviderTurnStartCheckoutGateFork.isProviderWakeRun")(
+      function* (threadId: ThreadId, runId: RunId) {
+        const { runs } = yield* projectionStore.getThreadRecords(threadId, ["runs"], {
+          runIds: [runId],
+        });
+        const messageId = runs.find((run) => run.id === runId)?.userMessageId;
+        if (messageId === undefined) return false;
+        const { messages } = yield* projectionStore.getThreadRecords(threadId, ["messages"], {
+          messageIds: [messageId],
+        });
+        const message = messages.find((candidate) => candidate.id === messageId);
+        return message?.createdBy === "agent" && message.creationSource === "provider";
+      },
+    );
+
     /**
      * Detaches the thread's live sessions whose cwd is stale, so the open below starts one in
      * the current checkout; a provider fixing its cwd at open would reuse the removed directory.
      * Stale means a committed recovery moved the thread out of it, even if recreated, or it is
-     * gone from disk. A shared session gets the cwd every turn, so it is never stale.
+     * gone from disk. A shared session is never stale; a wake turn keeps its buffered reply.
      */
     const detachRecoveredSessions = Effect.fn(
       "ProviderTurnStartCheckoutGateFork.detachRecoveredSessions",
-    )(function* (threadId: ThreadId) {
+    )(function* (threadId: ThreadId, runId: RunId) {
+      if (yield* isProviderWakeRun(threadId, runId)) return;
       const { worktreePath, checkoutMove } = yield* projectionStore.getThread(threadId);
       const recoveredFrom =
         checkoutMove?.status === "committed" && checkoutMove.reason === "worktree-recovery"
@@ -145,7 +161,7 @@ export const providerTurnStartCheckoutGateFork = Layer.effect(
           Effect.andThen(
             bestEffort(
               "turn-start recovered session detach failed",
-              detachRecoveredSessions(input.threadId),
+              detachRecoveredSessions(input.threadId, input.runId),
             ),
           ),
           Effect.andThen(
